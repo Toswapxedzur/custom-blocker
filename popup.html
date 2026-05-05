@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n="app.title">Custom Web Blocker</title>
+    <link rel="icon" href="icon-128.png" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header class="hero">
+        <div class="hero-topbar">
+          <div>
+            <h1 data-i18n="app.title">Custom Web Blocker</h1>
+            <p class="subtitle" data-i18n="hero.subtitle">
+              Organize blocked sites into named groups, then enable or disable each
+              group whenever you want.
+            </p>
+          </div>
+          <div class="hero-actions">
+            <button id="manualButton" type="button" class="secondary" data-i18n="manual.button">
+              Instruction Manual
+            </button>
+            <div class="language-picker">
+              <label class="label compact-label" for="languageSelect" data-i18n="language.label">Language</label>
+              <select id="languageSelect" aria-label="Language"></select>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section id="layout" class="layout">
+        <aside class="groups-panel">
+          <div class="panel-header">
+            <div>
+              <h2 data-i18n="groups.title">Block Groups</h2>
+              <p class="panel-copy" data-i18n="groups.copy">
+                Drag groups to reorder them. Each group has its own rules and toggle.
+              </p>
+            </div>
+            <div class="add-group-controls">
+              <select id="addGroupType" aria-label="Block group type to add">
+                <option value="site" data-i18n="groupType.site">Default</option>
+                <option value="youtube" data-i18n="groupType.youtube">YouTube</option>
+                <option value="tiktok" data-i18n="groupType.tiktok">TikTok</option>
+                <option value="facebook" data-i18n="groupType.facebook">Facebook</option>
+                <option value="instagram" data-i18n="groupType.instagram">Instagram</option>
+                <option value="twitch" data-i18n="groupType.twitch">Twitch</option>
+                <option value="reddit" data-i18n="groupType.reddit">Reddit</option>
+                <option value="discord" data-i18n="groupType.discord">Discord</option>
+                <option value="custom" data-i18n="groupType.custom">Custom</option>
+              </select>
+              <button id="addGroupButton" type="button" data-i18n="groups.addButton">Add</button>
+              <button id="deleteAllGroupsButton" type="button" class="secondary danger" data-i18n="groups.deleteAllButton">Delete All</button>
+            </div>
+          </div>
+          <p id="bulkActionNotice" class="field-help"></p>
+
+          <div id="groupList" class="group-list" aria-label="Block groups"></div>
+        </aside>
+
+        <div
+          id="layoutResizer"
+          class="layout-resizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize block groups panel"
+          tabindex="0"
+        ></div>
+
+        <section class="editor-panel">
+          <div class="panel-header editor-header">
+            <div>
+              <h2 id="editorTitle" data-i18n="editor.title">Edit Group</h2>
+              <p id="editorCopy" class="panel-copy" data-i18n="editor.copy">
+                Add one website per line. Domains and full URLs are both accepted.
+              </p>
+              <p id="groupTypeSummary" class="panel-copy"></p>
+            </div>
+            <button id="deleteGroupButton" type="button" class="secondary danger" data-i18n="editor.deleteGroupButton">
+              Delete Group
+            </button>
+          </div>
+
+          <label class="label" for="groupName" data-i18n="editor.groupName">Group name</label>
+          <input
+            id="groupName"
+            type="text"
+            maxlength="60"
+            placeholder="Work distractions"
+            data-i18n-placeholder="editor.groupNamePlaceholder"
+          />
+
+          <label class="checkbox-row" for="groupEnabled">
+            <input id="groupEnabled" type="checkbox" />
+            <span data-i18n="editor.enableGroup">Enable this block group</span>
+          </label>
+
+          <div id="blockModeSection">
+            <label class="label" for="blockMode" data-i18n="editor.blockMode">Blocking behavior</label>
+            <select id="blockMode">
+              <option value="instant" data-i18n="mode.instant">Block immediately</option>
+              <option value="after-minutes" data-i18n="mode.afterMinutes">Block after a number of minutes</option>
+              <option value="timer" data-i18n="mode.timer">Timer (count up, then block)</option>
+            </select>
+          </div>
+
+          <div id="fallbackUrlSection">
+            <label class="label" for="fallbackUrl" data-i18n="filter.fallbackUrl">Redirect URL when blocked</label>
+            <input
+              id="fallbackUrl"
+              type="text"
+              placeholder="about:blank (default)"
+              data-i18n-placeholder="filter.fallbackUrlPlaceholder"
+              spellcheck="false"
+            />
+            <p class="field-help" data-i18n="filter.fallbackUrlHelp">
+              When blocked, redirect here. Leave empty to use the default behavior.
+            </p>
+          </div>
+
+          <section id="siteSettingsSection">
+            <label class="label" for="blockedSites" data-i18n="sites.label">Blocked websites</label>
+            <textarea
+              id="blockedSites"
+              rows="14"
+              placeholder="facebook.com&#10;youtube.com&#10;news.ycombinator.com"
+              data-i18n-placeholder="sites.placeholder"
+              spellcheck="false"
+            ></textarea>
+
+            <div class="actions">
+              <button id="clearSitesButton" type="button" class="secondary" data-i18n="sites.clearButton">
+                Clear Sites
+              </button>
+            </div>
+          </section>
+
+          <div id="timedSettings" class="timed-settings">
+            <div class="settings-grid">
+              <div>
+                <label class="label" for="allowedMinutes" data-i18n="timed.allowedMinutes">Allowed minutes before block</label>
+                <input
+                  id="allowedMinutes"
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  inputmode="decimal"
+                  placeholder="15"
+                  data-i18n-placeholder="timed.allowedMinutesPlaceholder"
+                />
+              </div>
+
+              <div>
+                <label class="label" for="resetIntervalHours" data-i18n="timed.resetHours">Timer reset interval (hours)</label>
+                <input
+                  id="resetIntervalHours"
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  inputmode="decimal"
+                  placeholder="24"
+                  data-i18n-placeholder="timed.resetHoursPlaceholder"
+                />
+              </div>
+            </div>
+
+            <div class="usage-row">
+              <p id="usageSummary" class="usage-summary"></p>
+            </div>
+          </div>
+
+          <section id="customSettingsCard" class="section-card hidden">
+            <div class="section-header">
+              <div>
+                <h3 data-i18n="custom.title">Blocking Rules</h3>
+                <p class="section-copy" data-i18n="custom.copy">
+                  Enter a JavaScript function that can add or return the domains that should be blocked right now.
+                </p>
+              </div>
+            </div>
+
+            <label class="label" for="blockingRules" data-i18n="custom.rules">Blocking Rules</label>
+            <textarea
+              id="blockingRules"
+              rows="8"
+              data-i18n-placeholder="custom.rulesPlaceholder"
+              spellcheck="false"
+            ></textarea>
+            <div class="field-actions">
+              <button id="checkRuleSyntaxButton" type="button" class="secondary" data-i18n="custom.checkSyntax">
+                Check syntax
+              </button>
+            </div>
+            <p class="field-help" data-i18n="custom.help">
+              The function receives month, dayOfMonth, dayName, hour, minute, and blockedDomains. Return an updated list of domains, or mutate blockedDomains and return nothing.
+            </p>
+          </section>
+
+          <section id="platformVideoCard" class="section-card hidden">
+            <div class="section-header">
+              <div>
+                <h3 id="platformVideoTitle"></h3>
+                <p id="platformVideoCopy" class="section-copy"></p>
+              </div>
+            </div>
+
+            <label id="platformVideoModeLabel" class="label" for="platformVideoMode"></label>
+            <select id="platformVideoMode">
+              <option value="all"></option>
+              <option value="short"></option>
+              <option value="long"></option>
+              <option value="post"></option>
+            </select>
+
+            <label id="platformAuthorModeLabel" class="label" for="platformAuthorMode"></label>
+            <select id="platformAuthorMode">
+              <option value="none"></option>
+              <option value="include"></option>
+              <option value="exclude"></option>
+            </select>
+
+            <label id="platformAuthorsLabel" class="label" for="platformAuthors"></label>
+            <textarea
+              id="platformAuthors"
+              rows="5"
+              placeholder="@creatorhandle&#10;https://www.youtube.com/@anothercreator&#10;channel/UC..."
+              spellcheck="false"
+            ></textarea>
+            <p id="platformVideoHelp" class="field-help"></p>
+
+            <label class="checkbox-row compact" for="platformBlockHomePage">
+              <input id="platformBlockHomePage" type="checkbox" />
+              <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
+            </label>
+
+            <div id="skipToNextOnBlockRow">
+              <label class="checkbox-row compact" for="skipToNextOnBlock">
+                <input id="skipToNextOnBlock" type="checkbox" />
+                <span data-i18n="filter.skipToNextOnBlock">Skip to next video when blocked</span>
+              </label>
+              <p class="field-help" data-i18n="filter.skipToNextOnBlockHelp">
+                For scroll-based feeds (Shorts, TikTok, Reels), skip to the next video instead of redirecting when blocked.
+              </p>
+            </div>
+          </section>
+
+          <section id="redditSettingsCard" class="section-card hidden">
+            <div class="section-header">
+              <div>
+                <h3 data-i18n="reddit.title">Reddit Filters</h3>
+                <p class="section-copy" data-i18n="reddit.copy">
+                  Apply this group to all of Reddit, only certain subreddits, or all subreddits except certain ones.
+                </p>
+              </div>
+            </div>
+
+            <label class="label" for="redditMode" data-i18n="reddit.mode">Subreddit filter</label>
+            <select id="redditMode">
+              <option value="all" data-i18n="reddit.modeAll">Apply to all Reddit pages</option>
+              <option value="include" data-i18n="reddit.modeInclude">Apply to certain subreddits</option>
+              <option value="exclude" data-i18n="reddit.modeExclude">Apply to all except certain subreddits</option>
+            </select>
+
+            <label class="label" for="redditSubreddits" data-i18n="reddit.subreddits">Subreddits</label>
+            <textarea
+              id="redditSubreddits"
+              rows="6"
+              placeholder="productivity&#10;programming&#10;r/focus"
+              data-i18n-placeholder="reddit.subredditsPlaceholder"
+              spellcheck="false"
+            ></textarea>
+            <p class="field-help" data-i18n="reddit.help">
+              Use one subreddit per line. Plain names like `productivity` and paths like `r/productivity` are both accepted.
+            </p>
+
+            <label class="checkbox-row compact" for="redditBlockHomePage">
+              <input id="redditBlockHomePage" type="checkbox" />
+              <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
+            </label>
+            <p class="field-help" data-i18n="filter.blockHomePageRedditHelp">
+              Blocks the Reddit home feed, r/popular, and r/all when enabled.
+            </p>
+          </section>
+
+          <section id="discordSettingsCard" class="section-card hidden">
+            <div class="section-header">
+              <div>
+                <h3 data-i18n="discord.title">Discord Filters</h3>
+                <p class="section-copy" data-i18n="discord.copy">
+                  Apply this group to all of Discord, only certain servers, or all servers except certain ones.
+                </p>
+              </div>
+            </div>
+
+            <label class="label" for="discordMode" data-i18n="discord.mode">Server filter</label>
+            <select id="discordMode">
+              <option value="all" data-i18n="discord.modeAll">Apply to all Discord pages</option>
+              <option value="include" data-i18n="discord.modeInclude">Apply to certain servers</option>
+              <option value="exclude" data-i18n="discord.modeExclude">Apply to all except certain servers</option>
+            </select>
+
+            <label class="label" for="discordTargetType" data-i18n="discord.targetType">Filter level</label>
+            <select id="discordTargetType">
+              <option value="server" data-i18n="discord.targetTypeServer">Server level</option>
+              <option value="channel" data-i18n="discord.targetTypeChannel">Channel level</option>
+            </select>
+
+            <label id="discordTargetsLabel" class="label" for="discordTargets"></label>
+            <textarea
+              id="discordTargets"
+              rows="6"
+              placeholder="123456789012345678&#10;https://discord.com/channels/123456789012345678/..."
+              spellcheck="false"
+            ></textarea>
+            <p id="discordTargetsHelp" class="field-help"></p>
+
+            <label class="checkbox-row compact" for="discordBlockHomePage">
+              <input id="discordBlockHomePage" type="checkbox" />
+              <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
+            </label>
+            <p class="field-help" data-i18n="filter.blockHomePageDiscordHelp">
+              Blocks the Discord DMs home screen (/channels/@me) when enabled.
+            </p>
+          </section>
+
+          <section id="scheduleSection" class="section-card">
+            <div class="section-header">
+              <div>
+                <h3 data-i18n="schedule.title">Schedule</h3>
+                <p class="section-copy" data-i18n="schedule.copy">
+                  Limit this group to certain days or time windows.
+                </p>
+              </div>
+            </div>
+
+            <label class="label" data-i18n="schedule.days">Days to block</label>
+            <div id="daysGrid" class="days-grid">
+              <label class="day-pill"><input type="checkbox" value="monday" /> <span data-i18n="day.mon">Mon</span></label>
+              <label class="day-pill"><input type="checkbox" value="tuesday" /> <span data-i18n="day.tue">Tue</span></label>
+              <label class="day-pill"><input type="checkbox" value="wednesday" /> <span data-i18n="day.wed">Wed</span></label>
+              <label class="day-pill"><input type="checkbox" value="thursday" /> <span data-i18n="day.thu">Thu</span></label>
+              <label class="day-pill"><input type="checkbox" value="friday" /> <span data-i18n="day.fri">Fri</span></label>
+              <label class="day-pill"><input type="checkbox" value="saturday" /> <span data-i18n="day.sat">Sat</span></label>
+              <label class="day-pill"><input type="checkbox" value="sunday" /> <span data-i18n="day.sun">Sun</span></label>
+            </div>
+
+            <label class="label" for="scheduleWindows" data-i18n="schedule.windows">Time windows</label>
+            <textarea
+              id="scheduleWindows"
+              rows="4"
+              placeholder="0900-1000&#10;1200-1300"
+              data-i18n-placeholder="schedule.windowsPlaceholder"
+              spellcheck="false"
+            ></textarea>
+            <p class="field-help" data-i18n="schedule.help">
+              Leave blank to apply all day. Use one range per line in `HHMM-HHMM` format.
+            </p>
+          </section>
+
+          <section class="section-card">
+            <div class="section-header">
+              <div>
+                <h3 data-i18n="freeze.title">Freeze</h3>
+                <p id="freezeSummary" class="section-copy"></p>
+              </div>
+              <button id="unfreezeButton" type="button" class="secondary hidden" data-i18n="freeze.unfreezeButton">
+                Unfreeze
+              </button>
+            </div>
+
+            <div id="freezeSetup" class="freeze-setup">
+              <div class="settings-grid">
+                <div>
+                  <label class="label" for="freezeMode" data-i18n="freeze.mode">Freeze mode</label>
+                  <select id="freezeMode">
+                    <option value="frozen" data-i18n="freeze.frozenOption">Frozen</option>
+                    <option value="strict" data-i18n="freeze.strictOption">Strict frozen</option>
+                  </select>
+                </div>
+
+                <div id="strictFreezeSettings" class="hidden">
+                  <label class="label" for="strictFreezeHours" data-i18n="freeze.unlockAfter">Unlock after (hours)</label>
+                  <input
+                    id="strictFreezeHours"
+                    type="number"
+                    min="0.1"
+                    max="72"
+                    step="0.1"
+                    inputmode="decimal"
+                    placeholder="24"
+                    data-i18n-placeholder="freeze.unlockAfterPlaceholder"
+                  />
+                </div>
+              </div>
+
+              <div class="actions">
+                <button id="applyFreezeButton" type="button" data-i18n="freeze.applyButton">Freeze Group</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="section-card">
+            <div class="section-header">
+              <div>
+                <h3 data-i18n="snooze.title">Snooze</h3>
+                <p id="snoozeSummary" class="section-copy"></p>
+              </div>
+              <button id="endSnoozeButton" type="button" class="secondary hidden" data-i18n="snooze.endButton">
+                End Snooze
+              </button>
+            </div>
+
+            <label class="checkbox-row compact" for="allowSnooze">
+              <input id="allowSnooze" type="checkbox" />
+              <span data-i18n="snooze.allow">Allow snooze for this group</span>
+            </label>
+
+            <div class="settings-grid">
+              <div>
+                <label class="label" for="snoozeMinutes" data-i18n="snooze.minutes">Snooze for (minutes)</label>
+                <input
+                  id="snoozeMinutes"
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  inputmode="decimal"
+                  placeholder="30"
+                  data-i18n-placeholder="snooze.minutesPlaceholder"
+                />
+              </div>
+            </div>
+
+            <label class="label" for="snoozeReason" data-i18n="snooze.reason">Reason (more than 20 words and at least 100 characters)</label>
+            <textarea
+              id="snoozeReason"
+              rows="4"
+              placeholder="Explain clearly why you need temporary access and what you will finish during that snooze period."
+              data-i18n-placeholder="snooze.reasonPlaceholder"
+              maxlength="4000"
+              spellcheck="true"
+            ></textarea>
+
+            <div class="actions">
+              <button id="startSnoozeButton" type="button" data-i18n="snooze.startButton">Start Snooze</button>
+            </div>
+            <p id="snoozeWarning" class="inline-warning"></p>
+          </section>
+        </section>
+      </section>
+
+      <p id="statusMessage" class="status" aria-live="polite"></p>
+
+      <p class="hint" data-i18n="hint.copy">
+        Enabled groups use the browser's native extension-blocked behavior,
+        similar to <code>ERR_BLOCKED_BY_CLIENT</code>.
+      </p>
+    </main>
+
+    <div id="confirmModal" class="modal hidden">
+      <div class="modal-card">
+        <h3 data-i18n="modal.unfreezeTitle">Unfreeze Group</h3>
+        <p id="confirmMessage" class="modal-copy">
+          Are you sure you want to give up your self-discipline?
+        </p>
+        <p id="confirmProgress" class="modal-copy"></p>
+        <div class="modal-actions">
+          <button id="confirmCancelButton" type="button" class="secondary" data-i18n="modal.cancel">Cancel</button>
+          <button id="confirmProceedButton" type="button" disabled data-i18n="modal.confirm">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="manualModal" class="modal hidden">
+      <div class="modal-card manual-modal-card">
+        <div class="manual-modal-header">
+          <div>
+            <h3 data-i18n="manual.title">Instruction Manual</h3>
+            <p id="manualStatus" class="modal-copy">
+              Loading manual...
+            </p>
+          </div>
+          <button id="manualCloseButton" type="button" class="secondary" data-i18n="manual.close">
+            Close
+          </button>
+        </div>
+        <div id="manualContent" class="manual-content"></div>
+      </div>
+    </div>
+
+    <iframe
+      id="ruleSandbox"
+      src="sandbox.html"
+      style="display: none; width: 0; height: 0; border: 0;"
+      aria-hidden="true"
+      title="Custom Web Blocker rule compiler sandbox"
+    ></iframe>
+
+    <script src="translations.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

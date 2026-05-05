@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "Custom Web Blocker",
+  "version": "1.0.0",
+  "description": "Block websites you choose with native blocking or delayed usage limits.",
+  "permissions": ["storage", "declarativeNetRequest", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "icons": {
+    "16": "icon-128.png",
+    "32": "icon-128.png",
+    "48": "icon-128.png",
+    "128": "icon-128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["helpers.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Custom Web Blocker",
+    "default_icon": {
+      "16": "icon-128.png",
+      "32": "icon-128.png",
+      "48": "icon-128.png"
+    }
+  },
+  "sandbox": {
+    "pages": ["sandbox.html"]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["sandbox.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
