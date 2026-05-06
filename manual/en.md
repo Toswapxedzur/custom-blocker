@@ -146,9 +146,9 @@ Same editor card as the platform-video editor, but with TikTok-specific labels:
 
 ### 5.8 `Custom` — block by JavaScript function
 
-You write a JavaScript function. The extension's content script compiles it once per source change and runs it on every page visit and on every heartbeat (~250 ms). Returning `true` exits the page; returning `false` (or anything else) lets the page through. The function can also call into a `helpers` object to mutate timers, persist state across runs, hide platform-specific buttons / feed cards, or set sub-section timers.
+You write a JavaScript function. The extension's content script compiles it once per source change and runs it on every page visit and on every heartbeat (~250 ms). The function returns an integer state (`-1` block, `0` continue, `1` allow) and can also call into a `helpers` object to mutate timers, persist state across runs, hide platform-specific buttons / feed cards, or set sub-section timers.
 
-`Custom` groups don't show: blocking behavior, blocked sites, allowed minutes, reset interval, schedule days, or time windows. They only have one big input — the **Blocking Rules** function — plus standard freeze/snooze controls.
+`Custom` groups don't show: blocking behavior, blocked sites, allowed minutes, reset interval, schedule days, or time windows. They keep the **Blocking Rules** editor plus standard freeze/snooze controls. There is also a **Templates** button that opens a preset browser with parameterized starter rules; applying a preset replaces the current rule after confirmation.
 
 See **Section 11** for the full custom rules reference and helpers API.
 
@@ -180,6 +180,16 @@ The extension is per-group, per-period:
 - Multiple tabs in the same group share the budget. Their timers stay synchronized; switching to another tab also forces a refresh so it shows the current shared time immediately.
 
 If multiple time-limited groups apply to the same page, the strictest one wins.
+
+---
+
+### 6.3 Timer (count down, then block)
+
+This mode shows a countdown timer and blocks once it reaches `0:00`.
+
+- **Timer reset interval (hours)** (decimal): both the timer length and the reset frequency. Example: `24` for daily, `1` for hourly, `0.25` for every 15 minutes.
+
+Unlike **Block after a number of minutes**, this mode does **not** have a separate "Allowed minutes before block" field. The timer simply starts at the reset interval, counts down while matching pages are open, then blocks until the next reset.
 
 ---
 
@@ -226,15 +236,23 @@ The freeze status is shown in the meta line of the group card, including the tim
 
 ## 9. Snooze (temporary disable)
 
-Snooze temporarily disables a group without unfreezing it, but only with a written justification.
+Snooze temporarily disables a group without unfreezing it, but now supports delayed activation, post-snooze cooldown, confirmation steps, and a running total of snoozed time.
 
 In the **Snooze** card:
 
 - **Allow snooze for this group** — if off, this group cannot be snoozed at all (including while frozen).
 - **Snooze for (minutes)** — decimal, how long the snooze lasts.
-- **Reason** — must be **at least 100 characters and more than 20 words**. The Start button stays disabled until both are met. If the rule fails, an inline warning appears next to the button.
+- **Activation delay (minutes)** — decimal `>= 0`. After you confirm the snooze, the group keeps blocking until this delay has passed; only then does the snooze become active.
+- **Cooldown after snooze (minutes)** — decimal from `0` to `5`. After the snooze finishes, you cannot start another snooze for this group until the cooldown ends.
+- **Times of confirmation** — integer `>= 0`. If this is `0`, snooze is scheduled immediately. Otherwise, starting snooze launches a confirmation ritual with exactly that many steps.
 
-If the group is frozen, snooze minutes are locked at the value chosen before the freeze. You can still snooze it, as long as snooze is allowed and the reason meets the rules.
+Each snooze confirmation step has a forced **5-second wait** before the next click is allowed. The modal tells you this explicitly and shows the live countdown on the button.
+
+If the group is frozen, the snooze settings are locked at the values chosen before the freeze. You can still snooze it, as long as snooze is allowed, but you must use the saved delay / cooldown / confirmation settings.
+
+The Snooze card also shows **Total snoozed time** for that group. This total counts the full active snooze duration even if the site becomes reachable for some other reason during that window.
+
+When a snooze finishes, the rule comes back immediately. If the group was not already frozen, the extension automatically freezes it again at snooze end.
 
 A status message confirms the snooze. When the snooze ends, the group automatically returns to normal.
 
@@ -262,7 +280,7 @@ Because the function runs in the page itself (not in the background worker), eve
 ```js
 (month, dayOfMonth, dayName, hour, minute, url, helpers) => {
   // your logic
-  return false;
+  return 0;
 }
 ```
 
@@ -278,8 +296,12 @@ Parameters:
 
 Return value:
 
-- `true` — exit the current page (same code path as a site/timed group hitting its block).
-- anything else — let the page through. Note that calling `helpers.getPlatformHelper().youtube().hideHomePage()` while on the YouTube home page also exits the page even if you return `false`.
+- `-1` — block the page.
+- `0` — no decision; pass to the next rule.
+- `1` — allow.
+- any other integer in `[-255, 255]` — preserved as a custom state for debug / future logic, but the engine does not treat it as block or allow yet.
+
+Rules still run bottom-to-top. The **last non-zero state wins**, so a top rule can override a lower rule's `-1` with `1`, or vice versa. Independently of the numeric return state, helper side effects still apply: feed-card hides still hide cards, timers still tick, etc. The one exception is page-exit intents created by custom rules (`hideHomePage()`, `blockPageOnVisit`) — a final return state of `1` suppresses those custom-rule page exits for that heartbeat.
 
 The popup does **not** validate syntax automatically while you type — that would constantly flag half-finished edits. Click the **Check syntax** button next to the Blocking Rules textarea to validate on demand. The button does three things:
 
@@ -310,6 +332,7 @@ Every page that has at least one in-scope custom rule shows a **debug overlay** 
 - `helpers.getTimerHelper()`
 - `helpers.getPersistenceHelper()`
 - `helpers.getLogHelper()`
+- `helpers.getRedirectionHelper()`
 - `helpers.getPlatformHelper()`
 - `helpers.getDomainUtility()`
 
@@ -353,7 +376,16 @@ Soft limits: about 200 keys per group, 16 KB per value.
 
 - `log(...args)`, `warn(...args)`, `error(...args)` — write to the **page console** (since rules now run in the content script). Each line is prefixed with `[CustomBlocker:groupId]`.
 
-#### 11.3.4 `getDomainUtility()`
+#### 11.3.4 `getRedirectionHelper()`
+
+Inspect / override the redirect URL the content script will use if the current page ends up blocked.
+
+- `get()` — returns the current effective redirect URL for this heartbeat. Initially this is the built-in group's configured fallback URL (if any), otherwise `""`.
+- `set(url)` — overrides that redirect URL for this heartbeat. Returns `true` on success, `false` for non-string input. Passing `""` clears the redirect override and falls back to the normal default exit behavior (`main page` / `about:blank` depending on context).
+
+Like the other custom-rule side effects, this state is shared across all rules in the current heartbeat. Because rules run bottom-to-top, the top-most rule to call `set(...)` wins.
+
+#### 11.3.5 `getDomainUtility()`
 
 URL inspection helpers. The merged replacement for the old `domainHelper` + `platformHelper`. There is no `normalize()` because incoming URLs are already normalized — pass them straight in.
 
@@ -367,7 +399,7 @@ URL inspection helpers. The merged replacement for the old `domainHelper` + `pla
   - `extractAuthor(url)` — normalized handle (e.g. `"mkbhd"`, `"channel:UC..."`, `"id:1234"`) or `null`.
   - `extractVideoId(url)` — platform-specific id (`v=...`, the path segment, etc.) or `null`.
 
-#### 11.3.5 `getPlatformHelper()`
+#### 11.3.6 `getPlatformHelper()`
 
 Per-platform DOM intents and sub-section timers. Use these to do everything a built-in `YouTube` / `TikTok` / etc. block group can do — and more, because you can drive them from arbitrary JavaScript.
 
@@ -419,7 +451,7 @@ Easy: hide the YouTube Shorts nav button entirely on weekday mornings.
   if (isWeekday && hour >= 9 && hour < 12) {
     helpers.getPlatformHelper().youtube().hideShortButton();
   }
-  return false;
+  return 0;
 }
 ```
 
@@ -444,7 +476,7 @@ Medium: 30 minutes per day on YouTube Shorts, with a visible countdown only whil
     persistence.set("lastDay", today);
   }
 
-  return helpers.getTimerHelper().isExpired(id);
+  return helpers.getTimerHelper().isExpired(id) ? -1 : 0;
 }
 ```
 
@@ -457,7 +489,7 @@ Harder: hide YouTube Shorts whose author handle is longer than 16 characters, an
     (item) => item.author && item.author.length > maxAuthorLength,
     { blockPageOnVisit: true }
   );
-  return false;
+  return 0;
 }
 ```
 
@@ -496,7 +528,7 @@ Hardest: rotating "platform of the day" with per-platform daily caps, plus a for
     scope: (u) => domain.getPlatform(u) === platformOfTheDay
   });
 
-  return timer.isExpired(cap);
+  return timer.isExpired(cap) ? -1 : 0;
 }
 ```
 
@@ -571,7 +603,7 @@ For input fields with format requirements, the message also appears next to the 
 - **Reset interval** — how often the after-minutes budget resets.
 - **Schedule** — days + time windows during which a group is active.
 - **Freeze / Strict freeze** — anti-tampering states.
-- **Snooze** — temporary disable with a written justification.
+- **Snooze** — temporary disable with a configurable confirmation ritual.
 - **Author filter** — for platform groups, restricts the rule to certain content creators.
 - **Content type** — for platform groups, restricts the rule to certain forms of content (short, long, post).
 - **Helpers** — utilities passed to a custom rule's function.

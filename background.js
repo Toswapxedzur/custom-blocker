@@ -23,6 +23,7 @@ const BLOCKED_GROUPS_KEY = "blockedGroups";
 const USAGE_TIMERS_KEY = "usageTimersMs";
 const USAGE_RESET_AT_KEY = "usageResetAtMs";
 const GROUP_SNOOZES_KEY = "groupSnoozes";
+const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
 const CUSTOM_TIMERS_KEY = "customTimers";
 const CUSTOM_PERSISTENCE_KEY = "customPersistence";
 
@@ -30,7 +31,11 @@ const DEFAULT_ALLOWED_MINUTES = 15;
 const DEFAULT_RESET_INTERVAL_HOURS = 24;
 const DEFAULT_STRICT_FREEZE_HOURS = 24;
 const DEFAULT_SNOOZE_MINUTES = 30;
+const DEFAULT_SNOOZE_CONFIRMATIONS = 0;
+const DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES = 0;
+const DEFAULT_SNOOZE_COOLDOWN_MINUTES = 0;
 const DEFAULT_GROUP_TYPE = "site";
+const MAX_SNOOZE_COOLDOWN_MINUTES = 5;
 const MS_PER_MINUTE = 60 * 1000;
 const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const MAX_HEARTBEAT_MS = 5000;
@@ -100,6 +105,9 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     resetIntervalHours: DEFAULT_RESET_INTERVAL_HOURS,
     allowSnooze: true,
     snoozeMinutes: DEFAULT_SNOOZE_MINUTES,
+    snoozeActivationDelayMinutes: DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
+    snoozeCooldownMinutes: DEFAULT_SNOOZE_COOLDOWN_MINUTES,
+    snoozeConfirmations: DEFAULT_SNOOZE_CONFIRMATIONS,
     activeDays: createDefaultDays(),
     timeWindowsText: "",
     platformVideoMode: "all",
@@ -328,7 +336,7 @@ function isTimedBlockingMode(mode) {
 }
 
 function isBlockingTimedMode(mode) {
-  return mode === "after-minutes";
+  return mode === "after-minutes" || mode === "timer";
 }
 
 function formatDayName(dayName) {
@@ -353,6 +361,25 @@ function parseStrictFreezeHours(value) {
 function parseSnoozeMinutes(value) {
   const parsed = Number.parseFloat(String(value ?? "").trim());
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseSnoozeDelayMinutes(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return 0;
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function parseSnoozeCooldownMinutes(value) {
+  const parsed = parseSnoozeDelayMinutes(value);
+  return parsed !== null && parsed <= MAX_SNOOZE_COOLDOWN_MINUTES ? parsed : null;
+}
+
+function parseSnoozeConfirmations(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function normalizeTimeWindowLine(line) {
@@ -429,6 +456,14 @@ function sanitizeGroups(groups) {
           parseResetIntervalHours(group?.resetIntervalHours) ?? DEFAULT_RESET_INTERVAL_HOURS,
         allowSnooze: group?.allowSnooze !== false,
         snoozeMinutes: parseSnoozeMinutes(group?.snoozeMinutes) ?? DEFAULT_SNOOZE_MINUTES,
+        snoozeActivationDelayMinutes:
+          parseSnoozeDelayMinutes(group?.snoozeActivationDelayMinutes) ??
+          DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
+        snoozeCooldownMinutes:
+          parseSnoozeCooldownMinutes(group?.snoozeCooldownMinutes) ??
+          DEFAULT_SNOOZE_COOLDOWN_MINUTES,
+        snoozeConfirmations:
+          parseSnoozeConfirmations(group?.snoozeConfirmations) ?? DEFAULT_SNOOZE_CONFIRMATIONS,
         activeDays: hasStoredDays ? activeDays : createDefaultDays(),
         timeWindowsText: parseTimeWindowsText(rawTimeWindowsText).join("\n"),
         platformVideoMode: normalizeVideoMode(group?.platformVideoMode),
@@ -500,11 +535,39 @@ function sanitizeSnoozes(value, groups, now) {
   const sanitized = {};
   for (const [groupId, snooze] of Object.entries(value ?? {})) {
     if (!groupIds.has(groupId)) continue;
+    const startsAtMs = Number.parseInt(snooze?.startsAtMs, 10);
     const untilMs = Number.parseInt(snooze?.untilMs, 10);
-    const reason = typeof snooze?.reason === "string" ? snooze.reason.trim() : "";
-    if (Number.isFinite(untilMs) && untilMs > now && reason) {
-      sanitized[groupId] = { untilMs, reason };
+    const cooldownUntilMs = Number.parseInt(snooze?.cooldownUntilMs, 10);
+    const confirmationCount = parseSnoozeConfirmations(snooze?.confirmationCount);
+    const activeMsApplied = Boolean(snooze?.activeMsApplied);
+    const refreezeMode =
+      snooze?.refreezeMode === "strict" || snooze?.refreezeMode === "frozen"
+        ? snooze.refreezeMode
+        : "frozen";
+    if (
+      Number.isFinite(startsAtMs) &&
+      Number.isFinite(untilMs) &&
+      Number.isFinite(cooldownUntilMs) &&
+      startsAtMs <= untilMs &&
+      untilMs <= cooldownUntilMs
+    ) {
+      sanitized[groupId] = {
+        startsAtMs,
+        untilMs,
+        cooldownUntilMs,
+        confirmationCount: confirmationCount ?? DEFAULT_SNOOZE_CONFIRMATIONS,
+        activeMsApplied,
+        refreezeMode
+      };
     }
+  }
+  return sanitized;
+}
+
+function sanitizeSnoozeTotals(value, groups) {
+  const sanitized = {};
+  for (const group of groups) {
+    sanitized[group.id] = Math.max(0, Number.parseInt(value?.[group.id], 10) || 0);
   }
   return sanitized;
 }
@@ -813,16 +876,26 @@ function buildRules(hostnames) {
 }
 
 function getAllowedMs(group) {
-  return group.allowedMinutes * MS_PER_MINUTE;
+  return group.mode === "timer"
+    ? getResetIntervalMs(group)
+    : group.allowedMinutes * MS_PER_MINUTE;
 }
 
 function getResetIntervalMs(group) {
   return group.resetIntervalHours * MS_PER_HOUR;
 }
 
+function getSnoozePhase(snooze, now) {
+  if (!snooze) return "none";
+  if (Number.isFinite(snooze.startsAtMs) && now < snooze.startsAtMs) return "pending";
+  if (Number.isFinite(snooze.untilMs) && now < snooze.untilMs) return "active";
+  if (Number.isFinite(snooze.cooldownUntilMs) && now < snooze.cooldownUntilMs) return "cooldown";
+  return "none";
+}
+
 function getActiveSnooze(groupId, groupSnoozes, now) {
   const snooze = groupSnoozes[groupId];
-  return snooze && snooze.untilMs > now ? snooze : null;
+  return getSnoozePhase(snooze, now) === "active" ? snooze : null;
 }
 
 function getDayNameForDate(date) {
@@ -1048,7 +1121,7 @@ function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now) {
       const usedMs = usageTimersMs[group.id] ?? 0;
       const isBlockingMode = isBlockingTimedMode(group.mode);
       const remainingMs = isBlockingMode ? Math.max(getAllowedMs(group) - usedMs, 0) : Number.POSITIVE_INFINITY;
-      const displayMs = group.mode === "timer" ? usedMs : remainingMs;
+      const displayMs = remainingMs;
       return {
         id: group.id,
         name: group.name,
@@ -1073,6 +1146,7 @@ async function loadStoredState() {
     [USAGE_TIMERS_KEY]: {},
     [USAGE_RESET_AT_KEY]: {},
     [GROUP_SNOOZES_KEY]: {},
+    [GROUP_SNOOZE_TOTALS_KEY]: {},
     [CUSTOM_TIMERS_KEY]: {},
     [CUSTOM_PERSISTENCE_KEY]: {}
   });
@@ -1087,15 +1161,25 @@ async function loadStoredState() {
     usageTimersMs: sanitizeUsageTimers(result[USAGE_TIMERS_KEY], groups),
     usageResetAtMs: sanitizeResetTimes(result[USAGE_RESET_AT_KEY], groups, now),
     groupSnoozes: sanitizeSnoozes(result[GROUP_SNOOZES_KEY], groups, now),
+    groupSnoozeTotalsMs: sanitizeSnoozeTotals(result[GROUP_SNOOZE_TOTALS_KEY], groups),
     customTimers: sanitizeCustomTimers(result[CUSTOM_TIMERS_KEY], customGroupIds),
     customPersistence: sanitizeCustomPersistence(result[CUSTOM_PERSISTENCE_KEY], customGroupIds)
   };
 }
 
-function applyRuntimeNormalizations(groups, usageTimersMs, usageResetAtMs, groupSnoozes, now) {
+function applyRuntimeNormalizations(
+  groups,
+  usageTimersMs,
+  usageResetAtMs,
+  groupSnoozes,
+  groupSnoozeTotalsMs,
+  now
+) {
+  const nextGroups = [...groups];
   const nextTimers = { ...usageTimersMs };
   const nextResetAt = { ...usageResetAtMs };
   const nextSnoozes = { ...groupSnoozes };
+  const nextSnoozeTotals = { ...groupSnoozeTotalsMs };
   let changed = false;
 
   for (const group of groups) {
@@ -1115,16 +1199,44 @@ function applyRuntimeNormalizations(groups, usageTimersMs, usageResetAtMs, group
   }
 
   for (const [groupId, snooze] of Object.entries(nextSnoozes)) {
-    if (!snooze || snooze.untilMs <= now) {
+    if (!snooze) {
+      delete nextSnoozes[groupId];
+      changed = true;
+      continue;
+    }
+
+    if (!snooze.activeMsApplied && now >= snooze.untilMs) {
+      nextSnoozeTotals[groupId] =
+        Math.max(0, Number(nextSnoozeTotals[groupId]) || 0) +
+        Math.max(0, snooze.untilMs - snooze.startsAtMs);
+      nextSnoozes[groupId] = { ...snooze, activeMsApplied: true };
+      const groupIndex = nextGroups.findIndex((group) => group.id === groupId);
+      if (groupIndex >= 0 && nextGroups[groupIndex].freezeMode === "none") {
+        nextGroups[groupIndex] = {
+          ...nextGroups[groupIndex],
+          freezeMode: snooze.refreezeMode === "strict" ? "strict" : "frozen",
+          frozenAtMs: now
+        };
+      }
+      changed = true;
+      if (snooze.cooldownUntilMs <= now) {
+        delete nextSnoozes[groupId];
+      }
+      continue;
+    }
+
+    if (snooze.cooldownUntilMs <= now) {
       delete nextSnoozes[groupId];
       changed = true;
     }
   }
 
   return {
+    groups: nextGroups,
     usageTimersMs: nextTimers,
     usageResetAtMs: nextResetAt,
     groupSnoozes: nextSnoozes,
+    groupSnoozeTotalsMs: nextSnoozeTotals,
     changed
   };
 }
@@ -1136,22 +1248,26 @@ async function getState() {
     baseState.usageTimersMs,
     baseState.usageResetAtMs,
     baseState.groupSnoozes,
+    baseState.groupSnoozeTotalsMs,
     Date.now()
   );
 
   if (normalized.changed) {
     await chrome.storage.local.set({
+      [BLOCKED_GROUPS_KEY]: normalized.groups,
       [USAGE_TIMERS_KEY]: normalized.usageTimersMs,
       [USAGE_RESET_AT_KEY]: normalized.usageResetAtMs,
-      [GROUP_SNOOZES_KEY]: normalized.groupSnoozes
+      [GROUP_SNOOZES_KEY]: normalized.groupSnoozes,
+      [GROUP_SNOOZE_TOTALS_KEY]: normalized.groupSnoozeTotalsMs
     });
   }
 
   return {
-    groups: baseState.groups,
+    groups: normalized.groups,
     usageTimersMs: normalized.usageTimersMs,
     usageResetAtMs: normalized.usageResetAtMs,
     groupSnoozes: normalized.groupSnoozes,
+    groupSnoozeTotalsMs: normalized.groupSnoozeTotalsMs,
     customTimers: baseState.customTimers,
     customPersistence: baseState.customPersistence,
     didApplyResets: normalized.changed
@@ -1160,7 +1276,7 @@ async function getState() {
 
 function getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now) {
   // Custom groups no longer contribute to network-level blocking. Only site
-  // groups (instant or after-minutes) get registered as declarativeNetRequest
+  // groups (instant or timed) get registered as declarativeNetRequest
   // rules.
   const hostnames = new Set(
     groups.filter((group) => group.groupType === "site").flatMap((group) => group.sites)
@@ -1204,7 +1320,7 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
       }
       if (
         group.mode !== "instant" &&
-        (group.mode !== "after-minutes" || (usageTimersMs[group.id] ?? 0) < getAllowedMs(group))
+        (!isBlockingTimedMode(group.mode) || (usageTimersMs[group.id] ?? 0) < getAllowedMs(group))
       ) {
         continue;
       }
@@ -1230,7 +1346,7 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
       }
       if (
         group.mode !== "instant" &&
-        (group.mode !== "after-minutes" || (usageTimersMs[group.id] ?? 0) < getAllowedMs(group))
+        (!isBlockingTimedMode(group.mode) || (usageTimersMs[group.id] ?? 0) < getAllowedMs(group))
       ) {
         continue;
       }
@@ -1347,7 +1463,9 @@ async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes,
   }
 
   for (const snooze of Object.values(groupSnoozes)) {
+    if (snooze?.startsAtMs > now) candidateTimes.push(snooze.startsAtMs);
     if (snooze?.untilMs > now) candidateTimes.push(snooze.untilMs);
+    if (snooze?.cooldownUntilMs > now) candidateTimes.push(snooze.cooldownUntilMs);
   }
 
   for (let offset = 1; offset <= 7; offset += 1) {
@@ -1515,15 +1633,16 @@ async function applyElapsedTime(pageContextInput, elapsedMs, customStateUpdate) 
 
   for (const group of relevantTimedGroups) {
     const currentValue = nextTimers[group.id] ?? 0;
+    const thresholdMs = getAllowedMs(group);
     const nextValue =
-      group.mode === "after-minutes"
-        ? Math.min(currentValue + boundedElapsedMs, getAllowedMs(group))
+      isBlockingTimedMode(group.mode)
+        ? Math.min(currentValue + boundedElapsedMs, thresholdMs)
         : Math.max(0, currentValue + boundedElapsedMs);
     if (nextValue !== currentValue) {
       nextTimers[group.id] = nextValue;
       changed = true;
     }
-    if (group.mode === "after-minutes" && nextValue >= getAllowedMs(group)) reachedLimit = true;
+    if (isBlockingTimedMode(group.mode) && nextValue >= thresholdMs) reachedLimit = true;
   }
 
   if (changed) {

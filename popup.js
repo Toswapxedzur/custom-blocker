@@ -2,22 +2,26 @@ const BLOCKED_GROUPS_KEY = "blockedGroups";
 const USAGE_TIMERS_KEY = "usageTimersMs";
 const USAGE_RESET_AT_KEY = "usageResetAtMs";
 const GROUP_SNOOZES_KEY = "groupSnoozes";
+const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
 const LAYOUT_WIDTH_STORAGE_KEY = "custom-blocker-groups-panel-width";
 const LANGUAGE_STORAGE_KEY = "custom-blocker-language";
+const GROUP_TRANSFER_PREFIX = "custom-blocker-group:v1:";
 
 const DEFAULT_ALLOWED_MINUTES = 15;
 const DEFAULT_RESET_INTERVAL_HOURS = 24;
 const DEFAULT_STRICT_FREEZE_HOURS = 24;
 const DEFAULT_SNOOZE_MINUTES = 30;
+const DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES = 0;
+const DEFAULT_SNOOZE_COOLDOWN_MINUTES = 0;
 const DEFAULT_GROUP_TYPE = "site";
 const MAX_STRICT_FREEZE_HOURS = 72;
-const MIN_SNOOZE_REASON_CHARACTERS = 100;
-const MIN_SNOOZE_REASON_WORDS = 21;
+const MAX_SNOOZE_COOLDOWN_MINUTES = 5;
 const MS_PER_SECOND = 1000;
 const MS_PER_MINUTE = 60 * MS_PER_SECOND;
 const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const UNFREEZE_CONFIRMATIONS_REQUIRED = 20;
 const UNFREEZE_CONFIRMATION_INTERVAL_MS = 5000;
+const DEFAULT_SNOOZE_CONFIRMATIONS = 0;
 const MIN_GROUP_PANEL_WIDTH = 260;
 const MAX_GROUP_PANEL_WIDTH = 760;
 const DAY_NAMES = [
@@ -40,6 +44,8 @@ const addGroupTypeField = document.getElementById("addGroupType");
 const addGroupButton = document.getElementById("addGroupButton");
 const deleteAllGroupsButton = document.getElementById("deleteAllGroupsButton");
 const deleteGroupButton = document.getElementById("deleteGroupButton");
+const exportGroupButton = document.getElementById("exportGroupButton");
+const importGroupButton = document.getElementById("importGroupButton");
 const editorCopy = document.getElementById("editorCopy");
 const groupNameField = document.getElementById("groupName");
 const groupEnabledField = document.getElementById("groupEnabled");
@@ -47,6 +53,7 @@ const groupTypeSummary = document.getElementById("groupTypeSummary");
 const blockModeSection = document.getElementById("blockModeSection");
 const blockModeField = document.getElementById("blockMode");
 const timedSettings = document.getElementById("timedSettings");
+const allowedMinutesRow = document.getElementById("allowedMinutesRow");
 const allowedMinutesField = document.getElementById("allowedMinutes");
 const resetIntervalHoursField = document.getElementById("resetIntervalHours");
 const usageSummary = document.getElementById("usageSummary");
@@ -55,6 +62,7 @@ const daysGrid = document.getElementById("daysGrid");
 const scheduleWindowsField = document.getElementById("scheduleWindows");
 const customSettingsCard = document.getElementById("customSettingsCard");
 const blockingRulesField = document.getElementById("blockingRules");
+const openRuleTemplatesButton = document.getElementById("openRuleTemplatesButton");
 const platformVideoCard = document.getElementById("platformVideoCard");
 const platformVideoTitle = document.getElementById("platformVideoTitle");
 const platformVideoCopy = document.getElementById("platformVideoCopy");
@@ -98,7 +106,9 @@ const unfreezeButton = document.getElementById("unfreezeButton");
 const snoozeSummary = document.getElementById("snoozeSummary");
 const allowSnoozeField = document.getElementById("allowSnooze");
 const snoozeMinutesField = document.getElementById("snoozeMinutes");
-const snoozeReasonField = document.getElementById("snoozeReason");
+const snoozeActivationDelayField = document.getElementById("snoozeActivationDelay");
+const snoozeCooldownField = document.getElementById("snoozeCooldown");
+const snoozeConfirmationsField = document.getElementById("snoozeConfirmations");
 const snoozeWarning = document.getElementById("snoozeWarning");
 const startSnoozeButton = document.getElementById("startSnoozeButton");
 const endSnoozeButton = document.getElementById("endSnoozeButton");
@@ -118,6 +128,12 @@ const manualModal = document.getElementById("manualModal");
 const manualStatus = document.getElementById("manualStatus");
 const manualContent = document.getElementById("manualContent");
 const manualCloseButton = document.getElementById("manualCloseButton");
+const templateModal = document.getElementById("templateModal");
+const templateGrid = document.getElementById("templateGrid");
+const templateStatus = document.getElementById("templateStatus");
+const templateCloseButton = document.getElementById("templateCloseButton");
+const templateFilterField = document.getElementById("templateFilter");
+const templateApplyButton = document.getElementById("templateApplyButton");
 const dayCheckboxes = Array.from(daysGrid.querySelectorAll('input[type="checkbox"]'));
 
 const state = {
@@ -125,6 +141,7 @@ const state = {
   usageTimersMs: {},
   usageResetAtMs: {},
   groupSnoozes: {},
+  groupSnoozeTotalsMs: {},
   selectedGroupId: null,
   draggedGroupId: null,
   dropTargetGroupId: null,
@@ -136,7 +153,11 @@ const state = {
   confirmIntervalId: null,
   unfreezeFlow: null,
   isManualOpen: false,
+  isTemplateOpen: false,
   manualCache: {},
+  selectedTemplateId: null,
+  templateFilterTags: [],
+  templateDrafts: {},
   suppressGroupStorageUpdatesUntil: 0,
   panelWidth: 300,
   language: "en",
@@ -642,11 +663,23 @@ function parseSnoozeMinutes(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function countWords(value) {
-  return String(value ?? "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean).length;
+function parseSnoozeDelayMinutes(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return 0;
+  const parsed = Number.parseFloat(trimmed);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function parseSnoozeCooldownMinutes(value) {
+  const parsed = parseSnoozeDelayMinutes(value);
+  return parsed !== null && parsed <= MAX_SNOOZE_COOLDOWN_MINUTES ? parsed : null;
+}
+
+function parseSnoozeConfirmations(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function normalizeTimeWindowLine(line) {
@@ -1288,6 +1321,521 @@ function compileInSandbox(source) {
   });
 }
 
+function quoteJs(value) {
+  return JSON.stringify(String(value ?? ""));
+}
+
+function minutesToMsLiteral(value) {
+  return Math.round(Number(value) * MS_PER_MINUTE);
+}
+
+const CUSTOM_RULE_TEMPLATES = [
+  {
+    id: "weekday-window-block",
+    title: "Weekday Block Window",
+    description: "Block one site only during a weekday time window.",
+    tags: ["schedule", "site"],
+    params: [
+      { id: "domainContains", label: "URL contains", type: "text", defaultValue: "youtube.com" },
+      { id: "startHour", label: "Start hour", type: "number", min: 0, max: 23, step: 1, defaultValue: 9 },
+      { id: "endHour", label: "End hour", type: "number", min: 1, max: 24, step: 1, defaultValue: 18 },
+      {
+        id: "daysCsv",
+        label: "Days (comma separated)",
+        type: "text",
+        span: 2,
+        defaultValue: "Monday,Tuesday,Wednesday,Thursday,Friday"
+      }
+    ],
+    buildCode(values) {
+      const days = String(values.daysCsv || "")
+        .split(",")
+        .map((day) => day.trim())
+        .filter(Boolean)
+        .map(quoteJs)
+        .join(", ");
+      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
+  if (!url.includes(${quoteJs(values.domainContains)})) return 0;
+
+  const blockedDays = [${days}];
+  const inBlockedDay = blockedDays.includes(dayName);
+  const inBlockedWindow = hour >= ${Number(values.startHour)} && hour < ${Number(values.endHour)};
+
+  return inBlockedDay && inBlockedWindow ? -1 : 0;
+}`;
+    }
+  },
+  {
+    id: "site-time-budget",
+    title: "Website Time Budget",
+    description: "Give one site a shared countdown timer, then block it.",
+    tags: ["timer", "site"],
+    params: [
+      { id: "domainContains", label: "URL contains", type: "text", defaultValue: "reddit.com" },
+      { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 20 },
+      { id: "timerId", label: "Timer ID", type: "text", defaultValue: "budget-site" },
+      { id: "displayName", label: "Display name", type: "text", defaultValue: "Site Budget" }
+    ],
+    buildCode(values) {
+      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
+  const timer = helpers.getTimerHelper();
+  const target = ${quoteJs(values.domainContains)};
+  const tid = timer.getOrCreateTimer({
+    id: ${quoteJs(values.timerId)},
+    direction: "backward",
+    currentMs: ${minutesToMsLiteral(values.minutes)},
+    displayName: ${quoteJs(values.displayName)},
+    scope: (u) => u.includes(target),
+    domain: (u) => u.includes(target)
+  });
+
+  return url.includes(target) && timer.isExpired(tid) ? -1 : 0;
+}`;
+    }
+  },
+  {
+    id: "youtube-shorts-cap",
+    title: "YouTube Shorts Daily Cap",
+    description: "Create a dedicated countdown timer for YouTube Shorts pages.",
+    tags: ["timer", "youtube", "shorts"],
+    params: [
+      { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 30 },
+      { id: "timerId", label: "Timer ID", type: "text", defaultValue: "yt-shorts" },
+      { id: "displayName", label: "Display name", type: "text", defaultValue: "YT Shorts" }
+    ],
+    buildCode(values) {
+      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
+  const yt = helpers.getPlatformHelper().youtube();
+  const tid = yt.setShortsTimer({
+    id: ${quoteJs(values.timerId)},
+    direction: "backward",
+    currentMs: ${minutesToMsLiteral(values.minutes)},
+    displayName: ${quoteJs(values.displayName)}
+  });
+
+  return helpers.getTimerHelper().isExpired(tid) ? -1 : 0;
+}`;
+    }
+  },
+  {
+    id: "tiktok-short-cap",
+    title: "TikTok Feed Cap",
+    description: "Create a countdown timer that only ticks on TikTok video pages.",
+    tags: ["timer", "tiktok", "shorts"],
+    params: [
+      { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 20 },
+      { id: "timerId", label: "Timer ID", type: "text", defaultValue: "tiktok-feed" },
+      { id: "displayName", label: "Display name", type: "text", defaultValue: "TikTok" }
+    ],
+    buildCode(values) {
+      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
+  const timer = helpers.getTimerHelper();
+  const du = helpers.getDomainUtility();
+  const tid = timer.getOrCreateTimer({
+    id: ${quoteJs(values.timerId)},
+    direction: "backward",
+    currentMs: ${minutesToMsLiteral(values.minutes)},
+    displayName: ${quoteJs(values.displayName)},
+    scope: (u) => du.tiktok().isShortUrl(u),
+    domain: (u) => du.tiktok().isPlatformUrl(u)
+  });
+
+  return du.tiktok().isPlatformUrl(url) && timer.isExpired(tid) ? -1 : 0;
+}`;
+    }
+  },
+  {
+    id: "instagram-reels-cap",
+    title: "Instagram Reels Cap",
+    description: "Track Reels separately and block once the countdown expires.",
+    tags: ["timer", "instagram", "shorts"],
+    params: [
+      { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 15 },
+      { id: "timerId", label: "Timer ID", type: "text", defaultValue: "ig-reels" },
+      { id: "displayName", label: "Display name", type: "text", defaultValue: "IG Reels" }
+    ],
+    buildCode(values) {
+      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
+  const timer = helpers.getTimerHelper();
+  const du = helpers.getDomainUtility();
+  const tid = timer.getOrCreateTimer({
+    id: ${quoteJs(values.timerId)},
+    direction: "backward",
+    currentMs: ${minutesToMsLiteral(values.minutes)},
+    displayName: ${quoteJs(values.displayName)},
+    scope: (u) => du.instagram().isShortUrl(u),
+    domain: (u) => du.instagram().isPlatformUrl(u)
+  });
+
+  return du.instagram().isPlatformUrl(url) && timer.isExpired(tid) ? -1 : 0;
+}`;
+    }
+  },
+  {
+    id: "hide-youtube-shorts-author-length",
+    title: "Hide Shorts By Author Length",
+    description: "Hide YouTube Shorts whose author handle is longer than a threshold.",
+    tags: ["feed", "youtube", "shorts"],
+    params: [
+      { id: "maxAuthorLength", label: "Max author length", type: "number", min: 1, step: 1, defaultValue: 16 },
+      { id: "blockPageOnVisit", label: "Block direct visits", type: "checkbox", defaultValue: true }
+    ],
+    buildCode(values) {
+      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
+  const yt = helpers.getPlatformHelper().youtube();
+  yt.hideShortButton();
+  yt.hideShorts(
+    (item) => item.author && item.author.length > ${Number(values.maxAuthorLength)},
+    { blockPageOnVisit: ${Boolean(values.blockPageOnVisit)} }
+  );
+  return 0;
+}`;
+    }
+  },
+  {
+    id: "hide-youtube-videos-keyword",
+    title: "Hide Videos By Keyword",
+    description: "Hide YouTube long-form videos whose titles contain a keyword.",
+    tags: ["feed", "youtube"],
+    params: [
+      { id: "keyword", label: "Keyword", type: "text", defaultValue: "drama" },
+      { id: "blockPageOnVisit", label: "Block direct visits", type: "checkbox", defaultValue: false }
+    ],
+    buildCode(values) {
+      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
+  const yt = helpers.getPlatformHelper().youtube();
+  const keyword = ${quoteJs(String(values.keyword || "").toLowerCase())};
+  yt.hideVideos(
+    (item) => item.name && item.name.toLowerCase().includes(keyword),
+    { blockPageOnVisit: ${Boolean(values.blockPageOnVisit)} }
+  );
+  return 0;
+}`;
+    }
+  },
+  {
+    id: "reddit-subreddit-work-block",
+    title: "Block One Subreddit At Work",
+    description: "Block a subreddit only during a chosen daily work window.",
+    tags: ["schedule", "reddit"],
+    params: [
+      { id: "subreddit", label: "Subreddit", type: "text", defaultValue: "all" },
+      { id: "startHour", label: "Start hour", type: "number", min: 0, max: 23, step: 1, defaultValue: 9 },
+      { id: "endHour", label: "End hour", type: "number", min: 1, max: 24, step: 1, defaultValue: 17 }
+    ],
+    buildCode(values) {
+      let normalizedSubreddit = String(values.subreddit || "").trim().toLowerCase();
+      if (normalizedSubreddit.startsWith("r/")) {
+        normalizedSubreddit = normalizedSubreddit.slice(2);
+      }
+      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
+  const target = ${quoteJs(normalizedSubreddit)};
+  if (!url.toLowerCase().includes("/r/" + target + "/")) return 0;
+
+  const isWeekday = !["Saturday", "Sunday"].includes(dayName);
+  const inWorkHours = hour >= ${Number(values.startHour)} && hour < ${Number(values.endHour)};
+
+  return isWeekday && inWorkHours ? -1 : 0;
+}`;
+    }
+  },
+  {
+    id: "weekend-only-access",
+    title: "Weekend-Only Access",
+    description: "Allow a site only on weekends and block it on weekdays.",
+    tags: ["schedule", "site"],
+    params: [
+      { id: "domainContains", label: "URL contains", type: "text", defaultValue: "twitch.tv" }
+    ],
+    buildCode(values) {
+      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
+  if (!url.includes(${quoteJs(values.domainContains)})) return 0;
+  return ["Saturday", "Sunday"].includes(dayName) ? 1 : -1;
+}`;
+    }
+  },
+  {
+    id: "one-free-visit",
+    title: "One Free Visit Then Block",
+    description: "Allow the first matching visit, then block every later one until you clear persistence.",
+    tags: ["site", "persistence"],
+    params: [
+      { id: "domainContains", label: "URL contains", type: "text", defaultValue: "news.ycombinator.com" },
+      { id: "allowedVisits", label: "Allowed visits", type: "number", min: 1, step: 1, defaultValue: 1 }
+    ],
+    buildCode(values) {
+      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
+  const target = ${quoteJs(values.domainContains)};
+  if (!url.includes(target)) return 0;
+
+  const store = helpers.getPersistenceHelper();
+  const visitKey = "visit-count:" + target;
+  const pageKey = "last-url:" + target;
+  const currentCount = Number(store.get(visitKey) || 0);
+
+  if (store.get(pageKey) !== url) {
+    store.set(pageKey, url);
+    store.set(visitKey, currentCount + 1);
+  }
+
+  return Number(store.get(visitKey) || 0) > ${Number(values.allowedVisits)} ? -1 : 0;
+}`;
+    }
+  }
+];
+
+function normalizeTemplateTag(tag) {
+  return String(tag ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function getTemplateTags(template) {
+  return [...new Set((Array.isArray(template?.tags) ? template.tags : []).map(normalizeTemplateTag).filter(Boolean))];
+}
+
+function getTemplateFilterOptions() {
+  const seen = new Set();
+  const options = [];
+
+  for (const template of CUSTOM_RULE_TEMPLATES) {
+    for (const tag of getTemplateTags(template)) {
+      if (seen.has(tag)) {
+        continue;
+      }
+      seen.add(tag);
+      const translationKey = `custom.templateTag.${tag}`;
+      const translated = t(translationKey);
+      options.push({
+        value: tag,
+        label:
+          translated !== translationKey
+            ? translated
+            : tag.replace(/-/g, " ").replace(/\b\w/g, (character) => character.toUpperCase())
+      });
+    }
+  }
+
+  return options;
+}
+
+function getFilteredTemplates() {
+  if (!Array.isArray(state.templateFilterTags) || state.templateFilterTags.length === 0) {
+    return CUSTOM_RULE_TEMPLATES;
+  }
+  return CUSTOM_RULE_TEMPLATES.filter((template) => {
+    const templateTags = getTemplateTags(template);
+    return state.templateFilterTags.every((tag) => templateTags.includes(tag));
+  });
+}
+
+function renderTemplateFilter() {
+  if (!templateFilterField) {
+    return;
+  }
+
+  const options = getTemplateFilterOptions();
+  const previousScrollLeft = templateFilterField.scrollLeft;
+  const activeTags = [...new Set((Array.isArray(state.templateFilterTags) ? state.templateFilterTags : []).map(normalizeTemplateTag).filter(Boolean))];
+  state.templateFilterTags = activeTags.filter((tag) =>
+    options.some((option) => option.value === tag)
+  );
+
+  templateFilterField.replaceChildren(
+    ...options.map((option) => {
+      const element = document.createElement("button");
+      element.type = "button";
+      element.className = `template-filter-chip${state.templateFilterTags.includes(option.value) ? " active" : ""}`;
+      element.dataset.templateFilterTag = option.value;
+      element.textContent = option.label;
+      element.setAttribute("aria-pressed", state.templateFilterTags.includes(option.value) ? "true" : "false");
+      return element;
+    })
+  );
+  templateFilterField.scrollLeft = previousScrollLeft;
+}
+
+function getTemplateById(templateId) {
+  return CUSTOM_RULE_TEMPLATES.find((template) => template.id === templateId) ?? null;
+}
+
+function getTemplateDraft(templateId) {
+  if (!state.templateDrafts[templateId]) {
+    const template = getTemplateById(templateId);
+    if (!template) return {};
+    state.templateDrafts[templateId] = Object.fromEntries(
+      template.params.map((param) => [param.id, param.defaultValue])
+    );
+  }
+  return state.templateDrafts[templateId];
+}
+
+function buildTemplatePreview(template, draft) {
+  try {
+    return template.buildCode(draft);
+  } catch (error) {
+    console.error(`Failed to build preview for template "${template.id}".`, error);
+    return `// ${t("custom.templatesError")}`;
+  }
+}
+
+function createTemplateCardElement(template) {
+  const draft = getTemplateDraft(template.id);
+  const preview = buildTemplatePreview(template, draft);
+
+  const card = document.createElement("article");
+  card.className = `template-card ${template.id === state.selectedTemplateId ? "selected" : ""}`;
+  card.dataset.templateCard = template.id;
+
+  const title = document.createElement("h4");
+  title.textContent = template.title;
+  card.appendChild(title);
+
+  const copy = document.createElement("p");
+  copy.className = "template-card-copy";
+  copy.textContent = template.description;
+  card.appendChild(copy);
+
+  const paramGrid = document.createElement("div");
+  paramGrid.className = "template-param-grid";
+
+  for (const param of template.params) {
+    const label = document.createElement("label");
+    if (param.span === 2) {
+      label.classList.add("span-2");
+    }
+
+    const labelText = document.createElement("span");
+    labelText.textContent = param.label;
+    label.appendChild(labelText);
+
+    const input = document.createElement("input");
+    input.dataset.templateId = template.id;
+    input.dataset.paramId = param.id;
+
+    if (param.type === "checkbox") {
+      input.type = "checkbox";
+      input.checked = Boolean(draft[param.id]);
+    } else {
+      input.type = param.type;
+      input.value = String(draft[param.id] ?? "");
+      if (param.min !== undefined) input.min = String(param.min);
+      if (param.max !== undefined) input.max = String(param.max);
+      if (param.step !== undefined) input.step = String(param.step);
+    }
+
+    label.appendChild(input);
+    paramGrid.appendChild(label);
+  }
+
+  card.appendChild(paramGrid);
+
+  const pre = document.createElement("pre");
+  const code = document.createElement("code");
+  code.textContent = preview;
+  pre.appendChild(code);
+  card.appendChild(pre);
+
+  return card;
+}
+
+function renderTemplateModal() {
+  if (!templateModal || !templateGrid || !templateStatus || !templateApplyButton) {
+    return;
+  }
+
+  if (!state.isTemplateOpen) {
+    templateModal.classList.add("hidden");
+    return;
+  }
+
+  try {
+    const previousScrollTop = templateGrid.scrollTop;
+    renderTemplateFilter();
+
+    const filteredTemplates = getFilteredTemplates();
+    if (!filteredTemplates.some((template) => template.id === state.selectedTemplateId)) {
+      state.selectedTemplateId = filteredTemplates[0]?.id ?? null;
+    }
+
+    if (filteredTemplates.length === 0) {
+      templateGrid.innerHTML = `<div class="empty-state">${escapeHtml(t("custom.templatesNoMatches"))}</div>`;
+    } else {
+      templateGrid.replaceChildren(
+        ...filteredTemplates.map((template) => createTemplateCardElement(template))
+      );
+    }
+    templateGrid.scrollTop = previousScrollTop;
+  } catch (error) {
+    console.error("Failed to render template browser.", error);
+    templateGrid.innerHTML = `<div class="empty-state">${escapeHtml(t("custom.templatesError"))}</div>`;
+    templateStatus.textContent = t("custom.templatesError");
+    templateApplyButton.disabled = true;
+    templateModal.classList.remove("hidden");
+    return;
+  }
+
+  templateStatus.textContent = state.selectedTemplateId
+    ? t("custom.templateSelected", { name: getTemplateById(state.selectedTemplateId)?.title ?? "" })
+    : getFilteredTemplates().length === 0
+      ? t("custom.templatesNoMatches")
+      : t("custom.templatesCopy");
+  templateApplyButton.disabled = !state.selectedTemplateId;
+  templateModal.classList.remove("hidden");
+}
+
+function openTemplateModal() {
+  const group = getSelectedGroup();
+  if (!group || group.groupType !== "custom") {
+    return;
+  }
+
+  state.isTemplateOpen = true;
+  const filteredTemplates = getFilteredTemplates();
+  if (!filteredTemplates.some((template) => template.id === state.selectedTemplateId)) {
+    state.selectedTemplateId = filteredTemplates[0]?.id ?? null;
+  }
+  if (templateModal) {
+    templateModal.classList.remove("hidden");
+  }
+  if (templateStatus) {
+    templateStatus.textContent = t("custom.templatesLoading");
+  }
+  renderTemplateModal();
+}
+
+function closeTemplateModal() {
+  state.isTemplateOpen = false;
+  if (templateModal) {
+    templateModal.classList.add("hidden");
+  }
+}
+
+async function applyTemplatePreset() {
+  const template = getTemplateById(state.selectedTemplateId);
+  const group = getSelectedGroup();
+  if (!template || !group || group.groupType !== "custom" || blockingRulesField.disabled) {
+    return;
+  }
+
+  const nextCode = template.buildCode(getTemplateDraft(template.id));
+  const currentCode = String(blockingRulesField.value ?? "").trim();
+  const shouldReplace = !currentCode || window.confirm(t("custom.confirmReplaceTemplate"));
+  if (!shouldReplace) {
+    return;
+  }
+
+  blockingRulesField.value = nextCode;
+  stashCurrentDraft();
+  closeTemplateModal();
+  render();
+  scheduleAutosave();
+  setStatus(t("status.templateApplied", { name: template.title }));
+}
+
 async function checkRuleSyntax() {
   // Make sure whatever is in the textarea right now is committed to
   // storage before we report. That way "syntax OK" implies "saved", and
@@ -1462,6 +2010,9 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     resetIntervalHours: DEFAULT_RESET_INTERVAL_HOURS,
     allowSnooze: true,
     snoozeMinutes: DEFAULT_SNOOZE_MINUTES,
+    snoozeActivationDelayMinutes: DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
+    snoozeCooldownMinutes: DEFAULT_SNOOZE_COOLDOWN_MINUTES,
+    snoozeConfirmations: DEFAULT_SNOOZE_CONFIRMATIONS,
     activeDays: createDefaultDays(),
     timeWindowsText: "",
     platformVideoMode: "all",
@@ -1526,6 +2077,14 @@ function sanitizeGroups(groups) {
       allowSnooze: group?.allowSnooze !== false,
       snoozeMinutes:
         parseSnoozeMinutes(group?.snoozeMinutes) ?? DEFAULT_SNOOZE_MINUTES,
+      snoozeActivationDelayMinutes:
+        parseSnoozeDelayMinutes(group?.snoozeActivationDelayMinutes) ??
+        DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
+      snoozeCooldownMinutes:
+        parseSnoozeCooldownMinutes(group?.snoozeCooldownMinutes) ??
+        DEFAULT_SNOOZE_COOLDOWN_MINUTES,
+      snoozeConfirmations:
+        parseSnoozeConfirmations(group?.snoozeConfirmations) ?? DEFAULT_SNOOZE_CONFIRMATIONS,
       activeDays: hasStoredDays ? activeDays : createDefaultDays(),
       timeWindowsText: parsedTimeWindows.normalizedLines.join("\n"),
       platformVideoMode: normalizeVideoMode(group?.platformVideoMode),
@@ -1597,7 +2156,6 @@ function sanitizeResetTimes(value, groups) {
 }
 
 function sanitizeSnoozes(value, groups) {
-  const now = Date.now();
   const groupIds = new Set(groups.map((group) => group.id));
   const snoozes = {};
 
@@ -1606,18 +2164,160 @@ function sanitizeSnoozes(value, groups) {
       continue;
     }
 
+    const startsAtMs = Number.parseInt(snooze?.startsAtMs, 10);
     const untilMs = Number.parseInt(snooze?.untilMs, 10);
-    const reason = typeof snooze?.reason === "string" ? snooze.reason.trim() : "";
+    const cooldownUntilMs = Number.parseInt(snooze?.cooldownUntilMs, 10);
+    const confirmationCount = parseSnoozeConfirmations(snooze?.confirmationCount);
+    const activeMsApplied = Boolean(snooze?.activeMsApplied);
+    const refreezeMode =
+      snooze?.refreezeMode === "strict" || snooze?.refreezeMode === "frozen"
+        ? snooze.refreezeMode
+        : "frozen";
 
-    if (Number.isFinite(untilMs) && untilMs > now && reason) {
+    if (
+      Number.isFinite(startsAtMs) &&
+      Number.isFinite(untilMs) &&
+      Number.isFinite(cooldownUntilMs) &&
+      startsAtMs <= untilMs &&
+      untilMs <= cooldownUntilMs
+    ) {
       snoozes[groupId] = {
+        startsAtMs,
         untilMs,
-        reason
+        cooldownUntilMs,
+        confirmationCount: confirmationCount ?? 0,
+        activeMsApplied,
+        refreezeMode
       };
     }
   }
 
   return snoozes;
+}
+
+function sanitizeSnoozeTotals(value, groups) {
+  const totals = {};
+  for (const group of groups) {
+    totals[group.id] = Math.max(0, Number.parseInt(value?.[group.id], 10) || 0);
+  }
+  return totals;
+}
+
+function getSerializableGroupSnapshot(group) {
+  return {
+    name: group.name,
+    enabled: group.enabled,
+    groupType: group.groupType,
+    mode: group.mode,
+    allowedMinutes: group.allowedMinutes,
+    resetIntervalHours: group.resetIntervalHours,
+    allowSnooze: group.allowSnooze !== false,
+    snoozeMinutes: group.snoozeMinutes,
+    snoozeActivationDelayMinutes:
+      group.snoozeActivationDelayMinutes ?? DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
+    snoozeCooldownMinutes: group.snoozeCooldownMinutes ?? DEFAULT_SNOOZE_COOLDOWN_MINUTES,
+    snoozeConfirmations: group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS,
+    activeDays: [...group.activeDays],
+    timeWindowsText: group.timeWindowsText,
+    platformVideoMode: group.platformVideoMode,
+    platformAuthorMode: group.platformAuthorMode,
+    platformAuthors: [...group.platformAuthors],
+    redditMode: group.redditMode,
+    redditSubreddits: [...group.redditSubreddits],
+    discordMode: group.discordMode,
+    discordTargetType: group.discordTargetType,
+    discordTargets: [...group.discordTargets],
+    blockingRulesText: group.blockingRulesText,
+    freezeMode: group.freezeMode,
+    strictFreezeHours: group.strictFreezeHours,
+    frozenAtMs: group.freezeMode === "none" ? null : group.frozenAtMs,
+    sites: [...group.sites],
+    blockHomePage: Boolean(group.blockHomePage),
+    fallbackUrl: group.fallbackUrl ?? "",
+    skipToNextOnBlock: Boolean(group.skipToNextOnBlock)
+  };
+}
+
+function encodeUtf8Base64(value) {
+  const bytes = new TextEncoder().encode(String(value ?? ""));
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return window.btoa(binary);
+}
+
+function decodeUtf8Base64(value) {
+  const binary = window.atob(String(value ?? ""));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function encodeGroupTransferString(group) {
+  const payload = {
+    version: 1,
+    kind: "custom-blocker-group",
+    group: getSerializableGroupSnapshot(group)
+  };
+  const json = JSON.stringify(payload);
+  return GROUP_TRANSFER_PREFIX + encodeUtf8Base64(json);
+}
+
+function decodeGroupTransferString(value) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) {
+    throw new Error(t("status.invalidImportGroup"));
+  }
+
+  let jsonText = trimmed;
+  if (trimmed.startsWith(GROUP_TRANSFER_PREFIX)) {
+    const encodedPayload = trimmed.slice(GROUP_TRANSFER_PREFIX.length);
+    try {
+      jsonText = decodeUtf8Base64(encodedPayload);
+    } catch {
+      throw new Error(t("status.invalidImportGroup"));
+    }
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(jsonText);
+  } catch {
+    throw new Error(t("status.invalidImportGroup"));
+  }
+
+  const sourceGroup =
+    payload?.kind === "custom-blocker-group" && payload?.version === 1 && payload?.group
+      ? payload.group
+      : payload;
+  const sanitizedGroup = sanitizeGroups([sourceGroup])[0];
+
+  if (!sanitizedGroup) {
+    throw new Error(t("status.invalidImportGroup"));
+  }
+
+  if (
+    (sanitizedGroup.freezeMode === "frozen" || sanitizedGroup.freezeMode === "strict") &&
+    !Number.isFinite(Number(sourceGroup?.frozenAtMs))
+  ) {
+    sanitizedGroup.frozenAtMs = Date.now();
+  }
+
+  return sanitizedGroup;
+}
+
+function getTransferReadySelectedGroup() {
+  const group = getSelectedGroup();
+  if (!group) {
+    throw new Error(t("status.errorExportGroup"));
+  }
+
+  const draft = getDraftForGroup(group.id);
+  if (!draft) {
+    return group;
+  }
+
+  return buildUpdatedGroupFromDraft(group, draft).updatedGroup;
 }
 
 function groupToDraft(group) {
@@ -1629,6 +2329,11 @@ function groupToDraft(group) {
     resetIntervalHours: String(group.resetIntervalHours),
     allowSnooze: group.allowSnooze !== false,
     snoozeMinutes: String(group.snoozeMinutes),
+    snoozeActivationDelayMinutes: String(
+      group.snoozeActivationDelayMinutes ?? DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES
+    ),
+    snoozeCooldownMinutes: String(group.snoozeCooldownMinutes ?? DEFAULT_SNOOZE_COOLDOWN_MINUTES),
+    snoozeConfirmations: String(group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS),
     activeDays: [...group.activeDays],
     timeWindowsText: group.timeWindowsText,
     sitesText: group.sites.join("\n"),
@@ -1693,9 +2398,31 @@ function getDisplayUsageState(group, now = Date.now()) {
   };
 }
 
+function getSnoozePhase(snooze, now = Date.now()) {
+  if (!snooze) return "none";
+  if (Number.isFinite(snooze.startsAtMs) && now < snooze.startsAtMs) return "pending";
+  if (Number.isFinite(snooze.untilMs) && now < snooze.untilMs) return "active";
+  if (Number.isFinite(snooze.cooldownUntilMs) && now < snooze.cooldownUntilMs) return "cooldown";
+  return "none";
+}
+
+function getCurrentSnooze(groupId, now = Date.now()) {
+  const snooze = state.groupSnoozes[groupId];
+  return getSnoozePhase(snooze, now) === "none" ? null : snooze;
+}
+
 function getActiveSnooze(groupId, now = Date.now()) {
   const snooze = state.groupSnoozes[groupId];
-  return snooze && snooze.untilMs > now ? snooze : null;
+  return getSnoozePhase(snooze, now) === "active" ? snooze : null;
+}
+
+function getDisplayedSnoozeTotalMs(groupId, now = Date.now()) {
+  const baseTotal = Math.max(0, Number(state.groupSnoozeTotalsMs[groupId]) || 0);
+  const snooze = state.groupSnoozes[groupId];
+  if (getSnoozePhase(snooze, now) !== "active") {
+    return baseTotal;
+  }
+  return baseTotal + Math.max(0, now - snooze.startsAtMs);
 }
 
 function getFreezeStatus(group, now = Date.now()) {
@@ -1726,11 +2453,16 @@ function collectSelectedDays() {
 }
 
 function getEffectiveGroup(group, draft) {
-  const allowedMinutes = parseAllowedMinutes(draft?.allowedMinutes) ?? group.allowedMinutes;
+  const mode = normalizeBlockingMode(draft?.mode ?? group.mode);
+  const allowedMinutes =
+    mode === "timer"
+      ? group.resetIntervalHours * 60
+      : parseAllowedMinutes(draft?.allowedMinutes) ?? group.allowedMinutes;
   const resetIntervalHours =
     parseResetIntervalHours(draft?.resetIntervalHours) ?? group.resetIntervalHours;
   return {
     ...group,
+    mode,
     allowedMinutes,
     resetIntervalHours
   };
@@ -1738,7 +2470,8 @@ function getEffectiveGroup(group, draft) {
 
 function getGroupMetaText(group, draft, now = Date.now()) {
   const effectiveGroup = getEffectiveGroup(group, draft);
-  const snooze = getActiveSnooze(group.id, now);
+  const snooze = getCurrentSnooze(group.id, now);
+  const snoozePhase = getSnoozePhase(snooze, now);
   const freezeStatus = getFreezeStatus(group, now);
   const pieces = [getGroupTypeLabel(group.groupType)];
 
@@ -1795,13 +2528,18 @@ function getGroupMetaText(group, draft, now = Date.now()) {
     pieces.push(t("meta.homeFeed"));
   }
 
-  if (snooze) {
+  if (snoozePhase === "pending") {
+    pieces.push(`${t("meta.snoozePending")} ${formatDurationMs(snooze.startsAtMs - now)}`);
+  } else if (snoozePhase === "active") {
     pieces.push(`${t("meta.snoozed")} ${formatDurationMs(snooze.untilMs - now)}`);
+  } else if (snoozePhase === "cooldown") {
+    pieces.push(`${t("meta.snoozeCooldown")} ${formatDurationMs(snooze.cooldownUntilMs - now)}`);
   } else if (effectiveGroup.mode === "instant") {
     pieces.push(t("meta.instantBlock"));
   } else if (effectiveGroup.mode === "timer") {
-    const usedMs = getDisplayUsageState(effectiveGroup, now).usedMs;
-    pieces.push(`${formatDurationMs(usedMs)} ${t("meta.used")}`);
+    const usageState = getDisplayUsageState(effectiveGroup, now);
+    const remainingMs = Math.max(effectiveGroup.resetIntervalHours * MS_PER_HOUR - usageState.usedMs, 0);
+    pieces.push(`${formatDurationMs(remainingMs)} ${t("meta.left")}`);
   } else {
     const remainingMs = Math.max(
       effectiveGroup.allowedMinutes * MS_PER_MINUTE - getDisplayUsageState(effectiveGroup, now).usedMs,
@@ -1952,8 +2690,9 @@ function updateUsageSummary(group, draft, now = Date.now()) {
   const displayGroup = getEffectiveGroup(group, draft);
   const usageState = getDisplayUsageState(displayGroup, now);
   if (mode === "timer") {
+    const remainingMs = Math.max(displayGroup.resetIntervalHours * MS_PER_HOUR - usageState.usedMs, 0);
     usageSummary.textContent = t("timed.summaryTimer", {
-      time: formatDurationMs(usageState.usedMs),
+      time: formatDurationMs(remainingMs),
       hours: formatHours(displayGroup.resetIntervalHours),
       suffix: displayGroup.resetIntervalHours === 1 ? "" : "s"
     });
@@ -2015,21 +2754,27 @@ function updateSnoozeUI(group, now = Date.now()) {
     allowSnoozeField.checked = true;
     allowSnoozeField.disabled = true;
     snoozeMinutesField.disabled = true;
-    snoozeReasonField.disabled = true;
+    snoozeActivationDelayField.disabled = true;
+    snoozeCooldownField.disabled = true;
+    snoozeConfirmationsField.disabled = true;
     startSnoozeButton.disabled = true;
     endSnoozeButton.classList.add("hidden");
     setSnoozeWarning("");
     return;
   }
 
-  const snooze = getActiveSnooze(group.id, now);
+  const snooze = getCurrentSnooze(group.id, now);
+  const snoozePhase = getSnoozePhase(snooze, now);
   const freezeStatus = getFreezeStatus(group, now);
   const allowSnooze = group.allowSnooze !== false;
+  const totalSnoozedMs = getDisplayedSnoozeTotalMs(group.id, now);
 
   allowSnoozeField.checked = allowSnooze;
   allowSnoozeField.disabled = freezeStatus.isFrozen;
   snoozeMinutesField.disabled = freezeStatus.isFrozen || !allowSnooze;
-  snoozeReasonField.disabled = !allowSnooze;
+  snoozeActivationDelayField.disabled = freezeStatus.isFrozen || !allowSnooze;
+  snoozeCooldownField.disabled = freezeStatus.isFrozen || !allowSnooze;
+  snoozeConfirmationsField.disabled = freezeStatus.isFrozen || !allowSnooze;
 
   if (!snooze) {
     startSnoozeButton.disabled = !allowSnooze;
@@ -2040,15 +2785,34 @@ function updateSnoozeUI(group, now = Date.now()) {
       : freezeStatus.isFrozen
         ? t("snooze.summary.frozen")
         : t("snooze.summary.normal");
+    snoozeSummary.textContent += ` ${t("snooze.summary.total", {
+      time: formatDurationMs(totalSnoozedMs)
+    })}`;
     endSnoozeButton.classList.add("hidden");
     return;
   }
 
   startSnoozeButton.disabled = true;
-  snoozeSummary.textContent = t("snooze.summary.active", {
-    time: formatDurationMs(snooze.untilMs - now)
-  });
-  endSnoozeButton.classList.remove("hidden");
+  if (snoozePhase === "pending") {
+    snoozeSummary.textContent = t("snooze.summary.pending", {
+      delay: formatDurationMs(snooze.startsAtMs - now),
+      time: formatDurationMs(snooze.untilMs - snooze.startsAtMs)
+    });
+    endSnoozeButton.classList.remove("hidden");
+  } else if (snoozePhase === "active") {
+    snoozeSummary.textContent = t("snooze.summary.active", {
+      time: formatDurationMs(snooze.untilMs - now)
+    });
+    endSnoozeButton.classList.remove("hidden");
+  } else {
+    snoozeSummary.textContent = t("snooze.summary.cooldown", {
+      time: formatDurationMs(snooze.cooldownUntilMs - now)
+    });
+    endSnoozeButton.classList.add("hidden");
+  }
+  snoozeSummary.textContent += ` ${t("snooze.summary.total", {
+    time: formatDurationMs(totalSnoozedMs)
+  })}`;
 }
 
 function renderEditor(now = Date.now()) {
@@ -2064,6 +2828,9 @@ function renderEditor(now = Date.now()) {
     allowedMinutesField.value = "";
     resetIntervalHoursField.value = "";
     snoozeMinutesField.value = "";
+    snoozeActivationDelayField.value = "";
+    snoozeCooldownField.value = "";
+    snoozeConfirmationsField.value = "";
     scheduleWindowsField.value = "";
     blockedSitesField.value = "";
     blockingRulesField.value = "";
@@ -2104,6 +2871,9 @@ function renderEditor(now = Date.now()) {
     allowedMinutesField.disabled = true;
     resetIntervalHoursField.disabled = true;
     snoozeMinutesField.disabled = true;
+    snoozeActivationDelayField.disabled = true;
+    snoozeCooldownField.disabled = true;
+    snoozeConfirmationsField.disabled = true;
     scheduleWindowsField.disabled = true;
     blockedSitesField.disabled = true;
     blockingRulesField.disabled = true;
@@ -2116,9 +2886,11 @@ function renderEditor(now = Date.now()) {
     discordTargetTypeField.disabled = true;
     discordTargetsField.disabled = true;
     allowSnoozeField.disabled = true;
-    snoozeReasonField.disabled = true;
+    snoozeConfirmationsField.disabled = true;
     clearSitesButton.disabled = true;
     deleteGroupButton.disabled = true;
+    exportGroupButton.disabled = true;
+    importGroupButton.disabled = true;
     applyFreezeButton.disabled = true;
     platformBlockHomePageField.disabled = true;
     redditBlockHomePageField.disabled = true;
@@ -2156,6 +2928,14 @@ function renderEditor(now = Date.now()) {
     draft?.resetIntervalHours ?? String(group.resetIntervalHours);
   allowSnoozeField.checked = draft?.allowSnooze ?? (group.allowSnooze !== false);
   snoozeMinutesField.value = draft?.snoozeMinutes ?? String(group.snoozeMinutes);
+  snoozeActivationDelayField.value =
+    draft?.snoozeActivationDelayMinutes ??
+    String(group.snoozeActivationDelayMinutes ?? DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES);
+  snoozeCooldownField.value =
+    draft?.snoozeCooldownMinutes ??
+    String(group.snoozeCooldownMinutes ?? DEFAULT_SNOOZE_COOLDOWN_MINUTES);
+  snoozeConfirmationsField.value =
+    draft?.snoozeConfirmations ?? String(group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS);
   scheduleWindowsField.value = draft?.timeWindowsText ?? group.timeWindowsText;
   blockedSitesField.value = draft?.sitesText ?? group.sites.join("\n");
   blockingRulesField.value = draft?.blockingRulesText ?? group.blockingRulesText;
@@ -2192,6 +2972,7 @@ function renderEditor(now = Date.now()) {
 
   blockModeSection.classList.toggle("hidden", isCustomGroup);
   timedSettings.classList.toggle("hidden", !isTimedMode || isCustomGroup);
+  allowedMinutesRow.classList.toggle("hidden", selectedMode === "timer");
   strictFreezeSettings.classList.toggle("hidden", freezeModeField.value !== "strict");
   customSettingsCard.classList.toggle("hidden", !isCustomGroup);
   platformVideoCard.classList.toggle("hidden", !isPlatformVideoGroup);
@@ -2208,6 +2989,10 @@ function renderEditor(now = Date.now()) {
   blockModeField.disabled = !editable || isCustomGroup;
   allowedMinutesField.disabled = !editable || !isTimedMode || selectedMode === "timer" || isCustomGroup;
   resetIntervalHoursField.disabled = !editable || !isTimedMode || isCustomGroup;
+  snoozeMinutesField.disabled = !editable || !allowSnoozeField.checked || freezeStatus.isFrozen;
+  snoozeActivationDelayField.disabled = !editable || !allowSnoozeField.checked || freezeStatus.isFrozen;
+  snoozeCooldownField.disabled = !editable || !allowSnoozeField.checked || freezeStatus.isFrozen;
+  snoozeConfirmationsField.disabled = !editable || !allowSnoozeField.checked;
   scheduleWindowsField.disabled = !editable || isCustomGroup;
   blockedSitesField.disabled = !editable || isPlatformVideoGroup || isRedditGroup || isCustomGroup;
   blockingRulesField.disabled = !editable || !isCustomGroup;
@@ -2224,11 +3009,16 @@ function renderEditor(now = Date.now()) {
   clearSitesButton.disabled =
     !editable || isPlatformVideoGroup || isRedditGroup || isDiscordGroup || isCustomGroup;
   deleteGroupButton.disabled = !editable;
+  exportGroupButton.disabled = false;
+  importGroupButton.disabled = !editable;
   platformBlockHomePageField.disabled = !editable || !isPlatformVideoGroup;
   redditBlockHomePageField.disabled = !editable || !isRedditGroup;
   discordBlockHomePageField.disabled = !editable || !isDiscordGroup;
   fallbackUrlField.disabled = !editable;
   skipToNextOnBlockField.disabled = !editable || !isPlatformVideoGroup || !isScrollPlatform;
+  if (openRuleTemplatesButton) {
+    openRuleTemplatesButton.disabled = !editable || !isCustomGroup;
+  }
 
   dayCheckboxes.forEach((checkbox) => {
     checkbox.checked = (draft?.activeDays ?? group.activeDays).includes(checkbox.value);
@@ -2246,6 +3036,7 @@ function render(now = Date.now()) {
   updateBulkActionsUI(now);
   renderEditor(now);
   renderUnfreezeModal(now);
+  renderTemplateModal();
 }
 
 function renderDynamicView() {
@@ -2283,6 +3074,9 @@ function stashCurrentDraft() {
     resetIntervalHours: resetIntervalHoursField.value,
     allowSnooze: allowSnoozeField.checked,
     snoozeMinutes: snoozeMinutesField.value,
+    snoozeActivationDelayMinutes: snoozeActivationDelayField.value,
+    snoozeCooldownMinutes: snoozeCooldownField.value,
+    snoozeConfirmations: snoozeConfirmationsField.value,
     activeDays: collectSelectedDays(),
     timeWindowsText: scheduleWindowsField.value,
     sitesText: blockedSitesField.value,
@@ -2323,6 +3117,7 @@ function selectGroup(groupId) {
   }
 
   closeUnfreezeFlow();
+  closeTemplateModal();
   stashCurrentDraft();
   flushAutosave()
     .catch((error) => {
@@ -2340,7 +3135,8 @@ async function loadStoredState() {
     [BLOCKED_GROUPS_KEY]: [],
     [USAGE_TIMERS_KEY]: {},
     [USAGE_RESET_AT_KEY]: {},
-    [GROUP_SNOOZES_KEY]: {}
+    [GROUP_SNOOZES_KEY]: {},
+    [GROUP_SNOOZE_TOTALS_KEY]: {}
   });
 
   const groups = sanitizeGroups(result[BLOCKED_GROUPS_KEY]);
@@ -2349,7 +3145,8 @@ async function loadStoredState() {
     groups,
     usageTimersMs: sanitizeUsageTimers(result[USAGE_TIMERS_KEY], groups),
     usageResetAtMs: sanitizeResetTimes(result[USAGE_RESET_AT_KEY], groups),
-    groupSnoozes: sanitizeSnoozes(result[GROUP_SNOOZES_KEY], groups)
+    groupSnoozes: sanitizeSnoozes(result[GROUP_SNOOZES_KEY], groups),
+    groupSnoozeTotalsMs: sanitizeSnoozeTotals(result[GROUP_SNOOZE_TOTALS_KEY], groups)
   };
 }
 
@@ -2360,7 +3157,8 @@ async function persistState(message) {
     [BLOCKED_GROUPS_KEY]: state.groups,
     [USAGE_TIMERS_KEY]: state.usageTimersMs,
     [USAGE_RESET_AT_KEY]: state.usageResetAtMs,
-    [GROUP_SNOOZES_KEY]: state.groupSnoozes
+    [GROUP_SNOOZES_KEY]: state.groupSnoozes,
+    [GROUP_SNOOZE_TOTALS_KEY]: state.groupSnoozeTotalsMs
   });
 
   if (message) {
@@ -2374,6 +3172,7 @@ async function loadGroups() {
   state.usageTimersMs = loaded.usageTimersMs;
   state.usageResetAtMs = loaded.usageResetAtMs;
   state.groupSnoozes = loaded.groupSnoozes;
+  state.groupSnoozeTotalsMs = loaded.groupSnoozeTotalsMs;
   state.selectedGroupId = state.groups[0]?.id ?? null;
   state.drafts = {};
   render();
@@ -2411,6 +3210,7 @@ async function addGroup(groupType = DEFAULT_GROUP_TYPE) {
   state.groups = [...state.groups, newGroup];
   state.usageTimersMs[newGroup.id] = 0;
   state.usageResetAtMs[newGroup.id] = now;
+  state.groupSnoozeTotalsMs[newGroup.id] = 0;
   state.drafts[newGroup.id] = groupToDraft(newGroup);
   state.selectedGroupId = newGroup.id;
 
@@ -2450,6 +3250,7 @@ async function deleteAllGroups() {
   state.usageTimersMs = {};
   state.usageResetAtMs = {};
   state.groupSnoozes = {};
+  state.groupSnoozeTotalsMs = {};
   state.selectedGroupId = null;
 
   await persistState(t("status.bulkDeleted"));
@@ -2475,10 +3276,97 @@ async function deleteSelectedGroup() {
   delete state.usageTimersMs[group.id];
   delete state.usageResetAtMs[group.id];
   delete state.groupSnoozes[group.id];
+  delete state.groupSnoozeTotalsMs[group.id];
   state.selectedGroupId = state.groups[0]?.id ?? null;
 
   await persistState(t("status.deleted", { name: group.name }));
   render();
+}
+
+async function exportSelectedGroup() {
+  try {
+    const group = getTransferReadySelectedGroup();
+    const exportString = encodeGroupTransferString(group);
+    let copiedToClipboard = false;
+
+    try {
+      await navigator.clipboard.writeText(exportString);
+      copiedToClipboard = true;
+    } catch (error) {
+      console.warn("Failed to copy block group export string.", error);
+    }
+
+    window.prompt(
+      t(copiedToClipboard ? "editor.exportGroupPromptCopied" : "editor.exportGroupPrompt"),
+      exportString
+    );
+    setStatus(
+      t(copiedToClipboard ? "status.exportedGroupCopied" : "status.exportedGroup", {
+        name: group.name
+      })
+    );
+  } catch (error) {
+    console.error("Failed to export block group.", error);
+    setStatus(error?.message || t("status.errorExportGroup"), true);
+  }
+}
+
+async function importIntoSelectedGroup() {
+  const group = getSelectedGroup();
+  if (!group) {
+    return;
+  }
+
+  if (!isGroupEditable(group)) {
+    setStatus(t("status.frozenCannotChange"), true);
+    render();
+    return;
+  }
+
+  try {
+    let clipboardText = "";
+    try {
+      clipboardText = await navigator.clipboard.readText();
+    } catch (error) {
+      console.warn("Failed to read block group import string from clipboard.", error);
+      clipboardText = window.prompt(t("editor.importGroupPrompt"), "") ?? "";
+    }
+
+    const importedGroup = decodeGroupTransferString(clipboardText);
+    const confirmed = window.confirm(
+      t("editor.importGroupConfirm", {
+        current: group.name,
+        imported: importedGroup.name
+      })
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const replacementGroup = {
+      ...importedGroup,
+      id: group.id,
+      frozenAtMs:
+        importedGroup.freezeMode === "none"
+          ? null
+          : importedGroup.frozenAtMs ?? Date.now()
+    };
+
+    state.groups = state.groups.map((item) => (item.id === group.id ? replacementGroup : item));
+    state.drafts[group.id] = groupToDraft(replacementGroup);
+    state.usageTimersMs[group.id] = 0;
+    state.usageResetAtMs[group.id] = Date.now();
+    delete state.groupSnoozes[group.id];
+    state.groupSnoozeTotalsMs[group.id] = 0;
+    closeTemplateModal();
+
+    await persistState(t("status.importedGroup", { name: replacementGroup.name }));
+    render();
+  } catch (error) {
+    console.error("Failed to import block group.", error);
+    setStatus(error?.message || t("status.errorImportGroup"), true);
+  }
 }
 
 function buildUpdatedGroupFromDraft(group, draft) {
@@ -2493,6 +3381,9 @@ function buildUpdatedGroupFromDraft(group, draft) {
   const resetIntervalHours = parseResetIntervalHours(draft.resetIntervalHours);
   const allowSnooze = Boolean(draft.allowSnooze);
   const snoozeMinutes = parseSnoozeMinutes(draft.snoozeMinutes);
+  const snoozeActivationDelayMinutes = parseSnoozeDelayMinutes(draft.snoozeActivationDelayMinutes);
+  const snoozeCooldownMinutes = parseSnoozeCooldownMinutes(draft.snoozeCooldownMinutes);
+  const snoozeConfirmations = parseSnoozeConfirmations(draft.snoozeConfirmations);
   const timeWindows = parseTimeWindowsText(draft.timeWindowsText);
   const siteResults = parseSiteTextareaValue(draft.sitesText);
   const authorResults = parsePlatformAuthorsTextarea(group.groupType, draft.platformAuthorsText);
@@ -2516,6 +3407,20 @@ function buildUpdatedGroupFromDraft(group, draft) {
 
   if (snoozeMinutes === null) {
     throw new Error(t("status.invalidSnoozeMinutes"));
+  }
+
+  if (snoozeActivationDelayMinutes === null) {
+    throw new Error(t("status.invalidSnoozeActivationDelay"));
+  }
+
+  if (snoozeCooldownMinutes === null) {
+    throw new Error(
+      t("status.invalidSnoozeCooldown", { max: formatHours(MAX_SNOOZE_COOLDOWN_MINUTES) })
+    );
+  }
+
+  if (snoozeConfirmations === null) {
+    throw new Error(t("status.invalidSnoozeConfirmations"));
   }
 
   if (timeWindows.invalidLines.length > 0) {
@@ -2568,6 +3473,10 @@ function buildUpdatedGroupFromDraft(group, draft) {
         : resetIntervalHours ?? group.resetIntervalHours,
       allowSnooze,
       snoozeMinutes: snoozeMinutes ?? group.snoozeMinutes,
+      snoozeActivationDelayMinutes:
+        snoozeActivationDelayMinutes ?? group.snoozeActivationDelayMinutes,
+      snoozeCooldownMinutes: snoozeCooldownMinutes ?? group.snoozeCooldownMinutes,
+      snoozeConfirmations: snoozeConfirmations ?? group.snoozeConfirmations,
       activeDays: isCustomGroup
         ? group.activeDays
         : draft.activeDays.filter((day) => DAY_NAMES.includes(day)),
@@ -2778,6 +3687,49 @@ function closeUnfreezeFlow() {
   }
 }
 
+function createSnoozeEntry(
+  group,
+  { snoozeMinutes, activationDelayMinutes, cooldownMinutes, confirmationCount },
+  now = Date.now()
+) {
+  const startsAtMs = now + activationDelayMinutes * MS_PER_MINUTE;
+  const untilMs = startsAtMs + snoozeMinutes * MS_PER_MINUTE;
+  return {
+    startsAtMs,
+    untilMs,
+    cooldownUntilMs: untilMs + cooldownMinutes * MS_PER_MINUTE,
+    confirmationCount,
+    activeMsApplied: false,
+    refreezeMode: group.freezeMode === "strict" ? "strict" : "frozen"
+  };
+}
+
+function maybeRefreezeGroupAfterSnooze(groupId, snooze, now = Date.now()) {
+  const group = state.groups.find((item) => item.id === groupId);
+  if (!group || group.freezeMode !== "none") {
+    return;
+  }
+  const nextGroup = {
+    ...group,
+    freezeMode: snooze?.refreezeMode === "strict" ? "strict" : "frozen",
+    frozenAtMs: now
+  };
+  state.groups = state.groups.map((item) => (item.id === groupId ? nextGroup : item));
+  state.drafts[groupId] = groupToDraft(nextGroup);
+}
+
+function showSnoozeNotice(group, snoozeEntry, totalBeforeMs) {
+  const activationDelayMs = Math.max(0, snoozeEntry.startsAtMs - Date.now());
+  window.alert(
+    t("snooze.noticePopup", {
+      name: group.name,
+      total: formatDurationMs(totalBeforeMs),
+      upcoming: formatDurationMs(snoozeEntry.untilMs - snoozeEntry.startsAtMs),
+      delay: formatDurationMs(activationDelayMs)
+    })
+  );
+}
+
 function renderUnfreezeModal(now = Date.now()) {
   if (!state.unfreezeFlow) {
     confirmModal.classList.add("hidden");
@@ -2802,16 +3754,26 @@ function renderUnfreezeModal(now = Date.now()) {
 
   const completedCount =
     UNFREEZE_CONFIRMATIONS_REQUIRED - state.unfreezeFlow.confirmationsLeft;
-  const localizedMessages = getLocalizedUnfreezeMessages();
-  const messageIndex = Math.min(completedCount, localizedMessages.length - 1);
   const remainingCooldownMs = Math.max(state.unfreezeFlow.nextAllowedAtMs - now, 0);
 
   confirmModal.classList.remove("hidden");
-  confirmTitle.textContent =
-    state.unfreezeFlow.kind === "delete-all"
-      ? t("modal.deleteAllTitle")
-      : t("modal.unfreezeTitle");
-  confirmMessage.textContent = localizedMessages[messageIndex];
+  if (state.unfreezeFlow.kind === "delete-all") {
+    const localizedMessages = getLocalizedUnfreezeMessages();
+    const messageIndex = Math.min(completedCount, localizedMessages.length - 1);
+    confirmTitle.textContent = t("modal.deleteAllTitle");
+    confirmMessage.textContent = localizedMessages[messageIndex];
+  } else if (state.unfreezeFlow.kind === "snooze") {
+    confirmTitle.textContent = t("modal.snoozeTitle");
+    confirmMessage.textContent = t("snooze.confirmationMessage", {
+      count: state.unfreezeFlow.confirmationsLeft,
+      seconds: Math.ceil(UNFREEZE_CONFIRMATION_INTERVAL_MS / 1000)
+    });
+  } else {
+    const localizedMessages = getLocalizedUnfreezeMessages();
+    const messageIndex = Math.min(completedCount, localizedMessages.length - 1);
+    confirmTitle.textContent = t("modal.unfreezeTitle");
+    confirmMessage.textContent = localizedMessages[messageIndex];
+  }
   confirmProgress.textContent = `${state.unfreezeFlow.confirmationsLeft} ${t("modal.confirm")} ${t("meta.left")} - "${state.unfreezeFlow.label}"`;
   confirmProceedButton.disabled = remainingCooldownMs > 0;
   confirmProceedButton.textContent =
@@ -2838,11 +3800,54 @@ async function handleUnfreezeConfirm() {
       state.usageTimersMs = {};
       state.usageResetAtMs = {};
       state.groupSnoozes = {};
+      state.groupSnoozeTotalsMs = {};
       state.selectedGroupId = null;
 
       await persistState(t("status.bulkDeleted"));
       closeUnfreezeFlow();
       render();
+      return;
+    }
+
+    if (state.unfreezeFlow.kind === "snooze") {
+      const group = state.groups.find((item) => item.id === state.unfreezeFlow.groupId);
+      if (!group) {
+        closeUnfreezeFlow();
+        return;
+      }
+      const snoozeMinutes = state.unfreezeFlow.snoozeMinutes ?? group.snoozeMinutes;
+      const activationDelayMinutes =
+        state.unfreezeFlow.snoozeActivationDelayMinutes ?? group.snoozeActivationDelayMinutes;
+      const cooldownMinutes =
+        state.unfreezeFlow.snoozeCooldownMinutes ?? group.snoozeCooldownMinutes;
+      const confirmationCount = group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS;
+      const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
+      const snoozeEntry = createSnoozeEntry(
+        group,
+        {
+          snoozeMinutes,
+          activationDelayMinutes,
+          cooldownMinutes,
+          confirmationCount
+        },
+        now
+      );
+      state.groupSnoozes[group.id] = snoozeEntry;
+      await persistState(
+        activationDelayMinutes > 0
+          ? t("status.snoozeScheduled", {
+              name: group.name,
+              delay: formatDurationMs(snoozeEntry.startsAtMs - now)
+            })
+          : t("status.snoozed", {
+              name: group.name,
+              minutes: snoozeMinutes,
+              suffix: snoozeMinutes === 1 ? "" : "s"
+            })
+      );
+      closeUnfreezeFlow();
+      render();
+      showSnoozeNotice(group, snoozeEntry, totalBeforeMs);
       return;
     }
 
@@ -2891,6 +3896,8 @@ async function startSnooze() {
 
   const freezeStatus = getFreezeStatus(group);
   const allowSnooze = group.allowSnooze !== false;
+  const currentSnooze = getCurrentSnooze(group.id);
+  const currentSnoozePhase = getSnoozePhase(currentSnooze);
 
   if (!allowSnooze) {
     setSnoozeWarning(
@@ -2899,54 +3906,155 @@ async function startSnooze() {
     return;
   }
 
+  if (currentSnoozePhase === "pending") {
+    setSnoozeWarning(
+      t("snooze.warning.pending", {
+        time: formatDurationMs(currentSnooze.startsAtMs - Date.now())
+      })
+    );
+    return;
+  }
+
+  if (currentSnoozePhase === "active") {
+    setSnoozeWarning(
+      t("snooze.warning.active", {
+        time: formatDurationMs(currentSnooze.untilMs - Date.now())
+      })
+    );
+    return;
+  }
+
+  if (currentSnoozePhase === "cooldown") {
+    setSnoozeWarning(
+      t("snooze.warning.cooldown", {
+        time: formatDurationMs(currentSnooze.cooldownUntilMs - Date.now())
+      })
+    );
+    return;
+  }
+
   const snoozeMinutesValue = freezeStatus.isFrozen
     ? String(group.snoozeMinutes)
     : snoozeMinutesField.value;
   const snoozeMinutes = parseSnoozeMinutes(snoozeMinutesValue);
+  const snoozeActivationDelayValue = freezeStatus.isFrozen
+    ? String(group.snoozeActivationDelayMinutes ?? DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES)
+    : snoozeActivationDelayField.value;
+  const snoozeActivationDelayMinutes = parseSnoozeDelayMinutes(snoozeActivationDelayValue);
+  const snoozeCooldownValue = freezeStatus.isFrozen
+    ? String(group.snoozeCooldownMinutes ?? DEFAULT_SNOOZE_COOLDOWN_MINUTES)
+    : snoozeCooldownField.value;
+  const snoozeCooldownMinutes = parseSnoozeCooldownMinutes(snoozeCooldownValue);
+  const snoozeConfirmationsValue = freezeStatus.isFrozen
+    ? String(group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS)
+    : snoozeConfirmationsField.value;
+  const snoozeConfirmations = parseSnoozeConfirmations(snoozeConfirmationsValue);
 
   if (snoozeMinutes === null) {
     setSnoozeWarning(t("snooze.warning.invalidMinutes"));
     return;
   }
 
-  const reason = snoozeReasonField.value.trim();
-
-  if (countWords(reason) < MIN_SNOOZE_REASON_WORDS) {
-    setSnoozeWarning(t("snooze.warning.words"));
+  if (snoozeConfirmations === null) {
+    setSnoozeWarning(t("snooze.warning.invalidConfirmations"));
     return;
   }
 
-  if (reason.length < MIN_SNOOZE_REASON_CHARACTERS) {
-    setSnoozeWarning(t("snooze.warning.characters", { min: MIN_SNOOZE_REASON_CHARACTERS }));
+  if (snoozeActivationDelayMinutes === null) {
+    setSnoozeWarning(t("snooze.warning.invalidActivationDelay"));
+    return;
+  }
+
+  if (snoozeCooldownMinutes === null) {
+    setSnoozeWarning(
+      t("snooze.warning.invalidCooldown", { max: formatHours(MAX_SNOOZE_COOLDOWN_MINUTES) })
+    );
     return;
   }
 
   setSnoozeWarning("");
-  state.groupSnoozes[group.id] = {
-    untilMs: Date.now() + snoozeMinutes * MS_PER_MINUTE,
-    reason
+  const now = Date.now();
+  const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
+  if (snoozeConfirmations === 0) {
+    const snoozeEntry = createSnoozeEntry(
+      group,
+      {
+        snoozeMinutes,
+        activationDelayMinutes: snoozeActivationDelayMinutes,
+        cooldownMinutes: snoozeCooldownMinutes,
+        confirmationCount: 0
+      },
+      now
+    );
+    state.groupSnoozes[group.id] = snoozeEntry;
+    await persistState(
+      snoozeActivationDelayMinutes > 0
+        ? t("status.snoozeScheduled", {
+            name: group.name,
+            delay: formatDurationMs(snoozeEntry.startsAtMs - now)
+          })
+        : t("status.snoozed", {
+            name: group.name,
+            minutes: snoozeMinutes,
+            suffix: snoozeMinutes === 1 ? "" : "s"
+          })
+    );
+    render();
+    showSnoozeNotice(group, snoozeEntry, totalBeforeMs);
+    return;
+  }
+
+  state.unfreezeFlow = {
+    kind: "snooze",
+    groupId: group.id,
+    label: group.name,
+    confirmationsLeft: snoozeConfirmations,
+    nextAllowedAtMs: now + UNFREEZE_CONFIRMATION_INTERVAL_MS,
+    snoozeMinutes,
+    snoozeActivationDelayMinutes,
+    snoozeCooldownMinutes
   };
 
-  snoozeReasonField.value = "";
-
-  await persistState(
-    t("status.snoozed", {
-      name: group.name,
-      minutes: snoozeMinutes,
-      suffix: snoozeMinutes === 1 ? "" : "s"
-    })
-  );
-  render();
+  if (state.confirmIntervalId !== null) {
+    window.clearInterval(state.confirmIntervalId);
+  }
+  state.confirmIntervalId = window.setInterval(() => {
+    renderUnfreezeModal();
+  }, 250);
+  renderUnfreezeModal();
 }
 
 async function endSnooze() {
   const group = getSelectedGroup();
+  const now = Date.now();
+  const snooze = group ? getCurrentSnooze(group.id, now) : null;
 
-  if (!group || !state.groupSnoozes[group.id]) {
+  if (!group || !snooze) {
     return;
   }
 
-  delete state.groupSnoozes[group.id];
+  const phase = getSnoozePhase(snooze, now);
+  if (phase === "pending") {
+    delete state.groupSnoozes[group.id];
+  } else if (phase === "active") {
+    const elapsedActiveMs = Math.max(0, Math.min(now, snooze.untilMs) - snooze.startsAtMs);
+    const cooldownDurationMs = Math.max(0, snooze.cooldownUntilMs - snooze.untilMs);
+    state.groupSnoozeTotalsMs[group.id] =
+      Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0) + elapsedActiveMs;
+    maybeRefreezeGroupAfterSnooze(group.id, snooze, now);
+    if (cooldownDurationMs > 0) {
+      state.groupSnoozes[group.id] = {
+        ...snooze,
+        untilMs: now,
+        cooldownUntilMs: now + cooldownDurationMs,
+        activeMsApplied: true
+      };
+    } else {
+      delete state.groupSnoozes[group.id];
+    }
+  } else {
+    return;
+  }
   await persistState(t("status.endedSnooze", { name: group.name }));
   render();
 }
@@ -3013,6 +4121,14 @@ function syncExternalState(changes) {
     shouldRenderDynamicOnly = true;
   }
 
+  if (changes[GROUP_SNOOZE_TOTALS_KEY]) {
+    state.groupSnoozeTotalsMs = sanitizeSnoozeTotals(
+      changes[GROUP_SNOOZE_TOTALS_KEY].newValue,
+      state.groups
+    );
+    shouldRenderDynamicOnly = true;
+  }
+
   if (
     changes[BLOCKED_GROUPS_KEY] &&
     Date.now() > state.suppressGroupStorageUpdatesUntil
@@ -3074,6 +4190,24 @@ snoozeMinutesField.addEventListener("input", () => {
   scheduleAutosave();
 });
 
+snoozeActivationDelayField.addEventListener("input", () => {
+  stashCurrentDraft();
+  scheduleAutosave();
+});
+
+snoozeCooldownField.addEventListener("input", () => {
+  stashCurrentDraft();
+  scheduleAutosave();
+});
+
+snoozeConfirmationsField.addEventListener("input", () => {
+  stashCurrentDraft();
+  if (snoozeWarning.textContent) {
+    setSnoozeWarning("");
+  }
+  scheduleAutosave();
+});
+
 allowSnoozeField.addEventListener("change", () => {
   stashCurrentDraft();
   updateSnoozeUI(getSelectedGroup());
@@ -3112,6 +4246,84 @@ if (checkRuleSyntaxButton) {
       console.error("Failed to check rule syntax.", error);
       setStatus(t("status.checkSyntaxUnavailable"), true);
     });
+  });
+}
+
+if (openRuleTemplatesButton) {
+  openRuleTemplatesButton.addEventListener("click", () => {
+    try {
+      openTemplateModal();
+    } catch (error) {
+      console.error("Failed to open custom rule templates.", error);
+      setStatus(t("status.errorApplyTemplate"), true);
+    }
+  });
+}
+
+if (templateFilterField) {
+  templateFilterField.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-template-filter-tag]");
+    if (!chip) {
+      return;
+    }
+    const tag = normalizeTemplateTag(chip.dataset.templateFilterTag);
+    if (!tag) {
+      return;
+    }
+    const nextTags = new Set(state.templateFilterTags);
+    if (nextTags.has(tag)) {
+      nextTags.delete(tag);
+    } else {
+      nextTags.add(tag);
+    }
+    state.templateFilterTags = [...nextTags];
+    renderTemplateModal();
+  });
+}
+
+if (templateGrid) {
+  templateGrid.addEventListener("click", (event) => {
+    if (event.target.closest("input, label, button, textarea, select")) {
+      return;
+    }
+    const card = event.target.closest("[data-template-card]");
+    if (!card) return;
+    state.selectedTemplateId = card.dataset.templateCard;
+    renderTemplateModal();
+  });
+
+  templateGrid.addEventListener("input", (event) => {
+    const field = event.target.closest("[data-template-id][data-param-id]");
+    if (!field) return;
+    const templateId = field.dataset.templateId;
+    const paramId = field.dataset.paramId;
+    const template = getTemplateById(templateId);
+    if (!template) return;
+    const param = template.params.find((item) => item.id === paramId);
+    if (!param) return;
+    const selectionStart = typeof field.selectionStart === "number" ? field.selectionStart : null;
+    const selectionEnd = typeof field.selectionEnd === "number" ? field.selectionEnd : null;
+    const previousScrollTop = templateGrid.scrollTop;
+    const draft = getTemplateDraft(templateId);
+    draft[paramId] = param.type === "checkbox" ? field.checked : field.value;
+    state.selectedTemplateId = templateId;
+    renderTemplateModal();
+    templateGrid.scrollTop = previousScrollTop;
+    const nextField = templateGrid.querySelector(
+      `[data-template-id="${templateId}"][data-param-id="${paramId}"]`
+    );
+    if (nextField) {
+      if (typeof nextField.focus === "function") {
+        nextField.focus({ preventScroll: true });
+      }
+      if (
+        selectionStart !== null &&
+        typeof nextField.setSelectionRange === "function" &&
+        document.activeElement === nextField
+      ) {
+        nextField.setSelectionRange(selectionStart, selectionEnd ?? selectionStart);
+      }
+    }
   });
 }
 
@@ -3229,6 +4441,20 @@ deleteAllGroupsButton.addEventListener("click", () => {
   });
 });
 
+exportGroupButton.addEventListener("click", () => {
+  exportSelectedGroup().catch((error) => {
+    console.error("Failed to export block group.", error);
+    setStatus(t("status.errorExportGroup"), true);
+  });
+});
+
+importGroupButton.addEventListener("click", () => {
+  importIntoSelectedGroup().catch((error) => {
+    console.error("Failed to import block group.", error);
+    setStatus(t("status.errorImportGroup"), true);
+  });
+});
+
 deleteGroupButton.addEventListener("click", () => {
   deleteSelectedGroup().catch((error) => {
     console.error("Failed to delete block group.", error);
@@ -3265,12 +4491,6 @@ endSnoozeButton.addEventListener("click", () => {
   });
 });
 
-snoozeReasonField.addEventListener("input", () => {
-  if (snoozeWarning.textContent) {
-    setSnoozeWarning("");
-  }
-});
-
 layoutResizer.addEventListener("mousedown", startResizingPanels);
 layoutResizer.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft") {
@@ -3295,18 +4515,47 @@ manualCloseButton.addEventListener("click", () => {
   closeManual();
 });
 
+if (templateCloseButton) {
+  templateCloseButton.addEventListener("click", () => {
+    closeTemplateModal();
+  });
+}
+
+if (templateApplyButton) {
+  templateApplyButton.addEventListener("click", () => {
+    applyTemplatePreset().catch((error) => {
+      console.error("Failed to apply custom rule template.", error);
+      setStatus(t("status.errorApplyTemplate"), true);
+    });
+  });
+}
+
 manualModal.addEventListener("click", (event) => {
   if (event.target === manualModal) {
     closeManual();
   }
 });
 
+if (templateModal) {
+  templateModal.addEventListener("click", (event) => {
+    if (event.target === templateModal) {
+      closeTemplateModal();
+    }
+  });
+}
+
 confirmProceedButton.addEventListener("click", () => {
   const confirmationKind = state.unfreezeFlow?.kind;
   handleUnfreezeConfirm().catch((error) => {
     console.error("Failed during unfreeze confirmation.", error);
     setStatus(
-      t(confirmationKind === "delete-all" ? "status.errorDeleteAllGroups" : "status.errorUnfreezeGroup"),
+      t(
+        confirmationKind === "delete-all"
+          ? "status.errorDeleteAllGroups"
+          : confirmationKind === "snooze"
+            ? "status.errorStartSnooze"
+            : "status.errorUnfreezeGroup"
+      ),
       true
     );
   });
@@ -3324,6 +4573,8 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     if (state.isManualOpen) {
       closeManual();
+    } else if (state.isTemplateOpen) {
+      closeTemplateModal();
     } else if (state.unfreezeFlow) {
       closeUnfreezeFlow();
     }

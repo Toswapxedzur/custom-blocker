@@ -112,6 +112,18 @@ function makeHelpersStub() {
     return { log: noop, warn: noop, error: noop };
   }
 
+  function makeRedirectionHelperStub() {
+    let current = "";
+    return {
+      get: () => current,
+      set: (url) => {
+        if (typeof url !== "string") return false;
+        current = url.trim();
+        return true;
+      }
+    };
+  }
+
   function makePlatformApiStub() {
     return {
       hideShortButton: noop,
@@ -179,6 +191,7 @@ function makeHelpersStub() {
     getTimerHelper: makeTimerHelperStub,
     getPersistenceHelper: makePersistenceHelperStub,
     getLogHelper: makeLogHelperStub,
+    getRedirectionHelper: makeRedirectionHelperStub,
     getPlatformHelper: makePlatformHelperStub,
     getDomainUtility: makeDomainUtilityStub
   };
@@ -264,6 +277,39 @@ function evaluatePageItems(platform, pageItems) {
   return result;
 }
 
+// Custom rules now return an integer state in the closed range
+// [-255, 255]. Meanings currently understood by the engine:
+//   -1  block
+//    0  no decision / continue to next rule
+//    1  allow
+// Any other in-range integer is preserved and surfaced in the debug
+// overlay so future workflows can attach meaning to it, but the engine
+// does not act on it yet.
+function normalizeRuleState(raw) {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    return {
+      ok: false,
+      value: 0,
+      error: "Rule must return an integer in [-255, 255] (got " + typeof raw + ")."
+    };
+  }
+  if (!Number.isInteger(raw)) {
+    return {
+      ok: false,
+      value: 0,
+      error: "Rule must return an integer in [-255, 255] (got non-integer " + raw + ")."
+    };
+  }
+  if (raw < -255 || raw > 255) {
+    return {
+      ok: false,
+      value: 0,
+      error: "Rule must return an integer in [-255, 255] (got " + raw + ")."
+    };
+  }
+  return { ok: true, value: raw, error: null };
+}
+
 function compileRuleSource(source) {
   const trimmed = String(source ?? "").trim();
   if (!trimmed) return { fn: null, error: "Empty rule source." };
@@ -329,13 +375,24 @@ function handleCompile(data, replyTarget) {
     return;
   }
 
+  let smokeResult;
   try {
-    compiled(1, 1, "Monday", 9, 0, "https://example.com/", makeHelpersStub());
+    smokeResult = compiled(1, 1, "Monday", 9, 0, "https://example.com/", makeHelpersStub());
   } catch (error) {
     reply({
       ok: false,
       kind: "runtime",
       message: (error && error.message) || String(error)
+    });
+    return;
+  }
+
+  const normalized = normalizeRuleState(smokeResult);
+  if (!normalized.ok) {
+    reply({
+      ok: false,
+      kind: "runtime",
+      message: normalized.error
     });
     return;
   }
@@ -362,6 +419,9 @@ function handleExecute(data, replyTarget) {
   const batch = Array.isArray(data.batch) ? data.batch : [];
   const context = data.context || {};
   const intentsState = helperBundle.createEmptyIntentsState();
+  const redirectState = {
+    url: typeof context.initialRedirectUrl === "string" ? context.initialRedirectUrl.trim() : ""
+  };
   const results = [];
 
   for (const item of batch) {
@@ -403,6 +463,7 @@ function handleExecute(data, replyTarget) {
       timersBucket,
       persistenceBucket,
       intentsState,
+      redirectState,
       currentUrl: context.currentUrl,
       now: context.now,
       elapsedMs: context.elapsedMs,
@@ -426,11 +487,21 @@ function handleExecute(data, replyTarget) {
       ruleError = (error && error.message) || String(error);
     }
 
+    let normalizedResult = undefined;
+    if (!ruleError) {
+      const normalized = normalizeRuleState(ruleResult);
+      if (!normalized.ok) {
+        ruleError = normalized.error;
+      } else {
+        normalizedResult = normalized.value;
+      }
+    }
+
     results.push({
       groupId,
       name,
       source,
-      result: ruleError ? undefined : ruleResult,
+      result: ruleError ? undefined : normalizedResult,
       error: ruleError || null,
       timersBucket,
       persistenceBucket,
@@ -454,7 +525,8 @@ function handleExecute(data, replyTarget) {
     results,
     intents: helperBundle.toSerializableIntents(intentsState),
     feedDecisions,
-    pageBlocked
+    pageBlocked,
+    redirectUrl: redirectState.url
   });
 }
 

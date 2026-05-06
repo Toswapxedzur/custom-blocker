@@ -78,9 +78,17 @@
               </p>
               <p id="groupTypeSummary" class="panel-copy"></p>
             </div>
-            <button id="deleteGroupButton" type="button" class="secondary danger" data-i18n="editor.deleteGroupButton">
-              Delete Group
-            </button>
+            <div class="editor-actions">
+              <button id="exportGroupButton" type="button" class="secondary" data-i18n="editor.exportGroupButton">
+                Export
+              </button>
+              <button id="importGroupButton" type="button" class="secondary" data-i18n="editor.importGroupButton">
+                Import
+              </button>
+              <button id="deleteGroupButton" type="button" class="secondary danger" data-i18n="editor.deleteGroupButton">
+                Delete Group
+              </button>
+            </div>
           </div>
 
           <label class="label" for="groupName" data-i18n="editor.groupName">Group name</label>
@@ -102,7 +110,7 @@
             <select id="blockMode">
               <option value="instant" data-i18n="mode.instant">Block immediately</option>
               <option value="after-minutes" data-i18n="mode.afterMinutes">Block after a number of minutes</option>
-              <option value="timer" data-i18n="mode.timer">Timer (count up, then block)</option>
+              <option value="timer" data-i18n="mode.timer">Timer (count down, then block)</option>
             </select>
           </div>
 
@@ -139,7 +147,7 @@
 
           <div id="timedSettings" class="timed-settings">
             <div class="settings-grid">
-              <div>
+              <div id="allowedMinutesRow">
                 <label class="label" for="allowedMinutes" data-i18n="timed.allowedMinutes">Allowed minutes before block</label>
                 <input
                   id="allowedMinutes"
@@ -189,6 +197,9 @@
               spellcheck="false"
             ></textarea>
             <div class="field-actions">
+              <button id="openRuleTemplatesButton" type="button" class="secondary" data-i18n="custom.templates">
+                Templates
+              </button>
               <button id="checkRuleSyntaxButton" type="button" class="secondary" data-i18n="custom.checkSyntax">
                 Check syntax
               </button>
@@ -430,17 +441,44 @@
                   data-i18n-placeholder="snooze.minutesPlaceholder"
                 />
               </div>
+              <div>
+                <label class="label" for="snoozeActivationDelay" data-i18n="snooze.activationDelay">Activation delay (minutes)</label>
+                <input
+                  id="snoozeActivationDelay"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  inputmode="decimal"
+                  placeholder="0"
+                  data-i18n-placeholder="snooze.activationDelayPlaceholder"
+                />
+              </div>
+              <div>
+                <label class="label" for="snoozeCooldown" data-i18n="snooze.cooldown">Cooldown after snooze (minutes)</label>
+                <input
+                  id="snoozeCooldown"
+                  type="number"
+                  min="0"
+                  max="5"
+                  step="0.1"
+                  inputmode="decimal"
+                  placeholder="0"
+                  data-i18n-placeholder="snooze.cooldownPlaceholder"
+                />
+              </div>
+              <div>
+                <label class="label" for="snoozeConfirmations" data-i18n="snooze.confirmations">Times of confirmation</label>
+                <input
+                  id="snoozeConfirmations"
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputmode="numeric"
+                  placeholder="0"
+                  data-i18n-placeholder="snooze.confirmationsPlaceholder"
+                />
+              </div>
             </div>
-
-            <label class="label" for="snoozeReason" data-i18n="snooze.reason">Reason (more than 20 words and at least 100 characters)</label>
-            <textarea
-              id="snoozeReason"
-              rows="4"
-              placeholder="Explain clearly why you need temporary access and what you will finish during that snooze period."
-              data-i18n-placeholder="snooze.reasonPlaceholder"
-              maxlength="4000"
-              spellcheck="true"
-            ></textarea>
 
             <div class="actions">
               <button id="startSnoozeButton" type="button" data-i18n="snooze.startButton">Start Snooze</button>
@@ -486,6 +524,32 @@
           </button>
         </div>
         <div id="manualContent" class="manual-content"></div>
+      </div>
+    </div>
+
+    <div id="templateModal" class="modal hidden">
+      <div class="modal-card template-modal-card">
+        <div class="manual-modal-header">
+          <div>
+            <h3 data-i18n="custom.templatesTitle">Custom Rule Templates</h3>
+            <p id="templateStatus" class="modal-copy" data-i18n="custom.templatesCopy">
+              Pick a preset, tweak its parameters, then apply it to replace the current rule.
+            </p>
+          </div>
+          <button id="templateCloseButton" type="button" class="secondary" data-i18n="manual.close">
+            Close
+          </button>
+        </div>
+        <div class="template-filter-row">
+          <span data-i18n="custom.templateFilterLabel">Filter</span>
+          <div id="templateFilter" class="template-filter-scroller" aria-label="Template filters"></div>
+        </div>
+        <div id="templateGrid" class="template-grid"></div>
+        <div class="modal-actions">
+          <button id="templateApplyButton" type="button" data-i18n="custom.applyTemplate" disabled>
+            Apply preset
+          </button>
+        </div>
       </div>
     </div>
 

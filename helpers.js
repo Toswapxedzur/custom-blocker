@@ -644,6 +644,35 @@
   }
 
   // ────────────────────────────────────────────────────────────────────────
+  // Redirection helper. Lets custom rules inspect / override the URL the
+  // content script will redirect to when the current page is blocked.
+  //
+  // The state is transient per heartbeat, shared across all rules in the
+  // same execution pass, and seeded from the session's current fallback
+  // URL (coming from the built-in groups). Because custom rules execute
+  // bottom-to-top, a top rule calling set(...) naturally overrides a
+  // lower rule's choice.
+  // ────────────────────────────────────────────────────────────────────────
+
+  function createRedirectionHelper(redirectState) {
+    const state =
+      redirectState && typeof redirectState === "object"
+        ? redirectState
+        : { url: "" };
+    if (typeof state.url !== "string") state.url = "";
+    return {
+      get() {
+        return state.url;
+      },
+      set(url) {
+        if (typeof url !== "string") return false;
+        state.url = url.trim();
+        return true;
+      }
+    };
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
   // Platform helper. Each rule call registers DOM intents into a shared
   // `intentsState` object; the host (content script) applies them after all
   // rules have run, in storage order so that "later" groups override
@@ -733,7 +762,16 @@
   // ────────────────────────────────────────────────────────────────────────
 
   function createCustomRuleHelpers(ctx) {
-    const { groupId, timersBucket, persistenceBucket, intentsState, currentUrl, now, elapsedMs } = ctx;
+    const {
+      groupId,
+      timersBucket,
+      persistenceBucket,
+      intentsState,
+      currentUrl,
+      now,
+      elapsedMs,
+      redirectState
+    } = ctx;
     const tickedSet = ctx.tickedSet instanceof Set ? ctx.tickedSet : new Set();
     const displayedSet = ctx.displayedSet instanceof Set ? ctx.displayedSet : new Set();
 
@@ -748,6 +786,7 @@
     });
     const persistenceHelper = createPersistenceHelper(persistenceBucket);
     const logHelper = createLogHelper(groupId);
+    const redirectionHelper = createRedirectionHelper(redirectState);
     const platformHelper = createPlatformHelper({
       intentsState,
       getTimerHelper: () => timerHelper
@@ -763,6 +802,7 @@
       getTimerHelper: () => timerHelper,
       getPersistenceHelper: () => persistenceHelper,
       getLogHelper: () => logHelper,
+      getRedirectionHelper: () => redirectionHelper,
       getPlatformHelper: () => platformHelper,
       getDomainUtility: () => domainUtility
     };
@@ -772,7 +812,7 @@
   // Compile a custom rule source string into a function. The expected
   // signature is:
   //
-  //   (month, dayOfMonth, dayName, hour, minute, url, helpers) => boolean
+  //   (month, dayOfMonth, dayName, hour, minute, url, helpers) => integer
   //
   // Returns null on syntax/type errors. Runtime errors are caught by the
   // caller.

@@ -146,9 +146,9 @@ Custom Web Blocker 让你按自己定义的规则屏蔽网站和在线干扰。�
 
 ### 5.8 `Custom` — 使用 JavaScript 函数屏蔽
 
-你可以编写一个 JavaScript 函数。扩展的 content script 在源码改变时编译一次，并在用户访问的每个页面、每次心跳（约 250 毫秒）都会执行该函数。返回 `true` 即退出当前页面；返回 `false`（或任何非 `true` 值）则放行。函数可通过 `helpers` 对象修改计时器、跨次运行保存状态、隐藏平台特定按钮/信息流卡片，或为子区域设置计时器。
+你可以编写一个 JavaScript 函数。扩展的 content script 在源码改变时编译一次，并在用户访问的每个页面、每次心跳（约 250 毫秒）都会执行该函数。函数返回整数状态（`-1` 屏蔽、`0` 继续、`1` 允许），并可通过 `helpers` 对象修改计时器、跨次运行保存状态、隐藏平台特定按钮/信息流卡片，或为子区域设置计时器。
 
-`Custom` 分组不会显示：屏蔽行为、屏蔽网站、允许分钟数、重置间隔、日程日期或时间窗口。它只保留一个大输入框——**Blocking Rules** 函数，以及标准冻结/Snooze 控制。
+`Custom` 分组不会显示：屏蔽行为、屏蔽网站、允许分钟数、重置间隔、日程日期或时间窗口。它保留 **Blocking Rules** 编辑器以及标准冻结/Snooze 控制。此外还有一个 **Templates** 按钮，可打开带参数的预设模板页；应用预设前会先确认，再替换当前规则。
 
 完整自定义规则和 helpers API 请见 **第 11 节**。
 
@@ -180,6 +180,16 @@ Custom Web Blocker 让你按自己定义的规则屏蔽网站和在线干扰。�
 - 同一分组下的多个标签页共享预算。它们计时同步；切换到另一个标签页也会强制刷新，立即显示当前共享时间。
 
 若同一页面被多个限时分组命中，则最严格者生效。
+
+---
+
+### 6.3 计时器（倒计时，结束后屏蔽）
+
+该模式会显示一个倒计时计时器，归零后立即屏蔽。
+
+- **Timer reset interval (hours)**（小数）：既是计时器长度，也是重置频率。例如：`24` 表示每天，`1` 表示每小时，`0.25` 表示每 15 分钟。
+
+与 **在若干分钟后屏蔽** 不同，此模式**没有**单独的 “Allowed minutes before block” 字段。计时器直接从重置间隔开始倒数，在匹配页面打开期间持续减少，归零后会一直屏蔽到下次重置。
 
 ---
 
@@ -226,15 +236,23 @@ Custom Web Blocker 让你按自己定义的规则屏蔽网站和在线干扰。�
 
 ## 9. Snooze（临时停用）
 
-Snooze 可在不解冻的情况下临时停用分组，但必须填写书面理由。
+Snooze 可在不解冻的情况下临时停用分组，现在支持延迟启动、Snooze 后冷静期、确认步骤，以及累计 Snooze 时长统计。
 
 在 **Snooze** 卡片中：
 
 - **Allow snooze for this group** — 关闭时该分组完全不可 Snooze（包括冻结期间）。
 - **Snooze for (minutes)** — 小数，Snooze 持续时长。
-- **Reason** — 必须**至少 100 个字符且超过 20 个单词**。只有两项都满足时 Start 按钮才会启用。若不满足，会在按钮旁显示行内警告。
+- **Activation delay (minutes)** — 大于等于 `0` 的小数。确认 Snooze 后，分组仍继续屏蔽，等这段延迟结束后 Snooze 才真正开始。
+- **Cooldown after snooze (minutes)** — `0` 到 `5` 之间的小数。Snooze 结束后，在冷静期结束前不能再次对该分组发起 Snooze。
+- **Times of confirmation** — 大于等于 `0` 的整数。若为 `0`，Snooze 会立即安排；否则点击 Start 后会进入恰好这么多步的确认流程。
 
-如果分组已冻结，Snooze 分钟数会锁定为冻结前设定值。只要允许 Snooze 且理由满足规则，仍可执行 Snooze。
+每一步 Snooze 确认之间都必须强制等待 **5 秒**。弹窗会明确提示这一点，并在按钮上显示实时倒计时。
+
+如果分组已冻结，Snooze 设置会锁定为冻结前设定值。只要允许 Snooze，仍可执行 Snooze，但必须使用已保存的延迟 / 冷静期 / 确认设置。
+
+Snooze 卡片还会显示该分组的 **累计 Snooze 时间**。这个累计值按 Snooze 的激活时长计算；即使该时间段内网站因为其他原因变得可访问，这段激活中的 Snooze 时间仍会完整计入。
+
+当 Snooze 结束时，规则会立即恢复。如果该分组原本不是冻结状态，扩展会在 Snooze 结束时自动把它重新冻结。
 
 状态消息会确认 Snooze 已开始。Snooze 结束后，分组会自动恢复正常。
 
@@ -262,7 +280,7 @@ Snooze 可在不解冻的情况下临时停用分组，但必须填写书面理�
 ```js
 (month, dayOfMonth, dayName, hour, minute, url, helpers) => {
   // your logic
-  return false;
+  return 0;
 }
 ```
 
@@ -278,8 +296,12 @@ Snooze 可在不解冻的情况下临时停用分组，但必须填写书面理�
 
 返回值：
 
-- `true` — 退出当前页面（与 site/timed 分组命中拦截走的是同一条退出路径）。
-- 其他任何值 — 放行。注意：在 YouTube 主页时调用 `helpers.getPlatformHelper().youtube().hideHomePage()` 也会退出页面，即使你返回的是 `false`。
+- `-1` — 屏蔽页面。
+- `0` — 不作决定，继续交给下一条规则。
+- `1` — 允许。
+- `[-255, 255]` 范围内的其他整数 — 作为自定义状态保留给调试 / 未来逻辑，目前不会单独触发允许或屏蔽。
+
+规则仍按从下到上执行。**最后一个非零状态获胜**，因此上层规则可以用 `1` 覆盖下层规则的 `-1`，反之亦然。数值返回值之外，helper 的副作用仍会生效：信息流隐藏依然隐藏，计时器依然推进等。唯一例外是由 custom rule 自身产生的页面退出意图（如 `hideHomePage()`、`blockPageOnVisit`）——若最终返回状态为 `1`，则本次心跳会抑制这些 custom-rule 级页面退出。
 
 弹窗**不会**在你输入过程中自动校验语法——否则每个未写完的中间状态都会被标红。可以点击 Blocking Rules 文本框旁的 **Check syntax** 按钮按需校验。该按钮会做三件事：
 
@@ -310,6 +332,7 @@ Snooze 可在不解冻的情况下临时停用分组，但必须填写书面理�
 - `helpers.getTimerHelper()`
 - `helpers.getPersistenceHelper()`
 - `helpers.getLogHelper()`
+- `helpers.getRedirectionHelper()`
 - `helpers.getPlatformHelper()`
 - `helpers.getDomainUtility()`
 
@@ -353,7 +376,16 @@ Snooze 可在不解冻的情况下临时停用分组，但必须填写书面理�
 
 - `log(...args)`、`warn(...args)`、`error(...args)` — 写入**页面控制台**（因为规则现在在 content script 中运行）。每行前缀为 `[CustomBlocker:groupId]`。
 
-#### 11.3.4 `getDomainUtility()`
+#### 11.3.4 `getRedirectionHelper()`
+
+用于读取 / 覆盖当前页面一旦被屏蔽时 content script 将使用的跳转 URL。
+
+- `get()` — 返回本次心跳当前生效的跳转 URL。初始值为内置分组配置的 fallback URL（如果有），否则为 `""`。
+- `set(url)` — 覆盖本次心跳的跳转 URL。成功返回 `true`，非字符串输入返回 `false`。传入 `""` 可清空跳转覆盖，此时回退到普通默认退出行为（按上下文转到主页 / `about:blank`）。
+
+和其他 custom-rule 副作用一样，这个状态在同一次心跳的所有规则之间共享。由于规则按从下到上执行，最后（也就是最上层）调用 `set(...)` 的规则获胜。
+
+#### 11.3.5 `getDomainUtility()`
 
 URL 检查工具。是旧 `domainHelper` + `platformHelper` 的合并替代。**不再提供 `normalize()`**，因为传入的 URL 已经规范化——直接传入即可。
 
@@ -367,7 +399,7 @@ URL 检查工具。是旧 `domainHelper` + `platformHelper` 的合并替代。**
   - `extractAuthor(url)` — 规范化作者句柄（如 `"mkbhd"`、`"channel:UC..."`、`"id:1234"`）或 `null`。
   - `extractVideoId(url)` — 平台特定的视频 id（`v=...`、路径段等）或 `null`。
 
-#### 11.3.5 `getPlatformHelper()`
+#### 11.3.6 `getPlatformHelper()`
 
 按平台拆分的 DOM 意图与子区域计时器。利用它你可以做到内置 `YouTube` / `TikTok` 等分组所能做的一切——并且更多，因为可由任意 JavaScript 驱动。
 
@@ -419,7 +451,7 @@ show/hide 语义（因为规则按从下到上执行）：对 `hideShortButton`/
   if (isWeekday && hour >= 9 && hour < 12) {
     helpers.getPlatformHelper().youtube().hideShortButton();
   }
-  return false;
+  return 0;
 }
 ```
 
@@ -444,7 +476,7 @@ show/hide 语义（因为规则按从下到上执行）：对 `hideShortButton`/
     persistence.set("lastDay", today);
   }
 
-  return helpers.getTimerHelper().isExpired(id);
+  return helpers.getTimerHelper().isExpired(id) ? -1 : 0;
 }
 ```
 
@@ -457,7 +489,7 @@ show/hide 语义（因为规则按从下到上执行）：对 `hideShortButton`/
     (item) => item.author && item.author.length > maxAuthorLength,
     { blockPageOnVisit: true }
   );
-  return false;
+  return 0;
 }
 ```
 
@@ -496,7 +528,7 @@ show/hide 语义（因为规则按从下到上执行）：对 `hideShortButton`/
     scope: (u) => domain.getPlatform(u) === platformOfTheDay
   });
 
-  return timer.isExpired(cap);
+  return timer.isExpired(cap) ? -1 : 0;
 }
 ```
 
@@ -571,7 +603,7 @@ show/hide 语义（因为规则按从下到上执行）：对 `hideShortButton`/
 - **Reset interval** — after-minutes 预算的重置频率。
 - **Schedule** — 分组生效的日期 + 时间窗口。
 - **Freeze / Strict freeze** — 防篡改状态。
-- **Snooze** — 需书面理由的临时停用。
+- **Snooze** — 带可配置确认流程的临时停用。
 - **Author filter** — 平台分组中用于限定特定内容创作者的筛选器。
 - **Content type** — 平台分组中用于限定内容形态（short、long、post）的筛选器。
 - **Helpers** — 传递给 custom 规则函数的工具集合。

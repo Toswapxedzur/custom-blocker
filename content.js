@@ -370,21 +370,24 @@ function makeResultBadge(entry) {
   if (entry.error) {
     span.textContent = "ERROR: " + entry.error;
     span.style.color = "#fca5a5";
-  } else if (entry.result === true) {
-    span.textContent = "\u2192 true (blocks page)";
-    span.style.color = "#fca5a5";
-  } else if (entry.result === false) {
-    span.textContent = "\u2192 false";
-    span.style.color = "#86efac";
   } else if (entry.result === undefined) {
     span.textContent = "\u2192 undefined";
     span.style.color = "#fde68a";
+  } else if (entry.result === -1) {
+    span.textContent = "\u2192 -1 (block)";
+    span.style.color = "#fca5a5";
+  } else if (entry.result === 0) {
+    span.textContent = "\u2192 0 (continue)";
+    span.style.color = "#86efac";
+  } else if (entry.result === 1) {
+    span.textContent = "\u2192 1 (allow)";
+    span.style.color = "#93c5fd";
   } else {
     let text;
     try { text = JSON.stringify(entry.result); }
     catch { text = String(entry.result); }
     span.textContent = "\u2192 " + (text === undefined ? String(entry.result) : text);
-    span.style.color = "#fde68a";
+    span.style.color = typeof entry.result === "number" ? "#c4b5fd" : "#fde68a";
   }
   return span;
 }
@@ -567,6 +570,7 @@ let pendingCustomPersistence = null;
 let pendingCustomTimersDirty = false;
 let pendingCustomPersistenceDirty = false;
 let activePlatformIntents = null; // last computed intents (for re-applying after DOM changes)
+let activeFinalRuleState = 0; // last resolved custom-rule return state (-255..255)
 let inScopeCustomTimers = []; // overlay items contributed by ticked custom timers
 
 function isExtensionContextValid() {
@@ -1374,10 +1378,9 @@ function getMainPageRedirectUrl() {
   if (hostname === "vimeo.com" || hostname.endsWith(".vimeo.com")) return "https://vimeo.com/";
   if (hostname === "dailymotion.com" || hostname.endsWith(".dailymotion.com") || hostname === "dai.ly")
     return "https://www.dailymotion.com/";
-  try {
-    const { origin } = new URL(location.href);
-    return `${origin}/`;
-  } catch { return null; }
+  // Unknown hosts should fall back to about:blank. Redirecting to `${origin}/`
+  // can trap us in a same-site reload loop when the entire host is blocked.
+  return null;
 }
 
 function isMainPageView() {
@@ -1530,9 +1533,29 @@ function ensureHeartbeat() {
 // Run a heartbeat's worth of custom rules through the sandbox iframe.
 // The iframe owns the actual `new Function` + execution; we just ferry
 // state in and read mutations + intents back out.
-async function runCustomRulesAsync(rules, currentUrl, now, elapsedMs) {
+function resolveFinalCustomRuleState(ruleResults) {
+  let finalState = 0;
+  for (const entry of ruleResults) {
+    const value = entry?.result;
+    if (typeof value === "number" && Number.isInteger(value) && value !== 0) {
+      // Rules run bottom-to-top. The last non-zero state therefore
+      // comes from the top-most rule that made a decision, which is
+      // exactly the precedence model the user asked for.
+      finalState = value;
+    }
+  }
+  return finalState;
+}
+
+async function runCustomRulesAsync(rules, currentUrl, now, elapsedMs, initialRedirectUrl) {
   if (!helperBundle) {
-    return { intentsState: null, shouldBlockFromRules: false, overlayItems: [], ruleResults: [] };
+    return {
+      intentsState: null,
+      finalRuleState: 0,
+      redirectUrl: typeof initialRedirectUrl === "string" ? initialRedirectUrl.trim() : "",
+      overlayItems: [],
+      ruleResults: []
+    };
   }
 
   // Seed per-group working state from the latest snapshot we have from
@@ -1555,6 +1578,7 @@ async function runCustomRulesAsync(rules, currentUrl, now, elapsedMs) {
     currentUrl,
     now,
     elapsedMs,
+    initialRedirectUrl: typeof initialRedirectUrl === "string" ? initialRedirectUrl.trim() : "",
     month: date.getMonth() + 1,
     dayOfMonth: date.getDate(),
     dayName: formatDayName(getDayNameForDate(date)),
@@ -1597,7 +1621,8 @@ async function runCustomRulesAsync(rules, currentUrl, now, elapsedMs) {
   } catch (error) {
     return {
       intentsState: helperBundle.createEmptyIntentsState(),
-      shouldBlockFromRules: false,
+      finalRuleState: 0,
+      redirectUrl: typeof initialRedirectUrl === "string" ? initialRedirectUrl.trim() : "",
       overlayItems: [],
       platform,
       cardsByKey,
@@ -1616,7 +1641,8 @@ async function runCustomRulesAsync(rules, currentUrl, now, elapsedMs) {
   if (response?.error) {
     return {
       intentsState: helperBundle.createEmptyIntentsState(),
-      shouldBlockFromRules: false,
+      finalRuleState: 0,
+      redirectUrl: typeof initialRedirectUrl === "string" ? initialRedirectUrl.trim() : "",
       overlayItems: [],
       platform,
       cardsByKey,
@@ -1635,7 +1661,6 @@ async function runCustomRulesAsync(rules, currentUrl, now, elapsedMs) {
   const sandboxResults = Array.isArray(response?.results) ? response.results : [];
   const displayedTimersByGroup = {};
   const ruleResults = [];
-  let shouldBlockFromRules = false;
 
   for (const r of sandboxResults) {
     const groupId = r?.groupId;
@@ -1655,7 +1680,6 @@ async function runCustomRulesAsync(rules, currentUrl, now, elapsedMs) {
         displayedTimersByGroup[groupId] = [...merged];
       }
     }
-    if (r?.result === true) shouldBlockFromRules = true;
     ruleResults.push({
       groupId: r?.groupId,
       name: r?.name,
@@ -1714,10 +1738,16 @@ async function runCustomRulesAsync(rules, currentUrl, now, elapsedMs) {
     response?.pageBlocked && typeof response.pageBlocked === "object"
       ? response.pageBlocked
       : emptyPageBlocked;
+  const finalRuleState = resolveFinalCustomRuleState(ruleResults);
+  const redirectUrl =
+    typeof response?.redirectUrl === "string"
+      ? response.redirectUrl.trim()
+      : (typeof initialRedirectUrl === "string" ? initialRedirectUrl.trim() : "");
 
   return {
     intentsState,
-    shouldBlockFromRules,
+    finalRuleState,
+    redirectUrl,
     overlayItems,
     ruleResults,
     platform,
@@ -2232,7 +2262,9 @@ async function requestFeedReapply() {
     }
 
     const pb = response?.pageBlocked || {};
-    if (pb.short || pb.long || pb.post) attemptExitPage();
+    if ((pb.short || pb.long || pb.post) && activeFinalRuleState !== 1) {
+      attemptExitPage();
+    }
   } finally {
     reapplyInFlight = false;
     if (reapplyDirty) {
@@ -2301,13 +2333,20 @@ function handleSession(session, heartbeatElapsedMs) {
   const emptyPageBlocked = { short: false, long: false, post: false };
 
   if (sessionRules.length > 0) {
-    runCustomRulesAsync(sessionRules, location.href, now, elapsedMs)
+    runCustomRulesAsync(
+      sessionRules,
+      location.href,
+      now,
+      elapsedMs,
+      typeof session.fallbackUrl === "string" ? session.fallbackUrl.trim() : ""
+    )
       .then(finalize)
       .catch((error) => {
         console.error("[CustomBlocker] runCustomRulesAsync failed.", error);
         finalize({
           intentsState: helperBundle?.createEmptyIntentsState() ?? null,
-          shouldBlockFromRules: false,
+          finalRuleState: 0,
+          redirectUrl: typeof session.fallbackUrl === "string" ? session.fallbackUrl.trim() : "",
           overlayItems: [],
           platform: null,
           cardsByKey: [],
@@ -2325,7 +2364,8 @@ function handleSession(session, heartbeatElapsedMs) {
   } else {
     finalize({
       intentsState: helperBundle?.createEmptyIntentsState() ?? null,
-      shouldBlockFromRules: false,
+      finalRuleState: 0,
+      redirectUrl: typeof session.fallbackUrl === "string" ? session.fallbackUrl.trim() : "",
       overlayItems: [],
       platform: null,
       cardsByKey: [],
@@ -2353,10 +2393,24 @@ function applyRuleResult(session, sessionRules, ruleResult) {
   // the sandbox, one boolean per content kind.
   const pb = ruleResult.pageBlocked || {};
   const predicateBlocksPage = Boolean(pb.short || pb.long || pb.post);
-  const intentBlocksPage = directBlocksPage || predicateBlocksPage;
+  const finalRuleState =
+    typeof ruleResult.finalRuleState === "number" && Number.isInteger(ruleResult.finalRuleState)
+      ? ruleResult.finalRuleState
+      : 0;
+  activeFinalRuleState = finalRuleState;
+  // Meanings:
+  //   -1 block
+  //    0 continue / no decision
+  //    1 allow
+  // Other in-range integer states are currently opaque to the engine:
+  // they are preserved for the debug overlay / future expansion but do
+  // not block or allow by themselves.
+  const shouldBlockFromRules = finalRuleState === -1;
+  const shouldAllowFromRules = finalRuleState === 1;
+  const intentBlocksPage = shouldAllowFromRules ? false : (directBlocksPage || predicateBlocksPage);
 
   const shouldExitFromBackground = Boolean(session.shouldExitPage);
-  const shouldExitPage = shouldExitFromBackground || ruleResult.shouldBlockFromRules || intentBlocksPage;
+  const shouldExitPage = shouldExitFromBackground || shouldBlockFromRules || intentBlocksPage;
 
   // Update overlay with the backend's timed items + this heartbeat's
   // in-scope custom timers.
@@ -2365,7 +2419,10 @@ function applyRuleResult(session, sessionRules, ruleResult) {
 
   updateFeedFilters(session.feedFilters);
 
-  sessionFallbackUrl = typeof session.fallbackUrl === "string" ? session.fallbackUrl.trim() : "";
+  sessionFallbackUrl =
+    typeof ruleResult.redirectUrl === "string"
+      ? ruleResult.redirectUrl.trim()
+      : (typeof session.fallbackUrl === "string" ? session.fallbackUrl.trim() : "");
   sessionSkipToNext = Boolean(session.skipToNextOnBlock);
 
   if (!shouldExitPage) consecutiveSkipCount = 0;

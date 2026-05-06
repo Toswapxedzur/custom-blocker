@@ -163,6 +163,14 @@ button,
   margin-bottom: 18px;
 }
 
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .group-list {
   display: flex;
   flex-direction: column;
@@ -532,6 +540,14 @@ textarea:disabled {
   overflow: hidden;
 }
 
+.template-modal-card {
+  width: min(1180px, 100%);
+  max-height: min(88vh, 920px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .manual-modal-header {
   display: flex;
   justify-content: space-between;
@@ -544,6 +560,146 @@ textarea:disabled {
   overflow: auto;
   padding-right: 8px;
   color: #1f2937;
+}
+
+.template-grid {
+  overflow: auto;
+  padding-right: 8px;
+  column-count: 3;
+  column-gap: 12px;
+}
+
+.template-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  color: #334155;
+  min-width: 0;
+}
+
+.template-filter-row span {
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.template-filter-scroller {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.template-filter-chip {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #334155;
+  padding: 7px 12px;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+  box-shadow: none;
+}
+
+.template-filter-chip:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.template-filter-chip.active {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.template-filter-chip:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.45);
+  outline-offset: 1px;
+}
+
+.template-filter-scroller::-webkit-scrollbar {
+  height: 8px;
+}
+
+.template-filter-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.template-filter-scroller::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.3);
+  border-radius: 999px;
+}
+
+.template-card {
+  display: inline-block;
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 14px;
+  box-sizing: border-box;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f8fbff;
+  break-inside: avoid;
+  cursor: pointer;
+}
+
+.template-card.selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.template-card h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.template-card-copy {
+  margin: 0 0 10px;
+  color: #475569;
+}
+
+.template-param-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.template-param-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+}
+
+.template-param-grid label.span-2 {
+  grid-column: span 2;
+}
+
+.template-card pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #f8fafc;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.template-card code {
+  color: inherit;
 }
 
 .manual-content h1,
