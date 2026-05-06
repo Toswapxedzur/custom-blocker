@@ -24,8 +24,6 @@ const USAGE_TIMERS_KEY = "usageTimersMs";
 const USAGE_RESET_AT_KEY = "usageResetAtMs";
 const GROUP_SNOOZES_KEY = "groupSnoozes";
 const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
-const CUSTOM_TIMERS_KEY = "customTimers";
-const CUSTOM_PERSISTENCE_KEY = "customPersistence";
 
 const DEFAULT_ALLOWED_MINUTES = 15;
 const DEFAULT_RESET_INTERVAL_HOURS = 24;
@@ -573,41 +571,6 @@ function sanitizeSnoozeTotals(value, groups) {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Custom timer / persistence buckets are stored grouped by groupId so that
-// every custom group has its own namespace.
-//
-//   customTimers[groupId][timerId] = { domain, displayName, direction,
-//                                       isPaused, currentMs }
-//   customPersistence[groupId][key] = jsonValue
-// ────────────────────────────────────────────────────────────────────────
-
-function sanitizeCustomTimers(value, allowedGroupIds) {
-  const sanitized = {};
-  if (!value || typeof value !== "object") return sanitized;
-  for (const [groupId, bucket] of Object.entries(value)) {
-    if (!allowedGroupIds || !allowedGroupIds.has(groupId)) continue;
-    sanitized[groupId] = helperBundle.sanitizeTimersBucket(bucket);
-  }
-  for (const groupId of allowedGroupIds || []) {
-    if (!sanitized[groupId]) sanitized[groupId] = {};
-  }
-  return sanitized;
-}
-
-function sanitizeCustomPersistence(value, allowedGroupIds) {
-  const sanitized = {};
-  if (!value || typeof value !== "object") return sanitized;
-  for (const [groupId, bucket] of Object.entries(value)) {
-    if (!allowedGroupIds || !allowedGroupIds.has(groupId)) continue;
-    sanitized[groupId] = helperBundle.sanitizePersistenceBucket(bucket);
-  }
-  for (const groupId of allowedGroupIds || []) {
-    if (!sanitized[groupId]) sanitized[groupId] = {};
-  }
-  return sanitized;
-}
-
-// ────────────────────────────────────────────────────────────────────────
 // Hostname helpers used by site/platform group evaluation.
 // ────────────────────────────────────────────────────────────────────────
 
@@ -1146,24 +1109,17 @@ async function loadStoredState() {
     [USAGE_TIMERS_KEY]: {},
     [USAGE_RESET_AT_KEY]: {},
     [GROUP_SNOOZES_KEY]: {},
-    [GROUP_SNOOZE_TOTALS_KEY]: {},
-    [CUSTOM_TIMERS_KEY]: {},
-    [CUSTOM_PERSISTENCE_KEY]: {}
+    [GROUP_SNOOZE_TOTALS_KEY]: {}
   });
 
   const groups = sanitizeGroups(result[BLOCKED_GROUPS_KEY]);
-  const customGroupIds = new Set(
-    groups.filter((group) => group.groupType === "custom").map((group) => group.id)
-  );
 
   return {
     groups,
     usageTimersMs: sanitizeUsageTimers(result[USAGE_TIMERS_KEY], groups),
     usageResetAtMs: sanitizeResetTimes(result[USAGE_RESET_AT_KEY], groups, now),
     groupSnoozes: sanitizeSnoozes(result[GROUP_SNOOZES_KEY], groups, now),
-    groupSnoozeTotalsMs: sanitizeSnoozeTotals(result[GROUP_SNOOZE_TOTALS_KEY], groups),
-    customTimers: sanitizeCustomTimers(result[CUSTOM_TIMERS_KEY], customGroupIds),
-    customPersistence: sanitizeCustomPersistence(result[CUSTOM_PERSISTENCE_KEY], customGroupIds)
+    groupSnoozeTotalsMs: sanitizeSnoozeTotals(result[GROUP_SNOOZE_TOTALS_KEY], groups)
   };
 }
 
@@ -1268,8 +1224,6 @@ async function getState() {
     usageResetAtMs: normalized.usageResetAtMs,
     groupSnoozes: normalized.groupSnoozes,
     groupSnoozeTotalsMs: normalized.groupSnoozeTotalsMs,
-    customTimers: baseState.customTimers,
-    customPersistence: baseState.customPersistence,
     didApplyResets: normalized.changed
   };
 }
@@ -1366,34 +1320,12 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
   return filters;
 }
 
-function getActiveCustomRules(groups, groupSnoozes, now) {
-  // Custom rules execute in the content script. Bottom-to-top order: the
-  // last group in the storage list runs first, the top group runs last and
-  // gets the "last word" on intents.
-  return reversed(groups)
-    .filter(
-      (group) =>
-        group.groupType === "custom" &&
-        group.enabled &&
-        !getActiveSnooze(group.id, groupSnoozes, now) &&
-        typeof group.blockingRulesText === "string" &&
-        group.blockingRulesText.trim()
-    )
-    .map((group) => ({
-      groupId: group.id,
-      name: group.name,
-      source: group.blockingRulesText
-    }));
-}
-
 function buildPageSession(
   pageContext,
   groups,
   usageTimersMs,
   usageResetAtMs,
   groupSnoozes,
-  customTimers,
-  customPersistence,
   now
 ) {
   const relevantGroups = getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now);
@@ -1429,15 +1361,6 @@ function buildPageSession(
     skipToNextOnBlock = blockingGroups.some((g) => g.skipToNextOnBlock);
   }
 
-  const customRules = getActiveCustomRules(groups, groupSnoozes, now);
-  const customGroupIds = customRules.map((rule) => rule.groupId);
-  const filteredTimers = {};
-  const filteredPersistence = {};
-  for (const groupId of customGroupIds) {
-    filteredTimers[groupId] = customTimers[groupId] ?? {};
-    filteredPersistence[groupId] = customPersistence[groupId] ?? {};
-  }
-
   return {
     showTimer: !blockedNow && timedItems.length > 0,
     shouldExitPage: blockedNow,
@@ -1445,9 +1368,6 @@ function buildPageSession(
     feedFilters,
     fallbackUrl,
     skipToNextOnBlock,
-    customRules,
-    customTimers: filteredTimers,
-    customPersistence: filteredPersistence,
     now
   };
 }
@@ -1521,60 +1441,7 @@ async function syncBlockingRules() {
   await scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now);
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Custom timer / persistence flush. The content script sends back the
-// state it locally mutated while running the rules; this function merges
-// it into storage scoped to the groups the sender is allowed to touch.
-// ────────────────────────────────────────────────────────────────────────
-
-async function flushCustomState(stateUpdate) {
-  if (!stateUpdate || typeof stateUpdate !== "object") return;
-  const { customTimers: newTimers, customPersistence: newPersistence } = stateUpdate;
-  if (
-    (!newTimers || typeof newTimers !== "object") &&
-    (!newPersistence || typeof newPersistence !== "object")
-  ) {
-    return;
-  }
-
-  const stored = await chrome.storage.local.get({
-    [BLOCKED_GROUPS_KEY]: [],
-    [CUSTOM_TIMERS_KEY]: {},
-    [CUSTOM_PERSISTENCE_KEY]: {}
-  });
-  const groups = sanitizeGroups(stored[BLOCKED_GROUPS_KEY]);
-  const customGroupIds = new Set(
-    groups.filter((group) => group.groupType === "custom").map((group) => group.id)
-  );
-
-  const currentTimers = sanitizeCustomTimers(stored[CUSTOM_TIMERS_KEY], customGroupIds);
-  const currentPersistence = sanitizeCustomPersistence(stored[CUSTOM_PERSISTENCE_KEY], customGroupIds);
-
-  if (newTimers && typeof newTimers === "object") {
-    for (const [groupId, bucket] of Object.entries(newTimers)) {
-      if (!customGroupIds.has(groupId)) continue;
-      currentTimers[groupId] = helperBundle.sanitizeTimersBucket(bucket);
-    }
-  }
-
-  if (newPersistence && typeof newPersistence === "object") {
-    for (const [groupId, bucket] of Object.entries(newPersistence)) {
-      if (!customGroupIds.has(groupId)) continue;
-      currentPersistence[groupId] = helperBundle.sanitizePersistenceBucket(bucket);
-    }
-  }
-
-  await chrome.storage.local.set({
-    [CUSTOM_TIMERS_KEY]: currentTimers,
-    [CUSTOM_PERSISTENCE_KEY]: currentPersistence
-  });
-}
-
-async function applyElapsedTime(pageContextInput, elapsedMs, customStateUpdate) {
-  if (customStateUpdate) {
-    await flushCustomState(customStateUpdate);
-  }
-
+async function applyElapsedTime(pageContextInput, elapsedMs) {
   const pageContext = normalizePageContext(pageContextInput);
   if (!pageContext.hostname) {
     return {
@@ -1584,9 +1451,6 @@ async function applyElapsedTime(pageContextInput, elapsedMs, customStateUpdate) 
       feedFilters: [],
       fallbackUrl: "",
       skipToNextOnBlock: false,
-      customRules: [],
-      customTimers: {},
-      customPersistence: {},
       now: Date.now()
     };
   }
@@ -1601,8 +1465,6 @@ async function applyElapsedTime(pageContextInput, elapsedMs, customStateUpdate) 
     usageTimersMs,
     usageResetAtMs,
     groupSnoozes,
-    customTimers,
-    customPersistence,
     didApplyResets
   } = await getState();
 
@@ -1621,8 +1483,6 @@ async function applyElapsedTime(pageContextInput, elapsedMs, customStateUpdate) 
       usageTimersMs,
       usageResetAtMs,
       groupSnoozes,
-      customTimers,
-      customPersistence,
       now
     );
   }
@@ -1658,16 +1518,11 @@ async function applyElapsedTime(pageContextInput, elapsedMs, customStateUpdate) 
     nextTimers,
     usageResetAtMs,
     groupSnoozes,
-    customTimers,
-    customPersistence,
     now
   );
 }
 
-async function getPageSession(pageContextInput, customStateUpdate) {
-  if (customStateUpdate) {
-    await flushCustomState(customStateUpdate);
-  }
+async function getPageSession(pageContextInput) {
   await waitForUsageTimerUpdates();
 
   const pageContext = normalizePageContext(pageContextInput);
@@ -1679,9 +1534,6 @@ async function getPageSession(pageContextInput, customStateUpdate) {
       feedFilters: [],
       fallbackUrl: "",
       skipToNextOnBlock: false,
-      customRules: [],
-      customTimers: {},
-      customPersistence: {},
       now: Date.now()
     };
   }
@@ -1692,8 +1544,6 @@ async function getPageSession(pageContextInput, customStateUpdate) {
     usageTimersMs,
     usageResetAtMs,
     groupSnoozes,
-    customTimers,
-    customPersistence,
     didApplyResets
   } = await getState();
 
@@ -1705,8 +1555,6 @@ async function getPageSession(pageContextInput, customStateUpdate) {
     usageTimersMs,
     usageResetAtMs,
     groupSnoozes,
-    customTimers,
-    customPersistence,
     now
   );
 }
@@ -1752,7 +1600,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "get-page-session") {
-    getPageSession(message.pageContext ?? message.hostname, message.customStateUpdate)
+    getPageSession(message.pageContext ?? message.hostname)
       .then((payload) => sendResponse(payload))
       .catch((error) => {
         console.error("Failed to build page session.", error);
@@ -1763,9 +1611,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           feedFilters: [],
           fallbackUrl: "",
           skipToNextOnBlock: false,
-          customRules: [],
-          customTimers: {},
-          customPersistence: {},
           now: Date.now()
         });
       });
@@ -1774,11 +1619,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "track-page-time") {
     queueUsageTimerUpdate(() =>
-      applyElapsedTime(
-        message.pageContext ?? message.hostname,
-        message.elapsedMs,
-        message.customStateUpdate
-      )
+      applyElapsedTime(message.pageContext ?? message.hostname, message.elapsedMs)
     )
       .then((payload) => sendResponse(payload))
       .catch((error) => {
@@ -1790,21 +1631,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           feedFilters: [],
           fallbackUrl: "",
           skipToNextOnBlock: false,
-          customRules: [],
-          customTimers: {},
-          customPersistence: {},
           now: Date.now()
         });
-      });
-    return true;
-  }
-
-  if (message?.type === "flush-custom-state") {
-    queueUsageTimerUpdate(() => flushCustomState(message.customStateUpdate))
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => {
-        console.error("Failed to flush custom state.", error);
-        sendResponse({ ok: false });
       });
     return true;
   }
@@ -1819,4 +1647,565 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   syncBlockingRules().catch((error) => {
     console.error("Failed to sync blocking rules after storage update.", error);
   });
+  if (changes[BLOCKED_GROUPS_KEY]) {
+    reconcileCustomGroupHandlers(changes[BLOCKED_GROUPS_KEY]).catch((error) => {
+      console.error("Failed to reconcile custom-group handlers.", error);
+    });
+  }
 });
+
+// ────────────────────────────────────────────────────────────────────────
+// EVENT-DRIVEN CUSTOM-RULE DISPATCHER
+//
+// Custom rules now run inside the long-lived event sandbox, hosted by an
+// offscreen document. The background script:
+//   • owns the offscreen lifecycle
+//   • watches tab + webNavigation events and dispatches openWebEvent /
+//     closeWebEvent / switchWebEvent / switchDomainEvent
+//   • runs a 1 s shared tickEvent alarm
+//   • forwards Run/Disable/Enable/Delete actions from the popup to the
+//     event sandbox so it can register/unregister handlers
+//   • applies any DOM/navigation intents the sandbox returns by sending
+//     them to the matching content scripts
+// ────────────────────────────────────────────────────────────────────────
+
+const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
+const ACTIVE_EVENT_SOURCE_KEY = "activeEventSource"; // reuse on group object
+const TICK_ALARM_NAME = "custom-blocker-event-tick";
+// Chrome alarms have a 1-minute floor in production. The shared 1 s
+// tickEvent is driven from the long-lived offscreen document, which
+// simply pings the background once per second; the alarm below is a
+// service-worker keepalive / safety net so we still tick (less often)
+// even if the offscreen document is in a weird state.
+const TICK_ALARM_PERIOD_MINUTES = 1;
+
+const previousTabUrls = new Map(); // tabId -> { url, hostname }
+const pendingApplyByTab = new Map(); // tabId -> Array<applyMessage>
+const PENDING_APPLY_MAX_PER_TAB = 32;
+
+async function ensureOffscreenDocument() {
+  if (!chrome.offscreen || typeof chrome.offscreen.createDocument !== "function") {
+    return false;
+  }
+  try {
+    const has = chrome.offscreen.hasDocument
+      ? await chrome.offscreen.hasDocument()
+      : false;
+    if (has) return true;
+  } catch {}
+  try {
+    await chrome.offscreen.createDocument({
+      url: OFFSCREEN_DOCUMENT_PATH,
+      reasons: ["IFRAME_SCRIPTING"],
+      justification: "Hosts the persistent custom-rule event sandbox."
+    });
+    return true;
+  } catch (error) {
+    if (String(error && error.message).includes("already")) return true;
+    console.warn("[CustomBlocker] failed to create offscreen document", error);
+    return false;
+  }
+}
+
+async function sendToEventSandbox(payload) {
+  await ensureOffscreenDocument();
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "event-sandbox-request",
+      payload
+    });
+    return response && response.ok ? response.result : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function loadCustomGroupSource(group) {
+  if (!group || group.groupType !== "custom") return null;
+  if (!group.enabled) {
+    await sendToEventSandbox({ kind: "unload-group", groupId: group.id });
+    refreshHandlerCount();
+    return { ok: true, handlers: 0, error: null };
+  }
+  const source = typeof group.activeEventSource === "string" ? group.activeEventSource : "";
+  if (!source.trim()) {
+    await sendToEventSandbox({ kind: "unload-group", groupId: group.id });
+    refreshHandlerCount();
+    return { ok: true, handlers: 0, error: null };
+  }
+  const result = await sendToEventSandbox({
+    kind: "load-source",
+    groupId: group.id,
+    source
+  });
+  refreshHandlerCount();
+  return result;
+}
+
+async function unloadCustomGroupHandlers(groupId) {
+  return await sendToEventSandbox({ kind: "unload-group", groupId });
+}
+
+let lastReconcileSnapshot = new Map();
+
+async function reconcileCustomGroupHandlers(change) {
+  const newGroups = Array.isArray(change?.newValue) ? change.newValue : [];
+  const previous = lastReconcileSnapshot;
+  const next = new Map();
+  for (const group of newGroups) {
+    if (!group || group.groupType !== "custom") continue;
+    next.set(group.id, {
+      enabled: Boolean(group.enabled),
+      activeEventSource: typeof group.activeEventSource === "string" ? group.activeEventSource : ""
+    });
+  }
+  // Groups that disappeared
+  for (const [groupId] of previous.entries()) {
+    if (!next.has(groupId)) {
+      await unloadCustomGroupHandlers(groupId);
+    }
+  }
+  // Groups that toggled or changed source
+  for (const [groupId, snapshot] of next.entries()) {
+    const before = previous.get(groupId);
+    if (
+      !before ||
+      before.enabled !== snapshot.enabled ||
+      before.activeEventSource !== snapshot.activeEventSource
+    ) {
+      const group = newGroups.find((g) => g.id === groupId);
+      await loadCustomGroupSource(group);
+    }
+  }
+  lastReconcileSnapshot = next;
+}
+
+async function loadAllCustomGroupsAtStartup() {
+  try {
+    const result = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
+    const groups = Array.isArray(result[BLOCKED_GROUPS_KEY]) ? result[BLOCKED_GROUPS_KEY] : [];
+    lastReconcileSnapshot = new Map();
+    for (const group of groups) {
+      if (!group || group.groupType !== "custom") continue;
+      lastReconcileSnapshot.set(group.id, {
+        enabled: Boolean(group.enabled),
+        activeEventSource: typeof group.activeEventSource === "string" ? group.activeEventSource : ""
+      });
+      await loadCustomGroupSource(group);
+    }
+    console.log("[CustomBlocker] startup load complete; handler count =", cachedHandlerCount);
+  } catch (error) {
+    console.warn("[CustomBlocker] startup load of custom groups failed", error);
+  }
+}
+
+// Startup gate: every dispatch awaits this so a webNavigation event
+// arriving immediately after a service-worker restart doesn't fan out
+// against an empty handler registry.
+let startupGate = null;
+function ensureStartupGate() {
+  if (!startupGate) {
+    startupGate = loadAllCustomGroupsAtStartup();
+  }
+  return startupGate;
+}
+
+let cachedHandlerCount = 0;
+async function refreshHandlerCount() {
+  try {
+    const r = await sendToEventSandbox({ kind: "list-handlers", groupId: null });
+    if (r && Array.isArray(r.handlers)) {
+      cachedHandlerCount = r.handlers.length;
+    }
+  } catch {}
+  return cachedHandlerCount;
+}
+
+function todayContext(now = Date.now()) {
+  const date = new Date(now);
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return {
+    now,
+    month: date.getMonth() + 1,
+    dayOfMonth: date.getDate(),
+    dayName: dayNames[date.getDay()],
+    hour: date.getHours(),
+    minute: date.getMinutes()
+  };
+}
+
+function normalizeUrlForEvents(url) {
+  if (typeof url !== "string" || !url) return "";
+  const lowered = url.toLowerCase();
+  if (lowered === "about:blank" || lowered.startsWith("about:blank")) return "";
+  if (lowered === "about:newtab") return "";
+  if (lowered.startsWith("chrome://newtab")) return "";
+  if (lowered.startsWith("chrome://new-tab-page")) return "";
+  if (lowered.startsWith("chrome-search://")) return "";
+  if (lowered.startsWith("chrome-native://newtab")) return "";
+  if (lowered.startsWith("edge://newtab")) return "";
+  if (lowered.startsWith("edge://new-tab-page")) return "";
+  if (lowered.startsWith("brave://newtab")) return "";
+  if (lowered.startsWith("brave://new-tab-page")) return "";
+  if (lowered.startsWith("opera://startpage")) return "";
+  if (lowered.startsWith("vivaldi://startpage")) return "";
+  return url;
+}
+
+function hostnameOf(url) {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+async function gatherTabsSnapshot() {
+  try {
+    const tabs = await chrome.tabs.query({});
+    return tabs
+      .filter((t) => t && typeof t.id === "number")
+      .map((t) => ({
+        id: t.id,
+        url: normalizeUrlForEvents(t.url || ""),
+        title: t.title || "",
+        active: Boolean(t.active),
+        windowId: t.windowId
+      }));
+  } catch {
+    return [];
+  }
+}
+
+async function dispatchToSandbox(descriptor) {
+  return await sendToEventSandbox({
+    kind: "dispatch-event",
+    descriptor
+  });
+}
+
+function enqueueApply(tabId, message) {
+  const list = pendingApplyByTab.get(tabId) || [];
+  list.push(message);
+  while (list.length > PENDING_APPLY_MAX_PER_TAB) list.shift();
+  pendingApplyByTab.set(tabId, list);
+}
+
+async function trySendApply(tabId, message) {
+  try {
+    await chrome.tabs.sendMessage(tabId, message);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function applySandboxResultToTab(tabId, result, descriptor) {
+  if (!result || typeof tabId !== "number") return;
+  // Aggregate logs from the main dispatch + any synthResults (posted
+  // events, timerEnded). Each entry: { level, groupId, args }.
+  const logs = Array.isArray(result.logs) ? result.logs.slice() : [];
+  const domOps = Array.isArray(result.domOps) ? result.domOps.slice() : [];
+  const intents = Array.isArray(result.intents) ? result.intents.slice() : [];
+  if (Array.isArray(result.synthResults)) {
+    for (const synth of result.synthResults) {
+      const sr = synth && synth.result;
+      if (!sr) continue;
+      if (Array.isArray(sr.logs)) logs.push(...sr.logs);
+      if (Array.isArray(sr.domOps)) domOps.push(...sr.domOps);
+      if (Array.isArray(sr.intents)) intents.push(...sr.intents);
+    }
+  }
+  // Skip empty applies (they would only spam the per-tab queue with
+  // ticks that have no observable side effect).
+  if (logs.length === 0 && domOps.length === 0 && intents.length === 0 &&
+      !result.defaultPrevented && !result.redirectUrl &&
+      typeof result.result !== "string") {
+    return;
+  }
+  const message = {
+    type: "event-sandbox-apply",
+    descriptor,
+    defaultPrevented: Boolean(result.defaultPrevented),
+    result: result.result ?? null,
+    redirectUrl: result.redirectUrl || "",
+    domOps,
+    intents,
+    logs
+  };
+  const sent = await trySendApply(tabId, message);
+  if (!sent) {
+    // Content script not ready yet (very common right after
+    // webNavigation.onCommitted: the openWebEvent dispatch is faster
+    // than content_scripts run_at: document_idle). Queue it; we will
+    // flush on the next "content-ready" handshake from this tab.
+    enqueueApply(tabId, message);
+  }
+}
+
+async function dispatchEventToTab(type, tabInfo, extras = {}) {
+  // Wait for the startup loader to finish so handlers are registered.
+  // This is critical right after a SW restart: webNavigation events can
+  // arrive before loadAllCustomGroupsAtStartup has had a chance to
+  // re-load the active sources into the freshly-spawned sandbox.
+  await ensureStartupGate();
+
+  const url = normalizeUrlForEvents(tabInfo?.url || "");
+  const descriptor = {
+    type,
+    tabId: tabInfo?.tabId ?? null,
+    pageId: tabInfo?.pageId ?? null,
+    url,
+    hostname: hostnameOf(url),
+    time: todayContext(),
+    data: extras.data || null,
+    targetGroupId: extras.targetGroupId || null
+  };
+  const result = await dispatchToSandbox(descriptor);
+  console.log("[CustomBlocker] dispatch", type, "→ tab", descriptor.tabId,
+    "url:", url, "logs:", (result?.logs?.length ?? 0),
+    "handlers:", cachedHandlerCount);
+  await applySandboxResultToTab(descriptor.tabId, result, descriptor);
+  return result;
+}
+
+// Tab + webNavigation watchers
+if (chrome.tabs && chrome.tabs.onCreated) {
+  chrome.tabs.onCreated.addListener(async (tab) => {
+    if (!tab || typeof tab.id !== "number") return;
+    const url = tab.url || tab.pendingUrl || "";
+    previousTabUrls.set(tab.id, { url, hostname: hostnameOf(url) });
+    await dispatchEventToTab("openWebEvent", { tabId: tab.id, url }, { data: { isNewTab: true, previousUrl: null } });
+  });
+}
+
+if (chrome.tabs && chrome.tabs.onRemoved) {
+  chrome.tabs.onRemoved.addListener(async (tabId, _info) => {
+    const previous = previousTabUrls.get(tabId);
+    previousTabUrls.delete(tabId);
+    await dispatchEventToTab(
+      "closeWebEvent",
+      { tabId, url: previous?.url || "" },
+      { data: { reason: "tabClosed", nextUrl: null } }
+    );
+  });
+}
+
+if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
+  chrome.webNavigation.onCommitted.addListener(async (details) => {
+    if (!details || details.frameId !== 0) return;
+    const tabId = details.tabId;
+    if (typeof tabId !== "number" || tabId < 0) return;
+    const previous = previousTabUrls.get(tabId);
+    const previousUrl = previous?.url || null;
+    const previousHost = previous?.hostname || "";
+    const nextUrl = details.url || "";
+    const nextHost = hostnameOf(nextUrl);
+    previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
+
+    if (!previous) {
+      await dispatchEventToTab("openWebEvent", { tabId, url: nextUrl }, { data: { previousUrl: null, isNewTab: true } });
+    } else if (previousHost && previousHost !== nextHost) {
+      await dispatchEventToTab(
+        "switchDomainEvent",
+        { tabId, url: nextUrl },
+        { data: { previousUrl, previousHostname: previousHost } }
+      );
+      await dispatchEventToTab(
+        "switchWebEvent",
+        { tabId, url: nextUrl },
+        { data: { previousUrl, previousHostname: previousHost, sameDomain: false } }
+      );
+    } else if (previousUrl !== nextUrl) {
+      await dispatchEventToTab(
+        "switchWebEvent",
+        { tabId, url: nextUrl },
+        { data: { previousUrl, previousHostname: previousHost, sameDomain: true } }
+      );
+    }
+  });
+}
+
+if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
+  chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
+    if (!details || details.frameId !== 0) return;
+    const tabId = details.tabId;
+    if (typeof tabId !== "number" || tabId < 0) return;
+    const previous = previousTabUrls.get(tabId);
+    const previousUrl = previous?.url || null;
+    const previousHost = previous?.hostname || "";
+    const nextUrl = details.url || "";
+    const nextHost = hostnameOf(nextUrl);
+    previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
+    if (previousUrl && previousUrl !== nextUrl) {
+      await dispatchEventToTab(
+        "switchWebEvent",
+        { tabId, url: nextUrl },
+        { data: { previousUrl, previousHostname: previousHost, sameDomain: previousHost === nextHost } }
+      );
+      if (previousHost && previousHost !== nextHost) {
+        await dispatchEventToTab(
+          "switchDomainEvent",
+          { tabId, url: nextUrl },
+          { data: { previousUrl, previousHostname: previousHost } }
+        );
+      }
+    }
+  });
+}
+
+// Shared tickEvent — fires once per second across all open tabs.
+async function emitTickToAllTabs() {
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (!tab || typeof tab.id !== "number") continue;
+    await dispatchEventToTab(
+      "tickEvent",
+      { tabId: tab.id, url: tab.url || "" },
+      { data: { intervalMs: 1000 } }
+    );
+  }
+}
+
+if (chrome.alarms) {
+  chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (!alarm || alarm.name !== TICK_ALARM_NAME) return;
+    await emitTickToAllTabs();
+  });
+  chrome.alarms.create(TICK_ALARM_NAME, { periodInMinutes: TICK_ALARM_PERIOD_MINUTES });
+}
+
+// Popup / external request handlers for Run, post, list.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || typeof message !== "object") return false;
+
+  if (message.type === "run-custom-group") {
+    (async () => {
+      const groupId = String(message.groupId || "");
+      if (!groupId) return sendResponse({ ok: false, error: "missing groupId" });
+      const result = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
+      const groups = Array.isArray(result[BLOCKED_GROUPS_KEY]) ? result[BLOCKED_GROUPS_KEY] : [];
+      const idx = groups.findIndex((g) => g && g.id === groupId);
+      if (idx < 0) return sendResponse({ ok: false, error: "group not found" });
+      const group = groups[idx];
+      // The popup's "Run" button always sends the textarea contents, so
+      // message.source is the source of truth. We fall back to the
+      // group's saved blockingRulesText so a service-worker restart can
+      // also re-run the group without a popup roundtrip.
+      const sourceText = typeof message.source === "string"
+        ? message.source
+        : (typeof group.blockingRulesText === "string" ? group.blockingRulesText : "");
+      const next = { ...group, activeEventSource: sourceText };
+      groups[idx] = next;
+      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
+      const loadResult = await loadCustomGroupSource(next);
+      sendResponse({ ok: true, loadResult });
+    })();
+    return true;
+  }
+
+  if (message.type === "unload-custom-group") {
+    (async () => {
+      const groupId = String(message.groupId || "");
+      if (!groupId) return sendResponse({ ok: false });
+      const r = await unloadCustomGroupHandlers(groupId);
+      sendResponse({ ok: true, result: r });
+    })();
+    return true;
+  }
+
+  if (message.type === "list-handlers") {
+    (async () => {
+      const r = await sendToEventSandbox({ kind: "list-handlers", groupId: message.groupId });
+      sendResponse({ ok: true, result: r });
+    })();
+    return true;
+  }
+
+  if (message.type === "offscreen-tick") {
+    emitTickToAllTabs().catch(() => {});
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (message.type === "content-ready") {
+    const tabId = sender?.tab?.id;
+    if (typeof tabId !== "number") {
+      sendResponse({ ok: false });
+      return false;
+    }
+    const queued = pendingApplyByTab.get(tabId) || [];
+    pendingApplyByTab.delete(tabId);
+    // Refresh the handler-count cache asynchronously; no blocking.
+    refreshHandlerCount();
+    sendResponse({
+      ok: true,
+      pending: queued,
+      handlerCount: cachedHandlerCount
+    });
+    return false;
+  }
+
+  if (message.type === "test-fire-active-tab") {
+    (async () => {
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const active = tabs && tabs[0];
+        if (!active || typeof active.id !== "number") {
+          sendResponse({ ok: false, error: "no active tab" });
+          return;
+        }
+        const open = await dispatchEventToTab(
+          "openWebEvent",
+          { tabId: active.id, url: active.url || "" },
+          { data: { previousUrl: null, isNewTab: false, syntheticTestFire: true } }
+        );
+        const sw = await dispatchEventToTab(
+          "switchWebEvent",
+          { tabId: active.id, url: active.url || "" },
+          { data: { previousUrl: active.url || null, sameDomain: true, syntheticTestFire: true } }
+        );
+        sendResponse({
+          ok: true,
+          dispatchedTo: active.id,
+          url: active.url,
+          openLogs: open?.logs?.length ?? 0,
+          switchLogs: sw?.logs?.length ?? 0,
+          handlerCount: cachedHandlerCount
+        });
+      } catch (error) {
+        sendResponse({ ok: false, error: String(error && error.message ? error.message : error) });
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === "post-custom-event") {
+    (async () => {
+      const descriptor = {
+        type: String(message.eventType || ""),
+        url: normalizeUrlForEvents(message.url || ""),
+        hostname: hostnameOf(message.url || ""),
+        time: todayContext(),
+        data: message.data || null,
+        targetGroupId: message.scope === "global" ? null : (message.groupId || null),
+        tabId: typeof message.tabId === "number" ? message.tabId : null
+      };
+      const r = await dispatchToSandbox(descriptor);
+      sendResponse({ ok: true, result: r });
+    })();
+    return true;
+  }
+
+  return false;
+});
+
+// Run startup loader once the SW spins up. Future dispatches await
+// `startupGate`, so events that fire before this resolves wait their
+// turn instead of being dispatched against an empty registry.
+ensureStartupGate().catch((error) => {
+  console.error("[CustomBlocker] startup loader threw", error);
+});
+

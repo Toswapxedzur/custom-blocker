@@ -691,58 +691,360 @@
   // had hidden.
   // ────────────────────────────────────────────────────────────────────────
 
-  function createEmptyIntentsState() {
-    const state = {};
-    for (const platform of PLATFORM_LIST) {
-      state[platform] = {
-        shortButton: null,
-        homePage: null,
-        shortsPredicates: [],
-        videosPredicates: [],
-        postsPredicates: []
-      };
-    }
-    return state;
+  // ────────────────────────────────────────────────────────────────────────
+  // EVENT-DRIVEN CUSTOM RULES (v1.1+)
+  //
+  // The new custom-rule engine runs in a long-lived offscreen sandbox.
+  // Source code is executed exactly once per Run click and registers
+  // event handlers via an Events registry. The helpers below are built
+  // per group and per event dispatch and route side effects through an
+  // `accumulator` that the host (background) reads after dispatch and
+  // forwards to content scripts.
+  // ────────────────────────────────────────────────────────────────────────
+
+  // Hosts treated as the "default new-tab / search start" surface and
+  // exposed to rules as the empty URL "". Includes Chromium new-tab
+  // pages (which Chrome renders with the Google search bar) and
+  // about:blank.
+  function isEmptyStartPage(url) {
+    if (typeof url !== "string" || !url) return true;
+    const lowered = url.toLowerCase();
+    if (lowered === "about:blank" || lowered.startsWith("about:blank")) return true;
+    if (lowered === "about:newtab") return true;
+    if (lowered.startsWith("chrome://newtab")) return true;
+    if (lowered.startsWith("chrome://new-tab-page")) return true;
+    if (lowered.startsWith("chrome-search://")) return true;
+    if (lowered.startsWith("chrome-native://newtab")) return true;
+    if (lowered.startsWith("edge://newtab")) return true;
+    if (lowered.startsWith("edge://new-tab-page")) return true;
+    if (lowered.startsWith("brave://newtab")) return true;
+    if (lowered.startsWith("brave://new-tab-page")) return true;
+    if (lowered.startsWith("opera://startpage")) return true;
+    if (lowered.startsWith("vivaldi://startpage")) return true;
+    return false;
   }
 
-  function createPlatformHelper(ctx) {
-    const { intentsState, getTimerHelper } = ctx;
+  function normalizeUrlForEvents(url) {
+    if (isEmptyStartPage(url)) return "";
+    return typeof url === "string" ? url : "";
+  }
+
+  // Domain helper additions per the event-driven plan (plus the original
+  // urlOps for back-compat with the existing rule placeholder).
+  function createEventDomainHelper() {
+    const base = createDomainUtility();
+
+    function toRegexList(input) {
+      if (!input) return [];
+      const list = Array.isArray(input) ? input : [input];
+      return list
+        .map((entry) => {
+          if (entry instanceof RegExp) return entry;
+          if (typeof entry === "string" && entry) {
+            try { return new RegExp(entry); } catch { return null; }
+          }
+          return null;
+        })
+        .filter(Boolean);
+    }
+
+    return {
+      ...base,
+      isEmptyStartPage,
+      matchesAny(url, patterns) {
+        const u = typeof url === "string" ? url : "";
+        for (const pattern of toRegexList(patterns)) {
+          if (pattern.test(u)) return true;
+        }
+        return false;
+      },
+      pathStartsWith(url, path) {
+        const p = base.pathnameOf(url);
+        if (typeof path !== "string" || !path) return false;
+        const target = path.startsWith("/") ? path : "/" + path;
+        return p === target || p.startsWith(target.endsWith("/") ? target : target + "/");
+      },
+      queryHas(url, key, value) {
+        const parsed = safeUrl(url);
+        if (!parsed || typeof key !== "string" || !key) return false;
+        if (!parsed.searchParams.has(key)) return false;
+        if (value === undefined) return true;
+        return parsed.searchParams.get(key) === String(value);
+      },
+      queryGet(url, key) {
+        const parsed = safeUrl(url);
+        if (!parsed || typeof key !== "string" || !key) return null;
+        return parsed.searchParams.get(key);
+      },
+      isSearchPage(url) {
+        const parsed = safeUrl(url);
+        if (!parsed) return false;
+        const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+        const path = parsed.pathname || "/";
+        if (host === "google.com" && path === "/search" && parsed.searchParams.has("q")) return true;
+        if (host === "bing.com" && path === "/search" && parsed.searchParams.has("q")) return true;
+        if (host === "duckduckgo.com" && parsed.searchParams.has("q")) return true;
+        if (host === "youtube.com" && path === "/results" && parsed.searchParams.has("search_query")) return true;
+        if (host === "reddit.com" && path.startsWith("/search")) return true;
+        if (host === "twitter.com" && path === "/search") return true;
+        if (host === "x.com" && path === "/search") return true;
+        return false;
+      },
+      isInfiniteFeedUrl(url) {
+        const parsed = safeUrl(url);
+        if (!parsed) return false;
+        const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+        const path = parsed.pathname || "/";
+        if (isYouTubeHost(host) && (path === "/" || path.startsWith("/feed/") || path.startsWith("/shorts"))) return true;
+        if (isTikTokHost(host)) return true;
+        if (isInstagramHost(host) && (path === "/" || path.startsWith("/reels") || path === "/explore" || path.startsWith("/explore/"))) return true;
+        if (isFacebookHost(host) && (path === "/" || path.startsWith("/watch") || path.startsWith("/reel"))) return true;
+        if (isRedditHost(host) && (path === "/" || path.startsWith("/r/") || path.startsWith("/best") || path.startsWith("/popular"))) return true;
+        if (host === "x.com" || host === "twitter.com") return true;
+        return false;
+      },
+      sameSection(a, b) {
+        const ha = base.hostnameOf(a);
+        const hb = base.hostnameOf(b);
+        if (!ha || !hb || ha !== hb) return false;
+        const pa = (base.pathnameOf(a) || "/").split("/").filter(Boolean)[0] || "";
+        const pb = (base.pathnameOf(b) || "/").split("/").filter(Boolean)[0] || "";
+        return pa === pb;
+      }
+    };
+  }
+
+  // Helpers receive an `accumulatorRef` — a thunk that returns the
+  // *current* dispatch accumulator each time a method is called. This is
+  // what makes the registration-time captured `helpers` object work
+  // across many later dispatches: the user can stash `const log =
+  // helpers.getLogHelper()` outside any handler and the log calls inside
+  // every handler will still write into the right dispatch's logs,
+  // because the lookup is dynamic, not bound at construction.
+  function ensureAccumulatorShape(accumulator) {
+    accumulator.intents = accumulator.intents || [];
+    accumulator.logs = accumulator.logs || [];
+    accumulator.domOps = accumulator.domOps || [];
+    if (accumulator.redirectUrl === undefined) accumulator.redirectUrl = null;
+    return accumulator;
+  }
+
+  function createDOMHelper(accumulatorRef) {
+    function record(op) {
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      acc.domOps.push(op);
+    }
+    return {
+      hide(selector) { if (typeof selector === "string" && selector) record({ kind: "hide", selector }); },
+      show(selector) { if (typeof selector === "string" && selector) record({ kind: "show", selector }); },
+      addClass(selector, className) {
+        if (typeof selector === "string" && typeof className === "string") {
+          record({ kind: "addClass", selector, className });
+        }
+      },
+      removeClass(selector, className) {
+        if (typeof selector === "string" && typeof className === "string") {
+          record({ kind: "removeClass", selector, className });
+        }
+      },
+      setText(selector, text) {
+        if (typeof selector === "string" && typeof text === "string") {
+          record({ kind: "setText", selector, text });
+        }
+      },
+      click(selector) {
+        if (typeof selector === "string" && selector) record({ kind: "click", selector });
+      },
+      injectCss(css, id) {
+        if (typeof css === "string" && css) record({ kind: "injectCss", css, id: typeof id === "string" ? id : null });
+      },
+      removeInjectedCss(id) {
+        if (typeof id === "string" && id) record({ kind: "removeInjectedCss", id });
+      },
+      scrollTo(selector) {
+        if (typeof selector === "string" && selector) record({ kind: "scrollTo", selector });
+      }
+    };
+  }
+
+  function createNavigationHelper(accumulatorRef, eventTabIdRef) {
+    function record(op) {
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      const tabId = typeof eventTabIdRef === "function" ? eventTabIdRef() : (eventTabIdRef ?? null);
+      acc.intents.push({ kind: "navigation", op, tabId });
+    }
+    return {
+      back() { record({ action: "back" }); },
+      forward() { record({ action: "forward" }); },
+      reload() { record({ action: "reload" }); },
+      goTo(url) {
+        if (typeof url === "string" && url) record({ action: "goTo", url });
+      },
+      closeTab() { record({ action: "closeTab" }); }
+    };
+  }
+
+  function createStorageHelper(persistenceBucket, accumulatorRef) {
+    const persistence = createPersistenceHelper(persistenceBucket);
+    return {
+      ...persistence,
+      requestAsyncGet(key) {
+        if (typeof key !== "string" || !key) return false;
+        const acc = ensureAccumulatorShape(accumulatorRef.get());
+        acc.intents.push({ kind: "storage", action: "get", key });
+        return true;
+      },
+      requestAsyncSet(key, value) {
+        if (typeof key !== "string" || !key) return false;
+        const cloned = safeCloneJson(value);
+        if (cloned === undefined) return false;
+        const acc = ensureAccumulatorShape(accumulatorRef.get());
+        acc.intents.push({ kind: "storage", action: "set", key, value: cloned });
+        return true;
+      }
+    };
+  }
+
+  function createTabHelper(accumulatorRef, dispatchContextRef) {
+    function snapshot() {
+      const ctx = typeof dispatchContextRef === "function" ? dispatchContextRef() : (dispatchContextRef || {});
+      return Array.isArray(ctx.tabsSnapshot) ? ctx.tabsSnapshot : [];
+    }
+    return {
+      list() { return snapshot().slice(); },
+      getActiveTab() { return snapshot().find((t) => t && t.active) || null; },
+      getById(id) { return snapshot().find((t) => t && t.id === id) || null; },
+      countOpen() { return snapshot().length; },
+      requestRefresh() {
+        const acc = ensureAccumulatorShape(accumulatorRef.get());
+        acc.intents.push({ kind: "tab", action: "refresh" });
+      }
+    };
+  }
+
+  function createEventLogHelper(groupId, accumulatorRef) {
+    function push(level, args) {
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      acc.logs.push({ level, groupId, args });
+    }
+    return {
+      log(...args) {
+        push("log", args);
+        try { console.log("[CustomBlocker:" + groupId + "]", ...args); } catch {}
+      },
+      warn(...args) {
+        push("warn", args);
+        try { console.warn("[CustomBlocker:" + groupId + "]", ...args); } catch {}
+      },
+      error(...args) {
+        push("error", args);
+        try { console.error("[CustomBlocker:" + groupId + "]", ...args); } catch {}
+      }
+    };
+  }
+
+  function createEventRedirectionHelper(accumulatorRef) {
+    function set(url) {
+      if (typeof url !== "string") return false;
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      acc.redirectUrl = url.trim();
+      return true;
+    }
+    return {
+      get() { return ensureAccumulatorShape(accumulatorRef.get()).redirectUrl ?? ""; },
+      set,
+      setRedirectLink: set,
+      getRedirectLink() { return ensureAccumulatorShape(accumulatorRef.get()).redirectUrl ?? ""; }
+    };
+  }
+
+  // Event-mode platform helper. Adds inspection helpers and live/comment
+  // hide+filter methods on top of the existing intent-based methods.
+  function createEventPlatformHelper(accumulatorRef, dispatchContextRef) {
+    function recordIntent(platform, intent) {
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      acc.intents.push({ kind: "platform", platform, intent });
+    }
+    function getDispatchContext() {
+      return typeof dispatchContextRef === "function" ? dispatchContextRef() : (dispatchContextRef || {});
+    }
 
     function buildPlatformApi(platform) {
-      const ps = intentsState[platform];
       const urlOps = platformUrlOps[platform];
+      function snapshot() {
+        const ctx = getDispatchContext();
+        return (ctx.platformSnapshot && ctx.platformSnapshot[platform]) || null;
+      }
 
-      function pushPredicate(list, predicate, opts) {
+      function pushPredicate(slot, predicate, opts) {
         if (typeof predicate !== "function") return;
-        list.push({
-          predicate,
-          blockPageOnVisit: Boolean(opts && opts.blockPageOnVisit)
-        });
+        recordIntent(platform, { slot, predicate: true, blockPageOnVisit: Boolean(opts && opts.blockPageOnVisit) });
+        const acc = ensureAccumulatorShape(accumulatorRef.get());
+        acc.platformPredicates = acc.platformPredicates || {};
+        acc.platformPredicates[platform] = acc.platformPredicates[platform] || {};
+        const list = acc.platformPredicates[platform][slot] || [];
+        list.push({ predicate, blockPageOnVisit: Boolean(opts && opts.blockPageOnVisit) });
+        acc.platformPredicates[platform][slot] = list;
       }
 
       return {
-        hideShortButton() { ps.shortButton = "hide"; },
-        showShortButton() { ps.shortButton = "show"; },
-        hideHomePage() { ps.homePage = "hide"; },
-        showHomePage() { ps.homePage = "show"; },
-        hideShorts(predicate, opts) { pushPredicate(ps.shortsPredicates, predicate, opts); },
-        showShorts() { ps.shortsPredicates = []; },
-        hideVideos(predicate, opts) { pushPredicate(ps.videosPredicates, predicate, opts); },
-        showVideos() { ps.videosPredicates = []; },
-        hidePosts(predicate, opts) { pushPredicate(ps.postsPredicates, predicate, opts); },
-        showPosts() { ps.postsPredicates = []; },
+        // Original DOM intents
+        hideShortButton() { recordIntent(platform, { kind: "shortButton", value: "hide" }); },
+        showShortButton() { recordIntent(platform, { kind: "shortButton", value: "show" }); },
+        hideHomePage() { recordIntent(platform, { kind: "homePage", value: "hide" }); },
+        showHomePage() { recordIntent(platform, { kind: "homePage", value: "show" }); },
+        hideShorts(predicate, opts) { pushPredicate("shorts", predicate, opts); },
+        showShorts() { recordIntent(platform, { kind: "clearPredicates", slot: "shorts" }); },
+        hideVideos(predicate, opts) { pushPredicate("videos", predicate, opts); },
+        showVideos() { recordIntent(platform, { kind: "clearPredicates", slot: "videos" }); },
+        hidePosts(predicate, opts) { pushPredicate("posts", predicate, opts); },
+        showPosts() { recordIntent(platform, { kind: "clearPredicates", slot: "posts" }); },
+
+        hideComments() { recordIntent(platform, { kind: "comments", value: "hide" }); },
+        showComments() { recordIntent(platform, { kind: "comments", value: "show" }); },
+        filterComments(predicate) { pushPredicate("comments", predicate, null); },
+        hideLive() { recordIntent(platform, { kind: "live", value: "hide" }); },
+        showLive() { recordIntent(platform, { kind: "live", value: "show" }); },
+        filterLive(predicate) { pushPredicate("live", predicate, null); },
+
+        isCurrentChannelSubscribed() { return Boolean(snapshot()?.subscribed); },
+        isChannelSubscribed(id) {
+          const snap = snapshot();
+          if (!snap || !id) return false;
+          return Array.isArray(snap.subscribedChannels) && snap.subscribedChannels.includes(id);
+        },
+        isCurrentChannelVerified() { return Boolean(snapshot()?.verified); },
+        isLiveNow() { return Boolean(snapshot()?.live); },
+        isItemLive(item) { return Boolean(item && item.live === true); },
+        isAlgorithmicRecommendation(item) { return Boolean(item && item.algorithmic === true); },
+        isSponsored(item) { return Boolean(item && item.sponsored === true); },
+
+        // Sub-section timers, kept identical in spirit to the legacy API
         setShortsTimer(opts = {}) {
-          // Use getOrCreateTimer so calling this every heartbeat doesn't
-          // wipe currentMs. The user can still pass an explicit
-          // currentMs to seed a brand-new timer.
-          return getTimerHelper().getOrCreateTimer({ ...opts, scope: (u) => urlOps.isShortUrl(u) });
+          // In event-mode, timer state lives in the persistent
+          // groupTimers bucket maintained by the sandbox; we record an
+          // intent so the host can register the "scope" predicate
+          // against URL-change events.
+          recordIntent(platform, { kind: "subsectionTimer", slot: "shorts", opts });
+          return opts && typeof opts.id === "string" ? opts.id : null;
         },
         setVideosTimer(opts = {}) {
-          return getTimerHelper().getOrCreateTimer({ ...opts, scope: (u) => urlOps.isVideoUrl(u) });
+          recordIntent(platform, { kind: "subsectionTimer", slot: "videos", opts });
+          return opts && typeof opts.id === "string" ? opts.id : null;
         },
         setPostsTimer(opts = {}) {
-          return getTimerHelper().getOrCreateTimer({ ...opts, scope: (u) => urlOps.isPostUrl(u) });
-        }
+          recordIntent(platform, { kind: "subsectionTimer", slot: "posts", opts });
+          return opts && typeof opts.id === "string" ? opts.id : null;
+        },
+
+        // URL classifiers reachable through the platform helper too.
+        isPlatformUrl: urlOps?.isPlatformUrl ?? (() => false),
+        isShortUrl: urlOps?.isShortUrl ?? (() => false),
+        isVideoUrl: urlOps?.isVideoUrl ?? (() => false),
+        isPostUrl: urlOps?.isPostUrl ?? (() => false),
+        isHomePage: urlOps?.isHomePage ?? (() => false),
+        extractAuthor: urlOps?.extractAuthor ?? (() => null),
+        extractVideoId: urlOps?.extractVideoId ?? (() => null)
       };
     }
 
@@ -755,149 +1057,89 @@
     return helpers;
   }
 
-  // ────────────────────────────────────────────────────────────────────────
-  // Top-level helper bundle. A new bundle is created for every rule
-  // invocation; the buckets it mutates are shared with the host so that
-  // changes are visible to the persistence layer.
-  // ────────────────────────────────────────────────────────────────────────
-
-  function createCustomRuleHelpers(ctx) {
+  // Top-level event-mode helpers builder.
+  //
+  // ctx accepts EITHER an accumulator object (legacy / one-shot) OR an
+  // `accumulatorRef` and `dispatchContextRef` pair. Refs are functions
+  // that return the *current* accumulator / dispatch context. This is
+  // what makes a `helpers` object captured at registration time keep
+  // working through every later handler dispatch: it always looks up
+  // the active dispatch's accumulator instead of the dead one from
+  // load-source.
+  function createEventGroupHelpers(ctx) {
     const {
       groupId,
-      timersBucket,
-      persistenceBucket,
-      intentsState,
       currentUrl,
-      now,
-      elapsedMs,
-      redirectState
-    } = ctx;
-    const tickedSet = ctx.tickedSet instanceof Set ? ctx.tickedSet : new Set();
-    const displayedSet = ctx.displayedSet instanceof Set ? ctx.displayedSet : new Set();
+      timersBucket,
+      persistenceBucket
+    } = ctx || {};
 
-    const domainUtility = createDomainUtility();
-    const timerHelper = createTimerHelper({
+    const accumulatorRef = ctx?.accumulatorRef
+      ? ctx.accumulatorRef
+      : { get: () => ensureAccumulatorShape(ctx?.accumulator || {}) };
+    const dispatchContextRef = ctx?.dispatchContextRef
+      ? ctx.dispatchContextRef
+      : (() => ctx?.dispatchContext || {});
+
+    // Eagerly initialise the visible accumulator so the load-source
+    // call (which is the only call that uses the legacy accumulator
+    // path) starts with the right shape.
+    ensureAccumulatorShape(accumulatorRef.get());
+
+    const tickedSet = new Set();
+    const displayedSet = new Set();
+
+    const domain = createEventDomainHelper();
+    const timer = createTimerHelper({
       groupId,
-      timersBucket,
-      elapsedMs,
-      currentUrl,
+      timersBucket: timersBucket || {},
+      elapsedMs: 0,
+      currentUrl: currentUrl || "",
       tickedSet,
       displayedSet
     });
-    const persistenceHelper = createPersistenceHelper(persistenceBucket);
-    const logHelper = createLogHelper(groupId);
-    const redirectionHelper = createRedirectionHelper(redirectState);
-    const platformHelper = createPlatformHelper({
-      intentsState,
-      getTimerHelper: () => timerHelper
+    const persistence = createPersistenceHelper(persistenceBucket || {});
+    const log = createEventLogHelper(groupId, accumulatorRef);
+    const redirect = createEventRedirectionHelper(accumulatorRef);
+    const dom = createDOMHelper(accumulatorRef);
+    const navigation = createNavigationHelper(accumulatorRef, () => {
+      const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
+      return dc?.tabId ?? null;
     });
+    const storage = createStorageHelper(persistenceBucket || {}, accumulatorRef);
+    const tabs = createTabHelper(accumulatorRef, dispatchContextRef);
+    const platform = createEventPlatformHelper(accumulatorRef, dispatchContextRef);
 
     return {
-      now,
-      elapsedMs,
-      currentUrl,
+      get now() {
+        const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
+        return dc?.now ?? Date.now();
+      },
+      get currentUrl() {
+        const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
+        return normalizeUrlForEvents(dc?.currentUrl ?? currentUrl ?? "");
+      },
       groupId,
-      tickedSet,
-      displayedSet,
-      getTimerHelper: () => timerHelper,
-      getPersistenceHelper: () => persistenceHelper,
-      getLogHelper: () => logHelper,
-      getRedirectionHelper: () => redirectionHelper,
-      getPlatformHelper: () => platformHelper,
-      getDomainUtility: () => domainUtility
+      getLogHelper: () => log,
+      getDomainHelper: () => domain,
+      getDomainUtility: () => domain,
+      getTimerHelper: () => timer,
+      getPersistenceHelper: () => persistence,
+      getRedirectionHelper: () => redirect,
+      getDOMHelper: () => dom,
+      getNavigationHelper: () => navigation,
+      getStorageHelper: () => storage,
+      getTabHelper: () => tabs,
+      getPlatformHelper: () => platform
     };
-  }
-
-  // ────────────────────────────────────────────────────────────────────────
-  // Compile a custom rule source string into a function. The expected
-  // signature is:
-  //
-  //   (month, dayOfMonth, dayName, hour, minute, url, helpers) => integer
-  //
-  // Returns null on syntax/type errors. Runtime errors are caught by the
-  // caller.
-  // ────────────────────────────────────────────────────────────────────────
-
-  function compileCustomBlockingRule(source) {
-    const trimmed = String(source ?? "").trim();
-    if (!trimmed) {
-      return null;
-    }
-    try {
-      const fn = new Function("return (" + trimmed + ");")();
-      return typeof fn === "function" ? fn : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function sanitizeTimersBucket(bucket) {
-    const clean = {};
-    if (!bucket || typeof bucket !== "object") return clean;
-    for (const [id, raw] of Object.entries(bucket)) {
-      if (typeof id !== "string" || !id || !raw || typeof raw !== "object") continue;
-      clean[id] = {
-        displayName: typeof raw.displayName === "string" ? raw.displayName.slice(0, 80) : "",
-        direction: raw.direction === "forward" ? "forward" : "backward",
-        isPaused: Boolean(raw.isPaused),
-        currentMs: Math.max(0, Math.floor(Number(raw.currentMs) || 0))
-      };
-    }
-    return clean;
-  }
-
-  function sanitizePersistenceBucket(bucket) {
-    const clean = {};
-    if (!bucket || typeof bucket !== "object") return clean;
-    let count = 0;
-    for (const [key, raw] of Object.entries(bucket)) {
-      if (typeof key !== "string" || !key || count >= MAX_PERSISTENCE_KEYS_PER_GROUP) continue;
-      const cloned = safeCloneJson(raw);
-      if (cloned !== undefined) {
-        clean[key] = cloned;
-        count += 1;
-      }
-    }
-    return clean;
-  }
-
-  // ────────────────────────────────────────────────────────────────────────
-  // Strip predicate functions from an intents state so it can survive
-  // structured-clone (postMessage). Predicates themselves cannot leave the
-  // sandbox where they were created — their closures depend on the sandbox
-  // V8 context. We replace each predicate entry with just its
-  // `blockPageOnVisit` flag so the host (content script) can still see how
-  // many predicates were registered and whether any of them participate in
-  // page-block-on-visit decisions.
-  // ────────────────────────────────────────────────────────────────────────
-
-  function toSerializableIntents(intentsState) {
-    const out = {};
-    const stripList = (list) => (Array.isArray(list) ? list : []).map((entry) => ({
-      blockPageOnVisit: Boolean(entry && entry.blockPageOnVisit)
-    }));
-    for (const platform of PLATFORM_LIST) {
-      const ps = (intentsState && intentsState[platform]) || {};
-      out[platform] = {
-        shortButton: ps.shortButton ?? null,
-        homePage: ps.homePage ?? null,
-        shortsPredicates: stripList(ps.shortsPredicates),
-        videosPredicates: stripList(ps.videosPredicates),
-        postsPredicates: stripList(ps.postsPredicates)
-      };
-    }
-    return out;
   }
 
   global.__customBlockerHelpers = {
     PLATFORM_LIST,
-    createCustomRuleHelpers,
-    compileCustomBlockingRule,
-    createEmptyIntentsState,
+    createEventGroupHelpers,
     createDomainUtility,
     platformUrlOps,
-    sanitizeTimersBucket,
-    sanitizePersistenceBucket,
-    toSerializableIntents
+    isEmptyStartPage,
+    normalizeUrlForEvents
   };
 })(typeof self !== "undefined" ? self : globalThis);

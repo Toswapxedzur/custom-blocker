@@ -269,74 +269,107 @@ You can also end a snooze early with the **End Snooze** button.
 
 ---
 
-## 11. Custom groups (full reference)
+## 11. Custom groups — event-driven reference (v1.1+)
 
-A `Custom` group runs a JavaScript function inside the **content script** of every page the user visits. The function is called once when the page loads and once on every heartbeat (~250 ms). Its return value decides whether the page is blocked, and its side effects on the `helpers` object decide what happens to the DOM and to the per-group timer / persistence state.
+Starting with v1.1, custom rules are **event-driven**. Your rule is no longer a per-heartbeat function whose return value blocks the page. Instead, the rule body is a script that **registers handlers** for specific events (page open, URL change, tick, custom events, …). The handlers stay registered across page navigations and tab switches and live inside a long-lived offscreen sandbox.
 
-Because the function runs in the page itself (not in the background worker), every closure variable you declare inside the function is reachable from the predicates you pass to `hideShorts`, `hideVideos`, and `hidePosts`.
+The rule body executes **once per Run click** (or once when the group is enabled and an active source already exists). To re-load handlers, click **Run** in the editor.
 
-### 11.1 Function signature
+### 11.1 Rule signature
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  // your logic
-  return 0;
+(event, helpers) => {
+  // Register handlers here. This function is called exactly once
+  // per Run click (or when the group is enabled).
 }
 ```
 
-Parameters:
+Two arguments:
 
-- `month` — `1` to `12`.
-- `dayOfMonth` — `1` to `31`.
-- `dayName` — for example `"Monday"`.
-- `hour` — `0` to `23`.
-- `minute` — `0` to `59`.
-- `url` — the current page URL as a string. Already normalized; pass it directly into `helpers.getDomainUtility()` methods.
-- `helpers` — a bundle of helper accessors (see below).
+- `event` — the **events registry** for this group. Use it to register, override, list, count, or unregister handlers, and to `post(...)` custom events.
+- `helpers` — the helper bundle (see 11.3).
 
-Return value:
+The function is **not** expected to return a value. The decision to block or allow is made later, when an event fires and one of your registered handlers calls `ev.preventDefault()` and/or `ev.setResult(...)`.
 
-- `-1` — block the page.
-- `0` — no decision; pass to the next rule.
-- `1` — allow.
-- any other integer in `[-255, 255]` — preserved as a custom state for debug / future logic, but the engine does not treat it as block or allow yet.
+### 11.2 Lifecycle
 
-Rules still run bottom-to-top. The **last non-zero state wins**, so a top rule can override a lower rule's `-1` with `1`, or vice versa. Independently of the numeric return state, helper side effects still apply: feed-card hides still hide cards, timers still tick, etc. The one exception is page-exit intents created by custom rules (`hideHomePage()`, `blockPageOnVisit`) — a final return state of `1` suppresses those custom-rule page exits for that heartbeat.
+- **Run** (per-group button in the editor): the engine first wipes every handler that was previously tagged with this group, then re-runs the rule body in every open tab's view of the offscreen sandbox. This is the only way to re-register after editing the source.
+- **Disable group**: every handler tagged with this group is wiped. The group source is kept in storage but stops responding to events.
+- **Re-enable group**: the engine automatically re-runs the active source for this group.
+- **Delete group**: same as disable; all handlers tagged with the group are wiped.
+- **Re-registering with the same `(eventType, id)`**: silently overrides the previous registration.
 
-The popup does **not** validate syntax automatically while you type — that would constantly flag half-finished edits. Click the **Check syntax** button next to the Blocking Rules textarea to validate on demand. The button does three things:
+The offscreen sandbox is shared by **all** custom groups. Handlers from different groups co-exist there, each tagged internally with their owning group id so that "Run", disable, or delete only touches the right group.
 
-1. Flushes any pending autosave so the rule actually shipped to storage by the time the result appears (you don't have to wait for the 400 ms debounce or trust that switching tabs commits in time — leaving the textarea also flushes immediately on blur).
-2. Compiles the source in a sandboxed iframe (Chrome forbids `new Function` in normal extension pages).
-3. Runs a one-shot smoke test by invoking the compiled function once with dummy arguments and a *typed* `helpers` stub that mirrors the real API exactly. This catches typos and `ReferenceError`s on the always-executed path: `return truel;`, `helpers.nah()`, and `helpers.getPlatformHelper().myspace()` are all reported. The stub is deliberately not a wide-open Proxy — that would let arbitrary typos succeed silently. Branches that the dummy inputs don't exercise are still **not** validated; only code that runs with the stub helpers is checked.
+### 11.2.1 The events registry (`event`)
 
-Invalid rules are still saved as text; the content script silently skips any rule that fails to compile. If your function throws at runtime, the extension catches it, logs to the page console (prefixed with `[CustomBlocker:groupId]`), and the remaining rules in the same heartbeat continue.
+Generic methods:
 
-Every page that has at least one in-scope custom rule shows a **debug overlay** in the bottom-right corner. For each rule it lists the group name, the source the content script is actually running, and the value the most recent heartbeat returned (`true`, `false`, or the runtime error message). Click the `×` in the overlay header to dismiss it for the rest of that page session; reload to bring it back.
+- `event.register(type, id, handler, options?)` — register a handler for an arbitrary event type. `id` is your own choice. `options.priority` (default `0`) — higher runs first. `options.intervalMs` — for `tickEvent` only; throttle this specific handler (the global tick is once per second). Re-registering with the same `(type, id)` overrides.
+- `event.unregister(type, id)`, `event.unregisterAll(type)`.
+- `event.post(type, data?, { scope })` — fire a custom event. `scope: "global"` reaches every group; default `scope: "group"` only reaches handlers in the **same** group.
 
-### 11.2 Execution model
+Per-event-type sugar (one set of methods per built-in type):
 
-- Custom rules execute in **bottom-to-top** storage order. The bottom-most group runs first; the top-most group runs last and gets the "last word" on intents (see show/hide semantics below).
-- The content script does not compile or run rules itself. Chrome's default extension CSP forbids `new Function`/`eval` everywhere except sandboxed pages, so the content script ships a hidden iframe of `sandbox.html` into each page and routes every heartbeat's rule batch through `postMessage`. The iframe loads `helpers.js` and runs the rules; the result, the mutated timer/persistence buckets, and the accumulated DOM intents come back over `postMessage`. The content script then applies intents to the page DOM and decides whether to exit.
-- Because rule execution is a `postMessage` round-trip, the first block decision after a fresh page load lags by a fraction of a second (typically <50 ms). Subsequent heartbeats hit the iframe's compiled-source cache and are essentially instant.
-- Mutations you perform on `helpers.getTimerHelper()` and `helpers.getPersistenceHelper()` are flushed back to the background service worker on the next heartbeat. Two tabs running rules concurrently use a "last write wins" strategy — perfectly fine for the typical case but worth knowing.
-- Custom groups **no longer contribute to the network-level (`declarativeNetRequest`) blocklist**. Only `Default` (site) groups produce native `ERR_BLOCKED_BY_CLIENT` blocks. Custom rules block by exiting the page from the content script.
-- A rare failure mode: if the host page enforces a strict `frame-src` CSP that excludes `chrome-extension:`, the sandbox iframe will fail to load and the debug overlay will surface that error. Custom rules simply won't run on those pages; site/timed groups still work normally.
+- `event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
+- `event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
+- Same shape for `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `timerEnded`.
+
+### 11.2.2 Built-in event types
+
+| Type | When it fires | `ev.data` payload |
+|---|---|---|
+| `tickEvent` | Universally shared 1-second tick across every open tab. Handlers run for every tab in priority order. | `{ intervalMs: 1000 }` |
+| `openWebEvent` | A new tab is created OR a fresh navigation lands on a URL the engine has not seen for that tab yet. Does **not** re-fire for already-open tabs after a Run click. | `{ previousUrl, isNewTab }` |
+| `closeWebEvent` | A tab is closed. | `{ reason, nextUrl }` |
+| `switchWebEvent` | URL changes inside the same tab — full reload, back/forward, SPA route change. Always fires when the URL changes. | `{ previousUrl, previousHostname, sameDomain }` |
+| `switchDomainEvent` | URL change crosses a hostname boundary (e.g. `youtube.com` → `wikipedia.org`). Fires alongside `switchWebEvent`. | `{ previousUrl, previousHostname }` |
+| `timerEnded` | A timer managed by the group reaches `currentMs === 0`. Only delivered to the owning group. | `{ timerId, displayName, direction, currentMs }` |
+
+URLs in `ev.url` and in event data are **normalized** for events: Chrome's New Tab Page (which renders Google's "Search Google or type URL" surface), `about:blank`, and equivalent newtab schemes are exposed as the empty string `""`. So a timer scoped to `ev.url === ""` only ticks while you are on the new-tab page. Regular `google.com` URLs are unchanged.
+
+### 11.2.3 The event object (`ev`)
+
+Every handler is invoked as `(ev, helpers) => void`. `ev` carries:
+
+- `ev.type` — the dispatched event type.
+- `ev.groupId` — the receiving group's id.
+- `ev.tabId`, `ev.pageId`, `ev.url`, `ev.hostname` — context for the event.
+- `ev.time` — `{ now, month, dayOfMonth, dayName, hour, minute }` snapshot at dispatch.
+- `ev.data` — event-specific payload (see table above).
+
+Methods:
+
+- `ev.preventDefault()` — mark the dispatch as "blocked". The host content script will exit the page (or follow `setRedirectLink`) unless a higher-priority handler later sets `setResult(1)`.
+- `ev.stopPropagation()` — halt this dispatch immediately. **No further handlers across any group** are invoked for this event.
+- `ev.setResult(value)` — set the dispatch result. `value` may be a **number** in `[-255, 255]` (`-1` block, `0` neutral, `1` allow; other integers are preserved for your own debug logic), or a **string** (interpreted as a redirect URL). The last `setResult` call across all handlers wins. A numeric `1` overrides any earlier `preventDefault`.
+- `ev.setRedirectLink(url)` / `ev.getRedirectLink()` — the URL the host should navigate to when the dispatch ends as blocked. This is the **only** way to redirect from custom rules; the editor no longer exposes the "Redirect URL when blocked" field for Custom groups.
+- `ev.post(type, data, { scope })` — fire a follow-up event from inside a handler.
+
+In addition, `ev` is a Proxy: any field you set on it (e.g. `ev.foo = 42`) is stored in a `custom` map and can be read back from the same handler or from later handlers in the same dispatch.
 
 ### 11.3 The `helpers` object
 
-`helpers` exposes a few accessor methods plus three constant fields:
+Every handler call gets a fresh `helpers` bundle scoped to the receiving group and the event's URL. Constant fields:
 
-- `helpers.now` — current epoch time in milliseconds.
-- `helpers.elapsedMs` — milliseconds since the previous heartbeat in this tab. Useful if you're advancing a timer manually.
-- `helpers.currentUrl` — same as the `url` parameter; provided for convenience inside predicates.
-- `helpers.getTimerHelper()`
-- `helpers.getPersistenceHelper()`
-- `helpers.getLogHelper()`
-- `helpers.getRedirectionHelper()`
-- `helpers.getPlatformHelper()`
-- `helpers.getDomainUtility()`
+- `helpers.now` — epoch milliseconds at dispatch.
+- `helpers.currentUrl` — the event URL, after newtab/blank normalization.
+- `helpers.groupId` — receiving group id.
 
-All helper methods are designed to be safe: bad parameters return `null`, `false`, or an empty value instead of throwing.
+Accessor methods:
+
+- `helpers.getLogHelper()` — `log/warn/error`, prefixed with `[CustomBlocker:groupId]`.
+- `helpers.getDomainHelper()` (alias `helpers.getDomainUtility()`) — URL inspection (see 11.3.5).
+- `helpers.getTimerHelper()` — group-scoped timers (countdown / count-up); state persists across browser restarts.
+- `helpers.getPersistenceHelper()` — JSON key/value store scoped to the group.
+- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (and `set/get` aliases). For custom rules, this is the **only** way to set the "redirect when blocked" URL.
+- `helpers.getPlatformHelper()` — per-platform DOM intents (see 11.3.6).
+- `helpers.getDOMHelper()` — generic DOM intents: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. Operations are batched and applied after the handler returns.
+- `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Effects are applied to the tab the event came from.
+- `helpers.getStorageHelper()` — superset of `getPersistenceHelper` plus async `requestAsyncGet(key)` / `requestAsyncSet(key, value)` hooks for cross-extension storage (results arrive as a follow-up custom event).
+- `helpers.getTabHelper()` — `list()`, `getActiveTab()`, `getById(id)`, `countOpen()` against a snapshot bundled with the event.
+
+All helper methods are safe: bad parameters return `null`, `false`, or an empty value instead of throwing.
 
 #### 11.3.1 `getTimerHelper()`
 
@@ -385,150 +418,144 @@ Inspect / override the redirect URL the content script will use if the current p
 
 Like the other custom-rule side effects, this state is shared across all rules in the current heartbeat. Because rules run bottom-to-top, the top-most rule to call `set(...)` wins.
 
-#### 11.3.5 `getDomainUtility()`
+#### 11.3.5 `getDomainHelper()` (alias `getDomainUtility()`)
 
-URL inspection helpers. The merged replacement for the old `domainHelper` + `platformHelper`. There is no `normalize()` because incoming URLs are already normalized — pass them straight in.
+URL inspection helpers. There is no `normalize()` because incoming URLs are already newtab-normalized.
 
-- `hostnameOf(url)` — returns `"youtube.com"`, etc., or `null`. Strips `www.`.
-- `pathnameOf(url)` — returns `"/"` if absent.
-- `matches(hostname, site)` — `true` if `hostname` is `site` or a subdomain of it.
-- `getPlatform(url)` — `"youtube" | "tiktok" | "instagram" | "facebook" | "twitch" | null`.
-- `isYouTubeHost(host)`, `isTikTokHost(host)`, `isInstagramHost(host)`, `isFacebookHost(host)`, `isTwitchHost(host)`, `isRedditHost(host)`, `isDiscordHost(host)`.
-- `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()` — each returns an object with the same shape:
-  - `isPlatformUrl(url)`, `isShortUrl(url)`, `isVideoUrl(url)`, `isPostUrl(url)`, `isHomePage(url)` — booleans.
-  - `extractAuthor(url)` — normalized handle (e.g. `"mkbhd"`, `"channel:UC..."`, `"id:1234"`) or `null`.
-  - `extractVideoId(url)` — platform-specific id (`v=...`, the path segment, etc.) or `null`.
+Core:
+
+- `hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
+- `isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
+- `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()` — each returns `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`.
+
+URL filtering and section helpers (new in v1.1):
+
+- `isEmptyStartPage(url)` — `true` for the new-tab page and equivalents (the URLs that show up as `""` to handlers).
+- `matchesAny(url, patterns)` — `patterns` may be a regex, a string regex, or an array of either.
+- `pathStartsWith(url, path)` — boundary-aware (`pathStartsWith("/r/", "/r")` is true; `"/results/"` is not).
+- `queryHas(url, key, value?)`, `queryGet(url, key)` — query-string inspection.
+- `isSearchPage(url)` — recognizes Google / Bing / DuckDuckGo / YouTube results / Reddit / Twitter / X searches.
+- `isInfiniteFeedUrl(url)` — recognizes the algorithmic-feed surfaces of YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `sameSection(a, b)` — same hostname AND same first path segment.
 
 #### 11.3.6 `getPlatformHelper()`
 
-Per-platform DOM intents and sub-section timers. Use these to do everything a built-in `YouTube` / `TikTok` / etc. block group can do — and more, because you can drive them from arbitrary JavaScript.
+Per-platform DOM intents and sub-section timers, plus inspection. Each `helpers.getPlatformHelper().<platform>()` returns an object with:
 
-The helper itself has one method per platform:
+Visibility intents:
 
-- `helpers.getPlatformHelper().youtube()`
-- `helpers.getPlatformHelper().tiktok()`
-- `helpers.getPlatformHelper().instagram()`
-- `helpers.getPlatformHelper().facebook()`
-- `helpers.getPlatformHelper().twitch()`
+- `hideShortButton()` / `showShortButton()`, `hideHomePage()` / `showHomePage()`.
+- `hideShorts(predicate, { blockPageOnVisit })` / `showShorts()`, `hideVideos(...)` / `showVideos()`, `hidePosts(...)` / `showPosts()`.
+- `hideComments()` / `showComments()` / `filterComments(predicate)` — hide a platform's comment section entirely or filter individual comments.
+- `hideLive()` / `showLive()` / `filterLive(predicate)` — same, for live broadcasts on platforms that have them (YouTube, TikTok, Twitch, Facebook).
 
-Each returns an object with the methods listed below. Where a method takes a `predicate`, the predicate is called once per matching feed card with an `item` shaped like:
+Inspection (returns a value at dispatch time, based on a snapshot bundled with the event):
 
-```ts
-{
-  url:          string | null,  // canonical URL of the item
-  name:         string | null,  // title / caption
-  author:       string | null,  // normalized author handle
-  length:       number | null,  // seconds
-  views:        number | null,
-  publishedAt:  string | null,  // free-form, e.g. "3 days ago"
-  description:  string | null
-}
-```
+- `isCurrentChannelSubscribed()`, `isChannelSubscribed(idOrHandle)`.
+- `isCurrentChannelVerified()`.
+- `isLiveNow()`, `isItemLive(item)`.
+- `isAlgorithmicRecommendation(item)`, `isSponsored(item)`.
 
-Any field can be `null` if the page DOM doesn't expose it. The "innocent until proven guilty" rule applies: if a field a predicate cares about is `null`, the predicate should return `false` (don't block). The system never calls a predicate when it can't even produce an `item`.
+URL classifiers re-exposed: `isPlatformUrl`, `isShortUrl`, `isVideoUrl`, `isPostUrl`, `isHomePage`, `extractAuthor`, `extractVideoId`.
 
-Methods on each platform helper:
+Sub-section timers — `setShortsTimer({ id, direction, currentMs, displayName })`, `setVideosTimer({ ... })`, `setPostsTimer({ ... })` — register the timer in the persistent group bucket and, when scoped, only tick on URLs that match that subsection.
 
-- `hideShortButton()` / `showShortButton()` — hide or restore the platform's "Shorts" / "For You" / "Reels" / "Clips" entry points. On YouTube specifically this matches the YouTube block group's `videoMode: short, authorMode: none` behaviour: the side-nav `Shorts` button (regular guide, mini guide, mobile pivot bar, channel-page tabs) **and** the in-feed Shorts shelves on home / subscriptions / search are all hidden. On other platforms it hides the nav anchor and its closest navigation-row container.
-- `hideHomePage()` / `showHomePage()` — when the user is on the platform's home feed (`/`, `/feed/...`, `/foryou`, etc.), `hideHomePage()` exits the page. `showHomePage()` undoes this for groups above.
-- `hideShorts(predicate, opts?)` / `showShorts()` — hide individual short-form videos in the feed. Each call adds a predicate; cards are hidden if **any** active predicate returns `true`. `showShorts()` clears all hide predicates registered by groups below.
-  - `opts.blockPageOnVisit: true` — also evaluate the predicate against the current page when the user opens a Shorts URL directly. If it returns `true`, the page is exited.
-- `hideVideos(predicate, opts?)` / `showVideos()` — same, for long-form videos.
-- `hidePosts(predicate, opts?)` / `showPosts()` — same, for community posts (YouTube / Facebook / Instagram).
-- `setShortsTimer({ id, direction, currentMs, displayName? })` — convenience for a per-subsection timer. Equivalent to `helpers.getTimerHelper().getOrCreateTimer({ ..., scope: u => helpers.getDomainUtility().youtube().isShortUrl(u) })`. Treats `youtube.com/shorts/*` as if it were its own website. Because it uses `getOrCreateTimer` internally, calling it every heartbeat is safe — the timer keeps ticking and `currentMs` is preserved.
-- `setVideosTimer({ ... })` — same, for long videos.
-- `setPostsTimer({ ... })` — same, for posts.
-
-Show/hide semantics (because rules run bottom-to-top): the top-most group's call wins for `hideShortButton`/`showShortButton` and `hideHomePage`/`showHomePage`. For predicate-based hides, every still-active `hideShorts` predicate is OR'd together; calling `showShorts()` from a higher group clears all the `hideShorts` predicates collected so far.
+For predicate methods, the predicate is called per matching card with a normalized `item`: `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`. Any field can be `null`; "innocent until proven guilty" — return `false` when the field you need is missing.
 
 ### 11.4 Examples
 
-Easy: hide the YouTube Shorts nav button entirely on weekday mornings.
+Easy — block YouTube Shorts pages on weekday mornings:
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const isWeekday = !["Saturday", "Sunday"].includes(dayName);
-  if (isWeekday && hour >= 9 && hour < 12) {
-    helpers.getPlatformHelper().youtube().hideShortButton();
+(event, helpers) => {
+  const yt = helpers.getDomainHelper().youtube();
+
+  function maybeBlock(ev) {
+    if (!yt.isShortUrl(ev.url)) return;
+    const { dayName, hour } = ev.time;
+    const weekday = !["Saturday", "Sunday"].includes(dayName);
+    if (weekday && hour >= 9 && hour < 12) {
+      ev.preventDefault();
+      ev.setResult(-1);
+    }
   }
-  return 0;
+
+  event.registerOpenWebEvent("morning-block", maybeBlock);
+  event.registerSwitchWebEvent("morning-block", maybeBlock);
 }
 ```
 
-Medium: 30 minutes per day on YouTube Shorts, with a visible countdown only while you're actually on a Shorts page.
+Medium — 30-minute daily budget for YouTube Shorts, with a redirect to a focus page when expired:
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const yt = helpers.getPlatformHelper().youtube();
+(event, helpers) => {
+  const TIMER_ID = "yt-shorts-budget";
+  const yt = helpers.getDomainHelper().youtube();
 
-  const id = yt.setShortsTimer({
-    id: "yt-shorts-budget",
+  helpers.getTimerHelper().getOrCreateTimer({
+    id: TIMER_ID,
     direction: "backward",
     currentMs: 30 * 60 * 1000,
     displayName: "YT Shorts"
   });
 
-  // Reset the budget at the start of every new local day.
-  const persistence = helpers.getPersistenceHelper();
-  const today = `${month}-${dayOfMonth}`;
-  if (persistence.get("lastDay") !== today) {
-    helpers.getTimerHelper().setCurrentMs(id, 30 * 60 * 1000);
-    persistence.set("lastDay", today);
-  }
+  // Tick down once per second while the active page is a Short.
+  event.registerTickEvent("budget-tick", (ev, h) => {
+    if (!yt.isShortUrl(ev.url)) return;
+    h.getTimerHelper().addMs(TIMER_ID, -1000);
+  });
 
-  return helpers.getTimerHelper().isExpired(id) ? -1 : 0;
+  function maybeBlock(ev, h) {
+    if (!yt.isShortUrl(ev.url)) return;
+    if (h.getTimerHelper().isExpired(TIMER_ID)) {
+      ev.setRedirectLink("https://example.com/focus");
+      ev.preventDefault();
+      ev.setResult(-1);
+    }
+  }
+  event.registerOpenWebEvent("budget-block", maybeBlock);
+  event.registerSwitchWebEvent("budget-block", maybeBlock);
+
+  event.registerTimerEndedEvent("budget-warn", (_ev, h) => {
+    h.getLogHelper().log("Budget hit zero.");
+  });
 }
 ```
 
-Harder: hide YouTube Shorts whose author handle is longer than 16 characters, and exit the page if the user opens such a Short directly.
+Harder — hide individual YouTube Shorts whose author handle is too long, and inject a "this Short is hidden" CSS:
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  var maxAuthorLength = 16;
-  helpers.getPlatformHelper().youtube().hideShorts(
-    (item) => item.author && item.author.length > maxAuthorLength,
-    { blockPageOnVisit: true }
-  );
-  return 0;
+(event, helpers) => {
+  const MAX_AUTHOR_LEN = 16;
+
+  function configure(_ev, h) {
+    const yt = h.getPlatformHelper().youtube();
+    yt.hideShorts(
+      (item) => item.author && item.author.length > MAX_AUTHOR_LEN,
+      { blockPageOnVisit: true }
+    );
+    h.getDOMHelper().injectCss(
+      "ytd-rich-grid-media[data-cb-hidden] { opacity: 0.2 !important; }",
+      "long-author-label"
+    );
+  }
+
+  event.registerOpenWebEvent("hide-long-shorts", configure);
+  event.registerSwitchWebEvent("hide-long-shorts", configure);
 }
 ```
 
-The closure variable `maxAuthorLength` is captured by the predicate — that's only possible because the rule runs in the page itself.
-
-Hardest: rotating "platform of the day" with per-platform daily caps, plus a forward-counting tracker that records total time spent on social media this session.
+Hardest — broadcast a custom event from one handler to others:
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const platforms = ["youtube", "tiktok", "instagram"];
-  const today = `${month}-${dayOfMonth}`;
-  const persistence = helpers.getPersistenceHelper();
-  const timer = helpers.getTimerHelper();
-  const domain = helpers.getDomainUtility();
-
-  if (persistence.get("lastDay") !== today) {
-    for (const t of timer.list()) timer.delete(t.id);
-    persistence.set("lastDay", today);
-  }
-
-  const platformOfTheDay = platforms[(month + dayOfMonth) % platforms.length];
-
-  const sessionTotal = timer.getOrCreateTimer({
-    id: "social-total",
-    direction: "forward",
-    currentMs: 0,
-    displayName: "Social total",
-    scope: (u) => platforms.includes(domain.getPlatform(u))
+(event, helpers) => {
+  event.registerSwitchDomainEvent("track-domain", (ev) => {
+    ev.post("domainChange", { from: ev.data.previousHostname, to: ev.hostname });
   });
 
-  const cap = timer.getOrCreateTimer({
-    id: "platform-of-the-day",
-    direction: "backward",
-    currentMs: 20 * 60 * 1000,
-    displayName: `${platformOfTheDay} budget`,
-    scope: (u) => domain.getPlatform(u) === platformOfTheDay
+  event.register("domainChange", "log-it", (ev, h) => {
+    h.getLogHelper().log("crossed", ev.data.from, "→", ev.data.to);
   });
-
-  return timer.isExpired(cap) ? -1 : 0;
 }
 ```
 

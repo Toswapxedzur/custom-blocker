@@ -200,9 +200,13 @@
               <button id="openRuleTemplatesButton" type="button" class="secondary" data-i18n="custom.templates">
                 Templates
               </button>
-              <button id="checkRuleSyntaxButton" type="button" class="secondary" data-i18n="custom.checkSyntax">
-                Check syntax
+              <button id="runCustomGroupButton" type="button" data-i18n="custom.runButton">
+                Run
               </button>
+              <button id="testFireButton" type="button" class="secondary" data-i18n="custom.testFireButton">
+                Test fire
+              </button>
+              <span id="runCustomGroupStatus" class="run-status"></span>
             </div>
             <p class="field-help" data-i18n="custom.help">
               The function receives month, dayOfMonth, dayName, hour, minute, and blockedDomains. Return an updated list of domains, or mutate blockedDomains and return nothing.
@@ -552,14 +556,6 @@
         </div>
       </div>
     </div>
-
-    <iframe
-      id="ruleSandbox"
-      src="sandbox.html"
-      style="display: none; width: 0; height: 0; border: 0;"
-      aria-hidden="true"
-      title="Custom Web Blocker rule compiler sandbox"
-    ></iframe>
 
     <script src="translations.js"></script>
     <script src="popup.js"></script>

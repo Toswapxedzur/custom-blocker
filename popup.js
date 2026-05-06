@@ -115,7 +115,9 @@ const endSnoozeButton = document.getElementById("endSnoozeButton");
 const siteSettingsSection = document.getElementById("siteSettingsSection");
 const blockedSitesField = document.getElementById("blockedSites");
 const clearSitesButton = document.getElementById("clearSitesButton");
-const checkRuleSyntaxButton = document.getElementById("checkRuleSyntaxButton");
+const runCustomGroupButton = document.getElementById("runCustomGroupButton");
+const testFireButton = document.getElementById("testFireButton");
+const runCustomGroupStatus = document.getElementById("runCustomGroupStatus");
 const editorTitle = document.getElementById("editorTitle");
 const statusMessage = document.getElementById("statusMessage");
 const confirmModal = document.getElementById("confirmModal");
@@ -1278,49 +1280,6 @@ function getLocalizedUnfreezeMessages() {
   );
 }
 
-// Sandboxed compiler bridge.
-//
-// Manifest V3 forbids `new Function` and `eval` on extension pages, so we
-// can't validate a candidate custom rule directly in the popup. The
-// `sandbox.html` page is declared in manifest.sandbox.pages, which gives
-// it a relaxed CSP that allows the Function constructor. We send the
-// source text over postMessage and wait for a reply.
-const sandboxFrame = document.getElementById("ruleSandbox");
-let sandboxRequestSeq = 0;
-const sandboxPending = new Map();
-
-window.addEventListener("message", (event) => {
-  const data = event.data;
-  if (!data || data.source !== "custom-blocker-sandbox") return;
-  const pending = sandboxPending.get(data.id);
-  if (!pending) return;
-  sandboxPending.delete(data.id);
-  pending(data.result);
-});
-
-function compileInSandbox(source) {
-  return new Promise((resolve) => {
-    if (!sandboxFrame || !sandboxFrame.contentWindow) {
-      resolve({ ok: false, kind: "no-sandbox" });
-      return;
-    }
-    const id = ++sandboxRequestSeq;
-    sandboxPending.set(id, resolve);
-    try {
-      sandboxFrame.contentWindow.postMessage({ id, type: "compile", source }, "*");
-    } catch (error) {
-      sandboxPending.delete(id);
-      resolve({ ok: false, kind: "no-sandbox" });
-      return;
-    }
-    window.setTimeout(() => {
-      if (!sandboxPending.has(id)) return;
-      sandboxPending.delete(id);
-      resolve({ ok: false, kind: "timeout" });
-    }, 2000);
-  });
-}
-
 function quoteJs(value) {
   return JSON.stringify(String(value ?? ""));
 }
@@ -1333,7 +1292,7 @@ const CUSTOM_RULE_TEMPLATES = [
   {
     id: "weekday-window-block",
     title: "Weekday Block Window",
-    description: "Block one site only during a weekday time window.",
+    description: "Block one site only during a weekday time window. Uses openWebEvent + switchWebEvent to evaluate every visit.",
     tags: ["schedule", "site"],
     params: [
       { id: "domainContains", label: "URL contains", type: "text", defaultValue: "youtube.com" },
@@ -1354,21 +1313,27 @@ const CUSTOM_RULE_TEMPLATES = [
         .filter(Boolean)
         .map(quoteJs)
         .join(", ");
-      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  if (!url.includes(${quoteJs(values.domainContains)})) return 0;
-
+      return `(event, helpers) => {
+  const target = ${quoteJs(values.domainContains)};
   const blockedDays = [${days}];
-  const inBlockedDay = blockedDays.includes(dayName);
-  const inBlockedWindow = hour >= ${Number(values.startHour)} && hour < ${Number(values.endHour)};
 
-  return inBlockedDay && inBlockedWindow ? -1 : 0;
+  function decide(ev) {
+    if (!ev.url.includes(target)) return;
+    if (!blockedDays.includes(ev.time.dayName)) return;
+    if (ev.time.hour < ${Number(values.startHour)} || ev.time.hour >= ${Number(values.endHour)}) return;
+    ev.preventDefault();
+    ev.setResult(-1);
+  }
+
+  event.registerOpenWebEvent("weekday-block", decide);
+  event.registerSwitchWebEvent("weekday-block", decide);
 }`;
     }
   },
   {
     id: "site-time-budget",
     title: "Website Time Budget",
-    description: "Give one site a shared countdown timer, then block it.",
+    description: "Tick a shared countdown while you are on the site (tickEvent), then block it via openWebEvent.",
     tags: ["timer", "site"],
     params: [
       { id: "domainContains", label: "URL contains", type: "text", defaultValue: "reddit.com" },
@@ -1377,26 +1342,40 @@ const CUSTOM_RULE_TEMPLATES = [
       { id: "displayName", label: "Display name", type: "text", defaultValue: "Site Budget" }
     ],
     buildCode(values) {
-      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const timer = helpers.getTimerHelper();
-  const target = ${quoteJs(values.domainContains)};
-  const tid = timer.getOrCreateTimer({
-    id: ${quoteJs(values.timerId)},
+      return `(event, helpers) => {
+  const TARGET = ${quoteJs(values.domainContains)};
+  const TIMER_ID = ${quoteJs(values.timerId)};
+
+  // Ensure the budget timer exists once at registration time.
+  helpers.getTimerHelper().getOrCreateTimer({
+    id: TIMER_ID,
     direction: "backward",
     currentMs: ${minutesToMsLiteral(values.minutes)},
-    displayName: ${quoteJs(values.displayName)},
-    scope: (u) => u.includes(target),
-    domain: (u) => u.includes(target)
+    displayName: ${quoteJs(values.displayName)}
   });
 
-  return url.includes(target) && timer.isExpired(tid) ? -1 : 0;
+  event.registerTickEvent("tick-budget", (ev, h) => {
+    if (!ev.url.includes(TARGET)) return;
+    h.getTimerHelper().addMs(TIMER_ID, -1000);
+  });
+
+  function blockIfExpired(ev, h) {
+    if (!ev.url.includes(TARGET)) return;
+    if (h.getTimerHelper().isExpired(TIMER_ID)) {
+      ev.preventDefault();
+      ev.setResult(-1);
+    }
+  }
+
+  event.registerOpenWebEvent("block-when-expired", blockIfExpired);
+  event.registerSwitchWebEvent("block-when-expired", blockIfExpired);
 }`;
     }
   },
   {
     id: "youtube-shorts-cap",
     title: "YouTube Shorts Daily Cap",
-    description: "Create a dedicated countdown timer for YouTube Shorts pages.",
+    description: "Tick a Shorts-only timer; block when it hits zero. Also fires timerEnded so you can react.",
     tags: ["timer", "youtube", "shorts"],
     params: [
       { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 30 },
@@ -1404,23 +1383,42 @@ const CUSTOM_RULE_TEMPLATES = [
       { id: "displayName", label: "Display name", type: "text", defaultValue: "YT Shorts" }
     ],
     buildCode(values) {
-      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const yt = helpers.getPlatformHelper().youtube();
-  const tid = yt.setShortsTimer({
-    id: ${quoteJs(values.timerId)},
+      return `(event, helpers) => {
+  const TIMER_ID = ${quoteJs(values.timerId)};
+  const yt = helpers.getDomainHelper().youtube();
+
+  helpers.getTimerHelper().getOrCreateTimer({
+    id: TIMER_ID,
     direction: "backward",
     currentMs: ${minutesToMsLiteral(values.minutes)},
     displayName: ${quoteJs(values.displayName)}
   });
 
-  return helpers.getTimerHelper().isExpired(tid) ? -1 : 0;
+  event.registerTickEvent("yt-shorts-tick", (ev, h) => {
+    if (!yt.isShortUrl(ev.url)) return;
+    h.getTimerHelper().addMs(TIMER_ID, -1000);
+  });
+
+  function maybeBlock(ev, h) {
+    if (!yt.isShortUrl(ev.url)) return;
+    if (h.getTimerHelper().isExpired(TIMER_ID)) {
+      ev.preventDefault();
+      ev.setResult(-1);
+    }
+  }
+  event.registerOpenWebEvent("yt-shorts-block", maybeBlock);
+  event.registerSwitchWebEvent("yt-shorts-block", maybeBlock);
+
+  event.registerTimerEndedEvent("yt-shorts-ended", (ev, h) => {
+    h.getLogHelper().log("YouTube Shorts time used up:", ev.data);
+  });
 }`;
     }
   },
   {
     id: "tiktok-short-cap",
     title: "TikTok Feed Cap",
-    description: "Create a countdown timer that only ticks on TikTok video pages.",
+    description: "Tick a TikTok-only timer; block any TikTok page once it expires.",
     tags: ["timer", "tiktok", "shorts"],
     params: [
       { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 20 },
@@ -1428,26 +1426,38 @@ const CUSTOM_RULE_TEMPLATES = [
       { id: "displayName", label: "Display name", type: "text", defaultValue: "TikTok" }
     ],
     buildCode(values) {
-      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const timer = helpers.getTimerHelper();
-  const du = helpers.getDomainUtility();
-  const tid = timer.getOrCreateTimer({
-    id: ${quoteJs(values.timerId)},
+      return `(event, helpers) => {
+  const TIMER_ID = ${quoteJs(values.timerId)};
+  const tiktok = helpers.getDomainHelper().tiktok();
+
+  helpers.getTimerHelper().getOrCreateTimer({
+    id: TIMER_ID,
     direction: "backward",
     currentMs: ${minutesToMsLiteral(values.minutes)},
-    displayName: ${quoteJs(values.displayName)},
-    scope: (u) => du.tiktok().isShortUrl(u),
-    domain: (u) => du.tiktok().isPlatformUrl(u)
+    displayName: ${quoteJs(values.displayName)}
   });
 
-  return du.tiktok().isPlatformUrl(url) && timer.isExpired(tid) ? -1 : 0;
+  event.registerTickEvent("tt-tick", (ev, h) => {
+    if (!tiktok.isShortUrl(ev.url)) return;
+    h.getTimerHelper().addMs(TIMER_ID, -1000);
+  });
+
+  function maybeBlock(ev, h) {
+    if (!tiktok.isPlatformUrl(ev.url)) return;
+    if (h.getTimerHelper().isExpired(TIMER_ID)) {
+      ev.preventDefault();
+      ev.setResult(-1);
+    }
+  }
+  event.registerOpenWebEvent("tt-block", maybeBlock);
+  event.registerSwitchWebEvent("tt-block", maybeBlock);
 }`;
     }
   },
   {
     id: "instagram-reels-cap",
     title: "Instagram Reels Cap",
-    description: "Track Reels separately and block once the countdown expires.",
+    description: "Track Reels with a per-second tick; block any Instagram page once expired.",
     tags: ["timer", "instagram", "shorts"],
     params: [
       { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 15 },
@@ -1455,40 +1465,56 @@ const CUSTOM_RULE_TEMPLATES = [
       { id: "displayName", label: "Display name", type: "text", defaultValue: "IG Reels" }
     ],
     buildCode(values) {
-      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const timer = helpers.getTimerHelper();
-  const du = helpers.getDomainUtility();
-  const tid = timer.getOrCreateTimer({
-    id: ${quoteJs(values.timerId)},
+      return `(event, helpers) => {
+  const TIMER_ID = ${quoteJs(values.timerId)};
+  const ig = helpers.getDomainHelper().instagram();
+
+  helpers.getTimerHelper().getOrCreateTimer({
+    id: TIMER_ID,
     direction: "backward",
     currentMs: ${minutesToMsLiteral(values.minutes)},
-    displayName: ${quoteJs(values.displayName)},
-    scope: (u) => du.instagram().isShortUrl(u),
-    domain: (u) => du.instagram().isPlatformUrl(u)
+    displayName: ${quoteJs(values.displayName)}
   });
 
-  return du.instagram().isPlatformUrl(url) && timer.isExpired(tid) ? -1 : 0;
+  event.registerTickEvent("ig-tick", (ev, h) => {
+    if (!ig.isShortUrl(ev.url)) return;
+    h.getTimerHelper().addMs(TIMER_ID, -1000);
+  });
+
+  function maybeBlock(ev, h) {
+    if (!ig.isPlatformUrl(ev.url)) return;
+    if (h.getTimerHelper().isExpired(TIMER_ID)) {
+      ev.preventDefault();
+      ev.setResult(-1);
+    }
+  }
+  event.registerOpenWebEvent("ig-block", maybeBlock);
+  event.registerSwitchWebEvent("ig-block", maybeBlock);
 }`;
     }
   },
   {
     id: "hide-youtube-shorts-author-length",
     title: "Hide Shorts By Author Length",
-    description: "Hide YouTube Shorts whose author handle is longer than a threshold.",
+    description: "On every YouTube open, hide Shorts whose author handle is longer than a threshold.",
     tags: ["feed", "youtube", "shorts"],
     params: [
       { id: "maxAuthorLength", label: "Max author length", type: "number", min: 1, step: 1, defaultValue: 16 },
       { id: "blockPageOnVisit", label: "Block direct visits", type: "checkbox", defaultValue: true }
     ],
     buildCode(values) {
-      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const yt = helpers.getPlatformHelper().youtube();
-  yt.hideShortButton();
-  yt.hideShorts(
-    (item) => item.author && item.author.length > ${Number(values.maxAuthorLength)},
-    { blockPageOnVisit: ${Boolean(values.blockPageOnVisit)} }
-  );
-  return 0;
+      return `(event, helpers) => {
+  function configure(ev, h) {
+    const yt = h.getPlatformHelper().youtube();
+    yt.hideShortButton();
+    yt.hideShorts(
+      (item) => item.author && item.author.length > ${Number(values.maxAuthorLength)},
+      { blockPageOnVisit: ${Boolean(values.blockPageOnVisit)} }
+    );
+  }
+
+  event.registerOpenWebEvent("hide-shorts", configure);
+  event.registerSwitchWebEvent("hide-shorts", configure);
 }`;
     }
   },
@@ -1502,21 +1528,25 @@ const CUSTOM_RULE_TEMPLATES = [
       { id: "blockPageOnVisit", label: "Block direct visits", type: "checkbox", defaultValue: false }
     ],
     buildCode(values) {
-      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const yt = helpers.getPlatformHelper().youtube();
-  const keyword = ${quoteJs(String(values.keyword || "").toLowerCase())};
-  yt.hideVideos(
-    (item) => item.name && item.name.toLowerCase().includes(keyword),
-    { blockPageOnVisit: ${Boolean(values.blockPageOnVisit)} }
-  );
-  return 0;
+      return `(event, helpers) => {
+  const KEYWORD = ${quoteJs(String(values.keyword || "").toLowerCase())};
+
+  function configure(ev, h) {
+    const yt = h.getPlatformHelper().youtube();
+    yt.hideVideos(
+      (item) => item.name && item.name.toLowerCase().includes(KEYWORD),
+      { blockPageOnVisit: ${Boolean(values.blockPageOnVisit)} }
+    );
+  }
+  event.registerOpenWebEvent("hide-keyword", configure);
+  event.registerSwitchWebEvent("hide-keyword", configure);
 }`;
     }
   },
   {
     id: "reddit-subreddit-work-block",
     title: "Block One Subreddit At Work",
-    description: "Block a subreddit only during a chosen daily work window.",
+    description: "Block a subreddit only during a chosen daily work window. Reacts to navigation events.",
     tags: ["schedule", "reddit"],
     params: [
       { id: "subreddit", label: "Subreddit", type: "text", defaultValue: "all" },
@@ -1528,14 +1558,19 @@ const CUSTOM_RULE_TEMPLATES = [
       if (normalizedSubreddit.startsWith("r/")) {
         normalizedSubreddit = normalizedSubreddit.slice(2);
       }
-      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const target = ${quoteJs(normalizedSubreddit)};
-  if (!url.toLowerCase().includes("/r/" + target + "/")) return 0;
+      return `(event, helpers) => {
+  const TARGET = ${quoteJs(normalizedSubreddit)};
 
-  const isWeekday = !["Saturday", "Sunday"].includes(dayName);
-  const inWorkHours = hour >= ${Number(values.startHour)} && hour < ${Number(values.endHour)};
+  function decide(ev) {
+    if (!ev.url.toLowerCase().includes("/r/" + TARGET + "/")) return;
+    if (["Saturday", "Sunday"].includes(ev.time.dayName)) return;
+    if (ev.time.hour < ${Number(values.startHour)} || ev.time.hour >= ${Number(values.endHour)}) return;
+    ev.preventDefault();
+    ev.setResult(-1);
+  }
 
-  return isWeekday && inWorkHours ? -1 : 0;
+  event.registerOpenWebEvent("subreddit-work-block", decide);
+  event.registerSwitchWebEvent("subreddit-work-block", decide);
 }`;
     }
   },
@@ -1548,37 +1583,57 @@ const CUSTOM_RULE_TEMPLATES = [
       { id: "domainContains", label: "URL contains", type: "text", defaultValue: "twitch.tv" }
     ],
     buildCode(values) {
-      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  if (!url.includes(${quoteJs(values.domainContains)})) return 0;
-  return ["Saturday", "Sunday"].includes(dayName) ? 1 : -1;
+      return `(event, helpers) => {
+  const TARGET = ${quoteJs(values.domainContains)};
+
+  function decide(ev) {
+    if (!ev.url.includes(TARGET)) return;
+    const weekend = ["Saturday", "Sunday"].includes(ev.time.dayName);
+    if (weekend) {
+      ev.setResult(1);
+    } else {
+      ev.preventDefault();
+      ev.setResult(-1);
+    }
+  }
+  event.registerOpenWebEvent("weekend-only", decide);
+  event.registerSwitchWebEvent("weekend-only", decide);
 }`;
     }
   },
   {
     id: "one-free-visit",
     title: "One Free Visit Then Block",
-    description: "Allow the first matching visit, then block every later one until you clear persistence.",
+    description: "Allow the first N matching visits, then block every later one until you clear persistence.",
     tags: ["site", "persistence"],
     params: [
       { id: "domainContains", label: "URL contains", type: "text", defaultValue: "news.ycombinator.com" },
       { id: "allowedVisits", label: "Allowed visits", type: "number", min: 1, step: 1, defaultValue: 1 }
     ],
     buildCode(values) {
-      return `(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const target = ${quoteJs(values.domainContains)};
-  if (!url.includes(target)) return 0;
+      return `(event, helpers) => {
+  const TARGET = ${quoteJs(values.domainContains)};
+  const ALLOWED = ${Number(values.allowedVisits)};
 
-  const store = helpers.getPersistenceHelper();
-  const visitKey = "visit-count:" + target;
-  const pageKey = "last-url:" + target;
-  const currentCount = Number(store.get(visitKey) || 0);
+  function decide(ev, h) {
+    if (!ev.url.includes(TARGET)) return;
+    const store = h.getPersistenceHelper();
+    const visitKey = "visit-count:" + TARGET;
+    const pageKey = "last-url:" + TARGET;
+    const currentCount = Number(store.get(visitKey, 0) || 0);
 
-  if (store.get(pageKey) !== url) {
-    store.set(pageKey, url);
-    store.set(visitKey, currentCount + 1);
+    if (store.get(pageKey) !== ev.url) {
+      store.set(pageKey, ev.url);
+      store.set(visitKey, currentCount + 1);
+    }
+
+    if (Number(store.get(visitKey, 0) || 0) > ALLOWED) {
+      ev.preventDefault();
+      ev.setResult(-1);
+    }
   }
-
-  return Number(store.get(visitKey) || 0) > ${Number(values.allowedVisits)} ? -1 : 0;
+  event.registerOpenWebEvent("free-visit-block", decide);
+  event.registerSwitchWebEvent("free-visit-block", decide);
 }`;
     }
   }
@@ -1834,52 +1889,6 @@ async function applyTemplatePreset() {
   render();
   scheduleAutosave();
   setStatus(t("status.templateApplied", { name: template.title }));
-}
-
-async function checkRuleSyntax() {
-  // Make sure whatever is in the textarea right now is committed to
-  // storage before we report. That way "syntax OK" implies "saved", and
-  // the user doesn't have to wonder whether the rule actually took effect.
-  await flushAutosave();
-
-  const source = String(blockingRulesField?.value ?? "").trim();
-  if (!source) {
-    setStatus(t("status.invalidCustomRulesEmpty"), true);
-    return;
-  }
-
-  const result = await compileInSandbox(source);
-  if (result.ok) {
-    setStatus(t("status.checkSyntaxValid"));
-    return;
-  }
-
-  if (result.kind === "not-function") {
-    setStatus(t("status.invalidCustomRulesNotFunction"), true);
-    return;
-  }
-
-  if (result.kind === "no-sandbox" || result.kind === "timeout") {
-    setStatus(t("status.checkSyntaxUnavailable"), true);
-    return;
-  }
-
-  if (result.kind === "runtime") {
-    setStatus(
-      t("status.invalidCustomRulesRuntime", {
-        message: result.message || t("status.invalidCustomRulesGeneric")
-      }),
-      true
-    );
-    return;
-  }
-
-  setStatus(
-    t("status.invalidCustomRulesSyntax", {
-      message: result.message || t("status.invalidCustomRulesGeneric")
-    }),
-    true
-  );
 }
 
 function clearDragState(shouldRender = true) {
@@ -2978,6 +2987,9 @@ function renderEditor(now = Date.now()) {
   platformVideoCard.classList.toggle("hidden", !isPlatformVideoGroup);
   redditSettingsCard.classList.toggle("hidden", !isRedditGroup);
   discordSettingsCard.classList.toggle("hidden", !isDiscordGroup);
+  if (fallbackUrlSection) {
+    fallbackUrlSection.classList.toggle("hidden", isCustomGroup);
+  }
   scheduleSection.classList.toggle("hidden", isCustomGroup);
   siteSettingsSection.classList.toggle(
     "hidden",
@@ -3018,6 +3030,16 @@ function renderEditor(now = Date.now()) {
   skipToNextOnBlockField.disabled = !editable || !isPlatformVideoGroup || !isScrollPlatform;
   if (openRuleTemplatesButton) {
     openRuleTemplatesButton.disabled = !editable || !isCustomGroup;
+  }
+  if (runCustomGroupButton) {
+    runCustomGroupButton.disabled = !editable || !isCustomGroup;
+  }
+  if (testFireButton) {
+    testFireButton.disabled = !editable || !isCustomGroup;
+  }
+  if (runCustomGroupStatus && (!isCustomGroup || !editable)) {
+    runCustomGroupStatus.textContent = "";
+    runCustomGroupStatus.className = "run-status";
   }
 
   dayCheckboxes.forEach((checkbox) => {
@@ -3455,9 +3477,8 @@ function buildUpdatedGroupFromDraft(group, draft) {
   // Custom rule source is intentionally NOT validated here. The popup
   // autosaves a fraction of a second after each keystroke, so compiling
   // mid-edit would always look broken to the user. Real validation
-  // happens via the Check syntax button (see checkRuleSyntax in this
-  // file) which uses the sandboxed compiler page, and the content
-  // script silently skips rules that don't compile at runtime.
+  // happens at Run time inside the offscreen event sandbox, which
+  // surfaces compile / runtime errors back to the popup's Run status.
 
   return {
     updatedGroup: {
@@ -3496,7 +3517,14 @@ function buildUpdatedGroupFromDraft(group, draft) {
       blockingRulesText: isCustomGroup ? blockingRulesText : group.blockingRulesText,
       sites: group.groupType === "site" ? siteResults.validSites : [],
       blockHomePage: Boolean(draft.blockHomePage),
-      fallbackUrl: typeof draft.fallbackUrl === "string" ? draft.fallbackUrl.trim() : "",
+      // Custom groups now express redirection through `setRedirectLink()`
+      // inside the rule, so they no longer ship a top-level fallbackUrl.
+      // We force-strip it on save so any legacy data wipes out cleanly.
+      fallbackUrl: isCustomGroup
+        ? ""
+        : typeof draft.fallbackUrl === "string"
+        ? draft.fallbackUrl.trim()
+        : "",
       skipToNextOnBlock: Boolean(draft.skipToNextOnBlock)
     },
     modeChanged: nextMode !== group.mode,
@@ -4240,12 +4268,97 @@ blockingRulesField.addEventListener("blur", () => {
   });
 });
 
-if (checkRuleSyntaxButton) {
-  checkRuleSyntaxButton.addEventListener("click", () => {
-    checkRuleSyntax().catch((error) => {
-      console.error("Failed to check rule syntax.", error);
-      setStatus(t("status.checkSyntaxUnavailable"), true);
+async function runSelectedCustomGroup() {
+  const group = getSelectedGroup();
+  if (!group || group.groupType !== "custom") return;
+  await flushAutosave();
+  const source = String(blockingRulesField?.value ?? "").trim();
+  if (runCustomGroupStatus) {
+    runCustomGroupStatus.textContent = t("custom.runStatusRunning");
+    runCustomGroupStatus.className = "run-status";
+  }
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "run-custom-group",
+      groupId: group.id,
+      source
     });
+    if (response && response.ok && response.loadResult) {
+      const lr = response.loadResult;
+      if (lr.ok) {
+        if (runCustomGroupStatus) {
+          runCustomGroupStatus.textContent = t("custom.runStatusOk", { count: String(lr.handlers ?? 0) });
+          runCustomGroupStatus.className = "run-status success";
+        }
+        setStatus(t("status.customGroupRan", { name: group.name, count: String(lr.handlers ?? 0) }));
+      } else {
+        if (runCustomGroupStatus) {
+          runCustomGroupStatus.textContent = lr.error || t("custom.runStatusError");
+          runCustomGroupStatus.className = "run-status error";
+        }
+        setStatus(lr.error || t("status.errorRunCustomGroup"), true);
+      }
+    } else {
+      if (runCustomGroupStatus) {
+        runCustomGroupStatus.textContent = t("custom.runStatusError");
+        runCustomGroupStatus.className = "run-status error";
+      }
+      setStatus(t("status.errorRunCustomGroup"), true);
+    }
+  } catch (error) {
+    console.error("Failed to run custom group.", error);
+    if (runCustomGroupStatus) {
+      runCustomGroupStatus.textContent = String(error && error.message ? error.message : error);
+      runCustomGroupStatus.className = "run-status error";
+    }
+    setStatus(t("status.errorRunCustomGroup"), true);
+  }
+}
+
+if (runCustomGroupButton) {
+  runCustomGroupButton.addEventListener("click", () => {
+    runSelectedCustomGroup();
+  });
+}
+
+async function testFireOnActiveTab() {
+  if (runCustomGroupStatus) {
+    runCustomGroupStatus.textContent = "test-firing on active tab...";
+    runCustomGroupStatus.className = "run-status";
+  }
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "test-fire-active-tab" });
+    if (response && response.ok) {
+      const totalLogs = (response.openLogs || 0) + (response.switchLogs || 0);
+      const text = "active tab " + response.dispatchedTo +
+        " · " + (response.handlerCount || 0) + " handler(s) · " +
+        totalLogs + " log(s) emitted";
+      if (runCustomGroupStatus) {
+        runCustomGroupStatus.textContent = text;
+        runCustomGroupStatus.className = totalLogs > 0 ? "run-status success" : "run-status error";
+      }
+      setStatus(text);
+    } else {
+      const err = (response && response.error) || "test-fire failed";
+      if (runCustomGroupStatus) {
+        runCustomGroupStatus.textContent = err;
+        runCustomGroupStatus.className = "run-status error";
+      }
+      setStatus(err, true);
+    }
+  } catch (error) {
+    const text = String(error && error.message ? error.message : error);
+    if (runCustomGroupStatus) {
+      runCustomGroupStatus.textContent = text;
+      runCustomGroupStatus.className = "run-status error";
+    }
+    setStatus(text, true);
+  }
+}
+
+if (testFireButton) {
+  testFireButton.addEventListener("click", () => {
+    testFireOnActiveTab();
   });
 }
 

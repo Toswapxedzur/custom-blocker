@@ -569,6 +569,21 @@ textarea:disabled {
   column-gap: 12px;
 }
 
+.run-status {
+  font-size: 12px;
+  color: #475569;
+  margin-left: 8px;
+  align-self: center;
+}
+
+.run-status.success {
+  color: #059669;
+}
+
+.run-status.error {
+  color: #dc2626;
+}
+
 .template-filter-row {
   display: flex;
   align-items: center;

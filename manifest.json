@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Custom Web Blocker",
-  "version": "1.0.0",
-  "description": "Block websites you choose with native blocking or delayed usage limits.",
-  "permissions": ["storage", "declarativeNetRequest", "alarms"],
+  "version": "1.1.0",
+  "description": "Block websites you choose with native blocking, delayed usage limits, or event-driven custom rules.",
+  "permissions": ["storage", "declarativeNetRequest", "alarms", "offscreen", "tabs", "webNavigation"],
   "host_permissions": ["<all_urls>"],
   "icons": {
     "16": "icon-128.png",
@@ -30,11 +30,11 @@
     }
   },
   "sandbox": {
-    "pages": ["sandbox.html"]
+    "pages": ["event-sandbox.html"]
   },
   "web_accessible_resources": [
     {
-      "resources": ["sandbox.html"],
+      "resources": ["event-sandbox.html", "offscreen.html"],
       "matches": ["<all_urls>"]
     }
   ]

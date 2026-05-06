@@ -269,90 +269,123 @@ Snooze 卡片还会显示该分组的 **累计 Snooze 时间**。这个累计值
 
 ---
 
-## 11. Custom 分组（完整参考）
+## 11. Custom 分组 — 事件驱动参考（v1.1+）
 
-`Custom` 分组会在用户访问的每个页面的 **content script** 中执行一段 JavaScript 函数。页面加载时执行一次，每次心跳（约 250 毫秒）也再执行一次。其返回值决定当前页面是否被屏蔽，对 `helpers` 对象的副作用决定 DOM 操作和分组级计时器/持久化状态如何变化。
+从 v1.1 起，自定义规则改为**事件驱动**。规则不再是“每次心跳调用、由返回值决定是否屏蔽”的函数，而是一段在被调用时**注册事件处理器**的脚本（页面打开、URL 变化、tick、自定义事件等）。处理器在导航和切换标签页之间持续保留，统一存活在一个长生命周期的 offscreen 沙箱中。
 
-由于函数运行在页面自身上下文中（而非后台 worker），你在函数内声明的所有闭包变量都可以被传给 `hideShorts`、`hideVideos`、`hidePosts` 的谓词读取。
+规则函数体只在**点击 Run 时执行一次**（或者在分组被启用且已存在 active source 时由系统自动执行一次）。要重新加载处理器，请在编辑器中点击 **Run**。
 
-### 11.1 函数签名
+### 11.1 规则签名
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  // your logic
-  return 0;
+(event, helpers) => {
+  // 在这里注册处理器。本函数每次 Run 点击仅被调用一次
+  // （或在分组启用时被自动调用一次）。
 }
 ```
 
-参数说明：
+两个参数：
 
-- `month` — `1` 到 `12`。
-- `dayOfMonth` — `1` 到 `31`。
-- `dayName` — 例如 `"Monday"`。
-- `hour` — `0` 到 `23`。
-- `minute` — `0` 到 `59`。
-- `url` — 当前页面的 URL 字符串（已规范化）。可直接传入 `helpers.getDomainUtility()` 的方法。
-- `helpers` — 一组辅助访问器（见下文）。
+- `event` — 当前分组的**事件注册中心**。用它来注册、覆盖、查询、计数、注销处理器，以及通过 `post(...)` 派发自定义事件。
+- `helpers` — 辅助工具集合（详见 11.3）。
 
-返回值：
+函数**不需要**返回值。是否屏蔽或放行的决定，发生在事件触发后某个被注册的处理器调用 `ev.preventDefault()` 和/或 `ev.setResult(...)` 时。
 
-- `-1` — 屏蔽页面。
-- `0` — 不作决定，继续交给下一条规则。
-- `1` — 允许。
-- `[-255, 255]` 范围内的其他整数 — 作为自定义状态保留给调试 / 未来逻辑，目前不会单独触发允许或屏蔽。
+### 11.2 生命周期
 
-规则仍按从下到上执行。**最后一个非零状态获胜**，因此上层规则可以用 `1` 覆盖下层规则的 `-1`，反之亦然。数值返回值之外，helper 的副作用仍会生效：信息流隐藏依然隐藏，计时器依然推进等。唯一例外是由 custom rule 自身产生的页面退出意图（如 `hideHomePage()`、`blockPageOnVisit`）——若最终返回状态为 `1`，则本次心跳会抑制这些 custom-rule 级页面退出。
+- **Run**（每个分组编辑器内的按钮）：引擎先清掉所有此前打着该分组标签的处理器，然后在每个已打开标签页对应的 offscreen 沙箱视图中重新执行规则函数体。这是编辑源代码后唯一能让新版本生效的方式。
+- **禁用分组**：所有打着该分组标签的处理器都会被清除。源代码仍保留在 storage 中，但不再响应任何事件。
+- **重新启用分组**：引擎会自动重新执行该分组的 active source。
+- **删除分组**：等同于禁用——所有该分组标签的处理器都会被清掉。
+- **以相同 `(eventType, id)` 重复注册**：静默覆盖旧的注册。
 
-弹窗**不会**在你输入过程中自动校验语法——否则每个未写完的中间状态都会被标红。可以点击 Blocking Rules 文本框旁的 **Check syntax** 按钮按需校验。该按钮会做三件事：
+offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理器共存其中，每个内部都打了所属 group id 的标签，因此 “Run”、禁用、删除只会作用到正确的分组上。
 
-1. 先冲刷待写入的自动保存，保证结果出现时规则已经落到 storage（无需等 400 毫秒防抖，也不必担心切换标签页时还没保存——文本框失焦时也会立刻冲刷一次）。
-2. 在 sandbox iframe 中编译源码（Chrome 在普通扩展页中禁用 `new Function`）。
-3. 用一组虚拟参数和一个**类型严格**的 `helpers` 桩对象（精确镜像真实 API）把编译出来的函数实际调用一次。这样可以在永远会执行到的代码路径上抓到拼写错误和 `ReferenceError`，例如 `return truel;`、`helpers.nah()`、`helpers.getPlatformHelper().myspace()` 都会被报错。这里特意**不**用宽放型 Proxy，否则任何拼错的方法名都会静默通过。虚拟参数不会触达的分支仍然**不会**被校验，只有跟桩对象交互的那段代码才会被检查。
+### 11.2.1 事件注册中心（`event`）
 
-即使语法不通过，源码也会照常保存；content script 会静默跳过无法编译的规则。若函数在运行时抛出异常，扩展会捕获错误并写入页面控制台（前缀为 `[CustomBlocker:groupId]`），同一心跳中其余规则继续执行。
+通用方法：
 
-任何页面只要有匹配上的自定义规则，都会在右下角显示一个**调试浮窗**。每条规则会列出分组名、content script 实际在运行的源码，以及最近一次心跳里它返回的值（`true`、`false` 或运行时错误信息）。点击浮窗右上角的 `×` 可以关闭它，关闭状态在该页面会话中持续生效，刷新页面即可重新出现。
+- `event.register(type, id, handler, options?)` — 为任意事件类型注册处理器。`id` 由你自定。`options.priority`（默认 `0`）—— 数值越大越先执行。`options.intervalMs` —— 仅对 `tickEvent` 有效，用于对单个处理器节流（全局 tick 仍然每秒一次）。以相同 `(type, id)` 再次注册会覆盖。
+- `event.unregister(type, id)`、`event.unregisterAll(type)`。
+- `event.post(type, data?, { scope })` — 派发一个自定义事件。`scope: "global"` 会送到所有分组；默认 `scope: "group"` 仅送到**同一分组**内的处理器。
 
-### 11.2 执行模型
+每个内置事件类型都附赠一组语法糖（同一套形状的方法）：
 
-- Custom 规则按 **从下到上** 的存储顺序运行。底部分组先执行，顶部分组最后执行，并对意图（intent）拥有“最终决定权”（show/hide 语义见下文）。
-- Content script 自身**不会**编译或执行规则。Chrome 的默认扩展 CSP 在沙箱页面之外都禁用 `new Function` / `eval`，所以 content script 会在每个页面里挂一个隐藏的 `sandbox.html` 子页 iframe，并通过 `postMessage` 把每次心跳的规则批次送进去。沙箱页加载 `helpers.js` 并运行规则；执行结果、被改动的计时器/持久化桶、累计的 DOM 意图都通过 `postMessage` 回传。Content script 再把意图作用于页面 DOM，并决定是否退出页面。
-- 由于规则执行变成了 `postMessage` 的来回往返，新页面加载后第一次拦截判断会延迟一小段时间（通常 < 50 毫秒）。后续心跳命中沙箱里以源码为键的编译缓存，几乎是即时的。
-- 你对 `helpers.getTimerHelper()` 和 `helpers.getPersistenceHelper()` 的修改，会在下一次心跳时回写到后台 service worker。如果两个标签页同时执行规则，则采用“最后写入者获胜”策略——典型场景下完全够用，但需要知晓。
-- Custom 分组**不再参与网络层（`declarativeNetRequest`）拦截**。只有 `Default`（site）分组会产生原生 `ERR_BLOCKED_BY_CLIENT` 拦截。Custom 规则通过 content script 退出页面来实现拦截。
-- 一种少见的失败模式：如果宿主页面用严格的 `frame-src` CSP 拒绝 `chrome-extension:`，沙箱 iframe 会加载失败，调试浮窗会把这个错误显示出来。这些页面上自定义规则就跑不起来了；site / timed 分组依然正常工作。
+- `event.registerTickEvent(id, handler, opts)`、`event.getTickEvent(id)`、`event.getTickEvents()`、`event.countTickRegistered()`。
+- `event.registerOpenWebEvent(id, handler, opts)`、`event.getOpenWebEvent(id)`、`event.getOpenWebEvents()`、`event.countOpenWebRegistered()`。
+- `closeWebEvent`、`switchWebEvent`、`switchDomainEvent`、`timerEnded` 同形。
+
+### 11.2.2 内置事件类型
+
+| 类型 | 触发时机 | `ev.data` |
+|---|---|---|
+| `tickEvent` | 全局共享的每秒 tick，所有打开的标签页都会按优先级触发各自的处理器。 | `{ intervalMs: 1000 }` |
+| `openWebEvent` | 新建标签页，或一次新的导航命中了引擎在该标签下尚未见过的 URL。点击 Run 之后**不会**对已打开的标签页再次触发。 | `{ previousUrl, isNewTab }` |
+| `closeWebEvent` | 标签页被关闭。 | `{ reason, nextUrl }` |
+| `switchWebEvent` | 同一标签页内 URL 发生变化——整页刷新、前进/后退、SPA 路由切换都会触发。任何 URL 改变都会触发。 | `{ previousUrl, previousHostname, sameDomain }` |
+| `switchDomainEvent` | URL 变化跨越了主机名边界（例如 `youtube.com` → `wikipedia.org`）。会和 `switchWebEvent` 同时触发。 | `{ previousUrl, previousHostname }` |
+| `timerEnded` | 当前分组下任意计时器达到 `currentMs === 0`。仅会派发给拥有这个计时器的分组。 | `{ timerId, displayName, direction, currentMs }` |
+
+`ev.url` 以及事件 data 中的 URL 都已经过**事件级规范化**：Chrome 的 New Tab Page（即显示 Google 搜索框的“新标签页”）、`about:blank` 以及对应的 newtab scheme，都会被暴露成空字符串 `""`。因此一个 `ev.url === ""` 的计时器只会在新标签页时推进。普通的 `google.com` URL 不受影响。
+
+### 11.2.3 事件对象（`ev`）
+
+每个处理器都以 `(ev, helpers) => void` 形式被调用。`ev` 携带：
+
+- `ev.type` — 事件类型。
+- `ev.groupId` — 收到事件的分组 id。
+- `ev.tabId`、`ev.pageId`、`ev.url`、`ev.hostname` — 事件上下文。
+- `ev.time` — 派发时刻的 `{ now, month, dayOfMonth, dayName, hour, minute }` 快照。
+- `ev.data` — 事件特定的数据（见上表）。
+
+方法：
+
+- `ev.preventDefault()` — 把本次派发标记为“屏蔽”。host content script 会退出页面（或跟随 `setRedirectLink`），除非更高优先级的处理器之后调用了 `setResult(1)` 把它覆盖。
+- `ev.stopPropagation()` — 立即终止本次派发。**不会再有任何分组**的处理器收到该事件。
+- `ev.setResult(value)` — 设置派发结果。`value` 可以是 `[-255, 255]` 内的**数值**（`-1` 屏蔽、`0` 中立、`1` 放行；其他整数保留给你自己的调试逻辑），或者一个**字符串**(被解释为重定向 URL)。所有处理器中最后一次 `setResult` 调用获胜。数值 `1` 会覆盖此前任意 `preventDefault`。
+- `ev.setRedirectLink(url)` / `ev.getRedirectLink()` — 当本次派发以屏蔽收尾时，host 应导航到的 URL。这是在自定义规则中设置跳转的**唯一**方式；编辑器对 Custom 分组已不再展示 “Redirect URL when blocked” 字段。
+- `ev.post(type, data, { scope })` — 在处理器内部派发后续事件。
+
+此外 `ev` 是一个 Proxy：你设到它上面的任意字段（例如 `ev.foo = 42`）会存入一个 `custom` 映射，可以从同一处理器或同一次派发中后续的处理器里读回来。
 
 ### 11.3 `helpers` 对象
 
-`helpers` 暴露若干访问器方法以及三个常量字段：
+每次处理器调用都会拿到一份新的 `helpers`，它已被绑定到接收事件的分组以及事件的 URL。常量字段：
 
-- `helpers.now` — 当前 epoch 毫秒时间戳。
-- `helpers.elapsedMs` — 距上一次心跳的毫秒数。如需手动推进计时器，可使用此值。
-- `helpers.currentUrl` — 与 `url` 参数相同；用于在谓词内部更方便引用。
-- `helpers.getTimerHelper()`
-- `helpers.getPersistenceHelper()`
-- `helpers.getLogHelper()`
-- `helpers.getRedirectionHelper()`
-- `helpers.getPlatformHelper()`
-- `helpers.getDomainUtility()`
+- `helpers.now` — 派发时的 epoch 毫秒。
+- `helpers.currentUrl` — 事件 URL（已做 newtab/blank 规范化）。
+- `helpers.groupId` — 接收事件的分组 id。
 
-所有 helper 方法都设计为安全调用：参数错误时返回 `null`、`false` 或空值，而不会抛异常。
+访问器方法：
+
+- `helpers.getLogHelper()` — `log/warn/error`，自动加上 `[CustomBlocker:groupId]` 前缀，并以浮窗形式显示在页面上。
+- `helpers.getDomainHelper()`（别名 `helpers.getDomainUtility()`）— URL 检查（详见 11.3.5）。
+- `helpers.getTimerHelper()` — 分组级计时器（倒计时 / 正计时）；状态跨浏览器重启保留。
+- `helpers.getPersistenceHelper()` — 分组级 JSON 键值存储。
+- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()`（同时提供 `set/get` 别名）。对自定义规则而言，这是设置“被屏蔽时跳转 URL”的**唯一**方式。
+- `helpers.getPlatformHelper()` — 按平台拆分的 DOM 意图（详见 11.3.6）。
+- `helpers.getDOMHelper()` — 通用 DOM 意图：`hide(sel)`、`show(sel)`、`addClass(sel, c)`、`removeClass(sel, c)`、`setText(sel, text)`、`click(sel)`、`injectCss(css, id?)`、`removeInjectedCss(id)`、`scrollTo(sel)`。意图会被批量收集，处理器返回后再统一应用到 DOM。
+- `helpers.getNavigationHelper()` — `back()`、`forward()`、`reload()`、`goTo(url)`、`closeTab()`。作用对象是事件来源的标签页。
+- `helpers.getStorageHelper()` — `getPersistenceHelper` 的超集，额外提供 `requestAsyncGet(key)` / `requestAsyncSet(key, value)` 之类的异步钩子用于跨扩展存储（结果以一个后续自定义事件的形式回调）。
+- `helpers.getTabHelper()` — 在事件携带的 tab 快照上提供 `list()`、`getActiveTab()`、`getById(id)`、`countOpen()`。
+
+所有 helper 方法都设计为安全调用：参数错误时返回 `null`、`false` 或空值，不会抛异常。
 
 #### 11.3.1 `getTimerHelper()`
 
-按分组持久化的计时器。每个计时器由你自定的字符串 `id` 标识；标识作用域限定在分组内，所以两个分组都可以使用同一个 `id`（如 `"yt-shorts"`）而不冲突。状态跨浏览器重启保留。
+按分组持久化的计时器。每个计时器由你自定的字符串 `id` 标识；标识作用域限定在分组内，所以两个分组都可以使用同一个 `id`（例如 `"yt-shorts"`）而不冲突。状态跨浏览器重启保留。
 
-计时器持久化字段仅有：`id`、`displayName`、`direction`（`"forward"` 或 `"backward"`）、`isPaused`、`currentMs`。**不会**保存“初始时长”——`isExpired` 即 `currentMs === 0`。Forward 计时器永远向上累加，自身不会过期。
+计时器的持久化字段仅有：`id`、`displayName`、`direction`（`"forward"` 或 `"backward"`）、`isPaused`、`currentMs`。**不会**保存“初始时长”——`isExpired` 即 `currentMs === 0`。Forward 计时器永远向上累加，自身不会过期。
 
-构造方法有两个，请按意图选择——这点很重要，因为规则通常会**每次心跳**都被调用：
+构造方法有两个，请按意图选择：
 
-- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **总是（重新）创建**：用传入的初始字段覆盖既有状态，包括 `currentMs`。适用于“立即重置”场景（例如在某分支里手动复位）。如果规则每次心跳都用同一 `id` 调用 `create`，计时器会被反复重置，永远无法推进。
-- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **幂等**。若同 `id` 已存在，仅可能更新 `displayName` 与 `direction`，`currentMs` 保留不变；若不存在则按初始字段创建。常规的“确保计时器存在并继续推进”场景请用此方法。
+- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **总是（重新）创建**：用传入的初始字段覆盖既有状态，包括 `currentMs`。适用于“立即重置”这种一次性场景。
+- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **幂等**。若同 `id` 已存在，仅会更新 `displayName` 与 `direction`，`currentMs` 保留不变；若不存在则按初始字段创建。常规的“确保计时器存在并继续推进”请用此方法。
 
-两个方法都接收两个**仅在本次心跳生效、不会持久化**的谓词：
+两个方法都接受两个**仅在本次心跳生效、不会被持久化**的谓词：
 
-- `scope: (url) => boolean` — 返回 `true` 时，本次心跳会按心跳间隔推进计时器（与默认 block group 的 usage timer 使用同一时间增量，速率因此完全一致）。同一分组内每次心跳最多只会自动推进一次，无论被多少条规则调用。
-- `domain: (url) => boolean` — 返回 `true` 时，计时器在本次心跳的页面左上角覆盖层中显示。未传 `domain` 时系统回退到 `scope` 作为显示门控，因此“在 `/shorts/` 页推进”的计时器无需额外配置就能在那里显示。需要解耦“推进”与“显示”时（例如仅在 `/shorts/` 推进，但希望在整个 `youtube.com` 都展示剩余时间）才需要单独传 `domain`。
+- `scope: (url) => boolean` — 当前 URL 让该谓词返回 `true` 时，本次心跳会按心跳间隔自动推进计时器。每次心跳每个分组最多自动推进一次。
+- `domain: (url) => boolean` — 当前 URL 让该谓词返回 `true` 时，计时器会渲染到页面左上角的覆盖层中。未传 `domain` 时系统会回退使用 `scope` 作为显示门控。
 
 其他方法：
 
@@ -366,7 +399,7 @@ Snooze 卡片还会显示该分组的 **累计 Snooze 时间**。这个累计值
 
 #### 11.3.2 `getPersistenceHelper()`
 
-作用域限定在当前分组的类 Map 存储。值必须可 JSON 序列化。
+作用域为当前分组的类 Map 存储。值必须可 JSON 序列化。
 
 - `set(key, value)`、`get(key, defaultValue?)`、`has(key)`、`delete(key)`、`keys()`、`entries()`、`clear()`、`size()`。
 
@@ -374,161 +407,155 @@ Snooze 卡片还会显示该分组的 **累计 Snooze 时间**。这个累计值
 
 #### 11.3.3 `getLogHelper()`
 
-- `log(...args)`、`warn(...args)`、`error(...args)` — 写入**页面控制台**（因为规则现在在 content script 中运行）。每行前缀为 `[CustomBlocker:groupId]`。
+- `log(...args)`、`warn(...args)`、`error(...args)` — 写入页面控制台并以浮窗形式渲染在页面上。每行都带 `[CustomBlocker:groupId]` 前缀。
 
 #### 11.3.4 `getRedirectionHelper()`
 
-用于读取 / 覆盖当前页面一旦被屏蔽时 content script 将使用的跳转 URL。
+读取或覆盖 content script 在当前页面被屏蔽时跳转的目标 URL。
 
-- `get()` — 返回本次心跳当前生效的跳转 URL。初始值为内置分组配置的 fallback URL（如果有），否则为 `""`。
-- `set(url)` — 覆盖本次心跳的跳转 URL。成功返回 `true`，非字符串输入返回 `false`。传入 `""` 可清空跳转覆盖，此时回退到普通默认退出行为（按上下文转到主页 / `about:blank`）。
+- `get()` — 返回当次派发当前生效的跳转 URL。初始值为内置分组配置的 fallback URL（如有），否则为 `""`。
+- `set(url)` — 覆盖当次派发的跳转 URL。成功返回 `true`；非字符串输入返回 `false`。传入 `""` 可清空跳转覆盖，回退到默认退出行为（按上下文转到主页 / `about:blank`）。
 
-和其他 custom-rule 副作用一样，这个状态在同一次心跳的所有规则之间共享。由于规则按从下到上执行，最后（也就是最上层）调用 `set(...)` 的规则获胜。
+像其他 custom-rule 副作用一样，这一状态在本次派发的所有处理器之间共享。优先级最高的处理器中最后一次调用 `set(...)` 的最终生效。
 
-#### 11.3.5 `getDomainUtility()`
+#### 11.3.5 `getDomainHelper()`（别名 `getDomainUtility()`）
 
-URL 检查工具。是旧 `domainHelper` + `platformHelper` 的合并替代。**不再提供 `normalize()`**，因为传入的 URL 已经规范化——直接传入即可。
+URL 检查工具。不再提供 `normalize()`，因为传入的 URL 已经做过规范化。
 
-- `hostnameOf(url)` — 返回如 `"youtube.com"`，失败返回 `null`。会去掉 `www.`。
-- `pathnameOf(url)` — 缺失时返回 `"/"`。
-- `matches(hostname, site)` — 若 `hostname` 等于 `site` 或为其子域名，则返回 `true`。
-- `getPlatform(url)` — `"youtube" | "tiktok" | "instagram" | "facebook" | "twitch" | null`。
-- `isYouTubeHost(host)`、`isTikTokHost(host)`、`isInstagramHost(host)`、`isFacebookHost(host)`、`isTwitchHost(host)`、`isRedditHost(host)`、`isDiscordHost(host)`。
-- `youtube()`、`tiktok()`、`instagram()`、`facebook()`、`twitch()` — 每个返回一个结构相同的对象：
-  - `isPlatformUrl(url)`、`isShortUrl(url)`、`isVideoUrl(url)`、`isPostUrl(url)`、`isHomePage(url)` — 布尔值。
-  - `extractAuthor(url)` — 规范化作者句柄（如 `"mkbhd"`、`"channel:UC..."`、`"id:1234"`）或 `null`。
-  - `extractVideoId(url)` — 平台特定的视频 id（`v=...`、路径段等）或 `null`。
+核心方法：
+
+- `hostnameOf(url)`、`pathnameOf(url)`、`matches(hostname, site)`、`getPlatform(url)`。
+- `isYouTubeHost`、`isTikTokHost`、`isInstagramHost`、`isFacebookHost`、`isTwitchHost`、`isRedditHost`、`isDiscordHost`。
+- `youtube()`、`tiktok()`、`instagram()`、`facebook()`、`twitch()` — 每个都返回 `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`。
+
+URL 过滤与区域识别（v1.1 新增）：
+
+- `isEmptyStartPage(url)` — 对新标签页及等价 URL（被处理器看到为 `""` 的那些）返回 `true`。
+- `matchesAny(url, patterns)` — `patterns` 可以是一个正则、一个正则字符串，或两者的数组。
+- `pathStartsWith(url, path)` — 边界感知（`pathStartsWith("/r/", "/r")` 为 `true`，但 `"/results/"` 不算）。
+- `queryHas(url, key, value?)`、`queryGet(url, key)` — 查询字符串检查。
+- `isSearchPage(url)` — 识别 Google / Bing / DuckDuckGo / YouTube 结果页 / Reddit / Twitter / X 搜索页。
+- `isInfiniteFeedUrl(url)` — 识别 YouTube、TikTok、Instagram、Facebook、Reddit、X 的算法信息流页面。
+- `sameSection(a, b)` — 同一主机名且首段路径相同。
 
 #### 11.3.6 `getPlatformHelper()`
 
-按平台拆分的 DOM 意图与子区域计时器。利用它你可以做到内置 `YouTube` / `TikTok` 等分组所能做的一切——并且更多，因为可由任意 JavaScript 驱动。
+按平台拆分的 DOM 意图、子区域计时器以及状态检查方法。`helpers.getPlatformHelper().<platform>()` 都返回一个对象，包含：
 
-helper 本身按平台拆分为方法：
+可见性意图：
 
-- `helpers.getPlatformHelper().youtube()`
-- `helpers.getPlatformHelper().tiktok()`
-- `helpers.getPlatformHelper().instagram()`
-- `helpers.getPlatformHelper().facebook()`
-- `helpers.getPlatformHelper().twitch()`
+- `hideShortButton()` / `showShortButton()`、`hideHomePage()` / `showHomePage()`。
+- `hideShorts(predicate, { blockPageOnVisit })` / `showShorts()`、`hideVideos(...)` / `showVideos()`、`hidePosts(...)` / `showPosts()`。
+- `hideComments()` / `showComments()` / `filterComments(predicate)` — 完全隐藏平台评论区，或按谓词过滤单条评论。
+- `hideLive()` / `showLive()` / `filterLive(predicate)` — 同上，作用于支持直播的平台（YouTube、TikTok、Twitch、Facebook）。
 
-每个返回一个对象，含下文所列方法。接收 `predicate` 的方法会对每张匹配的信息流卡片调用一次谓词，参数 `item` 形如：
+状态检查（在派发时根据事件携带的快照返回值）：
 
-```ts
-{
-  url:          string | null,  // 卡片所指内容的规范 URL
-  name:         string | null,  // 标题/文案
-  author:       string | null,  // 规范化作者句柄
-  length:       number | null,  // 秒
-  views:        number | null,
-  publishedAt:  string | null,  // 自由格式，如 "3 days ago"
-  description:  string | null
-}
-```
+- `isCurrentChannelSubscribed()`、`isChannelSubscribed(idOrHandle)`。
+- `isCurrentChannelVerified()`。
+- `isLiveNow()`、`isItemLive(item)`。
+- `isAlgorithmicRecommendation(item)`、`isSponsored(item)`。
 
-任何字段在 DOM 不暴露时均可能为 `null`。遵循“疑罪从无”原则：若谓词关心的字段为 `null`，应返回 `false`（不屏蔽）。当系统连 `item` 都构造不出来时，谓词不会被调用。
+URL 分类器再次暴露：`isPlatformUrl`、`isShortUrl`、`isVideoUrl`、`isPostUrl`、`isHomePage`、`extractAuthor`、`extractVideoId`。
 
-各平台 helper 的方法：
+子区域计时器 —— `setShortsTimer({ id, direction, currentMs, displayName })`、`setVideosTimer({ ... })`、`setPostsTimer({ ... })` —— 把计时器登记到分组的持久化桶中,并在配置了 scope 时只在对应子区域 URL 上推进。
 
-- `hideShortButton()` / `showShortButton()` — 隐藏或恢复该平台的 “Shorts” / “For You” / “Reels” / “Clips” 入口。在 YouTube 上，这一项的行为对齐 YouTube block group 的 `videoMode: short, authorMode: none`：侧栏 `Shorts` 按钮（普通侧栏、迷你侧栏、移动版底部导航、频道页 tab）**以及**首页/订阅/搜索结果里的 Shorts 横向货架都会被隐藏。其他平台则会隐藏导航锚点及其所属的导航行容器。
-- `hideHomePage()` / `showHomePage()` — 当用户处于平台主页（`/`、`/feed/...`、`/foryou` 等）时，`hideHomePage()` 会退出页面。`showHomePage()` 用于让上层分组覆盖此意图。
-- `hideShorts(predicate, opts?)` / `showShorts()` — 在信息流中隐藏单个短视频。每次调用会**追加**一个谓词；卡片只要被任一活动谓词判为 `true` 即被隐藏。`showShorts()` 会清除来自下方分组所注册的所有 hide 谓词。
-  - `opts.blockPageOnVisit: true` — 当用户直接打开 Shorts URL 时，也对当前页面执行该谓词；返回 `true` 则退出页面。
-- `hideVideos(predicate, opts?)` / `showVideos()` — 同上，作用于长视频。
-- `hidePosts(predicate, opts?)` / `showPosts()` — 同上，作用于社区帖子（YouTube / Facebook / Instagram）。
-- `setShortsTimer({ id, direction, currentMs, displayName? })` — 子区域计时器的便捷写法。等价于 `helpers.getTimerHelper().getOrCreateTimer({ ..., scope: u => helpers.getDomainUtility().youtube().isShortUrl(u) })`。把 `youtube.com/shorts/*` 当作独立网站对待。内部使用 `getOrCreateTimer`，所以即便每次心跳都调用也是安全的——计时器会持续推进，`currentMs` 不会被清零。
-- `setVideosTimer({ ... })` — 同上，作用于长视频。
-- `setPostsTimer({ ... })` — 同上，作用于帖子。
-
-show/hide 语义（因为规则按从下到上执行）：对 `hideShortButton`/`showShortButton` 和 `hideHomePage`/`showHomePage`，顶部分组的调用最终生效。对基于谓词的 hide，所有仍然有效的 `hideShorts` 谓词被 OR 起来；上层分组调用 `showShorts()` 会清除此前累积的所有 `hideShorts` 谓词。
+谓词类方法都会按匹配的卡片调用，参数 `item` 形如 `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`。任何字段都可能为 `null`；遵循“疑罪从无”——你需要的字段缺失时请返回 `false`。
 
 ### 11.4 示例
 
-简单：工作日早晨完全隐藏 YouTube Shorts 导航按钮。
+简单 —— 工作日早晨屏蔽 YouTube Shorts 页面：
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const isWeekday = !["Saturday", "Sunday"].includes(dayName);
-  if (isWeekday && hour >= 9 && hour < 12) {
-    helpers.getPlatformHelper().youtube().hideShortButton();
+(event, helpers) => {
+  const yt = helpers.getDomainHelper().youtube();
+
+  function maybeBlock(ev) {
+    if (!yt.isShortUrl(ev.url)) return;
+    const { dayName, hour } = ev.time;
+    const weekday = !["Saturday", "Sunday"].includes(dayName);
+    if (weekday && hour >= 9 && hour < 12) {
+      ev.preventDefault();
+      ev.setResult(-1);
+    }
   }
-  return 0;
+
+  event.registerOpenWebEvent("morning-block", maybeBlock);
+  event.registerSwitchWebEvent("morning-block", maybeBlock);
 }
 ```
 
-中等：YouTube Shorts 每日 30 分钟额度，仅在用户实际处于 Shorts 页面时显示倒计时。
+中等 —— YouTube Shorts 每天 30 分钟额度，超额后跳转到一个 focus 页：
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const yt = helpers.getPlatformHelper().youtube();
+(event, helpers) => {
+  const TIMER_ID = "yt-shorts-budget";
+  const yt = helpers.getDomainHelper().youtube();
 
-  const id = yt.setShortsTimer({
-    id: "yt-shorts-budget",
+  helpers.getTimerHelper().getOrCreateTimer({
+    id: TIMER_ID,
     direction: "backward",
     currentMs: 30 * 60 * 1000,
     displayName: "YT Shorts"
   });
 
-  // 每个本地新一天开始时重置额度。
-  const persistence = helpers.getPersistenceHelper();
-  const today = `${month}-${dayOfMonth}`;
-  if (persistence.get("lastDay") !== today) {
-    helpers.getTimerHelper().setCurrentMs(id, 30 * 60 * 1000);
-    persistence.set("lastDay", today);
-  }
+  // 当前激活页是 Short 时每秒倒计时一次。
+  event.registerTickEvent("budget-tick", (ev, h) => {
+    if (!yt.isShortUrl(ev.url)) return;
+    h.getTimerHelper().addMs(TIMER_ID, -1000);
+  });
 
-  return helpers.getTimerHelper().isExpired(id) ? -1 : 0;
+  function maybeBlock(ev, h) {
+    if (!yt.isShortUrl(ev.url)) return;
+    if (h.getTimerHelper().isExpired(TIMER_ID)) {
+      ev.setRedirectLink("https://example.com/focus");
+      ev.preventDefault();
+      ev.setResult(-1);
+    }
+  }
+  event.registerOpenWebEvent("budget-block", maybeBlock);
+  event.registerSwitchWebEvent("budget-block", maybeBlock);
+
+  event.registerTimerEndedEvent("budget-warn", (_ev, h) => {
+    h.getLogHelper().log("额度归零。");
+  });
 }
 ```
 
-更难：隐藏作者句柄长度超过 16 字的 YouTube Shorts，用户直接打开此类 Shorts 时也退出页面。
+更难 —— 隐藏作者句柄过长的 YouTube Shorts，并注入一段“此 Short 已被隐藏”的 CSS：
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  var maxAuthorLength = 16;
-  helpers.getPlatformHelper().youtube().hideShorts(
-    (item) => item.author && item.author.length > maxAuthorLength,
-    { blockPageOnVisit: true }
-  );
-  return 0;
+(event, helpers) => {
+  const MAX_AUTHOR_LEN = 16;
+
+  function configure(_ev, h) {
+    const yt = h.getPlatformHelper().youtube();
+    yt.hideShorts(
+      (item) => item.author && item.author.length > MAX_AUTHOR_LEN,
+      { blockPageOnVisit: true }
+    );
+    h.getDOMHelper().injectCss(
+      "ytd-rich-grid-media[data-cb-hidden] { opacity: 0.2 !important; }",
+      "long-author-label"
+    );
+  }
+
+  event.registerOpenWebEvent("hide-long-shorts", configure);
+  event.registerSwitchWebEvent("hide-long-shorts", configure);
 }
 ```
 
-闭包变量 `maxAuthorLength` 被谓词捕获——这正是规则运行在页面上下文中的好处。
-
-最难：按天轮换“今日平台”并设置各平台日额度，同时通过一个正向计时器记录本会话社交媒体总用时。
+最难 —— 让一个处理器派发自定义事件给其他处理器：
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, url, helpers) => {
-  const platforms = ["youtube", "tiktok", "instagram"];
-  const today = `${month}-${dayOfMonth}`;
-  const persistence = helpers.getPersistenceHelper();
-  const timer = helpers.getTimerHelper();
-  const domain = helpers.getDomainUtility();
-
-  if (persistence.get("lastDay") !== today) {
-    for (const t of timer.list()) timer.delete(t.id);
-    persistence.set("lastDay", today);
-  }
-
-  const platformOfTheDay = platforms[(month + dayOfMonth) % platforms.length];
-
-  const sessionTotal = timer.getOrCreateTimer({
-    id: "social-total",
-    direction: "forward",
-    currentMs: 0,
-    displayName: "Social total",
-    scope: (u) => platforms.includes(domain.getPlatform(u))
+(event, helpers) => {
+  event.registerSwitchDomainEvent("track-domain", (ev) => {
+    ev.post("domainChange", { from: ev.data.previousHostname, to: ev.hostname });
   });
 
-  const cap = timer.getOrCreateTimer({
-    id: "platform-of-the-day",
-    direction: "backward",
-    currentMs: 20 * 60 * 1000,
-    displayName: `${platformOfTheDay} budget`,
-    scope: (u) => domain.getPlatform(u) === platformOfTheDay
+  event.register("domainChange", "log-it", (ev, h) => {
+    h.getLogHelper().log("crossed", ev.data.from, "→", ev.data.to);
   });
-
-  return timer.isExpired(cap) ? -1 : 0;
 }
 ```
 
