@@ -240,9 +240,26 @@ function detectVideoSiteContext(hostname, pathname) {
     return { site: "twitch", form: "short" };
   }
   if (hostname === "twitch.tv" || hostname?.endsWith(".twitch.tv")) {
-    return safePathname.startsWith("/videos/")
-      ? { site: "twitch", form: "long" }
-      : { site: "twitch", form: "unknown" };
+    if (safePathname.startsWith("/videos/")) return { site: "twitch", form: "long" };
+    // Twitch channel page (twitch.tv/<streamer> and its sub-tabs) is
+    // the live-broadcast view — same role as YouTube's /watch page.
+    // Classify it as long-form so platformVideoMode/author filters
+    // actually trigger on the channel page itself.
+    const firstSegment = safePathname.replace(/^\/+/, "").split("/")[0] || "";
+    const reserved = new Set([
+      "directory", "videos", "settings", "downloads", "subscriptions",
+      "search", "jobs", "drops", "inventory",
+      "popout", "moderator", "p", "prime", "turbo", "wallet",
+      "friends", "messages", "store", "login", "signup", "signout"
+    ]);
+    if (
+      firstSegment &&
+      !reserved.has(firstSegment.toLowerCase()) &&
+      /^[a-z0-9_]+$/i.test(firstSegment)
+    ) {
+      return { site: "twitch", form: "long" };
+    }
+    return { site: "twitch", form: "unknown" };
   }
   return { site: null, form: "unknown" };
 }
@@ -1446,6 +1463,429 @@ function __cb_applyDomOp(op) {
   }
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Predicate-based feed hiding (hideShorts / hideVideos / hidePosts /
+// filterComments / filterLive). Predicates are real JS functions that
+// live inside the offscreen sandbox; we ship card item metadata to the
+// sandbox via the background relay and apply the returned hide decisions
+// here.
+// ────────────────────────────────────────────────────────────────────────
+
+const __cb_activePredicateSlots = new Set(); // "platform:slot"
+let __cb_predicateScanTimer = null;
+let __cb_predicateObserver = null;
+
+// Page-level predicate (blockPageOnVisit) state. The predicate runs against
+// the current video's title, but openWebEvent / switchWebEvent typically
+// dispatch before the SPA has rendered the real title, so we keep a small
+// per-URL retry budget instead of evaluating with a bare platform name like
+// "YouTube" (which would false-match almost any substring predicate).
+const __CB_PAGE_PREDICATE_MAX_RETRIES = 12;       // ~6 s at 500 ms
+const __CB_PAGE_PREDICATE_RETRY_DELAY_MS = 500;
+let __cb_pagePredicateRetryUrl = "";
+let __cb_pagePredicateRetriesRemaining = 0;
+let __cb_pagePredicateRetryTimer = null;
+
+// Per-platform DOM selectors for the actual video title element. Tried in
+// order; first non-empty hit wins.
+const __cb_PAGE_TITLE_SELECTORS = {
+  youtube: [
+    "ytd-watch-metadata h1.title yt-formatted-string",
+    "ytd-watch-metadata h1 yt-formatted-string",
+    "ytd-watch-metadata h1",
+    "h1.ytd-watch-metadata",
+    "h1.title.ytd-video-primary-info-renderer",
+    "ytd-reel-video-renderer[is-active] yt-formatted-string.ytd-reel-player-header-renderer",
+    "ytd-reel-video-renderer[is-active] h2"
+  ],
+  tiktok: [
+    'h1[data-e2e="browse-video-desc"]',
+    '[data-e2e="browse-video-desc"]',
+    '[data-e2e="video-desc"]'
+  ],
+  facebook: [
+    'div[role="main"] h1',
+    "h1"
+  ],
+  instagram: [
+    "article h1"
+  ],
+  twitch: [
+    'h1[data-a-target="stream-title"]',
+    'h2[data-a-target="stream-title"]',
+    "h1.tw-title"
+  ]
+};
+
+// Trailing-suffix patterns we strip from document.title when falling back to
+// it, so a predicate searching for a substring in the *video* title cannot
+// accidentally match the platform name itself.
+const __cb_PAGE_TITLE_SUFFIX_PATTERNS = {
+  youtube: /\s*[-–—|]\s*YouTube\s*$/i,
+  tiktok: /\s*[|·•\-–—]\s*TikTok\s*$/i,
+  facebook: /\s*[-–—|]\s*Facebook\s*$/i,
+  instagram: /\s*[-–—•|]\s*Instagram\s*$/i,
+  twitch: /\s*[-–—|]\s*Twitch\s*$/i
+};
+
+function __cb_stripPlatformSuffix(platform, raw) {
+  let value = String(raw || "").trim();
+  const suffix = __cb_PAGE_TITLE_SUFFIX_PATTERNS[platform];
+  if (suffix) value = value.replace(suffix, "").trim();
+  return value;
+}
+
+function __cb_extractPageVideoTitle(platform) {
+  const selectors = __cb_PAGE_TITLE_SELECTORS[platform] || [];
+
+  // 1. Per-platform DOM selectors. These are the only source of truth on
+  //    SPA platforms (YouTube, TikTok, etc.) because document.title and
+  //    og:title remain stuck at the previous page's title for a few hundred
+  //    milliseconds after an in-page navigation. Trusting either of those
+  //    fallbacks during that window causes the predicate to be evaluated
+  //    against the *previous* video, which is what produced the
+  //    "every video gets blocked" symptom.
+  for (const selector of selectors) {
+    let element = null;
+    try { element = document.querySelector(selector); } catch { element = null; }
+    if (!element) continue;
+    const raw = (element.getAttribute && element.getAttribute("title")) || element.textContent || "";
+    const trimmed = String(raw).trim();
+    if (trimmed) return trimmed;
+  }
+
+  // For platforms with explicit selectors, do NOT fall back to og:title or
+  // document.title. Returning "" makes the caller defer evaluation via the
+  // retry budget instead. Worst case, we never block (safe); best case, we
+  // wait until the SPA renders the real <h1> and then evaluate cleanly.
+  if (selectors.length > 0) return "";
+
+  // 2. og:title / twitter:title / generic title meta tag. Only used for
+  //    platforms we don't have explicit selectors for.
+  try {
+    const meta = document.querySelector(
+      'meta[property="og:title"], meta[name="twitter:title"], meta[name="title"]'
+    );
+    if (meta) {
+      const stripped = __cb_stripPlatformSuffix(platform, meta.getAttribute("content"));
+      if (stripped && stripped.toLowerCase() !== String(platform).toLowerCase()) {
+        return stripped;
+      }
+    }
+  } catch {}
+
+  // 3. document.title with the trailing platform suffix stripped, also only
+  //    for unrecognised platforms.
+  const stripped = __cb_stripPlatformSuffix(platform, document.title);
+  if (!stripped || stripped.toLowerCase() === String(platform).toLowerCase()) return "";
+  return stripped;
+}
+
+function __cb_schedulePagePredicateRetry() {
+  if (__cb_pagePredicateRetryUrl !== location.href) {
+    __cb_pagePredicateRetryUrl = location.href;
+    __cb_pagePredicateRetriesRemaining = __CB_PAGE_PREDICATE_MAX_RETRIES;
+  }
+  if (__cb_pagePredicateRetryTimer !== null) return;
+  if (__cb_pagePredicateRetriesRemaining <= 0) return;
+  __cb_pagePredicateRetriesRemaining -= 1;
+  __cb_pagePredicateRetryTimer = window.setTimeout(() => {
+    __cb_pagePredicateRetryTimer = null;
+    __cb_checkPagePredicate();
+  }, __CB_PAGE_PREDICATE_RETRY_DELAY_MS);
+}
+
+// Persistent <style> tags injected for sticky platform intents (hide
+// short button / hide comments / etc). Keyed by a stable id so toggling
+// hide/show is idempotent.
+function __cb_setPlatformStyle(key, css) {
+  const id = "__cb_platform_style_" + key;
+  let style = document.getElementById(id);
+  if (!style) {
+    style = document.createElement("style");
+    style.id = id;
+    (document.head || document.documentElement).appendChild(style);
+  }
+  style.textContent = css;
+}
+
+function __cb_clearPlatformStyle(key) {
+  const style = document.getElementById("__cb_platform_style_" + key);
+  if (style && style.parentNode) style.parentNode.removeChild(style);
+}
+
+const __cb_PLATFORM_CSS = {
+  youtube: {
+    shortButton: [
+      'ytd-guide-entry-renderer:has(a[title="Shorts"])',
+      'ytd-guide-entry-renderer:has(a[href="/shorts"])',
+      'ytd-mini-guide-entry-renderer:has(a[title="Shorts"])',
+      'ytd-mini-guide-entry-renderer:has(a[href="/shorts"])',
+      'ytd-pivot-bar-item-renderer:has(a[href="/shorts"])',
+      'yt-tab-shape:has(a[href="/shorts"])',
+      'a[href="/shorts"]',
+      'a[title="Shorts"]'
+    ].join(", ") + " { display: none !important; }",
+    comments: "ytd-comments, #comments { display: none !important; }",
+    live: "ytd-badge-supported-renderer[overlay-style='LIVE'], .badge-style-type-live-now-alternate { display: none !important; }"
+  },
+  tiktok: {
+    comments: '[data-e2e="comment-list"], [class*="DivCommentListContainer"] { display: none !important; }'
+  },
+  instagram: {
+    comments: 'ul.x78zum5.xdt5ytf, section:has(form[method="POST"]) ul { display: none !important; }'
+  },
+  facebook: {
+    comments: '[role="article"] [aria-label*="Comment"i] { display: none !important; }'
+  },
+  twitch: {
+    comments: 'section[data-test-selector="chat-room-component-layout"] { display: none !important; }'
+  }
+};
+
+function __cb_isOnPlatformHome(platform) {
+  const p = location.pathname || "/";
+  switch (platform) {
+    case "youtube":
+      return p === "/" || p.startsWith("/feed/");
+    case "tiktok":
+      return p === "/" || p.startsWith("/foryou") || p.startsWith("/following") || p.startsWith("/explore");
+    case "instagram":
+      return (
+        p === "/" ||
+        p === "/explore" || p.startsWith("/explore/") ||
+        p === "/reels" || p.startsWith("/reels/")
+      );
+    case "facebook":
+      return p === "/" || p === "/watch" || p.startsWith("/watch/");
+    case "twitch":
+      return p === "/" || p === "/directory" || p.startsWith("/directory/");
+    default:
+      return false;
+  }
+}
+
+function __cb_currentPlatform() {
+  const host = normalizeHostname(location.hostname);
+  if (isYouTubeHost(host)) return "youtube";
+  if (host === "tiktok.com" || host?.endsWith(".tiktok.com")) return "tiktok";
+  if (host === "instagram.com" || host?.endsWith(".instagram.com")) return "instagram";
+  if (host === "facebook.com" || host?.endsWith(".facebook.com")) return "facebook";
+  if (host === "twitch.tv" || host?.endsWith(".twitch.tv") || host === "clips.twitch.tv") return "twitch";
+  return null;
+}
+
+function __cb_videoFormToSlot(form) {
+  if (form === "short") return "shorts";
+  if (form === "long") return "videos";
+  if (form === "post") return "posts";
+  return null;
+}
+
+function __cb_extractCardItem(card, platform) {
+  let videoForm = null;
+  let creators = [];
+  if (platform === "youtube") {
+    if (isPostCard(card)) {
+      videoForm = "post";
+      creators = getFeedCardCreators(card);
+    } else {
+      const href = getFeedCardHref(card, "youtube");
+      if (href) {
+        try {
+          const u = new URL(href, location.origin);
+          videoForm = detectVideoSiteContext(normalizeHostname(u.hostname), u.pathname).form;
+        } catch {}
+      }
+      creators = getFeedCardCreators(card);
+    }
+  } else {
+    const href = getFeedCardHref(card, platform);
+    if (href) {
+      try {
+        const u = new URL(href, location.origin);
+        videoForm = detectVideoSiteContext(normalizeHostname(u.hostname), u.pathname).form;
+      } catch {}
+    }
+    creators = [
+      ...new Set(
+        [...card.querySelectorAll("a[href]")]
+          .map((a) => normalizePlatformAuthorInput(a.getAttribute("href"), platform))
+          .filter(Boolean)
+      )
+    ];
+  }
+
+  let name = "";
+  const titleSelectors = [
+    "#video-title",
+    "yt-formatted-string#video-title",
+    "h3 a",
+    "h3",
+    "h2 a",
+    "h2",
+    "[title]"
+  ];
+  for (const sel of titleSelectors) {
+    let el = null;
+    try { el = card.querySelector(sel); } catch { el = null; }
+    if (!el) continue;
+    const txt = (el.getAttribute && el.getAttribute("title")) || el.textContent || "";
+    const trimmed = String(txt).trim();
+    if (trimmed) { name = trimmed; break; }
+  }
+  if (!name) {
+    let aria = null;
+    try { aria = card.querySelector("[aria-label]"); } catch {}
+    if (aria) name = (aria.getAttribute("aria-label") || "").trim();
+  }
+
+  let url = "";
+  const href = getFeedCardHref(card, platform);
+  if (href) { try { url = new URL(href, location.origin).href; } catch {} }
+
+  return {
+    url,
+    name,
+    title: name,
+    author: creators[0] || null,
+    length: null,
+    views: null,
+    publishedAt: null,
+    description: null,
+    live: null,
+    sponsored: null,
+    algorithmic: null,
+    videoForm
+  };
+}
+
+function __cb_predicateHide(card) {
+  if (!card || card.dataset.cbPredicateHidden === "1") return;
+  card.dataset.cbPredicateHidden = "1";
+  card.dataset.cbPredicatePrevDisplay = card.style.display || "";
+  card.style.setProperty("display", "none", "important");
+  card.setAttribute("aria-hidden", "true");
+}
+
+function __cb_predicateRestoreAll() {
+  for (const card of document.querySelectorAll('[data-cb-predicate-hidden="1"]')) {
+    if ("cbPredicatePrevDisplay" in card.dataset) {
+      card.style.display = card.dataset.cbPredicatePrevDisplay;
+      delete card.dataset.cbPredicatePrevDisplay;
+    } else {
+      card.style.removeProperty("display");
+    }
+    delete card.dataset.cbPredicateHidden;
+    card.removeAttribute("aria-hidden");
+  }
+}
+
+async function __cb_evaluateItems(platform, slot, items) {
+  if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) return null;
+  try {
+    const r = await chrome.runtime.sendMessage({
+      type: "evaluate-platform-items",
+      platform,
+      slot,
+      items
+    });
+    if (r && r.ok && Array.isArray(r.results)) return r.results;
+  } catch {}
+  return null;
+}
+
+async function __cb_scanFeedPredicates() {
+  __cb_predicateScanTimer = null;
+  const platform = __cb_currentPlatform();
+  if (!platform) return;
+  if (__cb_activePredicateSlots.size === 0) return;
+
+  const cards = getFeedCardElements(platform);
+  if (cards.length === 0) return;
+
+  const bySlot = { shorts: [], videos: [], posts: [] };
+  for (const card of cards) {
+    if (card.dataset.cbPredicateHidden === "1") continue;
+    const item = __cb_extractCardItem(card, platform);
+    const slot = __cb_videoFormToSlot(item.videoForm);
+    if (!slot) continue;
+    if (!__cb_activePredicateSlots.has(platform + ":" + slot)) continue;
+    bySlot[slot].push({ card, item });
+  }
+
+  for (const slot of ["shorts", "videos", "posts"]) {
+    const batch = bySlot[slot];
+    if (batch.length === 0) continue;
+    const results = await __cb_evaluateItems(platform, slot, batch.map((b) => b.item));
+    if (!results) continue;
+    for (let i = 0; i < batch.length; i++) {
+      if (results[i] && results[i].hide) __cb_predicateHide(batch[i].card);
+    }
+  }
+}
+
+function __cb_schedulePredicateScan() {
+  if (__cb_predicateScanTimer !== null) return;
+  __cb_predicateScanTimer = window.setTimeout(() => {
+    __cb_scanFeedPredicates().catch(() => {
+      __cb_predicateScanTimer = null;
+    });
+  }, 150);
+}
+
+function __cb_ensurePredicateObserver() {
+  if (__cb_predicateObserver) return;
+  const root = document.body || document.documentElement;
+  if (!root) return;
+  __cb_predicateObserver = new MutationObserver(() => {
+    if (__cb_activePredicateSlots.size > 0) __cb_schedulePredicateScan();
+  });
+  __cb_predicateObserver.observe(root, { childList: true, subtree: true });
+}
+
+async function __cb_checkPagePredicate() {
+  const platform = __cb_currentPlatform();
+  if (!platform) return;
+  const ctx = detectVideoSiteContext(normalizeHostname(location.hostname), location.pathname);
+  const slot = __cb_videoFormToSlot(ctx.form);
+  if (!slot || !__cb_activePredicateSlots.has(platform + ":" + slot)) return;
+
+  // Build the item from the actual video title rather than document.title.
+  // document.title is "YouTube" / "Video Title - YouTube" / etc., which would
+  // make a substring predicate (e.g. title.includes("e")) match every page
+  // because of the trailing platform name. If the SPA hasn't rendered the
+  // real title yet, defer the evaluation and retry shortly.
+  const title = __cb_extractPageVideoTitle(platform);
+  if (!title) {
+    __cb_schedulePagePredicateRetry();
+    return;
+  }
+
+  const item = {
+    url: location.href,
+    name: title,
+    title,
+    author: null,
+    length: null,
+    views: null,
+    publishedAt: null,
+    description: null,
+    live: null,
+    sponsored: null,
+    algorithmic: null,
+    videoForm: ctx.form
+  };
+  const results = await __cb_evaluateItems(platform, slot, [item]);
+  const r = results && results[0];
+  if (r && r.hide && r.blockPageOnVisit) {
+    if (typeof attemptExitPage === "function") {
+      try { attemptExitPage(""); return; } catch {}
+    }
+    location.replace("about:blank");
+  }
+}
+
 function __cb_applyEventIntent(intent) {
   if (!intent || typeof intent.kind !== "string") return;
   try {
@@ -1460,13 +1900,38 @@ function __cb_applyEventIntent(intent) {
       else if (action === "closeTab") window.close();
     }
     if (intent.kind === "platform" && intent.intent) {
+      const platform = intent.platform;
       const platformIntent = intent.intent;
+      const cssTable = __cb_PLATFORM_CSS[platform] || {};
       if (platformIntent.kind === "homePage" && platformIntent.value === "hide") {
-        if (typeof attemptExitPage === "function") {
-          try { attemptExitPage(""); } catch {}
-        } else {
-          location.replace("about:blank");
+        // Only exit if we are actually on the platform's home feed; the
+        // intent is sticky so it would otherwise nuke every page on
+        // every dispatch.
+        if (__cb_isOnPlatformHome(platform)) {
+          if (typeof attemptExitPage === "function") {
+            try { attemptExitPage(""); } catch {}
+          } else {
+            location.replace("about:blank");
+          }
         }
+      } else if (platformIntent.kind === "shortButton" && cssTable.shortButton) {
+        if (platformIntent.value === "hide") __cb_setPlatformStyle(platform + "-shortButton", cssTable.shortButton);
+        else if (platformIntent.value === "show") __cb_clearPlatformStyle(platform + "-shortButton");
+      } else if (platformIntent.kind === "comments" && cssTable.comments) {
+        if (platformIntent.value === "hide") __cb_setPlatformStyle(platform + "-comments", cssTable.comments);
+        else if (platformIntent.value === "show") __cb_clearPlatformStyle(platform + "-comments");
+      } else if (platformIntent.kind === "live" && cssTable.live) {
+        if (platformIntent.value === "hide") __cb_setPlatformStyle(platform + "-live", cssTable.live);
+        else if (platformIntent.value === "show") __cb_clearPlatformStyle(platform + "-live");
+      } else if (platformIntent.predicate === true && typeof platformIntent.slot === "string" && platform) {
+        __cb_activePredicateSlots.add(platform + ":" + platformIntent.slot);
+        __cb_ensurePredicateObserver();
+        __cb_schedulePredicateScan();
+        __cb_checkPagePredicate();
+      } else if (platformIntent.kind === "clearPredicates" && typeof platformIntent.slot === "string" && platform) {
+        __cb_activePredicateSlots.delete(platform + ":" + platformIntent.slot);
+        __cb_predicateRestoreAll();
+        if (__cb_activePredicateSlots.size > 0) __cb_schedulePredicateScan();
       }
     }
   } catch (error) {

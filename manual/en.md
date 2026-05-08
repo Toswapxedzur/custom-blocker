@@ -313,7 +313,7 @@ Per-event-type sugar (one set of methods per built-in type):
 
 - `event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
 - `event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
-- Same shape for `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `timerEnded`.
+- Same shape for `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `timerEnded`.
 
 ### 11.2.2 Built-in event types
 
@@ -322,8 +322,9 @@ Per-event-type sugar (one set of methods per built-in type):
 | `tickEvent` | Universally shared 1-second tick across every open tab. Handlers run for every tab in priority order. | `{ intervalMs: 1000 }` |
 | `openWebEvent` | A new tab is created OR a fresh navigation lands on a URL the engine has not seen for that tab yet. Does **not** re-fire for already-open tabs after a Run click. | `{ previousUrl, isNewTab }` |
 | `closeWebEvent` | A tab is closed. | `{ reason, nextUrl }` |
-| `switchWebEvent` | URL changes inside the same tab — full reload, back/forward, SPA route change. Always fires when the URL changes. | `{ previousUrl, previousHostname, sameDomain }` |
+| `switchWebEvent` | URL **changes** inside the same tab — back/forward, SPA route change, or a navigation that lands on a different URL than before. Does **not** fire on a plain reload (same URL). | `{ previousUrl, previousHostname, sameDomain }` |
 | `switchDomainEvent` | URL change crosses a hostname boundary (e.g. `youtube.com` → `wikipedia.org`). Fires alongside `switchWebEvent`. | `{ previousUrl, previousHostname }` |
+| `webChangedEvent` | The page (re)loads in any way: open, switch, SPA history update, **or a plain reload that keeps the same URL**. This is the reliable "the page changed, re-evaluate everything" hook. Fires alongside `openWebEvent` / `switchWebEvent` / `switchDomainEvent`, and is the only one that fires for same-URL reloads. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` where `transition` is `"tabCreated" \| "commit" \| "history"` |
 | `timerEnded` | A timer managed by the group reaches `currentMs === 0`. Only delivered to the owning group. | `{ timerId, displayName, direction, currentMs }` |
 
 URLs in `ev.url` and in event data are **normalized** for events: Chrome's New Tab Page (which renders Google's "Search Google or type URL" surface), `about:blank`, and equivalent newtab schemes are exposed as the empty string `""`. So a timer scoped to `ev.url === ""` only ticks while you are on the new-tab page. Regular `google.com` URLs are unchanged.
@@ -448,6 +449,8 @@ Visibility intents:
 - `hideShorts(predicate, { blockPageOnVisit })` / `showShorts()`, `hideVideos(...)` / `showVideos()`, `hidePosts(...)` / `showPosts()`.
 - `hideComments()` / `showComments()` / `filterComments(predicate)` — hide a platform's comment section entirely or filter individual comments.
 - `hideLive()` / `showLive()` / `filterLive(predicate)` — same, for live broadcasts on platforms that have them (YouTube, TikTok, Twitch, Facebook).
+
+> **Predicate lifetime & single-slot rule.** Each of `hideShorts` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` owns **one** persistent predicate per `(group, platform)`. The predicate is **not** scoped to the current event — once you set it, it stays active across every page load and every dispatch until either the matching `show*()` is called or the group is unloaded. Calling the same method again with a new function **replaces** the previous one — the engine never OR-merges multiple predicates within a single group. To combine conditions, write one predicate that does the combining yourself, e.g. `yt.hideVideos(item => isShort(item) || hasKeyword(item))`. (Across **different** groups, each group contributes its own predicate and an item is hidden if any group's predicate matches.)
 
 Inspection (returns a value at dispatch time, based on a snapshot bundled with the event):
 

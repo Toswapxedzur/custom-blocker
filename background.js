@@ -679,9 +679,30 @@ function detectVideoSiteContext(hostname, pathname) {
   }
 
   if (hostname === "twitch.tv" || hostname?.endsWith(".twitch.tv")) {
-    return safePathname.startsWith("/videos/")
-      ? { site: "twitch", form: "long" }
-      : { site: "twitch", form: "unknown" };
+    // /videos/<id> is the archived-VOD URL.
+    if (safePathname.startsWith("/videos/")) return { site: "twitch", form: "long" };
+    // On Twitch the channel page itself (twitch.tv/<streamer>, plus its
+    // sub-tabs like /about, /schedule, /clips, /videos) is where the live
+    // broadcast plays — it is the closest analog of YouTube's /watch
+    // page. Treat it as long-form video so that groups configured with
+    // platformVideoMode === "long" or with an author allowlist actually
+    // apply on the channel page, not only on the archived /videos/<id>
+    // URLs.
+    const firstSegment = safePathname.replace(/^\/+/, "").split("/")[0] || "";
+    const reserved = new Set([
+      "directory", "videos", "settings", "downloads", "subscriptions",
+      "search", "jobs", "drops", "inventory",
+      "popout", "moderator", "p", "prime", "turbo", "wallet",
+      "friends", "messages", "store", "login", "signup", "signout"
+    ]);
+    if (
+      firstSegment &&
+      !reserved.has(firstSegment.toLowerCase()) &&
+      /^[a-z0-9_]+$/i.test(firstSegment)
+    ) {
+      return { site: "twitch", form: "long" };
+    }
+    return { site: "twitch", form: "unknown" };
   }
 
   return { site: null, form: "unknown" };
@@ -1978,6 +1999,23 @@ if (chrome.tabs && chrome.tabs.onCreated) {
     const url = tab.url || tab.pendingUrl || "";
     previousTabUrls.set(tab.id, { url, hostname: hostnameOf(url) });
     await dispatchEventToTab("openWebEvent", { tabId: tab.id, url }, { data: { isNewTab: true, previousUrl: null } });
+    // webChangedEvent always fires alongside any navigation event so handlers
+    // that just want "the page changed in any way" don't have to subscribe
+    // to every individual event (open / switch / domain / history).
+    await dispatchEventToTab(
+      "webChangedEvent",
+      { tabId: tab.id, url },
+      {
+        data: {
+          previousUrl: null,
+          previousHostname: "",
+          sameDomain: false,
+          isFirstLoad: true,
+          isReload: false,
+          transition: "tabCreated"
+        }
+      }
+    );
   });
 }
 
@@ -2005,7 +2043,11 @@ if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
     const nextHost = hostnameOf(nextUrl);
     previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
 
-    if (!previous) {
+    const isFirstLoad = !previous;
+    const isReload = !!previous && previousUrl === nextUrl;
+    const sameDomain = !!previousHost && previousHost === nextHost;
+
+    if (isFirstLoad) {
       await dispatchEventToTab("openWebEvent", { tabId, url: nextUrl }, { data: { previousUrl: null, isNewTab: true } });
     } else if (previousHost && previousHost !== nextHost) {
       await dispatchEventToTab(
@@ -2025,6 +2067,24 @@ if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
         { data: { previousUrl, previousHostname: previousHost, sameDomain: true } }
       );
     }
+    // Always fire webChangedEvent, even when previousUrl === nextUrl (i.e.
+    // a plain reload). This is the reliable "page just (re)loaded" hook;
+    // switchWebEvent intentionally skips reloads because the URL is
+    // unchanged.
+    await dispatchEventToTab(
+      "webChangedEvent",
+      { tabId, url: nextUrl },
+      {
+        data: {
+          previousUrl,
+          previousHostname: previousHost,
+          sameDomain,
+          isFirstLoad,
+          isReload,
+          transition: "commit"
+        }
+      }
+    );
   });
 }
 
@@ -2039,11 +2099,13 @@ if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
     const nextUrl = details.url || "";
     const nextHost = hostnameOf(nextUrl);
     previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
+    const sameDomain = previousHost === nextHost;
+    const isReload = !!previousUrl && previousUrl === nextUrl;
     if (previousUrl && previousUrl !== nextUrl) {
       await dispatchEventToTab(
         "switchWebEvent",
         { tabId, url: nextUrl },
-        { data: { previousUrl, previousHostname: previousHost, sameDomain: previousHost === nextHost } }
+        { data: { previousUrl, previousHostname: previousHost, sameDomain } }
       );
       if (previousHost && previousHost !== nextHost) {
         await dispatchEventToTab(
@@ -2053,6 +2115,23 @@ if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
         );
       }
     }
+    // Always fire webChangedEvent on history-state updates too. This covers
+    // SPA navigations whose URL didn't change (e.g. replaceState to the
+    // same href) as well as the standard "URL changed via pushState" case.
+    await dispatchEventToTab(
+      "webChangedEvent",
+      { tabId, url: nextUrl },
+      {
+        data: {
+          previousUrl,
+          previousHostname: previousHost,
+          sameDomain,
+          isFirstLoad: false,
+          isReload,
+          transition: "history"
+        }
+      }
+    );
   });
 }
 
@@ -2167,17 +2246,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           { tabId: active.id, url: active.url || "" },
           { data: { previousUrl: active.url || null, sameDomain: true, syntheticTestFire: true } }
         );
+        const wc = await dispatchEventToTab(
+          "webChangedEvent",
+          { tabId: active.id, url: active.url || "" },
+          {
+            data: {
+              previousUrl: active.url || null,
+              previousHostname: hostnameOf(active.url || ""),
+              sameDomain: true,
+              isFirstLoad: false,
+              isReload: true,
+              transition: "test",
+              syntheticTestFire: true
+            }
+          }
+        );
         sendResponse({
           ok: true,
           dispatchedTo: active.id,
           url: active.url,
           openLogs: open?.logs?.length ?? 0,
           switchLogs: sw?.logs?.length ?? 0,
+          webChangedLogs: wc?.logs?.length ?? 0,
           handlerCount: cachedHandlerCount
         });
       } catch (error) {
         sendResponse({ ok: false, error: String(error && error.message ? error.message : error) });
       }
+    })();
+    return true;
+  }
+
+  if (message.type === "evaluate-platform-items") {
+    (async () => {
+      const r = await sendToEventSandbox({
+        kind: "evaluate-platform-items",
+        platform: message.platform,
+        slot: message.slot,
+        items: Array.isArray(message.items) ? message.items : []
+      });
+      sendResponse({ ok: Boolean(r && r.ok), results: r && Array.isArray(r.results) ? r.results : [] });
     })();
     return true;
   }

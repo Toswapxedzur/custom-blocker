@@ -1534,7 +1534,15 @@ const CUSTOM_RULE_TEMPLATES = [
   function configure(ev, h) {
     const yt = h.getPlatformHelper().youtube();
     yt.hideVideos(
-      (item) => item.name && item.name.toLowerCase().includes(KEYWORD),
+      (item) => {
+        const text =
+          typeof item?.name === "string"
+            ? item.name
+            : typeof item?.title === "string"
+              ? item.title
+              : "";
+        return text.toLowerCase().includes(KEYWORD);
+      },
       { blockPageOnVisit: ${Boolean(values.blockPageOnVisit)} }
     );
   }
@@ -2666,10 +2674,7 @@ function renderGroupList(now = Date.now()) {
     });
 
     toggle.addEventListener("change", () => {
-      updateGroupEnabled(group.id, toggle.checked).catch((error) => {
-        console.error("Failed to update group state.", error);
-        setStatus(t("status.errorUpdateGroup"), true);
-      });
+      updateGroupEnabled(group.id, toggle.checked);
     });
 
     dragHandle.addEventListener("mousedown", (event) => {
@@ -2775,7 +2780,11 @@ function updateSnoozeUI(group, now = Date.now()) {
   const snooze = getCurrentSnooze(group.id, now);
   const snoozePhase = getSnoozePhase(snooze, now);
   const freezeStatus = getFreezeStatus(group, now);
-  const allowSnooze = group.allowSnooze !== false;
+  // Read from the draft (when one exists) so the checkbox reflects the user's
+  // raw input rather than snapping back to last-saved state while autosave is
+  // still pending. Falls back to the saved group when no draft exists yet.
+  const draft = getDraftForGroup(group.id);
+  const allowSnooze = draft?.allowSnooze ?? (group.allowSnooze !== false);
   const totalSnoozedMs = getDisplayedSnoozeTotalMs(group.id, now);
 
   allowSnoozeField.checked = allowSnooze;
@@ -3200,7 +3209,7 @@ async function loadGroups() {
   render();
 }
 
-async function updateGroupEnabled(groupId, enabled) {
+function updateGroupEnabled(groupId, enabled) {
   const group = state.groups.find((item) => item.id === groupId);
 
   if (!group || !isGroupEditable(group)) {
@@ -3209,6 +3218,9 @@ async function updateGroupEnabled(groupId, enabled) {
     return;
   }
 
+  // Optimistic UI update: reflect the user's raw input immediately, then let
+  // scheduleAutosave() debounce the actual storage write. This matches the
+  // pattern used by every other toggle in the editor (e.g. allowSnoozeField).
   state.groups = state.groups.map((item) =>
     item.id === groupId ? { ...item, enabled } : item
   );
@@ -3217,10 +3229,13 @@ async function updateGroupEnabled(groupId, enabled) {
     state.drafts[groupId].enabled = enabled;
   }
 
-  await persistState(
-    t(enabled ? "status.enabled" : "status.disabled", { name: group.name })
-  );
-  render();
+  if (groupId === state.selectedGroupId) {
+    groupEnabledField.checked = enabled;
+  }
+
+  setStatus(t(enabled ? "status.enabled" : "status.disabled", { name: group.name }));
+  renderGroupList();
+  scheduleAutosave();
 }
 
 async function addGroup(groupType = DEFAULT_GROUP_TYPE) {
@@ -3537,34 +3552,54 @@ function buildUpdatedGroupFromDraft(group, draft) {
 async function autosaveSelectedGroup() {
   const group = getSelectedGroup();
   const draft = getDraftForGroup(state.selectedGroupId);
+  let validationError = null;
+  let updatedGroup = null;
 
-  if (!group || !draft || !isGroupEditable(group)) {
-    return;
+  // Try to fold the editor draft into state.groups. We deliberately do NOT
+  // bail out on failure: optimistic edits to other groups (e.g. the sidebar
+  // enable toggle, which mutates state.groups directly without going through
+  // the editor draft) still need to be persisted even when the selected
+  // group's draft is invalid.
+  if (group && draft && isGroupEditable(group)) {
+    try {
+      const result = buildUpdatedGroupFromDraft(group, draft);
+      updatedGroup = result.updatedGroup;
+
+      state.groups = state.groups.map((item) =>
+        item.id === group.id ? result.updatedGroup : item
+      );
+      state.drafts[group.id] = groupToDraft(result.updatedGroup);
+
+      if (
+        isTimedBlockingMode(result.updatedGroup.mode) &&
+        (result.modeChanged || result.resetIntervalChanged)
+      ) {
+        state.usageResetAtMs[group.id] = Date.now();
+        state.usageTimersMs[group.id] = 0;
+      }
+    } catch (error) {
+      validationError = error;
+    }
   }
 
   try {
-    const { updatedGroup, modeChanged, resetIntervalChanged } = buildUpdatedGroupFromDraft(
-      group,
-      draft
-    );
-
-    state.groups = state.groups.map((item) =>
-      item.id === group.id ? updatedGroup : item
-    );
-    state.drafts[group.id] = groupToDraft(updatedGroup);
-
-    if (isTimedBlockingMode(updatedGroup.mode) && (modeChanged || resetIntervalChanged)) {
-      state.usageResetAtMs[group.id] = Date.now();
-      state.usageTimersMs[group.id] = 0;
-    }
-
     await persistState();
-    renderGroupList();
-    updateUsageSummary(updatedGroup, state.drafts[group.id]);
   } catch (error) {
-    setStatus(error.message || t("status.errorSaveGroup"), true);
+    console.error("Failed to persist groups during autosave.", error);
+    setStatus(t("status.errorSaveGroup"), true);
+    return;
+  }
+
+  if (validationError) {
+    setStatus(validationError.message || t("status.errorSaveGroup"), true);
     renderGroupList();
     updateUsageSummary(group, draft);
+    return;
+  }
+
+  renderGroupList();
+  if (group) {
+    updateUsageSummary(updatedGroup ?? group, state.drafts[group.id] ?? draft);
   }
 }
 
@@ -4188,10 +4223,7 @@ groupEnabledField.addEventListener("change", () => {
     return;
   }
 
-  updateGroupEnabled(state.selectedGroupId, groupEnabledField.checked).catch((error) => {
-    console.error("Failed to update selected group state.", error);
-    setStatus(t("status.errorUpdateGroup"), true);
-  });
+  updateGroupEnabled(state.selectedGroupId, groupEnabledField.checked);
 });
 
 blockModeField.addEventListener("change", () => {

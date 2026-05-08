@@ -960,13 +960,21 @@
 
   // Event-mode platform helper. Adds inspection helpers and live/comment
   // hide+filter methods on top of the existing intent-based methods.
-  function createEventPlatformHelper(accumulatorRef, dispatchContextRef) {
+  function createEventPlatformHelper(accumulatorRef, dispatchContextRef, persistentBucket) {
     function recordIntent(platform, intent) {
       const acc = ensureAccumulatorShape(accumulatorRef.get());
       acc.intents.push({ kind: "platform", platform, intent });
     }
     function getDispatchContext() {
       return typeof dispatchContextRef === "function" ? dispatchContextRef() : (dispatchContextRef || {});
+    }
+    function clearPersistentSlot(platform, slot) {
+      // Each (platform, slot) holds at most ONE predicate entry. Clearing
+      // means dropping that entry entirely (e.g. when showVideos() is
+      // called).
+      if (!persistentBucket) return;
+      if (!persistentBucket[platform]) return;
+      persistentBucket[platform][slot] = null;
     }
 
     function buildPlatformApi(platform) {
@@ -976,15 +984,25 @@
         return (ctx.platformSnapshot && ctx.platformSnapshot[platform]) || null;
       }
 
-      function pushPredicate(slot, predicate, opts) {
+      // Single-slot semantics: hideVideos / hideShorts / hidePosts /
+      // filterComments / filterLive each own ONE persistent predicate per
+      // (group, platform, slot). Each call REPLACES whatever was there
+      // before — there is no implicit OR-ing of multiple predicates.
+      // The slot stays alive across dispatches and is cleared only by the
+      // matching show*() / unload of the group. Compose multiple
+      // conditions explicitly inside one predicate function if needed.
+      function setPredicate(slot, predicate, opts) {
         if (typeof predicate !== "function") return;
-        recordIntent(platform, { slot, predicate: true, blockPageOnVisit: Boolean(opts && opts.blockPageOnVisit) });
+        const blockPageOnVisit = Boolean(opts && opts.blockPageOnVisit);
+        recordIntent(platform, { slot, predicate: true, blockPageOnVisit });
         const acc = ensureAccumulatorShape(accumulatorRef.get());
         acc.platformPredicates = acc.platformPredicates || {};
         acc.platformPredicates[platform] = acc.platformPredicates[platform] || {};
-        const list = acc.platformPredicates[platform][slot] || [];
-        list.push({ predicate, blockPageOnVisit: Boolean(opts && opts.blockPageOnVisit) });
-        acc.platformPredicates[platform][slot] = list;
+        acc.platformPredicates[platform][slot] = { predicate, blockPageOnVisit };
+        if (persistentBucket) {
+          if (!persistentBucket[platform]) persistentBucket[platform] = {};
+          persistentBucket[platform][slot] = { predicate, blockPageOnVisit };
+        }
       }
 
       return {
@@ -993,19 +1011,19 @@
         showShortButton() { recordIntent(platform, { kind: "shortButton", value: "show" }); },
         hideHomePage() { recordIntent(platform, { kind: "homePage", value: "hide" }); },
         showHomePage() { recordIntent(platform, { kind: "homePage", value: "show" }); },
-        hideShorts(predicate, opts) { pushPredicate("shorts", predicate, opts); },
-        showShorts() { recordIntent(platform, { kind: "clearPredicates", slot: "shorts" }); },
-        hideVideos(predicate, opts) { pushPredicate("videos", predicate, opts); },
-        showVideos() { recordIntent(platform, { kind: "clearPredicates", slot: "videos" }); },
-        hidePosts(predicate, opts) { pushPredicate("posts", predicate, opts); },
-        showPosts() { recordIntent(platform, { kind: "clearPredicates", slot: "posts" }); },
+        hideShorts(predicate, opts) { setPredicate("shorts", predicate, opts); },
+        showShorts() { recordIntent(platform, { kind: "clearPredicates", slot: "shorts" }); clearPersistentSlot(platform, "shorts"); },
+        hideVideos(predicate, opts) { setPredicate("videos", predicate, opts); },
+        showVideos() { recordIntent(platform, { kind: "clearPredicates", slot: "videos" }); clearPersistentSlot(platform, "videos"); },
+        hidePosts(predicate, opts) { setPredicate("posts", predicate, opts); },
+        showPosts() { recordIntent(platform, { kind: "clearPredicates", slot: "posts" }); clearPersistentSlot(platform, "posts"); },
 
         hideComments() { recordIntent(platform, { kind: "comments", value: "hide" }); },
-        showComments() { recordIntent(platform, { kind: "comments", value: "show" }); },
-        filterComments(predicate) { pushPredicate("comments", predicate, null); },
+        showComments() { recordIntent(platform, { kind: "comments", value: "show" }); clearPersistentSlot(platform, "comments"); },
+        filterComments(predicate) { setPredicate("comments", predicate, null); },
         hideLive() { recordIntent(platform, { kind: "live", value: "hide" }); },
-        showLive() { recordIntent(platform, { kind: "live", value: "show" }); },
-        filterLive(predicate) { pushPredicate("live", predicate, null); },
+        showLive() { recordIntent(platform, { kind: "live", value: "show" }); clearPersistentSlot(platform, "live"); },
+        filterLive(predicate) { setPredicate("live", predicate, null); },
 
         isCurrentChannelSubscribed() { return Boolean(snapshot()?.subscribed); },
         isChannelSubscribed(id) {
@@ -1108,7 +1126,11 @@
     });
     const storage = createStorageHelper(persistenceBucket || {}, accumulatorRef);
     const tabs = createTabHelper(accumulatorRef, dispatchContextRef);
-    const platform = createEventPlatformHelper(accumulatorRef, dispatchContextRef);
+    const platform = createEventPlatformHelper(
+      accumulatorRef,
+      dispatchContextRef,
+      ctx?.platformPredicatesBucket || null
+    );
 
     return {
       get now() {

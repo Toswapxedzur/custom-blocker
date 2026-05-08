@@ -313,7 +313,7 @@ offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理
 
 - `event.registerTickEvent(id, handler, opts)`、`event.getTickEvent(id)`、`event.getTickEvents()`、`event.countTickRegistered()`。
 - `event.registerOpenWebEvent(id, handler, opts)`、`event.getOpenWebEvent(id)`、`event.getOpenWebEvents()`、`event.countOpenWebRegistered()`。
-- `closeWebEvent`、`switchWebEvent`、`switchDomainEvent`、`timerEnded` 同形。
+- `closeWebEvent`、`switchWebEvent`、`switchDomainEvent`、`webChangedEvent`、`timerEnded` 同形。
 
 ### 11.2.2 内置事件类型
 
@@ -322,8 +322,9 @@ offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理
 | `tickEvent` | 全局共享的每秒 tick，所有打开的标签页都会按优先级触发各自的处理器。 | `{ intervalMs: 1000 }` |
 | `openWebEvent` | 新建标签页，或一次新的导航命中了引擎在该标签下尚未见过的 URL。点击 Run 之后**不会**对已打开的标签页再次触发。 | `{ previousUrl, isNewTab }` |
 | `closeWebEvent` | 标签页被关闭。 | `{ reason, nextUrl }` |
-| `switchWebEvent` | 同一标签页内 URL 发生变化——整页刷新、前进/后退、SPA 路由切换都会触发。任何 URL 改变都会触发。 | `{ previousUrl, previousHostname, sameDomain }` |
+| `switchWebEvent` | 同一标签页内 URL **发生变化**——前进/后退、SPA 路由切换，或者跳到另一个 URL。**不会**在原地刷新（URL 不变）时触发。 | `{ previousUrl, previousHostname, sameDomain }` |
 | `switchDomainEvent` | URL 变化跨越了主机名边界（例如 `youtube.com` → `wikipedia.org`）。会和 `switchWebEvent` 同时触发。 | `{ previousUrl, previousHostname }` |
+| `webChangedEvent` | 页面以任何方式（重新）加载：打开、切换、SPA 历史更新，**包括 URL 没有变化的整页刷新**。这是用来"页面变了就重新评估一次"的可靠钩子。会与 `openWebEvent` / `switchWebEvent` / `switchDomainEvent` 一起触发，并且是唯一会在同 URL 刷新时触发的事件。 | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }`，其中 `transition` 取值 `"tabCreated" \| "commit" \| "history"` |
 | `timerEnded` | 当前分组下任意计时器达到 `currentMs === 0`。仅会派发给拥有这个计时器的分组。 | `{ timerId, displayName, direction, currentMs }` |
 
 `ev.url` 以及事件 data 中的 URL 都已经过**事件级规范化**：Chrome 的 New Tab Page（即显示 Google 搜索框的“新标签页”）、`about:blank` 以及对应的 newtab scheme，都会被暴露成空字符串 `""`。因此一个 `ev.url === ""` 的计时器只会在新标签页时推进。普通的 `google.com` URL 不受影响。
@@ -448,6 +449,8 @@ URL 过滤与区域识别（v1.1 新增）：
 - `hideShorts(predicate, { blockPageOnVisit })` / `showShorts()`、`hideVideos(...)` / `showVideos()`、`hidePosts(...)` / `showPosts()`。
 - `hideComments()` / `showComments()` / `filterComments(predicate)` — 完全隐藏平台评论区，或按谓词过滤单条评论。
 - `hideLive()` / `showLive()` / `filterLive(predicate)` — 同上，作用于支持直播的平台（YouTube、TikTok、Twitch、Facebook）。
+
+> **谓词的生命周期与单槽规则。**`hideShorts` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` 中每一个，对每个 `(分组, 平台)` 组合都只保留 **一个** 持久谓词。谓词**不**与当前事件绑定——一旦设置，它就会跨所有页面加载、跨所有事件派发持续生效，直到被对应的 `show*()` 关闭或所属分组被卸载。再次调用同一个方法并传入新函数会**直接覆盖**之前的谓词——引擎不会在同一个分组内把多个谓词做 OR 合并。如果需要组合多个条件，请自己在一个谓词里组合，例如 `yt.hideVideos(item => isShort(item) || hasKeyword(item))`。（**不同**分组之间则各自贡献自己的谓词，只要有任意一个分组的谓词命中，对应条目就会被隐藏。）
 
 状态检查（在派发时根据事件携带的快照返回值）：
 

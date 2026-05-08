@@ -3,27 +3,29 @@
 }
 
 .popup {
-  width: 1400px;
-  min-width: 100vw;
-  max-width: 100vw;
-  min-height: 100vh;
+  width: 100vw;
   height: 100vh;
-  max-height: 100vh;
   padding: 14px;
   font-family: Arial, sans-serif;
   color: #1f2937;
   background: linear-gradient(180deg, #f8fafc 0%, #eff6ff 100%);
   box-sizing: border-box;
-  overflow: auto;
+  /* The popup fills the tab exactly; the inner panels handle their own
+     scrolling. We deliberately DO NOT set overflow: auto here, otherwise
+     the page would gain a second scrollbar on top of the per-panel one. */
+  display: flex;
+  flex-direction: column;
 }
 
 html,
 body {
   margin: 0;
-  min-height: 100vh;
   width: 100vw;
   height: 100vh;
-  overflow: auto;
+  /* Prevent the page itself from scrolling. Each panel inside .popup is the
+     scroll container, so any body-level scroll would just create a duplicate
+     scrollbar and expose the white body background past the popup gradient. */
+  overflow: hidden;
 }
 
 h1,
@@ -40,6 +42,7 @@ h2 {
 }
 
 .hero {
+  flex: 0 0 auto;
   margin-bottom: 12px;
 }
 
@@ -93,12 +96,15 @@ button,
 }
 
 .layout {
+  /* Fill whatever vertical space is left after the hero. min-height: 0 is
+     required so this grid can shrink, which in turn lets the grid items'
+     overflow: auto actually engage. */
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
   grid-template-columns: var(--groups-panel-width) 4px minmax(0, 1fr);
   gap: 0 10px;
   align-items: stretch;
-  min-height: calc(100% - 72px);
-  height: auto;
 }
 
 .layout-resizer {
@@ -134,14 +140,9 @@ button,
   padding: 12px;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
   overflow: auto;
-}
-
-.groups-panel {
-  min-height: 100%;
-}
-
-.editor-panel {
-  min-height: 100%;
+  /* Allow the panel to shrink below its content height inside the grid row
+     so overflow: auto actually produces a scrollbar instead of expanding. */
+  min-height: 0;
 }
 
 .panel-header {
