@@ -19,6 +19,9 @@
             </p>
           </div>
           <div class="hero-actions">
+            <button id="settingsButton" type="button" class="secondary" data-i18n="settings.button">
+              Settings
+            </button>
             <button id="manualButton" type="button" class="secondary" data-i18n="manual.button">
               Instruction Manual
             </button>
@@ -203,8 +206,8 @@
               <button id="runCustomGroupButton" type="button" data-i18n="custom.runButton">
                 Run
               </button>
-              <button id="testFireButton" type="button" class="secondary" data-i18n="custom.testFireButton">
-                Test fire
+              <button id="checkSyntaxButton" type="button" class="secondary" data-i18n="custom.checkSyntaxButton">
+                Check syntax
               </button>
               <span id="runCustomGroupStatus" class="run-status"></span>
             </div>
@@ -304,32 +307,29 @@
               <div>
                 <h3 data-i18n="discord.title">Discord Filters</h3>
                 <p class="section-copy" data-i18n="discord.copy">
-                  Apply this group to all of Discord, only certain servers, or all servers except certain ones.
+                  Apply this group to all of Discord, or to a custom mix of servers and channels — entries can be either, in any combination.
                 </p>
               </div>
             </div>
 
-            <label class="label" for="discordMode" data-i18n="discord.mode">Server filter</label>
+            <label class="label" for="discordMode" data-i18n="discord.mode">Target filter</label>
             <select id="discordMode">
               <option value="all" data-i18n="discord.modeAll">Apply to all Discord pages</option>
-              <option value="include" data-i18n="discord.modeInclude">Apply to certain servers</option>
-              <option value="exclude" data-i18n="discord.modeExclude">Apply to all except certain servers</option>
+              <option value="include" data-i18n="discord.modeInclude">Apply to certain servers/channels</option>
+              <option value="exclude" data-i18n="discord.modeExclude">Apply to all except certain servers/channels</option>
             </select>
 
-            <label class="label" for="discordTargetType" data-i18n="discord.targetType">Filter level</label>
-            <select id="discordTargetType">
-              <option value="server" data-i18n="discord.targetTypeServer">Server level</option>
-              <option value="channel" data-i18n="discord.targetTypeChannel">Channel level</option>
-            </select>
-
-            <label id="discordTargetsLabel" class="label" for="discordTargets"></label>
+            <label id="discordTargetsLabel" class="label" for="discordTargets" data-i18n="discord.targets">Servers &amp; channels</label>
             <textarea
               id="discordTargets"
               rows="6"
-              placeholder="123456789012345678&#10;https://discord.com/channels/123456789012345678/..."
+              placeholder="123456789012345678&#10;https://discord.com/channels/123456789012345678/&#10;https://discord.com/channels/123456789012345678/234567890123456789"
+              data-i18n-placeholder="discord.targetsPlaceholder"
               spellcheck="false"
             ></textarea>
-            <p id="discordTargetsHelp" class="field-help"></p>
+            <p id="discordTargetsHelp" class="field-help" data-i18n="discord.targetsHelp">
+              Use one Discord server ID or channel ID per line. Both kinds may be mixed in the same list. Plain snowflake IDs and links of the form <code>discord.com/channels/&lt;serverId&gt;</code> or <code>discord.com/channels/&lt;serverId&gt;/&lt;channelId&gt;</code> are accepted; channel links keep the channel ID as the entry.
+            </p>
 
             <label class="checkbox-row compact" for="discordBlockHomePage">
               <input id="discordBlockHomePage" type="checkbox" />
@@ -432,7 +432,11 @@
               <span data-i18n="snooze.allow">Allow snooze for this group</span>
             </label>
 
-            <div class="settings-grid">
+            <p id="snoozeCustomCopy" class="field-help hidden" data-i18n="snooze.customCopy">
+              Custom rules own their snooze logic. Pressing the button fires a snoozePress event; the rule decides whether to snooze and for how long via helpers.getSnoozeHelper().activate(...).
+            </p>
+
+            <div id="snoozeNumericFields" class="settings-grid">
               <div>
                 <label class="label" for="snoozeMinutes" data-i18n="snooze.minutes">Snooze for (minutes)</label>
                 <input
@@ -528,6 +532,103 @@
           </button>
         </div>
         <div id="manualContent" class="manual-content"></div>
+      </div>
+    </div>
+
+    <div id="settingsModal" class="modal hidden">
+      <div class="modal-card">
+        <div class="manual-modal-header">
+          <div>
+            <h3 data-i18n="settings.title">Global Settings</h3>
+            <p class="modal-copy" data-i18n="settings.copy">
+              These preferences apply across all block groups.
+            </p>
+          </div>
+          <button id="settingsCloseButton" type="button" class="secondary" data-i18n="manual.close">
+            Close
+          </button>
+        </div>
+
+        <div class="settings-grid">
+          <div>
+            <label class="label" for="settingsTickRate" data-i18n="settings.tickRate">
+              Tick rate (ms)
+            </label>
+            <input
+              id="settingsTickRate"
+              type="number"
+              min="250"
+              max="60000"
+              step="50"
+              inputmode="numeric"
+              placeholder="1000"
+            />
+            <p class="field-help" data-i18n="settings.tickRateHelp">
+              How often the shared tickEvent fires across all tabs. Lower values are more responsive but use more CPU.
+            </p>
+          </div>
+          <div>
+            <label class="label" for="settingsAutosaveDebounce" data-i18n="settings.autosaveDebounce">
+              Autosave debounce (ms)
+            </label>
+            <input
+              id="settingsAutosaveDebounce"
+              type="number"
+              min="0"
+              max="5000"
+              step="50"
+              inputmode="numeric"
+              placeholder="400"
+            />
+            <p class="field-help" data-i18n="settings.autosaveDebounceHelp">
+              How long the popup waits after the last keystroke before persisting your edits.
+            </p>
+          </div>
+          <div>
+            <label class="label" for="settingsDefaultSnoozeMinutes" data-i18n="settings.defaultSnoozeMinutes">
+              Default snooze duration (minutes)
+            </label>
+            <input
+              id="settingsDefaultSnoozeMinutes"
+              type="number"
+              min="0.1"
+              step="0.1"
+              inputmode="decimal"
+              placeholder="30"
+            />
+            <p class="field-help" data-i18n="settings.defaultSnoozeMinutesHelp">
+              Snooze length used when creating new non-custom groups.
+            </p>
+          </div>
+          <div>
+            <label class="label" for="settingsDefaultFallbackUrl" data-i18n="settings.defaultFallbackUrl">
+              Default fallback URL
+            </label>
+            <input
+              id="settingsDefaultFallbackUrl"
+              type="text"
+              placeholder="about:blank"
+            />
+            <p class="field-help" data-i18n="settings.defaultFallbackUrlHelp">
+              Used when a group does not specify its own fallback URL.
+            </p>
+          </div>
+        </div>
+
+        <label class="checkbox-row compact" for="settingsShowDebugOverlay">
+          <input id="settingsShowDebugOverlay" type="checkbox" />
+          <span data-i18n="settings.showDebugOverlay">Show debug log overlay for custom rules</span>
+        </label>
+
+        <div class="modal-actions">
+          <button id="settingsResetButton" type="button" class="secondary" data-i18n="settings.reset">
+            Reset to defaults
+          </button>
+          <button id="settingsSaveButton" type="button" data-i18n="settings.save">
+            Save
+          </button>
+        </div>
+        <p id="settingsStatus" class="inline-warning"></p>
       </div>
     </div>
 

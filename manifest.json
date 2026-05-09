@@ -34,7 +34,14 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["event-sandbox.html", "offscreen.html"],
+      "resources": [
+        "event-sandbox.html",
+        "offscreen.html",
+        "message-page.html",
+        "message-page.js",
+        "message-page.css",
+        "icon-128.png"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

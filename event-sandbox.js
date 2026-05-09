@@ -129,6 +129,12 @@ function unloadGroup(groupId) {
   groupHelpersCache.delete(groupId);
   groupPlatformPredicates.delete(groupId);
   previouslyExpiredTimers.delete(groupId);
+  // We deliberately do NOT delete groupTimers / groupPersistence here:
+  // they are designed to survive re-Runs of the same group so that a
+  // user's countdown timers and key/value persistence don't reset every
+  // time they click Run. The check-source flow uses a unique synthetic
+  // groupId (__syntax_check__:N), so leaking those buckets there is
+  // harmless and bounded.
 }
 
 function listHandlers(groupId) {
@@ -167,7 +173,13 @@ const BUILTIN_EVENT_TYPES = [
   // Use webChangedEvent when you need to re-evaluate something on every
   // page transition (open / switch / reload / SPA history update).
   "webChangedEvent",
-  "timerEnded"
+  "timerEnded",
+  // snoozePress fires when the user clicks "Start Snooze" inside the
+  // popup for a CUSTOM group. The custom rule fully owns the snooze
+  // semantics (strict mode: no built-in fallback) — typically the
+  // handler calls helpers.getSnoozeHelper().activate(...) to actually
+  // snooze the group, or returns without doing anything to no-op.
+  "snoozePress"
 ];
 
 function buildEventsRegistry(groupId, dispatchContext) {
@@ -259,6 +271,7 @@ function buildEventsRegistry(groupId, dispatchContext) {
   api.countSwitchDomainRegistered = typedCount("switchDomainEvent");
   api.countWebChangedRegistered = typedCount("webChangedEvent");
   api.countTimerEndedRegistered = typedCount("timerEnded");
+  api.countSnoozePressRegistered = typedCount("snoozePress");
   // timerEnded uses a non-Event suffix in its wire type name, but user
   // code/docs call the registration helpers with the Event suffix.
   api.registerTimerEndedEvent = typedRegister("timerEnded");
@@ -605,10 +618,45 @@ window.addEventListener("message", (msg) => {
   const id = data.id;
   const payload = data.payload || {};
 
+  if (payload.kind === "init") {
+    // The offscreen relay sends us the chrome-extension:// URL prefix
+    // right after the iframe reports ready. We stash it so helpers like
+    // createMessageUrl() can build a fully-qualified URL even though
+    // the sandbox itself has no chrome.runtime access.
+    if (typeof payload.extensionUrlPrefix === "string") {
+      self.__customBlockerExtensionUrlPrefix = payload.extensionUrlPrefix;
+    }
+    reply(msg.source, id, { ok: true });
+    return;
+  }
+
   if (payload.kind === "load-source") {
     const { groupId, source } = payload;
     const out = loadSource(String(groupId), String(source ?? ""));
     reply(msg.source, id, out);
+    return;
+  }
+
+  if (payload.kind === "check-source") {
+    // Compile-only path used by the popup's "Check syntax" button. We
+    // run loadSource under a synthetic groupId so it cannot touch any
+    // real group's registered handlers, then immediately unload that
+    // synthetic group regardless of outcome. The reply mirrors the
+    // shape of load-source so the UI can read .ok / .error / .handlers.
+    const syntheticGroupId = "__syntax_check__:" + (id || "0");
+    let result;
+    try {
+      result = loadSource(syntheticGroupId, String(payload.source ?? ""));
+    } catch (error) {
+      result = {
+        ok: false,
+        handlers: 0,
+        error: "Compile failed: " + (error && error.message ? error.message : String(error))
+      };
+    } finally {
+      unloadGroup(syntheticGroupId);
+    }
+    reply(msg.source, id, result);
     return;
   }
 

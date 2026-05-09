@@ -950,16 +950,227 @@
       acc.redirectUrl = url.trim();
       return true;
     }
+    function createMessageUrl(message) {
+      // Returns a chrome-extension:// URL that, when navigated to, shows
+      // the given message centred on a static page (`message-page.html`).
+      // Useful for redirecting users to a custom "Go Work" / "Take a
+      // break" screen after a timer ends. The extension URL prefix is
+      // populated by the offscreen host (event-sandbox.js init), or from
+      // chrome.runtime.getURL() when the helper is loaded into a
+      // privileged context like a content script.
+      const text = String(message ?? "");
+      let prefix = "";
+      try {
+        if (typeof chrome !== "undefined" && chrome.runtime && typeof chrome.runtime.getURL === "function") {
+          prefix = chrome.runtime.getURL("");
+        }
+      } catch (_) {}
+      if (!prefix && typeof self !== "undefined" && typeof self.__customBlockerExtensionUrlPrefix === "string") {
+        prefix = self.__customBlockerExtensionUrlPrefix;
+      }
+      return prefix + "message-page.html?msg=" + encodeURIComponent(text);
+    }
     return {
       get() { return ensureAccumulatorShape(accumulatorRef.get()).redirectUrl ?? ""; },
       set,
       setRedirectLink: set,
-      getRedirectLink() { return ensureAccumulatorShape(accumulatorRef.get()).redirectUrl ?? ""; }
+      getRedirectLink() { return ensureAccumulatorShape(accumulatorRef.get()).redirectUrl ?? ""; },
+      createMessageUrl
     };
   }
 
-  // Event-mode platform helper. Adds inspection helpers and live/comment
-  // hide+filter methods on top of the existing intent-based methods.
+  // Snooze helper. Custom rules use this to programmatically activate or
+  // cancel a snooze on their own group from inside a snoozePress (or any
+  // other) handler. Records intents on the accumulator; the host
+  // (background) reads them after dispatch and writes the real
+  // groupSnoozes entry. Strict policy: if a snoozePress handler does
+  // nothing, no snooze happens.
+  function createEventSnoozeHelper(accumulatorRef, groupId) {
+    function activate(opts) {
+      const o = opts && typeof opts === "object" ? opts : {};
+      const minutes = Number.parseFloat(o.minutes);
+      if (!Number.isFinite(minutes) || minutes <= 0) return false;
+      const activationDelayMinutes = Math.max(
+        0,
+        Number.isFinite(Number.parseFloat(o.activationDelayMinutes))
+          ? Number.parseFloat(o.activationDelayMinutes)
+          : 0
+      );
+      const cooldownMinutes = Math.max(
+        0,
+        Number.isFinite(Number.parseFloat(o.cooldownMinutes))
+          ? Number.parseFloat(o.cooldownMinutes)
+          : 0
+      );
+      const refreezeMode = o.refreezeMode === "strict" ? "strict" : "frozen";
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      acc.intents.push({
+        kind: "snooze",
+        action: "activate",
+        groupId,
+        minutes,
+        activationDelayMinutes,
+        cooldownMinutes,
+        refreezeMode
+      });
+      return true;
+    }
+    function cancel() {
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      acc.intents.push({ kind: "snooze", action: "cancel", groupId });
+      return true;
+    }
+    return { activate, cancel };
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Per-platform method matrix.
+  //
+  // Each platform's API exposes ONLY the methods listed in its schema —
+  // anything else is `undefined`, so calling e.g. `twitch().hidePosts()`
+  // throws TypeError natively (Twitch has no concept of "posts"). This
+  // is the load-bearing guarantee custom rules can rely on: the method
+  // either exists for a meaningful reason on that platform or it does
+  // not exist at all.
+  //
+  // Methods that share an internal predicate slot across platforms (e.g.
+  // `instagram.hideReels` and `youtube.hideShorts` both write to the
+  // "shorts" slot) deliberately do so — the slot is just an internal
+  // bucket name, and the per-platform DOM dispatch on the content side
+  // already differs by `platform`. The user-visible naming follows the
+  // platform's own terminology.
+  //
+  // A spec's `kind` decides what the generated method does:
+  //   "predicate"        — set the single-slot predicate for `slot`.
+  //   "clearPredicate"   — clear the predicate for `slot`. Optionally
+  //                        records a sibling `intent` (used by show*
+  //                        siblings of toggleable intents like comments).
+  //   "intent"           — record `{ kind: intentKind, value }`. May
+  //                        also `clearSlot` (used by show* of
+  //                        comments/live to drop the matching predicate).
+  //   "subsectionTimer"  — record a subsection-timer intent for `slot`.
+  //   "snapshotBool"     — read `snapshot[field]` as boolean.
+  //   "snapshotChannelMembership" — `(id) => snapshot.subscribedChannels.includes(id)`.
+  //   "itemBool"         — read `item[field]` as boolean.
+  // ────────────────────────────────────────────────────────────────────────
+  const PLATFORM_API_SPEC = {
+    youtube: [
+      { name: "hideShorts", kind: "predicate", slot: "shorts" },
+      { name: "showShorts", kind: "clearPredicate", slot: "shorts" },
+      { name: "hideVideos", kind: "predicate", slot: "videos" },
+      { name: "showVideos", kind: "clearPredicate", slot: "videos" },
+      { name: "hidePosts", kind: "predicate", slot: "posts" },
+      { name: "showPosts", kind: "clearPredicate", slot: "posts" },
+      { name: "hideShortButton", kind: "intent", intentKind: "shortButton", value: "hide" },
+      { name: "showShortButton", kind: "intent", intentKind: "shortButton", value: "show" },
+      { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
+      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
+      { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
+      { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
+      { name: "filterComments", kind: "predicate", slot: "comments" },
+      { name: "hideLive", kind: "intent", intentKind: "live", value: "hide" },
+      { name: "showLive", kind: "intent", intentKind: "live", value: "show", clearSlot: "live" },
+      { name: "filterLive", kind: "predicate", slot: "live" },
+      { name: "isCurrentChannelSubscribed", kind: "snapshotBool", field: "subscribed" },
+      { name: "isChannelSubscribed", kind: "snapshotChannelMembership" },
+      { name: "isCurrentChannelVerified", kind: "snapshotBool", field: "verified" },
+      { name: "isLiveNow", kind: "snapshotBool", field: "live" },
+      { name: "isItemLive", kind: "itemBool", field: "live" },
+      { name: "isAlgorithmicRecommendation", kind: "itemBool", field: "algorithmic" },
+      { name: "isSponsored", kind: "itemBool", field: "sponsored" },
+      { name: "setShortsTimer", kind: "subsectionTimer", slot: "shorts" },
+      { name: "setVideosTimer", kind: "subsectionTimer", slot: "videos" },
+      { name: "setPostsTimer", kind: "subsectionTimer", slot: "posts" }
+    ],
+    tiktok: [
+      // TikTok's whole experience IS short-form video, so there's no
+      // separate "Shorts button" to hide and no "Posts" surface.
+      { name: "hideVideos", kind: "predicate", slot: "videos" },
+      { name: "showVideos", kind: "clearPredicate", slot: "videos" },
+      { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
+      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
+      { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
+      { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
+      { name: "filterComments", kind: "predicate", slot: "comments" },
+      { name: "hideLive", kind: "intent", intentKind: "live", value: "hide" },
+      { name: "showLive", kind: "intent", intentKind: "live", value: "show", clearSlot: "live" },
+      { name: "filterLive", kind: "predicate", slot: "live" },
+      { name: "isLiveNow", kind: "snapshotBool", field: "live" },
+      { name: "isItemLive", kind: "itemBool", field: "live" },
+      { name: "isAlgorithmicRecommendation", kind: "itemBool", field: "algorithmic" },
+      { name: "isSponsored", kind: "itemBool", field: "sponsored" },
+      { name: "setVideosTimer", kind: "subsectionTimer", slot: "videos" }
+    ],
+    instagram: [
+      // Instagram calls it "Reels" not "Shorts" — same internal slot, but
+      // the user-visible name follows the platform. Live streaming and
+      // long-form video aren't first-class surfaces for filtering here.
+      { name: "hideReels", kind: "predicate", slot: "shorts" },
+      { name: "showReels", kind: "clearPredicate", slot: "shorts" },
+      { name: "hidePosts", kind: "predicate", slot: "posts" },
+      { name: "showPosts", kind: "clearPredicate", slot: "posts" },
+      { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
+      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
+      { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
+      { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
+      { name: "filterComments", kind: "predicate", slot: "comments" },
+      { name: "isAlgorithmicRecommendation", kind: "itemBool", field: "algorithmic" },
+      { name: "isSponsored", kind: "itemBool", field: "sponsored" },
+      { name: "setReelsTimer", kind: "subsectionTimer", slot: "shorts" },
+      { name: "setPostsTimer", kind: "subsectionTimer", slot: "posts" }
+    ],
+    facebook: [
+      { name: "hideReels", kind: "predicate", slot: "shorts" },
+      { name: "showReels", kind: "clearPredicate", slot: "shorts" },
+      { name: "hideVideos", kind: "predicate", slot: "videos" },
+      { name: "showVideos", kind: "clearPredicate", slot: "videos" },
+      { name: "hidePosts", kind: "predicate", slot: "posts" },
+      { name: "showPosts", kind: "clearPredicate", slot: "posts" },
+      { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
+      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
+      { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
+      { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
+      { name: "filterComments", kind: "predicate", slot: "comments" },
+      { name: "hideLive", kind: "intent", intentKind: "live", value: "hide" },
+      { name: "showLive", kind: "intent", intentKind: "live", value: "show", clearSlot: "live" },
+      { name: "filterLive", kind: "predicate", slot: "live" },
+      { name: "isLiveNow", kind: "snapshotBool", field: "live" },
+      { name: "isItemLive", kind: "itemBool", field: "live" },
+      { name: "isAlgorithmicRecommendation", kind: "itemBool", field: "algorithmic" },
+      { name: "isSponsored", kind: "itemBool", field: "sponsored" },
+      { name: "setReelsTimer", kind: "subsectionTimer", slot: "shorts" },
+      { name: "setVideosTimer", kind: "subsectionTimer", slot: "videos" },
+      { name: "setPostsTimer", kind: "subsectionTimer", slot: "posts" }
+    ],
+    twitch: [
+      // Twitch has no "Posts" or "Shorts" — clips are the short-form
+      // surface, streams are the live surface, videos are VODs. No
+      // comments either (Twitch uses chat, which we don't filter yet).
+      { name: "hideClips", kind: "predicate", slot: "shorts" },
+      { name: "showClips", kind: "clearPredicate", slot: "shorts" },
+      { name: "hideStreams", kind: "predicate", slot: "streams" },
+      { name: "showStreams", kind: "clearPredicate", slot: "streams" },
+      { name: "hideVideos", kind: "predicate", slot: "videos" },
+      { name: "showVideos", kind: "clearPredicate", slot: "videos" },
+      { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
+      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
+      { name: "hideLive", kind: "intent", intentKind: "live", value: "hide" },
+      { name: "showLive", kind: "intent", intentKind: "live", value: "show", clearSlot: "live" },
+      { name: "filterLive", kind: "predicate", slot: "live" },
+      { name: "isCurrentChannelSubscribed", kind: "snapshotBool", field: "subscribed" },
+      { name: "isChannelSubscribed", kind: "snapshotChannelMembership" },
+      { name: "isLiveNow", kind: "snapshotBool", field: "live" },
+      { name: "isItemLive", kind: "itemBool", field: "live" },
+      { name: "isAlgorithmicRecommendation", kind: "itemBool", field: "algorithmic" },
+      { name: "setClipsTimer", kind: "subsectionTimer", slot: "shorts" },
+      { name: "setStreamsTimer", kind: "subsectionTimer", slot: "streams" },
+      { name: "setVideosTimer", kind: "subsectionTimer", slot: "videos" }
+    ]
+  };
+
+  // Event-mode platform helper. Builds platform-specific API objects
+  // from PLATFORM_API_SPEC above; methods absent from a platform's spec
+  // are absent from its API object (so calling them throws TypeError).
   function createEventPlatformHelper(accumulatorRef, dispatchContextRef, persistentBucket) {
     function recordIntent(platform, intent) {
       const acc = ensureAccumulatorShape(accumulatorRef.get());
@@ -979,6 +1190,8 @@
 
     function buildPlatformApi(platform) {
       const urlOps = platformUrlOps[platform];
+      const specs = PLATFORM_API_SPEC[platform] || [];
+
       function snapshot() {
         const ctx = getDispatchContext();
         return (ctx.platformSnapshot && ctx.platformSnapshot[platform]) || null;
@@ -1005,65 +1218,27 @@
         }
       }
 
-      return {
-        // Original DOM intents
-        hideShortButton() { recordIntent(platform, { kind: "shortButton", value: "hide" }); },
-        showShortButton() { recordIntent(platform, { kind: "shortButton", value: "show" }); },
-        hideHomePage() { recordIntent(platform, { kind: "homePage", value: "hide" }); },
-        showHomePage() { recordIntent(platform, { kind: "homePage", value: "show" }); },
-        hideShorts(predicate, opts) { setPredicate("shorts", predicate, opts); },
-        showShorts() { recordIntent(platform, { kind: "clearPredicates", slot: "shorts" }); clearPersistentSlot(platform, "shorts"); },
-        hideVideos(predicate, opts) { setPredicate("videos", predicate, opts); },
-        showVideos() { recordIntent(platform, { kind: "clearPredicates", slot: "videos" }); clearPersistentSlot(platform, "videos"); },
-        hidePosts(predicate, opts) { setPredicate("posts", predicate, opts); },
-        showPosts() { recordIntent(platform, { kind: "clearPredicates", slot: "posts" }); clearPersistentSlot(platform, "posts"); },
+      const api = {};
+      for (const spec of specs) {
+        api[spec.name] = buildSpecMethod(platform, spec, {
+          recordIntent,
+          setPredicate,
+          clearPersistentSlot,
+          snapshot
+        });
+      }
 
-        hideComments() { recordIntent(platform, { kind: "comments", value: "hide" }); },
-        showComments() { recordIntent(platform, { kind: "comments", value: "show" }); clearPersistentSlot(platform, "comments"); },
-        filterComments(predicate) { setPredicate("comments", predicate, null); },
-        hideLive() { recordIntent(platform, { kind: "live", value: "hide" }); },
-        showLive() { recordIntent(platform, { kind: "live", value: "show" }); clearPersistentSlot(platform, "live"); },
-        filterLive(predicate) { setPredicate("live", predicate, null); },
+      // URL classifiers — every platform implements these. Always
+      // available regardless of the per-platform spec above.
+      api.isPlatformUrl = urlOps?.isPlatformUrl ?? (() => false);
+      api.isShortUrl = urlOps?.isShortUrl ?? (() => false);
+      api.isVideoUrl = urlOps?.isVideoUrl ?? (() => false);
+      api.isPostUrl = urlOps?.isPostUrl ?? (() => false);
+      api.isHomePage = urlOps?.isHomePage ?? (() => false);
+      api.extractAuthor = urlOps?.extractAuthor ?? (() => null);
+      api.extractVideoId = urlOps?.extractVideoId ?? (() => null);
 
-        isCurrentChannelSubscribed() { return Boolean(snapshot()?.subscribed); },
-        isChannelSubscribed(id) {
-          const snap = snapshot();
-          if (!snap || !id) return false;
-          return Array.isArray(snap.subscribedChannels) && snap.subscribedChannels.includes(id);
-        },
-        isCurrentChannelVerified() { return Boolean(snapshot()?.verified); },
-        isLiveNow() { return Boolean(snapshot()?.live); },
-        isItemLive(item) { return Boolean(item && item.live === true); },
-        isAlgorithmicRecommendation(item) { return Boolean(item && item.algorithmic === true); },
-        isSponsored(item) { return Boolean(item && item.sponsored === true); },
-
-        // Sub-section timers, kept identical in spirit to the legacy API
-        setShortsTimer(opts = {}) {
-          // In event-mode, timer state lives in the persistent
-          // groupTimers bucket maintained by the sandbox; we record an
-          // intent so the host can register the "scope" predicate
-          // against URL-change events.
-          recordIntent(platform, { kind: "subsectionTimer", slot: "shorts", opts });
-          return opts && typeof opts.id === "string" ? opts.id : null;
-        },
-        setVideosTimer(opts = {}) {
-          recordIntent(platform, { kind: "subsectionTimer", slot: "videos", opts });
-          return opts && typeof opts.id === "string" ? opts.id : null;
-        },
-        setPostsTimer(opts = {}) {
-          recordIntent(platform, { kind: "subsectionTimer", slot: "posts", opts });
-          return opts && typeof opts.id === "string" ? opts.id : null;
-        },
-
-        // URL classifiers reachable through the platform helper too.
-        isPlatformUrl: urlOps?.isPlatformUrl ?? (() => false),
-        isShortUrl: urlOps?.isShortUrl ?? (() => false),
-        isVideoUrl: urlOps?.isVideoUrl ?? (() => false),
-        isPostUrl: urlOps?.isPostUrl ?? (() => false),
-        isHomePage: urlOps?.isHomePage ?? (() => false),
-        extractAuthor: urlOps?.extractAuthor ?? (() => null),
-        extractVideoId: urlOps?.extractVideoId ?? (() => null)
-      };
+      return api;
     }
 
     const helpers = {};
@@ -1072,7 +1247,76 @@
         return buildPlatformApi(platform);
       };
     }
+    // Diagnostic helpers — useful for tests and for runtime inspection
+    // by user code that wants to introspect what's available on a
+    // particular platform without trial-and-error.
+    helpers.listMethods = function listMethods(platform) {
+      const specs = PLATFORM_API_SPEC[platform] || [];
+      return specs.map((s) => s.name).concat([
+        "isPlatformUrl",
+        "isShortUrl",
+        "isVideoUrl",
+        "isPostUrl",
+        "isHomePage",
+        "extractAuthor",
+        "extractVideoId"
+      ]);
+    };
+    helpers.hasMethod = function hasMethod(platform, methodName) {
+      return helpers.listMethods(platform).includes(methodName);
+    };
     return helpers;
+  }
+
+  // Spec → function. Pure factory, no closures over the per-call helpers
+  // beyond what the caller passes in. Keeps the per-platform builder
+  // table small and testable.
+  function buildSpecMethod(platform, spec, deps) {
+    const { recordIntent, setPredicate, clearPersistentSlot, snapshot } = deps;
+    switch (spec.kind) {
+      case "predicate":
+        return function (predicate, opts) {
+          setPredicate(spec.slot, predicate, opts);
+        };
+      case "clearPredicate":
+        return function () {
+          recordIntent(platform, { kind: "clearPredicates", slot: spec.slot });
+          clearPersistentSlot(platform, spec.slot);
+        };
+      case "intent":
+        return function () {
+          recordIntent(platform, { kind: spec.intentKind, value: spec.value });
+          if (spec.clearSlot) clearPersistentSlot(platform, spec.clearSlot);
+        };
+      case "subsectionTimer":
+        return function (opts = {}) {
+          recordIntent(platform, { kind: "subsectionTimer", slot: spec.slot, opts });
+          return opts && typeof opts.id === "string" ? opts.id : null;
+        };
+      case "snapshotBool":
+        return function () {
+          return Boolean(snapshot()?.[spec.field]);
+        };
+      case "snapshotChannelMembership":
+        return function (id) {
+          const snap = snapshot();
+          if (!snap || !id) return false;
+          return Array.isArray(snap.subscribedChannels) && snap.subscribedChannels.includes(id);
+        };
+      case "itemBool":
+        return function (item) {
+          return Boolean(item && item[spec.field] === true);
+        };
+      default:
+        // Schema bug — refuse to silently no-op so the test runner
+        // surfaces the typo loudly instead of returning undefined.
+        return function () {
+          throw new Error(
+            "Internal: PLATFORM_API_SPEC[" + platform + "]." + spec.name +
+            " has unknown kind " + spec.kind
+          );
+        };
+    }
   }
 
   // Top-level event-mode helpers builder.
@@ -1119,6 +1363,7 @@
     const persistence = createPersistenceHelper(persistenceBucket || {});
     const log = createEventLogHelper(groupId, accumulatorRef);
     const redirect = createEventRedirectionHelper(accumulatorRef);
+    const snooze = createEventSnoozeHelper(accumulatorRef, groupId);
     const dom = createDOMHelper(accumulatorRef);
     const navigation = createNavigationHelper(accumulatorRef, () => {
       const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
@@ -1148,6 +1393,7 @@
       getTimerHelper: () => timer,
       getPersistenceHelper: () => persistence,
       getRedirectionHelper: () => redirect,
+      getSnoozeHelper: () => snooze,
       getDOMHelper: () => dom,
       getNavigationHelper: () => navigation,
       getStorageHelper: () => storage,
@@ -1158,7 +1404,9 @@
 
   global.__customBlockerHelpers = {
     PLATFORM_LIST,
+    PLATFORM_API_SPEC,
     createEventGroupHelpers,
+    createEventPlatformHelper,
     createDomainUtility,
     platformUrlOps,
     isEmptyStartPage,

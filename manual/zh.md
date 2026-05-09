@@ -313,7 +313,7 @@ offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理
 
 - `event.registerTickEvent(id, handler, opts)`、`event.getTickEvent(id)`、`event.getTickEvents()`、`event.countTickRegistered()`。
 - `event.registerOpenWebEvent(id, handler, opts)`、`event.getOpenWebEvent(id)`、`event.getOpenWebEvents()`、`event.countOpenWebRegistered()`。
-- `closeWebEvent`、`switchWebEvent`、`switchDomainEvent`、`webChangedEvent`、`timerEnded` 同形。
+- `closeWebEvent`、`switchWebEvent`、`switchDomainEvent`、`webChangedEvent`、`timerEnded`、`snoozePress` 同形。
 
 ### 11.2.2 内置事件类型
 
@@ -326,6 +326,7 @@ offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理
 | `switchDomainEvent` | URL 变化跨越了主机名边界（例如 `youtube.com` → `wikipedia.org`）。会和 `switchWebEvent` 同时触发。 | `{ previousUrl, previousHostname }` |
 | `webChangedEvent` | 页面以任何方式（重新）加载：打开、切换、SPA 历史更新，**包括 URL 没有变化的整页刷新**。这是用来"页面变了就重新评估一次"的可靠钩子。会与 `openWebEvent` / `switchWebEvent` / `switchDomainEvent` 一起触发，并且是唯一会在同 URL 刷新时触发的事件。 | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }`，其中 `transition` 取值 `"tabCreated" \| "commit" \| "history"` |
 | `timerEnded` | 当前分组下任意计时器达到 `currentMs === 0`。仅会派发给拥有这个计时器的分组。 | `{ timerId, displayName, direction, currentMs }` |
+| `snoozePress` | 用户在弹窗中对当前 **自定义** 分组按下了 **Start Snooze**。自定义分组在编辑器中没有"放行时长 / 激活延迟 / 冷却 / 确认次数"的输入框——规则自身通过 `helpers.getSnoozeHelper().activate(...)` 决定如何处理。**严格策略：** 如果处理函数没有调用 `activate`，则什么也不会发生。仅派发给被按下的分组。 | `{ triggeredAt }` |
 
 `ev.url` 以及事件 data 中的 URL 都已经过**事件级规范化**：Chrome 的 New Tab Page（即显示 Google 搜索框的“新标签页”）、`about:blank` 以及对应的 newtab scheme，都会被暴露成空字符串 `""`。因此一个 `ev.url === ""` 的计时器只会在新标签页时推进。普通的 `google.com` URL 不受影响。
 
@@ -363,7 +364,8 @@ offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理
 - `helpers.getDomainHelper()`（别名 `helpers.getDomainUtility()`）— URL 检查（详见 11.3.5）。
 - `helpers.getTimerHelper()` — 分组级计时器（倒计时 / 正计时）；状态跨浏览器重启保留。
 - `helpers.getPersistenceHelper()` — 分组级 JSON 键值存储。
-- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()`（同时提供 `set/get` 别名）。对自定义规则而言，这是设置“被屏蔽时跳转 URL”的**唯一**方式。
+- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()`（同时提供 `set/get` 别名），以及 `createMessageUrl(message)`，返回一个 `chrome-extension://...` 的 URL，访问时会在页面中央显示该消息。对自定义规则而言，这是设置“被屏蔽时跳转 URL”的**唯一**方式。
+- `helpers.getSnoozeHelper()` — `activate({ minutes, activationDelayMinutes?, cooldownMinutes?, refreezeMode? })` 与 `cancel()`。用于在 `snoozePress`（或任意其他）处理函数中，以编程方式对当前接收事件的分组发起放行。
 - `helpers.getPlatformHelper()` — 按平台拆分的 DOM 意图（详见 11.3.6）。
 - `helpers.getDOMHelper()` — 通用 DOM 意图：`hide(sel)`、`show(sel)`、`addClass(sel, c)`、`removeClass(sel, c)`、`setText(sel, text)`、`click(sel)`、`injectCss(css, id?)`、`removeInjectedCss(id)`、`scrollTo(sel)`。意图会被批量收集，处理器返回后再统一应用到 DOM。
 - `helpers.getNavigationHelper()` — `back()`、`forward()`、`reload()`、`goTo(url)`、`closeTab()`。作用对象是事件来源的标签页。
@@ -415,9 +417,19 @@ offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理
 读取或覆盖 content script 在当前页面被屏蔽时跳转的目标 URL。
 
 - `get()` — 返回当次派发当前生效的跳转 URL。初始值为内置分组配置的 fallback URL（如有），否则为 `""`。
-- `set(url)` — 覆盖当次派发的跳转 URL。成功返回 `true`；非字符串输入返回 `false`。传入 `""` 可清空跳转覆盖，回退到默认退出行为（按上下文转到主页 / `about:blank`）。
+- `set(url)` — 覆盖当次派发的跳转 URL。成功返回 `true`；非字符串输入返回 `false`。传入 `""` 可清空跳转覆盖,回退到默认退出行为（按上下文转到主页 / `about:blank`）。
+- `createMessageUrl(message)` — 返回一个 `chrome-extension://<id>/message-page.html?msg=...` 形式的 URL,访问时会在干净的页面中央显示这条消息。常用于计时器结束后跳转到自定义的"Go Work" / "去休息一下" 页面。例如：`ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`。
 
 像其他 custom-rule 副作用一样，这一状态在本次派发的所有处理器之间共享。优先级最高的处理器中最后一次调用 `set(...)` 的最终生效。
+
+#### 11.3.4a `getSnoozeHelper()`
+
+对当前接收事件的分组进行编程式的放行（snooze）控制，主要供 `snoozePress` 处理函数使用，但任何 handler 中都能调用。**自定义分组** 在编辑器中不会显示放行时长 / 激活延迟 / 冷却 / 确认次数这四个数字输入框——这些值由规则自行决定。
+
+- `activate({ minutes, activationDelayMinutes?, cooldownMinutes?, refreezeMode? })` — 安排一次放行。`minutes` 必须 `> 0`；`activationDelayMinutes`、`cooldownMinutes` 默认 `0`；`refreezeMode` 取 `"frozen"` 或 `"strict"`，默认沿用分组当前的冻结模式。意图被记录时返回 `true`，输入无效时返回 `false`。
+- `cancel()` — 取消当前分组任何已排定 / 进行中 / 冷却中的放行。
+
+派发结束后,放行条目会立即写入存储；之后 `chrome.storage.onChanged` 事件会把新状态广播到所有打开的弹窗与 content script。**严格策略：** 如果 `snoozePress` 处理函数运行时没有调用 `activate(...)`，则不会创建放行——Start Snooze 按钮等于什么也没做。
 
 #### 11.3.5 `getDomainHelper()`（别名 `getDomainUtility()`）
 
@@ -441,27 +453,44 @@ URL 过滤与区域识别（v1.1 新增）：
 
 #### 11.3.6 `getPlatformHelper()`
 
-按平台拆分的 DOM 意图、子区域计时器以及状态检查方法。`helpers.getPlatformHelper().<platform>()` 都返回一个对象，包含：
+按平台拆分的 DOM 意图、子区域计时器以及状态检查方法。`helpers.getPlatformHelper().<platform>()` 都返回一个对象，**该对象的方法集随平台而异**——平台上不适用的方法不会存在，调用它们会直接抛出 `TypeError: ... is not a function`，而不是悄悄变成无操作。例如 `twitch().hidePosts` 不存在（Twitch 没有 posts），`tiktok().hideShortButton` 也不存在（TikTok 整个产品本身就以短视频为主）。需要在运行时探测时，可使用 `helpers.getPlatformHelper().hasMethod(platform, name)` 或 `.listMethods(platform)`。
 
-可见性意图：
+各平台支持的方法矩阵：
 
-- `hideShortButton()` / `showShortButton()`、`hideHomePage()` / `showHomePage()`。
-- `hideShorts(predicate, { blockPageOnVisit })` / `showShorts()`、`hideVideos(...)` / `showVideos()`、`hidePosts(...)` / `showPosts()`。
-- `hideComments()` / `showComments()` / `filterComments(predicate)` — 完全隐藏平台评论区，或按谓词过滤单条评论。
-- `hideLive()` / `showLive()` / `filterLive(predicate)` — 同上，作用于支持直播的平台（YouTube、TikTok、Twitch、Facebook）。
+|                                | youtube | tiktok | instagram | facebook | twitch |
+|--------------------------------|:-:|:-:|:-:|:-:|:-:|
+| `hideShorts` / `showShorts`    | ✓ |   |   |   |   |
+| `hideReels` / `showReels`      |   |   | ✓ | ✓ |   |
+| `hideClips` / `showClips`      |   |   |   |   | ✓ |
+| `hideStreams` / `showStreams`  |   |   |   |   | ✓ |
+| `hideVideos` / `showVideos`    | ✓ | ✓ |   | ✓ | ✓（VOD） |
+| `hidePosts` / `showPosts`      | ✓ |   | ✓ | ✓ |   |
+| `hideShortButton` / `showShortButton` | ✓ |   |   |   |   |
+| `hideHomePage` / `showHomePage`| ✓ | ✓ | ✓ | ✓ | ✓ |
+| `hideComments` / `showComments` / `filterComments` | ✓ | ✓ | ✓ | ✓ |   |
+| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |   | ✓ | ✓ |
+| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |   |   |   | ✓ |
+| `isCurrentChannelVerified`     | ✓ |   |   |   |   |
+| `isLiveNow`                    | ✓ | ✓ |   | ✓ | ✓ |
+| `isItemLive`                   | ✓ | ✓ |   | ✓ | ✓ |
+| `isAlgorithmicRecommendation`  | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `isSponsored`                  | ✓ | ✓ | ✓ | ✓ |   |
+| `setShortsTimer`               | ✓ |   |   |   |   |
+| `setReelsTimer`                |   |   | ✓ | ✓ |   |
+| `setClipsTimer`                |   |   |   |   | ✓ |
+| `setStreamsTimer`              |   |   |   |   | ✓ |
+| `setVideosTimer`               | ✓ | ✓ |   | ✓ | ✓ |
+| `setPostsTimer`                | ✓ |   | ✓ | ✓ |   |
 
-> **谓词的生命周期与单槽规则。**`hideShorts` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` 中每一个，对每个 `(分组, 平台)` 组合都只保留 **一个** 持久谓词。谓词**不**与当前事件绑定——一旦设置，它就会跨所有页面加载、跨所有事件派发持续生效，直到被对应的 `show*()` 关闭或所属分组被卸载。再次调用同一个方法并传入新函数会**直接覆盖**之前的谓词——引擎不会在同一个分组内把多个谓词做 OR 合并。如果需要组合多个条件，请自己在一个谓词里组合，例如 `yt.hideVideos(item => isShort(item) || hasKeyword(item))`。（**不同**分组之间则各自贡献自己的谓词，只要有任意一个分组的谓词命中，对应条目就会被隐藏。）
+平台原生命名（`hideReels`、`hideClips`、`hideStreams`）并不是与 `hideShorts` / `hideVideos` 相互独立的存储槽——内部存储的槽是同一个，只是对外暴露的名称跟随各平台自己的术语。
 
-状态检查（在派发时根据事件携带的快照返回值）：
+> **谓词的生命周期与单槽规则。**`hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` 中每一个，对每个 `(分组, 平台, 槽)` 组合都只保留 **一个** 持久谓词。谓词**不**与当前事件绑定——一旦设置，它就会跨所有页面加载、跨所有事件派发持续生效，直到被对应的 `show*()` 关闭或所属分组被卸载。再次调用同一个方法并传入新函数会**直接覆盖**之前的谓词——引擎不会在同一个分组内把多个谓词做 OR 合并。如果需要组合多个条件，请自己在一个谓词里组合，例如 `yt.hideVideos(item => isShort(item) || hasKeyword(item))`。（**不同**分组之间则各自贡献自己的谓词，只要有任意一个分组的谓词命中，对应条目就会被隐藏。）
 
-- `isCurrentChannelSubscribed()`、`isChannelSubscribed(idOrHandle)`。
-- `isCurrentChannelVerified()`。
-- `isLiveNow()`、`isItemLive(item)`。
-- `isAlgorithmicRecommendation(item)`、`isSponsored(item)`。
+状态检查方法（在派发时根据事件携带的快照返回值）的可用性同样按上面矩阵进行限制。
 
-URL 分类器再次暴露：`isPlatformUrl`、`isShortUrl`、`isVideoUrl`、`isPostUrl`、`isHomePage`、`extractAuthor`、`extractVideoId`。
+URL 分类器对所有平台都会再次暴露：`isPlatformUrl`、`isShortUrl`、`isVideoUrl`、`isPostUrl`、`isHomePage`、`extractAuthor`、`extractVideoId`。
 
-子区域计时器 —— `setShortsTimer({ id, direction, currentMs, displayName })`、`setVideosTimer({ ... })`、`setPostsTimer({ ... })` —— 把计时器登记到分组的持久化桶中,并在配置了 scope 时只在对应子区域 URL 上推进。
+子区域计时器把计时器登记到分组的持久化桶中，并在配置了 scope 时只在对应子区域 URL 上推进。计时器方法接受 `{ id, direction, currentMs, displayName }`，且与上面矩阵保持一致的可用性限制。
 
 谓词类方法都会按匹配的卡片调用，参数 `item` 形如 `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`。任何字段都可能为 `null`；遵循“疑罪从无”——你需要的字段缺失时请返回 `false`。
 

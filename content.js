@@ -241,10 +241,10 @@ function detectVideoSiteContext(hostname, pathname) {
   }
   if (hostname === "twitch.tv" || hostname?.endsWith(".twitch.tv")) {
     if (safePathname.startsWith("/videos/")) return { site: "twitch", form: "long" };
-    // Twitch channel page (twitch.tv/<streamer> and its sub-tabs) is
-    // the live-broadcast view — same role as YouTube's /watch page.
-    // Classify it as long-form so platformVideoMode/author filters
-    // actually trigger on the channel page itself.
+    // Twitch channel pages (twitch.tv/<streamer> and its sub-tabs) are
+    // represented as `form: "post"` — see platform.post.twitch =
+    // "channel pages" in the translation strings. Without this, the
+    // "Apply to channel pages" video mode never matches any URL.
     const firstSegment = safePathname.replace(/^\/+/, "").split("/")[0] || "";
     const reserved = new Set([
       "directory", "videos", "settings", "downloads", "subscriptions",
@@ -257,7 +257,7 @@ function detectVideoSiteContext(hostname, pathname) {
       !reserved.has(firstSegment.toLowerCase()) &&
       /^[a-z0-9_]+$/i.test(firstSegment)
     ) {
-      return { site: "twitch", form: "long" };
+      return { site: "twitch", form: "post" };
     }
     return { site: "twitch", form: "unknown" };
   }

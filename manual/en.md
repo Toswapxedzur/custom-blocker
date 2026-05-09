@@ -313,7 +313,7 @@ Per-event-type sugar (one set of methods per built-in type):
 
 - `event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
 - `event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
-- Same shape for `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `timerEnded`.
+- Same shape for `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `timerEnded`, `snoozePress`.
 
 ### 11.2.2 Built-in event types
 
@@ -326,6 +326,7 @@ Per-event-type sugar (one set of methods per built-in type):
 | `switchDomainEvent` | URL change crosses a hostname boundary (e.g. `youtube.com` → `wikipedia.org`). Fires alongside `switchWebEvent`. | `{ previousUrl, previousHostname }` |
 | `webChangedEvent` | The page (re)loads in any way: open, switch, SPA history update, **or a plain reload that keeps the same URL**. This is the reliable "the page changed, re-evaluate everything" hook. Fires alongside `openWebEvent` / `switchWebEvent` / `switchDomainEvent`, and is the only one that fires for same-URL reloads. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` where `transition` is `"tabCreated" \| "commit" \| "history"` |
 | `timerEnded` | A timer managed by the group reaches `currentMs === 0`. Only delivered to the owning group. | `{ timerId, displayName, direction, currentMs }` |
+| `snoozePress` | The user pressed **Start Snooze** in the popup for this **custom** group. Custom groups don't expose the duration / delay / cooldown / confirmation knobs in the editor — the rule itself decides what to do via `helpers.getSnoozeHelper().activate(...)`. **Strict policy:** if the handler doesn't activate a snooze, nothing happens. Only delivered to the pressed group. | `{ triggeredAt }` |
 
 URLs in `ev.url` and in event data are **normalized** for events: Chrome's New Tab Page (which renders Google's "Search Google or type URL" surface), `about:blank`, and equivalent newtab schemes are exposed as the empty string `""`. So a timer scoped to `ev.url === ""` only ticks while you are on the new-tab page. Regular `google.com` URLs are unchanged.
 
@@ -363,7 +364,8 @@ Accessor methods:
 - `helpers.getDomainHelper()` (alias `helpers.getDomainUtility()`) — URL inspection (see 11.3.5).
 - `helpers.getTimerHelper()` — group-scoped timers (countdown / count-up); state persists across browser restarts.
 - `helpers.getPersistenceHelper()` — JSON key/value store scoped to the group.
-- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (and `set/get` aliases). For custom rules, this is the **only** way to set the "redirect when blocked" URL.
+- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (and `set/get` aliases) plus `createMessageUrl(message)` which returns a `chrome-extension://...` URL that displays the given message. For custom rules, this is the **only** way to set the "redirect when blocked" URL.
+- `helpers.getSnoozeHelper()` — `activate({ minutes, activationDelayMinutes?, cooldownMinutes?, refreezeMode? })` and `cancel()`. Used by `snoozePress` handlers (and any other handler) to programmatically snooze the receiving group.
 - `helpers.getPlatformHelper()` — per-platform DOM intents (see 11.3.6).
 - `helpers.getDOMHelper()` — generic DOM intents: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. Operations are batched and applied after the handler returns.
 - `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Effects are applied to the tab the event came from.
@@ -416,8 +418,18 @@ Inspect / override the redirect URL the content script will use if the current p
 
 - `get()` — returns the current effective redirect URL for this heartbeat. Initially this is the built-in group's configured fallback URL (if any), otherwise `""`.
 - `set(url)` — overrides that redirect URL for this heartbeat. Returns `true` on success, `false` for non-string input. Passing `""` clears the redirect override and falls back to the normal default exit behavior (`main page` / `about:blank` depending on context).
+- `createMessageUrl(message)` — returns a `chrome-extension://<id>/message-page.html?msg=...` URL that, when navigated to, displays the message centred on a clean page. Useful for redirecting users to a "Go Work" / "Take a break" screen after a timer ends. Example: `ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`.
 
 Like the other custom-rule side effects, this state is shared across all rules in the current heartbeat. Because rules run bottom-to-top, the top-most rule to call `set(...)` wins.
+
+#### 11.3.4a `getSnoozeHelper()`
+
+Programmatic snooze control for the receiving group, primarily intended for `snoozePress` handlers but usable from any handler. **Custom groups** don't expose the four numeric snooze inputs (duration / activation delay / cooldown / confirmations) in the editor — the rule decides those values itself.
+
+- `activate({ minutes, activationDelayMinutes?, cooldownMinutes?, refreezeMode? })` — schedule a snooze. `minutes` must be `> 0`. `activationDelayMinutes` and `cooldownMinutes` default to `0`. `refreezeMode` is `"frozen"` or `"strict"` (defaults to the group's existing freeze mode). Returns `true` if the intent was recorded, `false` if the input was invalid.
+- `cancel()` — drop any scheduled / active / cooling-down snooze for this group.
+
+The snooze entry is persisted as soon as the dispatch finishes; storage's `onChanged` event then fans the new state out to every open popup and content script. **Strict policy:** if a `snoozePress` handler runs but never calls `activate(...)`, no snooze is created — the Start Snooze button effectively does nothing.
 
 #### 11.3.5 `getDomainHelper()` (alias `getDomainUtility()`)
 
@@ -441,27 +453,44 @@ URL filtering and section helpers (new in v1.1):
 
 #### 11.3.6 `getPlatformHelper()`
 
-Per-platform DOM intents and sub-section timers, plus inspection. Each `helpers.getPlatformHelper().<platform>()` returns an object with:
+Per-platform DOM intents and sub-section timers, plus inspection. Each `helpers.getPlatformHelper().<platform>()` returns an object whose method set is **gated by the platform** — methods that don't make sense on a given platform are simply absent, so calling them throws `TypeError: ... is not a function` rather than silently no-op'ing. For example, `twitch().hidePosts` does not exist (Twitch has no posts), and `tiktok().hideShortButton` does not exist (TikTok's whole experience already _is_ short-form video). Use `helpers.getPlatformHelper().hasMethod(platform, name)` or `.listMethods(platform)` to introspect at runtime.
 
-Visibility intents:
+Per-platform method matrix:
 
-- `hideShortButton()` / `showShortButton()`, `hideHomePage()` / `showHomePage()`.
-- `hideShorts(predicate, { blockPageOnVisit })` / `showShorts()`, `hideVideos(...)` / `showVideos()`, `hidePosts(...)` / `showPosts()`.
-- `hideComments()` / `showComments()` / `filterComments(predicate)` — hide a platform's comment section entirely or filter individual comments.
-- `hideLive()` / `showLive()` / `filterLive(predicate)` — same, for live broadcasts on platforms that have them (YouTube, TikTok, Twitch, Facebook).
+|                                | youtube | tiktok | instagram | facebook | twitch |
+|--------------------------------|:-:|:-:|:-:|:-:|:-:|
+| `hideShorts` / `showShorts`    | ✓ |   |   |   |   |
+| `hideReels` / `showReels`      |   |   | ✓ | ✓ |   |
+| `hideClips` / `showClips`      |   |   |   |   | ✓ |
+| `hideStreams` / `showStreams`  |   |   |   |   | ✓ |
+| `hideVideos` / `showVideos`    | ✓ | ✓ |   | ✓ | ✓ (VODs) |
+| `hidePosts` / `showPosts`      | ✓ |   | ✓ | ✓ |   |
+| `hideShortButton` / `showShortButton` | ✓ |   |   |   |   |
+| `hideHomePage` / `showHomePage`| ✓ | ✓ | ✓ | ✓ | ✓ |
+| `hideComments` / `showComments` / `filterComments` | ✓ | ✓ | ✓ | ✓ |   |
+| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |   | ✓ | ✓ |
+| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |   |   |   | ✓ |
+| `isCurrentChannelVerified`     | ✓ |   |   |   |   |
+| `isLiveNow`                    | ✓ | ✓ |   | ✓ | ✓ |
+| `isItemLive`                   | ✓ | ✓ |   | ✓ | ✓ |
+| `isAlgorithmicRecommendation`  | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `isSponsored`                  | ✓ | ✓ | ✓ | ✓ |   |
+| `setShortsTimer`               | ✓ |   |   |   |   |
+| `setReelsTimer`                |   |   | ✓ | ✓ |   |
+| `setClipsTimer`                |   |   |   |   | ✓ |
+| `setStreamsTimer`              |   |   |   |   | ✓ |
+| `setVideosTimer`               | ✓ | ✓ |   | ✓ | ✓ |
+| `setPostsTimer`                | ✓ |   | ✓ | ✓ |   |
 
-> **Predicate lifetime & single-slot rule.** Each of `hideShorts` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` owns **one** persistent predicate per `(group, platform)`. The predicate is **not** scoped to the current event — once you set it, it stays active across every page load and every dispatch until either the matching `show*()` is called or the group is unloaded. Calling the same method again with a new function **replaces** the previous one — the engine never OR-merges multiple predicates within a single group. To combine conditions, write one predicate that does the combining yourself, e.g. `yt.hideVideos(item => isShort(item) || hasKeyword(item))`. (Across **different** groups, each group contributes its own predicate and an item is hidden if any group's predicate matches.)
+The platform-native names (`hideReels`, `hideClips`, `hideStreams`) are NOT separate buckets from `hideShorts` / `hideVideos` — the storage slot is the same; only the user-visible name follows each platform's terminology.
 
-Inspection (returns a value at dispatch time, based on a snapshot bundled with the event):
+> **Predicate lifetime & single-slot rule.** Each of `hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` owns **one** persistent predicate per `(group, platform, slot)`. The predicate is **not** scoped to the current event — once you set it, it stays active across every page load and every dispatch until either the matching `show*()` is called or the group is unloaded. Calling the same method again with a new function **replaces** the previous one — the engine never OR-merges multiple predicates within a single group. To combine conditions, write one predicate that does the combining yourself, e.g. `yt.hideVideos(item => isShort(item) || hasKeyword(item))`. (Across **different** groups, each group contributes its own predicate and an item is hidden if any group's predicate matches.)
 
-- `isCurrentChannelSubscribed()`, `isChannelSubscribed(idOrHandle)`.
-- `isCurrentChannelVerified()`.
-- `isLiveNow()`, `isItemLive(item)`.
-- `isAlgorithmicRecommendation(item)`, `isSponsored(item)`.
+Inspection methods take their value at dispatch time from a snapshot bundled with the event; their availability is gated by the matrix above.
 
-URL classifiers re-exposed: `isPlatformUrl`, `isShortUrl`, `isVideoUrl`, `isPostUrl`, `isHomePage`, `extractAuthor`, `extractVideoId`.
+URL classifiers are always re-exposed regardless of platform: `isPlatformUrl`, `isShortUrl`, `isVideoUrl`, `isPostUrl`, `isHomePage`, `extractAuthor`, `extractVideoId`.
 
-Sub-section timers — `setShortsTimer({ id, direction, currentMs, displayName })`, `setVideosTimer({ ... })`, `setPostsTimer({ ... })` — register the timer in the persistent group bucket and, when scoped, only tick on URLs that match that subsection.
+Sub-section timers register the timer in the persistent group bucket and, when scoped, only tick on URLs that match that subsection. The timer methods accept `{ id, direction, currentMs, displayName }` and follow the same per-platform gating.
 
 For predicate methods, the predicate is called per matching card with a normalized `item`: `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`. Any field can be `null`; "innocent until proven guilty" — return `false` when the field you need is missing.
 

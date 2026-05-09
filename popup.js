@@ -3,9 +3,31 @@ const USAGE_TIMERS_KEY = "usageTimersMs";
 const USAGE_RESET_AT_KEY = "usageResetAtMs";
 const GROUP_SNOOZES_KEY = "groupSnoozes";
 const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
+const GLOBAL_SETTINGS_KEY = "globalSettings";
 const LAYOUT_WIDTH_STORAGE_KEY = "custom-blocker-groups-panel-width";
 const LANGUAGE_STORAGE_KEY = "custom-blocker-language";
 const GROUP_TRANSFER_PREFIX = "custom-blocker-group:v1:";
+
+// Global (extension-wide, not per-group) preferences.
+//
+// Keep DEFAULT values in lockstep with the placeholder texts in
+// popup.html's settings modal — the placeholders advertise the
+// default the user will actually get if they leave the field empty.
+const DEFAULT_GLOBAL_SETTINGS = {
+  tickRateMs: 1000,
+  autosaveDebounceMs: 400,
+  showDebugOverlay: true,
+  defaultSnoozeMinutes: 30,
+  // about:blank is what content.js falls back to when the per-group
+  // fallbackUrl is empty AND tryRedirectToMainPage() fails, so it's the
+  // most honest "no opinion" default. Empty string would have meant
+  // "use the cascade" but that's already what an empty per-group field
+  // gets you, so the global default may as well pin a real URL.
+  defaultFallbackUrl: "about:blank"
+};
+const TICK_RATE_MIN_MS = 250;
+const TICK_RATE_MAX_MS = 60_000;
+const AUTOSAVE_DEBOUNCE_MAX_MS = 5_000;
 
 const DEFAULT_ALLOWED_MINUTES = 15;
 const DEFAULT_RESET_INTERVAL_HOURS = 24;
@@ -89,10 +111,7 @@ const redditSubredditsField = document.getElementById("redditSubreddits");
 const redditBlockHomePageField = document.getElementById("redditBlockHomePage");
 const discordSettingsCard = document.getElementById("discordSettingsCard");
 const discordModeField = document.getElementById("discordMode");
-const discordTargetTypeField = document.getElementById("discordTargetType");
-const discordTargetsLabel = document.getElementById("discordTargetsLabel");
 const discordTargetsField = document.getElementById("discordTargets");
-const discordTargetsHelp = document.getElementById("discordTargetsHelp");
 const discordBlockHomePageField = document.getElementById("discordBlockHomePage");
 const fallbackUrlSection = document.getElementById("fallbackUrlSection");
 const fallbackUrlField = document.getElementById("fallbackUrl");
@@ -112,11 +131,13 @@ const snoozeConfirmationsField = document.getElementById("snoozeConfirmations");
 const snoozeWarning = document.getElementById("snoozeWarning");
 const startSnoozeButton = document.getElementById("startSnoozeButton");
 const endSnoozeButton = document.getElementById("endSnoozeButton");
+const snoozeNumericFields = document.getElementById("snoozeNumericFields");
+const snoozeCustomCopy = document.getElementById("snoozeCustomCopy");
 const siteSettingsSection = document.getElementById("siteSettingsSection");
 const blockedSitesField = document.getElementById("blockedSites");
 const clearSitesButton = document.getElementById("clearSitesButton");
 const runCustomGroupButton = document.getElementById("runCustomGroupButton");
-const testFireButton = document.getElementById("testFireButton");
+const checkSyntaxButton = document.getElementById("checkSyntaxButton");
 const runCustomGroupStatus = document.getElementById("runCustomGroupStatus");
 const editorTitle = document.getElementById("editorTitle");
 const statusMessage = document.getElementById("statusMessage");
@@ -136,6 +157,17 @@ const templateStatus = document.getElementById("templateStatus");
 const templateCloseButton = document.getElementById("templateCloseButton");
 const templateFilterField = document.getElementById("templateFilter");
 const templateApplyButton = document.getElementById("templateApplyButton");
+const settingsButton = document.getElementById("settingsButton");
+const settingsModal = document.getElementById("settingsModal");
+const settingsCloseButton = document.getElementById("settingsCloseButton");
+const settingsTickRateField = document.getElementById("settingsTickRate");
+const settingsAutosaveDebounceField = document.getElementById("settingsAutosaveDebounce");
+const settingsShowDebugOverlayField = document.getElementById("settingsShowDebugOverlay");
+const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
+const settingsDefaultFallbackUrlField = document.getElementById("settingsDefaultFallbackUrl");
+const settingsResetButton = document.getElementById("settingsResetButton");
+const settingsSaveButton = document.getElementById("settingsSaveButton");
+const settingsStatus = document.getElementById("settingsStatus");
 const dayCheckboxes = Array.from(daysGrid.querySelectorAll('input[type="checkbox"]'));
 
 const state = {
@@ -144,6 +176,8 @@ const state = {
   usageResetAtMs: {},
   groupSnoozes: {},
   groupSnoozeTotalsMs: {},
+  globalSettings: { ...DEFAULT_GLOBAL_SETTINGS },
+  isSettingsOpen: false,
   selectedGroupId: null,
   draggedGroupId: null,
   dropTargetGroupId: null,
@@ -401,6 +435,60 @@ function openManual() {
 function closeManual() {
   state.isManualOpen = false;
   manualModal.classList.add("hidden");
+}
+
+function syncSettingsFormFromState() {
+  const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
+  if (settingsTickRateField) settingsTickRateField.value = String(s.tickRateMs);
+  if (settingsAutosaveDebounceField) settingsAutosaveDebounceField.value = String(s.autosaveDebounceMs);
+  if (settingsShowDebugOverlayField) settingsShowDebugOverlayField.checked = Boolean(s.showDebugOverlay);
+  if (settingsDefaultSnoozeMinutesField) settingsDefaultSnoozeMinutesField.value = String(s.defaultSnoozeMinutes);
+  if (settingsDefaultFallbackUrlField) settingsDefaultFallbackUrlField.value = s.defaultFallbackUrl ?? "";
+  if (settingsStatus) settingsStatus.textContent = "";
+}
+
+function openSettings() {
+  state.isSettingsOpen = true;
+  syncSettingsFormFromState();
+  settingsModal.classList.remove("hidden");
+}
+
+function closeSettings() {
+  state.isSettingsOpen = false;
+  settingsModal.classList.add("hidden");
+  if (settingsStatus) settingsStatus.textContent = "";
+}
+
+async function saveSettingsFromForm() {
+  const draft = {
+    tickRateMs: settingsTickRateField?.value,
+    autosaveDebounceMs: settingsAutosaveDebounceField?.value,
+    showDebugOverlay: settingsShowDebugOverlayField?.checked ?? true,
+    defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
+    defaultFallbackUrl: settingsDefaultFallbackUrlField?.value
+  };
+  const sanitized = sanitizeGlobalSettings(draft);
+  state.globalSettings = sanitized;
+  try {
+    await chrome.storage.local.set({ [GLOBAL_SETTINGS_KEY]: sanitized });
+    if (settingsStatus) {
+      settingsStatus.textContent = t("settings.saved");
+      settingsStatus.classList.remove("error");
+    }
+    setStatus(t("settings.saved"));
+    // Reflect any clamping that sanitize did back into the form.
+    syncSettingsFormFromState();
+  } catch (error) {
+    if (settingsStatus) {
+      settingsStatus.textContent = String(error?.message ?? error);
+      settingsStatus.classList.add("error");
+    }
+  }
+}
+
+function resetSettingsToDefaults() {
+  state.globalSettings = { ...DEFAULT_GLOBAL_SETTINGS };
+  syncSettingsFormFromState();
 }
 
 function applyStaticTranslations() {
@@ -682,6 +770,30 @@ function parseSnoozeConfirmations(value) {
   if (!/^\d+$/.test(trimmed)) return null;
   const parsed = Number.parseInt(trimmed, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function clampNumber(value, min, max, fallback) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function sanitizeGlobalSettings(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const tickRateMs = Math.round(
+    clampNumber(src.tickRateMs, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, DEFAULT_GLOBAL_SETTINGS.tickRateMs)
+  );
+  const autosaveDebounceMs = Math.round(
+    clampNumber(src.autosaveDebounceMs, 0, AUTOSAVE_DEBOUNCE_MAX_MS, DEFAULT_GLOBAL_SETTINGS.autosaveDebounceMs)
+  );
+  const defaultSnoozeMinutes = (() => {
+    const parsed = Number.parseFloat(src.defaultSnoozeMinutes);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_GLOBAL_SETTINGS.defaultSnoozeMinutes;
+  })();
+  const defaultFallbackUrl =
+    typeof src.defaultFallbackUrl === "string" ? src.defaultFallbackUrl.trim() : "";
+  const showDebugOverlay = src.showDebugOverlay !== false;
+  return { tickRateMs, autosaveDebounceMs, showDebugOverlay, defaultSnoozeMinutes, defaultFallbackUrl };
 }
 
 function normalizeTimeWindowLine(line) {
@@ -967,16 +1079,6 @@ function applyPlatformVideoUi(groupType) {
     : t("platform.help.generic", { platform, shortLabel, longLabel, postLabel });
 }
 
-function applyDiscordTargetUi(targetType) {
-  const isChannel = normalizeDiscordTargetType(targetType) === "channel";
-  discordTargetsLabel.textContent = t(isChannel ? "discord.channels" : "discord.servers");
-  discordTargetsField.setAttribute(
-    "placeholder",
-    t(isChannel ? "discord.channelsPlaceholder" : "discord.serversPlaceholder")
-  );
-  discordTargetsHelp.textContent = t(isChannel ? "discord.channelsHelp" : "discord.help");
-}
-
 function normalizePlatformAuthorMode(value) {
   return value === "include" || value === "exclude" ? value : "none";
 }
@@ -997,10 +1099,6 @@ function normalizeDiscordMode(value, fallbackList) {
 
   const list = Array.isArray(fallbackList) ? fallbackList : [];
   return list.length > 0 ? "include" : "all";
-}
-
-function normalizeDiscordTargetType(value) {
-  return value === "channel" ? "channel" : "server";
 }
 
 function isPlatformVideoGroupType(groupType) {
@@ -1129,8 +1227,13 @@ function normalizeRedditSubredditInput(value) {
   return /^[a-z0-9_]+$/i.test(trimmed) ? trimmed : null;
 }
 
-function normalizeDiscordTargetInput(value, targetType = "server") {
-  const normalizedTargetType = normalizeDiscordTargetType(targetType);
+// Accept either a bare snowflake (server or channel ID) or a discord URL
+// of the form /channels/<server>[/<channel>]. URLs that include a channel
+// segment keep the channel ID; URLs with only a server segment keep the
+// server ID. The output is a single numeric string and the caller does
+// NOT need to know whether it is a server or channel — match logic
+// checks the page's server-id and channel-id against this flat list.
+function normalizeDiscordTargetInput(value) {
   let trimmed = String(value ?? "").trim().toLowerCase();
 
   if (!trimmed) {
@@ -1148,7 +1251,7 @@ function normalizeDiscordTargetInput(value, targetType = "server") {
   trimmed = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
   const channelsMatch = trimmed.match(/^channels\/([^/?#]+)(?:\/([^/?#]+))?/);
   if (channelsMatch) {
-    trimmed = normalizedTargetType === "channel" ? channelsMatch[2] ?? "" : channelsMatch[1];
+    trimmed = channelsMatch[2] || channelsMatch[1] || "";
   }
 
   if (trimmed === "@me") {
@@ -1184,7 +1287,7 @@ function parseRedditSubredditsTextarea(value) {
   };
 }
 
-function parseDiscordTargetsTextarea(value, targetType = "server") {
+function parseDiscordTargetsTextarea(value) {
   const validTargets = [];
   const invalidTargets = [];
 
@@ -1195,7 +1298,7 @@ function parseDiscordTargetsTextarea(value, targetType = "server") {
       continue;
     }
 
-    const normalized = normalizeDiscordTargetInput(trimmedLine, targetType);
+    const normalized = normalizeDiscordTargetInput(trimmedLine);
 
     if (normalized) {
       validTargets.push(normalized);
@@ -1259,19 +1362,16 @@ function describeRedditScope(groupLike) {
 function describeDiscordScope(groupLike) {
   const targets = Array.isArray(groupLike.discordTargets) ? groupLike.discordTargets : [];
   const mode = normalizeDiscordMode(groupLike.discordMode, targets);
-  const isChannel = normalizeDiscordTargetType(groupLike.discordTargetType) === "channel";
 
   if (mode === "all") {
-    return t(isChannel ? "meta.allDiscordChannels" : "meta.allDiscord");
+    return t("meta.allDiscord");
   }
 
   if (mode === "exclude") {
-    return t(isChannel ? "meta.allExceptChannels" : "meta.allExceptServers", {
-      count: targets.length
-    });
+    return t("meta.allExceptDiscordTargets", { count: targets.length });
   }
 
-  return t(isChannel ? "meta.channelCount" : "meta.serverCount", { count: targets.length });
+  return t("meta.discordTargetCount", { count: targets.length });
 }
 
 function getLocalizedUnfreezeMessages() {
@@ -2026,7 +2126,12 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     allowedMinutes: DEFAULT_ALLOWED_MINUTES,
     resetIntervalHours: DEFAULT_RESET_INTERVAL_HOURS,
     allowSnooze: true,
-    snoozeMinutes: DEFAULT_SNOOZE_MINUTES,
+    // Seed the snooze knobs from the global Settings menu so a user who
+    // raised the default once doesn't have to redo it on every new group.
+    // Custom groups don't expose these inputs in the editor, but we still
+    // store sensible values in case the group is later switched away from
+    // "custom".
+    snoozeMinutes: state.globalSettings?.defaultSnoozeMinutes ?? DEFAULT_SNOOZE_MINUTES,
     snoozeActivationDelayMinutes: DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
     snoozeCooldownMinutes: DEFAULT_SNOOZE_COOLDOWN_MINUTES,
     snoozeConfirmations: DEFAULT_SNOOZE_CONFIRMATIONS,
@@ -2038,7 +2143,6 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     redditMode: "all",
     redditSubreddits: [],
     discordMode: "all",
-    discordTargetType: "server",
     discordTargets: [],
     blockingRulesText: t("custom.defaultRule"),
     freezeMode: "none",
@@ -2046,7 +2150,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     frozenAtMs: null,
     sites: [],
     blockHomePage: false,
-    fallbackUrl: "",
+    fallbackUrl: state.globalSettings?.defaultFallbackUrl ?? "",
     skipToNextOnBlock: false
   };
 }
@@ -2074,7 +2178,6 @@ function sanitizeGroups(groups) {
     const rawAuthors = Array.isArray(group?.platformAuthors) ? group.platformAuthors : [];
     const rawRedditSubreddits = Array.isArray(group?.redditSubreddits) ? group.redditSubreddits : [];
     const rawDiscordTargets = Array.isArray(group?.discordTargets) ? group.discordTargets : [];
-    const discordTargetType = normalizeDiscordTargetType(group?.discordTargetType);
 
     return {
       ...baseGroup,
@@ -2117,11 +2220,10 @@ function sanitizeGroups(groups) {
         ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
       ],
       redditMode: normalizeRedditMode(group?.redditMode, rawRedditSubreddits),
-      discordTargetType,
       discordTargets: [
         ...new Set(
           rawDiscordTargets
-            .map((target) => normalizeDiscordTargetInput(target, discordTargetType))
+            .map((target) => normalizeDiscordTargetInput(target))
             .filter(Boolean)
         )
       ],
@@ -2242,7 +2344,6 @@ function getSerializableGroupSnapshot(group) {
     redditMode: group.redditMode,
     redditSubreddits: [...group.redditSubreddits],
     discordMode: group.discordMode,
-    discordTargetType: group.discordTargetType,
     discordTargets: [...group.discordTargets],
     blockingRulesText: group.blockingRulesText,
     freezeMode: group.freezeMode,
@@ -2360,7 +2461,6 @@ function groupToDraft(group) {
     redditMode: normalizeRedditMode(group.redditMode, group.redditSubreddits),
     redditSubredditsText: group.redditSubreddits.join("\n"),
     discordMode: normalizeDiscordMode(group.discordMode, group.discordTargets),
-    discordTargetType: normalizeDiscordTargetType(group.discordTargetType),
     discordTargetsText: group.discordTargets.join("\n"),
     blockingRulesText: group.blockingRulesText,
     blockHomePage: Boolean(group.blockHomePage),
@@ -2517,17 +2617,12 @@ function getGroupMetaText(group, draft, now = Date.now()) {
       })
     );
   } else if (group.groupType === "discord") {
-    const draftTargetType = normalizeDiscordTargetType(
-      draft?.discordTargetType ?? group.discordTargetType
-    );
     const draftTargets = parseDiscordTargetsTextarea(
-      draft?.discordTargetsText ?? "",
-      draftTargetType
+      draft?.discordTargetsText ?? ""
     ).validTargets;
     pieces.push(
       describeDiscordScope({
         discordMode: draft?.discordMode ?? group.discordMode,
-        discordTargetType: draftTargetType,
         discordTargets: draftTargets.length > 0 ? draftTargets : group.discordTargets
       })
     );
@@ -2786,6 +2881,7 @@ function updateSnoozeUI(group, now = Date.now()) {
   const draft = getDraftForGroup(group.id);
   const allowSnooze = draft?.allowSnooze ?? (group.allowSnooze !== false);
   const totalSnoozedMs = getDisplayedSnoozeTotalMs(group.id, now);
+  const isCustomGroup = group.groupType === "custom";
 
   allowSnoozeField.checked = allowSnooze;
   allowSnoozeField.disabled = freezeStatus.isFrozen;
@@ -2793,6 +2889,18 @@ function updateSnoozeUI(group, now = Date.now()) {
   snoozeActivationDelayField.disabled = freezeStatus.isFrozen || !allowSnooze;
   snoozeCooldownField.disabled = freezeStatus.isFrozen || !allowSnooze;
   snoozeConfirmationsField.disabled = freezeStatus.isFrozen || !allowSnooze;
+
+  // Custom groups expose only "Allow snooze" + the Start/End Snooze
+  // buttons; the duration / delay / cooldown / confirmation knobs are
+  // hidden because the rule itself owns those semantics via the
+  // snoozePress event. A short copy line replaces the grid so users
+  // know where the missing controls went.
+  if (snoozeNumericFields) {
+    snoozeNumericFields.classList.toggle("hidden", isCustomGroup);
+  }
+  if (snoozeCustomCopy) {
+    snoozeCustomCopy.classList.toggle("hidden", !isCustomGroup);
+  }
 
   if (!snooze) {
     startSnoozeButton.disabled = !allowSnooze;
@@ -2858,9 +2966,7 @@ function renderEditor(now = Date.now()) {
     redditModeField.value = "all";
     redditSubredditsField.value = "";
     discordModeField.value = "all";
-    discordTargetTypeField.value = "server";
     discordTargetsField.value = "";
-    applyDiscordTargetUi("server");
     allowSnoozeField.checked = true;
     freezeModeField.value = "frozen";
     strictFreezeHoursField.value = "";
@@ -2901,7 +3007,6 @@ function renderEditor(now = Date.now()) {
     redditModeField.disabled = true;
     redditSubredditsField.disabled = true;
     discordModeField.disabled = true;
-    discordTargetTypeField.disabled = true;
     discordTargetsField.disabled = true;
     allowSnoozeField.disabled = true;
     snoozeConfirmationsField.disabled = true;
@@ -2969,11 +3074,7 @@ function renderEditor(now = Date.now()) {
     draft?.discordMode ?? group.discordMode,
     group.discordTargets
   );
-  discordTargetTypeField.value = normalizeDiscordTargetType(
-    draft?.discordTargetType ?? group.discordTargetType
-  );
   discordTargetsField.value = draft?.discordTargetsText ?? group.discordTargets.join("\n");
-  applyDiscordTargetUi(discordTargetTypeField.value);
 
   const blockHomePageValue = Boolean(draft?.blockHomePage ?? group.blockHomePage);
   platformBlockHomePageField.checked = blockHomePageValue;
@@ -3025,7 +3126,6 @@ function renderEditor(now = Date.now()) {
   redditSubredditsField.disabled =
     !editable || !isRedditGroup || redditModeField.value === "all";
   discordModeField.disabled = !editable || !isDiscordGroup;
-  discordTargetTypeField.disabled = !editable || !isDiscordGroup;
   discordTargetsField.disabled = !editable || !isDiscordGroup || discordModeField.value === "all";
   clearSitesButton.disabled =
     !editable || isPlatformVideoGroup || isRedditGroup || isDiscordGroup || isCustomGroup;
@@ -3043,8 +3143,8 @@ function renderEditor(now = Date.now()) {
   if (runCustomGroupButton) {
     runCustomGroupButton.disabled = !editable || !isCustomGroup;
   }
-  if (testFireButton) {
-    testFireButton.disabled = !editable || !isCustomGroup;
+  if (checkSyntaxButton) {
+    checkSyntaxButton.disabled = !editable || !isCustomGroup;
   }
   if (runCustomGroupStatus && (!isCustomGroup || !editable)) {
     runCustomGroupStatus.textContent = "";
@@ -3118,7 +3218,6 @@ function stashCurrentDraft() {
     redditMode: redditModeField.value,
     redditSubredditsText: redditSubredditsField.value,
     discordMode: discordModeField.value,
-    discordTargetType: discordTargetTypeField.value,
     discordTargetsText: discordTargetsField.value,
     blockHomePage: isPlatformVideoGroup
       ? platformBlockHomePageField.checked
@@ -3140,6 +3239,58 @@ async function flushAutosave() {
   window.clearTimeout(state.autosaveTimeoutId);
   state.autosaveTimeoutId = null;
   await autosaveSelectedGroup();
+}
+
+// Synchronous best-effort persist used from `pagehide` / `visibilitychange`.
+// The popup window is about to be torn down, so we cannot await async
+// work — we just fire chrome.storage.local.set() without `await`. Even
+// though the popup's JS context is destroyed immediately after, Chrome's
+// IPC layer reliably forwards the in-flight write to the storage backend.
+//
+// Deliberately lenient: if buildUpdatedGroupFromDraft() throws (i.e. the
+// editor draft is partially invalid), we swallow the error and persist
+// whatever shape the rest of state.groups already has. The user's
+// half-typed text in the textarea is captured next time the popup opens
+// because `state.drafts` is already kept in sync on every keystroke.
+function flushAutosaveOnExit() {
+  if (state.autosaveTimeoutId !== null) {
+    window.clearTimeout(state.autosaveTimeoutId);
+    state.autosaveTimeoutId = null;
+  }
+
+  const group = getSelectedGroup();
+  const draft = group ? getDraftForGroup(group.id) : null;
+  if (group && draft && isGroupEditable(group)) {
+    try {
+      const result = buildUpdatedGroupFromDraft(group, draft);
+      if (result && result.updatedGroup) {
+        state.groups = state.groups.map((item) =>
+          item.id === group.id ? result.updatedGroup : item
+        );
+      }
+    } catch (_) {
+      // Validation failed — fall through and persist the current
+      // state.groups anyway. We never block exit on a typo.
+    }
+  }
+
+  try {
+    // Note: globalSettings is intentionally NOT written here — it's
+    // only ever changed through the explicit Save button in the
+    // settings modal, so re-emitting it on every popup teardown would
+    // race two open popups against each other.
+    chrome.storage.local.set({
+      [BLOCKED_GROUPS_KEY]: state.groups,
+      [USAGE_TIMERS_KEY]: state.usageTimersMs,
+      [USAGE_RESET_AT_KEY]: state.usageResetAtMs,
+      [GROUP_SNOOZES_KEY]: state.groupSnoozes,
+      [GROUP_SNOOZE_TOTALS_KEY]: state.groupSnoozeTotalsMs
+    });
+  } catch (_) {
+    // If chrome.storage isn't available for some reason at teardown,
+    // there's nothing we can do — just bail silently rather than
+    // throwing into the event handler.
+  }
 }
 
 function selectGroup(groupId) {
@@ -3167,7 +3318,8 @@ async function loadStoredState() {
     [USAGE_TIMERS_KEY]: {},
     [USAGE_RESET_AT_KEY]: {},
     [GROUP_SNOOZES_KEY]: {},
-    [GROUP_SNOOZE_TOTALS_KEY]: {}
+    [GROUP_SNOOZE_TOTALS_KEY]: {},
+    [GLOBAL_SETTINGS_KEY]: { ...DEFAULT_GLOBAL_SETTINGS }
   });
 
   const groups = sanitizeGroups(result[BLOCKED_GROUPS_KEY]);
@@ -3177,7 +3329,8 @@ async function loadStoredState() {
     usageTimersMs: sanitizeUsageTimers(result[USAGE_TIMERS_KEY], groups),
     usageResetAtMs: sanitizeResetTimes(result[USAGE_RESET_AT_KEY], groups),
     groupSnoozes: sanitizeSnoozes(result[GROUP_SNOOZES_KEY], groups),
-    groupSnoozeTotalsMs: sanitizeSnoozeTotals(result[GROUP_SNOOZE_TOTALS_KEY], groups)
+    groupSnoozeTotalsMs: sanitizeSnoozeTotals(result[GROUP_SNOOZE_TOTALS_KEY], groups),
+    globalSettings: sanitizeGlobalSettings(result[GLOBAL_SETTINGS_KEY])
   };
 }
 
@@ -3204,6 +3357,7 @@ async function loadGroups() {
   state.usageResetAtMs = loaded.usageResetAtMs;
   state.groupSnoozes = loaded.groupSnoozes;
   state.groupSnoozeTotalsMs = loaded.groupSnoozeTotalsMs;
+  state.globalSettings = loaded.globalSettings;
   state.selectedGroupId = state.groups[0]?.id ?? null;
   state.drafts = {};
   render();
@@ -3427,8 +3581,7 @@ function buildUpdatedGroupFromDraft(group, draft) {
   const authorMode = normalizePlatformAuthorMode(draft.platformAuthorMode);
   const redditResults = parseRedditSubredditsTextarea(draft.redditSubredditsText);
   const redditMode = normalizeRedditMode(draft.redditMode, redditResults.validSubreddits);
-  const discordTargetType = normalizeDiscordTargetType(draft.discordTargetType);
-  const discordResults = parseDiscordTargetsTextarea(draft.discordTargetsText, discordTargetType);
+  const discordResults = parseDiscordTargetsTextarea(draft.discordTargetsText);
   const discordMode = normalizeDiscordMode(draft.discordMode, discordResults.validTargets);
   const blockingRulesText = draft.blockingRulesText?.trim() ?? "";
   const isCustomGroup = group.groupType === "custom";
@@ -3480,12 +3633,7 @@ function buildUpdatedGroupFromDraft(group, draft) {
 
   if (group.groupType === "discord" && discordResults.invalidTargets.length > 0) {
     throw new Error(
-      t(
-        discordTargetType === "channel"
-          ? "status.invalidDiscordChannels"
-          : "status.invalidDiscordServers",
-        { list: discordResults.invalidTargets.join(", ") }
-      )
+      t("status.invalidDiscordTargets", { list: discordResults.invalidTargets.join(", ") })
     );
   }
 
@@ -3527,8 +3675,6 @@ function buildUpdatedGroupFromDraft(group, draft) {
       discordTargets:
         group.groupType === "discord" ? discordResults.validTargets : group.discordTargets,
       discordMode: group.groupType === "discord" ? discordMode : group.discordMode,
-      discordTargetType:
-        group.groupType === "discord" ? discordTargetType : group.discordTargetType,
       blockingRulesText: isCustomGroup ? blockingRulesText : group.blockingRulesText,
       sites: group.groupType === "site" ? siteResults.validSites : [],
       blockHomePage: Boolean(draft.blockHomePage),
@@ -3608,13 +3754,20 @@ function scheduleAutosave() {
     window.clearTimeout(state.autosaveTimeoutId);
   }
 
+  // Honour the user-configurable debounce (defaults to 400 ms). 0 means
+  // "save synchronously on the next tick", which still rolls multiple
+  // events fired in the same task into a single write.
+  const delay = Math.max(
+    0,
+    Math.min(AUTOSAVE_DEBOUNCE_MAX_MS, Number(state.globalSettings?.autosaveDebounceMs) || 0)
+  );
   state.autosaveTimeoutId = window.setTimeout(() => {
     state.autosaveTimeoutId = null;
     autosaveSelectedGroup().catch((error) => {
       console.error("Failed to autosave block group.", error);
       setStatus(t("status.errorSaveGroup"), true);
     });
-  }, 400);
+  }, delay);
 }
 
 function clearSelectedSites() {
@@ -3969,6 +4122,29 @@ async function startSnooze() {
     return;
   }
 
+  // Custom groups don't have the four numeric snooze inputs in the
+  // editor — instead, pressing Start Snooze fires a `snoozePress` event
+  // into the sandbox so the rule itself can decide whether (and for how
+  // long) to snooze via helpers.getSnoozeHelper().activate(...). Strict
+  // policy: if the rule does nothing, no snooze happens.
+  if (group.groupType === "custom") {
+    setSnoozeWarning("");
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "fire-snooze-press",
+        groupId: group.id
+      });
+      if (!response || !response.ok) {
+        const err =
+          (response && response.error) || t("snooze.warning.snoozePressFailed");
+        setSnoozeWarning(err);
+      }
+    } catch (error) {
+      setSnoozeWarning(String(error && error.message ? error.message : error));
+    }
+    return;
+  }
+
   if (currentSnoozePhase === "pending") {
     setSnoozeWarning(
       t("snooze.warning.pending", {
@@ -4192,6 +4368,13 @@ function syncExternalState(changes) {
     shouldRenderDynamicOnly = true;
   }
 
+  if (changes[GLOBAL_SETTINGS_KEY]) {
+    state.globalSettings = sanitizeGlobalSettings(changes[GLOBAL_SETTINGS_KEY].newValue);
+    if (state.isSettingsOpen) {
+      syncSettingsFormFromState();
+    }
+  }
+
   if (
     changes[BLOCKED_GROUPS_KEY] &&
     Date.now() > state.suppressGroupStorageUpdatesUntil
@@ -4353,31 +4536,42 @@ if (runCustomGroupButton) {
   });
 }
 
-async function testFireOnActiveTab() {
+async function checkSelectedCustomGroupSyntax() {
+  const group = getSelectedGroup();
+  if (!group || group.groupType !== "custom") return;
+  const source = String(blockingRulesField?.value ?? "").trim();
   if (runCustomGroupStatus) {
-    runCustomGroupStatus.textContent = "test-firing on active tab...";
+    runCustomGroupStatus.textContent = t("custom.checkSyntaxRunning");
     runCustomGroupStatus.className = "run-status";
   }
   try {
-    const response = await chrome.runtime.sendMessage({ type: "test-fire-active-tab" });
-    if (response && response.ok) {
-      const totalLogs = (response.openLogs || 0) + (response.switchLogs || 0);
-      const text = "active tab " + response.dispatchedTo +
-        " · " + (response.handlerCount || 0) + " handler(s) · " +
-        totalLogs + " log(s) emitted";
+    // The background forwards the source to the sandbox, which compiles
+    // and (briefly) invokes it under a synthetic group id and discards
+    // whatever it registered. The real group's loaded handlers stay
+    // untouched — Check syntax never replaces what's already running.
+    const response = await chrome.runtime.sendMessage({
+      type: "check-custom-group-syntax",
+      source
+    });
+    if (response && response.ok && response.result && response.result.ok) {
+      const handlers = response.result.handlers ?? 0;
+      const text = t("custom.checkSyntaxOk", { count: String(handlers) });
       if (runCustomGroupStatus) {
         runCustomGroupStatus.textContent = text;
-        runCustomGroupStatus.className = totalLogs > 0 ? "run-status success" : "run-status error";
+        runCustomGroupStatus.className = "run-status success";
       }
       setStatus(text);
-    } else {
-      const err = (response && response.error) || "test-fire failed";
-      if (runCustomGroupStatus) {
-        runCustomGroupStatus.textContent = err;
-        runCustomGroupStatus.className = "run-status error";
-      }
-      setStatus(err, true);
+      return;
     }
+    const err =
+      (response && response.result && response.result.error) ||
+      (response && response.error) ||
+      t("custom.checkSyntaxFailed");
+    if (runCustomGroupStatus) {
+      runCustomGroupStatus.textContent = err;
+      runCustomGroupStatus.className = "run-status error";
+    }
+    setStatus(err, true);
   } catch (error) {
     const text = String(error && error.message ? error.message : error);
     if (runCustomGroupStatus) {
@@ -4388,9 +4582,9 @@ async function testFireOnActiveTab() {
   }
 }
 
-if (testFireButton) {
-  testFireButton.addEventListener("click", () => {
-    testFireOnActiveTab();
+if (checkSyntaxButton) {
+  checkSyntaxButton.addEventListener("click", () => {
+    checkSelectedCustomGroupSyntax();
   });
 }
 
@@ -4518,23 +4712,10 @@ discordTargetsField.addEventListener("input", () => {
 
 discordModeField.addEventListener("change", () => {
   if (discordModeField.value === "exclude") {
-    setStatus(
-      t(
-        normalizeDiscordTargetType(discordTargetTypeField.value) === "channel"
-          ? "status.discordChannelAllowlistWarning"
-          : "status.discordAllowlistWarning"
-      )
-    );
+    setStatus(t("status.discordAllowlistWarning"));
   }
   stashCurrentDraft();
   render();
-  renderGroupList();
-  scheduleAutosave();
-});
-
-discordTargetTypeField.addEventListener("change", () => {
-  applyDiscordTargetUi(discordTargetTypeField.value);
-  stashCurrentDraft();
   renderGroupList();
   scheduleAutosave();
 });
@@ -4578,6 +4759,40 @@ addGroupButton.addEventListener("click", () => {
 manualButton.addEventListener("click", () => {
   openManual();
 });
+
+if (settingsButton) {
+  settingsButton.addEventListener("click", () => {
+    openSettings();
+  });
+}
+
+if (settingsCloseButton) {
+  settingsCloseButton.addEventListener("click", () => {
+    closeSettings();
+  });
+}
+
+if (settingsModal) {
+  settingsModal.addEventListener("click", (event) => {
+    if (event.target === settingsModal) {
+      closeSettings();
+    }
+  });
+}
+
+if (settingsSaveButton) {
+  settingsSaveButton.addEventListener("click", () => {
+    saveSettingsFromForm().catch((error) => {
+      console.error("Failed to save global settings.", error);
+    });
+  });
+}
+
+if (settingsResetButton) {
+  settingsResetButton.addEventListener("click", () => {
+    resetSettingsToDefaults();
+  });
+}
 
 deleteAllGroupsButton.addEventListener("click", () => {
   deleteAllGroups().catch((error) => {
@@ -4716,13 +4931,30 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
-    if (state.isManualOpen) {
+    if (state.isSettingsOpen) {
+      closeSettings();
+    } else if (state.isManualOpen) {
       closeManual();
     } else if (state.isTemplateOpen) {
       closeTemplateModal();
     } else if (state.unfreezeFlow) {
       closeUnfreezeFlow();
     }
+  }
+});
+
+// Persist whatever's in the editor right before the popup is torn down.
+// Extension popups close as soon as the user clicks elsewhere, which can
+// happen mid-debounce; without these hooks any unsaved keystrokes from
+// the last 400 ms (or whatever the user configured for autosaveDebounceMs)
+// would be lost. We hit both `pagehide` (fires on real teardown) and
+// `visibilitychange→hidden` (fires earlier, gives us a head start).
+window.addEventListener("pagehide", () => {
+  flushAutosaveOnExit();
+});
+window.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    flushAutosaveOnExit();
   }
 });
 

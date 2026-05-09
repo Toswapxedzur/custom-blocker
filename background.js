@@ -114,7 +114,6 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     redditMode: "all",
     redditSubreddits: [],
     discordMode: "all",
-    discordTargetType: "server",
     discordTargets: [],
     blockingRulesText:
       "(month, dayOfMonth, dayName, hour, minute, url, helpers) => false",
@@ -182,9 +181,12 @@ function normalizeDiscordMode(value, fallbackList) {
   return list.length > 0 ? "include" : "all";
 }
 
-function normalizeDiscordTargetType(value) {
-  return value === "channel" ? "channel" : "server";
-}
+// Discord targets are a flat list of numeric IDs that may be EITHER
+// server IDs OR channel IDs in the same list. Snowflake IDs are unique
+// across types, so we match a page if its server-id OR channel-id appears
+// anywhere in the list. The legacy `discordTargetType` field on saved
+// groups is intentionally ignored — older data continues to work because
+// the same IDs are still in `discordTargets`.
 
 function isPlatformVideoGroupType(groupType) {
   const normalized = normalizeGroupType(groupType);
@@ -291,8 +293,15 @@ function normalizeRedditSubredditInput(value) {
   return /^[a-z0-9_]+$/i.test(trimmed) ? trimmed : null;
 }
 
-function normalizeDiscordTargetInput(value, targetType = "server") {
-  const normalizedTargetType = normalizeDiscordTargetType(targetType);
+// Accept either a bare snowflake (server ID or channel ID — both are
+// numeric and globally unique) or a discord URL of the form
+// /channels/<server>/<channel>. For URLs that include a channel segment
+// we keep the more specific channel ID; URLs with only a server segment
+// keep the server ID. The output is a single numeric string and the
+// caller does NOT need to know whether it is a server or a channel —
+// matching simply checks the page's server-id and channel-id against the
+// flat list of saved targets.
+function normalizeDiscordTargetInput(value) {
   let trimmed = String(value ?? "").trim().toLowerCase();
   if (!trimmed) return null;
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
@@ -305,7 +314,10 @@ function normalizeDiscordTargetInput(value, targetType = "server") {
   trimmed = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
   const channelsMatch = trimmed.match(/^channels\/([^/?#]+)(?:\/([^/?#]+))?/);
   if (channelsMatch) {
-    trimmed = normalizedTargetType === "channel" ? channelsMatch[2] ?? "" : channelsMatch[1];
+    // Prefer the channel ID when the URL has one; fall back to the
+    // server ID. Both are valid targets — the caller's match logic
+    // handles either kind.
+    trimmed = channelsMatch[2] || channelsMatch[1] || "";
   }
   if (trimmed === "@me") return null;
   return /^[0-9]{6,24}$/.test(trimmed) ? trimmed : null;
@@ -435,7 +447,6 @@ function sanitizeGroups(groups) {
         ? group.redditSubreddits
         : [];
       const rawDiscordTargets = Array.isArray(group?.discordTargets) ? group.discordTargets : [];
-      const discordTargetType = normalizeDiscordTargetType(group?.discordTargetType);
 
       const normalizedGroupType = normalizeGroupType(group?.groupType);
 
@@ -477,11 +488,10 @@ function sanitizeGroups(groups) {
           ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
         ],
         redditMode: normalizeRedditMode(group?.redditMode, rawRedditSubreddits),
-        discordTargetType,
         discordTargets: [
           ...new Set(
             rawDiscordTargets
-              .map((target) => normalizeDiscordTargetInput(target, discordTargetType))
+              .map((target) => normalizeDiscordTargetInput(target))
               .filter(Boolean)
           )
         ],
@@ -607,13 +617,13 @@ function parseRedditSubredditFromPath(pathname) {
 function parseDiscordServerIdFromPath(pathname) {
   const match = String(pathname ?? "").toLowerCase().match(/^\/channels\/([^/?#]+)/);
   if (!match || match[1] === "@me") return null;
-  return normalizeDiscordTargetInput(match[1], "server");
+  return normalizeDiscordTargetInput(match[1]);
 }
 
 function parseDiscordChannelIdFromPath(pathname) {
   const match = String(pathname ?? "").toLowerCase().match(/^\/channels\/([^/?#]+)\/([^/?#]+)/);
   if (!match || match[1] === "@me") return null;
-  return normalizeDiscordTargetInput(match[2], "channel");
+  return normalizeDiscordTargetInput(match[2]);
 }
 
 function detectVideoSiteContext(hostname, pathname) {
@@ -679,15 +689,15 @@ function detectVideoSiteContext(hostname, pathname) {
   }
 
   if (hostname === "twitch.tv" || hostname?.endsWith(".twitch.tv")) {
-    // /videos/<id> is the archived-VOD URL.
+    // /videos/<id> is the archived-VOD URL — the "streams/VODs" form.
     if (safePathname.startsWith("/videos/")) return { site: "twitch", form: "long" };
-    // On Twitch the channel page itself (twitch.tv/<streamer>, plus its
-    // sub-tabs like /about, /schedule, /clips, /videos) is where the live
-    // broadcast plays — it is the closest analog of YouTube's /watch
-    // page. Treat it as long-form video so that groups configured with
-    // platformVideoMode === "long" or with an author allowlist actually
-    // apply on the channel page, not only on the archived /videos/<id>
-    // URLs.
+    // The streamer's channel page (twitch.tv/<streamer> and its sub-tabs
+    // like /about, /schedule, /clips, /videos) is what the UI calls
+    // "channel pages". The platform-video group model represents that
+    // bucket as `form: "post"` (see `platform.post.twitch` translation
+    // string: "channel pages"). Without this branch, a Twitch group
+    // configured with `platformVideoMode === "post"` would never match
+    // any URL.
     const firstSegment = safePathname.replace(/^\/+/, "").split("/")[0] || "";
     const reserved = new Set([
       "directory", "videos", "settings", "downloads", "subscriptions",
@@ -700,7 +710,7 @@ function detectVideoSiteContext(hostname, pathname) {
       !reserved.has(firstSegment.toLowerCase()) &&
       /^[a-z0-9_]+$/i.test(firstSegment)
     ) {
-      return { site: "twitch", form: "long" };
+      return { site: "twitch", form: "post" };
     }
     return { site: "twitch", form: "unknown" };
   }
@@ -818,10 +828,10 @@ function normalizePageContext(input) {
     normalizeRedditSubredditInput(input?.redditSubreddit) ??
     parseRedditSubredditFromPath(pathname);
   const discordServerId =
-    normalizeDiscordTargetInput(input?.discordServerId, "server") ??
+    normalizeDiscordTargetInput(input?.discordServerId) ??
     parseDiscordServerIdFromPath(pathname);
   const discordChannelId =
-    normalizeDiscordTargetInput(input?.discordChannelId, "channel") ??
+    normalizeDiscordTargetInput(input?.discordChannelId) ??
     parseDiscordChannelIdFromPath(pathname);
 
   return {
@@ -1057,17 +1067,22 @@ function matchesDiscordGroup(group, pageContext) {
   }
 
   const targets = Array.isArray(group.discordTargets) ? group.discordTargets : [];
-  const targetType = normalizeDiscordTargetType(group.discordTargetType);
   const mode = normalizeDiscordMode(group.discordMode, targets);
 
   if (mode === "all") return true;
 
-  const currentTarget =
-    targetType === "channel" ? pageContext.discordChannelId : pageContext.discordServerId;
-  if (!currentTarget) return false;
+  // A page is "listed" if its server-id OR its channel-id appears in the
+  // flat targets list. This lets the user mix entries (e.g. blacklist a
+  // whole server plus a single channel from a different server in the
+  // same list, or whitelist a server plus an extra channel elsewhere).
+  const serverId = pageContext.discordServerId;
+  const channelId = pageContext.discordChannelId;
+  if (!serverId && !channelId) return false;
 
-  const isListed = targets.includes(currentTarget);
-  return mode === "include" ? isListed : !isListed;
+  const isListed =
+    (serverId && targets.includes(serverId)) ||
+    (channelId && targets.includes(channelId));
+  return mode === "include" ? Boolean(isListed) : !isListed;
 }
 
 function matchesSiteGroup(group, hostname) {
@@ -1907,6 +1922,88 @@ async function dispatchToSandbox(descriptor) {
   });
 }
 
+// Walk the sandbox dispatch result for any `kind: "snooze"` intents
+// emitted by the rule (typically from a snoozePress handler) and mutate
+// the persisted groupSnoozes entry accordingly. The "activate" action
+// constructs a fresh snooze entry with the rule-supplied duration; the
+// "cancel" action drops the entry entirely. Intents addressed to a
+// groupId other than `forGroupId` are ignored so a rule cannot snooze
+// (or un-snooze) an unrelated group.
+async function applySnoozeIntents(forGroupId, result) {
+  if (!result || !forGroupId) return;
+  const buckets = [Array.isArray(result.intents) ? result.intents : []];
+  if (Array.isArray(result.synthResults)) {
+    for (const synth of result.synthResults) {
+      if (synth && synth.result && Array.isArray(synth.result.intents)) {
+        buckets.push(synth.result.intents);
+      }
+    }
+  }
+
+  let action = null;
+  let payload = null;
+  for (const bucket of buckets) {
+    for (const intent of bucket) {
+      if (!intent || intent.kind !== "snooze") continue;
+      if (intent.groupId && intent.groupId !== forGroupId) continue;
+      action = intent.action === "cancel" ? "cancel" : "activate";
+      payload = intent;
+    }
+  }
+  if (!action) return;
+
+  const stored = await chrome.storage.local.get({
+    [GROUP_SNOOZES_KEY]: {},
+    [BLOCKED_GROUPS_KEY]: []
+  });
+  const snoozes = stored[GROUP_SNOOZES_KEY] && typeof stored[GROUP_SNOOZES_KEY] === "object"
+    ? { ...stored[GROUP_SNOOZES_KEY] }
+    : {};
+  const groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
+  const group = groups.find((g) => g && g.id === forGroupId);
+
+  if (action === "cancel") {
+    if (snoozes[forGroupId]) {
+      delete snoozes[forGroupId];
+      await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: snoozes });
+    }
+    return;
+  }
+
+  const now = Date.now();
+  const minutes = Number.parseFloat(payload?.minutes);
+  if (!Number.isFinite(minutes) || minutes <= 0) return;
+  const activationDelayMinutes = Math.max(
+    0,
+    Number.isFinite(Number.parseFloat(payload?.activationDelayMinutes))
+      ? Number.parseFloat(payload.activationDelayMinutes)
+      : 0
+  );
+  const cooldownMinutes = Math.max(
+    0,
+    Number.isFinite(Number.parseFloat(payload?.cooldownMinutes))
+      ? Number.parseFloat(payload.cooldownMinutes)
+      : 0
+  );
+  const startsAtMs = now + activationDelayMinutes * MS_PER_MINUTE;
+  const untilMs = startsAtMs + minutes * MS_PER_MINUTE;
+  const refreezeMode =
+    payload?.refreezeMode === "strict"
+      ? "strict"
+      : group?.freezeMode === "strict"
+        ? "strict"
+        : "frozen";
+  snoozes[forGroupId] = {
+    startsAtMs,
+    untilMs,
+    cooldownUntilMs: untilMs + cooldownMinutes * MS_PER_MINUTE,
+    confirmationCount: 0,
+    activeMsApplied: false,
+    refreezeMode
+  };
+  await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: snoozes });
+}
+
 function enqueueApply(tabId, message) {
   const list = pendingApplyByTab.get(tabId) || [];
   list.push(message);
@@ -2227,51 +2324,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  if (message.type === "test-fire-active-tab") {
+  if (message.type === "check-custom-group-syntax") {
+    // Forwards the source to the offscreen sandbox, which compiles it
+    // under a throwaway group id and reports compile / runtime errors
+    // back. No real group's handlers are touched.
     (async () => {
       try {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        const active = tabs && tabs[0];
-        if (!active || typeof active.id !== "number") {
-          sendResponse({ ok: false, error: "no active tab" });
-          return;
-        }
-        const open = await dispatchEventToTab(
-          "openWebEvent",
-          { tabId: active.id, url: active.url || "" },
-          { data: { previousUrl: null, isNewTab: false, syntheticTestFire: true } }
-        );
-        const sw = await dispatchEventToTab(
-          "switchWebEvent",
-          { tabId: active.id, url: active.url || "" },
-          { data: { previousUrl: active.url || null, sameDomain: true, syntheticTestFire: true } }
-        );
-        const wc = await dispatchEventToTab(
-          "webChangedEvent",
-          { tabId: active.id, url: active.url || "" },
-          {
-            data: {
-              previousUrl: active.url || null,
-              previousHostname: hostnameOf(active.url || ""),
-              sameDomain: true,
-              isFirstLoad: false,
-              isReload: true,
-              transition: "test",
-              syntheticTestFire: true
-            }
-          }
-        );
-        sendResponse({
-          ok: true,
-          dispatchedTo: active.id,
-          url: active.url,
-          openLogs: open?.logs?.length ?? 0,
-          switchLogs: sw?.logs?.length ?? 0,
-          webChangedLogs: wc?.logs?.length ?? 0,
-          handlerCount: cachedHandlerCount
+        const result = await sendToEventSandbox({
+          kind: "check-source",
+          source: typeof message.source === "string" ? message.source : ""
         });
+        sendResponse({ ok: true, result });
       } catch (error) {
         sendResponse({ ok: false, error: String(error && error.message ? error.message : error) });
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === "fire-snooze-press") {
+    // Custom groups route their Start Snooze button through the sandbox
+    // by firing a `snoozePress` event scoped to the group. The handler
+    // typically calls helpers.getSnoozeHelper().activate(...), which
+    // pushes a `kind: "snooze"` intent onto the accumulator; we read it
+    // here and write the real groupSnoozes entry to storage. Strict
+    // policy: if the rule emits no snooze intent, nothing changes.
+    (async () => {
+      try {
+        const groupId = String(message.groupId || "");
+        if (!groupId) {
+          sendResponse({ ok: false, error: "missing groupId" });
+          return;
+        }
+        const descriptor = {
+          type: "snoozePress",
+          tabId: null,
+          pageId: null,
+          url: "",
+          hostname: "",
+          time: todayContext(),
+          data: { triggeredAt: Date.now() },
+          targetGroupId: groupId
+        };
+        const result = await dispatchToSandbox(descriptor);
+        await applySnoozeIntents(groupId, result);
+        sendResponse({ ok: true, result });
+      } catch (error) {
+        sendResponse({
+          ok: false,
+          error: String(error && error.message ? error.message : error)
+        });
       }
     })();
     return true;
