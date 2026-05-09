@@ -153,7 +153,6 @@
   "custom.templatesNoMatches": "当前筛选条件下没有匹配的模板。",
   "custom.templateSelected": "已选模板：{name}",
   "custom.templateFilterLabel": "筛选",
-  "custom.templateFilterAll": "全部模板",
   "custom.templateTag.feed": "信息流隐藏",
   "custom.templateTag.instagram": "Instagram",
   "custom.templateTag.persistence": "持久化",
@@ -190,7 +189,7 @@
   "snooze.title": "暂时放行",
   "snooze.endButton": "End Snooze",
   "snooze.allow": "允许此分组使用暂时放行",
-  "snooze.customCopy": "自定义规则自行管理放行逻辑：按下按钮会触发 snoozePress 事件，由规则通过 helpers.getSnoozeHelper().activate(...) 决定是否放行以及放行多长时间。如果规则没有调用 activate，则什么也不会发生。",
+  "snooze.customCopy": "自定义规则不支持放行：按下按钮只会触发 snoozePress 事件供规则响应（例如记录日志、重定向、派发其它事件），并不提供任何编程式放行接口。",
   "snooze.warning.snoozePressFailed": "snoozePress 事件分发失败。",
   "snooze.minutes": "暂时放行（分钟）",
   "snooze.minutesPlaceholder": "30",
@@ -256,7 +255,6 @@
   "meta.snoozeCooldown": "Snooze 冷静期",
   "meta.instantBlock": "instant block",
   "meta.left": "left",
-  "meta.used": "used",
   "meta.strictFrozen": "strict frozen",
   "meta.frozen": "frozen",
   "meta.enabled": "enabled",
@@ -314,7 +312,6 @@
   "status.strictFreezeHours": "Strict freeze hours must be greater than 0 and no more than {max}.",
   "status.bulkDeleteStrictLocked": "Delete all is disabled while a strict freeze is still locked.",
   "status.bulkDeleted": "Deleted all groups.",
-  "status.errorUpdateGroup": "Could not update this block group.",
   "status.errorReorderGroups": "Could not reorder your block groups.",
   "status.errorSaveGroup": "Could not save this block group.",
   "status.errorCreateGroup": "Could not create a new block group.",
@@ -333,5 +330,9 @@
   "status.errorLoadGroups": "Could not load your saved block groups.",
   "status.errorExportGroup": "无法导出这个分组。",
   "status.errorImportGroup": "无法从剪贴板导入分组。",
-  "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nchannel/UC..."
+  "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nchannel/UC...",
+  "logFeed.title": "活动日志",
+  "logFeed.hint": "每次事件派发时 helpers.getLogHelper() 输出的实时日志。",
+  "logFeed.empty": "暂无活动。触发一个事件（例如按下 Start Snooze、切换标签页或点击 Run）后这里就会有日志。",
+  "logFeed.clear": "清空"
 }

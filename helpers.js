@@ -350,51 +350,13 @@
     return utility;
   }
 
-  // ────────────────────────────────────────────────────────────────────────
   // Timer helper.
-  //
-  // Persisted timer state, per-id:
-  //   {
-  //     displayName: string,
-  //     direction: "forward" | "backward",
-  //     isPaused: boolean,
-  //     currentMs: number       // current value of the timer
-  //   }
-  //
-  // Identity is the user-supplied `id` string scoped to the owning custom
-  // group.
-  //
-  // Two construction methods:
-  //   create({ id, ... })            — ALWAYS resets the timer to the
-  //                                     supplied init values, overwriting
-  //                                     any existing state including
-  //                                     currentMs. Use this when you mean
-  //                                     "start fresh" (e.g. when a user
-  //                                     explicitly resets a counter).
-  //   getOrCreateTimer({ id, ... })  — Idempotent. Returns the existing
-  //                                     timer if one is already there
-  //                                     (preserving its currentMs); only
-  //                                     creates with the init values if no
-  //                                     timer exists. Mutable fields
-  //                                     (displayName, direction) are still
-  //                                     updated. Use this in rules that run
-  //                                     every heartbeat.
-  //
-  // Both methods accept two transient predicates that are NOT persisted —
-  // they only affect the current heartbeat:
-  //   scope:  (url) => boolean   — when true, the timer auto-ticks by the
-  //                                heartbeat's elapsedMs (the same delta
-  //                                the default block group's usage timer
-  //                                uses). At most one tick per heartbeat
-  //                                across all rules.
-  //   domain: (url) => boolean   — when true, the timer is shown in the
-  //                                in-page overlay. If `domain` is omitted
-  //                                the system falls back to `scope` for
-  //                                display, so callers that only care
-  //                                about "tick + show on the same pages"
-  //                                don't need to pass it.
-  // ────────────────────────────────────────────────────────────────────────
-
+  // Persisted state per id: { displayName, direction, isPaused, currentMs }.
+  //   create()          — always resets currentMs.
+  //   getOrCreateTimer  — idempotent; preserves existing currentMs.
+  // Both accept transient (non-persisted) per-call predicates:
+  //   scope(url)   — when true, auto-tick by heartbeat elapsedMs.
+  //   domain(url)  — when true, show in overlay (defaults to scope).
   function createTimerHelper(ctx) {
     const { groupId, timersBucket, elapsedMs, currentUrl, tickedSet, displayedSet } = ctx;
 
@@ -628,78 +590,14 @@
   // Log helper. Writes to whichever console is available (page or worker).
   // ────────────────────────────────────────────────────────────────────────
 
-  function createLogHelper(groupId) {
-    const tag = "[CustomBlocker:" + groupId + "]";
-    return {
-      log(...args) {
-        try { console.log(tag, ...args); } catch {}
-      },
-      warn(...args) {
-        try { console.warn(tag, ...args); } catch {}
-      },
-      error(...args) {
-        try { console.error(tag, ...args); } catch {}
-      }
-    };
-  }
-
   // ────────────────────────────────────────────────────────────────────────
-  // Redirection helper. Lets custom rules inspect / override the URL the
-  // content script will redirect to when the current page is blocked.
+  // EVENT-DRIVEN CUSTOM RULES.
   //
-  // The state is transient per heartbeat, shared across all rules in the
-  // same execution pass, and seeded from the session's current fallback
-  // URL (coming from the built-in groups). Because custom rules execute
-  // bottom-to-top, a top rule calling set(...) naturally overrides a
-  // lower rule's choice.
-  // ────────────────────────────────────────────────────────────────────────
-
-  function createRedirectionHelper(redirectState) {
-    const state =
-      redirectState && typeof redirectState === "object"
-        ? redirectState
-        : { url: "" };
-    if (typeof state.url !== "string") state.url = "";
-    return {
-      get() {
-        return state.url;
-      },
-      set(url) {
-        if (typeof url !== "string") return false;
-        state.url = url.trim();
-        return true;
-      }
-    };
-  }
-
-  // ────────────────────────────────────────────────────────────────────────
-  // Platform helper. Each rule call registers DOM intents into a shared
-  // `intentsState` object; the host (content script) applies them after all
-  // rules have run, in storage order so that "later" groups override
-  // "earlier" ones (rules execute bottom-to-top, so the top-most group wins
-  // because it runs last).
-  //
-  // Intents per platform:
-  //   shortButton    : "hide" | "show" | null
-  //   homePage       : "hide" | "show" | null
-  //   shortsPredicates / videosPredicates / postsPredicates :
-  //     [{ predicate, blockPageOnVisit }]
-  //
-  // `show*` for the predicate-based variants clears all previously-recorded
-  // hide predicates from earlier groups in the same heartbeat. This is what
-  // lets a top group "exempt" an entire content kind that a bottom group
-  // had hidden.
-  // ────────────────────────────────────────────────────────────────────────
-
-  // ────────────────────────────────────────────────────────────────────────
-  // EVENT-DRIVEN CUSTOM RULES (v1.1+)
-  //
-  // The new custom-rule engine runs in a long-lived offscreen sandbox.
-  // Source code is executed exactly once per Run click and registers
-  // event handlers via an Events registry. The helpers below are built
-  // per group and per event dispatch and route side effects through an
-  // `accumulator` that the host (background) reads after dispatch and
-  // forwards to content scripts.
+  // The custom-rule engine runs in a long-lived offscreen sandbox. Source
+  // code is executed exactly once per Run click and registers event
+  // handlers via an Events registry. The helpers below are built per group
+  // and per event dispatch and route side effects through an accumulator
+  // that the host reads after dispatch and forwards to content scripts.
   // ────────────────────────────────────────────────────────────────────────
 
   // Hosts treated as the "default new-tab / search start" surface and
@@ -950,14 +848,10 @@
       acc.redirectUrl = url.trim();
       return true;
     }
+    // Returns a chrome-extension:// URL that renders `message` centred on
+    // message-page.html. Prefix comes from chrome.runtime.getURL() when
+    // available, otherwise from the sandbox init payload.
     function createMessageUrl(message) {
-      // Returns a chrome-extension:// URL that, when navigated to, shows
-      // the given message centred on a static page (`message-page.html`).
-      // Useful for redirecting users to a custom "Go Work" / "Take a
-      // break" screen after a timer ends. The extension URL prefix is
-      // populated by the offscreen host (event-sandbox.js init), or from
-      // chrome.runtime.getURL() when the helper is loaded into a
-      // privileged context like a content script.
       const text = String(message ?? "");
       let prefix = "";
       try {
@@ -979,80 +873,17 @@
     };
   }
 
-  // Snooze helper. Custom rules use this to programmatically activate or
-  // cancel a snooze on their own group from inside a snoozePress (or any
-  // other) handler. Records intents on the accumulator; the host
-  // (background) reads them after dispatch and writes the real
-  // groupSnoozes entry. Strict policy: if a snoozePress handler does
-  // nothing, no snooze happens.
-  function createEventSnoozeHelper(accumulatorRef, groupId) {
-    function activate(opts) {
-      const o = opts && typeof opts === "object" ? opts : {};
-      const minutes = Number.parseFloat(o.minutes);
-      if (!Number.isFinite(minutes) || minutes <= 0) return false;
-      const activationDelayMinutes = Math.max(
-        0,
-        Number.isFinite(Number.parseFloat(o.activationDelayMinutes))
-          ? Number.parseFloat(o.activationDelayMinutes)
-          : 0
-      );
-      const cooldownMinutes = Math.max(
-        0,
-        Number.isFinite(Number.parseFloat(o.cooldownMinutes))
-          ? Number.parseFloat(o.cooldownMinutes)
-          : 0
-      );
-      const refreezeMode = o.refreezeMode === "strict" ? "strict" : "frozen";
-      const acc = ensureAccumulatorShape(accumulatorRef.get());
-      acc.intents.push({
-        kind: "snooze",
-        action: "activate",
-        groupId,
-        minutes,
-        activationDelayMinutes,
-        cooldownMinutes,
-        refreezeMode
-      });
-      return true;
-    }
-    function cancel() {
-      const acc = ensureAccumulatorShape(accumulatorRef.get());
-      acc.intents.push({ kind: "snooze", action: "cancel", groupId });
-      return true;
-    }
-    return { activate, cancel };
-  }
-
-  // ────────────────────────────────────────────────────────────────────────
-  // Per-platform method matrix.
+  // Per-platform method matrix. A method is exposed on a platform's API
+  // iff it appears in that platform's array — calling a missing method
+  // throws TypeError. Multiple platforms can write to the same internal
+  // slot under different user-facing names (e.g. instagram.hideReels and
+  // youtube.hideShorts both target slot "shorts").
   //
-  // Each platform's API exposes ONLY the methods listed in its schema —
-  // anything else is `undefined`, so calling e.g. `twitch().hidePosts()`
-  // throws TypeError natively (Twitch has no concept of "posts"). This
-  // is the load-bearing guarantee custom rules can rely on: the method
-  // either exists for a meaningful reason on that platform or it does
-  // not exist at all.
-  //
-  // Methods that share an internal predicate slot across platforms (e.g.
-  // `instagram.hideReels` and `youtube.hideShorts` both write to the
-  // "shorts" slot) deliberately do so — the slot is just an internal
-  // bucket name, and the per-platform DOM dispatch on the content side
-  // already differs by `platform`. The user-visible naming follows the
-  // platform's own terminology.
-  //
-  // A spec's `kind` decides what the generated method does:
-  //   "predicate"        — set the single-slot predicate for `slot`.
-  //   "clearPredicate"   — clear the predicate for `slot`. Optionally
-  //                        records a sibling `intent` (used by show*
-  //                        siblings of toggleable intents like comments).
-  //   "intent"           — record `{ kind: intentKind, value }`. May
-  //                        also `clearSlot` (used by show* of
-  //                        comments/live to drop the matching predicate).
-  //   "subsectionTimer"  — record a subsection-timer intent for `slot`.
-  //   "snapshotBool"     — read `snapshot[field]` as boolean.
-  //   "snapshotChannelMembership" — `(id) => snapshot.subscribedChannels.includes(id)`.
-  //   "itemBool"         — read `item[field]` as boolean.
-  // ────────────────────────────────────────────────────────────────────────
+  // kind values handled by buildSpecMethod:
+  //   predicate / clearPredicate     — install / clear single-slot predicate
+  //   intent (+ optional clearSlot)  — record { kind, value } intent
+  //   subsectionTimer                — record subsection-timer intent
+  //   snapshotBool / snapshotChannelMembership / itemBool — readers
   const PLATFORM_API_SPEC = {
     youtube: [
       { name: "hideShorts", kind: "predicate", slot: "shorts" },
@@ -1143,9 +974,11 @@
       { name: "setPostsTimer", kind: "subsectionTimer", slot: "posts" }
     ],
     twitch: [
-      // Twitch has no "Posts" or "Shorts" — clips are the short-form
-      // surface, streams are the live surface, videos are VODs. No
-      // comments either (Twitch uses chat, which we don't filter yet).
+      // hideComments / showComments map to STREAM CHAT (Twitch's nearest
+      // analogue). filterComments is intentionally absent — no per-message
+      // scraper for chat yet.
+      { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
+      { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
       { name: "hideClips", kind: "predicate", slot: "shorts" },
       { name: "showClips", kind: "clearPredicate", slot: "shorts" },
       { name: "hideStreams", kind: "predicate", slot: "streams" },
@@ -1168,9 +1001,6 @@
     ]
   };
 
-  // Event-mode platform helper. Builds platform-specific API objects
-  // from PLATFORM_API_SPEC above; methods absent from a platform's spec
-  // are absent from its API object (so calling them throws TypeError).
   function createEventPlatformHelper(accumulatorRef, dispatchContextRef, persistentBucket) {
     function recordIntent(platform, intent) {
       const acc = ensureAccumulatorShape(accumulatorRef.get());
@@ -1180,9 +1010,6 @@
       return typeof dispatchContextRef === "function" ? dispatchContextRef() : (dispatchContextRef || {});
     }
     function clearPersistentSlot(platform, slot) {
-      // Each (platform, slot) holds at most ONE predicate entry. Clearing
-      // means dropping that entry entirely (e.g. when showVideos() is
-      // called).
       if (!persistentBucket) return;
       if (!persistentBucket[platform]) return;
       persistentBucket[platform][slot] = null;
@@ -1197,13 +1024,9 @@
         return (ctx.platformSnapshot && ctx.platformSnapshot[platform]) || null;
       }
 
-      // Single-slot semantics: hideVideos / hideShorts / hidePosts /
-      // filterComments / filterLive each own ONE persistent predicate per
-      // (group, platform, slot). Each call REPLACES whatever was there
-      // before — there is no implicit OR-ing of multiple predicates.
-      // The slot stays alive across dispatches and is cleared only by the
-      // matching show*() / unload of the group. Compose multiple
-      // conditions explicitly inside one predicate function if needed.
+      // Single-slot rule: each (group, platform, slot) owns ONE predicate.
+      // Each call replaces — no implicit OR-merge. Slot stays alive until
+      // matching show*() or group unload.
       function setPredicate(slot, predicate, opts) {
         if (typeof predicate !== "function") return;
         const blockPageOnVisit = Boolean(opts && opts.blockPageOnVisit);
@@ -1228,8 +1051,7 @@
         });
       }
 
-      // URL classifiers — every platform implements these. Always
-      // available regardless of the per-platform spec above.
+      // URL classifiers are always available, regardless of spec.
       api.isPlatformUrl = urlOps?.isPlatformUrl ?? (() => false);
       api.isShortUrl = urlOps?.isShortUrl ?? (() => false);
       api.isVideoUrl = urlOps?.isVideoUrl ?? (() => false);
@@ -1247,9 +1069,6 @@
         return buildPlatformApi(platform);
       };
     }
-    // Diagnostic helpers — useful for tests and for runtime inspection
-    // by user code that wants to introspect what's available on a
-    // particular platform without trial-and-error.
     helpers.listMethods = function listMethods(platform) {
       const specs = PLATFORM_API_SPEC[platform] || [];
       return specs.map((s) => s.name).concat([
@@ -1268,9 +1087,6 @@
     return helpers;
   }
 
-  // Spec → function. Pure factory, no closures over the per-call helpers
-  // beyond what the caller passes in. Keeps the per-platform builder
-  // table small and testable.
   function buildSpecMethod(platform, spec, deps) {
     const { recordIntent, setPredicate, clearPersistentSlot, snapshot } = deps;
     switch (spec.kind) {
@@ -1319,15 +1135,10 @@
     }
   }
 
-  // Top-level event-mode helpers builder.
-  //
-  // ctx accepts EITHER an accumulator object (legacy / one-shot) OR an
-  // `accumulatorRef` and `dispatchContextRef` pair. Refs are functions
-  // that return the *current* accumulator / dispatch context. This is
-  // what makes a `helpers` object captured at registration time keep
-  // working through every later handler dispatch: it always looks up
-  // the active dispatch's accumulator instead of the dead one from
-  // load-source.
+  // ctx accepts an accumulator (one-shot) OR an accumulatorRef +
+  // dispatchContextRef pair (refs are thunks). The thunk form lets a
+  // `helpers` object captured at registration time keep working across
+  // every later dispatch by re-reading the current accumulator.
   function createEventGroupHelpers(ctx) {
     const {
       groupId,
@@ -1363,7 +1174,6 @@
     const persistence = createPersistenceHelper(persistenceBucket || {});
     const log = createEventLogHelper(groupId, accumulatorRef);
     const redirect = createEventRedirectionHelper(accumulatorRef);
-    const snooze = createEventSnoozeHelper(accumulatorRef, groupId);
     const dom = createDOMHelper(accumulatorRef);
     const navigation = createNavigationHelper(accumulatorRef, () => {
       const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
@@ -1387,13 +1197,19 @@
         return normalizeUrlForEvents(dc?.currentUrl ?? currentUrl ?? "");
       },
       groupId,
+      // Direct shortcuts so user code can do `helpers.log("…")` without
+      // having to `helpers.getLogHelper()` first. They route to the same
+      // accumulator-aware log functions and therefore land in the popup's
+      // Activity log feed via background.ingestSandboxLogs().
+      log: (...args) => log.log(...args),
+      warn: (...args) => log.warn(...args),
+      error: (...args) => log.error(...args),
       getLogHelper: () => log,
       getDomainHelper: () => domain,
       getDomainUtility: () => domain,
       getTimerHelper: () => timer,
       getPersistenceHelper: () => persistence,
       getRedirectionHelper: () => redirect,
-      getSnoozeHelper: () => snooze,
       getDOMHelper: () => dom,
       getNavigationHelper: () => navigation,
       getStorageHelper: () => storage,

@@ -8,21 +8,13 @@ const LAYOUT_WIDTH_STORAGE_KEY = "custom-blocker-groups-panel-width";
 const LANGUAGE_STORAGE_KEY = "custom-blocker-language";
 const GROUP_TRANSFER_PREFIX = "custom-blocker-group:v1:";
 
-// Global (extension-wide, not per-group) preferences.
-//
-// Keep DEFAULT values in lockstep with the placeholder texts in
-// popup.html's settings modal — the placeholders advertise the
-// default the user will actually get if they leave the field empty.
+// Extension-wide preferences. Keep these defaults in sync with the
+// placeholder text in popup.html's Settings modal.
 const DEFAULT_GLOBAL_SETTINGS = {
   tickRateMs: 1000,
   autosaveDebounceMs: 400,
   showDebugOverlay: true,
   defaultSnoozeMinutes: 30,
-  // about:blank is what content.js falls back to when the per-group
-  // fallbackUrl is empty AND tryRedirectToMainPage() fails, so it's the
-  // most honest "no opinion" default. Empty string would have meant
-  // "use the cascade" but that's already what an empty per-group field
-  // gets you, so the global default may as well pin a real URL.
   defaultFallbackUrl: "about:blank"
 };
 const TICK_RATE_MIN_MS = 250;
@@ -1227,12 +1219,10 @@ function normalizeRedditSubredditInput(value) {
   return /^[a-z0-9_]+$/i.test(trimmed) ? trimmed : null;
 }
 
-// Accept either a bare snowflake (server or channel ID) or a discord URL
-// of the form /channels/<server>[/<channel>]. URLs that include a channel
-// segment keep the channel ID; URLs with only a server segment keep the
-// server ID. The output is a single numeric string and the caller does
-// NOT need to know whether it is a server or channel — match logic
-// checks the page's server-id and channel-id against this flat list.
+// Accepts a bare snowflake or a /channels/<server>[/<channel>] URL.
+// Returns a single numeric ID (channel preferred over server when both
+// are present). Match logic later compares this against the page's
+// server-id and channel-id, so callers don't need to know which it is.
 function normalizeDiscordTargetInput(value) {
   let trimmed = String(value ?? "").trim().toLowerCase();
 
@@ -2126,11 +2116,9 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     allowedMinutes: DEFAULT_ALLOWED_MINUTES,
     resetIntervalHours: DEFAULT_RESET_INTERVAL_HOURS,
     allowSnooze: true,
-    // Seed the snooze knobs from the global Settings menu so a user who
-    // raised the default once doesn't have to redo it on every new group.
-    // Custom groups don't expose these inputs in the editor, but we still
-    // store sensible values in case the group is later switched away from
-    // "custom".
+    // Seed snooze knobs from the global default so the user doesn't redo
+    // them per-group. Custom groups don't expose these in the editor but
+    // we still keep them populated in case the group type changes later.
     snoozeMinutes: state.globalSettings?.defaultSnoozeMinutes ?? DEFAULT_SNOOZE_MINUTES,
     snoozeActivationDelayMinutes: DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
     snoozeCooldownMinutes: DEFAULT_SNOOZE_COOLDOWN_MINUTES,
@@ -2145,6 +2133,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     discordMode: "all",
     discordTargets: [],
     blockingRulesText: t("custom.defaultRule"),
+    activeEventSource: "",
     freezeMode: "none",
     strictFreezeHours: DEFAULT_STRICT_FREEZE_HOURS,
     frozenAtMs: null,
@@ -2232,6 +2221,12 @@ function sanitizeGroups(groups) {
         typeof group?.blockingRulesText === "string" && group.blockingRulesText.trim()
           ? group.blockingRulesText.trim()
           : baseGroup.blockingRulesText,
+      // CRITICAL: this is the source the SW re-runs on restart. Stripping it
+      // here used to wipe registrations whenever the popup persisted state
+      // (toggle / edit / snooze etc.) — see notes in background.js
+      // loadCustomGroupSource and reconcileCustomGroupHandlers.
+      activeEventSource:
+        typeof group?.activeEventSource === "string" ? group.activeEventSource : "",
       freezeMode:
         group?.freezeMode === "strict" || group?.freezeMode === "frozen"
           ? group.freezeMode
@@ -2875,9 +2870,7 @@ function updateSnoozeUI(group, now = Date.now()) {
   const snooze = getCurrentSnooze(group.id, now);
   const snoozePhase = getSnoozePhase(snooze, now);
   const freezeStatus = getFreezeStatus(group, now);
-  // Read from the draft (when one exists) so the checkbox reflects the user's
-  // raw input rather than snapping back to last-saved state while autosave is
-  // still pending. Falls back to the saved group when no draft exists yet.
+  // Prefer the draft so optimistic UI doesn't snap back during autosave.
   const draft = getDraftForGroup(group.id);
   const allowSnooze = draft?.allowSnooze ?? (group.allowSnooze !== false);
   const totalSnoozedMs = getDisplayedSnoozeTotalMs(group.id, now);
@@ -2890,11 +2883,8 @@ function updateSnoozeUI(group, now = Date.now()) {
   snoozeCooldownField.disabled = freezeStatus.isFrozen || !allowSnooze;
   snoozeConfirmationsField.disabled = freezeStatus.isFrozen || !allowSnooze;
 
-  // Custom groups expose only "Allow snooze" + the Start/End Snooze
-  // buttons; the duration / delay / cooldown / confirmation knobs are
-  // hidden because the rule itself owns those semantics via the
-  // snoozePress event. A short copy line replaces the grid so users
-  // know where the missing controls went.
+  // Custom groups own snooze semantics via the snoozePress handler, so
+  // the numeric knobs are hidden and a copy line replaces them.
   if (snoozeNumericFields) {
     snoozeNumericFields.classList.toggle("hidden", isCustomGroup);
   }
@@ -3241,17 +3231,10 @@ async function flushAutosave() {
   await autosaveSelectedGroup();
 }
 
-// Synchronous best-effort persist used from `pagehide` / `visibilitychange`.
-// The popup window is about to be torn down, so we cannot await async
-// work — we just fire chrome.storage.local.set() without `await`. Even
-// though the popup's JS context is destroyed immediately after, Chrome's
-// IPC layer reliably forwards the in-flight write to the storage backend.
-//
-// Deliberately lenient: if buildUpdatedGroupFromDraft() throws (i.e. the
-// editor draft is partially invalid), we swallow the error and persist
-// whatever shape the rest of state.groups already has. The user's
-// half-typed text in the textarea is captured next time the popup opens
-// because `state.drafts` is already kept in sync on every keystroke.
+// Best-effort sync persist used from pagehide / visibilitychange.
+// We can't await — Chrome's IPC layer forwards the unawaited set() before
+// the popup tears down. Validation errors are swallowed so a half-typed
+// draft never blocks exit; partial input is recovered from state.drafts.
 function flushAutosaveOnExit() {
   if (state.autosaveTimeoutId !== null) {
     window.clearTimeout(state.autosaveTimeoutId);
@@ -3269,16 +3252,14 @@ function flushAutosaveOnExit() {
         );
       }
     } catch (_) {
-      // Validation failed — fall through and persist the current
-      // state.groups anyway. We never block exit on a typo.
+      // Validation failed — persist current state.groups anyway.
     }
   }
 
   try {
-    // Note: globalSettings is intentionally NOT written here — it's
-    // only ever changed through the explicit Save button in the
-    // settings modal, so re-emitting it on every popup teardown would
-    // race two open popups against each other.
+    // globalSettings is intentionally omitted: it only changes via the
+    // settings modal's Save button, and re-emitting on every teardown
+    // would race two open popups against each other.
     chrome.storage.local.set({
       [BLOCKED_GROUPS_KEY]: state.groups,
       [USAGE_TIMERS_KEY]: state.usageTimersMs,
@@ -3286,11 +3267,7 @@ function flushAutosaveOnExit() {
       [GROUP_SNOOZES_KEY]: state.groupSnoozes,
       [GROUP_SNOOZE_TOTALS_KEY]: state.groupSnoozeTotalsMs
     });
-  } catch (_) {
-    // If chrome.storage isn't available for some reason at teardown,
-    // there's nothing we can do — just bail silently rather than
-    // throwing into the event handler.
-  }
+  } catch (_) {}
 }
 
 function selectGroup(groupId) {
@@ -3372,9 +3349,7 @@ function updateGroupEnabled(groupId, enabled) {
     return;
   }
 
-  // Optimistic UI update: reflect the user's raw input immediately, then let
-  // scheduleAutosave() debounce the actual storage write. This matches the
-  // pattern used by every other toggle in the editor (e.g. allowSnoozeField).
+  // Optimistic UI; scheduleAutosave() debounces the actual storage write.
   state.groups = state.groups.map((item) =>
     item.id === groupId ? { ...item, enabled } : item
   );
@@ -3637,11 +3612,8 @@ function buildUpdatedGroupFromDraft(group, draft) {
     );
   }
 
-  // Custom rule source is intentionally NOT validated here. The popup
-  // autosaves a fraction of a second after each keystroke, so compiling
-  // mid-edit would always look broken to the user. Real validation
-  // happens at Run time inside the offscreen event sandbox, which
-  // surfaces compile / runtime errors back to the popup's Run status.
+  // Custom rule source is not validated here — autosave fires mid-edit
+  // and would always look broken. Real validation happens at Run time.
 
   return {
     updatedGroup: {
@@ -3678,9 +3650,8 @@ function buildUpdatedGroupFromDraft(group, draft) {
       blockingRulesText: isCustomGroup ? blockingRulesText : group.blockingRulesText,
       sites: group.groupType === "site" ? siteResults.validSites : [],
       blockHomePage: Boolean(draft.blockHomePage),
-      // Custom groups now express redirection through `setRedirectLink()`
-      // inside the rule, so they no longer ship a top-level fallbackUrl.
-      // We force-strip it on save so any legacy data wipes out cleanly.
+      // Custom groups redirect via setRedirectLink() inside the rule;
+      // strip any legacy fallbackUrl on save.
       fallbackUrl: isCustomGroup
         ? ""
         : typeof draft.fallbackUrl === "string"
@@ -3701,11 +3672,9 @@ async function autosaveSelectedGroup() {
   let validationError = null;
   let updatedGroup = null;
 
-  // Try to fold the editor draft into state.groups. We deliberately do NOT
-  // bail out on failure: optimistic edits to other groups (e.g. the sidebar
-  // enable toggle, which mutates state.groups directly without going through
-  // the editor draft) still need to be persisted even when the selected
-  // group's draft is invalid.
+  // Fold the draft into state.groups. We never bail on failure: optimistic
+  // edits to OTHER groups (e.g. sidebar toggles) still need to be persisted
+  // even when the currently-selected group's draft is invalid.
   if (group && draft && isGroupEditable(group)) {
     try {
       const result = buildUpdatedGroupFromDraft(group, draft);
@@ -3754,9 +3723,7 @@ function scheduleAutosave() {
     window.clearTimeout(state.autosaveTimeoutId);
   }
 
-  // Honour the user-configurable debounce (defaults to 400 ms). 0 means
-  // "save synchronously on the next tick", which still rolls multiple
-  // events fired in the same task into a single write.
+  // 0 means "next tick" (still merges synchronous writes into one).
   const delay = Math.max(
     0,
     Math.min(AUTOSAVE_DEBOUNCE_MAX_MS, Number(state.globalSettings?.autosaveDebounceMs) || 0)
@@ -4122,24 +4089,25 @@ async function startSnooze() {
     return;
   }
 
-  // Custom groups don't have the four numeric snooze inputs in the
-  // editor — instead, pressing Start Snooze fires a `snoozePress` event
-  // into the sandbox so the rule itself can decide whether (and for how
-  // long) to snooze via helpers.getSnoozeHelper().activate(...). Strict
-  // policy: if the rule does nothing, no snooze happens.
+  // Custom groups: Start Snooze fires a snoozePress event. The button
+  // is purely a notification trigger; custom rules cannot programmatically
+  // snooze the group.
   if (group.groupType === "custom") {
     setSnoozeWarning("");
     try {
+      console.log("[CustomBlocker:trace] popup → fire-snooze-press", group.id);
       const response = await chrome.runtime.sendMessage({
         type: "fire-snooze-press",
         groupId: group.id
       });
+      console.log("[CustomBlocker:trace] popup ← fire-snooze-press response", response);
       if (!response || !response.ok) {
         const err =
           (response && response.error) || t("snooze.warning.snoozePressFailed");
         setSnoozeWarning(err);
       }
     } catch (error) {
+      console.warn("[CustomBlocker:trace] popup fire-snooze-press error", error);
       setSnoozeWarning(String(error && error.message ? error.message : error));
     }
     return;
@@ -4473,10 +4441,8 @@ blockingRulesField.addEventListener("input", () => {
   scheduleAutosave();
 });
 
-// Commit immediately when the textarea loses focus, instead of waiting for
-// the 400 ms debounce. Otherwise users who type, then immediately switch
-// to another tab to test their rule, can navigate before storage has been
-// updated and end up running the previous version of the rule.
+// Commit on blur so a user who types then immediately runs the rule
+// doesn't lose the most recent keystrokes to the autosave debounce.
 blockingRulesField.addEventListener("blur", () => {
   flushAutosave().catch((error) => {
     console.error("Failed to flush blocking rules on blur.", error);
@@ -4545,10 +4511,8 @@ async function checkSelectedCustomGroupSyntax() {
     runCustomGroupStatus.className = "run-status";
   }
   try {
-    // The background forwards the source to the sandbox, which compiles
-    // and (briefly) invokes it under a synthetic group id and discards
-    // whatever it registered. The real group's loaded handlers stay
-    // untouched — Check syntax never replaces what's already running.
+    // Sandbox compiles under a synthetic groupId and discards results;
+    // the real group's loaded handlers are not touched.
     const response = await chrome.runtime.sendMessage({
       type: "check-custom-group-syntax",
       source
@@ -4943,12 +4907,9 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
-// Persist whatever's in the editor right before the popup is torn down.
-// Extension popups close as soon as the user clicks elsewhere, which can
-// happen mid-debounce; without these hooks any unsaved keystrokes from
-// the last 400 ms (or whatever the user configured for autosaveDebounceMs)
-// would be lost. We hit both `pagehide` (fires on real teardown) and
-// `visibilitychange→hidden` (fires earlier, gives us a head start).
+// Persist editor state on popup teardown — popups close on any click
+// outside, which can happen mid-debounce. Hook both pagehide (real
+// teardown) and visibilitychange→hidden (fires earlier).
 window.addEventListener("pagehide", () => {
   flushAutosaveOnExit();
 });
@@ -4957,6 +4918,88 @@ window.addEventListener("visibilitychange", () => {
     flushAutosaveOnExit();
   }
 });
+
+// ────────────────────────────────────────────────────────────────────────
+// Activity log feed — displays sandbox getLogHelper() output inside the
+// popup itself. Pulls a buffer from background on open and subscribes to
+// live "log-feed-entry" broadcasts.
+// ────────────────────────────────────────────────────────────────────────
+
+const LOG_FEED_MAX_RENDER = 200;
+const logFeedSection = document.getElementById("logFeedSection");
+const logFeedList = document.getElementById("logFeedList");
+const logFeedEmpty = document.getElementById("logFeedEmpty");
+const logFeedCount = document.getElementById("logFeedCount");
+const logFeedClear = document.getElementById("logFeedClear");
+const logFeedSeenIds = new Set();
+
+function formatLogFeedTime(ts) {
+  if (!Number.isFinite(ts)) return "";
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  } catch {
+    return "";
+  }
+}
+
+function renderLogFeedEntry(entry) {
+  if (!entry || !logFeedList) return;
+  if (entry.id != null && logFeedSeenIds.has(entry.id)) return;
+  if (entry.id != null) logFeedSeenIds.add(entry.id);
+
+  const row = document.createElement("div");
+  row.className = "log-feed-entry " + (entry.level === "warn" ? "warn" : entry.level === "error" ? "error" : "");
+  const meta = document.createElement("span");
+  meta.className = "log-feed-meta";
+  const parts = [];
+  parts.push(formatLogFeedTime(entry.ts));
+  if (entry.eventType) parts.push(entry.eventType);
+  if (entry.level && entry.level !== "log") parts.push(entry.level.toUpperCase());
+  meta.textContent = parts.filter(Boolean).join(" · ");
+  row.appendChild(meta);
+  const body = document.createElement("span");
+  body.textContent = entry.message;
+  row.appendChild(body);
+  logFeedList.appendChild(row);
+
+  while (logFeedList.children.length > LOG_FEED_MAX_RENDER) {
+    logFeedList.removeChild(logFeedList.firstChild);
+  }
+  logFeedList.scrollTop = logFeedList.scrollHeight;
+  if (logFeedCount) {
+    logFeedCount.textContent = String(logFeedList.children.length);
+  }
+}
+
+async function loadLogFeedSnapshot() {
+  if (!logFeedList) return;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "get-log-feed" });
+    if (!response || !response.ok) return;
+    const entries = Array.isArray(response.entries) ? response.entries : [];
+    for (const entry of entries) renderLogFeedEntry(entry);
+  } catch (_) {}
+}
+
+function clearLogFeed() {
+  if (!logFeedList) return;
+  while (logFeedList.firstChild) logFeedList.removeChild(logFeedList.firstChild);
+  logFeedSeenIds.clear();
+  if (logFeedCount) logFeedCount.textContent = "0";
+  try { chrome.runtime.sendMessage({ type: "clear-log-feed" }).catch(() => {}); } catch (_) {}
+}
+
+if (logFeedClear) {
+  logFeedClear.addEventListener("click", clearLogFeed);
+}
+
+if (chrome.runtime && chrome.runtime.onMessage) {
+  chrome.runtime.onMessage.addListener((message) => {
+    if (!message || message.type !== "log-feed-entry") return;
+    renderLogFeedEntry(message.entry);
+  });
+}
 
 async function initializePopupApp() {
   const defaultLanguage = getDefaultLanguageCode();
@@ -4977,6 +5020,7 @@ async function initializePopupApp() {
   applyPanelWidth(loadPanelWidth());
 
   await loadGroups();
+  await loadLogFeedSnapshot();
   state.tickIntervalId = window.setInterval(() => {
     renderDynamicView();
   }, 1000);

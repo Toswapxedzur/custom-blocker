@@ -188,7 +188,6 @@
   "meta.snoozed": "snoozed",
   "meta.instantBlock": "instant block",
   "meta.left": "left",
-  "meta.used": "used",
   "meta.strictFrozen": "strict frozen",
   "meta.frozen": "frozen",
   "meta.enabled": "enabled",
@@ -240,7 +239,6 @@
   "status.strictFreezeHours": "Strict freeze hours must be greater than 0 and no more than {max}.",
   "status.bulkDeleteStrictLocked": "Delete all is disabled while a strict freeze is still locked.",
   "status.bulkDeleted": "Deleted all groups.",
-  "status.errorUpdateGroup": "Could not update this block group.",
   "status.errorReorderGroups": "Could not reorder your block groups.",
   "status.errorSaveGroup": "Could not save this block group.",
   "status.errorCreateGroup": "Could not create a new block group.",
@@ -251,5 +249,9 @@
   "status.errorEndSnooze": "Could not end this snooze.",
   "status.errorUnfreezeGroup": "Could not unfreeze this block group.",
   "status.errorLoadGroups": "Could not load your saved block groups.",
-  "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nchannel/UC..."
+  "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nchannel/UC...",
+  "logFeed.title": "Activity log",
+  "logFeed.hint": "Live feed of helpers.getLogHelper() output from every event dispatch.",
+  "logFeed.empty": "No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.",
+  "logFeed.clear": "Clear"
 }

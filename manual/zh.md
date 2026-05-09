@@ -326,7 +326,7 @@ offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理
 | `switchDomainEvent` | URL 变化跨越了主机名边界（例如 `youtube.com` → `wikipedia.org`）。会和 `switchWebEvent` 同时触发。 | `{ previousUrl, previousHostname }` |
 | `webChangedEvent` | 页面以任何方式（重新）加载：打开、切换、SPA 历史更新，**包括 URL 没有变化的整页刷新**。这是用来"页面变了就重新评估一次"的可靠钩子。会与 `openWebEvent` / `switchWebEvent` / `switchDomainEvent` 一起触发，并且是唯一会在同 URL 刷新时触发的事件。 | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }`，其中 `transition` 取值 `"tabCreated" \| "commit" \| "history"` |
 | `timerEnded` | 当前分组下任意计时器达到 `currentMs === 0`。仅会派发给拥有这个计时器的分组。 | `{ timerId, displayName, direction, currentMs }` |
-| `snoozePress` | 用户在弹窗中对当前 **自定义** 分组按下了 **Start Snooze**。自定义分组在编辑器中没有"放行时长 / 激活延迟 / 冷却 / 确认次数"的输入框——规则自身通过 `helpers.getSnoozeHelper().activate(...)` 决定如何处理。**严格策略：** 如果处理函数没有调用 `activate`，则什么也不会发生。仅派发给被按下的分组。 | `{ triggeredAt }` |
+| `snoozePress` | 用户在弹窗中对当前 **自定义** 分组按下了 **Start Snooze**。这是一个纯通知事件——处理函数可以执行任意代码（记录日志、跳转、派发其它事件等），但 **没有提供任何编程式放行接口**。处理函数产生的日志会作为 toast 出现在当前激活标签页上。仅派发给被按下的分组。 | `{ triggeredAt }` |
 
 `ev.url` 以及事件 data 中的 URL 都已经过**事件级规范化**：Chrome 的 New Tab Page（即显示 Google 搜索框的“新标签页”）、`about:blank` 以及对应的 newtab scheme，都会被暴露成空字符串 `""`。因此一个 `ev.url === ""` 的计时器只会在新标签页时推进。普通的 `google.com` URL 不受影响。
 
@@ -365,7 +365,6 @@ offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理
 - `helpers.getTimerHelper()` — 分组级计时器（倒计时 / 正计时）；状态跨浏览器重启保留。
 - `helpers.getPersistenceHelper()` — 分组级 JSON 键值存储。
 - `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()`（同时提供 `set/get` 别名），以及 `createMessageUrl(message)`，返回一个 `chrome-extension://...` 的 URL，访问时会在页面中央显示该消息。对自定义规则而言，这是设置“被屏蔽时跳转 URL”的**唯一**方式。
-- `helpers.getSnoozeHelper()` — `activate({ minutes, activationDelayMinutes?, cooldownMinutes?, refreezeMode? })` 与 `cancel()`。用于在 `snoozePress`（或任意其他）处理函数中，以编程方式对当前接收事件的分组发起放行。
 - `helpers.getPlatformHelper()` — 按平台拆分的 DOM 意图（详见 11.3.6）。
 - `helpers.getDOMHelper()` — 通用 DOM 意图：`hide(sel)`、`show(sel)`、`addClass(sel, c)`、`removeClass(sel, c)`、`setText(sel, text)`、`click(sel)`、`injectCss(css, id?)`、`removeInjectedCss(id)`、`scrollTo(sel)`。意图会被批量收集，处理器返回后再统一应用到 DOM。
 - `helpers.getNavigationHelper()` — `back()`、`forward()`、`reload()`、`goTo(url)`、`closeTab()`。作用对象是事件来源的标签页。
@@ -422,15 +421,6 @@ offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理
 
 像其他 custom-rule 副作用一样，这一状态在本次派发的所有处理器之间共享。优先级最高的处理器中最后一次调用 `set(...)` 的最终生效。
 
-#### 11.3.4a `getSnoozeHelper()`
-
-对当前接收事件的分组进行编程式的放行（snooze）控制，主要供 `snoozePress` 处理函数使用，但任何 handler 中都能调用。**自定义分组** 在编辑器中不会显示放行时长 / 激活延迟 / 冷却 / 确认次数这四个数字输入框——这些值由规则自行决定。
-
-- `activate({ minutes, activationDelayMinutes?, cooldownMinutes?, refreezeMode? })` — 安排一次放行。`minutes` 必须 `> 0`；`activationDelayMinutes`、`cooldownMinutes` 默认 `0`；`refreezeMode` 取 `"frozen"` 或 `"strict"`，默认沿用分组当前的冻结模式。意图被记录时返回 `true`，输入无效时返回 `false`。
-- `cancel()` — 取消当前分组任何已排定 / 进行中 / 冷却中的放行。
-
-派发结束后,放行条目会立即写入存储；之后 `chrome.storage.onChanged` 事件会把新状态广播到所有打开的弹窗与 content script。**严格策略：** 如果 `snoozePress` 处理函数运行时没有调用 `activate(...)`，则不会创建放行——Start Snooze 按钮等于什么也没做。
-
 #### 11.3.5 `getDomainHelper()`（别名 `getDomainUtility()`）
 
 URL 检查工具。不再提供 `normalize()`，因为传入的 URL 已经做过规范化。
@@ -467,7 +457,8 @@ URL 过滤与区域识别（v1.1 新增）：
 | `hidePosts` / `showPosts`      | ✓ |   | ✓ | ✓ |   |
 | `hideShortButton` / `showShortButton` | ✓ |   |   |   |   |
 | `hideHomePage` / `showHomePage`| ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hideComments` / `showComments` / `filterComments` | ✓ | ✓ | ✓ | ✓ |   |
+| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓（聊天） |
+| `filterComments`               | ✓ | ✓ | ✓ | ✓ |   |
 | `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |   | ✓ | ✓ |
 | `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |   |   |   | ✓ |
 | `isCurrentChannelVerified`     | ✓ |   |   |   |   |

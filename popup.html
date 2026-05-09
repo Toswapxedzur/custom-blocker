@@ -214,6 +214,19 @@
             <p class="field-help" data-i18n="custom.help">
               The function receives month, dayOfMonth, dayName, hour, minute, and blockedDomains. Return an updated list of domains, or mutate blockedDomains and return nothing.
             </p>
+
+            <details id="logFeedSection" class="log-feed">
+              <summary>
+                <span data-i18n="logFeed.title">Activity log</span>
+                <span id="logFeedCount" class="log-feed-count">0</span>
+              </summary>
+              <div class="log-feed-toolbar">
+                <span class="log-feed-hint" data-i18n="logFeed.hint">Live feed of helpers.getLogHelper() output from every event dispatch.</span>
+                <button id="logFeedClear" type="button" class="ghost-button" data-i18n="logFeed.clear">Clear</button>
+              </div>
+              <div id="logFeedList" class="log-feed-list" aria-live="polite"></div>
+              <p id="logFeedEmpty" class="log-feed-empty" data-i18n="logFeed.empty">No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.</p>
+            </details>
           </section>
 
           <section id="platformVideoCard" class="section-card hidden">
@@ -433,7 +446,7 @@
             </label>
 
             <p id="snoozeCustomCopy" class="field-help hidden" data-i18n="snooze.customCopy">
-              Custom rules own their snooze logic. Pressing the button fires a snoozePress event; the rule decides whether to snooze and for how long via helpers.getSnoozeHelper().activate(...).
+              Custom rules don't snooze. Pressing the button fires a snoozePress event so rules can react (e.g. log, redirect, fire other events), but there's no programmatic snooze API.
             </p>
 
             <div id="snoozeNumericFields" class="settings-grid">

@@ -1691,33 +1691,81 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 // ────────────────────────────────────────────────────────────────────────
-// EVENT-DRIVEN CUSTOM-RULE DISPATCHER
-//
-// Custom rules now run inside the long-lived event sandbox, hosted by an
-// offscreen document. The background script:
-//   • owns the offscreen lifecycle
-//   • watches tab + webNavigation events and dispatches openWebEvent /
-//     closeWebEvent / switchWebEvent / switchDomainEvent
-//   • runs a 1 s shared tickEvent alarm
-//   • forwards Run/Disable/Enable/Delete actions from the popup to the
-//     event sandbox so it can register/unregister handlers
-//   • applies any DOM/navigation intents the sandbox returns by sending
-//     them to the matching content scripts
+// Event-driven custom-rule dispatcher.
+// Background owns the offscreen lifecycle, watches tab + webNavigation
+// events to dispatch open/close/switch/switchDomain, runs the tick alarm,
+// forwards Run/Disable/Enable from the popup, and applies any DOM /
+// navigation intents the sandbox returns by routing them to the content
+// scripts of the originating tab.
 // ────────────────────────────────────────────────────────────────────────
 
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
-const ACTIVE_EVENT_SOURCE_KEY = "activeEventSource"; // reuse on group object
 const TICK_ALARM_NAME = "custom-blocker-event-tick";
-// Chrome alarms have a 1-minute floor in production. The shared 1 s
-// tickEvent is driven from the long-lived offscreen document, which
-// simply pings the background once per second; the alarm below is a
-// service-worker keepalive / safety net so we still tick (less often)
-// even if the offscreen document is in a weird state.
+// Chrome alarms floor at 1 minute. The 1 s tickEvent is driven from the
+// offscreen document; this alarm is a SW keepalive / safety net.
 const TICK_ALARM_PERIOD_MINUTES = 1;
 
 const previousTabUrls = new Map(); // tabId -> { url, hostname }
 const pendingApplyByTab = new Map(); // tabId -> Array<applyMessage>
 const PENDING_APPLY_MAX_PER_TAB = 32;
+
+// Ring buffer of recent log entries surfaced from the sandbox. The popup's
+// Activity log panel reads this on open, then subscribes to live entries
+// via the "log-feed-entry" broadcast below.
+const LOG_FEED_MAX_ENTRIES = 200;
+const logFeedBuffer = []; // each: { ts, level, groupId, message, eventType }
+let logFeedSeq = 0;
+
+function pushLogFeedEntry(entry) {
+  if (!entry || typeof entry !== "object") return;
+  const message = Array.isArray(entry.args)
+    ? entry.args.map((a) => {
+        if (typeof a === "string") return a;
+        try { return JSON.stringify(a); } catch { return String(a); }
+      }).join(" ")
+    : String(entry.message ?? "");
+  if (!message.trim()) return;
+  const record = {
+    id: ++logFeedSeq,
+    ts: Date.now(),
+    level: entry.level || "log",
+    groupId: entry.groupId || "",
+    eventType: entry.eventType || "",
+    message
+  };
+  logFeedBuffer.push(record);
+  if (logFeedBuffer.length > LOG_FEED_MAX_ENTRIES) {
+    logFeedBuffer.splice(0, logFeedBuffer.length - LOG_FEED_MAX_ENTRIES);
+  }
+  // Best-effort broadcast. Popups that aren't open simply ignore it; the
+  // catch silences "Receiving end does not exist" noise.
+  try {
+    chrome.runtime.sendMessage({ type: "log-feed-entry", entry: record }).catch(() => {});
+  } catch (_) {}
+}
+
+function ingestSandboxLogs(result, descriptor) {
+  if (!result) return;
+  const eventType = descriptor && descriptor.type ? descriptor.type : "";
+  const collect = (logs) => {
+    if (!Array.isArray(logs)) return;
+    for (const entry of logs) {
+      if (!entry) continue;
+      pushLogFeedEntry({
+        level: entry.level,
+        groupId: entry.groupId,
+        args: entry.args,
+        eventType
+      });
+    }
+  };
+  collect(result.logs);
+  if (Array.isArray(result.synthResults)) {
+    for (const synth of result.synthResults) {
+      if (synth && synth.result) collect(synth.result.logs);
+    }
+  }
+}
 
 async function ensureOffscreenDocument() {
   if (!chrome.offscreen || typeof chrome.offscreen.createDocument !== "function") {
@@ -1774,6 +1822,21 @@ async function loadCustomGroupSource(group) {
     groupId: group.id,
     source
   });
+  // Forward registration-time logs to the popup's Activity log. Without
+  // this, "Compile failed" / "registered 0 handlers" / runtime-error
+  // messages from loadSource only ever surface in the run-status pill —
+  // closing the popup loses them.
+  if (result && Array.isArray(result.logs)) {
+    ingestSandboxLogs(result, { type: "load-source" });
+  }
+  if (result && result.ok === false && result.error) {
+    pushLogFeedEntry({
+      level: "error",
+      eventType: "load-source",
+      groupId: group.id,
+      args: ["[" + group.id + "] " + result.error]
+    });
+  }
   refreshHandlerCount();
   return result;
 }
@@ -1821,17 +1884,46 @@ async function loadAllCustomGroupsAtStartup() {
     const result = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
     const groups = Array.isArray(result[BLOCKED_GROUPS_KEY]) ? result[BLOCKED_GROUPS_KEY] : [];
     lastReconcileSnapshot = new Map();
+    let attempted = 0;
+    let withSource = 0;
     for (const group of groups) {
       if (!group || group.groupType !== "custom") continue;
+      attempted += 1;
+      const hasSource =
+        typeof group.activeEventSource === "string" && group.activeEventSource.trim().length > 0;
+      if (hasSource) withSource += 1;
       lastReconcileSnapshot.set(group.id, {
         enabled: Boolean(group.enabled),
         activeEventSource: typeof group.activeEventSource === "string" ? group.activeEventSource : ""
       });
       await loadCustomGroupSource(group);
     }
-    console.log("[CustomBlocker] startup load complete; handler count =", cachedHandlerCount);
+    console.log(
+      "[CustomBlocker] startup load complete; custom groups:",
+      attempted,
+      "with source:",
+      withSource,
+      "handler count:",
+      cachedHandlerCount
+    );
+    pushLogFeedEntry({
+      level: withSource === 0 && attempted > 0 ? "warn" : "log",
+      eventType: "startup",
+      args: [
+        `Startup loader: ${attempted} custom group(s), ${withSource} with active source, ` +
+          `${cachedHandlerCount} handler(s) registered.` +
+          (attempted > 0 && withSource === 0
+            ? " Click Run on the group to register handlers (Save alone does not run the code)."
+            : "")
+      ]
+    });
   } catch (error) {
     console.warn("[CustomBlocker] startup load of custom groups failed", error);
+    pushLogFeedEntry({
+      level: "error",
+      eventType: "startup",
+      args: ["Startup loader failed: " + String(error && error.message ? error.message : error)]
+    });
   }
 }
 
@@ -1922,88 +2014,6 @@ async function dispatchToSandbox(descriptor) {
   });
 }
 
-// Walk the sandbox dispatch result for any `kind: "snooze"` intents
-// emitted by the rule (typically from a snoozePress handler) and mutate
-// the persisted groupSnoozes entry accordingly. The "activate" action
-// constructs a fresh snooze entry with the rule-supplied duration; the
-// "cancel" action drops the entry entirely. Intents addressed to a
-// groupId other than `forGroupId` are ignored so a rule cannot snooze
-// (or un-snooze) an unrelated group.
-async function applySnoozeIntents(forGroupId, result) {
-  if (!result || !forGroupId) return;
-  const buckets = [Array.isArray(result.intents) ? result.intents : []];
-  if (Array.isArray(result.synthResults)) {
-    for (const synth of result.synthResults) {
-      if (synth && synth.result && Array.isArray(synth.result.intents)) {
-        buckets.push(synth.result.intents);
-      }
-    }
-  }
-
-  let action = null;
-  let payload = null;
-  for (const bucket of buckets) {
-    for (const intent of bucket) {
-      if (!intent || intent.kind !== "snooze") continue;
-      if (intent.groupId && intent.groupId !== forGroupId) continue;
-      action = intent.action === "cancel" ? "cancel" : "activate";
-      payload = intent;
-    }
-  }
-  if (!action) return;
-
-  const stored = await chrome.storage.local.get({
-    [GROUP_SNOOZES_KEY]: {},
-    [BLOCKED_GROUPS_KEY]: []
-  });
-  const snoozes = stored[GROUP_SNOOZES_KEY] && typeof stored[GROUP_SNOOZES_KEY] === "object"
-    ? { ...stored[GROUP_SNOOZES_KEY] }
-    : {};
-  const groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
-  const group = groups.find((g) => g && g.id === forGroupId);
-
-  if (action === "cancel") {
-    if (snoozes[forGroupId]) {
-      delete snoozes[forGroupId];
-      await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: snoozes });
-    }
-    return;
-  }
-
-  const now = Date.now();
-  const minutes = Number.parseFloat(payload?.minutes);
-  if (!Number.isFinite(minutes) || minutes <= 0) return;
-  const activationDelayMinutes = Math.max(
-    0,
-    Number.isFinite(Number.parseFloat(payload?.activationDelayMinutes))
-      ? Number.parseFloat(payload.activationDelayMinutes)
-      : 0
-  );
-  const cooldownMinutes = Math.max(
-    0,
-    Number.isFinite(Number.parseFloat(payload?.cooldownMinutes))
-      ? Number.parseFloat(payload.cooldownMinutes)
-      : 0
-  );
-  const startsAtMs = now + activationDelayMinutes * MS_PER_MINUTE;
-  const untilMs = startsAtMs + minutes * MS_PER_MINUTE;
-  const refreezeMode =
-    payload?.refreezeMode === "strict"
-      ? "strict"
-      : group?.freezeMode === "strict"
-        ? "strict"
-        : "frozen";
-  snoozes[forGroupId] = {
-    startsAtMs,
-    untilMs,
-    cooldownUntilMs: untilMs + cooldownMinutes * MS_PER_MINUTE,
-    confirmationCount: 0,
-    activeMsApplied: false,
-    refreezeMode
-  };
-  await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: snoozes });
-}
-
 function enqueueApply(tabId, message) {
   const list = pendingApplyByTab.get(tabId) || [];
   list.push(message);
@@ -2064,10 +2074,8 @@ async function applySandboxResultToTab(tabId, result, descriptor) {
 }
 
 async function dispatchEventToTab(type, tabInfo, extras = {}) {
-  // Wait for the startup loader to finish so handlers are registered.
-  // This is critical right after a SW restart: webNavigation events can
-  // arrive before loadAllCustomGroupsAtStartup has had a chance to
-  // re-load the active sources into the freshly-spawned sandbox.
+  // Wait for the startup loader so events arriving right after a SW
+  // restart don't fan out into an empty registry.
   await ensureStartupGate();
 
   const url = normalizeUrlForEvents(tabInfo?.url || "");
@@ -2085,6 +2093,7 @@ async function dispatchEventToTab(type, tabInfo, extras = {}) {
   console.log("[CustomBlocker] dispatch", type, "→ tab", descriptor.tabId,
     "url:", url, "logs:", (result?.logs?.length ?? 0),
     "handlers:", cachedHandlerCount);
+  ingestSandboxLogs(result, descriptor);
   await applySandboxResultToTab(descriptor.tabId, result, descriptor);
   return result;
 }
@@ -2266,10 +2275,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const idx = groups.findIndex((g) => g && g.id === groupId);
       if (idx < 0) return sendResponse({ ok: false, error: "group not found" });
       const group = groups[idx];
-      // The popup's "Run" button always sends the textarea contents, so
-      // message.source is the source of truth. We fall back to the
-      // group's saved blockingRulesText so a service-worker restart can
-      // also re-run the group without a popup roundtrip.
+      // Popup is the source of truth; fall back to saved text so SW
+      // restarts can re-run without a popup roundtrip.
       const sourceText = typeof message.source === "string"
         ? message.source
         : (typeof group.blockingRulesText === "string" ? group.blockingRulesText : "");
@@ -2294,10 +2301,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "list-handlers") {
     (async () => {
+      // Block until the startup loader has had a chance to re-register
+      // every group's `activeEventSource`. Without this gate, a popup
+      // opening right after the SW wakes can race in and observe an
+      // empty sandbox even though the real registry will be populated
+      // milliseconds later.
+      await ensureStartupGate();
       const r = await sendToEventSandbox({ kind: "list-handlers", groupId: message.groupId });
       sendResponse({ ok: true, result: r });
     })();
     return true;
+  }
+
+  if (message.type === "get-log-feed") {
+    sendResponse({ ok: true, entries: logFeedBuffer.slice() });
+    return false;
+  }
+
+  if (message.type === "clear-log-feed") {
+    logFeedBuffer.length = 0;
+    sendResponse({ ok: true });
+    return false;
   }
 
   if (message.type === "offscreen-tick") {
@@ -2325,9 +2349,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "check-custom-group-syntax") {
-    // Forwards the source to the offscreen sandbox, which compiles it
-    // under a throwaway group id and reports compile / runtime errors
-    // back. No real group's handlers are touched.
+    // Compiles under a throwaway group id; no real group is touched.
     (async () => {
       try {
         const result = await sendToEventSandbox({
@@ -2343,33 +2365,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "fire-snooze-press") {
-    // Custom groups route their Start Snooze button through the sandbox
-    // by firing a `snoozePress` event scoped to the group. The handler
-    // typically calls helpers.getSnoozeHelper().activate(...), which
-    // pushes a `kind: "snooze"` intent onto the accumulator; we read it
-    // here and write the real groupSnoozes entry to storage. Strict
-    // policy: if the rule emits no snooze intent, nothing changes.
+    // Pure notification event for custom groups. Handlers can log or
+    // run arbitrary code in response to the Start Snooze button but
+    // there's no programmatic snooze API. The dispatch is routed to
+    // the currently active tab so logs surface there as toasts.
     (async () => {
       try {
         const groupId = String(message.groupId || "");
+        console.log("[CustomBlocker:trace] bg fire-snooze-press groupId:", groupId);
         if (!groupId) {
           sendResponse({ ok: false, error: "missing groupId" });
           return;
         }
+        let activeTab = null;
+        try {
+          const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          activeTab = tabs && tabs[0] ? tabs[0] : null;
+        } catch (_) {}
+        console.log("[CustomBlocker:trace] bg activeTab:", activeTab && { id: activeTab.id, url: activeTab.url });
         const descriptor = {
           type: "snoozePress",
-          tabId: null,
+          tabId: activeTab && typeof activeTab.id === "number" ? activeTab.id : null,
           pageId: null,
-          url: "",
-          hostname: "",
+          url: normalizeUrlForEvents(activeTab?.url || ""),
+          hostname: hostnameOf(activeTab?.url || ""),
           time: todayContext(),
           data: { triggeredAt: Date.now() },
           targetGroupId: groupId
         };
+        console.log("[CustomBlocker:trace] bg → sandbox dispatch", descriptor);
         const result = await dispatchToSandbox(descriptor);
-        await applySnoozeIntents(groupId, result);
+        console.log("[CustomBlocker:trace] bg ← sandbox result",
+          result && {
+            logs: result.logs?.length,
+            intents: result.intents?.length,
+            domOps: result.domOps?.length
+          },
+          "tabId:", descriptor.tabId);
+        ingestSandboxLogs(result, descriptor);
+        if (typeof descriptor.tabId === "number") {
+          await applySandboxResultToTab(descriptor.tabId, result, descriptor);
+          console.log("[CustomBlocker:trace] bg routed result to tab", descriptor.tabId);
+        } else {
+          console.warn("[CustomBlocker:trace] bg has no active tab id — toast cannot render");
+        }
         sendResponse({ ok: true, result });
       } catch (error) {
+        console.error("[CustomBlocker:trace] bg fire-snooze-press error", error);
         sendResponse({
           ok: false,
           error: String(error && error.message ? error.message : error)

@@ -326,7 +326,7 @@ Per-event-type sugar (one set of methods per built-in type):
 | `switchDomainEvent` | URL change crosses a hostname boundary (e.g. `youtube.com` → `wikipedia.org`). Fires alongside `switchWebEvent`. | `{ previousUrl, previousHostname }` |
 | `webChangedEvent` | The page (re)loads in any way: open, switch, SPA history update, **or a plain reload that keeps the same URL**. This is the reliable "the page changed, re-evaluate everything" hook. Fires alongside `openWebEvent` / `switchWebEvent` / `switchDomainEvent`, and is the only one that fires for same-URL reloads. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` where `transition` is `"tabCreated" \| "commit" \| "history"` |
 | `timerEnded` | A timer managed by the group reaches `currentMs === 0`. Only delivered to the owning group. | `{ timerId, displayName, direction, currentMs }` |
-| `snoozePress` | The user pressed **Start Snooze** in the popup for this **custom** group. Custom groups don't expose the duration / delay / cooldown / confirmation knobs in the editor — the rule itself decides what to do via `helpers.getSnoozeHelper().activate(...)`. **Strict policy:** if the handler doesn't activate a snooze, nothing happens. Only delivered to the pressed group. | `{ triggeredAt }` |
+| `snoozePress` | The user pressed **Start Snooze** in the popup for this **custom** group. Pure notification event — the handler can run arbitrary code (log, redirect, fire other events) but custom rules have **no programmatic snooze API**. Logs produced here surface as toasts on the active tab. Only delivered to the pressed group. | `{ triggeredAt }` |
 
 URLs in `ev.url` and in event data are **normalized** for events: Chrome's New Tab Page (which renders Google's "Search Google or type URL" surface), `about:blank`, and equivalent newtab schemes are exposed as the empty string `""`. So a timer scoped to `ev.url === ""` only ticks while you are on the new-tab page. Regular `google.com` URLs are unchanged.
 
@@ -365,7 +365,6 @@ Accessor methods:
 - `helpers.getTimerHelper()` — group-scoped timers (countdown / count-up); state persists across browser restarts.
 - `helpers.getPersistenceHelper()` — JSON key/value store scoped to the group.
 - `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (and `set/get` aliases) plus `createMessageUrl(message)` which returns a `chrome-extension://...` URL that displays the given message. For custom rules, this is the **only** way to set the "redirect when blocked" URL.
-- `helpers.getSnoozeHelper()` — `activate({ minutes, activationDelayMinutes?, cooldownMinutes?, refreezeMode? })` and `cancel()`. Used by `snoozePress` handlers (and any other handler) to programmatically snooze the receiving group.
 - `helpers.getPlatformHelper()` — per-platform DOM intents (see 11.3.6).
 - `helpers.getDOMHelper()` — generic DOM intents: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. Operations are batched and applied after the handler returns.
 - `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Effects are applied to the tab the event came from.
@@ -422,15 +421,6 @@ Inspect / override the redirect URL the content script will use if the current p
 
 Like the other custom-rule side effects, this state is shared across all rules in the current heartbeat. Because rules run bottom-to-top, the top-most rule to call `set(...)` wins.
 
-#### 11.3.4a `getSnoozeHelper()`
-
-Programmatic snooze control for the receiving group, primarily intended for `snoozePress` handlers but usable from any handler. **Custom groups** don't expose the four numeric snooze inputs (duration / activation delay / cooldown / confirmations) in the editor — the rule decides those values itself.
-
-- `activate({ minutes, activationDelayMinutes?, cooldownMinutes?, refreezeMode? })` — schedule a snooze. `minutes` must be `> 0`. `activationDelayMinutes` and `cooldownMinutes` default to `0`. `refreezeMode` is `"frozen"` or `"strict"` (defaults to the group's existing freeze mode). Returns `true` if the intent was recorded, `false` if the input was invalid.
-- `cancel()` — drop any scheduled / active / cooling-down snooze for this group.
-
-The snooze entry is persisted as soon as the dispatch finishes; storage's `onChanged` event then fans the new state out to every open popup and content script. **Strict policy:** if a `snoozePress` handler runs but never calls `activate(...)`, no snooze is created — the Start Snooze button effectively does nothing.
-
 #### 11.3.5 `getDomainHelper()` (alias `getDomainUtility()`)
 
 URL inspection helpers. There is no `normalize()` because incoming URLs are already newtab-normalized.
@@ -467,7 +457,8 @@ Per-platform method matrix:
 | `hidePosts` / `showPosts`      | ✓ |   | ✓ | ✓ |   |
 | `hideShortButton` / `showShortButton` | ✓ |   |   |   |   |
 | `hideHomePage` / `showHomePage`| ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hideComments` / `showComments` / `filterComments` | ✓ | ✓ | ✓ | ✓ |   |
+| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓ (chat) |
+| `filterComments`               | ✓ | ✓ | ✓ | ✓ |   |
 | `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |   | ✓ | ✓ |
 | `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |   |   |   | ✓ |
 | `isCurrentChannelVerified`     | ✓ |   |   |   |   |

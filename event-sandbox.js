@@ -129,12 +129,9 @@ function unloadGroup(groupId) {
   groupHelpersCache.delete(groupId);
   groupPlatformPredicates.delete(groupId);
   previouslyExpiredTimers.delete(groupId);
-  // We deliberately do NOT delete groupTimers / groupPersistence here:
-  // they are designed to survive re-Runs of the same group so that a
-  // user's countdown timers and key/value persistence don't reset every
-  // time they click Run. The check-source flow uses a unique synthetic
-  // groupId (__syntax_check__:N), so leaking those buckets there is
-  // harmless and bounded.
+  // groupTimers and groupPersistence are intentionally preserved across
+  // re-Runs so user countdowns and persisted state survive a "Run" click.
+  // check-source uses a unique synthetic groupId, so leak is bounded.
 }
 
 function listHandlers(groupId) {
@@ -154,11 +151,8 @@ function listHandlers(groupId) {
   return out;
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Per-group Events registry. Each registration is silently tagged with
-// the owning groupId so that "Run" or "delete group" can flush only that
-// group's handlers, even though all groups share the same dispatcher.
-// ────────────────────────────────────────────────────────────────────────
+// Per-group Events registry. Each registration is tagged with the owning
+// groupId so Run / delete flushes only that group's handlers.
 
 const RESERVED_EVENT_PREFIX = "_";
 const BUILTIN_EVENT_TYPES = [
@@ -167,18 +161,12 @@ const BUILTIN_EVENT_TYPES = [
   "closeWebEvent",
   "switchWebEvent",
   "switchDomainEvent",
-  // webChangedEvent fires on EVERY navigation, including reloads that land
-  // on the same URL — switchWebEvent only fires when the URL actually
-  // changes, which makes it unreliable as a "page just (re)loaded" hook.
-  // Use webChangedEvent when you need to re-evaluate something on every
-  // page transition (open / switch / reload / SPA history update).
+  // webChangedEvent fires on every navigation including same-URL reloads;
+  // switchWebEvent fires only on actual URL change.
   "webChangedEvent",
   "timerEnded",
-  // snoozePress fires when the user clicks "Start Snooze" inside the
-  // popup for a CUSTOM group. The custom rule fully owns the snooze
-  // semantics (strict mode: no built-in fallback) — typically the
-  // handler calls helpers.getSnoozeHelper().activate(...) to actually
-  // snooze the group, or returns without doing anything to no-op.
+  // snoozePress fires when the user clicks Start Snooze in the popup for a
+  // custom group. The rule owns the snooze semantics (no built-in fallback).
   "snoozePress"
 ];
 
@@ -262,8 +250,7 @@ function buildEventsRegistry(groupId, dispatchContext) {
     api["get" + suffix + "s"] = typedGetAll(type);
     api["count" + suffix.replace(/Event$/, "") + "Registered"] = typedCount(type);
   }
-  // Also expose explicit alias counters that stay close to the user's
-  // requested naming style.
+  // Aliased counters using shorter, friendlier names.
   api.countTickRegistered = typedCount("tickEvent");
   api.countOpenWebRegistered = typedCount("openWebEvent");
   api.countCloseWebRegistered = typedCount("closeWebEvent");
@@ -272,28 +259,24 @@ function buildEventsRegistry(groupId, dispatchContext) {
   api.countWebChangedRegistered = typedCount("webChangedEvent");
   api.countTimerEndedRegistered = typedCount("timerEnded");
   api.countSnoozePressRegistered = typedCount("snoozePress");
-  // timerEnded uses a non-Event suffix in its wire type name, but user
-  // code/docs call the registration helpers with the Event suffix.
+  // timerEnded and snoozePress wire types lack the Event suffix; expose
+  // friendlier aliases so user code can use registerXxxEvent uniformly.
   api.registerTimerEndedEvent = typedRegister("timerEnded");
   api.getTimerEndedEvent = typedGet("timerEnded");
   api.getTimerEndedEvents = typedGetAll("timerEnded");
   api.countTimerEndedEventRegistered = typedCount("timerEnded");
+  api.registerSnoozePressEvent = typedRegister("snoozePress");
+  api.getSnoozePressEvent = typedGet("snoozePress");
+  api.getSnoozePressEvents = typedGetAll("snoozePress");
+  api.countSnoozePressEventRegistered = typedCount("snoozePress");
 
   return api;
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Per-group helpers for the source's outermost call. When a handler runs
-// later, we build a fresh helpers object scoped to that handler's group
-// and the current event's tab/url. The persistent buckets (timers,
-// persistence) live in this sandbox forever (until unload).
-// ────────────────────────────────────────────────────────────────────────
-
-// Single per-group helpers object, lazily built. Helpers internally
-// look up their accumulator/dispatch context through a thunk that we
-// swap before every handler invocation; this is what makes a `helpers`
-// object stashed at registration time keep working in every later
-// dispatch.
+// One helpers object per group, lazily built. Internally helpers look up
+// the accumulator and dispatch context via a thunk we swap before every
+// handler call — that's why a helpers object stashed at registration
+// time keeps working in every later dispatch.
 const groupHelpersCache = new Map();
 let currentDispatchAccumulator = null;
 let currentDispatchContext = null;
@@ -427,7 +410,6 @@ function dispatchEvent(descriptor) {
       return false;
     }
     if (descriptor.type === "tickEvent" && entry.intervalMs) {
-      // Per-handler tick interval. Track last-fired-at on the entry.
       const now = descriptor.time?.now ?? Date.now();
       if (!entry._lastFiredAt) entry._lastFiredAt = 0;
       if (now - entry._lastFiredAt < entry.intervalMs) {
@@ -437,6 +419,17 @@ function dispatchEvent(descriptor) {
     }
     return true;
   });
+
+  // DIAGNOSTIC TRACE — surfaces every non-tick dispatch as a toast so we
+  // can see which events actually reach the sandbox vs disappear in flight.
+  if (descriptor.type !== "tickEvent") {
+    try { console.log("[CustomBlocker:trace] sandbox dispatchEvent", descriptor.type, "registered:", list.length, "after-filter:", filtered.length, "targetGroupId:", descriptor.targetGroupId); } catch (_) {}
+    accumulator.logs.push({
+      level: filtered.length === 0 ? "warn" : "log",
+      groupId: "trace",
+      args: ["[trace] " + descriptor.type + " · " + filtered.length + "/" + list.length + " handler(s)"]
+    });
+  }
 
   let lastResult = null;
   let anyPreventDefault = false;
@@ -456,6 +449,7 @@ function dispatchEvent(descriptor) {
     };
     withDispatchContext(accumulator, dispatchContext, () => {
       try {
+        try { console.log("[CustomBlocker:trace] sandbox handler", descriptor.type, entry.groupId, entry.id); } catch (_) {}
         entry.handler(evt, helpers);
       } catch (error) {
         accumulator.logs.push({
@@ -476,7 +470,6 @@ function dispatchEvent(descriptor) {
     }
   }
 
-  // Numeric 1 (allow) overrides preventDefault per the spec.
   if (typeof lastResult === "number" && lastResult === 1) {
     anyPreventDefault = false;
   }
@@ -500,34 +493,51 @@ function dispatchEvent(descriptor) {
 function loadSource(groupId, source) {
   // Always wipe previous registrations for this group first.
   unloadGroup(groupId);
-  const trimmed = String(source ?? "").trim();
-  if (!trimmed) return { ok: true, handlers: 0, error: null };
+  const rawTrimmed = String(source ?? "").trim();
+  if (!rawTrimmed) return { ok: true, handlers: 0, error: null };
 
   // Two source styles are supported:
-  //   (event, helpers) => { ... }     ← function expression
-  //   function (event, helpers) { ... }
-  //   <bare statements>                ← treated as a function body
-  // We try the function-expression form first by wrapping in parens; if
-  // that compiles to a function we call it. Otherwise we fall back to
-  // treating the source as a function body.
+  //   (events, helpers) => { ... }     ← function expression
+  //   function (events, helpers) { ... }
+  //   <bare statements>                 ← treated as a function body
+  //
+  // We try the function-expression form first by wrapping in parens. We
+  // strip ANY trailing semicolons so that a paste like
+  //   (events, helpers) => { ... };
+  // doesn't silently fall through to the function-body path (which would
+  // turn the arrow expression into a discarded statement that registers
+  // nothing). The IIFE compile error is now retained so we can surface it
+  // when the body-path also yields 0 handlers — that's the diagnostic for
+  // "your code looked like a function but had a stray syntax problem".
+  const trimmed = rawTrimmed.replace(/;+\s*$/, "");
   let invoke;
+  let exprCompileError = null;
   try {
     const candidate = new Function("return (" + trimmed + ");")();
     if (typeof candidate === "function") {
       invoke = (events, helpers) => candidate(events, helpers);
     }
-  } catch (_) {}
+  } catch (error) {
+    exprCompileError = error;
+  }
 
   if (!invoke) {
     try {
-      const fn = new Function("event", "helpers", trimmed);
-      invoke = (events, helpers) => fn(events, helpers);
+      // We bind BOTH "events" and "event" to the same registry, so user
+      // code in the bare-statements path can reference either name. The
+      // built-in default rule uses "event" (singular); newer examples
+      // tend to use "events" (plural). Keeping both aliases avoids a
+      // silent ReferenceError that would otherwise leave the rule with 0
+      // handlers and no diagnostic.
+      const fn = new Function("events", "event", "helpers", trimmed);
+      invoke = (events, helpers) => fn(events, events, helpers);
     } catch (error) {
-      return {
-        ok: false,
-        handlers: 0,
-        error: "Compile failed: " + (error && error.message ? error.message : String(error))
-      };
+      const msg =
+        "Compile failed: " + (error && error.message ? error.message : String(error)) +
+        (exprCompileError && exprCompileError.message
+          ? " (also failed as expression: " + exprCompileError.message + ")"
+          : "");
+      return { ok: false, handlers: 0, error: msg };
     }
   }
 
@@ -547,18 +557,52 @@ function loadSource(groupId, source) {
       invokeError = error;
     }
   });
+  // Forward any registration-time logs and an error/zero-handlers warning
+  // through the same channel that handler-time logs use, so they show up
+  // in the popup's Activity log feed instead of vanishing.
+  const earlyLogs = Array.isArray(accumulator.logs) ? accumulator.logs.slice() : [];
   if (invokeError) {
     return {
       ok: false,
       handlers: 0,
       error: "Runtime error during registration: " +
-        (invokeError && invokeError.message ? invokeError.message : String(invokeError))
+        (invokeError && invokeError.message ? invokeError.message : String(invokeError)),
+      logs: [
+        ...earlyLogs,
+        {
+          level: "error",
+          groupId,
+          args: [
+            "[register error] " +
+              (invokeError && invokeError.message ? invokeError.message : String(invokeError))
+          ]
+        }
+      ]
     };
   }
 
   groupSources.set(groupId, trimmed);
   const handlerCount = listHandlers(groupId).length;
-  return { ok: true, handlers: handlerCount, error: null };
+  const noteLogs = handlerCount === 0
+    ? [{
+        level: "warn",
+        groupId,
+        args: [
+          "[register] code ran without errors but registered 0 handler(s). " +
+            "Check that you're calling events.registerWebChangedEvent (or similar) inside the function body."
+        ]
+      }]
+    : [{
+        level: "log",
+        groupId,
+        args: ["[register] " + handlerCount + " handler(s) registered for group " + groupId]
+      }];
+  return {
+    ok: true,
+    handlers: handlerCount,
+    error: null,
+    logs: [...earlyLogs, ...noteLogs]
+  };
 }
 
 // ────────────────────────────────────────────────────────────────────────

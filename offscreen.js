@@ -34,10 +34,8 @@ window.addEventListener("message", (event) => {
 
   if (data.type === "ready") {
     sandboxReady = true;
-    // Hand the sandbox the extension's chrome-extension:// origin so
-    // helpers that build links into extension pages (e.g. createMessageUrl)
-    // can produce a fully-qualified URL — the sandbox itself runs without
-    // chrome.runtime access and can't compute this on its own.
+    // Pass the chrome-extension:// origin so helpers like createMessageUrl
+    // can build fully-qualified URLs (the sandbox has no chrome.runtime).
     try {
       sandboxFrame.contentWindow.postMessage(
         {
@@ -62,9 +60,6 @@ window.addEventListener("message", (event) => {
   }
 
   if (data.type === "intents") {
-    // Forward any sandbox-originated intents (e.g. from a handler that
-    // calls helpers.getDOMHelper().hide(...)) to background, which in
-    // turn dispatches them to the right tab(s).
     chrome.runtime.sendMessage({
       type: "event-sandbox-intents",
       payload: data.payload
@@ -98,14 +93,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-// Drive the shared tickEvent from this long-lived document. The
-// service-worker alarm has a 1-minute floor, so we ping background here
-// instead. Background then fans the tick out to every open tab.
-//
-// The interval is user-configurable via the Settings menu (`tickRateMs`
-// in `globalSettings`). When the user changes the rate, we tear down
-// the current setInterval and recreate it so the rule's tickEvent
-// cadence updates without needing an extension reload.
+// Drive the shared tickEvent from this long-lived document. The SW alarm
+// has a 1-minute floor, so we ping background here instead. The interval
+// is user-configurable via globalSettings.tickRateMs.
 const TICK_RATE_DEFAULT_MS = 1000;
 const TICK_RATE_MIN_MS = 250;
 const TICK_RATE_MAX_MS = 60_000;
@@ -127,11 +117,8 @@ function applyTickRate(rateMs) {
   }, next);
 }
 
-// chrome.storage isn't reliably exposed in every offscreen-document
-// instance (we've seen it come up undefined when the document is opened
-// via web_accessible_resources rather than chrome.offscreen.createDocument,
-// and intermittently during a Chrome update). Feature-guard both reads
-// so missing API ⇒ default tick rate, never a thrown TypeError.
+// chrome.storage may be undefined in some offscreen-document contexts;
+// feature-guard so a missing API falls back to the default tick rate.
 function applyTickRateFromStorage() {
   try {
     if (!chrome?.storage?.local?.get) {

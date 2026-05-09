@@ -439,14 +439,7 @@ function getFeedCardElements(site) {
   }
 
   if (site === "youtube") {
-    // Modern YouTube uses several different wrappers for shorts cards
-    // depending on surface and rollout: ytd-rich-item-renderer wraps the
-    // home-feed shorts shelf entries, ytd-reel-item-renderer is the older
-    // search/subs shelf entry, and yt-shorts-lockup-view-model /
-    // ytm-shorts-lockup-view-model-v2 are the newer view-model wrappers
-    // that sometimes appear standalone (and often hold the only useful
-    // metadata for predicate evaluation). Including all of them ensures a
-    // predicate-based hide can reach every short the user might see.
+    // Each wrapper covers a different YouTube rollout/surface for shorts.
     return [
       ...document.querySelectorAll(
         [
@@ -1140,13 +1133,9 @@ function ensureHeartbeat() {
   }, 250);
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Top-level session handler. Called every heartbeat with the background's
-// response. The legacy custom-rule pipeline has been replaced by the
-// event-driven sandbox hosted by background.js / offscreen.js, so this
-// handler now only deals with site / platform-video group output.
-// ────────────────────────────────────────────────────────────────────────
-
+// response. Custom rules go through the sandbox, so this handler only
+// processes site / platform-video group output.
 function handleSession(session) {
   if (!session) return;
   if (extensionContextInvalid || exitAttempted) return;
@@ -1254,9 +1243,6 @@ if (/^https?:$/i.test(location.protocol)) {
       ) {
         return;
       }
-      // The sandbox owns the compiled-rule cache (keyed by source); a
-      // freshly edited rule has different source, so its first heartbeat
-      // re-compiles automatically.
       scheduleRefreshSession();
     });
   } catch (error) {
@@ -1309,13 +1295,10 @@ if (/^https?:$/i.test(location.protocol)) {
 
 const __cb_eventInjectedCss = new Map(); // id -> <style> element
 
-// ────────────────────────────────────────────────────────────────────────
-// On-page toast renderer for getLogHelper() output. Every log/warn/error
-// the sandbox produces is shipped here in the event-sandbox-apply
-// message; we render each entry as a colored toast at the bottom-right
-// that fades out after ~5 s. This is the user-facing replacement for
-// the old debug overlay.
-// ────────────────────────────────────────────────────────────────────────
+// On-page toast renderer for getLogHelper() output. Each entry produced
+// by the sandbox is rendered as a colored toast in the bottom-right that
+// fades after ~5 s. Only the message text is shown — the level shows up
+// as the toast colour.
 
 const __cb_TOAST_CONTAINER_ID = "__custom_blocker_toast_container__";
 const __cb_TOAST_MAX_VISIBLE = 8;
@@ -1356,9 +1339,11 @@ function __cb_formatToastArg(arg) {
   }
 }
 
-function __cb_showToast(level, groupId, args) {
+function __cb_showToast(level, _groupId, args) {
   const host = __cb_ensureToastContainer();
   if (!host) return;
+  const text = (Array.isArray(args) ? args : [args]).map(__cb_formatToastArg).join(" ").trim();
+  if (!text) return;
   while (host.children.length >= __cb_TOAST_MAX_VISIBLE) {
     host.removeChild(host.firstChild);
   }
@@ -1383,14 +1368,7 @@ function __cb_showToast(level, groupId, args) {
     "word-break:break-word",
     "font-variant-ligatures:none"
   ].join(";");
-  const tag = document.createElement("strong");
-  tag.style.cssText = "display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;opacity:0.85;margin-bottom:2px;";
-  tag.textContent = "[" + (groupId || "?") + "] " + level;
-  const body = document.createElement("div");
-  body.textContent = (Array.isArray(args) ? args : [args]).map(__cb_formatToastArg).join(" ");
-  toast.appendChild(tag);
-  toast.appendChild(body);
-  // dismiss on click
+  toast.textContent = text;
   toast.addEventListener("click", () => toast.remove(), { once: true });
   host.appendChild(toast);
   // animate in
@@ -1941,6 +1919,12 @@ function __cb_applyEventIntent(intent) {
 
 function __cb_processApplyMessage(message) {
   if (!message || typeof message !== "object") return;
+  try {
+    console.log("[CustomBlocker:trace] content event-sandbox-apply",
+      message.descriptor && message.descriptor.type,
+      "logs:", Array.isArray(message.logs) ? message.logs.length : 0,
+      "domOps:", Array.isArray(message.domOps) ? message.domOps.length : 0);
+  } catch (_) {}
   __cb_renderLogs(message.logs);
   const ops = Array.isArray(message.domOps) ? message.domOps : [];
   for (const op of ops) __cb_applyDomOp(op);

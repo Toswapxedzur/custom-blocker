@@ -112,11 +112,19 @@ log.section("S1: gating — methods absent on a platform throw TypeError");
   assertThrows("instagram().hideShorts() throws TypeError",
     () => platformHelpers.instagram().hideShorts(() => true), TypeError);
 
-  // Twitch: no posts, no comments. Has clips, streams, videos (VODs).
+  // Twitch: no posts. hideComments is exposed and maps to STREAM CHAT
+  // (Twitch's nearest analogue to comments) — see __cb_PLATFORM_CSS in
+  // content.js, which already targets the chat container under the
+  // "comments" intent. filterComments is intentionally NOT exposed
+  // because Twitch chat doesn't have a per-message scraper yet.
   const tw = platformHelpers.twitch();
   assert("twitch().hidePosts is undefined", tw.hidePosts === undefined);
-  assert("twitch().hideComments is undefined", tw.hideComments === undefined);
-  assert("twitch().filterComments is undefined", tw.filterComments === undefined);
+  assert("twitch().hideComments is a function (chat)",
+    typeof tw.hideComments === "function");
+  assert("twitch().showComments is a function",
+    typeof tw.showComments === "function");
+  assert("twitch().filterComments is undefined (no per-msg scraper)",
+    tw.filterComments === undefined);
   assert("twitch().hideClips is a function", typeof tw.hideClips === "function");
   assert("twitch().hideStreams is a function", typeof tw.hideStreams === "function");
   assert("twitch().hideVideos is a function (VODs)", typeof tw.hideVideos === "function");
@@ -330,12 +338,24 @@ log.section("S10: edge cases that previously could regress silently");
   assert("showComments cleared the comments slot",
     persistentBucket.youtube.comments === null);
 
-  // Twitch has filterLive but NOT filterComments.
+  // Twitch has filterLive but NOT filterComments. hideComments is
+  // present (chat) and threads through the standard "comments" intent
+  // — verify the recorded intent has the expected shape.
   const tw = platformHelpers.twitch();
   assert("twitch.filterLive is a function", typeof tw.filterLive === "function");
   assert("twitch.filterComments is undefined", tw.filterComments === undefined);
   assertThrows("twitch.filterComments() throws TypeError",
     () => platformHelpers.twitch().filterComments(() => true), TypeError);
+
+  const { accumulator: twAcc, platformHelpers: ph2 } = makeFixture();
+  ph2.twitch().hideComments();
+  const twIntents = intentsFor(twAcc, "twitch");
+  assertEqual("twitch.hideComments() records {kind:'comments',value:'hide'}",
+    twIntents, [{ kind: "comments", value: "hide" }]);
+  ph2.twitch().showComments();
+  const twIntents2 = intentsFor(twAcc, "twitch");
+  assertEqual("twitch.showComments() appends {kind:'comments',value:'show'}",
+    twIntents2[1], { kind: "comments", value: "show" });
 }
 
 // ────────────────────────────────────────────────────────────────────────
