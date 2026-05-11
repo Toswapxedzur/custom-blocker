@@ -213,6 +213,10 @@ button,
   color: #1f2937;
   text-align: left;
   transition: border-color 120ms ease, box-shadow 120ms ease;
+  /* Suppress the browser's native text-selection drag so a mousedown on
+     the group name starts our reorder drag instead of dragging text. */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .group-card.dragging {
@@ -383,38 +387,52 @@ textarea:focus {
   background: var(--navy-100);
 }
 
-/* Freeze section: barely-tinted red wash so navy stays dominant. Buttons
-   sit on white with a red border + red text so they pop against the
-   wash without being loud. */
+/* Freeze section: faint red wash with a single bold red action button.
+   Secondary buttons (e.g. Unfreeze) keep the .secondary look. */
 .section-card.freeze-section {
   border-color: var(--red-200);
   background: var(--red-50);
 }
 
-.section-card.freeze-section button {
-  background: #ffffff;
-  color: var(--red-text);
-  border: 1px solid var(--red-200);
+#applyFreezeButton {
+  background: #b91c1c;
+  color: #ffffff;
+  border: none;
 }
 
-.section-card.freeze-section button:hover {
-  background: var(--red-100);
+#applyFreezeButton:hover {
+  background: #991b1b;
 }
 
-/* Snooze section: same idea, gold palette. */
+/* Snooze section: faint gold wash with a single bold amber action button. */
 .section-card.snooze-section {
   border-color: var(--gold-200);
   background: var(--gold-50);
 }
 
-.section-card.snooze-section button {
-  background: #ffffff;
-  color: var(--gold-text);
-  border: 1px solid var(--gold-200);
+#startSnoozeButton {
+  background: #b45309;
+  color: #ffffff;
+  border: none;
 }
 
-.section-card.snooze-section button:hover {
+#startSnoozeButton:hover {
+  background: #92400e;
+}
+
+/* "Allow snooze for this group" toggle: yellow accent, faint yellow row. */
+.section-card.snooze-section .checkbox-row {
   background: var(--gold-100);
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--gold-text);
+}
+
+#allowSnooze {
+  accent-color: #b45309;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .section-header {
@@ -498,7 +516,7 @@ button.danger,
 button.secondary.danger {
   background: var(--red-100);
   color: var(--red-text);
-  border: 1px solid var(--red-200);
+  border: none;
 }
 
 /* Gold = experimental / "random weird" actions (run user JS, apply
@@ -507,7 +525,7 @@ button.weird,
 button.secondary.weird {
   background: var(--gold-100);
   color: var(--gold-text);
-  border: 1px solid var(--gold-200);
+  border: none;
 }
 
 button:hover {

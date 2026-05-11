@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "ตัวบล็อกเว็บแบบกำหนดเอง",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "บล็อกเว็บไซต์ด้วยการบล็อกเนทีฟ, จำกัดเวลาใช้งาน หรือกฎกำหนดเองตามเหตุการณ์ มีสมาธิกับสิ่งที่สำคัญ",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

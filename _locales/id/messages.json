@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Pemblokir Web Khusus",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "Blokir situs dengan pemblokiran native, batas waktu, atau aturan kustom berbasis event. Tetap fokus.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

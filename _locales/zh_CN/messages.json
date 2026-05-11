@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Custom Web Blocker",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "用原生拦截、延时额度或事件驱动的自定义规则屏蔽网站。专注于真正重要的事。",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

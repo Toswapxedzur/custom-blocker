@@ -115,11 +115,16 @@ quarantine rules, and the freeze ritual are documented in the in-app
 | [helpers.js](helpers.js) | Helper API used by both content + sandbox |
 | [event-sandbox.html](event-sandbox.html) / [event-sandbox.js](event-sandbox.js) | Sandboxed JS runtime for custom rules |
 | [offscreen.html](offscreen.html) / [offscreen.js](offscreen.js) | Bridge between sandbox and service worker |
-| [translations.js](translations.js) | Language registry |
-| [translation/*.json](translation/) | Per-locale UI strings |
+| [translations.js](translations.js) | In-app language registry |
+| [translation/*.json](translation/) | Per-locale UI strings (loaded at runtime) |
+| [_locales/](_locales/) | Chrome Web Store name + description per locale |
 | [manual/*.md](manual/) | Per-locale instruction manual |
 | [templates/*.js](templates/) | Built-in custom-rule templates |
-| [tests/](tests/) | Pure-Node unit tests for the event engine |
+| [icons/](icons/) | Toolbar / store icons (16/32/48/128 + 1024 master) |
+| [tests/](tests/) | JavaScriptCore unit tests |
+| [tools/](tools/) | Dev scripts: icon generator, translation pass, store packager, locale builder |
+| [PRIVACY.md](PRIVACY.md) | Privacy policy |
+| [STORE_LISTING.md](STORE_LISTING.md) | Chrome Web Store listing copy + permission justifications |
 
 ## Tests
 
@@ -128,6 +133,22 @@ bash tests/run.sh
 ```
 
 137 tests, all green.
+
+## Release / packaging
+
+To build a Chrome Web Store upload zip:
+
+```bash
+python3 tools/build_locales.py    # regen _locales/ from translation/*.json
+python3 tools/generate_icons.py   # regen icons/ from the design script
+python3 tools/package.py          # writes dist/custom-web-blocker-<version>.zip
+```
+
+The packager uses an explicit allowlist, so dev files (`tools/`, `tests/`,
+dotfiles, IDE folders, `__pycache__`) are guaranteed to stay out of the
+upload. Listing copy and permission justifications live in
+[STORE_LISTING.md](STORE_LISTING.md); the privacy policy is
+[PRIVACY.md](PRIVACY.md).
 
 ## Notes
 

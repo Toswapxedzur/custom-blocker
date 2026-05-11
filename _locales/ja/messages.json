@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "カスタム Web ブロッカー",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "ネイティブブロック、利用時間制限、イベント駆動のカスタムルールでサイトをブロック。集中力を保ちましょう。",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

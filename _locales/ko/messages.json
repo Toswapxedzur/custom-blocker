@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "맞춤형 웹 차단기",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "네이티브 차단, 사용 시간 제한, 이벤트 기반 맞춤 규칙으로 웹사이트를 차단하세요. 중요한 일에 집중하세요.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

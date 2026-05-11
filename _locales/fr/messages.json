@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Bloqueur Web personnalisé",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "Bloquez des sites avec un blocage natif, des limites d'utilisation ou des regles personnalisees basees sur des evenements.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "কাস্টম ওয়েব ব্লকার",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "নেটিভ ব্লকিং, সময়সীমা বা ইভেন্ট-ভিত্তিক কাস্টম নিয়ম দিয়ে ওয়েবসাইট ব্লক করুন। যা গুরুত্বপূর্ণ তাতে মনোযোগ দিন।",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

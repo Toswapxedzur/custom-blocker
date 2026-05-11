@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Aangepaste webblocker",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "Blokkeer websites met native blokkering, gebruikslimieten of aangepaste gebeurtenisregels. Blijf gefocust.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

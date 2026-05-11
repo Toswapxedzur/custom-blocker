@@ -1658,31 +1658,55 @@ function updateDragTarget(clientY) {
   renderGroupList();
 }
 
+// Pixels of movement required before a mousedown on a group card commits to
+// a reorder drag. Below the threshold the mousedown is treated as a plain
+// click so the existing card click handler still selects the group.
+const GROUP_DRAG_THRESHOLD_PX = 5;
+
 function startGroupReorder(event, groupId) {
   if (event.button !== 0) {
     return;
   }
 
-  event.preventDefault();
-  event.stopPropagation();
-  flushAutosave().catch((error) => {
-    console.error("Failed to flush autosave before reordering.", error);
-  });
+  const startX = event.clientX;
+  const startY = event.clientY;
+  let dragActive = false;
 
-  state.draggedGroupId = groupId;
-  state.dropTargetGroupId = null;
-  state.dropInsertAfter = false;
-  document.body.style.userSelect = "none";
-  renderGroupList();
+  const beginDrag = () => {
+    dragActive = true;
+    flushAutosave().catch((error) => {
+      console.error("Failed to flush autosave before reordering.", error);
+    });
+    state.draggedGroupId = groupId;
+    state.dropTargetGroupId = null;
+    state.dropInsertAfter = false;
+    document.body.style.userSelect = "none";
+    renderGroupList();
+  };
 
   const handleMove = (moveEvent) => {
+    if (!dragActive) {
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+      if (dx * dx + dy * dy < GROUP_DRAG_THRESHOLD_PX * GROUP_DRAG_THRESHOLD_PX) {
+        return;
+      }
+      beginDrag();
+    }
     updateDragTarget(moveEvent.clientY);
   };
 
   const handleUp = () => {
-    document.body.style.userSelect = "";
     window.removeEventListener("mousemove", handleMove);
     window.removeEventListener("mouseup", handleUp);
+
+    if (!dragActive) {
+      // Treated as a click; nothing to clean up. The card's click handler
+      // (selectGroup) fires normally because we never preventDefault'd.
+      return;
+    }
+
+    document.body.style.userSelect = "";
 
     const draggedGroupId = state.draggedGroupId;
     const targetGroupId = state.dropTargetGroupId;
@@ -2393,16 +2417,29 @@ function renderGroupList(now = Date.now()) {
       updateGroupEnabled(group.id, toggle.checked);
     });
 
-    dragHandle.addEventListener("mousedown", (event) => {
-      startGroupReorder(event, group.id);
-    });
-
     topline.append(dragHandle, name);
     textWrap.append(topline, meta);
     header.append(textWrap, toggle);
     card.appendChild(header);
 
-    card.addEventListener("click", () => {
+    // mousedown anywhere on the card (except on the toggle, which manages
+    // its own clicks) starts a threshold-based reorder. A short click with
+    // no movement falls through to the click handler below, which selects
+    // the group as before.
+    card.addEventListener("mousedown", (event) => {
+      if (event.target === toggle) {
+        return;
+      }
+      startGroupReorder(event, group.id);
+    });
+
+    card.addEventListener("click", (event) => {
+      if (state.draggedGroupId) {
+        // We just finished a drag; suppress the trailing synthetic click
+        // so we don't accidentally re-select after reordering.
+        event.preventDefault();
+        return;
+      }
       selectGroup(group.id);
     });
 
@@ -2790,7 +2827,7 @@ function renderDynamicView() {
   const now = Date.now();
 
   if (!state.draggedGroupId) {
-    renderGroupList(now);
+    refreshGroupListInPlace(now);
   }
 
   updateBulkActionsUI(now);
@@ -2800,6 +2837,70 @@ function renderDynamicView() {
   updateFreezeUI(group, now);
   updateSnoozeUI(group, now);
   renderUnfreezeModal(now);
+}
+
+// Mutate the existing group cards in place instead of tearing them down and
+// rebuilding. The 1 s tick fires renderDynamicView; rebuilding the DOM each
+// tick caused two visible bugs:
+//   1. The browser stops re-evaluating :hover on freshly inserted nodes
+//      until the mouse moves, so a hovered card briefly snapped to its
+//      .active border (dark navy) right after each tick.
+//   2. Any in-flight click/mousedown that targeted a card was discarded
+//      because the original DOM node was gone by mouseup.
+// On any structural change (count or order differs from `state.groups`) we
+// fall back to a full re-render via renderGroupList.
+function refreshGroupListInPlace(now) {
+  const cards = groupList.querySelectorAll(".group-card[data-group-id]");
+
+  if (cards.length !== state.groups.length) {
+    renderGroupList(now);
+    return;
+  }
+
+  for (let i = 0; i < cards.length; i++) {
+    if (cards[i].dataset.groupId !== state.groups[i].id) {
+      renderGroupList(now);
+      return;
+    }
+  }
+
+  for (let i = 0; i < cards.length; i++) {
+    const card = cards[i];
+    const group = state.groups[i];
+    const draft = getDraftForGroup(group.id);
+    const freezeStatus = getFreezeStatus(group, now);
+
+    const wantsActive = group.id === state.selectedGroupId;
+    if (card.classList.contains("active") !== wantsActive) {
+      card.classList.toggle("active", wantsActive);
+    }
+
+    const nameEl = card.querySelector(".group-name");
+    if (nameEl) {
+      const nextName = (draft?.name?.trim() || group.name) ?? "";
+      if (nameEl.textContent !== nextName) {
+        nameEl.textContent = nextName;
+      }
+    }
+
+    const metaEl = card.querySelector(".group-meta");
+    if (metaEl) {
+      const nextMeta = getGroupMetaText(group, draft, now);
+      if (metaEl.textContent !== nextMeta) {
+        metaEl.textContent = nextMeta;
+      }
+    }
+
+    const toggle = card.querySelector(".group-toggle");
+    if (toggle) {
+      if (toggle.checked !== group.enabled) {
+        toggle.checked = group.enabled;
+      }
+      if (toggle.disabled !== freezeStatus.isFrozen) {
+        toggle.disabled = freezeStatus.isFrozen;
+      }
+    }
+  }
 }
 
 function stashCurrentDraft() {

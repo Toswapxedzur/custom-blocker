@@ -1,16 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Custom Web Blocker",
+  "name": "__MSG_appName__",
   "version": "1.1.0",
-  "description": "Block websites you choose with native blocking, delayed usage limits, or event-driven custom rules.",
+  "description": "__MSG_appDescription__",
+  "default_locale": "en",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "declarativeNetRequest", "alarms", "offscreen", "tabs", "webNavigation"],
   "host_permissions": ["<all_urls>"],
   "icons": {
-    "16": "icon-16.png",
-    "32": "icon-32.png",
-    "48": "icon-48.png",
-    "128": "icon-128.png"
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   },
   "background": {
     "service_worker": "background.js"
@@ -23,11 +24,11 @@
     }
   ],
   "action": {
-    "default_title": "Custom Web Blocker",
+    "default_title": "__MSG_appName__",
     "default_icon": {
-      "16": "icon-16.png",
-      "32": "icon-32.png",
-      "48": "icon-48.png"
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
     }
   },
   "sandbox": {
@@ -41,10 +42,10 @@
         "message-page.html",
         "message-page.js",
         "message-page.css",
-        "icon-16.png",
-        "icon-32.png",
-        "icon-48.png",
-        "icon-128.png"
+        "icons/icon-16.png",
+        "icons/icon-32.png",
+        "icons/icon-48.png",
+        "icons/icon-128.png"
       ],
       "matches": ["<all_urls>"]
     }

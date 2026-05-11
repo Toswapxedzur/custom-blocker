@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "कस्टम वेब अवरोधक",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "नेटिव ब्लॉकिंग, समय सीमा, या इवेंट-आधारित कस्टम नियमों से वेबसाइटें ब्लॉक करें। जो ज़रूरी है उस पर ध्यान दें।",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

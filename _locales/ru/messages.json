@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Пользовательский веб-блокировщик",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "Блокируйте сайты с помощью нативной блокировки, лимитов времени или пользовательских правил на основе событий.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

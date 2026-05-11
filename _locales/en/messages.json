@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Custom Web Blocker",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "Block websites with native blocking, delayed usage limits, or event-driven custom rules. Stay focused on what matters.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

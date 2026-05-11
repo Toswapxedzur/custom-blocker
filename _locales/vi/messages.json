@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Trình chặn web tùy chỉnh",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "Chặn trang web bằng chặn gốc, giới hạn thời gian, hoặc quy tắc tùy chỉnh theo sự kiện. Giữ sự tập trung.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

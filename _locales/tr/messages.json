@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Özel Web Engelleyici",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "Yerel engelleme, kullanım süresi sınırları veya olay tabanlı özel kurallarla siteleri engelleyin. Odakta kalın.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

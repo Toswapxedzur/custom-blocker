@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Niestandardowy bloker sieci",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "Blokuj witryny natywną blokadą, limitami czasu lub regułami opartymi na zdarzeniach. Zachowaj skupienie.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

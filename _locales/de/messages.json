@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Benutzerdefinierter Webblocker",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "Blockiere Websites mit nativer Sperre, Nutzungslimits oder benutzerdefinierten ereignisbasierten Regeln. Bleib fokussiert.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}

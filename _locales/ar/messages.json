@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "مانع الويب المخصص",
+    "description": "Extension name shown in Chrome and the Web Store."
+  },
+  "appDescription": {
+    "message": "احجب المواقع باستخدام الحجب الأصلي أو حدود الاستخدام أو قواعد مخصصة قائمة على الأحداث. ركّز على ما يهم.",
+    "description": "Short description shown on the Chrome Web Store listing."
+  }
+}
