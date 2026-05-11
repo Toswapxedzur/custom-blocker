@@ -19,6 +19,30 @@ importScripts("helpers.js");
 
 const helperBundle = self.__customBlockerHelpers;
 
+// Debug mode flag. False by default; user toggles it via Settings.
+// Drives whether [CustomBlocker] / [CustomBlocker:trace] verbose
+// console.log lines are emitted. The user's own helpers.log() calls
+// flow through ingestSandboxLogs regardless of this flag.
+const CB_GLOBAL_SETTINGS_KEY = "globalSettings";
+let cbDebugMode = false;
+function cbDebugLog(...args) { if (cbDebugMode) { try { console.log(...args); } catch (_) {} } }
+function cbDebugWarn(...args) { if (cbDebugMode) { try { console.warn(...args); } catch (_) {} } }
+function cbDebugError(...args) { if (cbDebugMode) { try { console.error(...args); } catch (_) {} } }
+(async () => {
+  try {
+    const r = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
+    const s = r && r[CB_GLOBAL_SETTINGS_KEY];
+    if (s && typeof s === "object") cbDebugMode = s.debugMode === true;
+  } catch (_) {}
+})();
+if (chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[CB_GLOBAL_SETTINGS_KEY]) return;
+    const next = changes[CB_GLOBAL_SETTINGS_KEY].newValue;
+    cbDebugMode = next && typeof next === "object" ? next.debugMode === true : false;
+  });
+}
+
 const BLOCKED_GROUPS_KEY = "blockedGroups";
 const USAGE_TIMERS_KEY = "usageTimersMs";
 const USAGE_RESET_AT_KEY = "usageResetAtMs";
@@ -1113,6 +1137,55 @@ function getRelevantSiteGroupsForHostname(hostname, groups, groupSnoozes, now) {
   );
 }
 
+// Merges custom timer snapshots from a sandbox dispatch result into
+// the page session payload that content.js consumes. Adds items to
+// session.items and forces showTimer=true if any custom timer is
+// visible. Custom timers NEVER escalate shouldExitPage — the helper
+// itself doesn't block. Blocking is the rule's responsibility, done
+// via isExpired() + preventDefault() inside an event handler.
+function mergeCustomTimerItems(payload, dispatchResult) {
+  const extraItems = buildCustomTimerItems(dispatchResult);
+  if (extraItems.length === 0) return payload;
+  const existing = Array.isArray(payload?.items) ? payload.items : [];
+  return {
+    ...payload,
+    items: existing.concat(extraItems),
+    showTimer: true
+  };
+}
+
+// Convert sandbox dispatch result's timerSnapshotsByGroup into the
+// shape that content.js's updateOverlay expects. A backward (countdown)
+// timer renders its remainingMs (clamped at 0 — it stops, doesn't
+// block); a forward (count-up) timer renders the elapsed currentMs.
+// blocksNow is always false: blocking lives in user-defined event
+// handlers, not in the timer helper.
+function buildCustomTimerItems(dispatchResult) {
+  const out = [];
+  if (!dispatchResult || !dispatchResult.timerSnapshotsByGroup) return out;
+  for (const [groupId, snapshots] of Object.entries(dispatchResult.timerSnapshotsByGroup)) {
+    if (!Array.isArray(snapshots)) continue;
+    for (const snap of snapshots) {
+      if (!snap || typeof snap !== "object") continue;
+      const direction = snap.direction === "forward" ? "forward" : "backward";
+      const currentMs = Math.max(0, Number(snap.currentMs) || 0);
+      out.push({
+        id: groupId + ":" + (snap.id || ""),
+        name: snap.displayName || snap.id || "Timer",
+        groupType: "custom",
+        mode: "custom-timer",
+        direction,
+        currentMs,
+        displayMs: currentMs,
+        remainingMs: direction === "backward" ? currentMs : Number.POSITIVE_INFINITY,
+        usedMs: direction === "forward" ? currentMs : 0,
+        blocksNow: false
+      });
+    }
+  }
+  return out;
+}
+
 function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now) {
   return relevantGroups
     .filter((group) => isTimedBlockingMode(group.mode))
@@ -1636,8 +1709,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "get-page-session") {
+    const tabId = sender?.tab?.id ?? null;
+    const tabUrl = sender?.tab?.url || sender?.url || "";
     getPageSession(message.pageContext ?? message.hostname)
-      .then((payload) => sendResponse(payload))
+      .then(async (payload) => {
+        // Dispatch a zero-elapsed heartbeat so the initial session
+        // response includes any custom timer items whose domain
+        // matches this URL. elapsedMs = 0 means no tick happens; it's
+        // purely a refresh of the displayed-set so the overlay paints
+        // immediately on page load instead of after the first 250ms
+        // heartbeat.
+        let merged = payload;
+        try {
+          if (typeof tabId === "number") {
+            const result = await dispatchEventToTab(
+              "pageHeartbeatEvent",
+              { tabId, url: tabUrl },
+              { data: { intervalMs: 0 }, elapsedMs: 0 }
+            );
+            merged = mergeCustomTimerItems(payload, result);
+          }
+        } catch (_) {}
+        sendResponse(merged);
+      })
       .catch((error) => {
         console.error("Failed to build page session.", error);
         sendResponse({
@@ -1654,10 +1748,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "track-page-time") {
+    const tabId = sender?.tab?.id ?? null;
+    const tabUrl = sender?.tab?.url || sender?.url || "";
+    const heartbeatElapsedMs = Math.max(0, Number(message.elapsedMs) || 0);
     queueUsageTimerUpdate(() =>
-      applyElapsedTime(message.pageContext ?? message.hostname, message.elapsedMs)
+      applyElapsedTime(message.pageContext ?? message.hostname, heartbeatElapsedMs)
     )
-      .then((payload) => sendResponse(payload))
+      .then(async (payload) => {
+        // Drive custom-rule timers from the same visibility-aware
+        // heartbeat that powers the default block group countdown.
+        // pageHeartbeatEvent fires once per content-script tick (~250ms
+        // when visible). The sandbox reply includes timer snapshots
+        // for the current URL which we merge into session.items so
+        // the on-page overlay renders both default and custom timers
+        // identically.
+        let merged = payload;
+        try {
+          if (typeof tabId === "number") {
+            const result = await dispatchEventToTab(
+              "pageHeartbeatEvent",
+              { tabId, url: tabUrl },
+              { data: { intervalMs: heartbeatElapsedMs }, elapsedMs: heartbeatElapsedMs }
+            );
+            merged = mergeCustomTimerItems(payload, result);
+          }
+        } catch (error) {
+          // Swallow: payload from default block group is still valid
+          // even if the sandbox dispatch fails. The error already
+          // surfaced via the offscreen hard-timeout / quarantine path.
+          try { console.warn("[CustomBlocker] heartbeat dispatch failed", error); } catch (_) {}
+        }
+        sendResponse(merged);
+      })
       .catch((error) => {
         console.error("Failed to track page time.", error);
         sendResponse({
@@ -1716,18 +1838,66 @@ const LOG_FEED_MAX_ENTRIES = 200;
 const logFeedBuffer = []; // each: { ts, level, groupId, message, eventType }
 let logFeedSeq = 0;
 
+// Rate-limit defense in depth: even with sandbox-side caps, a misbehaving
+// rule (or a swarm of legitimate ones) can still produce many log entries
+// in a single dispatch. We cap per-second IPC fan-out so the popup
+// renderer never gets pummeled.
+const LOG_FEED_BURST_PER_SEC = 50;
+const LOG_FEED_MAX_MESSAGE_BYTES = 4096;
+let logFeedBurstWindowStart = 0;
+let logFeedBurstCount = 0;
+let logFeedSuppressed = 0;
+
+function flushLogFeedSuppressionNote(now) {
+  if (logFeedSuppressed <= 0) return;
+  const noteRecord = {
+    id: ++logFeedSeq,
+    ts: now,
+    level: "warn",
+    groupId: "trace",
+    eventType: "rate-limit",
+    message: "[rate-limited] " + logFeedSuppressed +
+      " log entr" + (logFeedSuppressed === 1 ? "y" : "ies") +
+      " suppressed in the last second"
+  };
+  logFeedBuffer.push(noteRecord);
+  if (logFeedBuffer.length > LOG_FEED_MAX_ENTRIES) {
+    logFeedBuffer.splice(0, logFeedBuffer.length - LOG_FEED_MAX_ENTRIES);
+  }
+  try { chrome.runtime.sendMessage({ type: "log-feed-entry", entry: noteRecord }).catch(() => {}); } catch (_) {}
+  logFeedSuppressed = 0;
+}
+
 function pushLogFeedEntry(entry) {
   if (!entry || typeof entry !== "object") return;
-  const message = Array.isArray(entry.args)
+  const now = Date.now();
+  if (now - logFeedBurstWindowStart > 1000) {
+    flushLogFeedSuppressionNote(now);
+    logFeedBurstWindowStart = now;
+    logFeedBurstCount = 0;
+  }
+  if (logFeedBurstCount >= LOG_FEED_BURST_PER_SEC) {
+    logFeedSuppressed += 1;
+    return;
+  }
+  let message = Array.isArray(entry.args)
     ? entry.args.map((a) => {
         if (typeof a === "string") return a;
         try { return JSON.stringify(a); } catch { return String(a); }
       }).join(" ")
     : String(entry.message ?? "");
   if (!message.trim()) return;
+  // Cap a single log entry's payload so a `h.log("x".repeat(50_000_000))`
+  // can't push a 50MB string through the IPC chain.
+  if (message.length > LOG_FEED_MAX_MESSAGE_BYTES) {
+    const dropped = message.length - LOG_FEED_MAX_MESSAGE_BYTES;
+    message = message.slice(0, LOG_FEED_MAX_MESSAGE_BYTES) +
+      "…[" + dropped + " more chars truncated]";
+  }
+  logFeedBurstCount += 1;
   const record = {
     id: ++logFeedSeq,
-    ts: Date.now(),
+    ts: now,
     level: entry.level || "log",
     groupId: entry.groupId || "",
     eventType: entry.eventType || "",
@@ -1764,6 +1934,65 @@ function ingestSandboxLogs(result, descriptor) {
     for (const synth of result.synthResults) {
       if (synth && synth.result) collect(synth.result.logs);
     }
+  }
+}
+
+// Quarantine: when the sandbox or offscreen flags a runaway group, we
+// disable it in storage and push a one-line warning to the log feed.
+// The user keeps their source code (it stays in `activeEventSource` and
+// `blockingRulesText`); only `enabled` flips. Recovering is one click in
+// the popup. The reconciler picks up the flag through normal storage
+// onChanged flow and unloads the group.
+async function quarantineGroup(groupId, reason) {
+  if (!groupId) return false;
+  try {
+    const stored = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
+    const groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
+    const idx = groups.findIndex((g) => g && g.id === groupId);
+    if (idx < 0) return false;
+    if (groups[idx].enabled === false) return false; // already disabled
+    groups[idx] = {
+      ...groups[idx],
+      enabled: false,
+      lastAbortReason: String(reason || "unknown"),
+      lastAbortAt: Date.now()
+    };
+    await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
+    pushLogFeedEntry({
+      level: "error",
+      eventType: "quarantine",
+      groupId,
+      args: [
+        "[" + groupId + "] auto-disabled: " + reason +
+          ". Edit the rule and click Run again to re-enable."
+      ]
+    });
+    return true;
+  } catch (error) {
+    console.warn("[CustomBlocker] quarantineGroup failed", error);
+    return false;
+  }
+}
+
+function maybeQuarantineFromResult(result, descriptor) {
+  if (!result || typeof result !== "object") return;
+  const candidates = [];
+  // Sandbox dispatch result may carry a quarantine hint in either the
+  // top-level reply (deadline overrun for the active group) or in any
+  // synthResult (deadline overrun in a posted re-dispatch). Offscreen's
+  // synthetic timeout reply also surfaces { quarantine: { reason } }.
+  if (result.quarantine) candidates.push({ q: result.quarantine, descriptor });
+  if (Array.isArray(result.synthResults)) {
+    for (const synth of result.synthResults) {
+      if (synth && synth.result && synth.result.quarantine) {
+        candidates.push({ q: synth.result.quarantine, descriptor: synth.descriptor || descriptor });
+      }
+    }
+  }
+  for (const { q, descriptor: d } of candidates) {
+    const groupId = q.groupId || (d && d.targetGroupId) || "";
+    if (!groupId) continue;
+    quarantineGroup(groupId, q.reason || "deadline-overrun").catch(() => {});
   }
 }
 
@@ -1837,6 +2066,14 @@ async function loadCustomGroupSource(group) {
       args: ["[" + group.id + "] " + result.error]
     });
   }
+  // If load-source itself was hard-killed by the offscreen timeout, the
+  // synthetic reply carries quarantine={ reason } but no groupId — fill
+  // in the group we were trying to load and disable it. The user's
+  // source code is preserved; only `enabled` flips.
+  if (result && result.quarantine) {
+    const reason = result.quarantine.reason || "load-source-timeout";
+    quarantineGroup(group.id, reason).catch(() => {});
+  }
   refreshHandlerCount();
   return result;
 }
@@ -1898,7 +2135,7 @@ async function loadAllCustomGroupsAtStartup() {
       });
       await loadCustomGroupSource(group);
     }
-    console.log(
+    cbDebugLog(
       "[CustomBlocker] startup load complete; custom groups:",
       attempted,
       "with source:",
@@ -2087,13 +2324,19 @@ async function dispatchEventToTab(type, tabInfo, extras = {}) {
     hostname: hostnameOf(url),
     time: todayContext(),
     data: extras.data || null,
-    targetGroupId: extras.targetGroupId || null
+    targetGroupId: extras.targetGroupId || null,
+    // Optional. Only the heartbeat dispatch path fills this in. The
+    // sandbox advances all scope-matching timers by descriptor.elapsedMs
+    // which mirrors the default block group's "real visible-page time"
+    // exactly (content.js skips heartbeats on document.hidden tabs).
+    elapsedMs: typeof extras.elapsedMs === "number" ? extras.elapsedMs : 0
   };
   const result = await dispatchToSandbox(descriptor);
-  console.log("[CustomBlocker] dispatch", type, "→ tab", descriptor.tabId,
+  cbDebugLog("[CustomBlocker] dispatch", type, "→ tab", descriptor.tabId,
     "url:", url, "logs:", (result?.logs?.length ?? 0),
     "handlers:", cachedHandlerCount);
   ingestSandboxLogs(result, descriptor);
+  maybeQuarantineFromResult(result, descriptor);
   await applySandboxResultToTab(descriptor.tabId, result, descriptor);
   return result;
 }
@@ -2280,9 +2523,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const sourceText = typeof message.source === "string"
         ? message.source
         : (typeof group.blockingRulesText === "string" ? group.blockingRulesText : "");
-      const next = { ...group, activeEventSource: sourceText };
+      // Clicking Run is the user's explicit "I edited the rule, try
+      // again" gesture — so it always RE-ENABLES the group, even if a
+      // previous overrun had quarantined it (enabled=false +
+      // lastAbortReason). Without this, a quarantined rule would show
+      // "0 handler(s) registered" forever because loadCustomGroupSource
+      // sees enabled=false and immediately unloads. We also clear the
+      // lastAbortReason so the popup doesn't keep showing a stale
+      // "auto-disabled" badge after the user re-runs.
+      const wasQuarantined = group.enabled === false &&
+        typeof group.lastAbortReason === "string" && group.lastAbortReason.length > 0;
+      const next = {
+        ...group,
+        enabled: true,
+        activeEventSource: sourceText,
+        lastAbortReason: null,
+        lastAbortAt: null
+      };
       groups[idx] = next;
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
+      if (wasQuarantined) {
+        pushLogFeedEntry({
+          level: "log",
+          eventType: "run-custom-group",
+          groupId,
+          args: ["[" + groupId + "] re-enabled by Run; previous quarantine reason: " + group.lastAbortReason]
+        });
+      }
       const loadResult = await loadCustomGroupSource(next);
       sendResponse({ ok: true, loadResult });
     })();
@@ -2330,6 +2597,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  // Offscreen has hard-reset the sandbox iframe (after a request
+  // exceeded the hard-timeout). All in-memory handler registrations are
+  // gone; we eagerly re-load every enabled group so legitimate rules
+  // keep working. If quarantineGroup already disabled the offending
+  // rule, that reload will see enabled=false and unload it cleanly.
+  if (message.type === "event-sandbox-reset") {
+    (async () => {
+      try {
+        pushLogFeedEntry({
+          level: "warn",
+          eventType: "sandbox-reset",
+          groupId: "trace",
+          args: ["[sandbox-reset] reason: " + (message.reason || "unknown") +
+            " — reloading enabled custom rules"]
+        });
+        const stored = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
+        const groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
+        // Wait a tick so the offscreen iframe finishes loading the new
+        // event-sandbox.html before we start posting load-source.
+        await new Promise((r) => setTimeout(r, 250));
+        for (const group of groups) {
+          if (!group || group.groupType !== "custom" || !group.enabled) continue;
+          await loadCustomGroupSource(group);
+        }
+        refreshHandlerCount();
+      } catch (error) {
+        console.warn("[CustomBlocker] event-sandbox-reset reload failed", error);
+      }
+    })();
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (message.type === "content-ready") {
     const tabId = sender?.tab?.id;
     if (typeof tabId !== "number") {
@@ -2372,7 +2672,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         const groupId = String(message.groupId || "");
-        console.log("[CustomBlocker:trace] bg fire-snooze-press groupId:", groupId);
+        cbDebugLog("[CustomBlocker:trace] bg fire-snooze-press groupId:", groupId);
         if (!groupId) {
           sendResponse({ ok: false, error: "missing groupId" });
           return;
@@ -2382,7 +2682,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
           activeTab = tabs && tabs[0] ? tabs[0] : null;
         } catch (_) {}
-        console.log("[CustomBlocker:trace] bg activeTab:", activeTab && { id: activeTab.id, url: activeTab.url });
+        cbDebugLog("[CustomBlocker:trace] bg activeTab:", activeTab && { id: activeTab.id, url: activeTab.url });
         const descriptor = {
           type: "snoozePress",
           tabId: activeTab && typeof activeTab.id === "number" ? activeTab.id : null,
@@ -2393,9 +2693,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           data: { triggeredAt: Date.now() },
           targetGroupId: groupId
         };
-        console.log("[CustomBlocker:trace] bg → sandbox dispatch", descriptor);
+        cbDebugLog("[CustomBlocker:trace] bg → sandbox dispatch", descriptor);
         const result = await dispatchToSandbox(descriptor);
-        console.log("[CustomBlocker:trace] bg ← sandbox result",
+        cbDebugLog("[CustomBlocker:trace] bg ← sandbox result",
           result && {
             logs: result.logs?.length,
             intents: result.intents?.length,
@@ -2403,15 +2703,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           },
           "tabId:", descriptor.tabId);
         ingestSandboxLogs(result, descriptor);
+        maybeQuarantineFromResult(result, descriptor);
         if (typeof descriptor.tabId === "number") {
           await applySandboxResultToTab(descriptor.tabId, result, descriptor);
-          console.log("[CustomBlocker:trace] bg routed result to tab", descriptor.tabId);
+          cbDebugLog("[CustomBlocker:trace] bg routed result to tab", descriptor.tabId);
         } else {
-          console.warn("[CustomBlocker:trace] bg has no active tab id — toast cannot render");
+          cbDebugWarn("[CustomBlocker:trace] bg has no active tab id — toast cannot render");
         }
         sendResponse({ ok: true, result });
       } catch (error) {
-        console.error("[CustomBlocker:trace] bg fire-snooze-press error", error);
+        cbDebugError("[CustomBlocker:trace] bg fire-snooze-press error", error);
         sendResponse({
           ok: false,
           error: String(error && error.message ? error.message : error)

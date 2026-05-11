@@ -1,84 +1,85 @@
-# Custom Web Blocker — 사용 설명서
+# 맞춤형 웹 차단기 - 사용 설명서
 
-이 문서는 확장 프로그램의 전체 참조 매뉴얼입니다. 가장 쉽고 일반적인 워크플로부터 시작해, 사용자 정의 JavaScript 차단 규칙과 helper API 같은 고급 주제로 점차 넘어갑니다.
+이것은 확장에 대한 전체 참조 매뉴얼입니다. 가장 쉽고 가장 일반적인 워크플로부터 시작하여 점차 맞춤형 이벤트 기반 차단 규칙 및 도우미 API와 같은 고급 주제로 이동합니다.
 
-처음 사용하는 경우에는 **빠른 시작**과 **차단 그룹 개요**만 먼저 읽으면 충분합니다. 그 아래 내용은 필요에 따라 선택적으로 보면 됩니다.
+처음 사용하는 경우 **빠른 시작** 및 **블록 그룹 개요**를 읽어보세요. 해당 섹션 아래의 모든 내용은 수행하려는 작업에 따라 선택 사항입니다.
 
 ---
 
-## 1. 이 확장 프로그램이 하는 일
+## 1. 이 확장 프로그램의 기능
 
-Custom Web Blocker를 사용하면 직접 정의한 규칙에 따라 웹사이트와 온라인 방해 요소를 차단할 수 있습니다. 다음이 가능합니다.
+Custom Web Blocker를 사용하면 사용자가 직접 정의한 규칙에 따라 웹사이트와 온라인 방해 요소를 차단할 수 있습니다. 다음을 수행할 수 있습니다.
 
-- 브라우저의 네이티브 네트워크 차단으로 사이트를 즉시 차단 (`ERR_BLOCKED_BY_CLIENT` 유형과 동일한 방식).
-- 사이트별로 하루 허용 시간을 분 단위로 설정하고, 초과하면 차단.
-- YouTube, TikTok, Facebook, Instagram, Twitch, Reddit에서 사이트 전체가 아닌 특정 콘텐츠 유형만 차단.
-- 지원 플랫폼에서 단일 페이지 차단뿐 아니라 피드 내 차단 대상 콘텐츠 숨김.
-- 요일과 `HHMM-HHMM` 시간 창으로 규칙 활성 시간 예약.
-- 규칙을 freeze하여 충동적으로 변경하기 어렵게 설정. strict freeze는 지정 시간(시간 단위) 동안 잠그고 해제 시 20단계 확인 절차를 요구.
-- 충분히 긴 사유를 작성한 경우에만 규칙을 일시적으로 snooze.
-- 타이머, 영구 저장소, 플랫폼 감지, 도메인 매칭, 로깅 helper를 활용한 사용자 정의 JavaScript 차단 규칙 작성.
-- 20개 이상의 언어로 확장 프로그램 사용.
+- 브라우저의 기본 네트워크 차단(`ERR_BLOCKED_BY_CLIENT`를 생성하는 것과 동일한 종류의 차단)으로 사이트를 즉시 차단합니다.
+- 사이트에서 하루에 특정 시간(분)을 허용한 후 해당 한도를 초과하면 차단하세요.
+- YouTube, TikTok, Facebook, Instagram, Twitch 및 Reddit(전체 사이트 아님)에서 특정 종류의 콘텐츠를 차단합니다.
+- 단일 페이지만 차단하는 대신 지원되는 플랫폼의 피드에서 차단된 콘텐츠를 숨깁니다.
+- 요일별 및 `HHMM-HHMM` 시간 창별로 규칙이 활성화되는 시기를 예약합니다.
+- 쉽게 변경할 수 없도록 규칙을 동결합니다. 엄격한 동결은 지정된 시간 동안 잠금을 설정하며 실행 취소하려면 20단계 확인 절차가 필요합니다.
+- 규칙을 일시적으로 다시 알림합니다. 단, 충분히 긴 사유를 작성한 후에만 가능합니다.
+- 정방향/역방향 타이머, 그룹별 영구 저장, 플랫폼별 DOM 인텐트(탐색 버튼 숨기기, 조건자별 피드 카드 숨기기, 하위 섹션별 타이머 설정), URL 유틸리티 및 구조화된 로깅을 위한 도우미를 사용하여 JavaScript로 **이벤트 기반** 사용자 정의 규칙을 작성합니다.
+- 50개 이상의 미리 만들어진 템플릿(타이머, 일정, 피드 숨기기, 포커스 세션, 리디렉션, 넛지, 지속성, DOM 조정, 디버그 도우미)이 포함된 내장 라이브러리에서 선택하세요.
+- 20개 이상의 언어로 확장 프로그램을 사용하세요.
 
-이 확장은 Chrome Manifest V3 확장으로, 하나의 편집 페이지(팝업), 하나의 백그라운드 service worker, 그리고 모든 페이지에서 실행되는 하나의 content script로 구성됩니다.
+확장 프로그램은 편집기 페이지(팝업) 1개, 백그라운드 서비스 워커 1개, 맞춤 규칙 코드를 호스팅하는 오프스크린 샌드박스 1개, 모든 페이지에서 실행되는 콘텐츠 스크립트 1개가 포함된 Chrome 매니페스트 V3 확장 프로그램입니다. 사용자 정의 규칙은 오프스크린 샌드박스에 있습니다. 실행 클릭당 한 번 로드되며 규칙이 비활성화되거나 삭제될 때까지 등록된 상태로 유지됩니다.
 
 ---
 
 ## 2. UI 둘러보기
 
-확장 아이콘을 클릭하면 편집기가 작은 팝업이 아니라 전체 웹 페이지로 열립니다. 화면은 다음 영역으로 구성됩니다.
+확장 프로그램 아이콘을 클릭하면 편집기가 전체 웹페이지(작은 팝업이 아님)로 열립니다. 페이지에는 다음과 같은 영역이 있습니다.
 
 - **상단 바**
-  - **Instruction Manual** 버튼(이 문서)
-  - **Language** 선택기
-- **왼쪽 패널 — Block Groups**
-  - 차단 그룹 목록. 각 카드에 그룹 이름, 요약 한 줄, 활성/비활성 체크박스가 표시됩니다.
-  - **Add** 버튼으로 새 그룹을 만듭니다. 옆 드롭다운에서 유형을 선택합니다.
-  - **Delete All**은 모든 그룹을 삭제하며, freeze된 그룹이 있으면 추가 확인이 필요합니다.
-  - 카드의 `::` 핸들을 위아래로 드래그해 순서를 변경할 수 있습니다.
-  - 세로 분할선을 드래그해 패널 너비를 조절할 수 있습니다.
-- **오른쪽 패널 — Editor**
-  - 현재 선택한 그룹을 편집합니다: 이름, 차단 동작, 차단 목록, 유형별 필터, 일정, freeze, snooze.
-  - 입력/조작을 멈춘 뒤 잠깐 후 모든 변경사항이 자동 저장됩니다.
-- **Toast** (가운데에 뜨고 사라지는 팝업)
-  - "Saved changes" 같은 상태 메시지나 입력 오류를 표시합니다.
-
-페이지가 차단 중이거나 타이머가 활성 상태이면, 왼쪽 상단 오버레이에 해당 페이지에 적용 중인 시간 제약이 `hh:mm:ss`(또는 `mm:ss`) 형식으로 표시됩니다. 제약이 여러 개면 여러 줄로 쌓입니다.
-
----
-
-## 3. 빠른 시작
-
-1. 확장 아이콘을 클릭합니다. 편집기가 전체 페이지로 열립니다.
-2. **Block Groups** 패널에서 드롭다운으로 그룹 유형을 고릅니다.
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit`, `Custom`.
-3. **Add**를 클릭합니다. 새 그룹이 생성되고 편집기가 해당 그룹을 엽니다.
-4. 그룹 이름을 입력합니다.
-5. 유형별 필드를 채웁니다(`Default`는 **Blocked websites** 목록).
-6. 왼쪽 패널에서 해당 그룹 체크박스가 켜져 있는지 확인합니다.
-7. 목록에 넣은 사이트 중 하나에 접속합니다. 차단이 즉시 적용되어야 합니다.
-
-여기까지가 기본 경로의 전부입니다. 이 매뉴얼의 나머지는 그 위에 얹는 선택 기능입니다.
+  - **사용 설명서** 버튼(본 문서)
+  - **언어** 선택기
+  - **설정** 기어(**디버그 모드**를 포함한 고급 토글)
+- **왼쪽 패널 — 블록 그룹**
+  - 블록 그룹 목록. 각 카드에는 그룹 이름, 짧은 요약 줄, 활성화/비활성화 확인란이 표시됩니다.
+  - **추가** 버튼을 누르면 새 그룹이 생성됩니다. 옆에 있는 드롭다운에서 유형을 선택합니다.
+  - **모두 삭제**는 모든 그룹을 제거하며 그룹이 고정된 경우 추가 확인을 수행합니다.
+  - 카드의 `::` 핸들을 위나 아래로 드래그하여 그룹 순서를 변경할 수 있습니다.
+  - 수직 분할자를 끌어서 이 패널의 크기를 조정할 수 있습니다.
+- **오른쪽 패널 — 편집기**
+  - 이름, 차단 동작, 차단 목록, 유형별 필터, 일정, 정지, 다시 알림 등 현재 선택한 그룹을 편집합니다.
+  - 모든 변경 사항은 입력이나 상호 작용을 중단한 후 몇 초 안에 자동으로 저장됩니다.
+  - **사용자 정의** 그룹의 경우 편집기에는 **템플릿** 브라우저, **실행** 버튼 및 **로그** 패널(v1.1의 *활동 로그*에서 이름이 변경됨)도 표시됩니다.
+- **토스트**(가운데에서 사라지는 팝업) — "변경 사항이 저장되었습니다."와 같은 상태 메시지를 표시합니다. 또는 입력 오류.
+- **인페이지 오버레이** — 탭에 활성 타이머나 블록이 있는 동안 오버레이는 왼쪽 상단에 `hh:mm:ss`(또는 `mm:ss`) 형식으로 영향을 미치는 모든 제약 조건을 표시합니다. 여러 제약 조건이 여러 줄에 쌓입니다. 기본 블록 그룹 카운트다운과 사용자 정의 규칙 타이머는 이 오버레이를 공유합니다.
 
 ---
 
-## 4. 차단 그룹 개요
+## 3. 빠른 시작1. 확장 아이콘을 클릭하세요. 편집기가 전체 페이지로 열립니다.
+2. **블록 그룹** 패널의 드롭다운에서 그룹 유형을 선택합니다.
+   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit` 또는 `Custom`.
+3. **추가**를 클릭합니다. 새 그룹이 나타나고 편집기가 해당 그룹을 엽니다.
+4. 이름을 지어주세요.
+5. 유형별 필드를 입력합니다(`Default`의 경우 **차단된 웹사이트** 목록을 의미함).
+6. 왼쪽 패널에 있는 그룹의 확인란이 켜져 있는지 확인하세요.
+7. 나열된 사이트 중 하나를 방문하십시오. 차단은 즉시 적용됩니다.
 
-이 확장 프로그램의 모든 구성은 **차단 그룹(block groups)** 중심입니다. 차단 그룹은 하나의 규칙 세트입니다.
+그것이 바로 행복한 길입니다. 이 매뉴얼의 나머지 부분은 이에 대한 옵션일 뿐입니다.
 
-- 이름, 유형, 활성/비활성 상태를 가집니다.
-- 차단 동작(즉시 또는 일정 분 후 차단)을 가집니다.
-- 선택적으로 일정(요일 + 시간 창)과 freeze/snooze 제어를 가집니다.
-- 유형에 따라 사이트 목록, YouTube 작성자 필터, subreddit 이름, JavaScript 함수 같은 추가 필드를 가집니다.
+> 사용자 정의 그룹에서 **실행**을 누르면 새 규칙이 **향후** 페이지 이벤트에 연결됩니다. 이미 열려 있는 탭은 다시 로드할 때까지 이전 규칙을 계속 실행합니다. 팝업에는 성공적인 실행이 완료될 때마다 해당 효과에 대한 알림이 표시됩니다.
 
-그룹은 개수 제한 없이 만들 수 있습니다. 여러 그룹이 같은 페이지에 동시에 적용될 수 있으며, 이때는 **더 엄격한** 규칙이 우선합니다.
+---
 
-- "Block immediately"가 "block after some time"보다 우선.
-- 남은 시간이 더 적은 그룹이 더 많은 그룹보다 우선.
+## 4. 블록 그룹 개요
 
-즉, 그룹을 추가하면 페이지가 더 늦게가 아니라 더 빨리 차단될 수만 있습니다.
+이 확장 프로그램의 모든 내용은 **블록 그룹**으로 구성됩니다. 블록 그룹은 하나의 규칙 세트입니다.
 
-`::` 핸들로 그룹 순서를 바꿀 수 있습니다. 순서는 어떤 규칙이 가장 엄격한지를 바꾸지 않지만, 목록의 위아래 읽기 순서를 바꿉니다.
+- 이름, 유형, 활성화/비활성화 상태가 있습니다.
+- 차단 동작(즉시, 몇 분 후 또는 고정된 카운트다운)이 있습니다.
+- 선택적 일정(일 + 시간 창)과 선택적 동결/일시 중지 제어 기능이 있습니다.
+- 유형에 따라 웹사이트 목록, YouTube 제작자 필터, 하위 레딧 이름 또는 이벤트 기반 JavaScript 규칙과 같은 추가 필드가 있습니다.
+
+그룹은 원하는 수만큼 가질 수 있습니다. 여러 그룹이 동일한 페이지에 적용될 수 있습니다. 이 경우 **가장 엄격한** 규칙이 적용됩니다.
+
+- "즉시 차단"이 "일정 시간 후 차단"보다 좋습니다.
+- 남은 시간이 적은 그룹이 남은 시간이 많은 그룹을 이깁니다.
+
+따라서 더 많은 그룹을 추가하면 페이지 차단이 더 빨리 이루어지고 나중에는 발생하지 않습니다.
+
+**평가 순서는 아래에서 위로입니다.** 확장 프로그램이 블록 그룹을 반복할 때 목록 맨 아래에 있는 그룹부터 시작하여 위쪽으로 진행됩니다. 목록 맨 위에 있는 그룹이 마지막으로 평가되어 "마지막 단어"를 얻습니다. 예를 들어, 맨 아래 그룹이 `helpers.getPlatformHelper().youtube().hideShortButton()`를 호출하고 맨 위 그룹이 `showShortButton()`를 호출하면 버튼이 계속 표시됩니다. 이 순서를 변경하려면 카드의 `::` 핸들을 드래그하세요.
 
 ---
 
@@ -86,445 +87,625 @@ Custom Web Blocker를 사용하면 직접 정의한 규칙에 따라 웹사이�
 
 ### 5.1 `Default` — 일반 웹사이트 차단
 
-특정 도메인을 차단하는 일반적인 사용 사례입니다.
+특정 도메인을 차단하는 경우(일반적인 사용 사례)
 
-- **Blocked websites**: 한 줄에 사이트 하나. `facebook.com`, `https://www.facebook.com/somepage` 모두 가능하며 확장이 hostname을 추출/정규화합니다.
-- 사이트 규칙은 해당 hostname과 모든 하위 도메인에 적용됩니다.
-- 이 그룹 유형은 Chrome 네이티브 네트워크 차단(`ERR_BLOCKED_BY_CLIENT` 유사)을 사용합니다. 즉 차단 URL로의 이동은 페이지가 로드되기 전에 중단됩니다.
+- **차단된 웹사이트**: 한 줄에 하나의 사이트. `facebook.com`와 `https://www.facebook.com/somepage`가 모두 작동합니다. 확장 프로그램은 호스트 이름을 추출하고 정규화합니다.
+- 사이트 규칙은 해당 호스트 이름과 모든 하위 도메인에 적용됩니다.
+- 이 그룹 유형은 `ERR_BLOCKED_BY_CLIENT`와 유사한 Chrome의 기본 네트워크 차단을 사용합니다. 이는 페이지가 로드되기 전에 차단된 URL에 대한 탐색이 중지됨을 의미합니다.
 
-### 5.2 `YouTube` — YouTube 및 유사 동영상 사이트 차단
+### 5.2 `YouTube` — YouTube 및 유사한 비디오 사이트 차단
 
-편집기에 **Filters** 섹션이 추가됩니다.
+편집기에 **필터** 섹션을 추가합니다.
 
-- **Content type**:
-  - `Apply to all YouTube pages` — 모든 YouTube 페이지 대상.
-  - `Apply to Shorts` — Shorts 페이지만 대상.
-  - `Apply to long videos` — `/watch`, `/live/`, `/embed/` 등만 대상.
-  - `Apply to YouTube posts` — 커뮤니티 게시물(`/post/...`, 채널 community/posts 탭).
-- **Author filter**:
-  - `Do not filter by author` — 작성자 기준 필터 없음.
-  - `Apply to certain authors` — 목록의 작성자만 이 그룹을 트리거.
-  - `Apply to all except certain authors` — 목록의 작성자는 예외 처리.
-- **Authors**: 한 줄에 작성자 하나. `@handle`, 전체 URL, `/channel/UC...`, `/c/...`, `/user/...` 지원.
-- **Hide blocked entries in the YouTube feed**: 이 그룹이 실제 차단 중일 때 YouTube 피드의 일치 카드가 숨겨집니다. 차단 비활성 후 다음 새로고침에서 복원됩니다.
+- **콘텐츠 유형**:
+  - `Apply to all YouTube pages` — 모든 YouTube 페이지가 중요합니다.
+  - `Apply to Shorts` — Shorts 페이지만 계산됩니다.
+  - `Apply to long videos` - `/watch`, `/live/`, `/embed/` 등만 해당
+  - `Apply to YouTube posts` — 커뮤니티 게시물(`/post/...`, 채널 커뮤니티/게시물 탭).
+- **작성자 필터**:
+  - `Do not filter by author` — 작성자 신원은 중요하지 않습니다.
+  - `Apply to certain authors` — 나열된 작성자만 이 그룹을 트리거합니다.
+  - `Apply to all except certain authors` — 등재된 저자는 면제됩니다.
+- **저자**: 한 줄에 한 명의 저자입니다. `@handle`, 전체 URL, `/channel/UC...`, `/c/...`, `/user/...`를 허용합니다.
+- **YouTube 피드에서 차단된 항목 숨기기**: 이 그룹이 적극적으로 차단하는 동안 YouTube 피드에서 일치하는 카드는 숨겨집니다. 블록이 비활성화되면 다음 새로 고침 시 다시 나타납니다.
 
-Shorts/Post 콘텐츠 유형에서 작성자 필터가 없고 그룹이 현재 차단 중이면, 관련 내비게이션 항목(사이드바 Shorts, 채널 Community/Posts 탭)과 "Latest YouTube posts" 같은 일치 선반도 숨깁니다.
+Shorts 및 게시물 콘텐츠 유형의 경우 작성자 필터가 설정되지 않고 그룹이 현재 차단 중인 경우 확장 프로그램은 관련 탐색 항목(Shorts 사이드바 항목, 커뮤니티/게시물 채널 탭) 및 '최신 YouTube 게시물'과 같은 일치하는 서가도 숨깁니다.
 
-short/long 판별은 페이지 형태를 감지할 수 있는 경우 TikTok, Vimeo, Twitch clips/VODs, Dailymotion 같은 다른 동영상 사이트에도 확장됩니다.
+짧은 페이지와 긴 페이지 형식을 감지할 수 있는 경우 TikTok, Vimeo, Twitch 클립/VOD 및 Dailymotion과 같은 다른 비디오 사이트로 확장됩니다.
 
 ### 5.3 `TikTok` — TikTok 콘텐츠 차단
 
-플랫폼 동영상 편집 카드와 동일하지만 TikTok 전용 라벨을 사용합니다.
-
-- 콘텐츠 유형: short videos, videos, profile pages.
-- 작성자: TikTok 핸들(`@handle`) 또는 프로필 URL.
-- 그룹 활성 중에는 TikTok 페이지의 일치 카드가 피드에서 숨겨집니다.
+플랫폼 비디오 편집기와 동일한 편집기 카드이지만 TikTok 전용 라벨이 있습니다.- 콘텐츠 유형: 짧은 동영상, 동영상, 프로필 페이지.
+- 작성자: TikTok은 (`@handle`) 또는 프로필 URL을 처리합니다.
+- 피드 숨기기는 그룹이 활성화된 동안 TikTok 페이지에서 일치하는 카드를 숨깁니다.
 
 ### 5.4 `Facebook` — Facebook 콘텐츠 차단
 
-- 콘텐츠 유형: Reels, videos, posts.
-- 작성자: 페이지 이름(`page.name`), 프로필 URL, 또는 `profile.php?id=...` 형식(숫자 id는 `id:<number>`로 보존).
-- 피드 숨김은 Facebook의 일치 피드 카드를 숨깁니다.
+- 콘텐츠 유형: 릴, 비디오, 게시물.
+- 작성자: 페이지 이름(`page.name`), 프로필 URL 또는 `profile.php?id=...` 형식(숫자 ID는 `id:<number>`로 유지됩니다).
+- 피드 숨기기는 Facebook에서 일치하는 피드 카드를 숨깁니다.
 
-### 5.5 `Instagram` — Instagram 콘텐츠 차단
+### 5.5 `Instagram` — 인스타그램 콘텐츠 차단
 
-- 콘텐츠 유형: Reels, videos, posts.
-- 작성자: Instagram 핸들 또는 프로필 URL.
-- `/reel/`, `/p/`, `/tv/`, `/explore/` 같은 예약 경로는 작성자로 취급되지 않습니다.
-- 피드 숨김은 Instagram의 일치 카드를 숨깁니다.
+- 콘텐츠 유형: 릴, 비디오, 게시물.
+- 작성자: Instagram이 URL을 처리하거나 프로필을 작성합니다.
+- `/reel/`, `/p/`, `/tv/`, `/explore/`와 같은 예약된 경로는 작성자로 처리되지 않습니다.
+- 피드 숨기기는 Instagram에서 일치하는 카드를 숨깁니다.
 
 ### 5.6 `Twitch` — Twitch 콘텐츠 차단
 
-- 콘텐츠 유형: clips, streams/VODs, channel pages.
+- 콘텐츠 유형: 클립, 스트림/VOD, 채널 페이지.
 - 작성자: 채널 이름 또는 채널 URL.
-- `/directory`, `/videos`, `/settings` 등의 예약 경로는 채널 이름으로 취급되지 않습니다.
-- 피드 숨김은 Twitch의 일치 카드를 숨깁니다.
+- `/directory`, `/videos`, `/settings` 등과 같은 예약된 경로는 채널 이름으로 처리되지 않습니다.
+- 피드 숨기기는 Twitch에서 일치하는 카드를 숨깁니다.
 
-### 5.7 `Reddit` — Reddit 전체 또는 특정 subreddit 차단
+### 5.7 `Reddit` — Reddit 또는 특정 하위 Reddit 차단
 
-- **Subreddits**: 한 줄에 subreddit 하나. 비워 두면 Reddit 전체에 적용됩니다. `productivity`, `r/productivity` 모두 허용됩니다.
+- **하위 레딧**: 한 줄에 하나의 하위 레딧이 있습니다. 빈 목록은 그룹이 Reddit 전체에 적용된다는 의미입니다. `productivity` 및 `r/productivity`가 모두 허용됩니다.
 
-### 5.8 `Custom` — JavaScript 함수 기반 차단
+### 5.8 `Custom` — 이벤트 기반 JavaScript에 의해 차단
 
-JavaScript 함수를 작성하면 확장이 약 1초마다 호출하고, 반환값을 현재 차단 목록으로 사용합니다.
+페이지 열기, URL 변경, 페이지 하트비트, 타이머 종료 및 사용자 정의 이벤트와 같은 이벤트에 대한 **핸들러를 등록**하는 JavaScript 함수를 작성합니다. 이 함수는 실행 클릭당 한 번씩 실행됩니다. 등록된 핸들러는 실행을 다시 누르거나 그룹을 비활성화하거나 삭제할 때까지 탐색 전반에 걸쳐 활성 상태를 유지합니다.
 
-`Custom` 그룹에는 다음 항목이 표시되지 않습니다: blocking behavior, blocked sites, allowed minutes, reset interval, schedule days, time windows. 대신 큰 입력란 하나(**Blocking Rules** 함수)와 표준 freeze/snooze 제어만 제공합니다.
+`Custom` 그룹은 차단 동작, 차단된 사이트, 허용된 시간(분), 재설정 간격, 예약 날짜 또는 시간 창을 표시하지 않습니다. **차단 규칙** 편집기와 표준 동결/일시 중지 제어 기능이 유지됩니다. 매개변수화된 시작 규칙이 있는 사전 설정된 브라우저를 여는 **템플릿** 버튼도 있습니다. 사전 설정을 적용하면 확인 후 현재 규칙이 대체됩니다.
 
-전체 custom 규칙 참조와 helpers API는 **11장**을 참고하세요.
+전체 맞춤 규칙 참조 및 도우미 API는 **섹션 11**을 참조하세요.
 
 ---
 
-## 6. 차단 동작
+## 6. 차단 행위
 
-대부분의 그룹 유형에서는 두 가지 모드 중 하나를 선택합니다.
+대부분의 그룹 유형에서는 세 가지 모드 중 하나를 선택합니다.
 
 ### 6.1 즉시 차단
 
-그룹이 켜져 있고, 일정이 허용하며, (플랫폼 그룹의 경우) 페이지가 조건에 맞으면 규칙이 활성입니다.
+규칙은 그룹이 켜져 있고, 일정이 허용하고, (플랫폼 그룹의 경우) 페이지가 일치할 때마다 활성화됩니다.
 
-`Default` 그룹은 Chrome 네이티브 차단을 사용하고, 플랫폼 그룹은 페이지 내 오버레이/이탈 로직을 사용합니다.
+`Default` 그룹의 경우 Chrome의 기본 차단 기능을 사용합니다. 플랫폼 그룹의 경우 인페이지 오버레이/종료 로직을 ​​사용합니다.
 
-### 6.2 일정 분수 이후 차단
+### 6.2 몇 분 후 차단
 
-이 모드는 사용 시간 예산입니다.
+사용예산입니다.
 
-- **Allowed minutes before block**(소수): 기간당 허용 분수. 예: `15`, `0.5`, `90`.
-- **Timer reset interval (hours)**(소수): 예산 리셋 주기. 예: `24`(일 단위), `1`(시간 단위), `0.25`(15분 단위).
+- **차단 전 허용 시간(분)**(십진수): 기간당 허용되는 시간(분)입니다. 예: `15`, `0.5`, `90`.
+- **타이머 재설정 간격(시간)**(십진수): 예산이 재설정되는 빈도입니다. 예: 매일 `24`, 매시간 `1`, 15분마다 `0.25`.
 
-남은 시간이 있는 동안 페이지는 정상 동작하며 타이머 오버레이를 표시합니다. 예산이 0이 되면 기간이 끝날 때까지 페이지가 차단되고, 오버레이에 `0:00`이 표시된 뒤 탭이 이탈을 시도합니다.
+남은 시간이 있는 동안 페이지는 정상적으로 작동하고 타이머 오버레이가 표시됩니다. 예산이 0에 도달하면 나머지 기간 동안 페이지가 차단되고 오버레이에 `0:00`가 표시된 다음 탭이 종료를 시도합니다.
 
-확장은 그룹별/기간별로 동작합니다.
+확장은 그룹별, 기간별입니다.
 
-- 각 그룹은 독립적인 예산을 가집니다.
-- 그룹에 매칭되는 어떤 페이지에서 쓴 시간도 해당 그룹 예산에 누적됩니다.
-- 같은 그룹의 여러 탭은 예산을 공유합니다. 타이머는 동기화되며, 다른 탭으로 전환하면 현재 공유 시간을 즉시 반영하도록 강제 새로고침됩니다.
+- 각 그룹에는 자체 예산이 있습니다.
+- 그룹과 일치하는 페이지에서 보낸 시간은 해당 그룹의 예산에 포함됩니다.
+- 동일한 그룹의 여러 탭이 예산을 공유합니다. 타이머는 동기화 상태를 유지합니다. 다른 탭으로 전환하면 강제로 새로 고쳐지므로 현재 공유 시간이 즉시 표시됩니다.
 
-여러 시간제한 그룹이 동일 페이지에 적용되면 가장 엄격한 그룹이 우선합니다.
+여러 시간 제한 그룹이 동일한 페이지에 적용되는 경우 가장 엄격한 그룹이 승리합니다.
+
+### 6.3 타이머(카운트다운 후 차단)
+
+이 모드는 카운트다운 타이머를 표시하고 `0:00`에 도달하면 차단됩니다.
+
+- **타이머 재설정 간격(시간)**(십진수): 타이머 길이와 재설정 빈도입니다. 예: 매일 `24`, 매시간 `1`, 15분마다 `0.25`.
+
+**몇 분 후 차단**과 달리 이 모드에는 별도의 '차단 전 허용 시간(분)' 필드가 **없습니다**. 타이머는 재설정 간격에 따라 시작하고 일치하는 페이지가 열려 있는 동안 카운트다운한 후 다음 재설정까지 차단됩니다.기본 그룹 카운트다운과 사용자 지정 그룹 타이머(**섹션 11.3.1** 참조)는 모두 **탭이 표시되는 동안에만 진행됩니다**. 탭을 전환하거나 창을 최소화하거나 화면을 잠그면 카운트다운이 자동으로 일시 중지됩니다.
 
 ---
 
-## 7. 일정(Schedule)
+## 7. 일정
 
-**Schedule** 카드에서 그룹 활성 시간을 제한할 수 있습니다.
+**일정** 카드에서는 그룹이 활성화되는 시기를 제한할 수 있습니다.
 
-- **Days to block**: 그룹을 적용할 요일을 선택합니다. 체크하지 않은 요일은 그룹이 비활성입니다.
-- **Time windows**: 자유 형식 목록, `HHMM-HHMM` 형식으로 한 줄당 하나의 시간 창. 예:
+- **차단일**: 그룹이 적용되는 요일을 선택합니다. 선택하지 않은 날은 그룹이 해당 날짜에 비활성화되었음을 의미합니다.
+- **시간 창**: 자유 형식 목록, `HHMM-HHMM` 형식의 한 줄당 창 1개, 예:
 
   ```
   0900-1000
   1200-1300
   ```
 
-  그룹은 해당 시간 창 내부에서만 활성입니다. 비워 두면 하루 종일 활성입니다.
+  그룹은 해당 창 내에서만 활성화됩니다. 빈 목록은 하루 종일을 의미합니다.
 
-이 기능은 `Custom`을 제외한 모든 그룹 유형에 적용됩니다.
+이는 `Custom`를 제외한 모든 그룹 유형에 적용됩니다. (사용자 지정 규칙은 `ev.time.dayName` / `ev.time.hour`를 사용하여 자체 일정을 구현할 수 있습니다. **섹션 11.4**을 참조하세요.)
 
 ---
 
-## 8. Freeze(변경 방지)
+## 8. 동결(위조 방지)
 
-Freeze는 충동적으로 그룹을 끄기 어렵게 만듭니다.
+동결하면 그룹을 충동적으로 비활성화하기가 어렵습니다.
 
 **Freeze** 카드에서 다음을 선택합니다.
 
-- **Frozen** — 그룹을 편집/삭제할 수 없고, 활성 토글도 끌 수 없습니다. 변경하려면 unfreeze 절차(아래)를 수행해야 합니다.
-- **Strict frozen** — Frozen과 동일하지만, 선택한 시간(소수, 최대 72시간) 동안 잠금 유지. 타이머가 끝나기 전에는 unfreeze 절차도 사용할 수 없습니다.
+- **동결** — 그룹을 편집하거나 삭제할 수 없으며 활성화 토글을 선택 취소할 수 없습니다. 무엇이든 변경하려면 동결 해제 의식을 실행해야 합니다(아래 참조).
+- **엄격한 냉동** — Frozen과 동일하지만 선택한 시간 동안 잠긴 상태로 유지됩니다(소수점, 최대 72). 해당 타이머가 만료될 때까지는 동결 해제 의식도 사용할 수 없습니다.
 
-freeze된 그룹이 해제 가능해지면 **Unfreeze** 버튼이 나타납니다. 클릭하면 **20단계 절차**가 시작됩니다.
+고정된 그룹을 잠금 해제할 수 있으면 **고정 취소** 버튼이 나타납니다. 클릭하면 **20단계 의식**이 시작됩니다.
 
-- 모달에 자기 통제 메시지가 표시됩니다.
-- `Confirm`을 20번 클릭해야 합니다.
-- 클릭 사이에는 5초 강제 대기가 있습니다.
-- 중간에 취소하면 1단계부터 다시 시작해야 합니다.
-- 20개 메시지가 순환되어 실제로 읽게 됩니다.
+- 모달은 자기 훈련 메시지를 보여줍니다.
+- `Confirm`를 20번 클릭해야 합니다.
+- 클릭 사이에 강제로 5초의 대기 시간이 있습니다.
+- 언제든지 취소할 경우 1단계부터 다시 시작해야 합니다.
+- 20개의 메시지가 순환되므로 실제로 읽을 수 있습니다.
 
-그룹이 "no snooze"(다음 절 참고)로도 표시된 경우, freeze 상태에서는 snooze도 할 수 없습니다.
+그룹이 "스누즈 없음"으로 표시되어 있는 경우(다음 섹션 참조), 정지된 동안에는 스누즈할 수 없습니다.
 
-freeze 상태는 그룹 카드의 메타 라인에 표시되며, strict freeze는 남은 시간도 함께 표시됩니다.
-
----
-
-## 9. Snooze(임시 비활성화)
-
-snooze는 unfreeze 없이 그룹을 임시 비활성화하지만, 반드시 작성된 사유가 필요합니다.
-
-**Snooze** 카드:
-
-- **Allow snooze for this group** — 끄면 이 그룹은 어떤 경우에도 snooze 불가(freeze 중 포함).
-- **Snooze for (minutes)** — 소수, snooze 지속 시간.
-- **Reason** — **최소 100자이고 20단어를 초과**해야 합니다. 두 조건을 모두 만족해야 Start 버튼이 활성화됩니다. 실패 시 버튼 옆에 인라인 경고가 나타납니다.
-
-그룹이 freeze 상태이면 snooze 분수는 freeze 전에 설정한 값으로 고정됩니다. snooze 허용 + 사유 조건 충족 시에는 여전히 snooze할 수 있습니다.
-
-상태 메시지로 snooze가 확인됩니다. snooze가 끝나면 그룹은 자동으로 정상 상태로 돌아갑니다.
-
-**End Snooze** 버튼으로 조기 종료도 가능합니다.
+동결 상태는 엄격한 동결에 남은 시간을 포함하여 그룹 카드의 메타 라인에 표시됩니다.
 
 ---
 
-## 10. 일괄 작업
+## 9. 스누즈(일시적으로 비활성화)
 
-- **Delete All**은 모든 그룹을 제거합니다.
+다시 알림은 고정을 해제하지 않고 그룹을 일시적으로 비활성화합니다. 지연된 활성화, 스누즈 후 쿨다운, 확인 단계 및 총 스누즈 시간을 지원합니다.
+
+**Snooze** 카드에서:
+
+- **이 그룹에 대해 다시 알림 허용** - 꺼져 있으면 이 그룹은 전혀 일시 중지할 수 없습니다(정지된 동안 포함).
+- **스누즈 기간(분)** — 십진수, 스누즈 지속 시간입니다.
+- **활성화 지연(분)** — 십진수 `>= 0`. 다시 알림을 확인한 후 이 지연 시간이 지날 때까지 그룹은 계속 차단합니다. 그래야만 스누즈가 활성화됩니다.
+- **스누즈 후 쿨다운(분)** — `0`에서 `5`까지의 십진수입니다. 다시 알림이 끝나면 쿨다운이 끝날 때까지 이 그룹에 대해 다시 알림을 시작할 수 없습니다.
+- **확인 시간** — 정수 `>= 0`. `0`인 경우 즉시 일시중지가 예약됩니다. 그렇지 않은 경우 스누즈를 시작하면 정확히 그 만큼의 단계를 포함하는 확인 의식이 시작됩니다.
+
+각 다시 알림 확인 단계에는 다음 클릭이 허용되기 전에 강제로 **5초 동안 대기**해야 합니다. 모달은 이를 명시적으로 알려주고 버튼에 실시간 카운트다운을 표시합니다.
+
+그룹이 고정된 경우 다시 알림 설정은 고정되기 전에 선택한 값으로 잠깁니다. 스누즈가 허용되는 한 계속 스누즈할 수 있지만, 저장된 지연/쿨다운/확인 설정을 사용해야 합니다.
+
+스누즈 카드에는 해당 그룹의 **총 스누즈 시간**도 표시됩니다. 이 합계는 해당 기간 동안 다른 이유로 사이트에 연결할 수 있게 된 경우에도 전체 활성 다시 알림 기간을 계산합니다.
+
+다시 알림이 끝나면 규칙이 즉시 다시 나타납니다. 그룹이 아직 고정되지 않은 경우 확장 프로그램은 다시 알림이 끝나면 자동으로 다시 고정합니다.
+
+상태 메시지는 다시 알림을 확인합니다. 스누즈가 끝나면 그룹은 자동으로 정상으로 돌아갑니다.
+
+**스누즈 종료** 버튼을 사용하여 스누즈를 일찍 종료할 수도 있습니다.
+
+사용자 정의 그룹의 경우 **스누즈 시작**을 누르면 `snoozePress` 이벤트도 규칙에 전달되므로(**섹션 11**의 이벤트 표 참조) 사용자 정의 규칙이 누르기를 기록하거나 이유를 기록하거나 후속 이벤트를 실행할 수 있습니다. 규칙에는 **프로그래밍 방식의 다시 알림 API**가 없습니다. 즉, 누르기에 반응할 수 있지만 취소하거나 연장할 수는 없습니다.
+
+---
+
+## 10. 대량 작업- **모두 삭제**는 모든 그룹을 제거합니다.
   - 항상 확인을 요구합니다.
-  - freeze된 그룹이 하나라도 있으면 unfreeze와 동일한 20단계 절차가 필요합니다.
-  - strict-frozen 그룹 중 아직 잠겨 있는 항목이 있으면 **Delete All**이 비활성화됩니다.
+  - 하나 이상의 그룹이 냉동된 경우 냉동 해제와 동일한 20단계 의식이 필요합니다.
+  - 그룹이 완전 동결되어 여전히 잠겨 있으면 **모두 삭제**가 비활성화됩니다.
 
 ---
 
-## 11. Custom 그룹(전체 참조)
+## 11. 사용자 정의 그룹 - 이벤트 기반 참조(v1.1+)
 
-`Custom` 그룹은 백그라운드 service worker에서 JavaScript 함수를 실행합니다. 함수는 약 1초마다 호출되며, 확장은 함수 반환값으로 "지금 어떤 도메인을 차단할지"를 결정합니다.
+v1.1부터 맞춤 규칙은 **이벤트 기반**입니다. 귀하의 규칙은 더 이상 반환 값이 페이지를 차단하는 하트비트별 함수가 아닙니다. 대신 규칙 본문은 특정 이벤트(페이지 열기, URL 변경, 페이지 하트비트, 사용자 정의 이벤트 등)에 대한 **핸들러를 등록**하는 스크립트입니다. 핸들러는 페이지 탐색 및 탭 스위치 전반에 걸쳐 등록된 상태를 유지하며 수명이 긴 **오프스크린 샌드박스** 내부에 있습니다.
 
-### 11.1 함수 시그니처
+규칙 본문은 **실행 클릭당 한 번** 실행됩니다(또는 그룹이 활성화되고 활성 소스가 이미 존재할 때 한 번). 핸들러를 다시 로드하려면 편집기에서 **실행**을 클릭하세요. 팝업에는 이미 열려 있는 페이지를 다시 로드하여 새 규칙이 해당 페이지에도 적용되도록 요청하는 알림이 표시됩니다.
+
+### 11.1 규칙 서명
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  // your logic
-  return blockedDomains;
+(event, helpers) => {
+  // Register handlers here. This function is called exactly once
+  // per Run click (or when the group is enabled).
 }
 ```
 
-매개변수:
+두 가지 인수:
 
-- `month` — `1`~`12`.
-- `dayOfMonth` — `1`~`31`.
-- `dayName` — 예: `"Monday"`.
-- `hour` — `0`~`23`.
-- `minute` — `0`~`59`.
-- `blockedDomains` — 다른 규칙이 이미 만든 도메인 목록. 추가/교체/무시 가능.
-- `helpers` — helper 객체 묶음(아래 참고).
+- `event` — 이 그룹의 **이벤트 레지스트리**입니다. 이를 사용하여 핸들러를 등록, 재정의, 나열, 계산 또는 등록 취소하고 `post(...)` 사용자 정의 이벤트를 수행합니다.
+- `helpers` — 도우미 번들(**11.3** 참조)
 
-반환값:
+이 함수는 값을 반환할 것으로 예상되지 **않습니다**. 차단 또는 허용에 대한 결정은 나중에 이벤트가 발생하고 등록된 핸들러 중 하나가 `ev.preventDefault()` 및/또는 `ev.setResult(...)`를 호출할 때 이루어집니다.
 
-- 지금 차단해야 할 도메인 문자열 배열, 또는
-- 반환 없음(이 경우 확장은 네가 변경한 `blockedDomains`를 사용).
+### 11.2 생명주기
 
-함수는 저장 시 검증됩니다. 문법 오류가 있으면 상태 경고가 표시되고, 수정 전까지 규칙이 사용되지 않습니다. 런타임에서 예외가 발생하면 확장이 이를 잡아 백그라운드 콘솔에 기록하고 이전 결과로 폴백합니다.
+- **실행**(편집기의 그룹별 버튼): 엔진은 먼저 이전에 이 그룹으로 태그가 지정된 모든 핸들러를 지운 다음 오프스크린 샌드박스에서 규칙 본문을 다시 실행합니다. 이는 소스 수정 후 재등록하는 유일한 방법입니다.
+- **그룹 비활성화**: 이 그룹으로 태그가 지정된 모든 핸들러가 지워집니다. 그룹 소스는 저장소에 보관되지만 이벤트에 응답하지 않습니다.
+- **그룹 다시 활성화**: 엔진이 이 그룹에 대한 활성 소스를 자동으로 다시 실행합니다.
+- **그룹 삭제**: 비활성화와 동일합니다. 그룹으로 태그가 지정된 모든 핸들러가 지워집니다.
+- **동일한 `(eventType, id)`로 재등록**: 이전 등록을 자동으로 무시합니다.
 
-### 11.2 적응형 스케줄링
+오프스크린 샌드박스는 **모든** 사용자 정의 그룹에서 공유됩니다. 서로 다른 그룹의 핸들러가 공존하며, 각 핸들러는 내부적으로 자신의 소유 그룹 ID로 태그가 지정되므로 "실행", 비활성화 또는 삭제는 올바른 그룹에만 적용됩니다.
 
-Custom 규칙은 보통 약 1초마다 실행됩니다. 규칙이 너무 오래 걸리기 시작하면 확장이 루프 주기를 자동으로 늦춥니다(최대 약 5초 간격). 사용자가 직접 관리할 필요는 없습니다.
+사용자 정의 규칙이 오작동하는 경우(동기 무한 루프, 런어웨이 로그 스팸 등) 샌드박스는 이를 격리합니다. 그룹은 자동으로 비활성화되고 실패가 기록되므로 로그 패널에서 확인할 수 있습니다. 격리된 규칙을 다시 활성화하려면 소스를 수정하고 **실행**을 클릭하세요. 그러면 엔진이 중단 이유를 지우고 규칙을 다시 로드합니다.
 
-### 11.3 `helpers` 객체
+### 11.2.1 이벤트 레지스트리(`event`)
 
-함수 안에서 `helpers`는 여러 하위 helper를 제공합니다. 각 helper에는 긴 이름과 짧은 별칭이 있으며, 명시적 getter도 있습니다.
+일반 방법:
 
-- `helpers.timerHelper` / `helpers.timer` / `helpers.getTimerHelper()`
-- `helpers.persistenceHelper` / `helpers.persistence` / `helpers.getPersistenceHelper()`
-- `helpers.domainHelper` / `helpers.domain` / `helpers.getDomainHelper()`
-- `helpers.logHelper` / `helpers.log` / `helpers.getLogHelper()`
-- `helpers.platformHelper` / `helpers.platform` / `helpers.getPlatformHelper()`
-- `helpers.now` — 현재 epoch 밀리초 시간.
+- `event.register(type, id, handler, options?)` — 임의의 이벤트 유형에 대한 핸들러를 등록합니다. `id`는 당신의 선택입니다. `options.priority`(기본값 `0`) — 높은 값이 먼저 실행됩니다. `options.intervalMs` — `tickEvent` 전용; 전역 틱을 기준으로 이 특정 핸들러를 제한합니다. 동일한 `(type, id)` 재정의로 다시 등록합니다.
+-`event.unregister(type, id)`, `event.unregisterAll(type)`.
+- `event.post(type, data?, { scope })` — 사용자 정의 이벤트를 실행합니다. `scope: "global"`는 모든 그룹에 도달합니다. 기본 `scope: "group"`는 **동일** 그룹의 핸들러에만 도달합니다.
 
-모든 helper 메서드는 안전하게 설계되어 있어 잘못된 매개변수에서는 예외 대신 `null`, `false`, 빈 값을 반환합니다.
+이벤트 유형별 설탕(내장 유형당 메소드 세트 1개):
 
-#### 11.3.1 `timerHelper`
+-`event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
+-`event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
+- `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`와 동일한 모양입니다.
 
-도메인에 연결된 카운트다운 타이머를 관리합니다. 타이머는 브라우저 재시작 후에도 유지됩니다. 각 타이머는 생성한 custom 그룹에 귀속됩니다.
+### 11.2.2 내장된 이벤트 유형
 
-- `createTimer(domain, durationMs, displayName?)` — 고유 타이머 id 생성/반환, 유효하지 않으면 `null`. 예: `createTimer("youtube.com", 30 * 60 * 1000, "Timer1")`. 사용자가 해당 도메인 매칭 페이지에 있을 때 오버레이에 `Timer1: 30:00`이 표시되고 카운트다운됩니다.
-- `deleteTimer(id)` — 타이머 삭제. 성공 시 `true`.
-- `pauseTimer(id)` — 카운트다운 일시정지.
-- `continueTimer(id)` / `resumeTimer(id)` — 일시정지 타이머 재개.
-- `resetTimer(id, durationMs?)` — 타이머 재시작. `durationMs`를 생략하면 원래 길이 사용.
-- `addMs(id, ms)` — 밀리초 추가(음수로 차감 가능).
-- `remainingMs(id)` — 남은 밀리초.
-- `isExpired(id)` / `isPaused(id)` / `exists(id)` — 불리언 반환.
-- `getDomain(id)` / `getDisplayName(id)` — 타이머 정보 조회.
-- `findByDomain(domain)` — 해당 도메인의 타이머 id 배열.
-- `list()` — 이 그룹 소유 타이머의 `{ id, domain, displayName, durationMs, remainingMs, isPaused }` 배열.
+| 유형 | 실행될 때 | `ev.data` 페이로드 |
+|---|---|---|
+| `tickEvent` | 전체 브라우저에서 전역적으로 공유되는 1초 틱입니다. 탭 표시 여부에 관계없이 실행됩니다. 탭에 포커스가 없을 때에도 계속 실행되어야 하는 시계 스타일 논리에 이 기능을 사용하세요. | `{ intervalMs: 1000 }` |
+| `pageHeartbeatEvent` | **활성**, **표시** 탭에서 최대 250ms 하트비트. `getOrCreateTimer({ scope })`에 내장된 자동 틱을 포함하여 모든 탭 가시성 인식 논리를 구동합니다. 배경 탭이나 화면이 잠겨 있는 동안에는 실행되지 **않습니다**. | `{ elapsedMs }` |
+| `openWebEvent` | 새 탭이 생성되거나 엔진이 아직 해당 탭에 대해 보지 못한 URL에 새로운 탐색이 표시됩니다. 실행 클릭 후 이미 열려 있는 탭에 대해서는 다시 실행되지 **않습니다**. | `{ previousUrl, isNewTab }` |
+| `closeWebEvent` | 탭이 닫혔습니다. | `{ reason, nextUrl }` |
+| `switchWebEvent` | 동일한 탭 내에서 URL **변경** — ​​뒤로/앞으로, SPA 경로 변경 또는 이전과 다른 URL로 이동하는 탐색. 일반 재로드(동일 URL)에서는 실행되지 **않습니다**. | `{ previousUrl, previousHostname, sameDomain }` |
+| `switchDomainEvent` | URL 변경이 호스트 이름 경계를 넘습니다(예: `youtube.com` → `wikipedia.org`). `switchWebEvent`와 함께 실행됩니다. | `{ previousUrl, previousHostname }` |
+| `webChangedEvent` | 페이지는 열기, 전환, SPA 기록 업데이트 또는 **동일한 URL을 유지하는 일반 다시 로드** 등 어떤 방식으로든 (재)로드됩니다. 이것은 신뢰할 수 있는 "페이지가 변경되었습니다. 모든 것을 재평가합니다" 후크입니다. `openWebEvent` / `switchWebEvent` / `switchDomainEvent`와 함께 실행되며 동일한 URL 다시 로드를 위해 실행되는 유일한 것입니다. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` 여기서 `transition`는 `"tabCreated"`, `"commit"` 또는 `"history"` |
+| `timerEnded` | 그룹에서 관리하는 타이머가 `currentMs === 0`에 도달합니다. 소유 그룹에만 전달됩니다. | `{ timerId, displayName, direction, currentMs }` |
+| `snoozePress` | 사용자가 이 **맞춤** 그룹의 팝업에서 **스누즈 시작**을 눌렀습니다. 순수 알림 이벤트 — 핸들러는 임의의 코드(로그, 리디렉션, 기타 이벤트 실행)를 실행할 수 있지만 맞춤 규칙에는 **프로그래밍 방식의 다시 알림 API가 없습니다**. 여기에서 생성된 로그는 활성 탭에 토스트로 표시됩니다. 누른 그룹에만 전달됩니다. | `{ triggeredAt }` |
 
-타이머 최대 길이는 약 30일입니다.
+`ev.url` 및 이벤트 데이터의 URL은 이벤트에 대해 **정규화**됩니다. Chrome의 새 탭 페이지(Google의 'Google 검색 또는 URL 입력' 화면을 렌더링함), `about:blank` 및 이에 상응하는 새 탭 구성표는 빈 문자열 `""`로 노출됩니다. 따라서 `ev.url === ""` 범위의 타이머는 새 탭 페이지에 있는 동안에만 작동합니다. 일반 `google.com` URL은 변경되지 않습니다.
 
-#### 11.3.2 `persistenceHelper`
+### 11.2.3 이벤트 객체(`ev`)
 
-그룹 범위의 Map 유사 저장소입니다. 값은 JSON 직렬화 가능해야 하며, 호출 간 상태를 기억하는 데 유용합니다.
+모든 핸들러는 `(ev, helpers) => void`로 호출됩니다. `ev`는 다음을 수행합니다.
 
-- `set(key, value)` — 임의 JSON 값 저장. 성공 시 `true`.
-- `get(key, defaultValue?)` — 저장값 반환, 없으면 `defaultValue`.
-- `has(key)` / `delete(key)` / `keys()` / `entries()` / `size()` / `clear()`.
+- `ev.type` — 전달된 이벤트 유형입니다.
+- `ev.groupId` — 수신 그룹의 ID입니다.
+- `ev.tabId`, `ev.pageId`, `ev.url`, `ev.hostname` — 이벤트에 대한 컨텍스트입니다.
+- `ev.time` — 파견 당시 `{ now, month, dayOfMonth, dayName, hour, minute }` 스냅샷. `dayName`는 `"Sunday"`..`"Saturday"`입니다.
+- `ev.data` — 이벤트별 페이로드(위 표 참조).
 
-권장 한도: 그룹당 약 200개 키, 값당 16 KB.
+방법:
 
-#### 11.3.3 `domainHelper`
+- `ev.preventDefault()` — 디스패치를 "차단됨"으로 표시합니다. 나중에 우선 순위가 높은 처리기가 `setResult(1)`를 설정하지 않는 한 호스트 콘텐츠 스크립트는 페이지를 종료합니다(또는 `setRedirectLink`를 따릅니다).
+- `ev.stopPropagation()` — 이 파견을 즉시 중단합니다. **모든 그룹에서 추가 핸들러**는 이 이벤트에 대해 호출되지 않습니다.
+- `ev.setResult(value)` — 디스패치 결과를 설정합니다. `value`는 `[-255, 255]`의 **숫자**(`-1` 블록, `0` 중립, `1` 허용, 다른 정수는 자체 디버그 로직을 위해 보존됨) 또는 **문자열**(리디렉션 URL로 해석됨)일 수 있습니다. 모든 처리기에서 마지막 `setResult` 호출이 승리합니다. 숫자 `1`는 이전 `preventDefault`를 재정의합니다.
+- `ev.setRedirectLink(url)` / `ev.getRedirectLink()` — 디스패치가 차단된 것으로 종료될 때 호스트가 이동해야 하는 URL입니다. 이는 맞춤 규칙에서 리디렉션하는 **유일한** 방법입니다. 편집기는 더 이상 사용자 정의 그룹에 대한 "차단 시 URL 리디렉션" 필드를 노출하지 않습니다.
+- `ev.post(type, data, { scope })` — 핸들러 내부에서 후속 이벤트를 발생시킵니다.
 
-- `normalize(value)` — `youtube.com` 같은 정규 도메인을 반환, 아니면 `null`.
-- `matches(hostname, site)` — `hostname`이 `site`에 속하면(하위 도메인 포함) `true`.
+또한 `ev`는 프록시입니다. 여기에 설정한 모든 필드(예: `ev.foo = 42`)는 `custom` 맵에 저장되며 동일한 핸들러 또는 동일한 디스패치의 이후 핸들러에서 다시 읽을 수 있습니다.### 11.3 `helpers` 객체
 
-#### 11.3.4 `logHelper`
+모든 핸들러 호출은 수신 그룹 및 이벤트 URL로 범위가 지정된 새로운 `helpers` 번들을 가져옵니다. 상수 필드:
 
-- `log(...args)`, `warn(...args)`, `error(...args)` — 백그라운드 콘솔에 기록.
+- `helpers.now` — 발송 시 에포크 밀리초.
+- `helpers.currentUrl` — newtab/blank 정규화 후의 이벤트 URL입니다.
+- `helpers.groupId` — 그룹 ID를 수신 중입니다.
 
-이 메시지를 보려면: `chrome://extensions` → Developer Mode 활성화 → 확장의 "service worker" 링크 클릭.
+편리한 단축키(아래 도우미가 사용하는 것과 동일한 누산기 인식 함수로 라우팅하므로 출력이 여전히 로그 패널에 표시됩니다):
 
-#### 11.3.5 `platformHelper`
+-`helpers.log(...)`, `helpers.warn(...)`, `helpers.error(...)`.
 
-지원되는 소셜/동영상 플랫폼을 판별합니다.
+접근자 방법:
 
-- `supportedPlatforms` — `["youtube", "tiktok", "facebook", "instagram", "twitch"]`.
-- `normalizePlatform(value)` — 정규 플랫폼 이름 반환, 아니면 `null`.
-- `normalizeAuthor(author, platform)` — 특정 플랫폼용 작성자 식별자(handle, URL 등) 정규화, 실패 시 `null`.
-- `detect(urlOrHost)` / `getContext(urlOrHost)` — `{ platform, hostname, pathname, type, authors, url }` 반환, 실패 시 `null`.
-  - `type`은 `"short" | "long" | "post" | "unknown"`.
-  - `authors`는 해당 URL에서 감지 가능한 정규화 작성자 목록.
-- `getType(urlOrHost)` — `detect(...).type` 단축.
-- `getPlatform(urlOrHost)` — `detect(...).platform` 단축.
-- `getAuthors(urlOrHost)` — `detect(...).authors` 단축.
-- `matchesAuthor(urlOrHost, platform, authors)` — URL이 해당 플랫폼이고 주어진 작성자 중 하나와 일치하면 `true`.
+- `helpers.getLogHelper()` — `log` / `warn` / `error`. 출력은 속도가 제한되어 있으며 런어웨이 규칙이 팝업을 멈추는 것을 방지하기 위해 디스패치별로 제한됩니다.
+- `helpers.getDomainHelper()`(별칭 `helpers.getDomainUtility()`) — URL 검사(**11.3.5** 참조).
+- `helpers.getTimerHelper()` — 그룹 범위 타이머(카운트다운/카운트업) 상태는 브라우저를 다시 시작해도 지속됩니다.
+- `helpers.getPersistenceHelper()` — 그룹으로 범위가 지정된 JSON 키/값 저장소입니다.
+- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()`(및 `set` / `get` 별칭)와 지정된 메시지를 표시하는 `chrome-extension://...` URL을 반환하는 `createMessageUrl(message)`.
+- `helpers.getPlatformHelper()` — 플랫폼별 DOM 의도(**11.3.6** 참조).
+- `helpers.getDOMHelper()` — 일반 DOM 의도: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. 핸들러가 반환된 후 작업이 일괄 처리되고 적용됩니다.
+- `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. 이벤트가 발생한 탭에 효과가 적용됩니다.
+- `helpers.getStorageHelper()` — `getPersistenceHelper`의 상위 집합과 교차 확장 저장소용 비동기 `requestAsyncGet(key)`/`requestAsyncSet(key, value)` 후크(결과는 후속 사용자 지정 이벤트로 도착)
+- `helpers.getTabHelper()` - 이벤트와 함께 번들로 제공되는 스냅샷에 대한 `list()`, `getActiveTab()`, `getById(id)`, `countOpen()`.
 
-### 11.4 예시
+모든 도우미 메서드는 안전합니다. 잘못된 매개 변수는 던지는 대신 `null`, `false` 또는 빈 값을 반환합니다.
 
-쉬운 예: 평일 오전에 소셜 미디어 차단.
+#### 11.3.1 `getTimerHelper()`
+
+그룹별 타이머. 각 타이머는 선택한 문자열 `id`로 식별됩니다. ID의 범위는 그룹으로 지정되므로 두 그룹 모두 충돌 없이 ID `"yt-shorts"`를 사용할 수 있습니다. 브라우저를 다시 시작해도 상태가 유지됩니다.
+
+타이머의 지속 상태는 정확히 `id`, `displayName`, `direction`(`"forward"` 또는 `"backward"`), `isPaused` 및 `currentMs`입니다. 저장된 "초기 기간"이 없습니다. `isExpired`는 단지 `currentMs === 0`입니다. 전달 타이머는 영원히 지속되며 자체적으로 만료되지 않습니다. 역방향 타이머는 `0`(음수 값 없음)에서 작동을 멈춥니다.
+
+시공방법은 2가지가 있습니다. 의미론이 원하는 것과 일치하는 것을 선택하십시오.
+
+- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — 제공된 초기화 값으로 타이머를 **항상 (재)생성**하고 `currentMs`를 포함한 모든 기존 상태를 덮어씁니다. "새로 시작"을 의미할 때 이것을 사용하세요. 원샷 재설정 분기 내부.
+- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **멱등성**. 해당 `id`가 있는 타이머가 이미 존재하는 경우 해당 `displayName` 및 `direction`는 업데이트될 수 있지만 `currentMs`는 유지됩니다. 그렇지 않으면 제공된 초기화 값으로 생성됩니다. 이것이 일반적인 "타이머가 존재하는지 확인한 다음 작동하도록 두는" 패턴에 대해 원하는 것입니다.
+
+두 방법 모두 엔진이 규칙 수명 동안 기억하는 두 가지 조건자 함수를 허용합니다(하트비트 및 `webChangedEvent` 재평가 전반에 걸쳐 유지되지만 스토리지에 **지속되지 않음**).- `scope: (url) => boolean` — 각 `pageHeartbeatEvent`의 현재 표시 URL에 대해 `true`를 사용하면 타이머가 하트비트 간격(~250ms)에 따라 자동으로 작동합니다. 도우미 자체는 절대 차단하지 않습니다. `currentMs`만 업데이트합니다. 타이머당 하트비트당 최대 1개의 자동 틱입니다.
+- `domain: (url) => boolean` — 현재 표시되는 URL에 대해 `true`를 사용하면 타이머가 페이지 내 오버레이(왼쪽 상단)에 렌더링됩니다. `domain`가 생략되면 엔진은 표시를 위해 `scope`로 대체되므로 추가 배선 없이 "/shorts/pages" 타이머도 표시됩니다. 다른 디스플레이 게이트를 원하는 경우 명시적으로 `domain`를 제공하십시오(예: `/shorts/`에만 선택하고 모든 `youtube.com`에 걸쳐 남은 시간 표시).
+
+> **중요 - 타이머는 자체적으로 차단되지 않습니다.** 역방향 타이머가 0에 도달하면 0에서 멈추고 `timerEnded`가 한 번 실행됩니다. 실제로 페이지를 차단할지 여부는 `helpers.getTimerHelper().isExpired(id)`를 확인한 후 `ev.preventDefault()`를 호출하는 별도의 `openWebEvent`/`switchWebEvent` 처리기에 달려 있습니다. 이러한 분리를 통해 "경고 전용" 타이머, 카운트업 추적기, 소프트 넛지 또는 하드 블록(동일한 기본 요소 선택 가능)을 구축할 수 있습니다.
+
+다른 방법:
+
+- `delete(id)`, `pause(id)`, `resume(id)` — 표준 수명 주기. 일시 중지하면 `currentMs`가 정지됩니다.
+- `setDirection(id, "forward" | "backward")`, `setCurrentMs(id, ms)`, `addMs(id, deltaMs)` — 직접 변경자(대부분의 규칙에는 이러한 것이 필요하지 않습니다. 하트비트가 타이머를 작동하도록 합니다).
+- `setDisplayName(id, name)` — 라벨을 다시 지정합니다.
+-`getCurrentMs(id)`, `getDirection(id)`, `getDisplayName(id)`, `isPaused(id)`, `exists(id)`.
+- `isExpired(id)` — `true` iff `currentMs === 0`.
+- `getState(id)` — `{ id, displayName, direction, isPaused, currentMs, isExpired }` 또는 `null`.
+- `list()` — 이 그룹이 소유한 모든 타이머(상태 개체 배열).
+
+#### 11.3.2 `getPersistenceHelper()`
+
+그룹으로 범위가 지정된 지도와 같은 저장소입니다. 값은 JSON 직렬화 가능해야 합니다.
+
+- `set(key, value)`, `get(key, defaultValue?)`, `has(key)`, `delete(key)`, `keys()`, `entries()`, `clear()`, `size()`.
+
+소프트 제한: 그룹당 약 200개의 키, 값당 16KB.
+
+#### 11.3.3 `getLogHelper()`
+
+- `log(...args)`, `warn(...args)`, `error(...args)` — 팝업의 **로그** 패널에 씁니다(도우미 번들은 어떤 디스패치가 생성되었는지에 관계없이 여전히 동일한 누산기를 통해 라우팅합니다). 각 줄에는 `[CustomBlocker:groupId]` 접두사가 붙습니다.
+- 도우미에는 하드 캡이 있습니다. 즉, 대략 **디스패치당 로그 항목 200개** 및 항목당 최대 문자열 길이입니다. 초과 항목은 삭제되고 `accumulator.logsDropped`에서 계산됩니다. 이것이 `for (let i = 0; i < 100000; i++) helpers.log(i)` 폭주로부터 팝업을 보호하는 것입니다.
+- **디버그 모드**가 꺼져 있으면(기본값) 엔진 자체에서 내보내는 추적 수준 항목(디스패치 시작/핸들러 타이밍)이 모든 곳에서 억제됩니다. 로그 패널에 표시되지 않고 콘솔에 인쇄되지 않습니다. 귀하의 `log` / `warn` / `error` 통화는 항상 통과됩니다.
+
+#### 11.3.4 `getRedirectionHelper()`
+
+현재 페이지가 차단되면 콘텐츠 스크립트가 사용할 리디렉션 URL을 검사/재정의합니다.
+
+- `get()` — 이 디스패치에 대한 현재 유효한 리디렉션 URL을 반환합니다. 처음에는 기본 제공 그룹의 구성된 대체 URL(있는 경우)이고, 그렇지 않은 경우 `""`입니다.
+- `set(url)` — 이 디스패치에 대한 리디렉션 URL을 재정의합니다. 성공 시 `true`를 반환하고 문자열이 아닌 입력의 경우 `false`를 반환합니다. `""`를 전달하면 리디렉션 재정의가 지워지고 일반적인 기본 종료 동작으로 돌아갑니다.
+- `createMessageUrl(message)` — 탐색 시 깨끗한 페이지 중앙에 메시지를 표시하는 `chrome-extension://<id>/message-page.html?msg=...` URL을 반환합니다. 타이머가 종료된 후 사용자를 '출근'/'휴식' 화면으로 리디렉션하는 데 유용합니다. 예: `ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`.
+
+다른 사용자 정의 규칙 부작용과 마찬가지로 이 상태는 현재 디스패치의 모든 규칙에서 공유됩니다. 규칙은 아래에서 위로 실행되므로 `set(...)`를 호출하는 최상위 규칙이 우선합니다.
+
+#### 11.3.5 `getDomainHelper()`(별칭 `getDomainUtility()`)
+
+URL 검사 도우미. 들어오는 URL이 이미 newtab-normalized되어 있으므로 `normalize()`가 없습니다.
+
+핵심:-`hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
+- `isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
+- `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()` — 각각 `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`를 반환합니다.
+
+URL 필터링 및 섹션 도우미:
+
+- `isEmptyStartPage(url)` — 새 탭 페이지 및 이에 상응하는 항목(핸들러에 `""`로 표시되는 URL)의 경우 `true`입니다.
+- `matchesAny(url, patterns)` — `patterns`는 정규식, 문자열 정규식 또는 둘 중 하나의 배열일 수 있습니다.
+- `pathStartsWith(url, path)` — 경계 인식(`pathStartsWith("/r/", "/r")`는 true이고 `"/results/"`는 그렇지 않음)
+- `queryHas(url, key, value?)`, `queryGet(url, key)` — 쿼리 문자열 검사.
+- `isSearchPage(url)` — Google / Bing / DuckDuckGo / YouTube 결과 / Reddit / Twitter / X 검색을 인식합니다.
+- `isInfiniteFeedUrl(url)` — YouTube, TikTok, Instagram, Facebook, Reddit, X의 알고리즘 피드 표면을 인식합니다.
+- `sameSection(a, b)` — 동일한 호스트 이름과 동일한 첫 번째 경로 세그먼트.
+
+#### 11.3.6 `getPlatformHelper()`
+
+플랫폼별 DOM 인텐트 및 하위 섹션 타이머와 검사. 각 `helpers.getPlatformHelper().<platform>()`는 메소드 세트가 **플랫폼에 의해 제어**되는 객체를 반환합니다. 특정 플랫폼에서 의미가 없는 메소드는 단순히 없기 때문에 이를 호출하면 자동으로 작동하지 않는 대신 `TypeError: ... is not a function`가 발생합니다. 예를 들어, `twitch().hidePosts`는 존재하지 않으며(Twitch에는 게시물이 없음) `tiktok().hideShortButton`도 존재하지 않습니다(TikTok의 전체 경험은 이미 _is_ 짧은 형식의 비디오입니다). 런타임 시 검사하려면 `helpers.getPlatformHelper().hasMethod(platform, name)` 또는 `.listMethods(platform)`를 사용하세요.
+
+플랫폼별 메소드 매트릭스:
+
+| 방법 | 유튜브 | 틱톡 | 인스타그램 | 페이스북 | 경련 |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `hideShorts` / `showShorts` | ✓ |  |  |  |  |
+| `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
+| `hideClips` / `showClips` |  |  |  |  | ✓ |
+| `hideStreams` / `showStreams` |  |  |  |  | ✓ |
+| `hideVideos` / `showVideos` | ✓ | ✓ |  | ✓ | ✓ (VOD) |
+| `hidePosts` / `showPosts` | ✓ |  | ✓ | ✓ |  |
+| `hideShortButton` / `showShortButton` | ✓ |  |  |  |  |
+| `hideHomePage` / `showHomePage` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓ (채팅) |
+| `filterComments` | ✓ | ✓ | ✓ | ✓ |  |
+| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |  | ✓ | ✓ |
+| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |  |  |  | ✓ |
+| `isCurrentChannelVerified` | ✓ |  |  |  |  |
+| `isLiveNow` | ✓ | ✓ |  | ✓ | ✓ |
+| `isItemLive` | ✓ | ✓ |  | ✓ | ✓ |
+| `isAlgorithmicRecommendation` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `isSponsored` | ✓ | ✓ | ✓ | ✓ |  |
+| `setShortsTimer` | ✓ |  |  |  |  |
+| `setReelsTimer` |  |  | ✓ | ✓ |  |
+| `setClipsTimer` |  |  |  |  | ✓ |
+| `setStreamsTimer` |  |  |  |  | ✓ |
+| `setVideosTimer` | ✓ | ✓ |  | ✓ | ✓ |
+| `setPostsTimer` | ✓ |  | ✓ | ✓ |  |
+
+플랫폼 기본 이름(`hideReels`, `hideClips`, `hideStreams`)은 `hideShorts` / `hideVideos`와 별도의 버킷이 아닙니다. 스토리지 슬롯은 동일합니다. 사용자에게 표시되는 이름만 각 플랫폼의 용어를 따릅니다.
+
+> **조건자 수명 및 단일 슬롯 규칙.** `hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive`는 각각 **하나** 영구를 소유합니다. `(group, platform, slot)`에 따른 술어입니다. 조건자는 현재 이벤트로 범위가 지정되지 **않습니다**. 일단 설정하면 일치하는 `show*()`가 호출되거나 그룹이 언로드될 때까지 모든 페이지 로드 및 모든 디스패치에서 활성 상태를 유지합니다. 새로운 함수로 동일한 메소드를 다시 호출하면 이전 메소드가 **대체**됩니다. 엔진은 단일 그룹 내에서 여러 조건자를 OR 병합하지 않습니다. 조건을 결합하려면 스스로 결합하는 하나의 조건자를 작성하세요. `yt.hideVideos(item => isShort(item) || hasKeyword(item))`. **다른** 그룹 전체에서 각 그룹은 자체 조건자를 제공하며 그룹의 조건자가 일치하면 항목이 숨겨집니다.
+
+검사 방법은 이벤트와 함께 번들로 제공되는 스냅샷에서 전달 시간에 해당 값을 가져옵니다. 가용성은 위의 매트릭스에 의해 결정됩니다.
+
+URL 분류자는 플랫폼에 관계없이 항상 다시 노출됩니다: `isPlatformUrl`, `isShortUrl`, `isVideoUrl`, `isPostUrl`, `isHomePage`, `extractAuthor`, `extractVideoId`.하위 섹션 타이머는 영구 그룹 버킷에 타이머를 등록하고, 범위가 지정되면 해당 하위 섹션과 일치하는 URL만 선택합니다. 타이머 메서드는 `{ id, direction, currentMs, displayName }`를 허용하고 동일한 플랫폼별 게이팅을 따릅니다.
+
+조건자 메서드의 경우 정규화된 `item`: `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`를 사용하여 일치하는 카드별로 조건자가 호출됩니다. 모든 필드는 `null`일 수 있습니다. "유죄가 입증될 때까지 무죄" — 필요한 필드가 누락된 경우 `false`를 반환합니다.
+
+### 11.4 예
+
+**쉬움** — 주중 오전에 YouTube Shorts 페이지를 차단하세요.
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const isWeekday = !["Saturday", "Sunday"].includes(dayName);
+(event, helpers) => {
+  const yt = helpers.getDomainHelper().youtube();
 
-  if (isWeekday && hour >= 9 && hour < 12) {
-    return [...blockedDomains, "facebook.com", "instagram.com", "tiktok.com"];
-  }
-
-  return blockedDomains;
-}
-```
-
-중간 난이도: 브라우저 세션당 YouTube 30분 허용 + 보이는 카운트다운.
-
-```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const { timerHelper, persistenceHelper } = helpers;
-  let id = persistenceHelper.get("youtubeTimer");
-
-  if (!id || !timerHelper.exists(id)) {
-    id = timerHelper.createTimer("youtube.com", 30 * 60 * 1000, "YouTube");
-    persistenceHelper.set("youtubeTimer", id);
-  }
-
-  if (timerHelper.isExpired(id)) {
-    return [...blockedDomains, "youtube.com"];
-  }
-
-  return blockedDomains;
-}
-```
-
-어려운 예: TikTok 세션이 short 영상이고 작성자가 distractor 목록에 있을 때만 차단. `platformHelper` 사용.
-
-```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const { platformHelper, logHelper } = helpers;
-  const distractors = ["someuser", "anotheruser"];
-  const url = "https://www.tiktok.com" + (globalThis.location?.pathname ?? "");
-  const ctx = platformHelper.detect(url);
-
-  if (ctx?.platform === "tiktok" && ctx.type === "short") {
-    if (platformHelper.matchesAuthor(url, "tiktok", distractors)) {
-      logHelper.log("Blocking TikTok short by", ctx.authors);
-      return [...blockedDomains, "tiktok.com"];
+  function maybeBlock(ev) {
+    if (!yt.isShortUrl(ev.url)) return;
+    const { dayName, hour } = ev.time;
+    const weekday = !["Saturday", "Sunday"].includes(dayName);
+    if (weekday && hour >= 9 && hour < 12) {
+      ev.preventDefault();
+      ev.setResult(-1);
     }
   }
 
-  return blockedDomains;
+  event.registerOpenWebEvent("morning-block", maybeBlock);
+  event.registerSwitchWebEvent("morning-block", maybeBlock);
 }
 ```
 
-(`globalThis.location`은 예시용 자리표시자일 뿐입니다. 백그라운드 worker에는 실제 페이지 URL이 없으므로, 보통 worker의 location이 아니라 자체 로직으로 `platformHelper`를 사용해야 합니다.)
-
-가장 어려운 예: 일별 "site of the day"를 순환하고 일일 한도를 적용하며 재시작 후에도 유지.
+**중간** — YouTube Shorts의 일일 예산은 30분입니다. Shorts URL이 표시되는 동안 `pageHeartbeatEvent`의 타이머가 자동으로 작동합니다. 타이머가 0에 도달하면 별도의 핸들러가 블록을 시행합니다.
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const { timerHelper, persistenceHelper, domainHelper, logHelper } = helpers;
-  const sites = ["reddit.com", "twitter.com", "news.ycombinator.com"];
-  const today = `${month}-${dayOfMonth}`;
-  const lastDay = persistenceHelper.get("lastDay");
+(event, helpers) => {
+  const TIMER_ID = "yt-shorts-budget";
+  const yt = helpers.getDomainHelper().youtube();
+  const onShorts = (url) => yt.isShortUrl(url);
 
-  if (today !== lastDay) {
-    for (const id of timerHelper.list().map((t) => t.id)) {
-      timerHelper.deleteTimer(id);
+  helpers.getTimerHelper().getOrCreateTimer({
+    id: TIMER_ID,
+    direction: "backward",
+    currentMs: 30 * 60 * 1000,
+    displayName: "YT Shorts",
+    scope: onShorts,
+    domain: onShorts
+  });
+
+  function maybeBlock(ev, h) {
+    if (!yt.isShortUrl(ev.url)) return;
+    if (h.getTimerHelper().isExpired(TIMER_ID)) {
+      ev.setRedirectLink("https://example.com/focus");
+      ev.preventDefault();
+      ev.setResult(-1);
     }
-    persistenceHelper.set("lastDay", today);
+  }
+  event.registerOpenWebEvent("budget-block", maybeBlock);
+  event.registerSwitchWebEvent("budget-block", maybeBlock);
+
+  event.registerTimerEndedEvent("budget-warn", (_ev, h) => {
+    h.getLogHelper().log("Budget hit zero.");
+  });
+}
+```
+
+**더 세게** — 작성자 핸들이 너무 긴 개별 YouTube Shorts를 숨기고 '이 Shorts는 숨겨져 있음' CSS를 삽입합니다.
+
+```js
+(event, helpers) => {
+  const MAX_AUTHOR_LEN = 16;
+
+  function configure(_ev, h) {
+    const yt = h.getPlatformHelper().youtube();
+    yt.hideShorts(
+      (item) => item.author && item.author.length > MAX_AUTHOR_LEN,
+      { blockPageOnVisit: true }
+    );
+    h.getDOMHelper().injectCss(
+      "ytd-rich-grid-media[data-cb-hidden] { opacity: 0.2 !important; }",
+      "long-author-label"
+    );
   }
 
-  const site = sites[(month + dayOfMonth) % sites.length];
-  let id = persistenceHelper.get(`timer:${site}`);
+  event.registerOpenWebEvent("hide-long-shorts", configure);
+  event.registerSwitchWebEvent("hide-long-shorts", configure);
+  event.registerWebChangedEvent("hide-long-shorts", configure);
+}
+```
 
-  if (!id || !timerHelper.exists(id)) {
-    id = timerHelper.createTimer(site, 20 * 60 * 1000, `${site} budget`);
-    persistenceHelper.set(`timer:${site}`, id);
-    logHelper.log("Started budget for", site);
-  }
+**가장 어렵다** — 한 핸들러에서 다른 핸들러로 맞춤 이벤트를 브로드캐스트합니다.
 
-  if (timerHelper.isExpired(id)) {
-    return [...blockedDomains, domainHelper.normalize(site)];
-  }
+```js
+(event, helpers) => {
+  event.registerSwitchDomainEvent("track-domain", (ev) => {
+    ev.post("domainChange", { from: ev.data.previousHostname, to: ev.hostname });
+  });
 
-  return blockedDomains;
+  event.register("domainChange", "log-it", (ev, h) => {
+    h.getLogHelper().log("crossed", ev.data.from, "→", ev.data.to);
+  });
 }
 ```
 
 ---
 
-## 12. 다중 페이지 동작
+## 12. 템플릿
 
-- 같은 그룹의 모든 열린 탭은 동일한 타이머를 공유합니다.
-- 같은 그룹 탭으로 전환하면 오버레이가 즉시 갱신되어 현재 공유 시간을 보여줍니다.
-- 새 규칙이 추가되면 열린 모든 페이지가 변화를 감지하고 순식간에 갱신됩니다. 탭을 수동으로 새로고침할 필요가 없습니다.
-- 규칙이 만료되면 숨겨졌던 피드 카드와 내비게이션 버튼이 다음 새로고침 때 복원됩니다.
+각 사용자 정의 그룹에는 검색 가능한 사전 설정 브라우저를 여는 **템플릿** 선택기가 있습니다. 이제 라이브러리는 9개 범주로 구성된 **50개 이상의 템플릿**을 제공하므로 처음부터 규칙을 작성하는 대신 찾아볼 수 있습니다.
 
----
+| 카테고리 | 예 |
+|---|---|
+| **타이머** | 사이트 시간 예산(카운트다운 + 차단), 사이트 시간 추적기(카운트업), YouTube Shorts 한도, TikTok 피드 한도, Instagram Reels 한도, Facebook Reels 한도, Twitch Clips 한도, 범용 방해 예산, Daily deep-work tracker |
+| **일정** | 평일 근무시간 차단, 주말만 허용 사이트, 취침 전 차단, 1시간만 허용, 점심만 뉴스, 월요일 새로 시작, 매 시간 최초 N분 허용, 심층작업 엄격 차단 |
+| **피드/반바지** | YouTube Shorts URL 차단, Shorts 카드 숨기기, 키워드로 Shorts 숨기기, YouTube 홈 피드/댓글/트렌딩 숨기기, TikTok FYP 차단, TikTok 반바지 숨기기, Instagram Reels URL 차단, Instagram Reels 피드 숨기기, Facebook 피드/릴 숨기기, Reddit/Twitter/LinkedIn 홈 숨기기 |
+| **리디렉션** | 방해 요소 → 포커스 페이지, Shorts → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, 새 탭 → 작업 목록 |
+| **포커스** | 허용 목록 전용 집중 세션, Pomodoro 25/5, 회의 중 차단, 오늘 N 방문 후 차단, 연속 손실 차단 |
+| **넛지** | 방해가 되는 모든 방문을 기록하고, Shorts 방문마다 경고하고, 일일 사이트 방문 횟수를 계산합니다 |
+| **지속성** | 월간 방문 제한, 주간 금지 토글, 방문한 Discord 채널 추적 |
+| **DOM 조정** | YouTube 자동 재생 토글 숨기기, Twitter 숨기기 / X "무슨 일이 일어나고 있는지", 일반 "사이트의 선택기 숨기기" |
+| **디버그** | 데모 카운트다운(3초), 모든 사용자 정의 이벤트 기록 |
 
-## 13. 국제화
+선택기 상단에 있는 필터 칩은 카테고리(`Timer`, `Schedule`, `Feed`, …) 및 플랫폼(`YouTube`, `TikTok`, `Instagram`, …)별로 목록을 좁힙니다. 템플릿 선택:
 
-전체 UI가 완전히 번역되어 있습니다. 오른쪽 위 **Language** 선택기를 사용하세요.
+1. 매개변수 입력(URL, 분, 시간 범위 등)을 작은 형식으로 로드합니다.
+2. **사전 설정 적용**은 생성된 소스를 미리 봅니다.
+3. **현재 사용자 지정 규칙을 이 사전 설정으로 바꾸시겠습니까?**를 확인한 후 소스가 편집기에 기록됩니다.
+4. 그런 다음 **실행**을 클릭하여 오프스크린 샌드박스에 규칙 핸들러를 등록합니다.
 
-지원 언어에는 영어, 중국어(간체), 스페인어, 일본어, 한국어가 포함되며, 힌디어, 아랍어, 벵골어, 포르투갈어, 러시아어, 펀자브어, 독일어, 프랑스어, 터키어, 베트남어, 이탈리아어, 태국어, 네덜란드어, 폴란드어, 인도네시아어, 우르두어, 페르시아어 등에 대한 부분 지원도 포함됩니다. 부분 지원 언어는 누락 문자열에서 영어로 폴백합니다.
-
-설명서 자체는 선택한 언어에 맞는 markdown 파일을 로드하며, 없으면 영어로 폴백합니다.
-
----
-
-## 14. 상태 메시지
-
-상태 메시지는 가운데 토스트로 표시되며 약 2초 후 사라집니다.
-
-- "Saved changes."
-- "Created \"Group name\"."
-- "Allowed minutes must be a number greater than 0." 같은 검증 오류.
-- "Snooze minutes must be a number greater than 0."
-- "Frozen groups cannot be changed."
-
-형식 요구가 있는 입력 필드의 경우, 해당 버튼 옆에도 메시지가 표시됩니다(snooze).
+템플릿은 `templates/*.js`(`timers.js`, `schedule.js`, `feed.js`, …) 아래에 정의됩니다. 각 파일은 로드 시 `CB_REGISTER_TEMPLATES([...])`를 호출하고 팝업은 병합된 목록을 사용합니다. 새 템플릿을 추가한다는 것은 하나의 항목을 적절한 파일에 쓰는 것을 의미하며 다른 배관은 필요하지 않습니다.
 
 ---
 
-## 15. 개인정보 및 저장소
-
-- 모든 데이터는 `chrome.storage.local`에 로컬 저장됩니다. 외부 전송은 없습니다.
-- 저장 항목: 그룹, 사용 타이머, 마지막 리셋 시각, snooze 기록, custom 타이머, custom 영구 값.
-- 확장은 페이지 유형 감지에 필요한 범위(경로/hostname/동영상 사이트의 알려진 DOM 마커) 외의 페이지 내용을 읽지 않습니다. 메시지, 게시물, 댓글, 개인 콘텐츠를 읽지 않습니다.
-
----
-
-## 16. 권한
-
-- `storage` — 위 데이터 저장용.
-- `declarativeNetRequest` — `Default` 그룹의 네이티브 차단용.
-- `alarms` — 규칙 전환을 효율적으로 예약하기 위해 사용.
-- `host_permissions: <all_urls>` — content script가 모든 페이지에서 타이머 오버레이를 표시하고 플랫폼 컨텍스트를 감지할 수 있도록 함.
+## 13. 다중 페이지 동작- 동일한 그룹에 있는 모든 열린 탭은 동일한 타이머를 공유합니다.
+- 같은 그룹의 탭으로 전환하면 오버레이가 즉시 새로 고쳐져 현재 공유 시간이 표시됩니다.
+- 사용자 정의 규칙 타이머는 `pageHeartbeatEvent`에 의해 구동되는 **활성 표시** 탭에서만 틱합니다. 배경 탭과 최소화된 창은 진행되지 않습니다. 이는 기본 블록 그룹 카운트다운과 일치합니다.
+- 새 규칙이 추가되면 열려 있는 모든 페이지가 변경 사항을 감지하고 몇 초 안에 재평가됩니다. **그러나** 새로 등록된 핸들러는 이미 열려 있는 탭을 소급하여 "열지" 않습니다. 이러한 이유로 팝업에는 각 실행 후에 다시 로드 알림이 표시됩니다.
+- 규칙이 만료되면 숨겨진 피드 카드와 탐색 버튼이 다음 새로 고침 시 복원됩니다.
 
 ---
 
-## 17. 문제 해결
+## 14. 설정
 
-- **추가한 그룹이 아무 동작도 하지 않아요.** 그룹이 활성화되어 있는지, 현재 일정에 허용되는지, snooze가 없는지, (플랫폼 그룹이면) 페이지가 선택한 콘텐츠 유형/작성자 필터와 실제로 일치하는지 확인하세요.
-- **한 탭에서 타이머가 멈췄거나 이상해요.** 다른 탭으로 갔다가 돌아오거나 해당 탭에 포커스를 주면 공유 타이머 기준으로 강제 새로고침됩니다.
-- **숨겨져야 할 피드 카드가 다시 보여요.** 피드 숨김은 규칙이 실제로 차단 중일 때만 동작합니다. `after-minutes` 규칙이면 시간이 0이 된 뒤에 숨김이 시작됩니다.
-- **숨겨질 줄 알았던 YouTube 내비 버튼이 그대로 있어요.** 내비 숨김은 규칙이 "do not filter by author"이고 콘텐츠 유형이 Shorts 또는 YouTube posts일 때만 됩니다. 작성자 필터를 쓰면 카드 단위 숨김만 적용됩니다.
-- **Custom 규칙이 동작하지 않거나 조용히 실패해요.** `chrome://extensions`를 열고 Developer Mode를 켠 뒤, 확장의 "service worker" 링크를 눌러 콘솔을 확인하세요. `helpers.logHelper.log(...)`로 추적할 수 있습니다.
-- **그룹을 삭제할 수 없어요.** freeze 상태일 가능성이 큽니다. strict-frozen 그룹은 잠금 만료 전 삭제할 수 없고, non-strict frozen 그룹은 unfreeze 절차로 삭제할 수 있습니다.
+상단 표시줄에 있는 기어 아이콘을 통해 **설정** 대화 상자를 엽니다.
 
----
-
-## 18. 용어집
-
-- **Block group** — 자체 유형, 동작, 일정, freeze/snooze를 가진 하나의 규칙 세트.
-- **Instant block** — 규칙이 활성일 때 즉시 차단.
-- **After-minutes block** — 기간 예산이 소진된 후에만 차단 시작.
-- **Reset interval** — after-minutes 예산이 리셋되는 주기.
-- **Schedule** — 그룹이 활성인 요일 + 시간 창.
-- **Freeze / Strict freeze** — 변경 방지 상태.
-- **Snooze** — 작성 사유가 필요한 임시 비활성화.
-- **Author filter** — 플랫폼 그룹에서 특정 크리에이터로 규칙 적용 범위를 제한.
-- **Content type** — 플랫폼 그룹에서 특정 콘텐츠 형태(short, long, post)로 규칙 적용 범위를 제한.
-- **Helpers** — custom 규칙 함수에 전달되는 유틸리티.
-- **Platform** — `youtube`, `tiktok`, `facebook`, `instagram`, `twitch` 중 하나. 각 플랫폼은 자체 그룹 유형과 피드 숨김 로직을 가집니다.
+- **하트비트 간격** — 콘텐츠 스크립트가 탭 시간을 보고하고 `pageHeartbeatEvent`를 구동하는 빈도입니다. 기본값은 250ms입니다. 값이 낮을수록 응답성이 높아지지만 CPU를 더 많이 사용합니다.
+- **틱 간격** — 전역 `tickEvent`가 실행되는 빈도입니다. 기본값은 1000ms입니다.
+- **디버그 모드** — 기본적으로 *꺼져* 있습니다. *on*인 경우 엔진은 추적 수준 항목을 로그 패널(`[trace] dispatchEvent`, `[trace] N handler(s)`)에 내보내고 `[CustomBlocker:trace]` 행을 브라우저 콘솔에 내보냅니다. 일상적인 사용에는 사용하지 마세요. 오작동하는 규칙을 진단하는 동안 이 기능을 켜세요. `pageHeartbeatEvent`는 디버그 모드가 켜져 있어도 추적 로깅에서 제외됩니다. 초당 4번 실행되고 나머지는 익사하기 때문입니다.
 
 ---
 
-## 19. 제한 사항
+## 15. 국제화
 
-- 피드 숨김은 각 플랫폼의 현재 DOM에 의존합니다. 플랫폼 레이아웃이 바뀌면 숨김 선택자 업데이트가 필요할 수 있습니다.
-- YouTube 이외 사이트의 플랫폼 컨텍스트 감지는 대부분 URL 기반이므로, 정규 콘텐츠 URL에서 가장 안정적입니다.
-- Custom 규칙 루프는 페이지가 아니라 백그라운드 worker에서 실행되므로, 함수 내부에서는 DOM 수준 정보에 접근할 수 없습니다. 대신 URL 문자열로 `platformHelper.detect(url)`를 사용하세요.
-- 브라우저는 idle 상태에서 service worker를 일시 중지할 수 있습니다. 확장은 페이지나 alarm이 필요해지는 즉시 다시 깨우며, 이로 인해 사용 타이머 정확도가 떨어지지는 않습니다.
+전체 UI가 번역되었습니다. 오른쪽 상단의 **언어** 선택기를 사용하세요.
+
+지원되는 언어에는 영어, 중국어(간체), 스페인어, 일본어, 한국어가 포함되며 힌디어, 아랍어, 벵골어, 포르투갈어, 러시아어, 펀자브어, 독일어, 프랑스어, 터키어, 베트남어, 이탈리아어, 태국어, 네덜란드어, 폴란드어, 인도네시아어, 우르두어, 페르시아어가 부분적으로 지원됩니다. 부분적으로 적용되는 언어는 문자열이 누락되어 영어로 대체됩니다.
+
+사용 설명서 자체는 선택한 언어와 일치하는 마크다운 파일을 로드하며 대체 언어는 영어입니다.
+
+---
+
+## 16. 상태 메시지
+
+상태 메시지는 약 2초 후에 사라지는 중앙 알림 메시지로 표시됩니다.
+
+- "변경사항이 저장되었습니다."
+- "\"그룹 이름\"을 만들었습니다."
+- "사용자 정의 규칙이 로드되었습니다. N 핸들러가 활성화되었습니다. 이미 연 탭에 이 규칙을 적용하려면 탭을 다시 로드하세요."
+- "허용된 분은 0보다 큰 숫자여야 합니다."와 같은 유효성 검사 오류입니다.
+- "스누즈 시간(분)은 0보다 큰 숫자여야 합니다."
+- "고정된 그룹은 변경할 수 없습니다."
+
+형식 요구 사항이 있는 입력 필드의 경우 관련 버튼 옆에도 메시지가 표시됩니다(잠시 알림).
+
+---
+
+## 17. 개인 정보 보호 및 저장
+
+- 모든 것이 `chrome.storage.local`에 로컬로 저장됩니다. 데이터는 어디에도 전송되지 않습니다.
+- 저장된 항목에는 그룹, 사용 타이머, 마지막 재설정 시간, 기록 다시 알림, 사용자 정의 타이머 및 사용자 정의 지속 값이 포함됩니다.
+- 확장 프로그램은 페이지 유형(경로/호스트 이름/비디오 사이트에 대해 알려진 DOM 마커)을 감지하고 사용자가 작성한 조건자를 평가하는 데 필요한 것 이상으로 페이지 콘텐츠를 읽지 않습니다. 귀하의 메시지, 게시물, 댓글 또는 비공개 콘텐츠는 읽지 않습니다.
+
+---
+
+## 18. 권한
+
+- `storage` - 위 데이터의 경우.
+- `declarativeNetRequest` — `Default` 그룹의 기본 차단용입니다.
+- `alarms` — 규칙 전환을 효율적으로 예약합니다.
+- `tabs`, `webNavigation` — 탭 생성, URL 변경 및 페이지 하트비트를 감지하여 이벤트가 전달될 수 있도록 합니다.
+- `offscreen` — 수명이 긴 사용자 지정 규칙 샌드박스를 호스팅합니다.
+- `host_permissions: <all_urls>` — 콘텐츠 스크립트는 타이머 오버레이를 표시하고 모든 페이지에서 플랫폼 컨텍스트를 감지할 수 있습니다.
+
+---
+
+## 19. 문제 해결- **내가 추가한 그룹은 아무 작업도 수행하지 않습니다.** 그룹이 활성화되어 있는지, 현재 일정에서 허용하는지, 다시 알림이 활성화되어 있지 않은지, (플랫폼 그룹의 경우) 페이지가 실제로 선택한 콘텐츠 유형 및 작성자 필터와 일치하는지 확인하세요.
+- **한 탭에서 타이머가 멈추거나 잘못되었습니다.** 다른 탭으로 전환하거나 탭에 집중하세요. 그러면 공유 타이머에서 강제 새로 고침이 트리거됩니다.
+- **피드 카드는 숨겨야 한다고 생각한 후에 다시 나타납니다.** 피드 숨기기는 규칙이 적극적으로 차단하는 동안에만 실행됩니다. `after-minutes` 규칙이 있는 경우 시간이 0에 도달하면 피드 숨기기가 시작됩니다.
+- **숨겨질 것으로 예상했던 YouTube 탐색 버튼이 그대로 있습니다.** 탐색을 숨기려면 규칙을 '작성자별로 필터링하지 않음'으로 설정하고 콘텐츠 유형을 Shorts 또는 YouTube 게시물로 설정해야 합니다. 작성자 필터를 사용하면 숨기기는 카드별로만 가능합니다.
+- **사용자 지정 규칙이 아무 작업도 수행하지 않거나 자동으로 발생했습니다.** 설정을 열고 → **디버그 모드**를 활성화한 다음 **실행**을 다시 클릭하고 로그 패널을 살펴보세요. `[trace]` 접두사가 붙은 줄은 모든 디스패치 및 핸들러를 표시합니다. `helpers.getLogHelper().log(...)`를 사용하여 고유한 추적 지점을 추가하세요. 오작동하는 규칙이 계속 자동 격리되는 경우 소스를 수정하고 실행을 클릭합니다. 실행하면 중단 이유가 지워집니다.
+- **새 맞춤 규칙은 이미 열려 있는 탭에 영향을 주지 않습니다.** 탭을 다시 로드하세요. *향후* 페이지 이벤트에 맞춤 규칙이 추가됩니다. 팝업에는 매 실행 후에 다시 로드하라는 알림이 표시됩니다.
+- **내 카운트다운 타이머가 진행되지 않습니다.** 사용자 정의 규칙 타이머는 `pageHeartbeatEvent`를 통해 **활성 표시** 탭에서만 선택됩니다. 배경 탭, 최소화된 창 및 잠긴 화면은 기본 블록 그룹 카운트다운과 동일한 동작으로 설계에 따라 일시 중지됩니다.
+- **그룹을 삭제할 수 없습니다.** 동결된 것 같습니다. 엄격하게 동결된 그룹은 잠금이 만료될 때까지 전혀 삭제할 수 없습니다. 엄격하지 않은 고정 그룹은 고정 해제 의식을 통해 삭제할 수 있습니다.
+- **팝업에 "실행 중..."이 계속 표시됩니다.** 사용자 정의 규칙이 빡빡한 루프에 빠진 것 같습니다. 엔진은 하드 타임아웃 후 이를 종료하고 규칙을 격리합니다. 중단 이유에 대한 로그 패널을 엽니다. 규칙을 수정하고 실행을 클릭하세요.
+
+---
+
+## 20. 용어집
+
+- **블록 그룹** — 고유한 유형, 동작, 일정 및 동결/일시 중지가 포함된 하나의 규칙 세트입니다.
+- **즉시 차단** — 규칙이 활성화될 때마다 즉시 차단됩니다.
+- **분 후 차단** — 해당 기간의 시간 예산이 소진된 후에만 규칙이 차단을 시작합니다.
+- **재설정 간격** — 분 후 예산이 재설정되는 빈도입니다.
+- **일정** — 그룹이 활성화된 일수 + 기간입니다.
+- **동결 / 엄격한 동결** — 변조 방지 상태.
+- **스누즈** — 구성 가능한 확인 의식을 통해 일시적으로 비활성화됩니다.
+- **작성자 필터** — 플랫폼 그룹의 경우 규칙을 특정 콘텐츠 제작자로 제한합니다.
+- **콘텐츠 유형** — 플랫폼 그룹의 경우 규칙을 특정 형식의 콘텐츠(짧은 것, 긴 것, 게시물)로 제한합니다.
+- **도우미** — 사용자 정의 규칙 처리기에 전달되는 유틸리티입니다.
+- **플랫폼** — `youtube`, `tiktok`, `facebook`, `instagram`, `twitch` 중 하나입니다. 각각에는 고유한 그룹 유형과 피드 숨김 논리가 있습니다.
+- **하트비트** — 활성 표시 탭에서 전달되는 ~250ms `pageHeartbeatEvent`입니다.
+- **틱** — 1은 전 세계적으로 공유되는 `tickEvent`(가시성 독립적)입니다.
+- **디버그 모드** — 로그 패널과 브라우저 콘솔에 내부 추적 로깅을 표시하는 설정입니다.
+- **격리** — 런타임 안전 한도(기한, 스팸 로그 등)를 초과한 사용자 지정 규칙을 자동으로 비활성화합니다. 다음 실행 시 삭제됩니다.
+
+---
+
+## 21. 제한 사항- 피드 숨김은 각 플랫폼의 현재 DOM에 따라 다릅니다. 플랫폼이 레이아웃을 변경하면 숨김 선택기를 업데이트해야 할 수도 있습니다.
+- YouTube 이외의 사이트에 대한 플랫폼 컨텍스트 감지는 대부분 URL 기반이므로 표준 콘텐츠 URL에서 가장 안정적입니다.
+- 사용자 정의 규칙 타이머는 하트비트 해상도(~250ms)로 틱합니다. 1초 미만의 타이밍에 의존하지 마세요.
+- `hideShorts` / `hideVideos` / `hidePosts`에 전달된 조건자는 피드 카드별로 동기적으로 평가됩니다. 조건자의 논리가 너무 많으면 피드 스크롤 속도가 느려질 수 있습니다. 저렴하게 유지하세요.
+- 동일한 그룹별 타이머를 편집하는 두 개의 탭은 동시에 "마지막 쓰기 우선" 전략을 사용합니다. 일반적인 용도에서는 괜찮습니다. 정확한 회계에 의존하는 경우 가끔 작은 드리프트가 발생할 수 있습니다.
+- 브라우저가 유휴 상태일 때 백그라운드 서비스 워커를 일시 중지할 수 있습니다. 확장 프로그램은 페이지나 알람에 필요한 즉시 이를 재개합니다. 사이트/시간별 사용 예산은 하트비트 재생을 통해 계속 계산됩니다.

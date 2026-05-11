@@ -8,12 +8,24 @@ const LAYOUT_WIDTH_STORAGE_KEY = "custom-blocker-groups-panel-width";
 const LANGUAGE_STORAGE_KEY = "custom-blocker-language";
 const GROUP_TRANSFER_PREFIX = "custom-blocker-group:v1:";
 
+// Debug-mode-gated console helpers. Mirror the implementation in
+// background.js / content.js / event-sandbox.js so every context has
+// the same surface and they're all silent by default.
+let cbDebugMode = false;
+function cbDebugLog(...args) { if (cbDebugMode) { try { console.log(...args); } catch (_) {} } }
+function cbDebugWarn(...args) { if (cbDebugMode) { try { console.warn(...args); } catch (_) {} } }
+function cbDebugError(...args) { if (cbDebugMode) { try { console.error(...args); } catch (_) {} } }
+
 // Extension-wide preferences. Keep these defaults in sync with the
 // placeholder text in popup.html's Settings modal.
 const DEFAULT_GLOBAL_SETTINGS = {
   tickRateMs: 1000,
   autosaveDebounceMs: 400,
-  showDebugOverlay: true,
+  // Debug mode is off by default. When on it (a) shows the on-page
+  // debug log overlay for custom rules and (b) emits the
+  // [CustomBlocker:trace] / [CustomBlocker] dispatch console lines.
+  // The user-facing helpers.log() output continues to flow regardless.
+  debugMode: false,
   defaultSnoozeMinutes: 30,
   defaultFallbackUrl: "about:blank"
 };
@@ -154,7 +166,7 @@ const settingsModal = document.getElementById("settingsModal");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
 const settingsTickRateField = document.getElementById("settingsTickRate");
 const settingsAutosaveDebounceField = document.getElementById("settingsAutosaveDebounce");
-const settingsShowDebugOverlayField = document.getElementById("settingsShowDebugOverlay");
+const settingsDebugModeField = document.getElementById("settingsDebugMode");
 const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
 const settingsDefaultFallbackUrlField = document.getElementById("settingsDefaultFallbackUrl");
 const settingsResetButton = document.getElementById("settingsResetButton");
@@ -279,104 +291,10 @@ function loadLanguage() {
   return getAvailableLanguages()[browserLanguage] ? browserLanguage : defaultLanguage;
 }
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function renderInlineMarkdown(text) {
-  return escapeHtml(text)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-}
-
-function renderMarkdownToHtml(markdown) {
-  const lines = String(markdown ?? "").replace(/\r\n/g, "\n").split("\n");
-  const blocks = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index];
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      index += 1;
-      continue;
-    }
-
-    if (trimmed.startsWith("```")) {
-      const codeLines = [];
-      index += 1;
-
-      while (index < lines.length && !lines[index].trim().startsWith("```")) {
-        codeLines.push(lines[index]);
-        index += 1;
-      }
-
-      if (index < lines.length) {
-        index += 1;
-      }
-
-      blocks.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
-      continue;
-    }
-
-    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      blocks.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`);
-      index += 1;
-      continue;
-    }
-
-    if (/^[-*]\s+/.test(trimmed)) {
-      const items = [];
-
-      while (index < lines.length && /^[-*]\s+/.test(lines[index].trim())) {
-        items.push(`<li>${renderInlineMarkdown(lines[index].trim().replace(/^[-*]\s+/, ""))}</li>`);
-        index += 1;
-      }
-
-      blocks.push(`<ul>${items.join("")}</ul>`);
-      continue;
-    }
-
-    if (/^\d+\.\s+/.test(trimmed)) {
-      const items = [];
-
-      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
-        items.push(`<li>${renderInlineMarkdown(lines[index].trim().replace(/^\d+\.\s+/, ""))}</li>`);
-        index += 1;
-      }
-
-      blocks.push(`<ol>${items.join("")}</ol>`);
-      continue;
-    }
-
-    const paragraphLines = [];
-    while (
-      index < lines.length &&
-      lines[index].trim() &&
-      !lines[index].trim().startsWith("```") &&
-      !/^(#{1,6})\s+/.test(lines[index].trim()) &&
-      !/^[-*]\s+/.test(lines[index].trim()) &&
-      !/^\d+\.\s+/.test(lines[index].trim())
-    ) {
-      paragraphLines.push(lines[index].trim());
-      index += 1;
-    }
-
-    blocks.push(`<p>${renderInlineMarkdown(paragraphLines.join(" "))}</p>`);
-  }
-
-  return blocks.join("");
-}
+// `escapeHtml`, `renderInlineMarkdown`, and `renderMarkdownToHtml` live
+// in [popup-markdown.js](popup-markdown.js) so the test harness can
+// load them under jsc without dragging the whole DOM-bound popup along.
+// popup.html includes that script before this one.
 
 async function fetchManualMarkdown(languageCode) {
   const candidates = languageCode === "en" ? ["en"] : [languageCode, "en"];
@@ -409,7 +327,16 @@ async function loadManualContent() {
   try {
     const markdown = await fetchManualMarkdown(state.language);
     manualStatus.textContent = "";
-    manualContent.innerHTML = renderMarkdownToHtml(markdown);
+    let html = renderMarkdownToHtml(markdown);
+    // Non-English manuals are machine-translated. Surface that up-front
+    // so a reader does not mistake an MT artefact for an authoritative
+    // statement. The banner itself is localized via the standard
+    // translation pipeline.
+    if (state.language && state.language !== "en") {
+      const bannerText = escapeHtml(t("manual.mtBanner"));
+      html = `<blockquote class="mt-banner">${bannerText}</blockquote>${html}`;
+    }
+    manualContent.innerHTML = html;
   } catch (error) {
     manualStatus.textContent = error?.message || t("manual.error");
     manualContent.innerHTML = "";
@@ -433,7 +360,7 @@ function syncSettingsFormFromState() {
   const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
   if (settingsTickRateField) settingsTickRateField.value = String(s.tickRateMs);
   if (settingsAutosaveDebounceField) settingsAutosaveDebounceField.value = String(s.autosaveDebounceMs);
-  if (settingsShowDebugOverlayField) settingsShowDebugOverlayField.checked = Boolean(s.showDebugOverlay);
+  if (settingsDebugModeField) settingsDebugModeField.checked = Boolean(s.debugMode);
   if (settingsDefaultSnoozeMinutesField) settingsDefaultSnoozeMinutesField.value = String(s.defaultSnoozeMinutes);
   if (settingsDefaultFallbackUrlField) settingsDefaultFallbackUrlField.value = s.defaultFallbackUrl ?? "";
   if (settingsStatus) settingsStatus.textContent = "";
@@ -455,7 +382,7 @@ async function saveSettingsFromForm() {
   const draft = {
     tickRateMs: settingsTickRateField?.value,
     autosaveDebounceMs: settingsAutosaveDebounceField?.value,
-    showDebugOverlay: settingsShowDebugOverlayField?.checked ?? true,
+    debugMode: settingsDebugModeField?.checked ?? false,
     defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
     defaultFallbackUrl: settingsDefaultFallbackUrlField?.value
   };
@@ -493,6 +420,17 @@ function applyStaticTranslations() {
 
   for (const element of document.querySelectorAll("[data-i18n-placeholder]")) {
     element.setAttribute("placeholder", t(element.dataset.i18nPlaceholder));
+  }
+
+  // Generic aria-label binding so any future element can use
+  // data-i18n-aria-label="…" without touching this function.
+  for (const element of document.querySelectorAll("[data-i18n-aria-label]")) {
+    element.setAttribute("aria-label", t(element.dataset.i18nAriaLabel));
+  }
+
+  // Generic title (tooltip) binding.
+  for (const element of document.querySelectorAll("[data-i18n-title]")) {
+    element.setAttribute("title", t(element.dataset.i18nTitle));
   }
 
   addGroupTypeField.setAttribute("aria-label", t("groups.addTypeAria"));
@@ -784,8 +722,14 @@ function sanitizeGlobalSettings(raw) {
   })();
   const defaultFallbackUrl =
     typeof src.defaultFallbackUrl === "string" ? src.defaultFallbackUrl.trim() : "";
-  const showDebugOverlay = src.showDebugOverlay !== false;
-  return { tickRateMs, autosaveDebounceMs, showDebugOverlay, defaultSnoozeMinutes, defaultFallbackUrl };
+  // Migrate the old `showDebugOverlay` key (which defaulted to true)
+  // to the new `debugMode` key (which defaults to false). If the user
+  // had previously SET showDebugOverlay we honor it; otherwise we
+  // start fresh with debug off.
+  const debugMode =
+    src.debugMode === true ||
+    (src.debugMode === undefined && src.showDebugOverlay === true);
+  return { tickRateMs, autosaveDebounceMs, debugMode, defaultSnoozeMinutes, defaultFallbackUrl };
 }
 
 function normalizeTimeWindowLine(line) {
@@ -1370,372 +1314,14 @@ function getLocalizedUnfreezeMessages() {
   );
 }
 
-function quoteJs(value) {
-  return JSON.stringify(String(value ?? ""));
-}
-
-function minutesToMsLiteral(value) {
-  return Math.round(Number(value) * MS_PER_MINUTE);
-}
-
-const CUSTOM_RULE_TEMPLATES = [
-  {
-    id: "weekday-window-block",
-    title: "Weekday Block Window",
-    description: "Block one site only during a weekday time window. Uses openWebEvent + switchWebEvent to evaluate every visit.",
-    tags: ["schedule", "site"],
-    params: [
-      { id: "domainContains", label: "URL contains", type: "text", defaultValue: "youtube.com" },
-      { id: "startHour", label: "Start hour", type: "number", min: 0, max: 23, step: 1, defaultValue: 9 },
-      { id: "endHour", label: "End hour", type: "number", min: 1, max: 24, step: 1, defaultValue: 18 },
-      {
-        id: "daysCsv",
-        label: "Days (comma separated)",
-        type: "text",
-        span: 2,
-        defaultValue: "Monday,Tuesday,Wednesday,Thursday,Friday"
-      }
-    ],
-    buildCode(values) {
-      const days = String(values.daysCsv || "")
-        .split(",")
-        .map((day) => day.trim())
-        .filter(Boolean)
-        .map(quoteJs)
-        .join(", ");
-      return `(event, helpers) => {
-  const target = ${quoteJs(values.domainContains)};
-  const blockedDays = [${days}];
-
-  function decide(ev) {
-    if (!ev.url.includes(target)) return;
-    if (!blockedDays.includes(ev.time.dayName)) return;
-    if (ev.time.hour < ${Number(values.startHour)} || ev.time.hour >= ${Number(values.endHour)}) return;
-    ev.preventDefault();
-    ev.setResult(-1);
-  }
-
-  event.registerOpenWebEvent("weekday-block", decide);
-  event.registerSwitchWebEvent("weekday-block", decide);
-}`;
-    }
-  },
-  {
-    id: "site-time-budget",
-    title: "Website Time Budget",
-    description: "Tick a shared countdown while you are on the site (tickEvent), then block it via openWebEvent.",
-    tags: ["timer", "site"],
-    params: [
-      { id: "domainContains", label: "URL contains", type: "text", defaultValue: "reddit.com" },
-      { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 20 },
-      { id: "timerId", label: "Timer ID", type: "text", defaultValue: "budget-site" },
-      { id: "displayName", label: "Display name", type: "text", defaultValue: "Site Budget" }
-    ],
-    buildCode(values) {
-      return `(event, helpers) => {
-  const TARGET = ${quoteJs(values.domainContains)};
-  const TIMER_ID = ${quoteJs(values.timerId)};
-
-  // Ensure the budget timer exists once at registration time.
-  helpers.getTimerHelper().getOrCreateTimer({
-    id: TIMER_ID,
-    direction: "backward",
-    currentMs: ${minutesToMsLiteral(values.minutes)},
-    displayName: ${quoteJs(values.displayName)}
-  });
-
-  event.registerTickEvent("tick-budget", (ev, h) => {
-    if (!ev.url.includes(TARGET)) return;
-    h.getTimerHelper().addMs(TIMER_ID, -1000);
-  });
-
-  function blockIfExpired(ev, h) {
-    if (!ev.url.includes(TARGET)) return;
-    if (h.getTimerHelper().isExpired(TIMER_ID)) {
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-
-  event.registerOpenWebEvent("block-when-expired", blockIfExpired);
-  event.registerSwitchWebEvent("block-when-expired", blockIfExpired);
-}`;
-    }
-  },
-  {
-    id: "youtube-shorts-cap",
-    title: "YouTube Shorts Daily Cap",
-    description: "Tick a Shorts-only timer; block when it hits zero. Also fires timerEnded so you can react.",
-    tags: ["timer", "youtube", "shorts"],
-    params: [
-      { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 30 },
-      { id: "timerId", label: "Timer ID", type: "text", defaultValue: "yt-shorts" },
-      { id: "displayName", label: "Display name", type: "text", defaultValue: "YT Shorts" }
-    ],
-    buildCode(values) {
-      return `(event, helpers) => {
-  const TIMER_ID = ${quoteJs(values.timerId)};
-  const yt = helpers.getDomainHelper().youtube();
-
-  helpers.getTimerHelper().getOrCreateTimer({
-    id: TIMER_ID,
-    direction: "backward",
-    currentMs: ${minutesToMsLiteral(values.minutes)},
-    displayName: ${quoteJs(values.displayName)}
-  });
-
-  event.registerTickEvent("yt-shorts-tick", (ev, h) => {
-    if (!yt.isShortUrl(ev.url)) return;
-    h.getTimerHelper().addMs(TIMER_ID, -1000);
-  });
-
-  function maybeBlock(ev, h) {
-    if (!yt.isShortUrl(ev.url)) return;
-    if (h.getTimerHelper().isExpired(TIMER_ID)) {
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-  event.registerOpenWebEvent("yt-shorts-block", maybeBlock);
-  event.registerSwitchWebEvent("yt-shorts-block", maybeBlock);
-
-  event.registerTimerEndedEvent("yt-shorts-ended", (ev, h) => {
-    h.getLogHelper().log("YouTube Shorts time used up:", ev.data);
-  });
-}`;
-    }
-  },
-  {
-    id: "tiktok-short-cap",
-    title: "TikTok Feed Cap",
-    description: "Tick a TikTok-only timer; block any TikTok page once it expires.",
-    tags: ["timer", "tiktok", "shorts"],
-    params: [
-      { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 20 },
-      { id: "timerId", label: "Timer ID", type: "text", defaultValue: "tiktok-feed" },
-      { id: "displayName", label: "Display name", type: "text", defaultValue: "TikTok" }
-    ],
-    buildCode(values) {
-      return `(event, helpers) => {
-  const TIMER_ID = ${quoteJs(values.timerId)};
-  const tiktok = helpers.getDomainHelper().tiktok();
-
-  helpers.getTimerHelper().getOrCreateTimer({
-    id: TIMER_ID,
-    direction: "backward",
-    currentMs: ${minutesToMsLiteral(values.minutes)},
-    displayName: ${quoteJs(values.displayName)}
-  });
-
-  event.registerTickEvent("tt-tick", (ev, h) => {
-    if (!tiktok.isShortUrl(ev.url)) return;
-    h.getTimerHelper().addMs(TIMER_ID, -1000);
-  });
-
-  function maybeBlock(ev, h) {
-    if (!tiktok.isPlatformUrl(ev.url)) return;
-    if (h.getTimerHelper().isExpired(TIMER_ID)) {
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-  event.registerOpenWebEvent("tt-block", maybeBlock);
-  event.registerSwitchWebEvent("tt-block", maybeBlock);
-}`;
-    }
-  },
-  {
-    id: "instagram-reels-cap",
-    title: "Instagram Reels Cap",
-    description: "Track Reels with a per-second tick; block any Instagram page once expired.",
-    tags: ["timer", "instagram", "shorts"],
-    params: [
-      { id: "minutes", label: "Minutes", type: "number", min: 1, step: 1, defaultValue: 15 },
-      { id: "timerId", label: "Timer ID", type: "text", defaultValue: "ig-reels" },
-      { id: "displayName", label: "Display name", type: "text", defaultValue: "IG Reels" }
-    ],
-    buildCode(values) {
-      return `(event, helpers) => {
-  const TIMER_ID = ${quoteJs(values.timerId)};
-  const ig = helpers.getDomainHelper().instagram();
-
-  helpers.getTimerHelper().getOrCreateTimer({
-    id: TIMER_ID,
-    direction: "backward",
-    currentMs: ${minutesToMsLiteral(values.minutes)},
-    displayName: ${quoteJs(values.displayName)}
-  });
-
-  event.registerTickEvent("ig-tick", (ev, h) => {
-    if (!ig.isShortUrl(ev.url)) return;
-    h.getTimerHelper().addMs(TIMER_ID, -1000);
-  });
-
-  function maybeBlock(ev, h) {
-    if (!ig.isPlatformUrl(ev.url)) return;
-    if (h.getTimerHelper().isExpired(TIMER_ID)) {
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-  event.registerOpenWebEvent("ig-block", maybeBlock);
-  event.registerSwitchWebEvent("ig-block", maybeBlock);
-}`;
-    }
-  },
-  {
-    id: "hide-youtube-shorts-author-length",
-    title: "Hide Shorts By Author Length",
-    description: "On every YouTube open, hide Shorts whose author handle is longer than a threshold.",
-    tags: ["feed", "youtube", "shorts"],
-    params: [
-      { id: "maxAuthorLength", label: "Max author length", type: "number", min: 1, step: 1, defaultValue: 16 },
-      { id: "blockPageOnVisit", label: "Block direct visits", type: "checkbox", defaultValue: true }
-    ],
-    buildCode(values) {
-      return `(event, helpers) => {
-  function configure(ev, h) {
-    const yt = h.getPlatformHelper().youtube();
-    yt.hideShortButton();
-    yt.hideShorts(
-      (item) => item.author && item.author.length > ${Number(values.maxAuthorLength)},
-      { blockPageOnVisit: ${Boolean(values.blockPageOnVisit)} }
-    );
-  }
-
-  event.registerOpenWebEvent("hide-shorts", configure);
-  event.registerSwitchWebEvent("hide-shorts", configure);
-}`;
-    }
-  },
-  {
-    id: "hide-youtube-videos-keyword",
-    title: "Hide Videos By Keyword",
-    description: "Hide YouTube long-form videos whose titles contain a keyword.",
-    tags: ["feed", "youtube"],
-    params: [
-      { id: "keyword", label: "Keyword", type: "text", defaultValue: "drama" },
-      { id: "blockPageOnVisit", label: "Block direct visits", type: "checkbox", defaultValue: false }
-    ],
-    buildCode(values) {
-      return `(event, helpers) => {
-  const KEYWORD = ${quoteJs(String(values.keyword || "").toLowerCase())};
-
-  function configure(ev, h) {
-    const yt = h.getPlatformHelper().youtube();
-    yt.hideVideos(
-      (item) => {
-        const text =
-          typeof item?.name === "string"
-            ? item.name
-            : typeof item?.title === "string"
-              ? item.title
-              : "";
-        return text.toLowerCase().includes(KEYWORD);
-      },
-      { blockPageOnVisit: ${Boolean(values.blockPageOnVisit)} }
-    );
-  }
-  event.registerOpenWebEvent("hide-keyword", configure);
-  event.registerSwitchWebEvent("hide-keyword", configure);
-}`;
-    }
-  },
-  {
-    id: "reddit-subreddit-work-block",
-    title: "Block One Subreddit At Work",
-    description: "Block a subreddit only during a chosen daily work window. Reacts to navigation events.",
-    tags: ["schedule", "reddit"],
-    params: [
-      { id: "subreddit", label: "Subreddit", type: "text", defaultValue: "all" },
-      { id: "startHour", label: "Start hour", type: "number", min: 0, max: 23, step: 1, defaultValue: 9 },
-      { id: "endHour", label: "End hour", type: "number", min: 1, max: 24, step: 1, defaultValue: 17 }
-    ],
-    buildCode(values) {
-      let normalizedSubreddit = String(values.subreddit || "").trim().toLowerCase();
-      if (normalizedSubreddit.startsWith("r/")) {
-        normalizedSubreddit = normalizedSubreddit.slice(2);
-      }
-      return `(event, helpers) => {
-  const TARGET = ${quoteJs(normalizedSubreddit)};
-
-  function decide(ev) {
-    if (!ev.url.toLowerCase().includes("/r/" + TARGET + "/")) return;
-    if (["Saturday", "Sunday"].includes(ev.time.dayName)) return;
-    if (ev.time.hour < ${Number(values.startHour)} || ev.time.hour >= ${Number(values.endHour)}) return;
-    ev.preventDefault();
-    ev.setResult(-1);
-  }
-
-  event.registerOpenWebEvent("subreddit-work-block", decide);
-  event.registerSwitchWebEvent("subreddit-work-block", decide);
-}`;
-    }
-  },
-  {
-    id: "weekend-only-access",
-    title: "Weekend-Only Access",
-    description: "Allow a site only on weekends and block it on weekdays.",
-    tags: ["schedule", "site"],
-    params: [
-      { id: "domainContains", label: "URL contains", type: "text", defaultValue: "twitch.tv" }
-    ],
-    buildCode(values) {
-      return `(event, helpers) => {
-  const TARGET = ${quoteJs(values.domainContains)};
-
-  function decide(ev) {
-    if (!ev.url.includes(TARGET)) return;
-    const weekend = ["Saturday", "Sunday"].includes(ev.time.dayName);
-    if (weekend) {
-      ev.setResult(1);
-    } else {
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-  event.registerOpenWebEvent("weekend-only", decide);
-  event.registerSwitchWebEvent("weekend-only", decide);
-}`;
-    }
-  },
-  {
-    id: "one-free-visit",
-    title: "One Free Visit Then Block",
-    description: "Allow the first N matching visits, then block every later one until you clear persistence.",
-    tags: ["site", "persistence"],
-    params: [
-      { id: "domainContains", label: "URL contains", type: "text", defaultValue: "news.ycombinator.com" },
-      { id: "allowedVisits", label: "Allowed visits", type: "number", min: 1, step: 1, defaultValue: 1 }
-    ],
-    buildCode(values) {
-      return `(event, helpers) => {
-  const TARGET = ${quoteJs(values.domainContains)};
-  const ALLOWED = ${Number(values.allowedVisits)};
-
-  function decide(ev, h) {
-    if (!ev.url.includes(TARGET)) return;
-    const store = h.getPersistenceHelper();
-    const visitKey = "visit-count:" + TARGET;
-    const pageKey = "last-url:" + TARGET;
-    const currentCount = Number(store.get(visitKey, 0) || 0);
-
-    if (store.get(pageKey) !== ev.url) {
-      store.set(pageKey, ev.url);
-      store.set(visitKey, currentCount + 1);
-    }
-
-    if (Number(store.get(visitKey, 0) || 0) > ALLOWED) {
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-  event.registerOpenWebEvent("free-visit-block", decide);
-  event.registerSwitchWebEvent("free-visit-block", decide);
-}`;
-    }
-  }
-];
+// Templates live in templates/*.js; each file calls
+// CB_REGISTER_TEMPLATES(...) which appends to
+// window.__CUSTOM_BLOCKER_TEMPLATES. popup.html loads those
+// scripts before popup.js so the array is fully populated by
+// the time we reach this line.
+const CUSTOM_RULE_TEMPLATES = Array.isArray(window.__CUSTOM_BLOCKER_TEMPLATES)
+  ? window.__CUSTOM_BLOCKER_TEMPLATES.slice()
+  : [];
 
 function normalizeTemplateTag(tag) {
   return String(tag ?? "")
@@ -1750,29 +1336,69 @@ function getTemplateTags(template) {
   return [...new Set((Array.isArray(template?.tags) ? template.tags : []).map(normalizeTemplateTag).filter(Boolean))];
 }
 
+// Preferred chip order. Categories cluster on the left, then short-form
+// /addiction-prone platforms, then the rest. Tags not in this list keep
+// their template-discovery order at the tail. Reorder these lines to
+// reorder the visible chips.
+const TEMPLATE_TAG_PREFERRED_ORDER = [
+  // Categories — broad concerns first, narrower ones after.
+  "timer",
+  "count-up",
+  "schedule",
+  "feed",
+  "shorts",
+  "redirect",
+  "focus",
+  "nudge",
+  "persistence",
+  "dom",
+  "debug",
+  // Platforms — clustered by similarity (short-video first).
+  "youtube",
+  "tiktok",
+  "instagram",
+  "facebook",
+  "reddit",
+  "twitter",
+  "twitch",
+  "discord",
+  "site"
+];
+
 function getTemplateFilterOptions() {
   const seen = new Set();
-  const options = [];
+  const collected = new Set();
 
   for (const template of CUSTOM_RULE_TEMPLATES) {
     for (const tag of getTemplateTags(template)) {
-      if (seen.has(tag)) {
-        continue;
-      }
-      seen.add(tag);
-      const translationKey = `custom.templateTag.${tag}`;
-      const translated = t(translationKey);
-      options.push({
-        value: tag,
-        label:
-          translated !== translationKey
-            ? translated
-            : tag.replace(/-/g, " ").replace(/\b\w/g, (character) => character.toUpperCase())
-      });
+      collected.add(tag);
     }
   }
 
-  return options;
+  const ordered = [];
+  for (const tag of TEMPLATE_TAG_PREFERRED_ORDER) {
+    if (collected.has(tag) && !seen.has(tag)) {
+      seen.add(tag);
+      ordered.push(tag);
+    }
+  }
+  // Append any tag the templates introduced that isn't in the curated
+  // list — keeps new templates working without forcing every author to
+  // edit the order array. They sort alphabetically for stability.
+  const tail = Array.from(collected).filter((t) => !seen.has(t)).sort();
+  for (const tag of tail) ordered.push(tag);
+
+  return ordered.map((tag) => {
+    const translationKey = `custom.templateTag.${tag}`;
+    const translated = t(translationKey);
+    return {
+      value: tag,
+      label:
+        translated !== translationKey
+          ? translated
+          : tag.replace(/-/g, " ").replace(/\b\w/g, (character) => character.toUpperCase())
+    };
+  });
 }
 
 function getFilteredTemplates() {
@@ -3300,6 +2926,8 @@ async function loadStoredState() {
   });
 
   const groups = sanitizeGroups(result[BLOCKED_GROUPS_KEY]);
+  const settings = sanitizeGlobalSettings(result[GLOBAL_SETTINGS_KEY]);
+  cbDebugMode = settings.debugMode === true;
 
   return {
     groups,
@@ -3307,7 +2935,7 @@ async function loadStoredState() {
     usageResetAtMs: sanitizeResetTimes(result[USAGE_RESET_AT_KEY], groups),
     groupSnoozes: sanitizeSnoozes(result[GROUP_SNOOZES_KEY], groups),
     groupSnoozeTotalsMs: sanitizeSnoozeTotals(result[GROUP_SNOOZE_TOTALS_KEY], groups),
-    globalSettings: sanitizeGlobalSettings(result[GLOBAL_SETTINGS_KEY])
+    globalSettings: settings
   };
 }
 
@@ -4095,19 +3723,19 @@ async function startSnooze() {
   if (group.groupType === "custom") {
     setSnoozeWarning("");
     try {
-      console.log("[CustomBlocker:trace] popup → fire-snooze-press", group.id);
+      cbDebugLog("[CustomBlocker:trace] popup → fire-snooze-press", group.id);
       const response = await chrome.runtime.sendMessage({
         type: "fire-snooze-press",
         groupId: group.id
       });
-      console.log("[CustomBlocker:trace] popup ← fire-snooze-press response", response);
+      cbDebugLog("[CustomBlocker:trace] popup ← fire-snooze-press response", response);
       if (!response || !response.ok) {
         const err =
           (response && response.error) || t("snooze.warning.snoozePressFailed");
         setSnoozeWarning(err);
       }
     } catch (error) {
-      console.warn("[CustomBlocker:trace] popup fire-snooze-press error", error);
+      cbDebugWarn("[CustomBlocker:trace] popup fire-snooze-press error", error);
       setSnoozeWarning(String(error && error.message ? error.message : error));
     }
     return;
@@ -4338,6 +3966,7 @@ function syncExternalState(changes) {
 
   if (changes[GLOBAL_SETTINGS_KEY]) {
     state.globalSettings = sanitizeGlobalSettings(changes[GLOBAL_SETTINGS_KEY].newValue);
+    cbDebugMode = state.globalSettings.debugMode === true;
     if (state.isSettingsOpen) {
       syncSettingsFormFromState();
     }
@@ -4449,6 +4078,23 @@ blockingRulesField.addEventListener("blur", () => {
   });
 });
 
+// Wall-clock watchdog for the Run flow. If a previous custom rule
+// already locked the sandbox iframe with an infinite loop, the
+// background's `await chrome.runtime.sendMessage(... event-sandbox-request)`
+// hangs until offscreen.js's hard timeout fires (~5s) and tears the
+// iframe down. We give the whole round trip a generous 8s budget so the
+// status pill can flip to "Halted" even in the worst case where the
+// SW round trip + iframe reset both happen.
+const RUN_CUSTOM_GROUP_TIMEOUT_MS = 8000;
+
+function timeoutFallback(ms) {
+  return new Promise((resolve) => setTimeout(() => resolve({
+    __timedOut: true,
+    ok: false,
+    error: "timeout"
+  }), ms));
+}
+
 async function runSelectedCustomGroup() {
   const group = getSelectedGroup();
   if (!group || group.groupType !== "custom") return;
@@ -4459,25 +4105,56 @@ async function runSelectedCustomGroup() {
     runCustomGroupStatus.className = "run-status";
   }
   try {
-    const response = await chrome.runtime.sendMessage({
-      type: "run-custom-group",
-      groupId: group.id,
-      source
-    });
+    const response = await Promise.race([
+      chrome.runtime.sendMessage({
+        type: "run-custom-group",
+        groupId: group.id,
+        source
+      }),
+      timeoutFallback(RUN_CUSTOM_GROUP_TIMEOUT_MS)
+    ]);
+    if (response && response.__timedOut) {
+      if (runCustomGroupStatus) {
+        runCustomGroupStatus.textContent =
+          "Halted: the rule took too long to load and was force-aborted. " +
+          "Check the Log panel for details.";
+        runCustomGroupStatus.className = "run-status error";
+      }
+      setStatus(t("status.customRunHaltedTimeBudget"), true);
+      return;
+    }
     if (response && response.ok && response.loadResult) {
       const lr = response.loadResult;
       if (lr.ok) {
         if (runCustomGroupStatus) {
-          runCustomGroupStatus.textContent = t("custom.runStatusOk", { count: String(lr.handlers ?? 0) });
+          // Append a reload reminder so the user knows that already-
+          // open tabs need a refresh before content-script-driven
+          // behaviors (overlay, blockPageOnVisit) reflect the new
+          // rule. Newly-opened tabs pick it up automatically.
+          runCustomGroupStatus.textContent =
+            t("custom.runStatusOk", { count: String(lr.handlers ?? 0) }) +
+            " — " + t("custom.runReloadReminder");
           runCustomGroupStatus.className = "run-status success";
         }
         setStatus(t("status.customGroupRan", { name: group.name, count: String(lr.handlers ?? 0) }));
       } else {
+        // Hard-timeout from offscreen surfaces as error="sandbox-timeout"
+        // with a quarantine hint. Display the reason in human terms so
+        // the user knows their rule was force-disabled.
+        let displayError = lr.error || t("custom.runStatusError");
+        if (lr.error === "sandbox-timeout") {
+          displayError = "Halted: rule was running for >5s without yielding. " +
+            "It has been auto-disabled. Edit the code (look for an infinite loop) " +
+            "and click Run again to re-enable.";
+        } else if (lr.quarantine && lr.quarantine.reason) {
+          displayError = "Halted: " + lr.quarantine.reason +
+            ". The rule has been auto-disabled.";
+        }
         if (runCustomGroupStatus) {
-          runCustomGroupStatus.textContent = lr.error || t("custom.runStatusError");
+          runCustomGroupStatus.textContent = displayError;
           runCustomGroupStatus.className = "run-status error";
         }
-        setStatus(lr.error || t("status.errorRunCustomGroup"), true);
+        setStatus(displayError, true);
       }
     } else {
       if (runCustomGroupStatus) {
@@ -4512,11 +4189,26 @@ async function checkSelectedCustomGroupSyntax() {
   }
   try {
     // Sandbox compiles under a synthetic groupId and discards results;
-    // the real group's loaded handlers are not touched.
-    const response = await chrome.runtime.sendMessage({
-      type: "check-custom-group-syntax",
-      source
-    });
+    // the real group's loaded handlers are not touched. The watchdog
+    // protects this path too — a registration body that does
+    // `while (true) {}` would otherwise hang the popup just like Run.
+    const response = await Promise.race([
+      chrome.runtime.sendMessage({
+        type: "check-custom-group-syntax",
+        source
+      }),
+      timeoutFallback(RUN_CUSTOM_GROUP_TIMEOUT_MS)
+    ]);
+    if (response && response.__timedOut) {
+      if (runCustomGroupStatus) {
+        runCustomGroupStatus.textContent =
+          "Halted: syntax check took too long. Your code likely contains " +
+          "an infinite loop in the registration body.";
+        runCustomGroupStatus.className = "run-status error";
+      }
+      setStatus(t("status.customSyntaxHaltedTimeBudget"), true);
+      return;
+    }
     if (response && response.ok && response.result && response.result.ok) {
       const handlers = response.result.handlers ?? 0;
       const text = t("custom.checkSyntaxOk", { count: String(handlers) });

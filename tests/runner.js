@@ -359,6 +359,336 @@ log.section("S10: edge cases that previously could regress silently");
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// S11: handler deadline + per-dispatch caps. Verifies that a runaway
+// rule cannot freeze the browser.
+// ────────────────────────────────────────────────────────────────────────
+log.section("S11: deadline + caps protect Chrome from runaway rules");
+{
+  // The log helper is the canonical entry point — it's the most likely
+  // surface a runaway loop hits. Build one with a fresh accumulator and
+  // make sure it both caps log volume AND throws after the deadline.
+  const acc = {};
+  const accRef = { get: () => acc };
+  const logHelper = H.createEventLogHelper("g1", accRef);
+
+  // Drive the cap: 200 logs allowed, the next push should drop silently.
+  for (let i = 0; i < 250; i++) logHelper.log("entry " + i);
+  assertEqual("h.log() drops after the per-dispatch cap (200)",
+    (acc.logs || []).length, 200);
+  assert("h.log() records dropped overage in accumulator.logsDropped",
+    acc.logsDropped >= 50);
+
+  // Drive the deadline: a tight loop calling h.log() should throw
+  // HandlerBudgetExceededError after ~1s, NOT lock up.
+  const acc2 = {};
+  const accRef2 = { get: () => acc2 };
+  acc2._handlerDeadline = (typeof performance !== "undefined" && performance.now)
+    ? performance.now() - 1
+    : Date.now() - 1;
+  // already-past deadline → first push must throw immediately.
+  const helper2 = H.createEventLogHelper("g2", accRef2);
+  let threw = null;
+  try { helper2.log("should-throw"); } catch (e) { threw = e; }
+  assert("h.log() throws when accumulator deadline is in the past",
+    Boolean(threw && threw.__customBlockerBudgetAbort));
+
+  // Once _handlerOverrun is sticky, every later helper call also throws —
+  // user code can't escape the abort by wrapping in try/catch.
+  let secondThrew = null;
+  try { helper2.log("still-aborted"); } catch (e) { secondThrew = e; }
+  assert("h.log() keeps throwing after first overrun (sticky abort)",
+    Boolean(secondThrew && secondThrew.__customBlockerBudgetAbort));
+
+  // DOM helper applies the same cap + deadline.
+  const acc3 = {};
+  const accRef3 = { get: () => acc3 };
+  const dom = H.createDOMHelper(accRef3);
+  for (let i = 0; i < 300; i++) dom.hide("#x" + i);
+  assertEqual("dom.hide() caps domOps at 256",
+    (acc3.domOps || []).length, 256);
+
+  // Tab helper intent cap.
+  const acc4 = {};
+  const accRef4 = { get: () => acc4 };
+  const dispatchCtxRef4 = () => ({ tabsSnapshot: [] });
+  const tabs = H.createTabHelper(accRef4, dispatchCtxRef4);
+  for (let i = 0; i < 300; i++) tabs.requestRefresh();
+  assertEqual("tabs.requestRefresh() caps intents at 256",
+    (acc4.intents || []).length, 256);
+
+  // Helper-deadline integration with DOM: a past deadline causes
+  // dom.hide() to throw, exactly like h.log().
+  const acc5 = { _handlerDeadline: -1 };
+  const dom5 = H.createDOMHelper({ get: () => acc5 });
+  let domThrew = null;
+  try { dom5.hide("#anything"); } catch (e) { domThrew = e; }
+  assert("dom.hide() throws when accumulator deadline is in the past",
+    Boolean(domThrew && domThrew.__customBlockerBudgetAbort));
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// S12: timer helper auto-ticks using per-dispatch elapsedMs.
+// Regression for "always currentMs: 3000 even after 3s of dispatches"
+// — proves the timer helper now reads the live dispatchContext rather
+// than the stale 0 it was constructed with.
+// ────────────────────────────────────────────────────────────────────────
+log.section("S12: timer helper auto-ticks per-dispatch");
+{
+  // Simulate the sandbox plumbing: a single mutable dispatch context
+  // and timersBucket. createEventGroupHelpers takes thunks that read
+  // the live context, so we mutate `dc` between simulated dispatches.
+  const dc = {
+    currentUrl: "https://example.com/",
+    elapsedMs: 0,
+    tickedSet: new Set(),
+    displayedSet: new Set()
+  };
+  const timersBucket = {};
+  const helpers = H.createEventGroupHelpers({
+    groupId: "g-timer",
+    timersBucket,
+    persistenceBucket: {},
+    dispatchContextRef: () => dc
+  });
+  const t = helpers.getTimerHelper();
+
+  // Create a 3000ms backward countdown scoped to this URL.
+  t.create({
+    id: "demo",
+    displayName: "Demo countdown",
+    direction: "backward",
+    currentMs: 3000,
+    scope: () => true
+  });
+  assertEqual("timer starts at 3000ms", timersBucket.demo.currentMs, 3000);
+
+  // Simulate three 1-second dispatches. Between each we reset the
+  // per-dispatch sets and bump elapsedMs, mirroring what
+  // event-sandbox.js does for every real dispatch.
+  for (let i = 0; i < 3; i++) {
+    dc.elapsedMs = 1000;
+    dc.tickedSet = new Set();
+    dc.displayedSet = new Set();
+    t.getOrCreateTimer({
+      id: "demo",
+      displayName: "Demo countdown",
+      direction: "backward",
+      currentMs: 3000,
+      scope: () => true
+    });
+  }
+  assertEqual("timer counted down 3000ms across 3 dispatches",
+    timersBucket.demo.currentMs, 0);
+
+  // A fourth dispatch should clamp at 0 (not go negative).
+  dc.elapsedMs = 1000;
+  dc.tickedSet = new Set();
+  t.getOrCreateTimer({
+    id: "demo",
+    direction: "backward",
+    currentMs: 3000,
+    scope: () => true
+  });
+  assertEqual("timer clamps at 0 (no negatives)",
+    timersBucket.demo.currentMs, 0);
+
+  // tickedSet must dedupe within a SINGLE dispatch: calling
+  // getOrCreateTimer twice in the same dispatch must only tick once.
+  const dc2 = {
+    currentUrl: "https://example.com/",
+    elapsedMs: 1000,
+    tickedSet: new Set(),
+    displayedSet: new Set()
+  };
+  const bucket2 = {};
+  const helpers2 = H.createEventGroupHelpers({
+    groupId: "g-timer-2",
+    timersBucket: bucket2,
+    persistenceBucket: {},
+    dispatchContextRef: () => dc2
+  });
+  const t2 = helpers2.getTimerHelper();
+  t2.create({ id: "x", direction: "backward", currentMs: 5000, scope: () => true });
+  // Inside ONE dispatch, three calls — only the first should tick.
+  t2.getOrCreateTimer({ id: "x", direction: "backward", currentMs: 5000, scope: () => true });
+  t2.getOrCreateTimer({ id: "x", direction: "backward", currentMs: 5000, scope: () => true });
+  t2.getOrCreateTimer({ id: "x", direction: "backward", currentMs: 5000, scope: () => true });
+  assertEqual("tickedSet dedupes within one dispatch (single tick of 1000ms)",
+    bucket2.x.currentMs, 4000);
+
+  // A new dispatch with a fresh tickedSet must allow another tick.
+  dc2.tickedSet = new Set();
+  dc2.elapsedMs = 1000;
+  t2.getOrCreateTimer({ id: "x", direction: "backward", currentMs: 5000, scope: () => true });
+  assertEqual("new dispatch with fresh tickedSet ticks again",
+    bucket2.x.currentMs, 3000);
+
+  // scope:false → no tick even with elapsedMs > 0.
+  dc2.tickedSet = new Set();
+  dc2.elapsedMs = 1000;
+  t2.getOrCreateTimer({ id: "x", direction: "backward", currentMs: 5000, scope: () => false });
+  assertEqual("scope predicate false suppresses auto-tick",
+    bucket2.x.currentMs, 3000);
+
+  // forward direction: counts up.
+  const dc3 = {
+    currentUrl: "https://example.com/",
+    elapsedMs: 2500,
+    tickedSet: new Set(),
+    displayedSet: new Set()
+  };
+  const bucket3 = {};
+  const helpers3 = H.createEventGroupHelpers({
+    groupId: "g-timer-3",
+    timersBucket: bucket3,
+    persistenceBucket: {},
+    dispatchContextRef: () => dc3
+  });
+  const t3 = helpers3.getTimerHelper();
+  t3.create({ id: "up", direction: "forward", currentMs: 0, scope: () => true });
+  t3.getOrCreateTimer({ id: "up", direction: "forward", currentMs: 0, scope: () => true });
+  assertEqual("forward timer counts up by elapsedMs",
+    bucket3.up.currentMs, 2500);
+
+  // Paused timer is not advanced even when scope matches. Create the
+  // timer in a 0-elapsed dispatch so create()'s own applyScopeAndDomain
+  // doesn't tick, then pause, then verify a 1000ms dispatch is ignored.
+  const dc4 = {
+    currentUrl: "https://example.com/",
+    elapsedMs: 0,
+    tickedSet: new Set(),
+    displayedSet: new Set()
+  };
+  const bucket4 = {};
+  const helpers4 = H.createEventGroupHelpers({
+    groupId: "g-timer-4",
+    timersBucket: bucket4,
+    persistenceBucket: {},
+    dispatchContextRef: () => dc4
+  });
+  const t4 = helpers4.getTimerHelper();
+  t4.create({ id: "p", direction: "backward", currentMs: 3000, scope: () => true });
+  t4.pause("p");
+  dc4.elapsedMs = 1000;
+  dc4.tickedSet = new Set();
+  t4.getOrCreateTimer({ id: "p", direction: "backward", currentMs: 3000, scope: () => true });
+  assertEqual("paused timer ignores elapsedMs",
+    bucket4.p.currentMs, 3000);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// S13: persistent scope predicates + sandbox-driven heartbeat sweep.
+// Models the pageHeartbeatEvent flow: rule registers a timer with a
+// scope predicate ONCE; subsequent heartbeats auto-tick + auto-display
+// without the rule re-passing the predicate.
+// ────────────────────────────────────────────────────────────────────────
+log.section("S13: scope predicates + heartbeat-driven sweep");
+{
+  const dc = {
+    currentUrl: "https://www.youtube.com/shorts/abc",
+    elapsedMs: 0,
+    tickedSet: new Set(),
+    displayedSet: new Set()
+  };
+  const timersBucket = {};
+  const predicatesBucket = {};
+  const helpers = H.createEventGroupHelpers({
+    groupId: "g13",
+    timersBucket,
+    timerPredicatesBucket: predicatesBucket,
+    persistenceBucket: {},
+    dispatchContextRef: () => dc
+  });
+  const timer = helpers.getTimerHelper();
+
+  // Rule registers ONCE — no scope re-pass on later sweeps.
+  timer.getOrCreateTimer({
+    id: "yt-shorts",
+    direction: "backward",
+    currentMs: 5000,
+    displayName: "YT Shorts",
+    scope: (url) => typeof url === "string" && url.includes("/shorts/"),
+    domain: (url) => typeof url === "string" && url.includes("youtube.com")
+  });
+
+  // First heartbeat on a Shorts URL: auto-tick + auto-display.
+  dc.elapsedMs = 1000;
+  dc.tickedSet = new Set();
+  dc.displayedSet = new Set();
+  timer.__cb_tickAllScopedTimers();
+  let snaps = timer.__cb_getDisplayedTimerSnapshots();
+  assertEqual("S13: first heartbeat ticks the scoped timer",
+    timersBucket["yt-shorts"].currentMs, 4000);
+  assertEqual("S13: first heartbeat reports the displayed snapshot",
+    snaps.length, 1);
+  assertEqual("S13: snapshot carries displayName + direction",
+    { name: snaps[0].displayName, dir: snaps[0].direction, ms: snaps[0].currentMs },
+    { name: "YT Shorts", dir: "backward", ms: 4000 });
+
+  // Second heartbeat on a NON-Shorts YouTube URL: domain still matches
+  // (overlay shows), but scope does not (no tick).
+  dc.currentUrl = "https://www.youtube.com/feed/subscriptions";
+  dc.elapsedMs = 1000;
+  dc.tickedSet = new Set();
+  dc.displayedSet = new Set();
+  timer.__cb_tickAllScopedTimers();
+  snaps = timer.__cb_getDisplayedTimerSnapshots();
+  assertEqual("S13: scope=false on non-shorts URL leaves currentMs",
+    timersBucket["yt-shorts"].currentMs, 4000);
+  assertEqual("S13: domain=true on non-shorts YT URL still displays",
+    snaps.length, 1);
+
+  // Third heartbeat on twitter.com: neither scope nor domain match.
+  dc.currentUrl = "https://twitter.com/home";
+  dc.elapsedMs = 1000;
+  dc.tickedSet = new Set();
+  dc.displayedSet = new Set();
+  timer.__cb_tickAllScopedTimers();
+  snaps = timer.__cb_getDisplayedTimerSnapshots();
+  assertEqual("S13: off-domain heartbeat does not tick",
+    timersBucket["yt-shorts"].currentMs, 4000);
+  assertEqual("S13: off-domain heartbeat displays nothing",
+    snaps.length, 0);
+
+  // Forward (count-up) timer with same persistent-predicate flow.
+  timer.getOrCreateTimer({
+    id: "watch-time",
+    direction: "forward",
+    currentMs: 0,
+    displayName: "Watch time",
+    scope: (url) => typeof url === "string" && url.includes("youtube.com"),
+    domain: (url) => typeof url === "string" && url.includes("youtube.com")
+  });
+  dc.currentUrl = "https://www.youtube.com/watch?v=xyz";
+  for (let i = 0; i < 3; i++) {
+    dc.elapsedMs = 1000;
+    dc.tickedSet = new Set();
+    dc.displayedSet = new Set();
+    timer.__cb_tickAllScopedTimers();
+  }
+  assertEqual("S13: forward timer counts up across heartbeats",
+    timersBucket["watch-time"].currentMs, 3000);
+  snaps = timer.__cb_getDisplayedTimerSnapshots();
+  assertEqual("S13: heartbeat snapshot lists both timers on YT watch page",
+    snaps.length, 2);
+
+  // Hidden-tab simulation: zero heartbeats. currentMs unchanged across
+  // any number of ticks the renderer might run.
+  const before = timersBucket["watch-time"].currentMs;
+  // (no calls to __cb_tickAllScopedTimers here)
+  assertEqual("S13: timer does not advance without a heartbeat dispatch",
+    timersBucket["watch-time"].currentMs, before);
+
+  // delete() removes both the persisted state and the predicates so a
+  // subsequent re-create doesn't accidentally re-tick under stale rules.
+  timer.delete("watch-time");
+  assertEqual("S13: delete clears the persisted state",
+    Object.prototype.hasOwnProperty.call(timersBucket, "watch-time"), false);
+  assertEqual("S13: delete clears the predicates registry",
+    Object.prototype.hasOwnProperty.call(predicatesBucket, "watch-time"), false);
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // Final summary.
 // ────────────────────────────────────────────────────────────────────────
 const counts = log.counts();

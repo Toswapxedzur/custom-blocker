@@ -13,10 +13,20 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-OUT=$("$JSC" tests/runner.js 2>&1)
-echo "$OUT"
-if echo "$OUT" | grep -q "__CB_TEST_RESULT__: OK"; then
-  exit 0
-else
-  exit 1
-fi
+run_suite() {
+  local label="$1"
+  local script="$2"
+  local out
+  out=$("$JSC" "$script" 2>&1)
+  echo "$out"
+  if ! echo "$out" | grep -q "__CB_TEST_RESULT__: OK"; then
+    echo "[run.sh] suite '$label' FAILED" >&2
+    return 1
+  fi
+}
+
+failed=0
+run_suite "platform-helpers" tests/runner.js || failed=1
+run_suite "markdown-renderer" tests/runner-markdown.js || failed=1
+
+exit "$failed"

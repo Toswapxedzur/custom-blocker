@@ -3,12 +3,13 @@
   "name": "Custom Web Blocker",
   "version": "1.1.0",
   "description": "Block websites you choose with native blocking, delayed usage limits, or event-driven custom rules.",
+  "minimum_chrome_version": "116",
   "permissions": ["storage", "declarativeNetRequest", "alarms", "offscreen", "tabs", "webNavigation"],
   "host_permissions": ["<all_urls>"],
   "icons": {
-    "16": "icon-128.png",
-    "32": "icon-128.png",
-    "48": "icon-128.png",
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
     "128": "icon-128.png"
   },
   "background": {
@@ -24,9 +25,9 @@
   "action": {
     "default_title": "Custom Web Blocker",
     "default_icon": {
-      "16": "icon-128.png",
-      "32": "icon-128.png",
-      "48": "icon-128.png"
+      "16": "icon-16.png",
+      "32": "icon-32.png",
+      "48": "icon-48.png"
     }
   },
   "sandbox": {
@@ -40,6 +41,9 @@
         "message-page.html",
         "message-page.js",
         "message-page.css",
+        "icon-16.png",
+        "icon-32.png",
+        "icon-48.png",
         "icon-128.png"
       ],
       "matches": ["<all_urls>"]

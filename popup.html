@@ -27,7 +27,7 @@
             </button>
             <div class="language-picker">
               <label class="label compact-label" for="languageSelect" data-i18n="language.label">Language</label>
-              <select id="languageSelect" aria-label="Language"></select>
+              <select id="languageSelect" aria-label="Language" data-i18n-aria-label="language.label"></select>
             </div>
           </div>
         </div>
@@ -43,7 +43,7 @@
               </p>
             </div>
             <div class="add-group-controls">
-              <select id="addGroupType" aria-label="Block group type to add">
+              <select id="addGroupType" aria-label="Block group type to add" data-i18n-aria-label="groups.addTypeAria">
                 <option value="site" data-i18n="groupType.site">Default</option>
                 <option value="youtube" data-i18n="groupType.youtube">YouTube</option>
                 <option value="tiktok" data-i18n="groupType.tiktok">TikTok</option>
@@ -60,7 +60,7 @@
           </div>
           <p id="bulkActionNotice" class="field-help"></p>
 
-          <div id="groupList" class="group-list" aria-label="Block groups"></div>
+          <div id="groupList" class="group-list" aria-label="Block groups" data-i18n-aria-label="groups.listAria"></div>
         </aside>
 
         <div
@@ -69,6 +69,7 @@
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize block groups panel"
+          data-i18n-aria-label="layout.resizerAriaLabel"
           tabindex="0"
         ></div>
 
@@ -142,7 +143,7 @@
             ></textarea>
 
             <div class="actions">
-              <button id="clearSitesButton" type="button" class="secondary" data-i18n="sites.clearButton">
+              <button id="clearSitesButton" type="button" class="secondary danger" data-i18n="sites.clearButton">
                 Clear Sites
               </button>
             </div>
@@ -200,13 +201,13 @@
               spellcheck="false"
             ></textarea>
             <div class="field-actions">
-              <button id="openRuleTemplatesButton" type="button" class="secondary" data-i18n="custom.templates">
+              <button id="openRuleTemplatesButton" type="button" class="secondary weird" data-i18n="custom.templates">
                 Templates
               </button>
-              <button id="runCustomGroupButton" type="button" data-i18n="custom.runButton">
+              <button id="runCustomGroupButton" type="button" class="weird" data-i18n="custom.runButton">
                 Run
               </button>
-              <button id="checkSyntaxButton" type="button" class="secondary" data-i18n="custom.checkSyntaxButton">
+              <button id="checkSyntaxButton" type="button" class="secondary weird" data-i18n="custom.checkSyntaxButton">
                 Check syntax
               </button>
               <span id="runCustomGroupStatus" class="run-status"></span>
@@ -217,12 +218,12 @@
 
             <details id="logFeedSection" class="log-feed">
               <summary>
-                <span data-i18n="logFeed.title">Activity log</span>
+                <span data-i18n="logFeed.title">Log</span>
                 <span id="logFeedCount" class="log-feed-count">0</span>
               </summary>
               <div class="log-feed-toolbar">
                 <span class="log-feed-hint" data-i18n="logFeed.hint">Live feed of helpers.getLogHelper() output from every event dispatch.</span>
-                <button id="logFeedClear" type="button" class="ghost-button" data-i18n="logFeed.clear">Clear</button>
+                <button id="logFeedClear" type="button" class="weird" data-i18n="logFeed.clear">Clear</button>
               </div>
               <div id="logFeedList" class="log-feed-list" aria-live="polite"></div>
               <p id="logFeedEmpty" class="log-feed-empty" data-i18n="logFeed.empty">No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.</p>
@@ -257,6 +258,7 @@
               id="platformAuthors"
               rows="5"
               placeholder="@creatorhandle&#10;https://www.youtube.com/@anothercreator&#10;channel/UC..."
+              data-i18n-placeholder="filter.platformAuthorsPlaceholder"
               spellcheck="false"
             ></textarea>
             <p id="platformVideoHelp" class="field-help"></p>
@@ -387,7 +389,7 @@
             </p>
           </section>
 
-          <section class="section-card">
+          <section class="section-card freeze-section">
             <div class="section-header">
               <div>
                 <h3 data-i18n="freeze.title">Freeze</h3>
@@ -429,7 +431,7 @@
             </div>
           </section>
 
-          <section class="section-card">
+          <section class="section-card snooze-section">
             <div class="section-header">
               <div>
                 <h3 data-i18n="snooze.title">Snooze</h3>
@@ -520,7 +522,7 @@
     <div id="confirmModal" class="modal hidden">
       <div class="modal-card">
         <h3 data-i18n="modal.unfreezeTitle">Unfreeze Group</h3>
-        <p id="confirmMessage" class="modal-copy">
+        <p id="confirmMessage" class="modal-copy" data-i18n="modal.unfreezeMessageDefault">
           Are you sure you want to give up your self-discipline?
         </p>
         <p id="confirmProgress" class="modal-copy"></p>
@@ -536,7 +538,7 @@
         <div class="manual-modal-header">
           <div>
             <h3 data-i18n="manual.title">Instruction Manual</h3>
-            <p id="manualStatus" class="modal-copy">
+            <p id="manualStatus" class="modal-copy" data-i18n="manual.loading">
               Loading manual...
             </p>
           </div>
@@ -575,6 +577,7 @@
               step="50"
               inputmode="numeric"
               placeholder="1000"
+              data-i18n-placeholder="settings.tickRatePlaceholder"
             />
             <p class="field-help" data-i18n="settings.tickRateHelp">
               How often the shared tickEvent fires across all tabs. Lower values are more responsive but use more CPU.
@@ -592,6 +595,7 @@
               step="50"
               inputmode="numeric"
               placeholder="400"
+              data-i18n-placeholder="settings.autosaveDebouncePlaceholder"
             />
             <p class="field-help" data-i18n="settings.autosaveDebounceHelp">
               How long the popup waits after the last keystroke before persisting your edits.
@@ -608,6 +612,7 @@
               step="0.1"
               inputmode="decimal"
               placeholder="30"
+              data-i18n-placeholder="settings.defaultSnoozeMinutesPlaceholder"
             />
             <p class="field-help" data-i18n="settings.defaultSnoozeMinutesHelp">
               Snooze length used when creating new non-custom groups.
@@ -621,6 +626,7 @@
               id="settingsDefaultFallbackUrl"
               type="text"
               placeholder="about:blank"
+              data-i18n-placeholder="settings.defaultFallbackUrlPlaceholder"
             />
             <p class="field-help" data-i18n="settings.defaultFallbackUrlHelp">
               Used when a group does not specify its own fallback URL.
@@ -628,13 +634,16 @@
           </div>
         </div>
 
-        <label class="checkbox-row compact" for="settingsShowDebugOverlay">
-          <input id="settingsShowDebugOverlay" type="checkbox" />
-          <span data-i18n="settings.showDebugOverlay">Show debug log overlay for custom rules</span>
+        <label class="checkbox-row compact" for="settingsDebugMode">
+          <input id="settingsDebugMode" type="checkbox" />
+          <span data-i18n="settings.debugMode">Debug mode</span>
         </label>
+        <p class="field-help" data-i18n="settings.debugModeHelp">
+          When on, shows the on-page debug overlay for custom rules and emits verbose [CustomBlocker] / [CustomBlocker:trace] console output. Your own helpers.log() calls always work regardless.
+        </p>
 
         <div class="modal-actions">
-          <button id="settingsResetButton" type="button" class="secondary" data-i18n="settings.reset">
+          <button id="settingsResetButton" type="button" class="secondary danger" data-i18n="settings.reset">
             Reset to defaults
           </button>
           <button id="settingsSaveButton" type="button" data-i18n="settings.save">
@@ -660,11 +669,11 @@
         </div>
         <div class="template-filter-row">
           <span data-i18n="custom.templateFilterLabel">Filter</span>
-          <div id="templateFilter" class="template-filter-scroller" aria-label="Template filters"></div>
+          <div id="templateFilter" class="template-filter-scroller" aria-label="Template filters" data-i18n-aria-label="custom.templateFilterAriaLabel"></div>
         </div>
         <div id="templateGrid" class="template-grid"></div>
         <div class="modal-actions">
-          <button id="templateApplyButton" type="button" data-i18n="custom.applyTemplate" disabled>
+          <button id="templateApplyButton" type="button" class="weird" data-i18n="custom.applyTemplate" disabled>
             Apply preset
           </button>
         </div>
@@ -672,6 +681,25 @@
     </div>
 
     <script src="translations.js"></script>
+    <script src="popup-markdown.js"></script>
+    <!--
+      Custom rule templates are split into category files under
+      templates/. template-utils.js MUST load first because it
+      defines window.CB_REGISTER_TEMPLATES, window.quoteJs and
+      window.minutesToMsLiteral, which every category file uses.
+      popup.js consumes window.__CUSTOM_BLOCKER_TEMPLATES, so all
+      category files must run before it.
+    -->
+    <script src="templates/template-utils.js"></script>
+    <script src="templates/timers.js"></script>
+    <script src="templates/schedule.js"></script>
+    <script src="templates/feed.js"></script>
+    <script src="templates/redirect.js"></script>
+    <script src="templates/focus.js"></script>
+    <script src="templates/nudge.js"></script>
+    <script src="templates/persistence.js"></script>
+    <script src="templates/dom.js"></script>
+    <script src="templates/debug.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

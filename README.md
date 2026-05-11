@@ -1,60 +1,141 @@
 # Custom Web Blocker
 
-A minimal Chrome/Edge extension that blocks any sites you add to its list.
-When a blocked page is opened, the browser shows its normal extension-blocked
-screen, similar to `ERR_BLOCKED_BY_CLIENT`.
+A Chrome / Edge extension (Manifest V3) for serious focus work.
+
+Block websites with native network blocking, time-budget them, hide
+specific content on social platforms, or write your own event-driven
+rules in JavaScript. Strict freeze a rule so even a future you cannot
+disable it without a long ritual. Snooze it only after writing a real
+justification.
+
+The popup is a full editor page, not a tiny menu. Every group, rule,
+template, and setting lives there.
 
 ## Features
 
-- Create multiple named block groups
-- Enable or disable each block group independently
-- Drag block groups to reorder them
-- Choose between immediate blocking and blocking after a number of browsing minutes
-- Set a decimal-hour reset interval for each timed block group
-- Freeze or strict-freeze a group to protect it from edits
-- Snooze a group temporarily with a required written reason
-- Show a small top-left countdown while tracked pages are still allowed to load
-- Automatically block future visits once a group's timer runs out
-- Add one website per line inside each group
-- Accept domains like `facebook.com` or full URLs like `https://facebook.com/feed`
-- Save your changes automatically as you type
-- Block both direct page visits and embedded frames
+- **Multiple block groups.** Create, name, reorder, enable, and disable
+  any number of independent rule sets.
+- **Group types.** Default (any URL list), YouTube, TikTok, Facebook,
+  Instagram, Twitch, Reddit, Discord, and Custom (user JavaScript).
+- **Three blocking modes.** Immediate (`ERR_BLOCKED_BY_CLIENT`-style),
+  delayed-by-minutes (allow N minutes then block), or fixed-countdown
+  (the page is allowed for the countdown then blocked).
+- **Per-platform feed control.** Hide YouTube Shorts, TikTok FYP cards,
+  Reddit subreddit cards, Twitter / X home, Instagram Reels, Facebook
+  feeds, LinkedIn home, and more — without blocking the rest of the
+  site.
+- **Event-driven custom rules.** Write a `(events, helpers) => { ... }`
+  function and register handlers for `tickEvent`, `pageHeartbeatEvent`,
+  `openWebEvent`, `switchWebEvent`, `webChangedEvent`, `timerEnded`,
+  `snoozePress`, plus your own custom events. Sandboxed; cannot escape
+  the extension.
+- **50+ templates.** Timers, schedules, feed hiders, focus sessions,
+  redirects, nudges, persistence, DOM tweaks, debug helpers — pick a
+  preset, tweak parameters, apply.
+- **Helpers API.** Forward / backward timers (auto-tick when scope is
+  visible), per-group persistent storage, platform-specific DOM intents
+  (hide nav, hide feed cards by predicate), URL utilities, structured
+  log feed.
+- **Schedule.** Day-of-week and `HHMM-HHMM` windows on every group.
+- **Freeze + Strict Freeze.** Lock a group from edits; strict freeze
+  also locks it for N hours and requires a 20-step confirmation ritual
+  to unlock.
+- **Snooze.** Temporarily disable a group, with optional written
+  justification (configurable minimum length), activation delay,
+  cooldown, and confirmation count.
+- **Quarantine.** A misbehaving custom rule (infinite loop, runaway
+  registration, exceeded log/post/DOM caps) is auto-disabled with an
+  explanatory log entry instead of crashing the browser.
+- **Debug mode.** A single toggle in Settings turns on the on-page
+  debug overlay and verbose `[CustomBlocker]` console output. Off by
+  default; your own `helpers.log()` calls always work.
+- **Activity log feed.** Every event handler invocation is summarised
+  in the Log panel for inspection.
+- **Drag to reorder.** Groups evaluate bottom-up; the top group has the
+  last word.
+- **Localized into 20 languages.** UI strings and the full instruction
+  manual ship in each.
 
 ## Install
 
-1. Open `chrome://extensions` in Chrome or Edge.
-2. Enable **Developer mode**.
-3. Click **Load unpacked**.
-4. Select this project folder: `customBlocker`.
+1. Clone or download this repo.
+2. Open `chrome://extensions` (Chrome, Edge, Brave, etc.).
+3. Enable **Developer mode**.
+4. Click **Load unpacked** and pick this folder.
 
-## Use
+Minimum browser: Chrome 116+ (the manifest declares this for offscreen
+documents and `declarativeNetRequest`).
 
-1. Click the extension icon.
-2. Click **Add Group** to create a named block group.
-3. Add one site per line inside that group.
-4. Choose whether the group should block immediately or only after a certain number of browsing minutes.
-5. If you choose timed blocking, set how often the timer resets in hours. Decimal values are allowed.
-6. Changes save automatically.
-7. Optional: freeze the group, or strict-freeze it for a decimal number of hours.
-8. Optional: snooze the group temporarily by entering a reason with more than 20 words.
-9. Use the checkbox beside each group to enable or disable it instantly.
-10. Drag groups in the left column to reorder them.
-11. Visit one of the tracked sites to confirm the timer appears.
-12. Keep the page open until the timer reaches zero and confirm future visits are blocked.
+## Quick start
+
+1. Click the extension icon. The editor opens as a full page.
+2. In **Block Groups**, choose a type from the dropdown (start with
+   `Default`).
+3. Click **Add**. A new group appears and the editor opens it.
+4. Name it.
+5. Fill in the type-specific fields (for `Default` that means the
+   **Blocked sites** list, one site per line — `facebook.com`,
+   `https://example.com/page`, etc. — `www.` is stripped, the
+   hostname is normalized, subdomains match).
+6. Make sure the group's checkbox in the left panel is on.
+7. Visit one of the listed sites. The block should be in effect
+   immediately.
+
+That's the whole happy path. Every other section in the in-app
+**Instruction Manual** is optional.
+
+## Custom rules — minimal example
+
+```js
+(events, helpers) => {
+  events.registerWebChangedEvent("blockShortsTitlesWithA", (ev, h) => {
+    h.getPlatformHelper().youtube().hideShorts(
+      (video) => video.title && video.title.toLowerCase().includes("a"),
+      { blockPageOnVisit: true }
+    );
+  });
+};
+```
+
+Click **Run** in the Custom group editor to attach the rule. New
+navigations pick it up; reload existing tabs to apply.
+
+The full helper API, every event payload, all 50+ templates, the
+quarantine rules, and the freeze ritual are documented in the in-app
+**Instruction Manual**.
+
+## Project layout
+
+| Path | Purpose |
+| --- | --- |
+| [manifest.json](manifest.json) | MV3 manifest |
+| [popup.html](popup.html) / [popup.js](popup.js) / [popup.css](popup.css) | Editor UI |
+| [background.js](background.js) | Service worker, dNR rules, timer book-keeping |
+| [content.js](content.js) | In-page overlay, DOM intents, SPA hooks |
+| [helpers.js](helpers.js) | Helper API used by both content + sandbox |
+| [event-sandbox.html](event-sandbox.html) / [event-sandbox.js](event-sandbox.js) | Sandboxed JS runtime for custom rules |
+| [offscreen.html](offscreen.html) / [offscreen.js](offscreen.js) | Bridge between sandbox and service worker |
+| [translations.js](translations.js) | Language registry |
+| [translation/*.json](translation/) | Per-locale UI strings |
+| [manual/*.md](manual/) | Per-locale instruction manual |
+| [templates/*.js](templates/) | Built-in custom-rule templates |
+| [tests/](tests/) | Pure-Node unit tests for the event engine |
+
+## Tests
+
+```bash
+bash tests/run.sh
+```
+
+137 tests, all green.
 
 ## Notes
 
-- Full URLs are converted to hostnames, so `https://example.com/page` blocks
-  `example.com`.
-- `www.` is removed automatically, so entering `www.youtube.com` will block
-  `youtube.com` and its usual site matches.
-- If you used the older single-list version, your existing sites are migrated
-  into a default block group automatically.
-- The top-left timer only counts while the page is visible. When the timer runs
-  out, the extension tries to close the current page and falls back to sending
-  it to `about:blank`.
-- The in-page timer is intentionally minimal and only shows `hh:mm:ss`.
-- Snoozes and reset intervals are scheduled in the background, so rules should
-  update even when the popup is closed.
+- The in-page overlay only counts time while the tab is active and
+  visible. Background tabs do not consume the budget.
 - Once Chrome blocks a page natively, the browser error page cannot be
-  customized by the extension.
+  customized by the extension — that's by design and by browser policy.
+- Strict-freeze is intentional friction. The ritual is long because the
+  whole point is that future-you cannot circumvent it casually.
+- Translations for languages other than English are machine-generated
+  starting points; pull requests to improve them are welcome.

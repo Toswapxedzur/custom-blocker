@@ -1,670 +1,626 @@
-# Custom Web Blocker — 使用说明手册
+# 自定义网页拦截器 — 使用手册
 
-这是本扩展的完整参考手册。内容从最简单、最常见的使用流程开始，逐步深入到自定义 JavaScript 屏蔽规则和辅助 API 等高级主题。
+这是扩展的完整参考手册。它从最简单、最常见的工作流程开始，逐渐转向高级主题，例如自定义事件驱动的阻止规则和帮助程序 API。
 
-如果你是第一次使用，只需要先阅读 **快速开始** 和 **屏蔽分组概览**。其余章节都属于可选内容，可按需查看。
-
----
-
-## 1. 这个扩展能做什么
-
-Custom Web Blocker 让你按自己定义的规则屏蔽网站和在线干扰。你可以：
-
-- 使用浏览器原生网络屏蔽立即拦截网站（会出现类似 `ERR_BLOCKED_BY_CLIENT` 的效果）。
-- 给自己设定某个网站每天可用的分钟数，超时后自动屏蔽。
-- 屏蔽 YouTube、TikTok、Facebook、Instagram、Twitch、Reddit 上的特定内容类型（而不是整站）。
-- 在支持的平台上从信息流中隐藏被拦截内容，而不只是拦截单个页面。
-- 通过每周日期和 `HHMM-HHMM` 时间窗口安排规则生效时段。
-- 冻结规则，避免你轻易修改。严格冻结会锁定指定小时数，并要求完成 20 步确认流程才能解除。
-- 临时暂停（Snooze）规则，但必须先填写足够长的说明理由。
-- 编写自定义 JavaScript 屏蔽规则，并使用正/倒计时器、按分组隔离的持久化存储、按平台拆分的 DOM 意图（隐藏导航按钮、按谓词隐藏信息流卡片、为子区域设置计时器）、URL 工具与日志等辅助能力。自定义规则直接运行在页面上下文里，因此传给平台 helper 的谓词可以使用闭包变量。
-- 以 20+ 种语言使用扩展。
-
-此扩展是一个 Chrome Manifest V3 扩展，包含一个编辑页面（弹出页）、一个后台 service worker，以及一个在每个页面运行的 content script。自定义屏蔽规则就运行在该 content script 中——每次页面加载和每次心跳（约 250 毫秒）都会调用一次，由其返回 `true` 或 `false` 决定是否屏蔽当前页面。
+如果您是新手，请阅读**快速入门**和**块组概述**。这些部分下面的所有内容都是可选的，具体取决于您想要执行的操作。
 
 ---
 
-## 2. 界面导览
+## 1. 这个扩展的作用
 
-点击扩展图标后，编辑器会以完整网页形式打开（不是很小的弹窗）。页面包含以下区域：
+自定义网页拦截器可让您根据自己定义的规则拦截网站和在线干扰。您可以：
 
-- **顶部栏**
-  - **Instruction Manual** 按钮（本文档）
-  - **Language** 语言选择器
-- **左侧面板 — Block Groups**
-  - 显示你的屏蔽分组列表。每张卡片会显示分组名称、简要说明行和启用/禁用复选框。
-  - **Add** 按钮用于创建新分组，旁边下拉框用于选择分组类型。
-  - **Delete All** 删除全部分组；若存在冻结分组，会有额外确认步骤。
-  - 你可以拖动卡片上的 `::` 手柄上下调整分组顺序。
-  - 你可以拖动垂直分隔条来调整此面板宽度。
-- **右侧面板 — Editor**
-  - 编辑当前选中分组：名称、屏蔽行为、屏蔽列表、类型专属筛选、日程、冻结、Snooze。
-  - 所有更改会在你停止输入或交互后约几分之一秒自动保存。
-- **Toast**（居中淡出提示）
-  - 显示状态信息，例如 “Saved changes” 或输入错误。
+- 使用浏览器的本机网络阻止功能立即阻止网站（与生成 `ERR_BLOCKED_BY_CLIENT` 的阻止类型相同）。
+- 每天允许自己在某个网站上停留一定的分钟数，超过该限制后就将其阻止。
+- 阻止 YouTube、TikTok、Facebook、Instagram、Twitch 和 Reddit（而非整个网站）上的特定类型内容。
+- 在支持的平台上隐藏提要中被阻止的内容，而不是仅阻止单个页面。
+- 按星期几和 `HHMM-HHMM` 时间窗口安排规则何时处于活动状态。
+- 冻结规则，这样您就无法轻易更改它。严格冻结会将其锁定指定的小时数，并且需要执行 20 个步骤的确认仪式才能撤消。
+- 暂时暂停规则，但只有在写了足够长的理由之后才可以。
+- 在 JavaScript 中编写**事件驱动**自定义规则，并使用用于向前/向后计时器、每组持久存储、每平台 DOM 意图（隐藏导航按钮、按谓词隐藏提要卡、设置每小节计时器）、URL 实用程序和结构化日志记录的帮助程序。
+- 从包含 50 多个现成模板的内置库中进行选择（计时器、时间表、提要隐藏、焦点会话、重定向、轻推、持久性、DOM 调整、调试助手）。
+- 使用 20 多种语言的扩展。
 
-当页面正在被屏蔽或有活动计时器时，页面左上角会显示一个覆盖层，展示当前生效的所有时间限制，格式为 `hh:mm:ss`（或 `mm:ss`）。多个限制会按多行叠加显示。
+该扩展程序是一个 Chrome Manifest V3 扩展程序，具有一个编辑器页面（弹出窗口）、一个后台服务工作人员、一个托管自定义规则代码的屏幕外沙箱以及一个在每个页面中运行的内容脚本。自定义规则存在于屏幕外沙箱中；每次运行单击时，它们都会加载一次，并保持注册状态，直到规则被禁用或删除。
 
 ---
 
-## 3. 快速开始
+## 2. UI 导览
 
-1. 点击扩展图标，编辑器会以完整页面打开。
-2. 在 **Block Groups** 面板中，从下拉框选择分组类型：
+当您单击扩展程序的图标时，编辑器将作为完整的网页（而不是微小的弹出窗口）打开。该页面有以下区域：
+
+- **顶栏**
+  - **使用手册**按钮（本文档）
+  - **语言**选择器
+  - **设置**齿轮（高级切换，包括**调试模式**）
+- **左面板 — 块组**
+  - 您的块组列表。每张卡都显示组名称、简短的摘要行和启用/禁用复选框。
+  - **添加**按钮创建一个新组。旁边的下拉菜单选择类型。
+  - **全部删除** 删除每个组，如果任何组被冻结，则需要额外确认。
+  - 您可以向上或向下拖动卡片上的 `::` 手柄来重新排序组。
+  - 您可以拖动垂直分隔符来调整此面板的大小。
+- **右面板 - 编辑器**
+  - 编辑当前选定的组：名称、阻止行为、阻止列表、特定类型的过滤器、计划、冻结、暂停。
+  - 在您停止打字或交互后的几分之一秒内，所有更改都会自动保存。
+  - 对于 **自定义** 组，编辑器还显示 **模板** 浏览器、**运行** 按钮和 **日志** 面板（从 v1.1 中的 *活动日志* 重命名）。
+- **Toast**（中心弹出窗口逐渐淡出）— 显示状态消息，例如“已保存的更改”。或输入错误。
+- **页内叠加** — 当选项卡具有任何活动计时器或块时，其左上角会出现一个叠加，以 `hh:mm:ss`（或 `mm:ss`）格式显示影响它的每个约束。多个约束堆叠在多行上。默认块组倒计时和自定义规则计时器共享此覆盖。
+
+---
+
+## 3. 快速启动1. 单击扩展程序图标。编辑器以整页形式打开。
+2. 在 **阻止组** 面板中，从下拉列表中选择组类型：
    - `Default`、`YouTube`、`TikTok`、`Facebook`、`Instagram`、`Twitch`、`Reddit` 或 `Custom`。
-3. 点击 **Add**。会出现新分组并自动在编辑器中打开。
-4. 给分组命名。
-5. 填写该类型所需字段（例如 `Default` 需要填写 **Blocked websites** 列表）。
-6. 确认左侧分组卡片的复选框处于开启状态。
-7. 访问列表中的任一网站，屏蔽应立即生效。
+3. 单击“**添加**”。出现一个新组，编辑器将其打开。
+4. 为其命名。
+5. 填写特定类型字段（对于 `Default`，这意味着 **阻止的网站** 列表）。
+6. 确保左侧面板中的组复选框处于选中状态。
+7. 访问列出的站点之一。该阻止应立即生效。
 
-这就是完整的主流程。手册其余内容都是在此基础上的可选功能。
+这就是整个幸福之路。本手册的其余部分只是在此之上的选项。
+
+> 当您在自定义组上按 **运行** 时，新规则将附加到 **未来** 页面事件。已打开的选项卡将继续运行之前的规则，直到您重新加载它们。每次成功运行后，弹出窗口都会显示该效果的提醒。
 
 ---
 
-## 4. 屏蔽分组概览
+## 4. 块组概述
 
-本扩展中的一切都围绕 **屏蔽分组（block groups）**。一个分组就是一套规则：
+此扩展中的所有内容都组织为**块组**。块组是一个规则集：
 
 - 它有名称、类型和启用/禁用状态。
-- 它有一种屏蔽行为（立即或在若干分钟后）。
-- 它可选地包含日程（日期 + 时间窗口）与冻结/Snooze 控制。
-- 按类型不同，还会有额外字段，例如网站列表、YouTube 创作者筛选、subreddit 名称或 JavaScript 函数。
+- 它具有阻塞行为（立即、几分钟后或固定倒计时）。
+- 它有一个可选的时间表（天+时间窗口）和可选的冻结/暂停控件。
+- 根据类型，它具有其他字段，例如网站列表、YouTube 创建者过滤器、subreddit 名称或事件驱动的 JavaScript 规则。
 
-你可以创建任意数量的分组。多个分组可能同时作用于同一页面；此时以**最严格**规则为准：
+您可以拥有任意数量的组。多个群组可以申请同一页面；在这种情况下，**最严格**规则获胜：
 
-- “立即屏蔽” 比 “一段时间后屏蔽” 更严格。
-- 剩余可用时间更少的分组比剩余时间更多的分组更严格。
+- “立即阻止”胜过“一段时间后阻止”。
+- 剩余时间较少的一组击败剩余时间较多的一组。
 
-因此，新增分组只会让页面更早被拦截，不会更晚。
+因此，添加更多的组只会使页面阻塞得更早，而不是更晚。
 
-**评估顺序为从下到上。** 扩展遍历分组时，会从列表底部开始，向上依次评估。位于列表顶部的分组最后被评估，因此享有“最终决定权”——例如，底部分组调用 `helpers.getPlatformHelper().youtube().hideShortButton()`，顶部分组调用 `showShortButton()`，则按钮保持可见。可拖动卡片上的 `::` 手柄改变此顺序。
+**评估顺序是从下到上。** 当扩展迭代您的块组时，它从列表底部的组开始，然后向上进行。列表顶部的组最后被评估并获取“最后一个词” - 例如，如果底部组调用 `helpers.getPlatformHelper().youtube().hideShortButton()` 而顶部组调用 `showShortButton()`，则该按钮保持可见。拖动卡上的 `::` 手柄可更改此顺序。
 
 ---
 
-## 5. 分组类型
+## 5. 组类型
 
 ### 5.1 `Default` — 屏蔽普通网站
 
-用于屏蔽特定域名（最常见场景）。
+用于阻止特定域（典型用例）。
 
-- **Blocked websites**：每行一个网站。`facebook.com` 和 `https://www.facebook.com/somepage` 都可用；扩展会提取并规范化主机名。
-- 某条网站规则会作用于该主机名及其所有子域名。
-- 该分组类型使用 Chrome 原生网络屏蔽，效果类似 `ERR_BLOCKED_BY_CLIENT`。即访问被拦截 URL 时会在页面加载前就被终止。
+- **被阻止的网站**：每行一个网站。 `facebook.com`和`https://www.facebook.com/somepage`都可以工作；该扩展提取并规范化主机名。
+- 站点规则适用于该主机名及其所有子域。
+- 此组类型使用 Chrome 的本机网络阻止，类似于 `ERR_BLOCKED_BY_CLIENT`。这意味着在页面加载之前导航到被阻止的 URL 就会停止。
 
-### 5.2 `YouTube` — 屏蔽 YouTube 及类似视频站内容
+### 5.2 `YouTube` — 阻止 YouTube 和类似视频网站
 
-编辑器会新增 **Filters** 区块：
+向编辑器添加 **Filters** 部分：
 
-- **Content type**：
-  - `Apply to all YouTube pages` — 所有 YouTube 页面都计入。
-  - `Apply to Shorts` — 仅 Shorts 页面计入。
-  - `Apply to long videos` — 仅 `/watch`、`/live/`、`/embed/` 等计入。
-  - `Apply to YouTube posts` — 社区帖子（`/post/...`、频道 community/posts 标签页）。
-- **Author filter**：
-  - `Do not filter by author` — 不按作者筛选。
-  - `Apply to certain authors` — 仅列表中的作者触发该分组。
-  - `Apply to all except certain authors` — 列表中的作者被豁免。
-- **Authors**：每行一个作者。支持 `@handle`、完整 URL、`/channel/UC...`、`/c/...`、`/user/...`。
-- **Hide blocked entries in the YouTube feed**：当该分组正在实际拦截时，YouTube 信息流中匹配的卡片会被隐藏；当拦截不再生效时，下次刷新会恢复显示。
+- **内容类型**：
+  - `Apply to all YouTube pages` — 每个 YouTube 页面都很重要。
+  - `Apply to Shorts` — 仅 Shorts 页数计算在内。
+  - `Apply to long videos` — 仅限 `/watch`、`/live/`、`/embed/` 等。
+  - `Apply to YouTube posts` — 社区帖子（`/post/...`、频道社区/帖子选项卡）。
+- **作者过滤器**：
+  - `Do not filter by author` — 作者身份并不重要。
+  - `Apply to certain authors` — 只有列出的作者才会触发该组。
+  - `Apply to all except certain authors` — 列出的作者除外。
+- **作者**：每行一位作者。接受 `@handle`、完整 URL、`/channel/UC...`、`/c/...`、`/user/...`。
+- **隐藏 YouTube feed 中被阻止的条目**：当该组主动阻止时，YouTube feed 中的匹配卡片将被隐藏。当该块变为非活动状态时，它们会在下次刷新时返回。
 
-对于 Shorts 和 Posts 内容类型，当未设置作者筛选且该分组正在拦截时，扩展还会隐藏相关导航入口（Shorts 侧边栏入口、Community/Posts 频道标签）以及诸如 “Latest YouTube posts” 这样的匹配内容区块。
+对于 Shorts 和帖子内容类型，当未设置作者过滤器并且群组当前处于阻止状态时，该扩展程序还会隐藏相关的导航条目（Shorts 侧边栏条目、社区/帖子频道选项卡）以及匹配的书架，例如“最新 YouTube 帖子”。
 
-短视频与长视频的识别还会扩展到 TikTok、Vimeo、Twitch clips/VODs、Dailymotion 等视频站点（前提是能识别其页面形态）。
+当可以检测到页面形式时，短与长检测扩展到其他视频网站，例如 TikTok、Vimeo、Twitch 剪辑/VOD 和 Dailymotion。
 
-### 5.3 `TikTok` — 屏蔽 TikTok 内容
+### 5.3 `TikTok` — 阻止 TikTok 内容
 
-编辑器卡片与平台视频类一致，但标签为 TikTok 专属：
+与平台视频编辑器相同的编辑器卡，但具有 TikTok 特定的标签：- 内容类型：短视频、视频、个人资料页面。
+- 作者：TikTok 句柄 (`@handle`) 或个人资料 URL。
+- 当群组处于活动状态时，动态隐藏会隐藏 TikTok 页面上的匹配卡片。
 
-- 内容类型：短视频、视频、个人主页。
-- 作者：TikTok 用户名（`@handle`）或主页 URL。
-- 信息流隐藏会在分组生效时隐藏 TikTok 页面中匹配卡片。
+### 5.4 `Facebook` — 阻止 Facebook 内容
 
-### 5.4 `Facebook` — 屏蔽 Facebook 内容
+- 内容类型：卷轴、视频、帖子。
+- 作者：页面名称 (`page.name`)、个人资料 URL 或 `profile.php?id=...` 表单（数字 ID 保留为 `id:<number>`）。
+- Feed 隐藏隐藏 Facebook 上匹配的 Feed 卡。
 
-- 内容类型：Reels、视频、帖子。
-- 作者：页面名（`page.name`）、个人主页 URL，或 `profile.php?id=...` 形式（数字 id 会保留为 `id:<number>`）。
-- 信息流隐藏会隐藏 Facebook 中匹配的动态卡片。
+### 5.5 `Instagram` — 阻止 Instagram 内容
 
-### 5.5 `Instagram` — 屏蔽 Instagram 内容
+- 内容类型：卷轴、视频、帖子。
+- 作者：Instagram 用户名或个人资料 URL。
+- `/reel/`、`/p/`、`/tv/`、`/explore/` 等保留路径不被视为作者。
+- Feed 隐藏隐藏 Instagram 上的匹配卡片。
 
-- 内容类型：Reels、视频、帖子。
-- 作者：Instagram 用户名或主页 URL。
-- `/reel/`、`/p/`、`/tv/`、`/explore/` 等保留路径不会被当作作者。
-- 信息流隐藏会隐藏 Instagram 中匹配卡片。
+### 5.6 `Twitch` — 阻止 Twitch 内容
 
-### 5.6 `Twitch` — 屏蔽 Twitch 内容
+- 内容类型：剪辑、流/VOD、频道页面。
+- 作者：频道名称或频道 URL。
+- `/directory`、`/videos`、`/settings` 等保留路径不被视为通道名称。
+- Feed 隐藏隐藏 Twitch 上的匹配卡。
 
-- 内容类型：clips、直播/VOD、频道主页。
-- 作者：频道名或频道 URL。
-- `/directory`、`/videos`、`/settings` 等保留路径不会被当作频道名。
-- 信息流隐藏会隐藏 Twitch 中匹配卡片。
+### 5.7 `Reddit` — 阻止 Reddit 或特定 subreddits
 
-### 5.7 `Reddit` — 屏蔽 Reddit 或指定子版块
+- **Subreddit**：每行一个 subreddit。空列表意味着该组适用于所有 Reddit。 `productivity` 和 `r/productivity` 均可接受。
 
-- **Subreddits**：每行一个 subreddit。留空表示作用于整个 Reddit。支持 `productivity` 与 `r/productivity` 两种写法。
+### 5.8 `Custom` — 通过事件驱动的 JavaScript 进行阻止
 
-### 5.8 `Custom` — 使用 JavaScript 函数屏蔽
+您编写一个 JavaScript 函数，为页面打开、URL 更改、页面心跳、计时器结束和您自己的自定义事件等事件**注册处理程序**。每次运行单击该函数都会运行一次；注册的处理程序在导航中保持活动状态，直到您再次单击“运行”、禁用该组或将其删除。
 
-你可以编写一个 JavaScript 函数。扩展的 content script 在源码改变时编译一次，并在用户访问的每个页面、每次心跳（约 250 毫秒）都会执行该函数。函数返回整数状态（`-1` 屏蔽、`0` 继续、`1` 允许），并可通过 `helpers` 对象修改计时器、跨次运行保存状态、隐藏平台特定按钮/信息流卡片，或为子区域设置计时器。
+`Custom` 组不显示：阻止行为、阻止的站点、允许的分钟数、重置间隔、计划天数或时间窗口。他们保留 **阻止规则** 编辑器以及标准冻结/暂停控件。还有一个**模板**按钮，可打开带有参数化启动规则的预设浏览器；确认后应用预设将替换当前规则。
 
-`Custom` 分组不会显示：屏蔽行为、屏蔽网站、允许分钟数、重置间隔、日程日期或时间窗口。它保留 **Blocking Rules** 编辑器以及标准冻结/Snooze 控制。此外还有一个 **Templates** 按钮，可打开带参数的预设模板页；应用预设前会先确认，再替换当前规则。
-
-完整自定义规则和 helpers API 请见 **第 11 节**。
+有关完整的自定义规则参考和帮助程序 API，请参阅**第 11 节**。
 
 ---
 
-## 6. 屏蔽行为
+## 6. 阻塞行为
 
-对于大多数分组类型，你可选择两种模式之一：
+对于大多数团体类型，您可以选择三种模式之一。
 
-### 6.1 立即屏蔽
+### 6.1 立即阻止
 
-当分组开启、日程允许，且（平台分组）页面匹配时，规则立即生效。
+只要组处于打开状态、计划允许并且（对于平台组）页面匹配，该规则就会处于活动状态。
 
-`Default` 分组使用 Chrome 原生屏蔽；平台分组使用页面内覆盖层/退出逻辑。
+对于 `Default` 组，这使用 Chrome 的本机阻止。对于平台组，它使用页内覆盖/退出逻辑。
 
-### 6.2 在若干分钟后屏蔽
+### 6.2 几分钟后阻塞
 
-这是一个使用时长预算机制。
+这是使用预算。
 
-- **Allowed minutes before block**（小数）：每个周期可用分钟数。例如：`15`、`0.5`、`90`。
-- **Timer reset interval (hours)**（小数）：预算重置频率。例如：`24` 表示每天，`1` 表示每小时，`0.25` 表示每 15 分钟。
+- **封锁前允许的分钟数**（十进制）：每个时段允许自己多少分钟。示例：`15`、`0.5`、`90`。
+- **计时器重置间隔（小时）**（十进制）：预算重置的频率。例如：`24` 为每天，`1` 为每小时，`0.25` 为每 15 分钟。
 
-只要还有剩余时间，页面可正常使用，并显示计时覆盖层。预算归零后，该页面在本周期剩余时间内会被屏蔽，覆盖层显示 `0:00`，随后标签页会尝试退出。
+当您还有剩余时间时，页面会正常工作并显示计时器叠加层。当预算达到零时，该页面将在剩余时间内被阻止，并且覆盖层显示 `0:00`，然后该选项卡将尝试退出。
 
-扩展按分组、按周期计时：
+扩展是按组、按期间进行的：
 
-- 每个分组有独立预算。
-- 任何匹配该分组的页面所消耗时间都计入该分组预算。
-- 同一分组下的多个标签页共享预算。它们计时同步；切换到另一个标签页也会强制刷新，立即显示当前共享时间。
+- 每个小组都有自己的预算。
+- 在与该组匹配的任何页面上花费的时间计入该组的预算。
+- 同一组中的多个选项卡共享预算。他们的计时器保持同步；切换到另一个选项卡也会强制刷新，因此它会立即显示当前共享时间。
 
-若同一页面被多个限时分组命中，则最严格者生效。
+如果同一页面有多个限时组，则最严格的组获胜。
 
----
+### 6.3 计时器（倒计时，然后阻塞）
 
-### 6.3 计时器（倒计时，结束后屏蔽）
+此模式显示一个倒计时器，并在到达 `0:00` 后阻塞。
 
-该模式会显示一个倒计时计时器，归零后立即屏蔽。
+- **定时器重置间隔（小时）**（十进制）：定时器长度和重置频率。示例：`24` 表示每天，`1` 表示每小时，`0.25` 表示每 15 分钟。
 
-- **Timer reset interval (hours)**（小数）：既是计时器长度，也是重置频率。例如：`24` 表示每天，`1` 表示每小时，`0.25` 表示每 15 分钟。
-
-与 **在若干分钟后屏蔽** 不同，此模式**没有**单独的 “Allowed minutes before block” 字段。计时器直接从重置间隔开始倒数，在匹配页面打开期间持续减少，归零后会一直屏蔽到下次重置。
+与**几分钟后阻止**不同，此模式**没有**具有单独的“阻止前允许的分钟数”字段。计时器只是在重置间隔开始，在匹配页面打开时倒计时，然后阻塞直到下一次重置。默认组倒计时和自定义组计时器（请参阅**第 11.3.1 节**）都**仅在选项卡可见时前进**。切换选项卡、最小化窗口或锁定屏幕会自动暂停倒计时。
 
 ---
 
-## 7. 日程（Schedule）
+## 7. 日程安排
 
-在 **Schedule** 卡片中，你可以限制分组何时生效：
+在 **时间表** 卡中，您可以限制组何时处于活动状态：
 
-- **Days to block**：选择分组生效的星期。未勾选日期表示该日分组不生效。
-- **Time windows**：自由格式列表，每行一个 `HHMM-HHMM` 时间窗，例如：
+- **阻止天数**：选择该组适用的日期。未选中的日子意味着该组当天处于非活动状态。
+- **时间窗口**：自由格式列表，每行一个窗口，格式为 `HHMM-HHMM`，例如：
 
-  ```
-  0900-1000
-  1200-1300
-  ```
+  ZXQ代码0ZXQ
 
-  分组只在这些窗口内生效。留空表示全天生效。
+  该组仅在这些窗口内处于活动状态。空列表意味着全天。
 
-这适用于除 `Custom` 外的所有分组类型。
+这适用于除 `Custom` 之外的所有组类型。 （自定义规则可以使用 `ev.time.dayName` / `ev.time.hour` 实现自己的时间表；请参阅**第 11.4 节**。）
 
 ---
 
-## 8. 冻结（防篡改）
+## 8.冻结（防篡改）
 
-冻结用于防止你一时冲动禁用分组。
+冻结使得一个团体很难一时冲动就瘫痪。
 
-在 **Freeze** 卡片中可选择：
+在 **冻结** 卡中您选择：
 
-- **Frozen** — 你不能编辑或删除该分组，也不能取消其启用开关。若要修改，必须执行解冻流程（见下文）。
-- **Strict frozen** — 与 Frozen 相同，但会按你设置的小时数（小数，最多 72）保持锁定。在计时结束前，连解冻流程都不可用。
+- **冻结** — 您无法编辑或删除该组，也无法取消选中其启用开关。要更改任何内容，您必须运行解冻仪式（见下文）。
+- **严格冻结** — 与《冻结》相同，但它会在您选择的时间内保持锁定状态（十进制，最多 72）。在该计时器到期之前，甚至无法进行解冻仪式。
 
-当冻结分组可解锁时，会出现 **Unfreeze** 按钮。点击后开始 **20 步流程**：
+当冻结组可解锁时，会出现 **解冻** 按钮。单击它开始**20步仪式**：
 
-- 弹窗会显示一段自律提示信息。
-- 你必须点击 `Confirm` 20 次。
-- 两次点击之间强制等待 5 秒。
-- 任一步取消都要从第 1 步重来。
-- 20 条提示会轮换显示，确保你确实阅读。
+- 模式显示自律消息。
+- 您必须点击`Confirm` 20次。
+- 单击之间强制等待 5 秒。
+- 如果您在任何时候取消，则必须从步骤 1 重新开始。
+- 20 条消息轮流播放，以便您真正阅读它们。
 
-如果分组还被标记为 “no snooze”（见下一节），则冻结期间也无法对其 Snooze。
+如果该组也标记为“禁止暂停”（请参阅​​下一节），则在冻结时也无法暂停该组。
 
-分组卡片的元信息行会显示冻结状态；严格冻结还会显示剩余锁定时间。
-
----
-
-## 9. Snooze（临时停用）
-
-Snooze 可在不解冻的情况下临时停用分组，现在支持延迟启动、Snooze 后冷静期、确认步骤，以及累计 Snooze 时长统计。
-
-在 **Snooze** 卡片中：
-
-- **Allow snooze for this group** — 关闭时该分组完全不可 Snooze（包括冻结期间）。
-- **Snooze for (minutes)** — 小数，Snooze 持续时长。
-- **Activation delay (minutes)** — 大于等于 `0` 的小数。确认 Snooze 后，分组仍继续屏蔽，等这段延迟结束后 Snooze 才真正开始。
-- **Cooldown after snooze (minutes)** — `0` 到 `5` 之间的小数。Snooze 结束后，在冷静期结束前不能再次对该分组发起 Snooze。
-- **Times of confirmation** — 大于等于 `0` 的整数。若为 `0`，Snooze 会立即安排；否则点击 Start 后会进入恰好这么多步的确认流程。
-
-每一步 Snooze 确认之间都必须强制等待 **5 秒**。弹窗会明确提示这一点，并在按钮上显示实时倒计时。
-
-如果分组已冻结，Snooze 设置会锁定为冻结前设定值。只要允许 Snooze，仍可执行 Snooze，但必须使用已保存的延迟 / 冷静期 / 确认设置。
-
-Snooze 卡片还会显示该分组的 **累计 Snooze 时间**。这个累计值按 Snooze 的激活时长计算；即使该时间段内网站因为其他原因变得可访问，这段激活中的 Snooze 时间仍会完整计入。
-
-当 Snooze 结束时，规则会立即恢复。如果该分组原本不是冻结状态，扩展会在 Snooze 结束时自动把它重新冻结。
-
-状态消息会确认 Snooze 已开始。Snooze 结束后，分组会自动恢复正常。
-
-你也可以通过 **End Snooze** 按钮提前结束 Snooze。
+冻结状态显示在组卡的元行中，包括严格冻结的剩余时间。
 
 ---
 
-## 10. 批量操作
+## 9.贪睡（暂时禁用）
 
-- **Delete All** 会删除全部分组。
-  - 始终会要求确认。
-  - 若至少有一个分组被冻结，会要求执行与解冻相同的 20 步流程。
-  - 若存在仍在锁定期内的 strict-frozen 分组，**Delete All** 会被禁用。
+暂停会暂时禁用某个组而不将其解冻。它支持延迟激活、暂停后冷却、确认步骤和暂停总时间。
+
+在**暂停**卡中：
+
+- **允许该组暂停** — 如果关闭，则该组根本无法暂停（包括冻结时）。
+- **贪睡（分钟）** — 十进制，贪睡持续多长时间。
+- **激活延迟（分钟）** — 十进制 `>= 0`。在您确认暂停后，该组将继续阻塞，直到延迟过去；只有这样，小睡才会被激活。
+- **小睡后的冷却时间（分钟）** — 从 `0` 到 `5` 的十进制。暂停结束后，在冷却时间结束之前，您无法为该组启动另一次暂停。
+- **确认次数** — 整数 `>= 0`。如果是 `0`，则立即安排暂停。否则，开始小睡会启动一个确认仪式，步骤就这么多。
+
+每个暂停确认步骤在允许下一次单击之前都会强制 **5 秒等待**。该模式明确地告诉您这一点，并在按钮上显示实时倒计时。
+
+如果该组被冻结，则暂停设置将锁定为冻结前选择的值。只要允许暂停，您仍然可以暂停它，但您必须使用保存的延迟/冷却/确认设置。
+
+贪睡卡还显示该组的**总贪睡时间**。此总数计算完整的活动休眠持续时间，即使该站点在该窗口期间由于某些其他原因而变得可访问。
+
+当小睡结束时，规则立即恢复。如果该组尚未冻结，则分机会在小睡结束时自动再次冻结该组。
+
+状态消息确认暂停。当小睡结束时，群组会自动恢复正常。
+
+您还可以使用 **结束贪睡** 按钮提前结束贪睡。
+
+对于自定义组，按 **Start Snooze** 还会将 `snoozePress` 事件分派到规则中（请参阅 **第 11 节 ** 中的事件表），因此自定义规则可以记录按下、记录理由或触发后续事件。该规则**没有程序化的暂停 API** - 它可以对压力做出反应，但不能取消或延长它。
 
 ---
 
-## 11. Custom 分组 — 事件驱动参考（v1.1+）
+## 10. 批量操作- **全部删除** 删除每个组。
+  - 它总是要求确认。
+  - 如果至少有一组被冻结，则需要与解冻相同的20步仪式。
+  - 如果任何组被严格冻结且仍处于锁定状态，则**全部删除**将被禁用。
 
-从 v1.1 起，自定义规则改为**事件驱动**。规则不再是“每次心跳调用、由返回值决定是否屏蔽”的函数，而是一段在被调用时**注册事件处理器**的脚本（页面打开、URL 变化、tick、自定义事件等）。处理器在导航和切换标签页之间持续保留，统一存活在一个长生命周期的 offscreen 沙箱中。
+---
 
-规则函数体只在**点击 Run 时执行一次**（或者在分组被启用且已存在 active source 时由系统自动执行一次）。要重新加载处理器，请在编辑器中点击 **Run**。
+## 11. 自定义组 — 事件驱动参考 (v1.1+)
+
+从 v1.1 开始，自定义规则是**事件驱动的**。您的规则不再是返回值阻止页面的每心跳函数。相反，规则主体是一个脚本，它**注册特定事件的处理程序**（页面打开、URL 更改、页面心跳、自定义事件等）。处理程序在页面导航和选项卡切换中保持注册状态，并存在于长期存在的**屏幕外沙箱**中。
+
+规则主体**每次“运行”单击**执行一次（或者在启用组且活动源已存在时执行一次）。要重新加载处理程序，请在编辑器中单击“**运行**”。弹出窗口会显示一条提醒，要求您重新加载任何已打开的页面，以便新规则也适用于该页面。
 
 ### 11.1 规则签名
 
-```js
-(event, helpers) => {
-  // 在这里注册处理器。本函数每次 Run 点击仅被调用一次
-  // （或在分组启用时被自动调用一次）。
-}
-```
+ZXQ代码1ZXQ
 
-两个参数：
+两个论点：
 
-- `event` — 当前分组的**事件注册中心**。用它来注册、覆盖、查询、计数、注销处理器，以及通过 `post(...)` 派发自定义事件。
-- `helpers` — 辅助工具集合（详见 11.3）。
+- `event` — 该组的**事件注册表**。使用它来注册、覆盖、列出、计数或取消注册处理程序以及 `post(...)` 自定义事件。
+- `helpers` — 帮助程序包（参见 **11.3**）。
 
-函数**不需要**返回值。是否屏蔽或放行的决定，发生在事件触发后某个被注册的处理器调用 `ev.preventDefault()` 和/或 `ev.setResult(...)` 时。
+该函数**不**期望返回值。当事件触发并且您注册的处理程序之一调用 `ev.preventDefault()` 和/或 `ev.setResult(...)` 时，会稍后做出阻止或允许的决定。
 
 ### 11.2 生命周期
 
-- **Run**（每个分组编辑器内的按钮）：引擎先清掉所有此前打着该分组标签的处理器，然后在每个已打开标签页对应的 offscreen 沙箱视图中重新执行规则函数体。这是编辑源代码后唯一能让新版本生效的方式。
-- **禁用分组**：所有打着该分组标签的处理器都会被清除。源代码仍保留在 storage 中，但不再响应任何事件。
-- **重新启用分组**：引擎会自动重新执行该分组的 active source。
-- **删除分组**：等同于禁用——所有该分组标签的处理器都会被清掉。
-- **以相同 `(eventType, id)` 重复注册**：静默覆盖旧的注册。
+- **运行**（编辑器中的每个组按钮）：引擎首先擦除之前用该组标记的每个处理程序，然后在屏幕外沙箱中重新运行规则主体。这是编辑源后重新注册的唯一方法。
+- **禁用组**：用该组标记的每个处理程序都将被擦除。组源保留在存储中，但停止响应事件。
+- **重新启用组**：引擎自动重新运行该组的活动源。
+- **删除组**：与禁用相同；所有标记有该组的处理程序都将被擦除。
+- **使用相同的 `(eventType, id)` 重新注册**：静默覆盖先前的注册。
 
-offscreen 沙箱由**所有**自定义分组共享。来自不同分组的处理器共存其中，每个内部都打了所属 group id 的标签，因此 “Run”、禁用、删除只会作用到正确的分组上。
+离屏沙箱由**所有**自定义组共享。来自不同组的处理程序在那里共存，每个处理程序在内部都用其所属的组 ID 进行标记，以便“运行”、禁用或删除仅触及正确的组。
 
-### 11.2.1 事件注册中心（`event`）
+如果自定义规则行为不当（同步无限循环、失控日志垃圾邮件等），沙箱会将其隔离：该组将自动禁用并记录失败，以便您可以在“日志”面板中看到它。要重新启用隔离规则，请修复源并单击 **运行** - 引擎会清除中止原因并重新加载规则。
+
+### 11.2.1 事件注册表（`event`）
 
 通用方法：
 
-- `event.register(type, id, handler, options?)` — 为任意事件类型注册处理器。`id` 由你自定。`options.priority`（默认 `0`）—— 数值越大越先执行。`options.intervalMs` —— 仅对 `tickEvent` 有效，用于对单个处理器节流（全局 tick 仍然每秒一次）。以相同 `(type, id)` 再次注册会覆盖。
+- `event.register(type, id, handler, options?)` — 为任意事件类型注册处理程序。 `id`是您自己的选择。 `options.priority`（默认 `0`） — 较高的优先运行。 `options.intervalMs` — 仅适用于 `tickEvent`；相对于全局刻度限制此特定处理程序。使用相同的 `(type, id)` 覆盖重新注册。
 - `event.unregister(type, id)`、`event.unregisterAll(type)`。
-- `event.post(type, data?, { scope })` — 派发一个自定义事件。`scope: "global"` 会送到所有分组；默认 `scope: "group"` 仅送到**同一分组**内的处理器。
+- `event.post(type, data?, { scope })` — 触发自定义事件。 `scope: "global"`到达各组；默认`scope: "group"`仅到达**相同**组中的处理程序。
 
-每个内置事件类型都附赠一组语法糖（同一套形状的方法）：
+每个事件类型的糖（每个内置类型一组方法）：
 
 - `event.registerTickEvent(id, handler, opts)`、`event.getTickEvent(id)`、`event.getTickEvents()`、`event.countTickRegistered()`。
 - `event.registerOpenWebEvent(id, handler, opts)`、`event.getOpenWebEvent(id)`、`event.getOpenWebEvents()`、`event.countOpenWebRegistered()`。
-- `closeWebEvent`、`switchWebEvent`、`switchDomainEvent`、`webChangedEvent`、`timerEnded`、`snoozePress` 同形。
+- `closeWebEvent`、`switchWebEvent`、`switchDomainEvent`、`webChangedEvent`、`pageHeartbeatEvent`、`timerEnded`、`snoozePress` 形状相同。
 
 ### 11.2.2 内置事件类型
 
-| 类型 | 触发时机 | `ev.data` |
+|类型 |当它发生时 | `ev.data`有效载荷|
 |---|---|---|
-| `tickEvent` | 全局共享的每秒 tick，所有打开的标签页都会按优先级触发各自的处理器。 | `{ intervalMs: 1000 }` |
-| `openWebEvent` | 新建标签页，或一次新的导航命中了引擎在该标签下尚未见过的 URL。点击 Run 之后**不会**对已打开的标签页再次触发。 | `{ previousUrl, isNewTab }` |
-| `closeWebEvent` | 标签页被关闭。 | `{ reason, nextUrl }` |
-| `switchWebEvent` | 同一标签页内 URL **发生变化**——前进/后退、SPA 路由切换，或者跳到另一个 URL。**不会**在原地刷新（URL 不变）时触发。 | `{ previousUrl, previousHostname, sameDomain }` |
-| `switchDomainEvent` | URL 变化跨越了主机名边界（例如 `youtube.com` → `wikipedia.org`）。会和 `switchWebEvent` 同时触发。 | `{ previousUrl, previousHostname }` |
-| `webChangedEvent` | 页面以任何方式（重新）加载：打开、切换、SPA 历史更新，**包括 URL 没有变化的整页刷新**。这是用来"页面变了就重新评估一次"的可靠钩子。会与 `openWebEvent` / `switchWebEvent` / `switchDomainEvent` 一起触发，并且是唯一会在同 URL 刷新时触发的事件。 | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }`，其中 `transition` 取值 `"tabCreated" \| "commit" \| "history"` |
-| `timerEnded` | 当前分组下任意计时器达到 `currentMs === 0`。仅会派发给拥有这个计时器的分组。 | `{ timerId, displayName, direction, currentMs }` |
-| `snoozePress` | 用户在弹窗中对当前 **自定义** 分组按下了 **Start Snooze**。这是一个纯通知事件——处理函数可以执行任意代码（记录日志、跳转、派发其它事件等），但 **没有提供任何编程式放行接口**。处理函数产生的日志会作为 toast 出现在当前激活标签页上。仅派发给被按下的分组。 | `{ triggeredAt }` |
+| `tickEvent` |整个浏览器全局共享 1 秒刻度。无论选项卡可见性如何都会触发。将此用于时钟式逻辑，即使没有选项卡聚焦，该逻辑也必须保持运行。 | `{ intervalMs: 1000 }` |
+| `pageHeartbeatEvent` |来自**活动**、**可见**选项卡的心跳约 250 毫秒。驱动所有选项卡可见性感知逻辑，包括 `getOrCreateTimer({ scope })` 中内置的自动勾选功能。 **不会**从后台选项卡或屏幕锁定时触发。 | `{ elapsedMs }` |
+| `openWebEvent` |创建一个新选项卡，或者新的导航位于引擎尚未看到该选项卡的 URL 上。单击“运行”后，**不会**重新触发已打开的选项卡。 | `{ previousUrl, isNewTab }` |
+| `closeWebEvent` |选项卡已关闭。 | `{ reason, nextUrl }` |
+| `switchWebEvent` |同一选项卡内的 URL **更改** — 后退/前进、SPA 路线更改或导航到达与以前不同的 URL。普通重新加载时 **不会** 触发（相同 URL）。 | `{ previousUrl, previousHostname, sameDomain }` |
+| `switchDomainEvent` | URL 更改跨越主机名边界（例如 `youtube.com` → `wikipedia.org`）。与 `switchWebEvent` 一起触发。 | `{ previousUrl, previousHostname }` |
+| `webChangedEvent` |页面以任何方式（重新）加载：打开、切换、SPA 历史记录更新，**或保持相同 URL 的简单重新加载**。这是可靠的“页面更改，重新评估所有内容”挂钩。与 `openWebEvent` / `switchWebEvent` / `switchDomainEvent` 一起触发，并且是唯一针对相同 URL 重新加载而触发的。 | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }`，其中 `transition` 是 `"tabCreated"`、`"commit"` 或 `"history"` |
+| `timerEnded` |该组管理的定时器达到`currentMs === 0`。只交付给所属集团。 | `{ timerId, displayName, direction, currentMs }` |
+| `snoozePress` |用户在弹出窗口中为此“自定义”组按下了“开始暂停”。纯通知事件 - 处理程序可以运行任意代码（记录、重定向、触发其他事件），但自定义规则**没有编程性休眠 API**。此处生成的日志在活动选项卡上显示为 toast。只交付给受压组。 | `{ triggeredAt }` |
 
-`ev.url` 以及事件 data 中的 URL 都已经过**事件级规范化**：Chrome 的 New Tab Page（即显示 Google 搜索框的“新标签页”）、`about:blank` 以及对应的 newtab scheme，都会被暴露成空字符串 `""`。因此一个 `ev.url === ""` 的计时器只会在新标签页时推进。普通的 `google.com` URL 不受影响。
+`ev.url` 和事件数据中的 URL 针对事件进行**标准化**：Chrome 的新标签页（呈现 Google 的“搜索 Google 或输入 URL”表面）、`about:blank` 和等效的新标签方案显示为空字符串 `""`。因此，范围为 `ev.url === ""` 的计时器仅在您位于新标签页时才会计时。常规 `google.com` URL 不变。
 
 ### 11.2.3 事件对象（`ev`）
 
-每个处理器都以 `(ev, helpers) => void` 形式被调用。`ev` 携带：
+每个处理程序都以 `(ev, helpers) => void` 的形式调用。 `ev`携带：
 
-- `ev.type` — 事件类型。
-- `ev.groupId` — 收到事件的分组 id。
-- `ev.tabId`、`ev.pageId`、`ev.url`、`ev.hostname` — 事件上下文。
-- `ev.time` — 派发时刻的 `{ now, month, dayOfMonth, dayName, hour, minute }` 快照。
-- `ev.data` — 事件特定的数据（见上表）。
+- `ev.type` — 调度的事件类型。
+- `ev.groupId` — 接收组的 ID。
+- `ev.tabId`、`ev.pageId`、`ev.url`、`ev.hostname` — 事件的上下文。
+- `ev.time` — `{ now, month, dayOfMonth, dayName, hour, minute }` 发货时快照。 `dayName` 是 `"Sunday"`..`"Saturday"`。
+- `ev.data` — 事件特定的有效负载（参见上表）。
 
 方法：
 
-- `ev.preventDefault()` — 把本次派发标记为“屏蔽”。host content script 会退出页面（或跟随 `setRedirectLink`），除非更高优先级的处理器之后调用了 `setResult(1)` 把它覆盖。
-- `ev.stopPropagation()` — 立即终止本次派发。**不会再有任何分组**的处理器收到该事件。
-- `ev.setResult(value)` — 设置派发结果。`value` 可以是 `[-255, 255]` 内的**数值**（`-1` 屏蔽、`0` 中立、`1` 放行；其他整数保留给你自己的调试逻辑），或者一个**字符串**(被解释为重定向 URL)。所有处理器中最后一次 `setResult` 调用获胜。数值 `1` 会覆盖此前任意 `preventDefault`。
-- `ev.setRedirectLink(url)` / `ev.getRedirectLink()` — 当本次派发以屏蔽收尾时，host 应导航到的 URL。这是在自定义规则中设置跳转的**唯一**方式；编辑器对 Custom 分组已不再展示 “Redirect URL when blocked” 字段。
-- `ev.post(type, data, { scope })` — 在处理器内部派发后续事件。
+- `ev.preventDefault()` — 将调度标记为“已阻止”。主机内容脚本将退出页面（或遵循 `setRedirectLink`），除非更高优先级的处理程序稍后设置 `setResult(1)`。
+- `ev.stopPropagation()` — 立即停止本次调度。 **不会为此事件调用任何组中的其他处理程序**。
+- `ev.setResult(value)` — 设置调度结果。 `value` 可能是 `[-255, 255]` 中的**数字**（`-1` 块、`0` 中性、`1` 允许；其他整数保留用于您自己的调试逻辑），或**字符串**（解释为重定向 URL）。所有处理程序中的最后一个 `setResult` 调用获胜。数字 `1` 会覆盖任何较早的 `preventDefault`。
+- `ev.setRedirectLink(url)` / `ev.getRedirectLink()` — 当调度因受阻而结束时主机应导航到的 URL。这是从自定义规则重定向的**唯一**方法；编辑器不再公开自定义组的“阻止时重定向 URL”字段。
+- `ev.post(type, data, { scope })` — 从处理程序内部触发后续事件。
 
-此外 `ev` 是一个 Proxy：你设到它上面的任意字段（例如 `ev.foo = 42`）会存入一个 `custom` 映射，可以从同一处理器或同一次派发中后续的处理器里读回来。
+此外，`ev` 是一个代理：您在其上设置的任何字段（例如 `ev.foo = 42`）都存储在 `custom` 映射中，并且可以从同一处理程序或同一调度中的后续处理程序中读回。### 11.3 `helpers` 对象
 
-### 11.3 `helpers` 对象
+每个处理程序调用都会获得一个新的 `helpers` 捆绑包，其范围为接收组和事件的 URL。常量字段：
 
-每次处理器调用都会拿到一份新的 `helpers`，它已被绑定到接收事件的分组以及事件的 URL。常量字段：
+- `helpers.now` — 调度时的纪元毫秒。
+- `helpers.currentUrl` — newtab/blank 标准化后的事件 URL。
+- `helpers.groupId` — 接收组 ID。
 
-- `helpers.now` — 派发时的 epoch 毫秒。
-- `helpers.currentUrl` — 事件 URL（已做 newtab/blank 规范化）。
-- `helpers.groupId` — 接收事件的分组 id。
+方便的快捷方式（路由到下面的帮助程序使用的相同累加器感知函数，因此输出仍然出现在“日志”面板中）：
+
+- `helpers.log(...)`、`helpers.warn(...)`、`helpers.error(...)`。
 
 访问器方法：
 
-- `helpers.getLogHelper()` — `log/warn/error`，自动加上 `[CustomBlocker:groupId]` 前缀，并以浮窗形式显示在页面上。
-- `helpers.getDomainHelper()`（别名 `helpers.getDomainUtility()`）— URL 检查（详见 11.3.5）。
-- `helpers.getTimerHelper()` — 分组级计时器（倒计时 / 正计时）；状态跨浏览器重启保留。
-- `helpers.getPersistenceHelper()` — 分组级 JSON 键值存储。
-- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()`（同时提供 `set/get` 别名），以及 `createMessageUrl(message)`，返回一个 `chrome-extension://...` 的 URL，访问时会在页面中央显示该消息。对自定义规则而言，这是设置“被屏蔽时跳转 URL”的**唯一**方式。
-- `helpers.getPlatformHelper()` — 按平台拆分的 DOM 意图（详见 11.3.6）。
-- `helpers.getDOMHelper()` — 通用 DOM 意图：`hide(sel)`、`show(sel)`、`addClass(sel, c)`、`removeClass(sel, c)`、`setText(sel, text)`、`click(sel)`、`injectCss(css, id?)`、`removeInjectedCss(id)`、`scrollTo(sel)`。意图会被批量收集，处理器返回后再统一应用到 DOM。
-- `helpers.getNavigationHelper()` — `back()`、`forward()`、`reload()`、`goTo(url)`、`closeTab()`。作用对象是事件来源的标签页。
-- `helpers.getStorageHelper()` — `getPersistenceHelper` 的超集，额外提供 `requestAsyncGet(key)` / `requestAsyncSet(key, value)` 之类的异步钩子用于跨扩展存储（结果以一个后续自定义事件的形式回调）。
-- `helpers.getTabHelper()` — 在事件携带的 tab 快照上提供 `list()`、`getActiveTab()`、`getById(id)`、`countOpen()`。
+- `helpers.getLogHelper()` — `log` / `warn` / `error`。输出受到速率限制，并且每次调度都有上限，以防止失控规则冻结弹出窗口。
+- `helpers.getDomainHelper()`（别名 `helpers.getDomainUtility()`） — URL 检查（参见 **11.3.5**）。
+- `helpers.getTimerHelper()` — 组范围定时器（倒计时/正计时）；浏览器重新启动后状态仍然存在。
+- `helpers.getPersistenceHelper()` — JSON 键/值存储范围仅限于组。
+- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()`（和 `set` / `get` 别名）加上 `createMessageUrl(message)`，它返回显示给定消息的 `chrome-extension://...` URL。
+- `helpers.getPlatformHelper()` — 每个平台的 DOM 意图（参见 **11.3.6**）。
+- `helpers.getDOMHelper()` — 通用 DOM 意图：`hide(sel)`、`show(sel)`、`addClass(sel, c)`、`removeClass(sel, c)`、`setText(sel, text)`、`click(sel)`、`injectCss(css, id?)`、`removeInjectedCss(id)`、 `scrollTo(sel)`。处理程序返回后，操作将被批处理并应用。
+- `helpers.getNavigationHelper()` — `back()`、`forward()`、`reload()`、`goTo(url)`、`closeTab()`。效果将应用于事件来源的选项卡。
+- `helpers.getStorageHelper()` — `getPersistenceHelper` 的超集加上用于交叉扩展存储的异步 `requestAsyncGet(key)` / `requestAsyncSet(key, value)` 挂钩（结果作为后续自定义事件到达）。
+- `helpers.getTabHelper()` — `list()`、`getActiveTab()`、`getById(id)`、`countOpen()` 针对与事件捆绑的快照。
 
-所有 helper 方法都设计为安全调用：参数错误时返回 `null`、`false` 或空值，不会抛异常。
+所有辅助方法都是安全的：错误参数返回 `null`、`false` 或空值，而不是抛出异常。
 
 #### 11.3.1 `getTimerHelper()`
 
-按分组持久化的计时器。每个计时器由你自定的字符串 `id` 标识；标识作用域限定在分组内，所以两个分组都可以使用同一个 `id`（例如 `"yt-shorts"`）而不冲突。状态跨浏览器重启保留。
+每组计时器。每个定时器由您选择的字符串 `id` 标识；身份的范围仅限于组，因此两个组都可以使用 id `"yt-shorts"` 而不会发生冲突。浏览器重新启动后状态仍然存在。
 
-计时器的持久化字段仅有：`id`、`displayName`、`direction`（`"forward"` 或 `"backward"`）、`isPaused`、`currentMs`。**不会**保存“初始时长”——`isExpired` 即 `currentMs === 0`。Forward 计时器永远向上累加，自身不会过期。
+定时器的持久状态为：`id`、`displayName`、`direction`（`"forward"` 或 `"backward"`）、`isPaused` 和 `currentMs`。没有存储的“初始持续时间” - `isExpired` 只是 `currentMs === 0`。向前计时器会永远计时，并且永远不会自行过期。向后计时器在 `0` 处停止计时（无负值）。
 
-构造方法有两个，请按意图选择：
+有两种施工方法。选择语义与您想要的相符的一个：
 
-- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **总是（重新）创建**：用传入的初始字段覆盖既有状态，包括 `currentMs`。适用于“立即重置”这种一次性场景。
-- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **幂等**。若同 `id` 已存在，仅会更新 `displayName` 与 `direction`，`currentMs` 保留不变；若不存在则按初始字段创建。常规的“确保计时器存在并继续推进”请用此方法。
+- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **始终使用提供的初始化值（重新）创建**计时器，覆盖任何现有状态，包括 `currentMs`。当您的意思是“重新开始”时，请使用此选项，例如在一次性重置分支内。
+- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **幂等**。如果具有该 `id` 的计时器已存在，则其 `displayName` 和 `direction` 可能会更新，但 `currentMs` 会保留。否则，它是使用提供的初始值创建的。这就是您想要的常见“确保我的计时器存在，然后让它滴答作响”模式。
 
-两个方法都接受两个**仅在本次心跳生效、不会被持久化**的谓词：
+两种方法都接受引擎在规则的生命周期中记住的两个谓词函数（它们在心跳和 `webChangedEvent` 重新评估中存活，但它们**永远不会持久**到存储）：- `scope: (url) => boolean` — 当 `true` 用于每个 `pageHeartbeatEvent` 上的当前可见 URL 时，计时器会按心跳间隔（约 250 毫秒）自动计时。助手本身永远不会阻塞；它只更新`currentMs`。每个计时器每次心跳最多自动滴答一次。
+- `domain: (url) => boolean` — 当当前可见 URL 为 `true` 时，计时器将呈现在页内叠加层（左上角）中。当省略 `domain` 时，引擎会回退到 `scope` 进行显示，因此“/shorts/ 页上的滴答”计时器也会显示在那里，无需额外接线。如果您想要不同的显示门，请明确提供 `domain`（例如，仅在 `/shorts/` 上勾选，但显示所有 `youtube.com` 的剩余时间）。
 
-- `scope: (url) => boolean` — 当前 URL 让该谓词返回 `true` 时，本次心跳会按心跳间隔自动推进计时器。每次心跳每个分组最多自动推进一次。
-- `domain: (url) => boolean` — 当前 URL 让该谓词返回 `true` 时，计时器会渲染到页面左上角的覆盖层中。未传 `domain` 时系统会回退使用 `scope` 作为显示门控。
+> **重要 — 计时器永远不会自行阻塞。** 当向后计时器达到零时，它只会停在零处并触发 `timerEnded` 一次。是否实际阻止页面取决于单独的 `openWebEvent` / `switchWebEvent` 处理程序，该处理程序在检查 `helpers.getTimerHelper().isExpired(id)` 后调用 `ev.preventDefault()`。这种分离使您可以构建“仅警告”计时器、计数跟踪器、软推动或硬块 - 相同的原语，您可以选择。
 
 其他方法：
 
-- `delete(id)`、`pause(id)`、`resume(id)` — 标准生命周期。`pause` 会冻结 `currentMs`。
-- `setDirection(id, "forward" | "backward")`、`setCurrentMs(id, ms)`、`addMs(id, deltaMs)` — 直接修改器。
-- `setDisplayName(id, name)` — 重命名标签。
+- `delete(id)`、`pause(id)`、`resume(id)` — 标准生命周期。暂停冻结 `currentMs`。
+- `setDirection(id, "forward" | "backward")`、`setCurrentMs(id, ms)`、`addMs(id, deltaMs)` — 直接变异器（大多数规则不需要这些 — 让心跳为您计时）。
+- `setDisplayName(id, name)` — 重新标签。
 - `getCurrentMs(id)`、`getDirection(id)`、`getDisplayName(id)`、`isPaused(id)`、`exists(id)`。
-- `isExpired(id)` — 仅当 `currentMs === 0` 时为 `true`。
-- `getState(id)` — 返回 `{ id, displayName, direction, isPaused, currentMs, isExpired }` 或 `null`。
-- `list()` — 返回该分组下所有计时器的状态数组。
+- `isExpired(id)` — `true` 当且仅当 `currentMs === 0`。
+- `getState(id)` — `{ id, displayName, direction, isPaused, currentMs, isExpired }` 或 `null`。
+- `list()` — 该组拥有的每个计时器，作为状态对象数组。
 
 #### 11.3.2 `getPersistenceHelper()`
 
-作用域为当前分组的类 Map 存储。值必须可 JSON 序列化。
+类似地图的存储范围仅限于您的组。值必须是 JSON 可序列化的。
 
 - `set(key, value)`、`get(key, defaultValue?)`、`has(key)`、`delete(key)`、`keys()`、`entries()`、`clear()`、`size()`。
 
-软限制：每组约 200 个键，每个值约 16 KB。
+软限制：每组约 200 个键，每个值 16 KB。
 
 #### 11.3.3 `getLogHelper()`
 
-- `log(...args)`、`warn(...args)`、`error(...args)` — 写入页面控制台并以浮窗形式渲染在页面上。每行都带 `[CustomBlocker:groupId]` 前缀。
+- `log(...args)`、`warn(...args)`、`error(...args)` — 写入弹出窗口中的 **Log** 面板（帮助程序包仍然通过相同的累加器路由它们，无论哪个调度生成它们）。每条线路都以 `[CustomBlocker:groupId]` 为前缀。
+- 帮助程序具有硬上限：大约**每次调度 200 个日志条目**以及每个条目的最大字符串长度。多余的条目将被删除并计入 `accumulator.logsDropped`。这就是保护弹出窗口免受 `for (let i = 0; i < 100000; i++) helpers.log(i)` 失控的影响。
+- 当**调试模式**关闭（默认）时，引擎本身发出的跟踪级别条目（调度启动/处理程序计时）在各处都会受到抑制 - 它们不会显示在日志面板中，也不会打印到控制台。您自己的 `log` / `warn` / `error` 呼叫始终会接通。
 
 #### 11.3.4 `getRedirectionHelper()`
 
-读取或覆盖 content script 在当前页面被屏蔽时跳转的目标 URL。
+如果当前页面最终被阻止，检查/覆盖内容脚本将使用的重定向 URL。
 
-- `get()` — 返回当次派发当前生效的跳转 URL。初始值为内置分组配置的 fallback URL（如有），否则为 `""`。
-- `set(url)` — 覆盖当次派发的跳转 URL。成功返回 `true`；非字符串输入返回 `false`。传入 `""` 可清空跳转覆盖,回退到默认退出行为（按上下文转到主页 / `about:blank`）。
-- `createMessageUrl(message)` — 返回一个 `chrome-extension://<id>/message-page.html?msg=...` 形式的 URL,访问时会在干净的页面中央显示这条消息。常用于计时器结束后跳转到自定义的"Go Work" / "去休息一下" 页面。例如：`ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`。
+- `get()` — 返回此调度的当前有效重定向 URL。最初，这是内置组配置的后备 URL（如果有），否则为 `""`。
+- `set(url)` — 覆盖此调度的重定向 URL。成功返回 `true`，非字符串输入返回 `false`。传递 `""` 会清除重定向覆盖并回退到正常的默认退出行为。
+- `createMessageUrl(message)` — 返回一个 `chrome-extension://<id>/message-page.html?msg=...` URL，当导航到该 URL 时，会在干净的页面上显示居中的消息。对于在计时器结束后将用户重定向到“开始工作”/“休息一下”屏幕非常有用。示例：`ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`。
 
-像其他 custom-rule 副作用一样，这一状态在本次派发的所有处理器之间共享。优先级最高的处理器中最后一次调用 `set(...)` 的最终生效。
+与其他自定义规则副作用一样，此状态在当前调度中的所有规则之间共享。由于规则是自下而上运行的，因此调用 `set(...)` 的最顶层规则获胜。
 
-#### 11.3.5 `getDomainHelper()`（别名 `getDomainUtility()`）
+#### 11.3.5 `getDomainHelper()`（别名`getDomainUtility()`）
 
-URL 检查工具。不再提供 `normalize()`，因为传入的 URL 已经做过规范化。
+URL 检查助手。不存在 `normalize()`，因为传入的 URL 已经进行了 newtab 标准化。
 
-核心方法：
-
-- `hostnameOf(url)`、`pathnameOf(url)`、`matches(hostname, site)`、`getPlatform(url)`。
+核：- `hostnameOf(url)`、`pathnameOf(url)`、`matches(hostname, site)`、`getPlatform(url)`。
 - `isYouTubeHost`、`isTikTokHost`、`isInstagramHost`、`isFacebookHost`、`isTwitchHost`、`isRedditHost`、`isDiscordHost`。
 - `youtube()`、`tiktok()`、`instagram()`、`facebook()`、`twitch()` — 每个都返回 `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`。
 
-URL 过滤与区域识别（v1.1 新增）：
+URL 过滤和部分助手：
 
-- `isEmptyStartPage(url)` — 对新标签页及等价 URL（被处理器看到为 `""` 的那些）返回 `true`。
-- `matchesAny(url, patterns)` — `patterns` 可以是一个正则、一个正则字符串，或两者的数组。
-- `pathStartsWith(url, path)` — 边界感知（`pathStartsWith("/r/", "/r")` 为 `true`，但 `"/results/"` 不算）。
+- `isEmptyStartPage(url)` — `true` 用于新标签页和等效项（在处理程序中显示为 `""` 的 URL）。
+- `matchesAny(url, patterns)` — `patterns` 可以是正则表达式、字符串正则表达式或两者的数组。
+- `pathStartsWith(url, path)` — 边界感知（`pathStartsWith("/r/", "/r")` 为真；`"/results/"` 不是）。
 - `queryHas(url, key, value?)`、`queryGet(url, key)` — 查询字符串检查。
-- `isSearchPage(url)` — 识别 Google / Bing / DuckDuckGo / YouTube 结果页 / Reddit / Twitter / X 搜索页。
-- `isInfiniteFeedUrl(url)` — 识别 YouTube、TikTok、Instagram、Facebook、Reddit、X 的算法信息流页面。
-- `sameSection(a, b)` — 同一主机名且首段路径相同。
+- `isSearchPage(url)` — 识别 Google / Bing / DuckDuckGo / YouTube 结果 / Reddit / Twitter / X 搜索。
+- `isInfiniteFeedUrl(url)` — 识别 YouTube、TikTok、Instagram、Facebook、Reddit、X 的算法提要界面。
+- `sameSection(a, b)` — 相同的主机名和相同的第一个路径段。
 
 #### 11.3.6 `getPlatformHelper()`
 
-按平台拆分的 DOM 意图、子区域计时器以及状态检查方法。`helpers.getPlatformHelper().<platform>()` 都返回一个对象，**该对象的方法集随平台而异**——平台上不适用的方法不会存在，调用它们会直接抛出 `TypeError: ... is not a function`，而不是悄悄变成无操作。例如 `twitch().hidePosts` 不存在（Twitch 没有 posts），`tiktok().hideShortButton` 也不存在（TikTok 整个产品本身就以短视频为主）。需要在运行时探测时，可使用 `helpers.getPlatformHelper().hasMethod(platform, name)` 或 `.listMethods(platform)`。
+每个平台的 DOM 意图和分段计时器以及检查。每个 `helpers.getPlatformHelper().<platform>()` 返回一个对象，其方法集**由平台控制** - 在给定平台上没有意义的方法根本不存在，因此调用它们会抛出 `TypeError: ... is not a function` 而不是默默地无操作。例如，`twitch().hidePosts` 不存在（Twitch 没有帖子），`tiktok().hideShortButton` 也不存在（TikTok 的整个体验已经_是_短视频）。使用 `helpers.getPlatformHelper().hasMethod(platform, name)` 或 `.listMethods(platform)` 在运行时进行自省。
 
-各平台支持的方法矩阵：
+每个平台的方法矩阵：
 
-|                                | youtube | tiktok | instagram | facebook | twitch |
-|--------------------------------|:-:|:-:|:-:|:-:|:-:|
-| `hideShorts` / `showShorts`    | ✓ |   |   |   |   |
-| `hideReels` / `showReels`      |   |   | ✓ | ✓ |   |
-| `hideClips` / `showClips`      |   |   |   |   | ✓ |
-| `hideStreams` / `showStreams`  |   |   |   |   | ✓ |
-| `hideVideos` / `showVideos`    | ✓ | ✓ |   | ✓ | ✓（VOD） |
-| `hidePosts` / `showPosts`      | ✓ |   | ✓ | ✓ |   |
-| `hideShortButton` / `showShortButton` | ✓ |   |   |   |   |
-| `hideHomePage` / `showHomePage`| ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓（聊天） |
-| `filterComments`               | ✓ | ✓ | ✓ | ✓ |   |
-| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |   | ✓ | ✓ |
-| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |   |   |   | ✓ |
-| `isCurrentChannelVerified`     | ✓ |   |   |   |   |
-| `isLiveNow`                    | ✓ | ✓ |   | ✓ | ✓ |
-| `isItemLive`                   | ✓ | ✓ |   | ✓ | ✓ |
-| `isAlgorithmicRecommendation`  | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `isSponsored`                  | ✓ | ✓ | ✓ | ✓ |   |
-| `setShortsTimer`               | ✓ |   |   |   |   |
-| `setReelsTimer`                |   |   | ✓ | ✓ |   |
-| `setClipsTimer`                |   |   |   |   | ✓ |
-| `setStreamsTimer`              |   |   |   |   | ✓ |
-| `setVideosTimer`               | ✓ | ✓ |   | ✓ | ✓ |
-| `setPostsTimer`                | ✓ |   | ✓ | ✓ |   |
+|方法| Youtube |抖音 | Instagram |脸书 |抽搐|
+|---|:---:|:---:|:---:|:---:|:---:|
+| `hideShorts` / `showShorts` | ✓ |  |  |  |  |
+| `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
+| `hideClips` / `showClips` |  |  |  |  | ✓ |
+| `hideStreams` / `showStreams` |  |  |  |  | ✓ |
+| `hideVideos` / `showVideos` | ✓ | ✓ |  | ✓ | ✓ (VOD) |
+| `hidePosts` / `showPosts` | ✓ |  | ✓ | ✓ |  |
+| `hideShortButton` / `showShortButton` | ✓ |  |  |  |  |
+| `hideHomePage` / `showHomePage` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓（聊天）|
+| `filterComments` | ✓ | ✓ | ✓ | ✓ |  |
+| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |  | ✓ | ✓ |
+| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |  |  |  | ✓ |
+| `isCurrentChannelVerified` | ✓ |  |  |  |  |
+| `isLiveNow` | ✓ | ✓ |  | ✓ | ✓ |
+| `isItemLive` | ✓ | ✓ |  | ✓ | ✓ |
+| `isAlgorithmicRecommendation` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `isSponsored` | ✓ | ✓ | ✓ | ✓ |  |
+| `setShortsTimer` | ✓ |  |  |  |  |
+| `setReelsTimer` |  |  | ✓ | ✓ |  |
+| `setClipsTimer` |  |  |  |  | ✓ |
+| `setStreamsTimer` |  |  |  |  | ✓ |
+| `setVideosTimer` | ✓ | ✓ |  | ✓ | ✓ |
+| `setPostsTimer` | ✓ |  | ✓ | ✓ |  |
 
-平台原生命名（`hideReels`、`hideClips`、`hideStreams`）并不是与 `hideShorts` / `hideVideos` 相互独立的存储槽——内部存储的槽是同一个，只是对外暴露的名称跟随各平台自己的术语。
+平台原生名称（`hideReels`、`hideClips`、`hideStreams`）不是与 ZX​​QINLINE409ZXQ / `hideVideos` 分开的存储桶 - 存储插槽相同；只有用户可见的名称遵循每个平台的术语。
 
-> **谓词的生命周期与单槽规则。**`hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` 中每一个，对每个 `(分组, 平台, 槽)` 组合都只保留 **一个** 持久谓词。谓词**不**与当前事件绑定——一旦设置，它就会跨所有页面加载、跨所有事件派发持续生效，直到被对应的 `show*()` 关闭或所属分组被卸载。再次调用同一个方法并传入新函数会**直接覆盖**之前的谓词——引擎不会在同一个分组内把多个谓词做 OR 合并。如果需要组合多个条件，请自己在一个谓词里组合，例如 `yt.hideVideos(item => isShort(item) || hasKeyword(item))`。（**不同**分组之间则各自贡献自己的谓词，只要有任意一个分组的谓词命中，对应条目就会被隐藏。）
+> **谓词生命周期和单槽规则。** `hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` 中的每一个都拥有 **一个** 持久性根据 `(group, platform, slot)` 的谓词。该谓词**不**作用于当前事件 - 一旦设置它，它就会在每个页面加载和每次调度中保持活动状态，直到调用匹配的 `show*()` 或卸载该组。使用新函数再次调用相同的方法**替换**前一个函数 - 引擎永远不会对单个组中的多个谓词进行 OR 合并。要组合条件，请编写一个自己进行组合的谓词，例如`yt.hideVideos(item => isShort(item) || hasKeyword(item))`。在**不同**组中，每个组贡献自己的谓词，如果任何组的谓词匹配，则隐藏一个项目。
 
-状态检查方法（在派发时根据事件携带的快照返回值）的可用性同样按上面矩阵进行限制。
+检查方法在调度时从与事件捆绑在一起的快照中获取其值；它们的可用性由上面的矩阵控制。
 
-URL 分类器对所有平台都会再次暴露：`isPlatformUrl`、`isShortUrl`、`isVideoUrl`、`isPostUrl`、`isHomePage`、`extractAuthor`、`extractVideoId`。
+无论平台如何，URL 分类器始终会重新公开：`isPlatformUrl`、`isShortUrl`、`isVideoUrl`、`isPostUrl`、`isHomePage`、`extractAuthor`、`extractVideoId`。子部分计时器在持久组存储桶中注册计时器，并且在限定范围时，仅在与该子部分匹配的 URL 上进行计时。计时器方法接受 `{ id, direction, currentMs, displayName }` 并遵循相同的每平台门控。
 
-子区域计时器把计时器登记到分组的持久化桶中，并在配置了 scope 时只在对应子区域 URL 上推进。计时器方法接受 `{ id, direction, currentMs, displayName }`，且与上面矩阵保持一致的可用性限制。
-
-谓词类方法都会按匹配的卡片调用，参数 `item` 形如 `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`。任何字段都可能为 `null`；遵循“疑罪从无”——你需要的字段缺失时请返回 `false`。
+对于谓词方法，使用标准化的 `item`：`{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }` 对每个匹配卡调用谓词。任何字段都可以是`null`； “无罪，直到被证明有罪”——当您需要的字段缺失时，返回 `false`。
 
 ### 11.4 示例
 
-简单 —— 工作日早晨屏蔽 YouTube Shorts 页面：
+**简单** — 在工作日早上屏蔽 YouTube Shorts 页面：
 
-```js
-(event, helpers) => {
-  const yt = helpers.getDomainHelper().youtube();
+ZXQ代码2ZXQ
 
-  function maybeBlock(ev) {
-    if (!yt.isShortUrl(ev.url)) return;
-    const { dayName, hour } = ev.time;
-    const weekday = !["Saturday", "Sunday"].includes(dayName);
-    if (weekday && hour >= 9 && hour < 12) {
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
+**中** — YouTube Shorts 每日预算为 30 分钟。当 Shorts URL 可见时，`pageHeartbeatEvent` 上的计时器会自动计时；当计时器为零时，一个单独的处理程序会强制执行该块。
 
-  event.registerOpenWebEvent("morning-block", maybeBlock);
-  event.registerSwitchWebEvent("morning-block", maybeBlock);
-}
-```
+ZXQ代码3ZXQ
 
-中等 —— YouTube Shorts 每天 30 分钟额度，超额后跳转到一个 focus 页：
+**更难** — 隐藏作者句柄太长的单个 YouTube Shorts 视频，并注入“此 Shorts 视频已隐藏”CSS：
 
-```js
-(event, helpers) => {
-  const TIMER_ID = "yt-shorts-budget";
-  const yt = helpers.getDomainHelper().youtube();
+ZXQ代码4ZXQ
 
-  helpers.getTimerHelper().getOrCreateTimer({
-    id: TIMER_ID,
-    direction: "backward",
-    currentMs: 30 * 60 * 1000,
-    displayName: "YT Shorts"
-  });
+**最难** — 将自定义事件从一个处理程序广播到其他处理程序：
 
-  // 当前激活页是 Short 时每秒倒计时一次。
-  event.registerTickEvent("budget-tick", (ev, h) => {
-    if (!yt.isShortUrl(ev.url)) return;
-    h.getTimerHelper().addMs(TIMER_ID, -1000);
-  });
-
-  function maybeBlock(ev, h) {
-    if (!yt.isShortUrl(ev.url)) return;
-    if (h.getTimerHelper().isExpired(TIMER_ID)) {
-      ev.setRedirectLink("https://example.com/focus");
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-  event.registerOpenWebEvent("budget-block", maybeBlock);
-  event.registerSwitchWebEvent("budget-block", maybeBlock);
-
-  event.registerTimerEndedEvent("budget-warn", (_ev, h) => {
-    h.getLogHelper().log("额度归零。");
-  });
-}
-```
-
-更难 —— 隐藏作者句柄过长的 YouTube Shorts，并注入一段“此 Short 已被隐藏”的 CSS：
-
-```js
-(event, helpers) => {
-  const MAX_AUTHOR_LEN = 16;
-
-  function configure(_ev, h) {
-    const yt = h.getPlatformHelper().youtube();
-    yt.hideShorts(
-      (item) => item.author && item.author.length > MAX_AUTHOR_LEN,
-      { blockPageOnVisit: true }
-    );
-    h.getDOMHelper().injectCss(
-      "ytd-rich-grid-media[data-cb-hidden] { opacity: 0.2 !important; }",
-      "long-author-label"
-    );
-  }
-
-  event.registerOpenWebEvent("hide-long-shorts", configure);
-  event.registerSwitchWebEvent("hide-long-shorts", configure);
-}
-```
-
-最难 —— 让一个处理器派发自定义事件给其他处理器：
-
-```js
-(event, helpers) => {
-  event.registerSwitchDomainEvent("track-domain", (ev) => {
-    ev.post("domainChange", { from: ev.data.previousHostname, to: ev.hostname });
-  });
-
-  event.register("domainChange", "log-it", (ev, h) => {
-    h.getLogHelper().log("crossed", ev.data.from, "→", ev.data.to);
-  });
-}
-```
+ZXQ代码5ZXQ
 
 ---
 
-## 12. 多页面行为
+## 12. 模板
 
-- 同一分组下所有已打开标签页共享同一个计时器。
-- 切换到同一分组中的另一个标签页时，其覆盖层会立即刷新并显示当前共享时间。
-- 新规则添加后，所有已打开页面会在零点几秒内检测到变化并刷新；无需手动重载标签页。
-- 当规则失效后，被隐藏的信息流卡片和导航按钮会在下一次刷新时恢复。
+每个自定义组都有一个**模板**选择器，可打开可搜索的预设浏览器。该库现在提供 **50 多个模板**，分为九个类别，因此您可以浏览而不是从头开始编写规则：
 
----
+|类别 |示例 |
+|---|---|
+| **定时器** |网站时间预算（倒计时 + 屏蔽）、网站时间跟踪器（向上计数）、YouTube Shorts 上限、TikTok feed 上限、Instagram Reels 上限、Facebook Reels 上限、Twitch Clips 上限、通用分心预算、每日深度工作跟踪器 |
+| **日程** |工作日工作时间封锁、仅限周末网站、睡前关闭、仅允许一小时、仅限午餐新闻、周一新开始、允许每小时前 N 分钟、深度工作严格封锁 |
+| **饲料/短裤** |阻止 YouTube Shorts URL、隐藏 Shorts 卡、按关键字隐藏 Shorts、隐藏 YouTube Home Feed/评论/趋势、阻止 TikTok FYP、隐藏 TikTok Shorts、阻止 Instagram Reels URL、隐藏 Instagram Reels feed、隐藏 Facebook feed/Reels、隐藏 Reddit / Twitter / LinkedIn 主页 |
+| **重定向** |干扰 → 焦点页面、Shorts → /feed/subscriptions、reddit.com → old.reddit.com、twitter / x → Nitter、新标签页 → 任务列表 |
+| **焦点** |仅允许名单焦点会议、番茄钟 25/5、会议期间阻止、今天 N 次访问后阻止、连续损失阻止 |
+| **轻推** |记录每次干扰访问、每次 Shorts 访问发出警告、计算网站的每日访问次数 |
+| **坚持** |每月访问上限、每周禁止切换、跟踪访问过的 Discord 频道 |
+| **DOM 调整** |隐藏 YouTube 自动播放开关、隐藏 Twitter / X“发生了什么”、通用“隐藏网站上的选择器”|
+| **调试** |演示倒计时（3 秒），记录每个自定义事件 |
 
-## 13. 国际化
+选择器顶部的过滤器芯片按类别（`Timer`、`Schedule`、`Feed`，...）和平台（`YouTube`、`TikTok`、`Instagram`，...）缩小列表范围。选择模板：
 
-整个 UI 已完整翻译。请使用右上角 **Language** 选择器。
+1. 将其参数输入（URL、分钟、小时范围等）加载到小表单中。
+2. **应用预设** 预览生成的源。
+3. 确认**用此预设替换当前自定义规则？**后，将源代码写入编辑器。
+4. 然后单击“**运行**”在屏幕外沙箱中注册规则的处理程序。
 
-支持语言包括英语、简体中文、西班牙语、日语、韩语；还包含印地语、阿拉伯语、孟加拉语、葡萄牙语、俄语、旁遮普语、德语、法语、土耳其语、越南语、意大利语、泰语、荷兰语、波兰语、印尼语、乌尔都语、波斯语等部分覆盖语言。部分覆盖语言对缺失字符串会回退到英语。
-
-说明手册本身会加载与你所选语言对应的 markdown 文件，缺失时回退到英语。
-
----
-
-## 14. 状态消息
-
-状态消息会以居中 toast 显示，并在约两秒后淡出：
-
-- "Saved changes."
-- "Created \"Group name\"."
-- 类似 "Allowed minutes must be a number greater than 0." 的校验错误。
-- "Snooze minutes must be a number greater than 0."
-- "Frozen groups cannot be changed."
-
-对于有格式要求的输入框，消息也会显示在相关按钮旁（如 snooze）。
+模板在 `templates/*.js` 下定义（`timers.js`、`schedule.js`、`feed.js`，...）。每个文件在加载时调用 `CB_REGISTER_TEMPLATES([...])`，弹出窗口消耗合并列表。添加新模板意味着将一个条目写入适当的文件中，无需其他管道。
 
 ---
 
-## 15. 隐私与存储
-
-- 所有数据都仅存储在本地 `chrome.storage.local`，不会发送到任何地方。
-- 存储内容包括：你的分组、使用计时器、上次重置时间、snooze 记录、自定义计时器、自定义持久化值。
-- 扩展不会读取页面正文内容，除非为检测页面类型所必需（路径/主机名/视频站点已知 DOM 标记）。不会读取你的消息、帖子、评论或私密内容。
-
----
-
-## 16. 权限
-
-- `storage` — 用于上述数据存储。
-- `declarativeNetRequest` — 用于 `Default` 分组的原生屏蔽。
-- `alarms` — 用于高效调度规则状态切换。
-- `host_permissions: <all_urls>` — 使 content script 能在任意页面显示计时覆盖层并检测平台上下文。
+## 13. 多页面行为- 同一组中所有打开的选项卡共享相同的计时器。
+- 当您切换到同一组中的选项卡时，其叠加层会立即刷新以显示当前共享时间。
+- 自定义规则计时器仅在 **活动可见** 选项卡上打勾 — 由 `pageHeartbeatEvent` 驱动。后台选项卡和最小化窗口不会推进它们。这与默认的块组倒计时相匹配。
+- 添加新规则时，每个打开的页面都会检测到更改并在几分之一秒内重新评估； **但是**新注册的处理程序不会追溯“打开”已经打开的选项卡。由于这个原因，每次运行后弹出窗口都会显示重新加载提醒。
+- 当规则过期时，隐藏的提要卡和导航按钮将在下次刷新时恢复。
 
 ---
 
-## 17. 故障排查
+## 14. 设置
 
-- **我新增的分组没有效果。** 请确认分组已启用、当前时间符合日程、没有活动 snooze，并且（平台分组）页面确实匹配所选内容类型和作者筛选。
-- **某个标签页上的计时器卡住或不对。** 切走再切回，或重新聚焦该标签页——这会触发从共享计时器强制刷新。
-- **信息流卡片又出现了，但我觉得应该还在隐藏。** 信息流隐藏只在规则“正在拦截”时运行。若你使用 `after-minutes` 规则，只有时间归零后才会开始隐藏。
-- **我预期应隐藏的 YouTube 导航按钮还在。** 导航隐藏要求规则设为 “do not filter by author”，且内容类型为 Shorts 或 YouTube posts。启用作者筛选时，只会按卡片级别隐藏。
-- **Custom 规则没效果或静默报错。** 自定义规则现在运行在页面上下文中。在该页面打开 DevTools（右键 → 检查 → Console），查找 `[CustomBlocker:groupId]` 前缀的消息。可用 `helpers.getLogHelper().log(...)` 跟踪规则执行。
-- **我无法删除某个分组。** 该分组很可能被冻结。strict-frozen 分组在锁定结束前完全不可删除；非 strict 冻结分组可通过解冻流程后删除。
+通过顶部栏中的齿轮图标打开 **设置** 对话框。
 
----
-
-## 18. 术语表
-
-- **Block group** — 一套独立规则，拥有自己的类型、行为、日程与冻结/Snooze 设置。
-- **Instant block** — 规则一旦处于生效状态即立即拦截。
-- **After-minutes block** — 规则仅在本周期时间预算耗尽后才开始拦截。
-- **Reset interval** — after-minutes 预算的重置频率。
-- **Schedule** — 分组生效的日期 + 时间窗口。
-- **Freeze / Strict freeze** — 防篡改状态。
-- **Snooze** — 带可配置确认流程的临时停用。
-- **Author filter** — 平台分组中用于限定特定内容创作者的筛选器。
-- **Content type** — 平台分组中用于限定内容形态（short、long、post）的筛选器。
-- **Helpers** — 传递给 custom 规则函数的工具集合。
-- **Platform** — `youtube`、`tiktok`、`facebook`、`instagram`、`twitch` 之一。每个平台都有自己的分组类型和信息流隐藏逻辑。
+- **心跳间隔** — 内容脚本报告选项卡时间并驱动 `pageHeartbeatEvent` 的频率。默认 250 毫秒。值越低，响应速度越快，但会使用更多 CPU。
+- **刻度间隔** — 全局 `tickEvent` 触发的频率。默认 1000 毫秒。
+- **调试模式** — 默认情况下*关闭*。当*打开*时，引擎将跟踪级别条目发送到日志面板（`[trace] dispatchEvent`、`[trace] N handler(s)`）并将`[CustomBlocker:trace]`行发送到浏览器控制台。日常使用时请将其取下；在诊断行为不当的规则时将其打开。即使调试模式打开，`pageHeartbeatEvent` 也会被排除在跟踪日志记录之外，因为它每秒触发四次，并会淹没其余的。
 
 ---
 
-## 19. 限制
+## 15. 国际化
 
-- 信息流隐藏依赖各平台当前 DOM 结构。若平台改版，隐藏选择器可能需要更新。
-- 对非 YouTube 网站的平台上下文检测主要基于 URL，因此在标准内容 URL 上最可靠。
-- Custom 规则在每个页面的 content script 中运行，因此两个标签页同时修改同一个分组级计时器时采用“最后写入者获胜”策略。一般用途下完全够用；若需要精确计时，请预期偶有少量漂移。
-- 传给 `hideShorts/hideVideos/hidePosts` 的谓词会针对每张信息流卡片同步执行。谓词中过重的逻辑会拖慢信息流滚动；保持轻量即可。
-- 浏览器在空闲时可能挂起后台 service worker。扩展会在页面或 alarm 需要时立即恢复；site/timed 的使用预算通过心跳回放保持准确。
+整个 UI 均已翻译。使用右上角的 **语言** 选择器。
+
+支持的语言包括英语、中文（简体）、西班牙语、日语、韩语，以及部分覆盖印地语、阿拉伯语、孟加拉语、葡萄牙语、俄语、旁遮普语、德语、法语、土耳其语、越南语、意大利语、泰语、荷兰语、波兰语、印度尼西亚语、乌尔都语和波斯语。对于丢失的字符串，部分覆盖的语言会回退到英语。
+
+使用手册本身会加载与您选择的语言相匹配的 Markdown 文件，并以英语作为后备。
+
+---
+
+## 16. 状态消息
+
+状态消息显示为居中的 toast，大约两秒后淡出：
+
+- “已保存的更改。”
+- “已创建\“组名称\”。”
+- “已加载自定义规则 - N 个处理程序处于活动状态。要在已打开的选项卡上应用此规则，请重新加载它们。”
+- 验证错误，例如“允许的分钟数必须是大于 0 的数字”。
+- “贪睡分钟数必须是大于 0 的数字。”
+- “冻结的组无法更改。”
+
+对于有格式要求的输入字段，该消息还会出现在相关按钮（用于暂停）旁边。
+
+---
+
+## 17. 隐私和存储
+
+- 所有内容都存储在本地 `chrome.storage.local` 中。没有数据发送到任何地方。
+- 存储的项目包括：您的组、使用计时器、上次重置时间、暂停记录、自定义计时器和自定义持久值。
+- 该扩展不会读取超出检测页面类型（视频网站的路径/主机名/已知 DOM 标记）和评估用户编写的谓词所需的页面内容。它不会读取您的消息、帖子、评论或私人内容。
+
+---
+
+## 18. 权限
+
+- `storage` — 用于上述数据。
+- `declarativeNetRequest` — 用于本机阻止 `Default` 组。
+- `alarms` — 高效安排规则转换。
+- `tabs`、`webNavigation` — 检测选项卡创建、URL 更改和页面心跳，以便调度事件。
+- `offscreen` — 托管长期存在的自定义规则沙箱。
+- `host_permissions: <all_urls>` — 因此内容脚本可以显示计时器覆盖并检测任何页面上的平台上下文。
+
+---
+
+## 19. 故障排除- **我添加的组不执行任何操作。** 确保该组已启用，计划现在允许，没有活动的暂停，并且（对于平台组）页面实际上与所选的内容类型和作者过滤器匹配。
+- **计时器在一个选项卡上卡住或错误。** 切换回来，或聚焦选项卡 — 这会触发共享计时器的强制刷新。
+- **提要卡在我认为应该隐藏后重新出现。**提要隐藏仅在规则主动阻止时运行。如果您有 `after-minutes` 规则，则一旦您的时间为零，就会开始隐藏 Feed。
+- **我希望隐藏的 YouTube 导航按钮仍然存在。** 导航隐藏需要将规则设置为“不按作者过滤”，并将内容类型设置为 Shorts 或 YouTube 帖子。使用作者过滤器，隐藏仅针对每张卡片。
+- **自定义规则不执行任何操作或默默地抛出。** 打开设置 → 启用 **调试模式**，然后再次单击 **运行** 并观察日志面板。以 `[trace]` 为前缀的行显示每个调度和处理程序。使用`helpers.getLogHelper().log(...)`添加您自己的跟踪点。如果行为不当的规则不断被自动隔离，请修复源并单击运行 - 运行会清除中止原因。
+- **我的新自定义规则不会影响已打开的选项卡。** 重新加载它们。自定义规则附加到*未来*页面事件；弹出窗口会显示每次运行后重新加载的提醒。
+- **我的倒数计时器没有前进。**自定义规则计时器仅通过 `pageHeartbeatEvent` 在 **活动可见** 选项卡上打勾。背景选项卡、最小化窗口和锁定屏幕按设计暂停它们 - 与默认块组倒计时相同的行为。
+- **我无法删除群组。** 它可能已被冻结。严格冻结的组在锁定到期之前根本无法删除；非严格冻结组可以通过解冻仪式删除。
+- **弹出窗口永远显示“正在运行...”。**自定义规则可能陷入了紧密循环。引擎在硬超时后杀死它并隔离该规则。打开日志面板查看中止原因；修复规则并单击运行。
+
+---
+
+## 20. 术语表
+
+- **阻止组** — 一组规则，具有自己的类型、行为、计划和冻结/暂停。
+- **即时阻止** — 规则只要处于活动状态就会立即阻止。
+- **分钟后阻止** — 规则仅在该时间段的时间预算用完后才开始阻止。
+- **重置间隔** — 分钟后预算重置的频率。
+- **时间表** — 组处于活动状态的天数 + 时间窗口。
+- **冻结/严格冻结** — 防篡改状态。
+- **贪睡** — 通过可配置的确认仪式暂时禁用。
+- **作者过滤器** — 对于平台组，将规则限制为某些内容创建者。
+- **内容类型** — 对于平台组，将规则限制为某些形式的内容（短、长、帖子）。
+- **Helpers** — 传递给自定义规则处理程序的实用程序。
+- **平台** — `youtube`、`tiktok`、`facebook`、`instagram`、`twitch` 之一。每个都有自己的组类型和 feed 隐藏逻辑。
+- **心跳** — 从活动可见选项卡调度的约 250 毫秒 `pageHeartbeatEvent`。
+- **勾选** — 1 全局共享 `tickEvent`（与可见性无关）。
+- **调试模式** — 在日志面板和浏览器控制台中显示内部跟踪日志记录的设置。
+- **隔离** — 自动禁用超出运行时安全上限的自定义规则（截止日期、记录垃圾邮件等）。下次运行时清除。
+
+---
+
+## 21. 限制- Feed 隐藏取决于每个平台当前的 DOM。如果平台更改其布局，则可能需要更新隐藏选择器。
+- 非 YouTube 网站的平台上下文检测主要基于 URL，因此它在规范内容 URL 上最可靠。
+- 自定义规则计时器以心跳分辨率（约 250 毫秒）计时。不要依赖它们来实现亚秒级计时。
+- 传递到 `hideShorts` / `hideVideos` / `hidePosts` 的谓词将按 Feed 卡同步评估。谓词中的繁重逻辑会减慢提要滚动速度；让它们保持便宜。
+- 编辑相同每组计时器的两个选项卡同时使用“最后写入获胜”策略。对于典型的使用来说这很好；如果您依赖于精确的计算，预计会出现偶尔的小偏差。
+- 浏览器可能会在空闲时暂停后台服务工作线程。一旦寻呼或警报需要，扩展程序就会立即恢复；站点/定时使用预算通过心跳重播不断计数。

@@ -32,11 +32,23 @@
 
 const helpersBundle = self.__customBlockerHelpers;
 
+// Debug-mode flag. Updated by offscreen via a `set-debug-mode`
+// postMessage (the iframe has no chrome.storage access). Off by
+// default — when off, both verbose console.log AND the in-result
+// "[trace]" log entries are suppressed so the popup's Log panel
+// only shows what the rule itself emits.
+let cbDebugMode = false;
+
 const handlersByType = new Map(); // type -> Array<{ groupId, id, handler, priority, intervalMs, registeredAt }>
 const groupSources = new Map();   // groupId -> source string (last loaded)
 const groupTimers = new Map();    // groupId -> { [timerId]: { ... persisted state ... } }
 const groupPersistence = new Map(); // groupId -> { ... persisted state ... }
 const groupPlatformPredicates = new Map(); // groupId -> { [platform]: { [slot]: [{predicate, blockPageOnVisit}] } }
+// Sandbox-lifetime registry of timer scope/domain predicates. Lives
+// only in this iframe (functions can't be JSON-persisted), so a hard
+// reset of the sandbox loses them — but the rule is reloaded
+// immediately afterwards which re-registers them.
+const groupTimerPredicates = new Map(); // groupId -> { [timerId]: { scope?, domain? } }
 const previouslyExpiredTimers = new Map(); // groupId -> Set<timerId>
 
 function getGroupTimers(groupId) {
@@ -44,6 +56,13 @@ function getGroupTimers(groupId) {
     groupTimers.set(groupId, {});
   }
   return groupTimers.get(groupId);
+}
+
+function getGroupTimerPredicates(groupId) {
+  if (!groupTimerPredicates.has(groupId)) {
+    groupTimerPredicates.set(groupId, {});
+  }
+  return groupTimerPredicates.get(groupId);
 }
 
 function getGroupPersistence(groupId) {
@@ -76,12 +95,65 @@ function sortHandlers(list) {
   });
 }
 
+// Caps the number of handlers a single group can register, so a rule
+// that does `for (let i = 0; i < 1e6; i++) events.register(...)` at
+// load time can't blow up memory or sortHandlers' O(n log n) cost.
+const MAX_HANDLERS_PER_GROUP = 1000;
+const handlerCountByGroup = new Map(); // groupId -> count
+
+// Repeated overruns from the same group are treated as a programming
+// bug and trigger background-side quarantine (the rule gets disabled in
+// storage). We tolerate a single slow dispatch (e.g. the user's handler
+// is doing legitimate work that took just over the budget) but disable
+// after this many overruns inside the rolling window.
+const OVERRUN_QUARANTINE_THRESHOLD = 3;
+const OVERRUN_WINDOW_MS = 60_000;
+const overrunHistoryByGroup = new Map(); // groupId -> Array<timestamp>
+
+function recordOverrun(groupId) {
+  const now = Date.now();
+  const list = (overrunHistoryByGroup.get(groupId) || []).filter(
+    (t) => now - t < OVERRUN_WINDOW_MS
+  );
+  list.push(now);
+  overrunHistoryByGroup.set(groupId, list);
+  return list.length;
+}
+
+function countHandlersForGroup(groupId) {
+  return handlerCountByGroup.get(groupId) || 0;
+}
+
 function registerHandler(groupId, type, id, handler, options) {
   if (typeof type !== "string" || !type) return false;
   if (typeof id !== "string" || !id) return false;
   if (typeof handler !== "function") return false;
+  // Deadline check: if the registration body is itself a runaway loop
+  // like `for (let i = 0; i < 1e5; i++) events.register(...)` the cap
+  // would short-circuit each call, but the loop itself still burns CPU
+  // calling findIndex 100k times. Throwing here unwinds the user loop
+  // exactly like h.log() does, so the registration completes in ≤1s.
+  // The throw is caught by loadSource's outer try, which records a
+  // [register error] and quarantines on registration overrun.
+  if (currentDispatchAccumulator) {
+    try {
+      // checkHandlerDeadline is provided by helpers.js (loaded into the
+      // sandbox via the shared bundle); guard the lookup so a missing
+      // bundle just degrades to no deadline check rather than throwing
+      // a ReferenceError.
+      const cb = self.__customBlockerHelpers;
+      if (cb && typeof cb.checkHandlerDeadline === "function") {
+        cb.checkHandlerDeadline(currentDispatchAccumulator);
+      }
+    } catch (error) {
+      throw error;
+    }
+  }
   const list = getHandlersForType(type);
   const idx = list.findIndex((entry) => entry.groupId === groupId && entry.id === id);
+  if (idx < 0 && countHandlersForGroup(groupId) >= MAX_HANDLERS_PER_GROUP) {
+    return false;
+  }
   const priority = Number.isFinite(options?.priority) ? Number(options.priority) : 0;
   const intervalMs = Number.isFinite(options?.intervalMs) && options.intervalMs > 0
     ? Math.floor(options.intervalMs)
@@ -98,6 +170,7 @@ function registerHandler(groupId, type, id, handler, options) {
     list[idx] = entry;
   } else {
     list.push(entry);
+    handlerCountByGroup.set(groupId, countHandlersForGroup(groupId) + 1);
   }
   sortHandlers(list);
   return true;
@@ -109,7 +182,11 @@ function unregisterHandler(groupId, type, id) {
   const before = list.length;
   const next = list.filter((entry) => !(entry.groupId === groupId && entry.id === id));
   handlersByType.set(type, next);
-  return next.length !== before;
+  const removed = before - next.length;
+  if (removed > 0) {
+    handlerCountByGroup.set(groupId, Math.max(0, countHandlersForGroup(groupId) - removed));
+  }
+  return removed > 0;
 }
 
 function unregisterAllForType(groupId, type) {
@@ -118,7 +195,11 @@ function unregisterAllForType(groupId, type) {
   const before = list.length;
   const next = list.filter((entry) => entry.groupId !== groupId);
   handlersByType.set(type, next);
-  return before - next.length;
+  const removed = before - next.length;
+  if (removed > 0) {
+    handlerCountByGroup.set(groupId, Math.max(0, countHandlersForGroup(groupId) - removed));
+  }
+  return removed;
 }
 
 function unloadGroup(groupId) {
@@ -128,7 +209,12 @@ function unloadGroup(groupId) {
   groupSources.delete(groupId);
   groupHelpersCache.delete(groupId);
   groupPlatformPredicates.delete(groupId);
+  // Drop scope/domain predicates so a re-Run doesn't leak the previous
+  // version's closures (which may close over now-stale module
+  // references). The rule re-registers them on its next dispatch.
+  groupTimerPredicates.delete(groupId);
   previouslyExpiredTimers.delete(groupId);
+  handlerCountByGroup.delete(groupId);
   // groupTimers and groupPersistence are intentionally preserved across
   // re-Runs so user countdowns and persisted state survive a "Run" click.
   // check-source uses a unique synthetic groupId, so leak is bounded.
@@ -167,7 +253,15 @@ const BUILTIN_EVENT_TYPES = [
   "timerEnded",
   // snoozePress fires when the user clicks Start Snooze in the popup for a
   // custom group. The rule owns the snooze semantics (no built-in fallback).
-  "snoozePress"
+  "snoozePress",
+  // pageHeartbeatEvent fires for every visibility-aware content-script
+  // heartbeat (≈ every 250ms when the tab is visible and not hidden,
+  // matching the default block group's countdown). It carries elapsedMs
+  // since the previous heartbeat for THIS tab so timers advance only by
+  // real visible-page time. Custom rules don't need to register a
+  // handler for it: registerTickEvent / getOrCreateTimer({ scope })
+  // already auto-tick under it.
+  "pageHeartbeatEvent"
 ];
 
 function buildEventsRegistry(groupId, dispatchContext) {
@@ -234,6 +328,9 @@ function buildEventsRegistry(groupId, dispatchContext) {
     post(type, data, options) {
       if (typeof type !== "string" || !type) return;
       if (type.startsWith(RESERVED_EVENT_PREFIX)) return;
+      if (dispatchContext.queuedPosts.length >= MAX_POSTS_PER_DISPATCH) {
+        return;
+      }
       dispatchContext.queuedPosts.push({
         type,
         data,
@@ -291,6 +388,7 @@ function getOrCreateGroupHelpers(groupId) {
     groupId,
     currentUrl: "",
     timersBucket: getGroupTimers(groupId),
+    timerPredicatesBucket: getGroupTimerPredicates(groupId),
     persistenceBucket: getGroupPersistence(groupId),
     platformPredicatesBucket: getGroupPlatformPredicates(groupId),
     accumulatorRef: { get: () => currentDispatchAccumulator || makeAccumulator() },
@@ -313,13 +411,43 @@ function withDispatchContext(accumulator, context, fn) {
   }
 }
 
+// Hard caps that keep a runaway handler (e.g. `for (let i = 0; i < 1e6; i++)
+// h.log(i)`) from flooding the IPC chain sandbox → offscreen → background →
+// popup. Without these caps each iteration round-trips through structured
+// clone and chrome.runtime.sendMessage, which freezes the browser process
+// for minutes and persists across popup re-opens until the in-flight
+// queue drains.
+const MAX_LOGS_PER_DISPATCH = 200;
+const MAX_POSTS_PER_DISPATCH = 64;
+const MAX_INTENTS_PER_DISPATCH = 256;
+const MAX_DOM_OPS_PER_DISPATCH = 256;
+const HANDLER_TIME_BUDGET_MS = 1000;
+
 function makeAccumulator() {
-  return {
+  const acc = {
     intents: [],
     logs: [],
     redirectUrl: null,
-    domOps: []
+    domOps: [],
+    logsDropped: 0,
+    postsDropped: 0
   };
+  return acc;
+}
+
+// Bounded push helpers shared by the in-sandbox helpers and the local log
+// channel. Once the cap is hit we drop silently, but remember the count so
+// dispatchEvent can append a single "[truncated N entries]" warning.
+function boundedPush(list, item, cap, dropCounterKey, accumulator) {
+  if (!Array.isArray(list)) return false;
+  if (list.length >= cap) {
+    if (accumulator && dropCounterKey) {
+      accumulator[dropCounterKey] = (accumulator[dropCounterKey] || 0) + 1;
+    }
+    return false;
+  }
+  list.push(item);
+  return true;
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -360,6 +488,10 @@ function buildEventObject(descriptor, recipientGroupId, accumulator) {
       if (typeof type !== "string" || !type) return;
       if (type.startsWith(RESERVED_EVENT_PREFIX)) return;
       accumulator.posts = accumulator.posts || [];
+      if (accumulator.posts.length >= MAX_POSTS_PER_DISPATCH) {
+        accumulator.postsDropped = (accumulator.postsDropped || 0) + 1;
+        return;
+      }
       accumulator.posts.push({
         type,
         data,
@@ -420,15 +552,22 @@ function dispatchEvent(descriptor) {
     return true;
   });
 
-  // DIAGNOSTIC TRACE — surfaces every non-tick dispatch as a toast so we
-  // can see which events actually reach the sandbox vs disappear in flight.
-  if (descriptor.type !== "tickEvent") {
+  // Diagnostic trace. Gated behind Settings → Debug mode so a normal
+  // user's popup Log panel doesn't fill up with one "[trace] …" entry
+  // for every event. The log helper that user rules call is unaffected.
+  if (cbDebugMode && descriptor.type !== "tickEvent" && descriptor.type !== "pageHeartbeatEvent") {
     try { console.log("[CustomBlocker:trace] sandbox dispatchEvent", descriptor.type, "registered:", list.length, "after-filter:", filtered.length, "targetGroupId:", descriptor.targetGroupId); } catch (_) {}
-    accumulator.logs.push({
-      level: filtered.length === 0 ? "warn" : "log",
-      groupId: "trace",
-      args: ["[trace] " + descriptor.type + " · " + filtered.length + "/" + list.length + " handler(s)"]
-    });
+    boundedPush(
+      accumulator.logs,
+      {
+        level: filtered.length === 0 ? "warn" : "log",
+        groupId: "trace",
+        args: ["[trace] " + descriptor.type + " · " + filtered.length + "/" + list.length + " handler(s)"]
+      },
+      MAX_LOGS_PER_DISPATCH,
+      "logsDropped",
+      accumulator
+    );
   }
 
   let lastResult = null;
@@ -436,27 +575,107 @@ function dispatchEvent(descriptor) {
   let anyStopPropagation = false;
   let lastSetResultEvent = null;
 
+  // Per-group, per-dispatch elapsedMs and tick deduplication state.
+  // elapsedMs comes from the descriptor when the dispatching layer
+  // (content.js heartbeat → background → sandbox) knows the
+  // visibility-aware delta; this is the canonical "real visible-page
+  // time" source so custom timers advance exactly like the default
+  // block group countdown. For non-heartbeat events (open/switch/...)
+  // elapsedMs is 0 — those events aren't responsible for advancing
+  // timer state; they only fire predicates.
+  const dispatchNow = descriptor.time?.now ?? Date.now();
+  const tickedByGroup = new Map();    // groupId -> Set<timerId>
+  const displayedByGroup = new Map(); // groupId -> Set<timerId>
+  const rawElapsed = Number(descriptor.elapsedMs);
+  const dispatchElapsedMs = Number.isFinite(rawElapsed) && rawElapsed >= 0
+    ? Math.min(rawElapsed, 60_000)
+    : 0;
+
   for (const entry of filtered) {
     const helpers = getOrCreateGroupHelpers(entry.groupId);
     const evt = buildEventObject(descriptor, entry.groupId, accumulator);
+    if (!tickedByGroup.has(entry.groupId)) {
+      tickedByGroup.set(entry.groupId, new Set());
+      displayedByGroup.set(entry.groupId, new Set());
+    }
     const dispatchContext = {
       tabId: descriptor.tabId ?? null,
       pageId: descriptor.pageId ?? null,
       currentUrl: descriptor.url,
-      now: descriptor.time?.now ?? Date.now(),
+      now: dispatchNow,
       tabsSnapshot: descriptor.tabsSnapshot,
-      platformSnapshot: descriptor.platformSnapshot
+      platformSnapshot: descriptor.platformSnapshot,
+      elapsedMs: dispatchElapsedMs,
+      tickedSet: tickedByGroup.get(entry.groupId),
+      displayedSet: displayedByGroup.get(entry.groupId)
     };
     withDispatchContext(accumulator, dispatchContext, () => {
+      const handlerStart = performance.now();
+      accumulator._handlerDeadline = handlerStart + HANDLER_TIME_BUDGET_MS;
+      accumulator._handlerOverrun = false;
+      // Beacon: tell the offscreen relay which handler we're about to
+      // invoke. If the iframe locks up inside this handler, offscreen
+      // will know which group to blame in its hard-timeout reply.
       try {
-        try { console.log("[CustomBlocker:trace] sandbox handler", descriptor.type, entry.groupId, entry.id); } catch (_) {}
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({
+            source: "custom-blocker-event-sandbox",
+            type: "handler-start",
+            groupId: entry.groupId,
+            handlerId: entry.id,
+            eventType: descriptor.type
+          }, "*");
+        }
+      } catch (_) {}
+      try {
+        if (cbDebugMode) { try { console.log("[CustomBlocker:trace] sandbox handler", descriptor.type, entry.groupId, entry.id); } catch (_) {} }
         entry.handler(evt, helpers);
       } catch (error) {
-        accumulator.logs.push({
-          level: "error",
-          groupId: entry.groupId,
-          args: ["[handler error]", entry.id, String(error && error.message ? error.message : error)]
-        });
+        boundedPush(
+          accumulator.logs,
+          {
+            level: "error",
+            groupId: entry.groupId,
+            args: ["[handler error]", entry.id, String(error && error.message ? error.message : error)]
+          },
+          MAX_LOGS_PER_DISPATCH,
+          "logsDropped",
+          accumulator
+        );
+      } finally {
+        if (accumulator._handlerOverrun) {
+          const overrunCount = recordOverrun(entry.groupId);
+          boundedPush(
+            accumulator.logs,
+            {
+              level: "warn",
+              groupId: entry.groupId,
+              args: [
+                "[handler aborted] " + entry.id +
+                  " exceeded the " + HANDLER_TIME_BUDGET_MS + "ms time budget; remaining iterations were skipped" +
+                  " (" + overrunCount + "/" + OVERRUN_QUARANTINE_THRESHOLD + " in the last " +
+                  Math.round(OVERRUN_WINDOW_MS / 1000) + "s)"
+              ]
+            },
+            MAX_LOGS_PER_DISPATCH,
+            "logsDropped",
+            accumulator
+          );
+          // Once we've crossed the threshold, surface a quarantine hint
+          // on this dispatch's reply. background.js will pick it up and
+          // disable the group in storage; the reconciler then unloads
+          // its handlers so subsequent dispatches don't fire them at
+          // all. Only the FIRST quarantine hint is set per dispatch.
+          if (overrunCount >= OVERRUN_QUARANTINE_THRESHOLD && !accumulator.quarantine) {
+            accumulator.quarantine = {
+              groupId: entry.groupId,
+              reason: "deadline-overrun",
+              overrunCount
+            };
+          }
+        }
+        accumulator._handlerDeadline = 0;
+        accumulator._handlerOverrun = false;
       }
     });
     if (evt.defaultPrevented) anyPreventDefault = true;
@@ -470,8 +689,58 @@ function dispatchEvent(descriptor) {
     }
   }
 
+  // Now sweep every group that owns at least one timer, even if no
+  // handler for THIS event type was registered. This is what lets
+  // pageHeartbeatEvent advance timers via getOrCreateTimer({ scope })
+  // without the rule needing a tickEvent / heartbeat handler. We also
+  // run it on non-heartbeat dispatches (open/switch/...) — elapsedMs
+  // is 0 there so no tick happens, but the displayedSet is rebuilt
+  // for the new URL so the overlay updates instantly on navigation.
+  const timerSnapshotsByGroup = {};
+  for (const groupId of groupTimers.keys()) {
+    const helpers = getOrCreateGroupHelpers(groupId);
+    const tickFn = helpers && helpers.getTimerHelper && helpers.getTimerHelper();
+    if (!tickFn || typeof tickFn.__cb_tickAllScopedTimers !== "function") continue;
+    if (!tickedByGroup.has(groupId)) {
+      tickedByGroup.set(groupId, new Set());
+      displayedByGroup.set(groupId, new Set());
+    }
+    const dispatchContext = {
+      tabId: descriptor.tabId ?? null,
+      pageId: descriptor.pageId ?? null,
+      currentUrl: descriptor.url,
+      now: dispatchNow,
+      tabsSnapshot: descriptor.tabsSnapshot,
+      platformSnapshot: descriptor.platformSnapshot,
+      elapsedMs: dispatchElapsedMs,
+      tickedSet: tickedByGroup.get(groupId),
+      displayedSet: displayedByGroup.get(groupId)
+    };
+    withDispatchContext(accumulator, dispatchContext, () => {
+      try { tickFn.__cb_tickAllScopedTimers(); } catch (_) {}
+      try {
+        const snaps = tickFn.__cb_getDisplayedTimerSnapshots();
+        if (Array.isArray(snaps) && snaps.length > 0) {
+          timerSnapshotsByGroup[groupId] = snaps;
+        }
+      } catch (_) {}
+    });
+  }
+
   if (typeof lastResult === "number" && lastResult === 1) {
     anyPreventDefault = false;
+  }
+
+  if (accumulator.logsDropped > 0 && accumulator.logs.length < MAX_LOGS_PER_DISPATCH) {
+    accumulator.logs.push({
+      level: "warn",
+      groupId: "trace",
+      args: [
+        "[truncated] " + accumulator.logsDropped +
+          " log entr" + (accumulator.logsDropped === 1 ? "y was" : "ies were") +
+          " dropped to keep the popup responsive (cap " + MAX_LOGS_PER_DISPATCH + ")"
+      ]
+    });
   }
 
   return {
@@ -482,7 +751,16 @@ function dispatchEvent(descriptor) {
     intents: accumulator.intents,
     domOps: accumulator.domOps,
     logs: accumulator.logs,
-    posts: accumulator.posts || []
+    posts: accumulator.posts || [],
+    logsDropped: accumulator.logsDropped || 0,
+    postsDropped: accumulator.postsDropped || 0,
+    quarantine: accumulator.quarantine || null,
+    // Map of groupId -> [{id, displayName, direction, currentMs,
+    // isPaused, isExpired}] for timers whose domain (or scope) matches
+    // descriptor.url. background.js merges these into the page session
+    // items so they render in the same overlay as the default block
+    // group countdown.
+    timerSnapshotsByGroup
   };
 }
 
@@ -551,10 +829,19 @@ function loadSource(groupId, source) {
 
   let invokeError = null;
   withDispatchContext(accumulator, { tabId: null, pageId: null, currentUrl: "", now: Date.now() }, () => {
+    // Apply the same time budget to the registration body so a source
+    // like `(events) => { while (true) {} }` can't lock the iframe at
+    // load time. The deadline is checked inside helpers; if the body
+    // never calls a helper the offscreen-side hard timeout (5s) will
+    // hard-reset the iframe.
+    accumulator._handlerDeadline = performance.now() + HANDLER_TIME_BUDGET_MS;
+    accumulator._handlerOverrun = false;
     try {
       invoke(events, helpers);
     } catch (error) {
       invokeError = error;
+    } finally {
+      accumulator._handlerDeadline = 0;
     }
   });
   // Forward any registration-time logs and an error/zero-handlers warning
@@ -562,6 +849,7 @@ function loadSource(groupId, source) {
   // in the popup's Activity log feed instead of vanishing.
   const earlyLogs = Array.isArray(accumulator.logs) ? accumulator.logs.slice() : [];
   if (invokeError) {
+    const isBudgetAbort = invokeError && invokeError.__customBlockerBudgetAbort;
     return {
       ok: false,
       handlers: 0,
@@ -577,7 +865,13 @@ function loadSource(groupId, source) {
               (invokeError && invokeError.message ? invokeError.message : String(invokeError))
           ]
         }
-      ]
+      ],
+      // Registration body itself overran the time budget — that's a
+      // hard programming error that warrants disabling the rule rather
+      // than silently re-running it on every reload.
+      quarantine: isBudgetAbort
+        ? { groupId, reason: "registration-deadline-overrun" }
+        : null
     };
   }
 
@@ -670,6 +964,15 @@ window.addEventListener("message", (msg) => {
     if (typeof payload.extensionUrlPrefix === "string") {
       self.__customBlockerExtensionUrlPrefix = payload.extensionUrlPrefix;
     }
+    if (typeof payload.debugMode === "boolean") {
+      cbDebugMode = payload.debugMode;
+    }
+    reply(msg.source, id, { ok: true });
+    return;
+  }
+
+  if (payload.kind === "set-debug-mode") {
+    cbDebugMode = payload.debugMode === true;
     reply(msg.source, id, { ok: true });
     return;
   }

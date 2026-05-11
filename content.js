@@ -1,3 +1,26 @@
+// Debug-mode-gated console helpers, mirrored from background.js. Off
+// by default so an idle page is silent in DevTools. Toggle via
+// Settings → Debug mode.
+let cbDebugMode = false;
+function cbDebugLog(...args) { if (cbDebugMode) { try { console.log(...args); } catch (_) {} } }
+function cbDebugWarn(...args) { if (cbDebugMode) { try { console.warn(...args); } catch (_) {} } }
+function cbDebugError(...args) { if (cbDebugMode) { try { console.error(...args); } catch (_) {} } }
+try {
+  if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.get("globalSettings", (r) => {
+      const s = r && r.globalSettings;
+      if (s && typeof s === "object") cbDebugMode = s.debugMode === true;
+    });
+    if (chrome.storage.onChanged) {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== "local" || !changes.globalSettings) return;
+        const next = changes.globalSettings.newValue;
+        cbDebugMode = next && typeof next === "object" ? next.debugMode === true : false;
+      });
+    }
+  }
+} catch (_) {}
+
 /* Custom Web Blocker — content script.
  *
  * Responsibilities (per page):
@@ -1222,10 +1245,51 @@ if (/^https?:$/i.test(location.protocol)) {
   document.addEventListener("yt-navigate-finish", refreshSession);
 
   hookHistoryNavigation();
+  // Re-evaluate page predicates whenever the SPA URL changes. Without
+  // this, scrolling between YouTube Shorts (which uses pushState to
+  // swap the URL while keeping the content script alive) would only
+  // re-evaluate when a fresh `webChangedEvent` apply roundtripped from
+  // background — which is sometimes too slow because the SPA hasn't
+  // hydrated the new short's <h2> yet, leaving the previous short's
+  // title in the DOM. Triggering directly from pushState/replaceState
+  // restarts the retry budget against the NEW URL with the NEW DOM.
+  //
+  // We also reset exitAttempted so attemptExitPage() can fire again
+  // for the new short. exitAttempted is a one-shot guard meant to
+  // protect against race-y double-exits during a single page lifetime;
+  // a SPA URL transition is effectively a "new page lifetime" for
+  // scroll-based feeds.
+  function __cb_onSpaUrlChange() {
+    try {
+      // Cancel any pending retry from the previous URL — the URL it
+      // was probing for is no longer current.
+      if (__cb_pagePredicateRetryTimer !== null) {
+        try { window.clearTimeout(__cb_pagePredicateRetryTimer); } catch {}
+        __cb_pagePredicateRetryTimer = null;
+      }
+      __cb_pagePredicateRetryUrl = null;
+      if (typeof isScrollBasedVideoPage === "function" && isScrollBasedVideoPage()) {
+        exitAttempted = false;
+      }
+      if (__cb_activePredicateSlots.size > 0) {
+        // Defer one tick so the SPA can swap the active <h2> /
+        // <ytd-reel-video-renderer is-active> before we read it.
+        setTimeout(() => __cb_checkPagePredicate(), 0);
+      }
+    } catch (error) {
+      cbDebugWarn("[CustomBlocker] SPA url-change handler failed", error);
+    }
+  }
   window.addEventListener("custom-blocker:locationchange", () => {
     lastKnownUrl = location.href;
     scheduleRefreshSession(0);
+    __cb_onSpaUrlChange();
   });
+  // YouTube fires `yt-navigate-finish` when its router finishes a
+  // transition; this happens AFTER the new <ytd-reel-video-renderer
+  // is-active> is hydrated, so the title selectors should match
+  // immediately and we can skip the retry budget entirely.
+  document.addEventListener("yt-navigate-finish", __cb_onSpaUrlChange);
 
   try {
     chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -1437,7 +1501,7 @@ function __cb_applyDomOp(op) {
       __cb_eventInjectedCss.delete(op.id);
     }
   } catch (error) {
-    console.warn("[CustomBlocker] DOM op failed", op, error);
+    cbDebugWarn("[CustomBlocker] DOM op failed", op, error);
   }
 }
 
@@ -1468,13 +1532,25 @@ let __cb_pagePredicateRetryTimer = null;
 // order; first non-empty hit wins.
 const __cb_PAGE_TITLE_SELECTORS = {
   youtube: [
+    // Long-form watch page (/watch?v=...).
     "ytd-watch-metadata h1.title yt-formatted-string",
     "ytd-watch-metadata h1 yt-formatted-string",
     "ytd-watch-metadata h1",
     "h1.ytd-watch-metadata",
     "h1.title.ytd-video-primary-info-renderer",
+    // Shorts (/shorts/<id>). YouTube has rotated through several DOM
+    // shapes for shorts; keeping multiple selectors increases the
+    // chance one matches before the retry budget exhausts. The
+    // page-predicate evaluator will also fall back to an empty title
+    // after retries exhaust (so URL-only predicates still block).
     "ytd-reel-video-renderer[is-active] yt-formatted-string.ytd-reel-player-header-renderer",
-    "ytd-reel-video-renderer[is-active] h2"
+    "ytd-reel-video-renderer[is-active] h2.title",
+    "ytd-reel-video-renderer[is-active] h2",
+    "ytd-shorts ytd-reel-video-renderer[is-active] yt-formatted-string",
+    "ytd-shorts [aria-current='true'] yt-formatted-string",
+    "yt-shorts-lockup-view-model h3",
+    "h2.ytd-reel-player-header-renderer",
+    'meta[itemprop="name"]'
   ],
   tiktok: [
     'h1[data-e2e="browse-video-desc"]',
@@ -1527,7 +1603,18 @@ function __cb_extractPageVideoTitle(platform) {
     let element = null;
     try { element = document.querySelector(selector); } catch { element = null; }
     if (!element) continue;
-    const raw = (element.getAttribute && element.getAttribute("title")) || element.textContent || "";
+    // Prefer aria-label / title / content attributes when present —
+    // the visible text on shorts tiles is sometimes split across
+    // sibling elements and textContent picks up navigation chrome.
+    // <meta itemprop="name"> exposes the short title via `content`,
+    // which is what the YouTube SPA writes before the visible h2
+    // hydrates.
+    const raw =
+      (element.getAttribute && element.getAttribute("title")) ||
+      (element.getAttribute && element.getAttribute("aria-label")) ||
+      (element.getAttribute && element.getAttribute("content")) ||
+      element.textContent ||
+      "";
     const trimmed = String(raw).trim();
     if (trimmed) return trimmed;
   }
@@ -1834,16 +1921,30 @@ async function __cb_checkPagePredicate() {
   // make a substring predicate (e.g. title.includes("e")) match every page
   // because of the trailing platform name. If the SPA hasn't rendered the
   // real title yet, defer the evaluation and retry shortly.
+  //
+  // Once the retry budget is exhausted (i.e. selectors never matched —
+  // YouTube Shorts is the canonical case), we still evaluate the
+  // predicate WITHOUT a title so URL-only predicates like
+  //   `hideShorts((v) => true, { blockPageOnVisit: true })`
+  // can still block the page. Predicates that DO read `item.title` will
+  // throw, which the sandbox swallows; the result is `hide: false` and
+  // the page renders. That's strictly better than the previous "page
+  // never blocks" outcome.
   const title = __cb_extractPageVideoTitle(platform);
   if (!title) {
-    __cb_schedulePagePredicateRetry();
-    return;
+    if (__cb_pagePredicateRetriesRemaining > 0) {
+      __cb_schedulePagePredicateRetry();
+      return;
+    }
+    // Fall through to evaluation with title = null. The predicate is
+    // free to ignore item.title (e.g. URL-based blocks).
   }
 
+  const safeTitle = title || null;
   const item = {
     url: location.href,
-    name: title,
-    title,
+    name: safeTitle,
+    title: safeTitle,
     author: null,
     length: null,
     views: null,
@@ -1913,14 +2014,14 @@ function __cb_applyEventIntent(intent) {
       }
     }
   } catch (error) {
-    console.warn("[CustomBlocker] event intent failed", intent, error);
+    cbDebugWarn("[CustomBlocker] event intent failed", intent, error);
   }
 }
 
 function __cb_processApplyMessage(message) {
   if (!message || typeof message !== "object") return;
   try {
-    console.log("[CustomBlocker:trace] content event-sandbox-apply",
+    cbDebugLog("[CustomBlocker:trace] content event-sandbox-apply",
       message.descriptor && message.descriptor.type,
       "logs:", Array.isArray(message.logs) ? message.logs.length : 0,
       "domOps:", Array.isArray(message.domOps) ? message.domOps.length : 0);
@@ -1954,7 +2055,7 @@ function __cb_announceContentReady() {
       const pending = Array.isArray(response.pending) ? response.pending : [];
       for (const message of pending) {
         try { __cb_processApplyMessage(message); } catch (error) {
-          console.warn("[CustomBlocker] failed to apply queued message", error);
+          cbDebugWarn("[CustomBlocker] failed to apply queued message", error);
         }
       }
       if (Number.isFinite(response.handlerCount)) {

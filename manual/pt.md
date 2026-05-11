@@ -1,6 +1,6 @@
 # Bloqueador de Web Personalizado — Manual de Instruções
 
-Este é o manual de referência completo para a extensão. Ele começa com os fluxos de trabalho mais fáceis e comuns e gradualmente avança para tópicos avançados, como regras personalizadas de bloqueio de JavaScript e a API auxiliar.
+Este é o manual de referência completo para a extensão. Ele começa com os fluxos de trabalho mais fáceis e comuns e gradualmente avança para tópicos avançados, como regras de bloqueio personalizadas orientadas a eventos e a API auxiliar.
 
 Se você for novo, basta ler **Início rápido** e **Visão geral dos grupos de bloqueio**. Tudo abaixo dessas seções é opcional, dependendo do que você deseja fazer.
 
@@ -14,13 +14,14 @@ O Custom Web Blocker permite bloquear sites e distrações online de acordo com 
 - Permita-se um certo número de minutos por dia em um site e bloqueie-o quando ultrapassar esse limite.
 - Bloqueie tipos específicos de conteúdo no YouTube, TikTok, Facebook, Instagram, Twitch e Reddit (não no site inteiro).
 - Oculte conteúdo bloqueado de feeds em plataformas suportadas, em vez de bloquear apenas páginas individuais.
-- Programe quando uma regra estará ativa por dia da semana e por `HHMM-HHMM` janelas de horário.
-- Congele uma regra para que você não possa alterá-la facilmente. O congelamento estrito o bloqueia por um determinado número de horas e requer um ritual de confirmação de 20 etapas para ser desfeito.
+- Programar quando uma regra está ativa por dia da semana e por janelas de horário `HHMM-HHMM`.
+- Congelar uma regra para que você não possa alterá-la facilmente. O congelamento estrito o bloqueia por um determinado número de horas e requer um ritual de confirmação de 20 etapas para ser desfeito.
 - Adie uma regra temporariamente, mas somente depois de escrever uma justificativa longa o suficiente.
-- Escreva regras personalizadas de bloqueio de JavaScript com auxiliares para temporizadores, armazenamento persistente, detecção de plataforma, correspondência de domínio e registro em log.
+- Escreva regras personalizadas **orientadas por eventos** em JavaScript com auxiliares para temporizadores de avanço/retrocesso, armazenamento persistente por grupo, intenções DOM por plataforma (ocultar botões de navegação, ocultar cartões de feed por predicado, definir temporizadores por subseção), utilitários de URL e registro estruturado.
+- Escolha em uma biblioteca integrada de mais de 50 modelos prontos (temporizadores, programações, ocultação de feed, sessões de foco, redirecionamentos, cutucadas, persistência, ajustes de DOM, auxiliares de depuração).
 - Use a extensão em mais de 20 idiomas.
 
-A extensão é uma extensão do Chrome Manifest V3, com uma página de editor (o pop-up), um service worker em segundo plano e um script de conteúdo executado em cada página.
+A extensão é uma extensão do Chrome Manifest V3 com uma página de editor (o pop-up), um trabalhador de serviço em segundo plano, uma sandbox fora da tela que hospeda código de regra personalizado e um script de conteúdo que é executado em cada página. As regras personalizadas ficam na sandbox fora da tela; eles são carregados uma vez por clique em Executar e permanecem registrados até que a regra seja desativada ou excluída.
 
 ---
 
@@ -31,25 +32,23 @@ Quando você clica no ícone da extensão, o editor abre como uma página da web
 - **Barra superior**
   - Botão **Manual de Instruções** (este documento)
   - **Seletor de idioma**
+  - **Configurações** engrenagem (alternações avançadas, incluindo **modo de depuração**)
 - **Painel esquerdo — Grupos de blocos**
   - Lista dos seus grupos de blocos. Cada cartão mostra o nome do grupo, uma pequena linha de resumo e uma caixa de seleção para ativar/desativar.
   - O botão **Adicionar** cria um novo grupo. O menu suspenso próximo a ele escolhe o tipo.
   - **Excluir tudo** remove todos os grupos, com confirmações extras se algum grupo estiver congelado.
-  - Você pode arrastar a alça `::` em um cartão para cima ou para baixo para reordenar os grupos.
+  - Você pode arrastar a alça `::` em um cartão para cima ou para baixo para reordenar grupos.
   - Você pode arrastar o divisor vertical para redimensionar este painel.
 - **Painel direito — Editor**
-  - Edita o grupo atualmente selecionado: nome, comportamento de bloqueio, listas de bloqueio, filtros específicos de tipo, agendamento, congelamento, soneca.
+  - Edita o grupo atualmente selecionado: nome, comportamento de bloqueio, listas de bloqueio, filtros específicos do tipo, agendamento, congelamento, soneca.
   - Todas as alterações são salvas automaticamente uma fração de segundo depois que você para de digitar ou interagir.
-- **Toast** (pop-up centralizado que desaparece)
-  - Mostra mensagens de status como "Alterações salvas" ou erros de entrada.
-
-Enquanto uma página está sendo bloqueada ou tem um cronômetro ativo, uma sobreposição aparece no canto superior esquerdo mostrando todas as restrições de tempo que a afetam atualmente, no formato `hh:mm:ss` (ou `mm:ss`). Múltiplas restrições são empilhadas em múltiplas linhas.
+  - Para grupos **Personalizados**, o editor também mostra o navegador **Modelos**, o botão **Executar** e o painel **Log** (renomeado de *Log de atividades* na v1.1).
+- **Toast** (pop-up centralizado que desaparece) — mostra mensagens de status como "Alterações salvas". ou erros de entrada.
+- **Sobreposição na página** — embora uma guia tenha algum temporizador ou bloco ativo, uma sobreposição aparece no canto superior esquerdo mostrando todas as restrições que a afetam no formato `hh:mm:ss` (ou `mm:ss`). Múltiplas restrições são empilhadas em múltiplas linhas. Contagens regressivas de grupos de blocos padrão e temporizadores de regras personalizadas compartilham essa sobreposição.
 
 ---
 
-## 3. Início rápido
-
-1. Clique no ícone da extensão. O editor abre como uma página inteira.
+## 3. Início rápido1. Clique no ícone da extensão. O editor abre como uma página inteira.
 2. No painel **Bloquear grupos**, escolha um tipo de grupo no menu suspenso:
    - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit` ou `Custom`.
 3. Clique em **Adicionar**. Um novo grupo aparece e o editor o abre.
@@ -60,16 +59,18 @@ Enquanto uma página está sendo bloqueada ou tem um cronômetro ativo, uma sobr
 
 Esse é todo o caminho feliz. O resto deste manual são apenas opções além disso.
 
+> Quando você pressiona **Executar** em um grupo personalizado, a nova regra é anexada a eventos de página **futuros**. As guias já abertas continuam executando a regra anterior até que você as recarregue. O pop-up mostra um lembrete nesse sentido após cada execução bem-sucedida.
+
 ---
 
 ## 4. Visão geral dos grupos de blocos
 
 Tudo nesta extensão é organizado como **grupos de blocos**. Um grupo de blocos é um conjunto de regras:
 
-- Ele tem um nome, um tipo e um estado ativado/desativado.
-- Tem um comportamento de bloqueio (imediato ou após alguns minutos).
-- Possui uma programação opcional (dias + janelas de tempo) e controles opcionais de congelamento/soneca.
-- Dependendo do tipo, possui campos adicionais, como uma lista de sites, filtros de criadores do YouTube, nomes de subreddit ou uma função JavaScript.
+- Possui um nome, um tipo e um estado habilitado/desabilitado.
+- Possui comportamento de bloqueio (imediato, após alguns minutos ou contagem regressiva fixa).
+- Possui programação opcional (dias + janelas de tempo) e controles opcionais de congelamento/soneca.
+- Dependendo do tipo, possui campos adicionais, como uma lista de sites, filtros de criadores do YouTube, nomes de subreddit ou uma regra JavaScript orientada a eventos.
 
 Você pode ter qualquer número de grupos. Vários grupos podem se inscrever na mesma página; nesse caso, a regra **mais rigorosa** vence:
 
@@ -78,7 +79,7 @@ Você pode ter qualquer número de grupos. Vários grupos podem se inscrever na 
 
 Portanto, adicionar mais grupos só pode bloquear a página mais cedo, nunca mais tarde.
 
-Você pode arrastar grupos pelo identificador `::` para reordená-los. A ordem não altera qual regra é mais rigorosa, mas controla como a lista é lida de cima para baixo.
+**A ordem de avaliação é de baixo para cima.** Quando a extensão itera seus grupos de blocos, ela começa com o grupo na parte inferior da lista e segue subindo. O grupo no topo da lista é avaliado por último e obtém a "última palavra" — por exemplo, se um grupo inferior chamar `helpers.getPlatformHelper().youtube().hideShortButton()` e um grupo superior chamar `showShortButton()`, o botão permanecerá visível. Arraste a alça `::` em um cartão para alterar esta ordem.
 
 ---
 
@@ -88,17 +89,17 @@ Você pode arrastar grupos pelo identificador `::` para reordená-los. A ordem n
 
 Para bloquear domínios específicos (o caso de uso típico).
 
-- **Sites bloqueados**: um site por linha. Ambos `facebook.com` e `https://www.facebook.com/somepage` funcionam; a extensão extrai e normaliza o nome do host.
+- **Sites bloqueados**: um site por linha. Tanto `facebook.com` quanto `https://www.facebook.com/somepage` funcionam; a extensão extrai e normaliza o nome do host.
 - Uma regra de site se aplica a esse nome de host e a todos os seus subdomínios.
-- Este tipo de grupo usa o bloqueio de rede nativo do Chrome, semelhante a `ERR_BLOCKED_BY_CLIENT`. Isso significa que a navegação para um URL bloqueado é interrompida antes mesmo de a página carregar.
+- Este tipo de grupo usa o bloqueio de rede nativo do Chrome, semelhante ao `ERR_BLOCKED_BY_CLIENT`. Isso significa que a navegação para um URL bloqueado é interrompida antes mesmo de a página carregar.
 
-### 5.2 `YouTube` — bloquear YouTube e sites de vídeo semelhantes
+### 5.2 `YouTube` – bloquear YouTube e sites de vídeo semelhantes
 
 Adiciona uma seção **Filtros** ao editor:
 
 - **Tipo de conteúdo**:
   - `Apply to all YouTube pages` — cada página do YouTube conta.
-  - `Apply to Shorts` — apenas as páginas de Shorts contam.
+  - `Apply to Shorts` — apenas contam páginas de Shorts.
   - `Apply to long videos` — apenas `/watch`, `/live/`, `/embed/`, etc.
   - `Apply to YouTube posts` — postagens da comunidade (`/post/...`, guias comunidade/postagens do canal).
 - **Filtro de autor**:
@@ -112,43 +113,41 @@ Para tipos de conteúdo de Shorts e Postagens, quando nenhum filtro de autor est
 
 A detecção de curto versus longo se estende a outros sites de vídeo, como TikTok, Vimeo, clipes/VODs Twitch e Dailymotion, quando seu formato de página pode ser detectado.
 
-### 5.3 `TikTok` — bloquear conteúdo do TikTok
+### 5.3 `TikTok` – bloquear conteúdo do TikTok
 
-O mesmo cartão de editor do editor de vídeo da plataforma, mas com rótulos específicos do TikTok:
+O mesmo cartão de editor do editor de vídeo da plataforma, mas com rótulos específicos do TikTok:- Tipos de conteúdo: vídeos curtos, vídeos, páginas de perfil.
+- Autores: identificadores TikTok (`@handle`) ou URLs de perfil.
+- A ocultação de feed oculta cartões correspondentes nas páginas do TikTok enquanto o grupo está ativo.
 
-- Tipos de conteúdo: vídeos curtos, vídeos, páginas de perfil.
-- Autores: identificadores do TikTok (`@handle`) ou URLs de perfil.
-- A ocultação de feed oculta os cartões correspondentes nas páginas do TikTok enquanto o grupo está ativo.
+### 5.4 `Facebook` – bloquear conteúdo do Facebook
 
-### 5.4 `Facebook` — bloquear conteúdo do Facebook
-
-- Tipos de conteúdo: Momentos, vídeos, postagens.
+- Tipos de conteúdo: Reels, vídeos, posts.
 - Autores: nome da página (`page.name`), URL do perfil ou formulário `profile.php?id=...` (o id numérico é preservado como `id:<number>`).
 - A ocultação de feed oculta os cartões de feed correspondentes no Facebook.
 
-### 5.5 `Instagram` — bloquear conteúdo do Instagram
+### 5.5 `Instagram` – bloquear conteúdo do Instagram
 
-- Tipos de conteúdo: Momentos, vídeos, postagens.
+- Tipos de conteúdo: Reels, vídeos, posts.
 - Autores: identificadores do Instagram ou URLs de perfil.
 - Caminhos reservados como `/reel/`, `/p/`, `/tv/`, `/explore/` não são tratados como autores.
 - A ocultação de feed oculta cartões correspondentes no Instagram.
 
-### 5.6 `Twitch` — bloquear conteúdo do Twitch
+### 5.6 `Twitch` – bloquear conteúdo do Twitch
 
 - Tipos de conteúdo: clipes, streams/VODs, páginas de canais.
 - Autores: nomes de canais ou URLs de canais.
 - Caminhos reservados como `/directory`, `/videos`, `/settings`, etc. não são tratados como nomes de canais.
-- A ocultação de feed oculta cartas correspondentes no Twitch.
+- Ocultação de feeds esconde cartas correspondentes no Twitch.
 
-### 5.7 `Reddit` — bloquear Reddit ou subreddits específicos
+### 5.7 `Reddit` – bloquear Reddit ou subreddits específicos
 
 - **Subreddits**: um subreddit por linha. Lista vazia significa que o grupo se aplica a todo o Reddit. Tanto `productivity` quanto `r/productivity` são aceitos.
 
-### 5.8 `Custom` — bloqueio por função JavaScript
+### 5.8 `Custom` — bloqueio por JavaScript orientado a eventos
 
-Você escreve uma função JavaScript. A extensão chama isso a cada segundo e usa o que retorna como a lista de bloqueio atual.
+Você escreve uma função JavaScript que **registra manipuladores** para eventos como abertura de página, alteração de URL, pulsação da página, término do cronômetro e seus próprios eventos personalizados. A função é executada uma vez por clique em Executar; os manipuladores registrados permanecem ativos nas navegações até você clicar em Executar novamente, desativar o grupo ou excluí-lo.
 
-Os grupos `Custom` não mostram: comportamento de bloqueio, sites bloqueados, minutos permitidos, intervalo de redefinição, dias agendados ou janelas de tempo. Eles têm apenas uma grande entrada – a função **Regras de bloqueio** – além de controles padrão de congelamento/soneca.
+Os grupos `Custom` não mostram: comportamento de bloqueio, sites bloqueados, minutos permitidos, intervalo de redefinição, dias agendados ou janelas de tempo. Eles mantêm o editor de **Regras de bloqueio** além de controles padrão de congelamento/soneca. Há também um botão **Modelos** que abre um navegador predefinido com regras iniciais parametrizadas; aplicar uma predefinição substitui a regra atual após a confirmação.
 
 Consulte a **Seção 11** para obter a referência completa de regras personalizadas e a API auxiliar.
 
@@ -156,7 +155,7 @@ Consulte a **Seção 11** para obter a referência completa de regras personaliz
 
 ## 6. Comportamento de bloqueio
 
-Para a maioria dos tipos de grupo você escolhe um dos dois modos:
+Para a maioria dos tipos de grupo você escolhe um dos três modos.
 
 ### 6.1 Bloquear imediatamente
 
@@ -164,12 +163,12 @@ A regra fica ativa sempre que o grupo está ativado, a programação permite e (
 
 Para grupos `Default`, isso usa o bloqueio nativo do Chrome. Para grupos de plataformas, ele usa a lógica de sobreposição/saída na página.
 
-### 6.2 Bloquear após alguns minutos
+### 6.2 Bloqueio após alguns minutos
 
 Este é um orçamento de uso.
 
-- **Minutos permitidos antes do bloqueio** (decimal): quantos minutos você se permite por período. Exemplo: `15`, `0.5`, `90`.
-- **Intervalo de redefinição do cronômetro (horas)** (decimal): com que frequência o orçamento é redefinido. Exemplo: `24` diariamente, `1` por hora, `0.25` a cada 15 minutos.
+- **Minutos permitidos antes do bloco** (decimal): quantos minutos você se permite por período. Exemplo: `15`, `0.5`, `90`.
+- **Intervalo de reinicialização do cronômetro (horas)** (decimal): com que frequência o orçamento é redefinido. Exemplo: `24` para diário, `1` para horário, `0.25` para cada 15 minutos.
 
 Enquanto sobrar tempo, a página funciona normalmente e mostra a sobreposição do cronômetro. Quando o orçamento chega a zero, a página fica bloqueada pelo resto do período e a sobreposição mostra `0:00`, então a guia tenta sair.
 
@@ -180,6 +179,14 @@ A extensão é por grupo, por período:
 - Várias guias no mesmo grupo compartilham o orçamento. Seus temporizadores permanecem sincronizados; mudar para outra guia também força uma atualização para mostrar imediatamente o tempo compartilhado atual.
 
 Se vários grupos com limite de tempo se aplicarem à mesma página, o mais restrito vence.
+
+### 6.3 Temporizador (contagem regressiva e depois bloqueio)
+
+Este modo mostra um cronômetro de contagem regressiva e bloqueia quando atinge `0:00`.
+
+- **Intervalo de reinicialização do temporizador (horas)** (decimal): a duração do temporizador e a frequência de reinicialização. Exemplo: `24` para diário, `1` para horário, `0.25` para cada 15 minutos.
+
+Ao contrário de **Bloquear após alguns minutos**, este modo **não** tem um campo separado "Minutos permitidos antes do bloqueio". O cronômetro simplesmente inicia no intervalo de reinicialização, faz a contagem regressiva enquanto as páginas correspondentes estão abertas e bloqueia até a próxima reinicialização.As contagens regressivas do grupo padrão e os temporizadores do grupo personalizado (consulte a **Seção 11.3.1**) **só avançam enquanto a guia estiver visível**. Alternar guias, minimizar a janela ou bloquear a tela pausa a contagem regressiva automaticamente.
 
 ---
 
@@ -197,7 +204,7 @@ No cartão **Agendar** você pode restringir quando um grupo está ativo:
 
   O grupo está ativo apenas dentro dessas janelas. Lista vazia significa o dia todo.
 
-Isso se aplica a todos os tipos de grupo, exceto `Custom`.
+Isto se aplica a todos os tipos de grupo, exceto `Custom`. (As regras personalizadas podem implementar sua própria programação usando `ev.time.dayName` / `ev.time.hour`; consulte **Seção 11.4**.)
 
 ---
 
@@ -215,7 +222,7 @@ Quando um grupo congelado pode ser desbloqueado, o botão **Descongelar** aparec
 - O modal mostra uma mensagem de autodisciplina.
 - Você deve clicar em `Confirm` 20 vezes.
 - Há uma espera forçada de 5 segundos entre os cliques.
-- Se você cancelar a qualquer momento, deverá reiniciar a partir da etapa 1.
+- Se você cancelar a qualquer momento, deverá reiniciar a partir do passo 1.
 - As 20 mensagens giram para que você realmente as leia.
 
 Se o grupo também estiver marcado como "sem soneca" (veja a próxima seção), você também não poderá adiá-lo enquanto estiver congelado.
@@ -226,237 +233,403 @@ O status de congelamento é mostrado na linha meta do cartão de grupo, incluind
 
 ## 9. Soneca (desativação temporária)
 
-A suspensão desativa temporariamente um grupo sem descongelá-lo, mas apenas com uma justificativa por escrito.
+A suspensão desativa temporariamente um grupo sem descongelá-lo. Ele suporta ativação atrasada, resfriamento pós-soneca, etapas de confirmação e um total contínuo de tempo de suspensão.
 
 No cartão **Suspender**:
 
 - **Permitir adiamento para este grupo** — se estiver desativado, este grupo não poderá ser adiado (inclusive enquanto estiver congelado).
 - **Suspender por (minutos)** — decimal, quanto tempo dura a soneca.
-- **Motivo** — deve ter **pelo menos 100 caracteres e mais de 20 palavras**. O botão Iniciar permanece desativado até que ambos sejam atendidos. Se a regra falhar, um aviso embutido será exibido próximo ao botão.
+- **Atraso de ativação (minutos)** — decimal `>= 0`. Depois de confirmar a soneca, o grupo continua bloqueando até que esse atraso passe; só então a soneca se torna ativa.
+- **Resfriamento após soneca (minutos)** — decimal de `0` a `5`. Depois que a soneca terminar, você não poderá iniciar outra soneca para este grupo até que o tempo de espera termine.
+- **Tempos de confirmação** — inteiro `>= 0`. Se for `0`, a soneca será agendada imediatamente. Caso contrário, iniciar a soneca inicia um ritual de confirmação com exatamente esse número de etapas.
 
-Se o grupo estiver congelado, os minutos de soneca serão bloqueados no valor escolhido antes do congelamento. Você ainda pode suspender, desde que a suspensão seja permitida e o motivo atenda às regras.
+Cada etapa de confirmação da soneca tem uma espera forçada de **5 segundos** antes que o próximo clique seja permitido. O modal informa isso explicitamente e mostra a contagem regressiva ao vivo no botão.
+
+Se o grupo estiver congelado, as configurações de soneca serão bloqueadas nos valores escolhidos antes do congelamento. Você ainda pode suspendê-lo, desde que a suspensão seja permitida, mas você deve usar as configurações de atraso/recarga/confirmação salvas.
+
+O cartão Suspender também mostra o **Tempo total de adiamento** para esse grupo. Esse total conta a duração total da soneca ativa, mesmo que o site fique acessível por algum outro motivo durante essa janela.
+
+Quando uma soneca termina, a regra volta imediatamente. Se o grupo ainda não estiver congelado, o ramal o congela automaticamente novamente no final da soneca.
 
 Uma mensagem de status confirma a soneca. Quando a soneca termina, o grupo volta automaticamente ao normal.
 
 Você também pode encerrar uma soneca mais cedo com o botão **Encerrar soneca**.
 
+Para grupos personalizados, pressionar **Iniciar soneca** também despacha um evento `snoozePress` para a regra (consulte a tabela de eventos na **Seção 11**), para que uma regra personalizada possa registrar a imprensa, registrar uma justificativa ou disparar eventos de acompanhamento. A regra **não possui API de suspensão programática** — ela pode reagir à imprensa, mas não pode cancelá-la ou estendê-la.
+
 ---
 
-## 10. Ações em massa
-
-- **Excluir tudo** remove todos os grupos.
+## 10. Ações em massa- **Excluir tudo** remove todos os grupos.
   - Sempre pede confirmação.
-  - Se pelo menos um grupo estiver congelado, será necessário o mesmo ritual de 20 etapas do descongelamento.
+  - Se pelo menos um grupo estiver congelado, será necessário o mesmo ritual de 20 passos do descongelamento.
   - Se algum grupo estiver totalmente congelado e ainda bloqueado, **Excluir tudo** será desativado.
 
 ---
 
-## 11. Grupos personalizados (referência completa)
+## 11. Grupos personalizados — referência orientada a eventos (v1.1+)
 
-Um grupo `Custom` executa uma função JavaScript no service worker em segundo plano. A função é chamada a cada segundo e a extensão usa o que retorna para decidir quais domínios devem ser bloqueados no momento.
+A partir da v1.1, as regras personalizadas são **orientadas por eventos**. Sua regra não é mais uma função por pulsação cujo valor de retorno bloqueia a página. Em vez disso, o corpo da regra é um script que **registra manipuladores** para eventos específicos (página aberta, alteração de URL, pulsação da página, eventos personalizados,…). Os manipuladores permanecem registrados nas navegações de página e nas alternâncias de guias e ficam dentro de uma **sandbox fora da tela** de longa duração.
 
-### 11.1 Assinatura de função
+O corpo da regra é executado **uma vez por clique em Executar** (ou uma vez quando o grupo está habilitado e já existe uma origem ativa). Para recarregar manipuladores, clique em **Executar** no editor. O pop-up mostra um lembrete solicitando que você recarregue qualquer página já aberta para que a nova regra se aplique a ela também.
+
+### 11.1 Assinatura da regra
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  // your logic
-  return blockedDomains;
+(event, helpers) => {
+  // Register handlers here. This function is called exactly once
+  // per Run click (or when the group is enabled).
 }
 ```
 
-Parâmetros:
+Dois argumentos:
 
-- `month` — `1` a `12`.
-- `dayOfMonth` — `1` a `31`.
-- `dayName` — por exemplo `"Monday"`.
-- `hour` — `0` a `23`.
-- `minute` — `0` a `59`.
-- `blockedDomains` — a lista contínua de domínios que outras regras já produziram. Você pode adicioná-lo, substituí-lo ou ignorá-lo.
-- `helpers` — um pacote de objetos auxiliares (veja abaixo).
+- `event` — o **registro de eventos** deste grupo. Use-o para registrar, substituir, listar, contar ou cancelar o registro de manipuladores e para eventos personalizados `post(...)`.
+- `helpers` — o pacote auxiliar (consulte **11.3**).
 
-Valor de retorno:
+**não** se espera que a função retorne um valor. A decisão de bloquear ou permitir é tomada posteriormente, quando um evento é acionado e um de seus manipuladores registrados chama `ev.preventDefault()` e/ou `ev.setResult(...)`.
 
-- Uma matriz de strings de domínio que devem ser bloqueadas agora, OU
-- nada (nesse caso, a extensão usa tudo o que você transformou em `blockedDomains`).
+### 11.2 Ciclo de vida
 
-A função é validada quando você salva. Erros de sintaxe produzem um aviso de status e a regra não é usada até que você a corrija. Se sua função for lançada em tempo de execução, a extensão a capturará, registrará no console em segundo plano e retornará ao resultado anterior.
+- **Executar** (botão por grupo no editor): o mecanismo primeiro limpa todos os manipuladores que foram previamente marcados com esse grupo e, em seguida, executa novamente o corpo da regra na sandbox fora da tela. Esta é a única maneira de se registrar novamente após editar a fonte.
+- **Desativar grupo**: todos os manipuladores marcados com este grupo são apagados. A origem do grupo é mantida no armazenamento, mas para de responder aos eventos.
+- **Reativar grupo**: o mecanismo reexecuta automaticamente a fonte ativa para este grupo.
+- **Excluir grupo**: o mesmo que desabilitar; todos os manipuladores marcados com o grupo são apagados.
+- **Registrando novamente com o mesmo `(eventType, id)`**: substitui silenciosamente o registro anterior.
 
-### 11.2 Agendamento adaptativo
+A sandbox fora da tela é compartilhada por **todos** grupos personalizados. Manipuladores de diferentes grupos coexistem lá, cada um marcado internamente com seu ID de grupo proprietário, para que "Executar", desabilitar ou excluir apenas toque no grupo certo.
 
-As regras personalizadas normalmente são executadas a cada segundo. Se sua regra começar a demorar muito, a extensão retardará automaticamente o loop (até cerca de 5 segundos). Você não precisa gerenciar isso sozinho.
+Se uma regra personalizada se comportar mal (loop infinito síncrono, spam de log descontrolado etc.), o sandbox a colocará em quarentena: o grupo será desativado automaticamente e a falha será registrada para que você possa vê-la no painel Log. Para reativar uma regra em quarentena, corrija a origem e clique em **Executar** — o mecanismo limpa o motivo da interrupção e recarrega a regra.
 
-### 11.3 O objeto `helpers`
+### 11.2.1 O registro de eventos (`event`)
 
-Dentro da função `helpers` expõe vários subajudantes. Cada um tem um nome longo e um apelido curto. Existem também métodos getter explícitos:
+Métodos genéricos:
 
-- `helpers.timerHelper` / `helpers.timer` / `helpers.getTimerHelper()`
-- `helpers.persistenceHelper` / `helpers.persistence` / `helpers.getPersistenceHelper()`
-- `helpers.domainHelper` / `helpers.domain` / `helpers.getDomainHelper()`
-- `helpers.logHelper` / `helpers.log` / `helpers.getLogHelper()`
-- `helpers.platformHelper` / `helpers.platform` / `helpers.getPlatformHelper()`
-- `helpers.now` — o tempo da época atual em milissegundos.
+- `event.register(type, id, handler, options?)` — registra um manipulador para um tipo de evento arbitrário. `id` é sua escolha. `options.priority` (padrão `0`) — os valores mais altos são executados primeiro. `options.intervalMs` — apenas para `tickEvent`; limitar este manipulador específico em relação ao tick global. Registrando novamente com as mesmas substituições `(type, id)`.
+-`event.unregister(type, id)`, `event.unregisterAll(type)`.
+- `event.post(type, data?, { scope })` — dispara um evento personalizado. `scope: "global"` atinge todos os grupos; o padrão `scope: "group"` alcança apenas manipuladores no **mesmo** grupo.
 
-Todos os métodos auxiliares são projetados para serem seguros: parâmetros incorretos retornam `null`, `false` ou um valor vazio em vez de serem lançados.
+Açúcar por tipo de evento (um conjunto de métodos por tipo integrado):
 
-#### 11.3.1 `timerHelper`
+-`event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
+-`event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
+- Mesma forma para `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`.
 
-Gerencia contadores regressivos vinculados a um domínio. Os temporizadores persistem durante as reinicializações do navegador. Cada temporizador pertence ao grupo personalizado que o criou.
+### 11.2.2 Tipos de eventos integrados
 
-- `createTimer(domain, durationMs, displayName?)` — cria e retorna um ID de temporizador exclusivo ou `null` se for inválido. Exemplo: `createTimer("youtube.com", 30 * 60 * 1000, "Timer1")`. Enquanto o usuário estiver em uma página que corresponda a esse domínio, a sobreposição na página mostrará `Timer1: 30:00` e marcará para baixo.
-- `deleteTimer(id)` — exclui o cronômetro. Retorna `true` em caso de sucesso.
-- `pauseTimer(id)` — pausa a contagem regressiva.
-- `continueTimer(id)` / `resumeTimer(id)` — retoma um cronômetro pausado.
-- `resetTimer(id, durationMs?)` — reinicia o cronômetro. Sem `durationMs`, reutiliza o original.
-- `addMs(id, ms)` — adiciona milissegundos (ou subtrai com valores negativos).
-- `remainingMs(id)` — milissegundos restantes.
-- `isExpired(id)` / `isPaused(id)` / `exists(id)` — booleanos.
-- `getDomain(id)` / `getDisplayName(id)` — lê as informações do temporizador.
-- `findByDomain(domain)` — matriz de IDs de temporizador para esse domínio.
-- `list()` — array de `{ id, domain, displayName, durationMs, remainingMs, isPaused }` para cada temporizador que este grupo possui.
+| Tipo | Quando dispara | Carga útil `ev.data` |
+|---|---|---|
+| `tickEvent` | Tick ​​de 1 segundo compartilhado globalmente em todo o navegador. Dispara independentemente da visibilidade da guia. Use isso para lógica estilo relógio que deve continuar funcionando mesmo quando nenhuma guia está em foco. | `{ intervalMs: 1000 }` |
+| `pageHeartbeatEvent` | Pulsação de aproximadamente 250 ms na guia **ativa**, **visível**. Aciona toda a lógica com reconhecimento de visibilidade de guias, incluindo a marcação automática incorporada no `getOrCreateTimer({ scope })`. **não** dispara a partir de guias em segundo plano ou enquanto a tela está bloqueada. | `{ elapsedMs }` |
+| `openWebEvent` | Uma nova guia é criada OU uma nova navegação chega a uma URL que o mecanismo ainda não viu para essa guia. **não** dispara novamente para guias já abertas após um clique em Executar. | `{ previousUrl, isNewTab }` |
+| `closeWebEvent` | Uma guia está fechada. | `{ reason, nextUrl }` |
+| `switchWebEvent` | **Alterações** de URL dentro da mesma guia — voltar/avançar, alteração de rota do SPA ou uma navegação que leva a um URL diferente do anterior. **não** dispara em uma recarga simples (mesmo URL). | `{ previousUrl, previousHostname, sameDomain }` |
+| `switchDomainEvent` | A alteração de URL ultrapassa um limite de nome de host (por exemplo, `youtube.com` → `wikipedia.org`). Dispara ao lado de `switchWebEvent`. | `{ previousUrl, previousHostname }` |
+| `webChangedEvent` | A página (re)carrega de qualquer forma: abertura, troca, atualização do histórico do SPA, **ou uma recarga simples que mantém o mesmo URL**. Este é o gancho confiável "a página mudou, reavalie tudo". Dispara junto com `openWebEvent`/`switchWebEvent`/`switchDomainEvent` e é o único que dispara para recargas no mesmo URL. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` onde `transition` é `"tabCreated"`, `"commit"` ou `"history"` |
+| `timerEnded` | Um temporizador gerenciado pelo grupo chega a `currentMs === 0`. Entregue apenas ao grupo proprietário. | `{ timerId, displayName, direction, currentMs }` |
+| `snoozePress` | O usuário pressionou **Iniciar soneca** no pop-up deste grupo **personalizado**. Evento de notificação pura — o manipulador pode executar código arbitrário (registrar, redirecionar, disparar outros eventos), mas as regras personalizadas **não possuem API de suspensão programática**. Os registros produzidos aqui aparecem como brindes na guia ativa. Entregue apenas ao grupo pressionado. | `{ triggeredAt }` |
 
-A duração máxima do temporizador é de cerca de 30 dias.
+URLs em `ev.url` e em dados de eventos são **normalizados** para eventos: a página Nova guia do Chrome (que renderiza a superfície "Pesquise no Google ou digite URL" do Google), `about:blank` e esquemas de nova guia equivalentes são expostos como a string vazia `""`. Portanto, um cronômetro com escopo definido para `ev.url === ""` apenas funciona enquanto você está na página da nova guia. URLs `google.com` normais permanecem inalterados.
 
-#### 11.3.2 `persistenceHelper`
+### 11.2.3 O objeto de evento (`ev`)
 
-Armazenamento semelhante a um mapa com escopo para seu grupo. Os valores devem ser serializáveis ​​por JSON. Útil para lembrar o estado entre chamadas.
+Cada manipulador é invocado como `(ev, helpers) => void`. `ev` carrega:
 
-- `set(key, value)` — armazena qualquer valor JSON. Retorna `true` em caso de sucesso.
-- `get(key, defaultValue?)` — retorna o valor armazenado ou `defaultValue` se estiver ausente.
-- `has(key)` / `delete(key)` / `keys()` / `entries()` / `size()` / `clear()`.
+- `ev.type` — o tipo de evento despachado.
+- `ev.groupId` — o id do grupo receptor.
+- `ev.tabId`, `ev.pageId`, `ev.url`, `ev.hostname` — contexto para o evento.
+- `ev.time` — Instantâneo `{ now, month, dayOfMonth, dayName, hour, minute }` no envio. `dayName` é `"Sunday"`..`"Saturday"`.
+- `ev.data` — carga útil específica do evento (veja tabela acima).
+
+Métodos:
+
+- `ev.preventDefault()` — marque o despacho como "bloqueado". O script de conteúdo do host sairá da página (ou seguirá `setRedirectLink`), a menos que um manipulador de prioridade mais alta defina `setResult(1)` posteriormente.
+- `ev.stopPropagation()` — interrompa este envio imediatamente. **Nenhum outro manipulador em qualquer grupo** é invocado para este evento.
+- `ev.setResult(value)` — define o resultado do despacho. `value` pode ser um **número** em `[-255, 255]` (bloco `-1`, `0` neutro, `1` permitido; outros números inteiros são preservados para sua própria lógica de depuração) ou uma **string** (interpretada como um URL de redirecionamento). A última chamada `setResult` em todos os manipuladores vence. Um `1` numérico substitui qualquer `preventDefault` anterior.
+- `ev.setRedirectLink(url)` / `ev.getRedirectLink()` — a URL para a qual o host deve navegar quando o despacho terminar como bloqueado. Esta é a **única** maneira de redirecionar a partir de regras personalizadas; o editor não expõe mais o campo "Redirecionar URL quando bloqueado" para grupos personalizados.
+- `ev.post(type, data, { scope })` — dispara um evento de acompanhamento de dentro de um manipulador.
+
+Além disso, `ev` é um proxy: qualquer campo definido nele (por exemplo, `ev.foo = 42`) é armazenado em um mapa `custom` e pode ser lido do mesmo manipulador ou de manipuladores posteriores no mesmo despacho.### 11.3 O objeto `helpers`
+
+Cada chamada de manipulador recebe um novo pacote `helpers` com escopo para o grupo de recebimento e o URL do evento. Campos constantes:
+
+- `helpers.now` — milissegundos de época no despacho.
+- `helpers.currentUrl` — a URL do evento, após a normalização newtab/blank.
+- `helpers.groupId` — recebendo ID do grupo.
+
+Atalhos de conveniência (direcione para as mesmas funções com reconhecimento de acumulador usadas pelos ajudantes abaixo, para que a saída ainda chegue ao painel Log):
+
+-`helpers.log(...)`, `helpers.warn(...)`, `helpers.error(...)`.
+
+Métodos de acesso:
+
+- `helpers.getLogHelper()` — `log` / `warn` / `error`. A saída é limitada por taxa e limitada por despacho para evitar que regras descontroladas congelem o pop-up.
+- `helpers.getDomainHelper()` (também conhecido como `helpers.getDomainUtility()`) — inspeção de URL (consulte **11.3.5**).
+- `helpers.getTimerHelper()` — temporizadores com escopo de grupo (contagem regressiva/crescente); o estado persiste durante as reinicializações do navegador.
+- `helpers.getPersistenceHelper()` — armazenamento de chave/valor JSON com escopo para o grupo.
+- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (e aliases `set` / `get`) mais `createMessageUrl(message)` que retorna um URL `chrome-extension://...` que exibe a mensagem fornecida.
+- `helpers.getPlatformHelper()` — intenções DOM por plataforma (consulte **11.3.6**).
+- `helpers.getDOMHelper()` — intenções DOM genéricas: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. As operações são agrupadas e aplicadas após o retorno do manipulador.
+- `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Os efeitos são aplicados à guia de onde veio o evento.
+- `helpers.getStorageHelper()` — superconjunto de `getPersistenceHelper` mais ganchos assíncronos `requestAsyncGet(key)` / `requestAsyncSet(key, value)` para armazenamento de extensão cruzada (os resultados chegam como um evento personalizado de acompanhamento).
+- `helpers.getTabHelper()` — `list()`, `getActiveTab()`, `getById(id)`, `countOpen()` em um instantâneo incluído no evento.
+
+Todos os métodos auxiliares são seguros: parâmetros incorretos retornam `null`, `false` ou um valor vazio em vez de serem lançados.
+
+#### 11.3.1 `getTimerHelper()`
+
+Temporizadores por grupo. Cada temporizador é identificado por uma string `id` que você escolher; a identidade tem como escopo o grupo, portanto, dois grupos podem usar o id `"yt-shorts"` sem colidir. O estado persiste durante as reinicializações do navegador.
+
+O estado persistente de um temporizador é exatamente: `id`, `displayName`, `direction` (`"forward"` ou `"backward"`), `isPaused` e `currentMs`. Não há "duração inicial" armazenada - `isExpired` é apenas `currentMs === 0`. Os cronômetros de avanço funcionam para sempre e nunca expiram por conta própria. Os temporizadores retrógrados param de funcionar em `0` (sem valores negativos).
+
+Existem dois métodos de construção. Escolha aquele cuja semântica corresponda ao que você deseja:
+
+- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **sempre (re)cria** o temporizador com os valores init fornecidos, substituindo qualquer estado existente, incluindo `currentMs`. Use isto quando quiser dizer "começar do zero", por ex. dentro de um ramo de reinicialização única.
+- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **idempotente**. Se já existir um temporizador com esse `id`, seu `displayName` e `direction` poderão ser atualizados, mas `currentMs` será preservado. Caso contrário, será criado com os valores init fornecidos. Isso é o que você deseja para o padrão comum "garanta que meu cronômetro exista e deixe-o funcionar".
+
+Ambos os métodos aceitam duas funções de predicado que o mecanismo lembra durante a vida útil da regra (elas sobrevivem entre pulsações e reavaliações `webChangedEvent`, mas **nunca persistem** no armazenamento):- `scope: (url) => boolean` — quando `true` para o URL visível atual em cada `pageHeartbeatEvent`, o cronômetro marca automaticamente pelo intervalo de pulsação (~250 ms). O próprio ajudante nunca bloqueia; ele atualiza apenas `currentMs`. No máximo um tique automático por batimento cardíaco por temporizador.
+- `domain: (url) => boolean` — quando `true` para o URL visível atual, o cronômetro é renderizado na sobreposição na página (canto superior esquerdo). Quando `domain` é omitido, o mecanismo volta para `scope` para exibição, portanto, um temporizador de "tick on /shorts/pages" também aparece sem fiação extra. Forneça `domain` explicitamente se desejar uma porta de exibição diferente (por exemplo, marque apenas `/shorts/`, mas mostre o tempo restante em todos os `youtube.com`).
+
+> **Importante — um cronômetro nunca bloqueia sozinho.** Quando um cronômetro regressivo chega a zero, ele apenas para em zero e dispara `timerEnded` uma vez. O bloqueio real da página depende de um manipulador `openWebEvent` / `switchWebEvent` separado que chama `ev.preventDefault()` após verificar `helpers.getTimerHelper().isExpired(id)`. Essa separação permite que você crie temporizadores "somente aviso", rastreadores de contagem progressiva, toques suaves ou blocos rígidos - o mesmo primitivo, sua escolha.
+
+Outros métodos:
+
+- `delete(id)`, `pause(id)`, `resume(id)` — ciclo de vida padrão. Pausa congela `currentMs`.
+- `setDirection(id, "forward" | "backward")`, `setCurrentMs(id, ms)`, `addMs(id, deltaMs)` — mutadores diretos (a maioria das regras não precisa deles — deixe a pulsação marcar o cronômetro para você).
+- `setDisplayName(id, name)` — reetiquetar.
+-`getCurrentMs(id)`, `getDirection(id)`, `getDisplayName(id)`, `isPaused(id)`, `exists(id)`.
+- `isExpired(id)` — `true` se `currentMs === 0`.
+- `getState(id)` — `{ id, displayName, direction, isPaused, currentMs, isExpired }` ou `null`.
+- `list()` — cada temporizador que este grupo possui, como uma matriz de objetos de estado.
+
+#### 11.3.2 `getPersistenceHelper()`
+
+Armazenamento semelhante a um mapa com escopo para seu grupo. Os valores devem ser serializáveis ​​por JSON.
+
+-`set(key, value)`, `get(key, defaultValue?)`, `has(key)`, `delete(key)`, `keys()`, `entries()`, `clear()`, `size()`.
 
 Limites flexíveis: cerca de 200 chaves por grupo, 16 KB por valor.
 
-#### 11.3.3 `domainHelper`
+#### 11.3.3 `getLogHelper()`
 
-- `normalize(value)` — retorna o domínio canônico como `youtube.com` ou `null`.
-- `matches(hostname, site)` — `true` se `hostname` pertence a `site` (lida com subdomínios).
+- `log(...args)`, `warn(...args)`, `error(...args)` — escreva no painel **Log** no pop-up (o pacote auxiliar ainda os encaminha através do mesmo acumulador, independentemente do despacho que os produziu). Cada linha é prefixada com `[CustomBlocker:groupId]`.
+- O auxiliar tem limites rígidos: aproximadamente **200 entradas de log por despacho** e um comprimento máximo de string por entrada. As entradas excedentes são descartadas e contadas em `accumulator.logsDropped`. Isso é o que protege o pop-up de um `for (let i = 0; i < 100000; i++) helpers.log(i)` em fuga.
+- Quando o **modo de depuração** está desativado (padrão), as entradas em nível de rastreamento que o próprio mecanismo emite (início de despacho/tempo do manipulador) são suprimidas em todos os lugares — elas não aparecem no painel Log e não são impressas no console. Suas próprias chamadas `log` / `warn` / `error` sempre são realizadas.
 
-#### 11.3.4 `logHelper`
+#### 11.3.4 `getRedirectionHelper()`
 
-- `log(...args)`, `warn(...args)`, `error(...args)` — grava no console em segundo plano.
+Inspecione/substitua o URL de redirecionamento que o script de conteúdo usará se a página atual for bloqueada.
 
-Para ver essas mensagens: `chrome://extensions` → habilite o modo de desenvolvedor → clique no link "service worker" da extensão.
+- `get()` — retorna o URL de redirecionamento efetivo atual para este despacho. Inicialmente, este é o URL substituto configurado do grupo integrado (se houver), caso contrário, `""`.
+- `set(url)` — substituições que redirecionam URL para este despacho. Retorna `true` em caso de sucesso, `false` para entrada sem string. Passar `""` limpa a substituição de redirecionamento e retorna ao comportamento de saída padrão normal.
+- `createMessageUrl(message)` — retorna uma URL `chrome-extension://<id>/message-page.html?msg=...` que, quando navegada, exibe a mensagem centralizada em uma página limpa. Útil para redirecionar usuários para uma tela "Vá trabalhar"/"Faça uma pausa" após o término do cronômetro. Exemplo: `ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`.
 
-#### 11.3.5 `platformHelper`
+Assim como os outros efeitos colaterais das regras personalizadas, esse estado é compartilhado por todas as regras do despacho atual. Como as regras são executadas de baixo para cima, a regra mais alta para chamar `set(...)` vence.
 
-Inspecione plataformas sociais/de vídeo suportadas.
+#### 11.3.5 `getDomainHelper()` (também conhecido como `getDomainUtility()`)
 
-- `supportedPlatforms` — `["youtube", "tiktok", "facebook", "instagram", "twitch"]`.
-- `normalizePlatform(value)` — retorna o nome canônico da plataforma ou `null`.
-- `normalizeAuthor(author, platform)` — normaliza um identificador de autor (identificador, URL, etc.) para uma plataforma específica, ou `null`.
-- `detect(urlOrHost)` / `getContext(urlOrHost)` — retorna `{ platform, hostname, pathname, type, authors, url }` ou `null`.
-  - `type` é `"short" | "long" | "post" | "unknown"`.
-  - `authors` é a lista de autores normalizados detectáveis ​​nesse URL.
-- `getType(urlOrHost)` — atalho para `detect(...).type`.
-- `getPlatform(urlOrHost)` — atalho para `detect(...).platform`.
-- `getAuthors(urlOrHost)` — atalho para `detect(...).authors`.
-- `matchesAuthor(urlOrHost, platform, authors)` — retorna `true` se o URL estiver nessa plataforma e um dos autores fornecidos corresponder.
+Auxiliares de inspeção de URL. Não há `normalize()` porque os URLs recebidos já são normalizados por newtab.
+
+Essencial:-`hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
+-`isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
+- `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()` — cada um retorna `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`.
+
+Filtragem de URL e ajudantes de seção:
+
+- `isEmptyStartPage(url)` — `true` para a página de nova guia e equivalentes (os URLs que aparecem como `""` para manipuladores).
+- `matchesAny(url, patterns)` — `patterns` pode ser um regex, um regex de string ou uma matriz de ambos.
+- `pathStartsWith(url, path)` — com reconhecimento de limite (`pathStartsWith("/r/", "/r")` é verdadeiro; `"/results/"` não é).
+- `queryHas(url, key, value?)`, `queryGet(url, key)` — inspeção de string de consulta.
+- `isSearchPage(url)` — reconhece pesquisas do Google / Bing / DuckDuckGo / YouTube / Reddit / Twitter / X.
+- `isInfiniteFeedUrl(url)` — reconhece as superfícies de feed algorítmico do YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `sameSection(a, b)` — mesmo nome de host E mesmo primeiro segmento de caminho.
+
+#### 11.3.6 `getPlatformHelper()`
+
+Intenções DOM por plataforma e temporizadores de subseção, além de inspeção. Cada `helpers.getPlatformHelper().<platform>()` retorna um objeto cujo conjunto de métodos é **bloqueado pela plataforma** — métodos que não fazem sentido em uma determinada plataforma estão simplesmente ausentes, portanto, chamá-los lança `TypeError: ... is not a function` em vez de ficar silenciosamente sem operação. Por exemplo, `twitch().hidePosts` não existe (Twitch não tem postagens) e `tiktok().hideShortButton` não existe (toda a experiência do TikTok já _é_ um vídeo curto). Use `helpers.getPlatformHelper().hasMethod(platform, name)` ou `.listMethods(platform)` para introspecção em tempo de execução.
+
+Matriz de método por plataforma:
+
+| método | youtube | tiktok | Instagram | facebook | contrair |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `hideShorts` / `showShorts` | ✓ |  |  |  |  |
+| `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
+| `hideClips` / `showClips` |  |  |  |  | ✓ |
+| `hideStreams` / `showStreams` |  |  |  |  | ✓ |
+| `hideVideos` / `showVideos` | ✓ | ✓ |  | ✓ | ✓ (VODs) |
+| `hidePosts` / `showPosts` | ✓ |  | ✓ | ✓ |  |
+| `hideShortButton` / `showShortButton` | ✓ |  |  |  |  |
+| `hideHomePage` / `showHomePage` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓ (bate-papo) |
+| `filterComments` | ✓ | ✓ | ✓ | ✓ |  |
+| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |  | ✓ | ✓ |
+| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |  |  |  | ✓ |
+| `isCurrentChannelVerified` | ✓ |  |  |  |  |
+| `isLiveNow` | ✓ | ✓ |  | ✓ | ✓ |
+| `isItemLive` | ✓ | ✓ |  | ✓ | ✓ |
+| `isAlgorithmicRecommendation` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `isSponsored` | ✓ | ✓ | ✓ | ✓ |  |
+| `setShortsTimer` | ✓ |  |  |  |  |
+| `setReelsTimer` |  |  | ✓ | ✓ |  |
+| `setClipsTimer` |  |  |  |  | ✓ |
+| `setStreamsTimer` |  |  |  |  | ✓ |
+| `setVideosTimer` | ✓ | ✓ |  | ✓ | ✓ |
+| `setPostsTimer` | ✓ |  | ✓ | ✓ |  |
+
+Os nomes nativos da plataforma (`hideReels`, `hideClips`, `hideStreams`) NÃO são buckets separados de `hideShorts`/`hideVideos` — o slot de armazenamento é o mesmo; apenas o nome visível ao usuário segue a terminologia de cada plataforma.
+
+> **Vida útil predicada e regra de slot único.** Cada um dos `hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` possui **um** predicado persistente por `(group, platform, slot)`. O predicado **não** tem como escopo o evento atual — depois de definido, ele permanece ativo em cada carregamento de página e em cada despacho até que o `show*()` correspondente seja chamado ou o grupo seja descarregado. Chamar o mesmo método novamente com uma nova função **substitui** a anterior — o mecanismo nunca mescla vários predicados em um único grupo. Para combinar condições, escreva um predicado que faça você mesmo a combinação, por exemplo. `yt.hideVideos(item => isShort(item) || hasKeyword(item))`. Em **diferentes** grupos, cada grupo contribui com seu próprio predicado e um item fica oculto se o predicado de algum grupo corresponder.
+
+Os métodos de inspeção obtêm seu valor no momento da expedição a partir de um instantâneo incluído no evento; sua disponibilidade é controlada pela matriz acima.
+
+Os classificadores de URL são sempre reexpostos, independentemente da plataforma: `isPlatformUrl`, `isShortUrl`, `isVideoUrl`, `isPostUrl`, `isHomePage`, `extractAuthor`, `extractVideoId`.Os cronômetros de subseção registram o cronômetro no bucket do grupo persistente e, quando com escopo definido, marcam apenas os URLs que correspondem a essa subseção. Os métodos de timer aceitam `{ id, direction, currentMs, displayName }` e seguem o mesmo gate por plataforma.
+
+Para métodos de predicado, o predicado é chamado por cartão correspondente com um `item` normalizado: `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`. Qualquer campo pode ser `null`; "inocente até que se prove a culpa" — retorne `false` quando o campo que você precisa estiver faltando.
 
 ### 11.4 Exemplos
 
-Fácil: bloqueie as redes sociais nas manhãs dos dias de semana.
+**Fácil** — bloqueie as páginas de Shorts do YouTube nas manhãs dos dias de semana:
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const isWeekday = !["Saturday", "Sunday"].includes(dayName);
+(event, helpers) => {
+  const yt = helpers.getDomainHelper().youtube();
 
-  if (isWeekday && hour >= 9 && hour < 12) {
-    return [...blockedDomains, "facebook.com", "instagram.com", "tiktok.com"];
-  }
-
-  return blockedDomains;
-}
-```
-
-Médio: 30 minutos de YouTube por sessão do navegador, com contagem regressiva visível.
-
-```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const { timerHelper, persistenceHelper } = helpers;
-  let id = persistenceHelper.get("youtubeTimer");
-
-  if (!id || !timerHelper.exists(id)) {
-    id = timerHelper.createTimer("youtube.com", 30 * 60 * 1000, "YouTube");
-    persistenceHelper.set("youtubeTimer", id);
-  }
-
-  if (timerHelper.isExpired(id)) {
-    return [...blockedDomains, "youtube.com"];
-  }
-
-  return blockedDomains;
-}
-```
-
-Mais difícil: bloqueie uma sessão do TikTok apenas se forem vídeos curtos E o autor estiver na sua lista de distratores. Use `platformHelper`.
-
-```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const { platformHelper, logHelper } = helpers;
-  const distractors = ["someuser", "anotheruser"];
-  const url = "https://www.tiktok.com" + (globalThis.location?.pathname ?? "");
-  const ctx = platformHelper.detect(url);
-
-  if (ctx?.platform === "tiktok" && ctx.type === "short") {
-    if (platformHelper.matchesAuthor(url, "tiktok", distractors)) {
-      logHelper.log("Blocking TikTok short by", ctx.authors);
-      return [...blockedDomains, "tiktok.com"];
+  function maybeBlock(ev) {
+    if (!yt.isShortUrl(ev.url)) return;
+    const { dayName, hour } = ev.time;
+    const weekday = !["Saturday", "Sunday"].includes(dayName);
+    if (weekday && hour >= 9 && hour < 12) {
+      ev.preventDefault();
+      ev.setResult(-1);
     }
   }
 
-  return blockedDomains;
+  event.registerOpenWebEvent("morning-block", maybeBlock);
+  event.registerSwitchWebEvent("morning-block", maybeBlock);
 }
 ```
 
-(`globalThis.location` é apenas um exemplo de espaço reservado – você normalmente conduzirá `platformHelper` a partir de sua própria lógica, não da localização do trabalhador, já que o trabalhador em segundo plano não possui um URL de página real.)
-
-Mais difícil: rotação do "site do dia" com limite diário, persistente nas reinicializações.
+**Médio** — orçamento diário de 30 minutos para YouTube Shorts. O cronômetro marca automaticamente em `pageHeartbeatEvent`s enquanto um URL de Shorts está visível; um manipulador separado impõe o bloco quando o cronômetro chega a zero.
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const { timerHelper, persistenceHelper, domainHelper, logHelper } = helpers;
-  const sites = ["reddit.com", "twitter.com", "news.ycombinator.com"];
-  const today = `${month}-${dayOfMonth}`;
-  const lastDay = persistenceHelper.get("lastDay");
+(event, helpers) => {
+  const TIMER_ID = "yt-shorts-budget";
+  const yt = helpers.getDomainHelper().youtube();
+  const onShorts = (url) => yt.isShortUrl(url);
 
-  if (today !== lastDay) {
-    for (const id of timerHelper.list().map((t) => t.id)) {
-      timerHelper.deleteTimer(id);
+  helpers.getTimerHelper().getOrCreateTimer({
+    id: TIMER_ID,
+    direction: "backward",
+    currentMs: 30 * 60 * 1000,
+    displayName: "YT Shorts",
+    scope: onShorts,
+    domain: onShorts
+  });
+
+  function maybeBlock(ev, h) {
+    if (!yt.isShortUrl(ev.url)) return;
+    if (h.getTimerHelper().isExpired(TIMER_ID)) {
+      ev.setRedirectLink("https://example.com/focus");
+      ev.preventDefault();
+      ev.setResult(-1);
     }
-    persistenceHelper.set("lastDay", today);
+  }
+  event.registerOpenWebEvent("budget-block", maybeBlock);
+  event.registerSwitchWebEvent("budget-block", maybeBlock);
+
+  event.registerTimerEndedEvent("budget-warn", (_ev, h) => {
+    h.getLogHelper().log("Budget hit zero.");
+  });
+}
+```
+
+**Mais difícil** — oculte Shorts individuais do YouTube cujo identificador de autor seja muito longo e injete um CSS "este Short está oculto":
+
+```js
+(event, helpers) => {
+  const MAX_AUTHOR_LEN = 16;
+
+  function configure(_ev, h) {
+    const yt = h.getPlatformHelper().youtube();
+    yt.hideShorts(
+      (item) => item.author && item.author.length > MAX_AUTHOR_LEN,
+      { blockPageOnVisit: true }
+    );
+    h.getDOMHelper().injectCss(
+      "ytd-rich-grid-media[data-cb-hidden] { opacity: 0.2 !important; }",
+      "long-author-label"
+    );
   }
 
-  const site = sites[(month + dayOfMonth) % sites.length];
-  let id = persistenceHelper.get(`timer:${site}`);
+  event.registerOpenWebEvent("hide-long-shorts", configure);
+  event.registerSwitchWebEvent("hide-long-shorts", configure);
+  event.registerWebChangedEvent("hide-long-shorts", configure);
+}
+```
 
-  if (!id || !timerHelper.exists(id)) {
-    id = timerHelper.createTimer(site, 20 * 60 * 1000, `${site} budget`);
-    persistenceHelper.set(`timer:${site}`, id);
-    logHelper.log("Started budget for", site);
-  }
+**Mais difícil** — transmite um evento personalizado de um manipulador para outros:
 
-  if (timerHelper.isExpired(id)) {
-    return [...blockedDomains, domainHelper.normalize(site)];
-  }
+```js
+(event, helpers) => {
+  event.registerSwitchDomainEvent("track-domain", (ev) => {
+    ev.post("domainChange", { from: ev.data.previousHostname, to: ev.hostname });
+  });
 
-  return blockedDomains;
+  event.register("domainChange", "log-it", (ev, h) => {
+    h.getLogHelper().log("crossed", ev.data.from, "→", ev.data.to);
+  });
 }
 ```
 
 ---
 
-## 12. Comportamento de várias páginas
+## 12. Modelos
 
-- Todas as guias abertas no mesmo grupo compartilham o mesmo cronômetro.
+Cada grupo Personalizado tem um seletor de **Modelos** que abre um navegador predefinido pesquisável. A biblioteca agora fornece **mais de 50 modelos** organizados em nove categorias para que você possa navegar em vez de escrever regras do zero:
+
+| Categoria | Exemplos |
+|---|---|
+| **Temporizadores** | Orçamento de tempo do site (contagem regressiva + bloqueio), rastreador de tempo do site (contagem crescente), limite de Shorts do YouTube, limite de feed do TikTok, limite de Instagram Reels, limite de Facebook Reels, limite de Twitch Clips, orçamento de distração universal, rastreador de trabalho profundo diário |
+| **Programação** | Bloqueio de horário de trabalho durante a semana, sites somente nos finais de semana, desligamento antes da hora de dormir, permissão apenas de uma hora, notícias somente para o almoço, recomeço na segunda-feira, permissão dos primeiros N minutos de cada hora, bloqueio estrito de trabalho profundo |
+| **Alimentação/Shorts** | Bloquear URLs de Shorts do YouTube, ocultar cartões de Shorts, ocultar Shorts por palavra-chave, ocultar feed / comentários / tendências da página inicial do YouTube, bloquear TikTok FYP, ocultar shorts do TikTok, bloquear URLs de Instagram Reels, ocultar feed de Instagram Reels, ocultar feed / Reels do Facebook, ocultar Reddit / Twitter / LinkedIn home |
+| **Redirecionar** | Distrações → página de foco, Shorts → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, nova guia → lista de tarefas |
+| **Foco** | Sessão de foco somente na lista de permissões, Pomodoro 25/5, bloqueio durante a reunião, bloqueio após N visitas hoje, bloqueio em caso de perda consecutiva |
+| **Empurrão** | Registrar cada visita de distração, avisar sobre cada visita de Shorts, contar visitas diárias a um site |
+| **Persistência** | Limite de visitas mensais, alternância de banimento semanal, rastreamento de canais Discord visitados |
+| **Ajustes no DOM** | Ocultar alternância de reprodução automática do YouTube, ocultar Twitter / X “O que está acontecendo”, genérico “ocultar seletores em um site” |
+| **Depurar** | Contagem regressiva de demonstração (3 s), registre todos os eventos personalizados |
+
+Os chips de filtro na parte superior do seletor restringem a lista por categoria (`Timer`, `Schedule`, `Feed`,…) e plataforma (`YouTube`, `TikTok`, `Instagram`,…). Selecionando um modelo:
+
+1. Carrega suas entradas de parâmetros (URL, minutos, intervalos de horas, etc.) em um formato pequeno.
+2. **Aplicar predefinição** visualiza a fonte gerada.
+3. Após confirmar **Substituir a regra personalizada atual por esta predefinição?**, a fonte é gravada no editor.
+4. Em seguida, clique em **Executar** para registrar os manipuladores da regra na sandbox fora da tela.
+
+Os modelos são definidos em `templates/*.js` (`timers.js`, `schedule.js`, `feed.js`,…). Cada arquivo chama `CB_REGISTER_TEMPLATES([...])` no momento do carregamento e o pop-up consome a lista mesclada. Adicionar um novo modelo significa escrever uma entrada no arquivo apropriado – nenhum outro encanamento.
+
+---
+
+## 13. Comportamento de várias páginas- Todas as abas abertas no mesmo grupo compartilham o mesmo cronômetro.
 - Quando você alterna para uma guia no mesmo grupo, sua sobreposição é atualizada imediatamente para mostrar o tempo compartilhado atual.
-- Quando uma nova regra é adicionada, cada página aberta detecta a alteração e é atualizada em uma fração de segundo; você não precisa recarregar as guias manualmente.
+- Os temporizadores de regras personalizadas marcam apenas na guia **ativo visível** - controlado por `pageHeartbeatEvent`. As guias de fundo e as janelas minimizadas não as avançam. Isso corresponde à contagem regressiva padrão do grupo de blocos.
+- Quando uma nova regra é adicionada, cada página aberta detecta a alteração e é reavaliada em uma fração de segundo; **mas** manipuladores recém-registrados não "abrem" retroativamente as guias já abertas. O pop-up mostra um lembrete de recarga após cada execução por esse motivo.
 - Quando uma regra expira, os cartões de feed e botões de navegação ocultos são restaurados na próxima atualização.
 
 ---
 
-## 13. Internacionalização
+## 14. Configurações
 
-Toda a IU está totalmente traduzida. Use o seletor **Idioma** no canto superior direito.
+Abra a caixa de diálogo **Configurações** através do ícone de engrenagem na barra superior.
+
+- **Intervalo de pulsação** — com que frequência o script de conteúdo informa o tempo da guia e aciona `pageHeartbeatEvent`. Padrão 250 ms. Valores mais baixos respondem melhor, mas usam mais CPU.
+- **Intervalo de tick** — com que frequência o `tickEvent` global é acionado. Padrão 1000 ms.
+- **Modo de depuração** — *desligado* por padrão. Quando *ativado*, o mecanismo emite entradas em nível de rastreio para o painel Log (`[trace] dispatchEvent`, `[trace] N handler(s)`) e linhas `[CustomBlocker:trace]` para o console do navegador. Deixe-o desligado no uso diário; ligue-o enquanto diagnostica uma regra com comportamento incorreto. `pageHeartbeatEvent` é excluído do log de rastreamento mesmo quando o modo de depuração está ativado, porque ele é acionado quatro vezes por segundo e abafaria o resto.
+
+---
+
+## 15. Internacionalização
+
+Toda a IU é traduzida. Use o seletor **Idioma** no canto superior direito.
 
 Os idiomas suportados incluem inglês, chinês (simplificado), espanhol, japonês, coreano, além de cobertura parcial para hindi, árabe, bengali, português, russo, punjabi, alemão, francês, turco, vietnamita, italiano, tailandês, holandês, polonês, indonésio, urdu e persa. Idiomas com cobertura parcial recorrem ao inglês para strings ausentes.
 
@@ -464,67 +637,75 @@ O próprio manual de instruções carrega o arquivo markdown correspondente ao i
 
 ---
 
-## 14. Mensagens de status
+## 16. Mensagens de status
 
 As mensagens de status aparecem como um brinde centralizado que desaparece após cerca de dois segundos:
 
 - "Alterações salvas."
 - "Criado \"Nome do grupo\"."
+- "Regra personalizada carregada — N manipuladores ativos. Para aplicar esta regra em guias que você já abriu, recarregue-as."
 - Erros de validação como "Os minutos permitidos devem ser um número maior que 0".
-- "Os minutos de suspensão devem ser um número maior que 0."
+- "Os minutos de soneca devem ser um número maior que 0."
 - "Grupos congelados não podem ser alterados."
 
 Para campos de entrada com requisitos de formato, a mensagem também aparece ao lado do botão relevante (para suspender).
 
 ---
 
-## 15. Privacidade e armazenamento
+## 17. Privacidade e armazenamento
 
 - Tudo é armazenado localmente em `chrome.storage.local`. Nenhum dado é enviado para lugar nenhum.
-- Os itens armazenados incluem: seus grupos, temporizadores de uso, horários da última redefinição, registros de suspensão, temporizadores personalizados e valores persistentes personalizados.
-- A extensão não lê o conteúdo da página além do necessário para detectar o tipo de página (caminho/nome do host/marcadores DOM conhecidos para sites de vídeo). Ele não lê suas mensagens, postagens, comentários ou conteúdo privado.
+- Os itens armazenados incluem: seus grupos, cronômetros de uso, horários da última redefinição, registros de suspensão, cronômetros personalizados e valores persistentes personalizados.
+- A extensão não lê o conteúdo da página além do necessário para detectar o tipo de página (caminho/nome do host/marcadores DOM conhecidos para sites de vídeo) e para avaliar predicados escritos pelo usuário. Ele não lê suas mensagens, postagens, comentários ou conteúdo privado.
 
 ---
 
-## 16. Permissões
+## 18. Permissões
 
 - `storage` — para os dados acima.
 - `declarativeNetRequest` — para bloqueio nativo de grupos `Default`.
 - `alarms` — para agendar transições de regras com eficiência.
+- `tabs`, `webNavigation` — para detectar a criação de guias, alterações de URL e pulsações de página para que os eventos possam ser despachados.
+- `offscreen` — para hospedar o sandbox de regras personalizadas de longa duração.
 - `host_permissions: <all_urls>` — para que o script de conteúdo possa mostrar a sobreposição do temporizador e detectar o contexto da plataforma em qualquer página.
 
 ---
 
-## 17. Solução de problemas
-
-- **Um grupo que adicionei não faz nada.** Certifique-se de que o grupo esteja ativado, que a programação permita isso agora, que nenhuma suspensão esteja ativa e (para grupos de plataforma) que a página realmente corresponda ao tipo de conteúdo escolhido e ao filtro de autor.
-- **Um cronômetro está travado ou errado em uma guia.** Afaste-se e volte ou foque a guia, o que aciona uma atualização forçada do cronômetro compartilhado.
-- **Os cartões de feed reaparecem depois que eu acho que deveriam ser ocultados.** A ocultação de feed só é executada enquanto a regra está bloqueando ativamente. Se você tiver uma regra `after-minutes`, a ocultação de feed entrará em ação quando seu tempo chegar a zero.
+## 19. Solução de problemas- **Um grupo que adicionei não faz nada.** Certifique-se de que o grupo esteja ativado, que a programação permita isso agora, que nenhuma suspensão esteja ativa e (para grupos de plataforma) que a página realmente corresponda ao tipo de conteúdo escolhido e ao filtro de autor.
+- **Um cronômetro está travado ou errado em uma guia.** Afaste-se e volte ou foque a guia - isso aciona uma atualização forçada do cronômetro compartilhado.
+- **Os cartões de feed reaparecem depois que eu acho que eles deveriam ser ocultados.** A ocultação de feed só é executada enquanto a regra está bloqueando ativamente. Se você tiver uma regra `after-minutes`, a ocultação de feed entrará em ação quando seu tempo chegar a zero.
 - **Um botão de navegação do YouTube que eu esperava estar oculto ainda está lá.** A ocultação de navegação exige que a regra seja definida como "não filtrar por autor" e que o tipo de conteúdo seja Shorts ou postagens do YouTube. Com filtros de autor, a ocultação ocorre apenas por cartão.
-- **A regra personalizada não fez nada ou foi lançada silenciosamente.** Abra `chrome://extensions`, ative o modo de desenvolvedor, clique no link "service work" da extensão e verifique o console. Use `helpers.logHelper.log(...)` para rastrear sua regra.
-- **Não consigo excluir um grupo.** Provavelmente ele está congelado. Grupos estritamente congelados não podem ser excluídos até que seu bloqueio expire; grupos congelados não estritos podem ser excluídos por meio do ritual de descongelamento.
+- **A regra personalizada não fez nada ou foi lançada silenciosamente.** Abra Configurações → habilite **Modo de depuração**, clique em **Executar** novamente e observe o painel Log. As linhas prefixadas com `[trace]` mostram cada despacho e manipulador. Use `helpers.getLogHelper().log(...)` para adicionar seus próprios pontos de rastreamento. Se uma regra com comportamento incorreto continuou sendo colocada em quarentena automática, corrija a origem e clique em Executar – Executar limpa o motivo da interrupção.
+- **Minha nova regra personalizada não afeta as guias já abertas.** Recarregue-as. Regras personalizadas são anexadas a eventos de página *futuros*; o pop-up mostra um lembrete para recarregar após cada corrida.
+- **Meu cronômetro de contagem regressiva não está avançando.** Os cronômetros de regras personalizadas marcam apenas na guia **ativo visível** via `pageHeartbeatEvent`. Guias de fundo, janelas minimizadas e telas bloqueadas os pausam por design – mesmo comportamento da contagem regressiva padrão do grupo de blocos.
+- **Não consigo excluir um grupo.** Provavelmente está congelado. Grupos estritamente congelados não podem ser excluídos até que seu bloqueio expire; grupos congelados não estritos podem ser excluídos por meio do ritual de descongelamento.
+- **O pop-up mostra "Running…" para sempre.** Uma regra personalizada provavelmente entrou em um loop apertado. O mecanismo o desliga após um tempo limite difícil e coloca a regra em quarentena. Abra o painel Log pelo motivo do cancelamento; corrija a regra e clique em Executar.
 
 ---
 
-## 18. Glossário
+## 20. Glossário
 
-- **Grupo de bloqueio** — um conjunto de regras com seu próprio tipo, comportamento, programação e congelamento/suspendência.
+- **Grupo de blocos** — um conjunto de regras com seu próprio tipo, comportamento, programação e congelamento/soneca.
 - **Bloqueio instantâneo** — a regra é bloqueada imediatamente sempre que estiver ativa.
 - **Bloqueio após minutos** — a regra começa a bloquear somente depois que o orçamento de tempo do período se esgota.
 - **Intervalo de redefinição** — com que frequência o orçamento após minutos é redefinido.
 - **Programação** — dias + janelas de tempo durante as quais um grupo está ativo.
 - **Congelar/Congelar estrito** — estados anti-adulteração.
-- **Soneca** — desativação temporária com justificativa por escrito.
+- **Soneca** — desativação temporária com um ritual de confirmação configurável.
 - **Filtro de autor** — para grupos de plataformas, restringe a regra a determinados criadores de conteúdo.
 - **Tipo de conteúdo** — para grupos de plataformas, restringe a regra a determinadas formas de conteúdo (curto, longo, postagem).
-- **Helpers** — utilitários passados ​​para uma função de regra personalizada.
-- **Plataforma** — um de `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`. Cada um tem seu próprio tipo de grupo e lógica de ocultação de feed.
+- **Helpers** — utilitários passados ​​para o manipulador de uma regra personalizada.
+- **Plataforma** — uma de `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`. Cada um tem seu próprio tipo de grupo e lógica de ocultação de feed.
+- **Heartbeat** — o `pageHeartbeatEvent` de aproximadamente 250 ms despachado da guia visível ativa.
+- **Tick** — o 1 s `tickEvent` compartilhado globalmente (independente de visibilidade).
+- **Modo de depuração** — uma configuração que mostra o registro de rastreamento interno no painel Log e no console do navegador.
+- **Quarentena** — desativação automática de uma regra personalizada que excedeu um limite de segurança de tempo de execução (prazo, spam de registro,…). Eliminado na próxima execução.
 
 ---
 
-## 19. Limitações
-
-- A ocultação de feed depende do DOM atual de cada plataforma. Se a plataforma alterar seu layout, os seletores de ocultação poderão precisar ser atualizados.
+## 21. Limitações- A ocultação de feed depende do DOM atual de cada plataforma. Se a plataforma alterar seu layout, os seletores de ocultação poderão precisar ser atualizados.
 - A detecção de contexto de plataforma para sites que não são do YouTube é baseada principalmente em URLs, por isso é mais confiável em URLs de conteúdo canônico.
-- Os loops de regras personalizados acontecem no trabalhador em segundo plano, não nas páginas, portanto, as informações no nível do DOM não estão disponíveis dentro da função. Use `platformHelper.detect(url)` com uma string de URL.
-- O navegador pode suspender o service worker quando estiver ocioso. A extensão irá retomá-lo assim que uma página ou alarme precisar; os temporizadores de uso não perderão a precisão por causa disso.
+- Temporizadores de regras personalizadas marcam na resolução de pulsação (~250 ms). Não confie neles para cronometragem abaixo de um segundo.
+- Os predicados passados ​​para `hideShorts`/`hideVideos`/`hidePosts` são avaliados de forma síncrona por cartão de alimentação. Lógica pesada em um predicado pode retardar a rolagem do feed; mantenha-os baratos.
+- Duas guias editando o mesmo cronômetro por grupo usam simultaneamente uma estratégia de "última gravação ganha". Para uso típico, isso é bom; se você depende de uma contabilidade exata, espere pequenos desvios ocasionais.
+- O navegador pode suspender o trabalhador do serviço em segundo plano quando estiver ocioso. A extensão retoma assim que uma página ou alarme precisar; os orçamentos de uso do site/temporizado continuam contando por meio da repetição de pulsação.

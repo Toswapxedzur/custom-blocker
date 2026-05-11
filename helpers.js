@@ -358,7 +358,33 @@
   //   scope(url)   — when true, auto-tick by heartbeat elapsedMs.
   //   domain(url)  — when true, show in overlay (defaults to scope).
   function createTimerHelper(ctx) {
-    const { groupId, timersBucket, elapsedMs, currentUrl, tickedSet, displayedSet } = ctx;
+    const { groupId, timersBucket } = ctx;
+    // Accept either fixed values (legacy / tests) or thunks
+    // (createEventGroupHelpers wires these to per-dispatch state so
+    // every dispatch sees fresh elapsedMs / tickedSet / currentUrl).
+    // Without per-dispatch refresh, elapsedMs stays at 0 forever and
+    // timers never auto-tick.
+    const readElapsedMs = typeof ctx.elapsedMsRef === "function"
+      ? ctx.elapsedMsRef
+      : () => Number(ctx.elapsedMs) || 0;
+    const readCurrentUrl = typeof ctx.currentUrlRef === "function"
+      ? ctx.currentUrlRef
+      : () => (typeof ctx.currentUrl === "string" ? ctx.currentUrl : "");
+    const readTickedSet = typeof ctx.tickedSetRef === "function"
+      ? ctx.tickedSetRef
+      : () => (ctx.tickedSet instanceof Set ? ctx.tickedSet : (ctx.tickedSet = new Set()));
+    const readDisplayedSet = typeof ctx.displayedSetRef === "function"
+      ? ctx.displayedSetRef
+      : () => (ctx.displayedSet instanceof Set ? ctx.displayedSet : (ctx.displayedSet = new Set()));
+    // Sandbox-lifetime predicate registry. timersBucket is JSON-
+    // persisted (no functions allowed), so scope/domain predicates
+    // live here keyed by timer id. Predicates last as long as the
+    // sandbox iframe; on reset/reload the rule re-registers them.
+    // Caller may pass an existing map via ctx.predicatesBucket so all
+    // helper instances for the same group share it.
+    const predicatesBucket = ctx.predicatesBucket && typeof ctx.predicatesBucket === "object"
+      ? ctx.predicatesBucket
+      : {};
 
     function getTimer(id) {
       if (typeof id !== "string" || !id) return null;
@@ -379,28 +405,85 @@
 
     function safePredicate(predicate) {
       if (typeof predicate !== "function") return false;
-      try { return Boolean(predicate(currentUrl)); } catch { return false; }
+      try { return Boolean(predicate(readCurrentUrl())); } catch { return false; }
+    }
+
+    function rememberPredicates(id, scope, domain) {
+      // Only update slots that the caller actually provided so a
+      // subsequent getOrCreateTimer call without explicit predicates
+      // doesn't accidentally drop the scope set at create time.
+      const slot = predicatesBucket[id] || {};
+      if (typeof scope === "function") slot.scope = scope;
+      else if (scope === null) delete slot.scope;
+      if (typeof domain === "function") slot.domain = domain;
+      else if (domain === null) delete slot.domain;
+      predicatesBucket[id] = slot;
     }
 
     function applyScopeAndDomain(id, scope, domain) {
+      // Persist predicates for the lifetime of the sandbox so the
+      // sandbox-driven heartbeat auto-tick can find them on subsequent
+      // dispatches even if the user doesn't re-pass them.
+      rememberPredicates(id, scope, domain);
       // Auto-tick if scope matches and we haven't already ticked this id
-      // in this heartbeat. tickedSet is shared across all rules in a
-      // group so multiple create / getOrCreateTimer calls don't
-      // double-tick.
-      if (typeof scope === "function" && !tickedSet.has(id)) {
+      // in this dispatch. tickedSet is per-dispatch (provided by
+      // event-sandbox.js) and shared across all handlers / timer
+      // helpers in the group so multiple create / getOrCreateTimer
+      // calls during the same dispatch don't double-tick.
+      const slot = predicatesBucket[id] || {};
+      const effectiveScope = typeof scope === "function" ? scope : slot.scope;
+      const effectiveDomain = typeof domain === "function" ? domain : slot.domain;
+      const tickedSet = readTickedSet();
+      if (typeof effectiveScope === "function" && !tickedSet.has(id)) {
         const timer = getTimer(id);
-        if (timer && !timer.isPaused && safePredicate(scope)) {
-          tickInternal(id, elapsedMs);
+        if (timer && !timer.isPaused && safePredicate(effectiveScope)) {
+          tickInternal(id, readElapsedMs());
           tickedSet.add(id);
         }
       }
       // Decide overlay display. domain takes priority; when omitted we
       // default to scope so a "tick on shorts pages" timer also shows
       // there without needing two predicates.
-      const displayPredicate = typeof domain === "function" ? domain : scope;
+      const displayPredicate = typeof effectiveDomain === "function" ? effectiveDomain : effectiveScope;
       if (typeof displayPredicate === "function" && safePredicate(displayPredicate)) {
-        displayedSet.add(id);
+        readDisplayedSet().add(id);
       }
+    }
+
+    // Sandbox-driven sweep called once per heartbeat dispatch. Walks
+    // every timer the rule has created and applies scope-based auto-
+    // tick + domain-based overlay display, using the predicates the
+    // rule registered earlier. Without this, only timers re-touched
+    // during the dispatch (i.e. via getOrCreateTimer) would auto-tick.
+    function tickAllScopedTimers() {
+      for (const id of Object.keys(timersBucket)) {
+        const slot = predicatesBucket[id] || {};
+        applyScopeAndDomain(id, slot.scope, slot.domain);
+      }
+    }
+
+    // Returns a serializable snapshot of timers that should be drawn
+    // in the on-page overlay for the current URL. The sandbox calls
+    // this after a heartbeat dispatch so background can forward the
+    // list to content.js, mirroring how default block group items
+    // are surfaced.
+    function getDisplayedTimerSnapshots() {
+      const out = [];
+      const displayed = readDisplayedSet();
+      for (const id of Object.keys(timersBucket)) {
+        if (!displayed.has(id)) continue;
+        const timer = getTimer(id);
+        if (!timer) continue;
+        out.push({
+          id,
+          displayName: timer.displayName || id,
+          direction: timer.direction,
+          currentMs: timer.currentMs,
+          isPaused: Boolean(timer.isPaused),
+          isExpired: timer.currentMs === 0
+        });
+      }
+      return out;
     }
 
     function buildFresh(init) {
@@ -436,6 +519,7 @@
       delete(id) {
         if (!getTimer(id)) return false;
         delete timersBucket[id];
+        delete predicatesBucket[id];
         return true;
       },
       pause(id) {
@@ -516,7 +600,11 @@
           currentMs: timer.currentMs,
           isExpired: timer.currentMs === 0
         }));
-      }
+      },
+      // Sandbox-internal entry points. Prefixed __cb_ so a user rule
+      // doing `helpers.getTimerHelper().reset(...)` won't ever clash.
+      __cb_tickAllScopedTimers: tickAllScopedTimers,
+      __cb_getDisplayedTimerSnapshots: getDisplayedTimerSnapshots
     };
   }
 
@@ -724,12 +812,55 @@
     accumulator.logs = accumulator.logs || [];
     accumulator.domOps = accumulator.domOps || [];
     if (accumulator.redirectUrl === undefined) accumulator.redirectUrl = null;
+    if (accumulator.logsDropped === undefined) accumulator.logsDropped = 0;
     return accumulator;
+  }
+
+  // Hard caps mirrored from event-sandbox.js. They protect helpers shared
+  // by the offscreen sandbox, the content script, and the background SW
+  // against a runaway handler that pushes millions of log/intent entries
+  // (the kind of code that locks Chrome and survives popup re-opens).
+  const HELPERS_MAX_LOGS_PER_DISPATCH = 200;
+  const HELPERS_MAX_DOM_OPS_PER_DISPATCH = 256;
+  const HELPERS_MAX_INTENTS_PER_DISPATCH = 256;
+  const HELPERS_HANDLER_DEADLINE_GRACE_MS = 0;
+  // Sentinel error type. Throwing it from a helper unwinds the user's
+  // handler all the way out to dispatchEvent's try/catch, which records
+  // a single "[handler aborted]" warning instead of letting the loop run
+  // forever. Sub-classed from Error so user `try { ... } catch (e) {}`
+  // blocks can detect it via instanceof if they care.
+  function HandlerBudgetExceededError(message) {
+    const err = new Error(message || "Handler exceeded time budget");
+    err.name = "HandlerBudgetExceededError";
+    err.__customBlockerBudgetAbort = true;
+    return err;
+  }
+
+  function checkHandlerDeadline(accumulator) {
+    if (!accumulator) return;
+    const deadline = accumulator._handlerDeadline;
+    if (!deadline) return;
+    if (accumulator._handlerOverrun) {
+      throw HandlerBudgetExceededError(
+        "Handler aborted: prior overrun detected"
+      );
+    }
+    const now = (typeof performance !== "undefined" && performance.now)
+      ? performance.now()
+      : Date.now();
+    if (now > deadline + HELPERS_HANDLER_DEADLINE_GRACE_MS) {
+      accumulator._handlerOverrun = true;
+      throw HandlerBudgetExceededError(
+        "Handler aborted: exceeded time budget"
+      );
+    }
   }
 
   function createDOMHelper(accumulatorRef) {
     function record(op) {
       const acc = ensureAccumulatorShape(accumulatorRef.get());
+      checkHandlerDeadline(acc);
+      if (acc.domOps.length >= HELPERS_MAX_DOM_OPS_PER_DISPATCH) return;
       acc.domOps.push(op);
     }
     return {
@@ -768,6 +899,8 @@
   function createNavigationHelper(accumulatorRef, eventTabIdRef) {
     function record(op) {
       const acc = ensureAccumulatorShape(accumulatorRef.get());
+      checkHandlerDeadline(acc);
+      if (acc.intents.length >= HELPERS_MAX_INTENTS_PER_DISPATCH) return;
       const tabId = typeof eventTabIdRef === "function" ? eventTabIdRef() : (eventTabIdRef ?? null);
       acc.intents.push({ kind: "navigation", op, tabId });
     }
@@ -789,6 +922,8 @@
       requestAsyncGet(key) {
         if (typeof key !== "string" || !key) return false;
         const acc = ensureAccumulatorShape(accumulatorRef.get());
+        checkHandlerDeadline(acc);
+        if (acc.intents.length >= HELPERS_MAX_INTENTS_PER_DISPATCH) return false;
         acc.intents.push({ kind: "storage", action: "get", key });
         return true;
       },
@@ -797,6 +932,8 @@
         const cloned = safeCloneJson(value);
         if (cloned === undefined) return false;
         const acc = ensureAccumulatorShape(accumulatorRef.get());
+        checkHandlerDeadline(acc);
+        if (acc.intents.length >= HELPERS_MAX_INTENTS_PER_DISPATCH) return false;
         acc.intents.push({ kind: "storage", action: "set", key, value: cloned });
         return true;
       }
@@ -815,27 +952,42 @@
       countOpen() { return snapshot().length; },
       requestRefresh() {
         const acc = ensureAccumulatorShape(accumulatorRef.get());
+        checkHandlerDeadline(acc);
+        if (acc.intents.length >= HELPERS_MAX_INTENTS_PER_DISPATCH) return;
         acc.intents.push({ kind: "tab", action: "refresh" });
       }
     };
   }
 
   function createEventLogHelper(groupId, accumulatorRef) {
+    // Returns false when the dispatch's log buffer is full so the caller
+    // can also skip the corresponding console.* call. Without that gate,
+    // a `for (let i = 0; i < 1e5; i++) h.log(i)` would still flood
+    // DevTools and freeze Chrome even though the IPC chain is now
+    // bounded. checkHandlerDeadline throws after the 1s budget so an
+    // infinite while-loop calling h.log gets unwound instead of locking
+    // the sandbox.
     function push(level, args) {
       const acc = ensureAccumulatorShape(accumulatorRef.get());
+      checkHandlerDeadline(acc);
+      if (acc.logs.length >= HELPERS_MAX_LOGS_PER_DISPATCH) {
+        acc.logsDropped = (acc.logsDropped || 0) + 1;
+        return false;
+      }
       acc.logs.push({ level, groupId, args });
+      return true;
     }
     return {
       log(...args) {
-        push("log", args);
+        if (!push("log", args)) return;
         try { console.log("[CustomBlocker:" + groupId + "]", ...args); } catch {}
       },
       warn(...args) {
-        push("warn", args);
+        if (!push("warn", args)) return;
         try { console.warn("[CustomBlocker:" + groupId + "]", ...args); } catch {}
       },
       error(...args) {
-        push("error", args);
+        if (!push("error", args)) return;
         try { console.error("[CustomBlocker:" + groupId + "]", ...args); } catch {}
       }
     };
@@ -1004,6 +1156,8 @@
   function createEventPlatformHelper(accumulatorRef, dispatchContextRef, persistentBucket) {
     function recordIntent(platform, intent) {
       const acc = ensureAccumulatorShape(accumulatorRef.get());
+      checkHandlerDeadline(acc);
+      if (acc.intents.length >= HELPERS_MAX_INTENTS_PER_DISPATCH) return;
       acc.intents.push({ kind: "platform", platform, intent });
     }
     function getDispatchContext() {
@@ -1144,7 +1298,12 @@
       groupId,
       currentUrl,
       timersBucket,
-      persistenceBucket
+      persistenceBucket,
+      // Optional shared predicate registry (sandbox-lifetime). When the
+      // event-sandbox passes one in, scope/domain predicates set during
+      // a dispatch survive into subsequent heartbeats so timers can
+      // auto-tick without the rule re-passing predicates each time.
+      timerPredicatesBucket
     } = ctx || {};
 
     const accumulatorRef = ctx?.accumulatorRef
@@ -1159,17 +1318,36 @@
     // path) starts with the right shape.
     ensureAccumulatorShape(accumulatorRef.get());
 
-    const tickedSet = new Set();
-    const displayedSet = new Set();
+    // Fallback per-helpers ticked/displayed sets used only when a
+    // dispatch context isn't available (e.g. legacy callers that
+    // construct helpers without the sandbox dispatch). When the
+    // sandbox is driving us, dispatchContextRef returns the fresh
+    // per-dispatch sets and elapsedMs.
+    const fallbackTickedSet = new Set();
+    const fallbackDisplayedSet = new Set();
 
     const domain = createEventDomainHelper();
     const timer = createTimerHelper({
       groupId,
       timersBucket: timersBucket || {},
-      elapsedMs: 0,
-      currentUrl: currentUrl || "",
-      tickedSet,
-      displayedSet
+      predicatesBucket: timerPredicatesBucket || {},
+      elapsedMsRef: () => {
+        const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
+        const v = Number(dc?.elapsedMs);
+        return Number.isFinite(v) && v >= 0 ? v : 0;
+      },
+      currentUrlRef: () => {
+        const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
+        return normalizeUrlForEvents(dc?.currentUrl ?? currentUrl ?? "");
+      },
+      tickedSetRef: () => {
+        const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
+        return dc?.tickedSet instanceof Set ? dc.tickedSet : fallbackTickedSet;
+      },
+      displayedSetRef: () => {
+        const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
+        return dc?.displayedSet instanceof Set ? dc.displayedSet : fallbackDisplayedSet;
+      }
     });
     const persistence = createPersistenceHelper(persistenceBucket || {});
     const log = createEventLogHelper(groupId, accumulatorRef);
@@ -1226,6 +1404,19 @@
     createDomainUtility,
     platformUrlOps,
     isEmptyStartPage,
-    normalizeUrlForEvents
+    normalizeUrlForEvents,
+    // Exposed for tests so we can directly exercise per-helper deadline
+    // and cap behavior without spinning up a full event-sandbox stack.
+    // Production callers should keep using getLogHelper/getDOMHelper/...
+    // through createEventGroupHelpers — these factories are subject to
+    // change.
+    createEventLogHelper,
+    createDOMHelper,
+    createTabHelper,
+    // Exposed so event-sandbox.js can call it from registerHandler too,
+    // ensuring a registration loop (`for (let i = 0; i < 1e5; i++)
+    // events.register(...)`) terminates within the time budget even
+    // though it never calls a logger/DOM helper.
+    checkHandlerDeadline
   };
 })(typeof self !== "undefined" ? self : globalThis);

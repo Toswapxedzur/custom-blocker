@@ -1,530 +1,711 @@
-# Custom Web Blocker — Panduan Instruksi
+# Pemblokir Web Khusus — Instruksi Manual
 
-Ini adalah manual referensi lengkap untuk ekstensi ini. Dimulai dari alur paling mudah dan paling umum, lalu bertahap ke topik lanjutan seperti aturan pemblokiran JavaScript kustom dan helper API.
+Ini adalah panduan referensi lengkap untuk ekstensi. Ini dimulai dengan alur kerja yang paling mudah dan umum dan secara bertahap beralih ke topik lanjutan seperti aturan pemblokiran berdasarkan peristiwa khusus dan API pembantu.
 
-Jika Anda benar-benar baru, cukup baca **Quick start** dan **Block groups overview**. Semua bagian di bawahnya bersifat opsional, tergantung kebutuhan Anda.
+Jika Anda masih baru, cukup baca **Mulai cepat** dan **Ikhtisar grup blok**. Segala sesuatu di bawah bagian tersebut bersifat opsional, bergantung pada apa yang ingin Anda lakukan.
 
 ---
 
-## 1. Apa yang dilakukan ekstensi ini
+## 1. Fungsi ekstensi ini
 
-Custom Web Blocker memungkinkan Anda memblokir situs web dan distraksi online berdasarkan aturan yang Anda tentukan sendiri. Anda bisa:
+Pemblokir Web Khusus memungkinkan Anda memblokir situs web dan gangguan online sesuai dengan aturan yang Anda tetapkan sendiri. Anda dapat:
 
-- Memblokir situs secara langsung dengan pemblokiran jaringan native browser (jenis blokir yang sama yang menghasilkan `ERR_BLOCKED_BY_CLIENT`).
-- Mengizinkan diri Anda sejumlah menit per hari pada suatu situs, lalu memblokirnya saat melewati batas.
-- Memblokir jenis konten tertentu di YouTube, TikTok, Facebook, Instagram, Twitch, dan Reddit (bukan seluruh situs).
-- Menyembunyikan konten yang diblokir dari feed di platform yang didukung, bukan hanya memblokir halaman tunggal.
-- Menjadwalkan kapan aturan aktif berdasarkan hari dalam minggu dan jendela waktu `HHMM-HHMM`.
-- Membekukan aturan agar tidak mudah diubah. Strict freeze mengunci aturan selama jumlah jam tertentu dan memerlukan ritual konfirmasi 20 langkah untuk membuka kunci.
-- Menunda aturan sementara (snooze), tetapi hanya setelah menulis alasan yang cukup panjang.
-- Menulis aturan pemblokiran JavaScript kustom dengan helper untuk timer, penyimpanan persisten, deteksi platform, pencocokan domain, dan logging.
-- Menggunakan ekstensi dalam 20+ bahasa.
+- Segera memblokir situs dengan pemblokiran jaringan asli browser (jenis pemblokiran yang sama yang menghasilkan `ERR_BLOCKED_BY_CLIENT`).
+- Beri diri Anda waktu tertentu per hari di sebuah situs, lalu blokir situs tersebut setelah Anda melampaui batas tersebut.
+- Blokir jenis konten tertentu di YouTube, TikTok, Facebook, Instagram, Twitch, dan Reddit (bukan keseluruhan situs).
+- Sembunyikan konten yang diblokir dari feed pada platform yang didukung alih-alih hanya memblokir satu halaman.
+- Jadwalkan kapan aturan aktif berdasarkan hari dalam seminggu dan berdasarkan jendela waktu `HHMM-HHMM`.
+- Bekukan aturan sehingga Anda tidak dapat mengubahnya dengan mudah. Pembekuan ketat akan menguncinya selama beberapa jam tertentu dan memerlukan ritual konfirmasi 20 langkah untuk membatalkannya.
+- Tunda aturan untuk sementara, namun hanya setelah menulis justifikasi yang cukup panjang.
+- Tulis aturan khusus **berbasis peristiwa** dalam JavaScript dengan bantuan untuk pengatur waktu maju/mundur, penyimpanan persisten per grup, maksud DOM per platform (menyembunyikan tombol navigasi, menyembunyikan kartu umpan berdasarkan predikat, menyetel pengatur waktu per subbagian), utilitas URL, dan logging terstruktur.
+- Pilih dari perpustakaan bawaan yang berisi 50+ templat siap pakai (pengatur waktu, jadwal, penyembunyian umpan, sesi fokus, pengalihan, dorongan, ketekunan, penyesuaian DOM, pembantu debug).
+- Gunakan ekstensi dalam 20+ bahasa.
 
-Ekstensi ini adalah ekstensi Chrome Manifest V3, dengan satu halaman editor (popup), satu background service worker, dan satu content script yang berjalan di setiap halaman.
+Ekstensi ini adalah ekstensi Chrome Manifest V3 dengan satu halaman editor (popup), satu pekerja layanan latar belakang, satu kotak pasir di luar layar yang menghosting kode aturan khusus, dan satu skrip konten yang berjalan di setiap halaman. Aturan khusus ada di kotak pasir di luar layar; aturan tersebut dimuat sekali per klik Jalankan dan tetap terdaftar hingga aturan dinonaktifkan atau dihapus.
 
 ---
 
 ## 2. Tur UI
 
-Saat Anda mengklik ikon ekstensi, editor terbuka sebagai halaman web penuh (bukan popup kecil). Halaman memiliki area berikut:
+Saat Anda mengeklik ikon ekstensi, editor akan terbuka sebagai halaman web penuh (bukan popup kecil). Halaman tersebut memiliki area berikut:
 
-- **Top bar**
-  - Tombol **Instruction Manual** (dokumen ini)
-  - Pemilih **Language**
-- **Panel kiri — Block Groups**
-  - Daftar grup blokir Anda. Setiap kartu menampilkan nama grup, ringkasan singkat, dan checkbox aktif/nonaktif.
-  - Tombol **Add** membuat grup baru. Dropdown di sebelahnya memilih tipe.
-  - **Delete All** menghapus semua grup, dengan konfirmasi tambahan jika ada grup yang dibekukan.
-  - Anda dapat menyeret handle `::` pada kartu ke atas atau ke bawah untuk mengurutkan ulang grup.
-  - Anda dapat menyeret splitter vertikal untuk mengubah ukuran panel ini.
+- **Bilah atas**
+  - Tombol **Instruksi Manual** (dokumen ini)
+  - Pemilih **Bahasa**
+  - Perlengkapan **Pengaturan** (pengalih lanjutan, termasuk **Mode debug**)
+- **Panel kiri — Grup Blokir**
+  - Daftar grup blok Anda. Setiap kartu menunjukkan nama grup, baris ringkasan singkat, dan kotak centang aktifkan/nonaktifkan.
+  - Tombol **Tambah** membuat grup baru. Dropdown di sebelahnya memilih jenisnya.
+  - **Hapus Semua** menghapus setiap grup, dengan konfirmasi tambahan jika ada grup yang dibekukan.
+  - Anda dapat menyeret pegangan `::` pada kartu ke atas atau ke bawah untuk menyusun ulang grup.
+  - Anda dapat menyeret pemisah vertikal untuk mengubah ukuran panel ini.
 - **Panel kanan — Editor**
-  - Mengedit grup yang sedang dipilih: nama, perilaku blokir, blocklist, filter khusus tipe, jadwal, freeze, snooze.
-  - Semua perubahan tersimpan otomatis dalam sepersekian detik setelah Anda berhenti mengetik atau berinteraksi.
-- **Toast** (popup di tengah yang memudar)
-  - Menampilkan pesan status seperti "Saved changes" atau error input.
-
-Saat suatu halaman diblokir atau memiliki timer aktif, overlay muncul di kiri atas yang menunjukkan semua batasan waktu yang sedang memengaruhinya, dalam format `hh:mm:ss` (atau `mm:ss`). Beberapa batasan ditumpuk di beberapa baris.
+  - Mengedit grup yang dipilih saat ini: nama, perilaku pemblokiran, daftar blokir, filter khusus jenis, jadwal, bekukan, tunda.
+  - Semua perubahan disimpan secara otomatis sepersekian detik setelah Anda berhenti mengetik atau berinteraksi.
+  - Untuk grup **Kustom**, editor juga menampilkan browser **Templat**, tombol **Jalankan**, dan panel **Log** (berganti nama dari *Log aktivitas* di v1.1).
+- **Toast** (popup terpusat yang memudar) — menampilkan pesan status seperti "Perubahan tersimpan". atau kesalahan masukan.
+- **Hamparan dalam halaman** — meskipun tab memiliki pengatur waktu atau blok yang aktif, hamparan muncul di sudut kiri atas yang menunjukkan setiap batasan yang memengaruhinya dalam format `hh:mm:ss` (atau `mm:ss`). Berbagai batasan bertumpuk pada banyak baris. Hitung mundur grup blok default dan pengatur waktu aturan khusus berbagi hamparan ini.
 
 ---
 
-## 3. Quick start
-
-1. Klik ikon ekstensi. Editor terbuka sebagai halaman penuh.
-2. Di panel **Block Groups**, pilih tipe grup dari dropdown:
+## 3. Mulai cepat1. Klik ikon ekstensi. Editor terbuka sebagai satu halaman penuh.
+2. Di panel **Blokir Grup**, pilih jenis grup dari dropdown:
    - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit`, atau `Custom`.
-3. Klik **Add**. Grup baru muncul, dan editor membukanya.
-4. Beri nama grup.
-5. Isi field khusus tipe (untuk `Default`, ini berarti daftar **Blocked websites**).
-6. Pastikan checkbox grup di panel kiri dalam keadaan aktif.
-7. Kunjungi salah satu situs yang tercantum. Pemblokiran harus langsung berlaku.
+3. Klik **Tambahkan**. Grup baru muncul, dan editor membukanya.
+4. Beri nama.
+5. Isi kolom jenis tertentu (untuk `Default`, itu berarti daftar **Situs web yang diblokir**).
+6. Pastikan kotak centang grup di panel kiri aktif.
+7. Kunjungi salah satu situs yang terdaftar. Pemblokiran tersebut akan segera berlaku.
 
-Itu seluruh jalur happy path. Sisa manual ini hanyalah opsi tambahan di atas alur tersebut.
+Itulah keseluruhan jalan bahagia. Sisa dari panduan ini hanyalah opsi tambahan.
+
+> Saat Anda menekan **Jalankan** pada grup Kustom, aturan baru akan dilampirkan ke acara halaman **yang akan datang**. Tab yang sudah terbuka tetap menjalankan aturan sebelumnya hingga Anda memuatnya kembali. Popup menampilkan pengingat akan efek tersebut setelah setiap Lari berhasil.
 
 ---
 
-## 4. Ringkasan block group
+## 4. Ikhtisar grup blok
 
-Semua hal dalam ekstensi ini diatur sebagai **block groups**. Block group adalah satu set aturan:
+Segala sesuatu di ekstensi ini diatur sebagai **grup blok**. Grup blok adalah satu kumpulan aturan:
 
-- Memiliki nama, tipe, dan status aktif/nonaktif.
-- Memiliki perilaku pemblokiran (langsung atau setelah sejumlah menit).
-- Memiliki jadwal opsional (hari + jendela waktu) serta kontrol freeze/snooze opsional.
-- Bergantung pada tipe, memiliki field tambahan seperti daftar situs, filter kreator YouTube, nama subreddit, atau fungsi JavaScript.
+- Ia memiliki nama, tipe, dan status aktif/nonaktif.
+- Ini memiliki perilaku pemblokiran (segera, setelah beberapa menit, atau hitungan mundur tetap).
+- Ini memiliki jadwal opsional (hari + jendela waktu) dan kontrol pembekuan/tunda opsional.
+- Tergantung pada jenisnya, ia memiliki bidang tambahan seperti daftar situs web, filter pembuat YouTube, nama subreddit, atau aturan JavaScript berbasis peristiwa.
 
-Anda dapat memiliki jumlah grup tak terbatas. Beberapa grup bisa berlaku pada halaman yang sama; dalam kasus itu aturan **paling ketat** yang menang:
+Anda dapat memiliki sejumlah grup. Beberapa grup mungkin berlaku pada halaman yang sama; dalam hal ini, aturan **yang paling ketat** akan menang:
 
-- "Block immediately" mengalahkan "block after some time".
+- "Blokir segera" mengalahkan "blokir setelah beberapa waktu".
 - Grup dengan sisa waktu lebih sedikit mengalahkan grup dengan sisa waktu lebih banyak.
 
-Jadi menambahkan lebih banyak grup hanya bisa membuat halaman diblokir lebih cepat, tidak pernah lebih lambat.
+Jadi menambahkan lebih banyak grup hanya akan membuat halaman diblokir lebih cepat, tidak akan lebih lama lagi.
 
-Anda dapat menyeret grup lewat handle `::` untuk mengurutkan ulang. Urutan tidak mengubah aturan mana yang paling ketat, tetapi mengontrol keterbacaan daftar dari atas ke bawah.
+**Urutan evaluasi dari bawah ke atas.** Saat ekstensi mengulangi grup blok Anda, ekstensi dimulai dengan grup di bagian bawah daftar dan berlanjut ke atas. Grup di bagian atas daftar dievaluasi terakhir dan mendapatkan "kata terakhir" — misalnya, jika grup terbawah memanggil `helpers.getPlatformHelper().youtube().hideShortButton()` dan grup teratas memanggil `showShortButton()`, tombolnya tetap terlihat. Seret pegangan `::` pada kartu untuk mengubah urutan ini.
 
 ---
 
 ## 5. Tipe grup
 
-### 5.1 `Default` — blokir situs web biasa
+### 5.1 `Default` — memblokir situs web biasa
 
-Untuk memblokir domain spesifik (kasus penggunaan paling umum).
+Untuk memblokir domain tertentu (kasus penggunaan umum).
 
-- **Blocked websites**: satu situs per baris. Baik `facebook.com` maupun `https://www.facebook.com/somepage` akan berfungsi; ekstensi mengekstrak dan menormalkan hostname.
-- Aturan situs berlaku untuk hostname tersebut dan semua subdomainnya.
-- Tipe grup ini menggunakan pemblokiran jaringan native Chrome, mirip `ERR_BLOCKED_BY_CLIENT`. Artinya navigasi ke URL yang diblokir dihentikan sebelum halaman dimuat.
+- **Situs web yang diblokir**: satu situs per baris. `facebook.com` dan `https://www.facebook.com/somepage` berfungsi; ekstensi mengekstrak dan menormalkan nama host.
+- Aturan situs berlaku untuk nama host tersebut dan semua subdomainnya.
+- Jenis grup ini menggunakan pemblokiran jaringan asli Chrome, mirip dengan `ERR_BLOCKED_BY_CLIENT`. Itu berarti navigasi ke URL yang diblokir dihentikan bahkan sebelum halaman dimuat.
 
-### 5.2 `YouTube` — blokir YouTube dan situs video serupa
+### 5.2 `YouTube` — memblokir YouTube dan situs video serupa
 
-Menambahkan bagian **Filters** ke editor:
+Menambahkan bagian **Filter** ke editor:
 
-- **Content type**:
-  - `Apply to all YouTube pages` — semua halaman YouTube dihitung.
+- **Jenis konten**:
+  - `Apply to all YouTube pages` — setiap halaman YouTube berarti.
   - `Apply to Shorts` — hanya halaman Shorts yang dihitung.
   - `Apply to long videos` — hanya `/watch`, `/live/`, `/embed/`, dll.
-  - `Apply to YouTube posts` — postingan komunitas (`/post/...`, tab channel community/posts).
-- **Author filter**:
-  - `Do not filter by author` — identitas author tidak berpengaruh.
-  - `Apply to certain authors` — hanya author yang terdaftar memicu grup ini.
-  - `Apply to all except certain authors` — author yang terdaftar dikecualikan.
-- **Authors**: satu author per baris. Menerima `@handle`, URL penuh, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Hide blocked entries in the YouTube feed**: saat grup ini aktif memblokir, kartu yang cocok di feed YouTube akan disembunyikan. Saat blokir menjadi tidak aktif, kartu kembali pada refresh berikutnya.
+  - `Apply to YouTube posts` — postingan komunitas (`/post/...`, tab komunitas saluran/postingan).
+- **Filter penulis**:
+  - `Do not filter by author` — identitas penulis tidak menjadi masalah.
+  - `Apply to certain authors` — hanya penulis terdaftar yang memicu grup ini.
+  - `Apply to all except certain authors` — penulis terdaftar dikecualikan.
+- **Penulis**: satu penulis per baris. Menerima `@handle`, URL lengkap, `/channel/UC...`, `/c/...`, `/user/...`.
+- **Sembunyikan entri yang diblokir di feed YouTube**: saat grup ini aktif memblokir, kartu yang cocok di feed YouTube disembunyikan. Ketika blok menjadi tidak aktif, mereka kembali pada penyegaran berikutnya.
 
-Untuk tipe konten Shorts dan Posts, ketika tidak ada author filter dan grup sedang memblokir, ekstensi juga menyembunyikan item navigasi terkait (entri sidebar Shorts, tab channel Community/Posts) dan shelf yang cocok seperti "Latest YouTube posts".
+Untuk jenis konten Shorts dan Postingan, jika tidak ada filter penulis yang disetel dan grup saat ini diblokir, ekstensi juga menyembunyikan entri navigasi yang relevan (entri sidebar Shorts, tab saluran Komunitas/Postingan) dan rak yang cocok seperti "Postingan YouTube Terbaru".
 
-Deteksi short-vs-long juga berlaku untuk situs video lain seperti TikTok, Vimeo, Twitch clips/VODs, dan Dailymotion jika bentuk halamannya bisa dideteksi.
+Deteksi pendek-panjang meluas ke situs video lain seperti TikTok, Vimeo, klip Twitch/VOD, dan Dailymotion ketika formulir halamannya dapat dideteksi.
 
-### 5.3 `TikTok` — blokir konten TikTok
+### 5.3 `TikTok` — memblokir konten TikTok
 
-Kartu editor sama seperti editor video platform, tetapi dengan label khusus TikTok:
+Kartu editor yang sama dengan editor video platform, tetapi dengan label khusus TikTok:- Jenis konten: video pendek, video, halaman profil.
+- Penulis: Pegangan TikTok (`@handle`) atau URL profil.
+- Penyembunyian umpan menyembunyikan kartu yang cocok di halaman TikTok saat grup aktif.
 
-- Tipe konten: video pendek, video, halaman profil.
-- Author: handle TikTok (`@handle`) atau URL profil.
-- Feed hiding menyembunyikan kartu yang cocok pada halaman TikTok saat grup aktif.
+### 5.4 `Facebook` — memblokir konten Facebook
 
-### 5.4 `Facebook` — blokir konten Facebook
+- Jenis konten: Gulungan, video, postingan.
+- Penulis: nama halaman (`page.name`), URL profil, atau formulir `profile.php?id=...` (id numerik dipertahankan sebagai `id:<number>`).
+- Penyembunyian umpan menyembunyikan kartu umpan yang cocok di Facebook.
 
-- Tipe konten: Reels, video, postingan.
-- Author: nama halaman (`page.name`), URL profil, atau format `profile.php?id=...` (id numerik disimpan sebagai `id:<number>`).
-- Feed hiding menyembunyikan kartu feed yang cocok di Facebook.
+### 5.5 `Instagram` — memblokir konten Instagram
 
-### 5.5 `Instagram` — blokir konten Instagram
+- Jenis konten: Gulungan, video, postingan.
+- Penulis: Nama pengguna Instagram atau URL profil.
+- Jalur yang dicadangkan seperti `/reel/`, `/p/`, `/tv/`, `/explore/` tidak diperlakukan sebagai penulis.
+- Penyembunyian umpan menyembunyikan kartu yang cocok di Instagram.
 
-- Tipe konten: Reels, video, postingan.
-- Author: handle Instagram atau URL profil.
-- Path khusus seperti `/reel/`, `/p/`, `/tv/`, `/explore/` tidak dianggap sebagai author.
-- Feed hiding menyembunyikan kartu yang cocok di Instagram.
+### 5.6 `Twitch` — memblokir konten Twitch
 
-### 5.6 `Twitch` — blokir konten Twitch
+- Jenis konten: klip, streaming/VOD, halaman saluran.
+- Penulis: nama saluran atau URL saluran.
+- Jalur yang dicadangkan seperti `/directory`, `/videos`, `/settings`, dll. tidak diperlakukan sebagai nama saluran.
+- Penyembunyian umpan menyembunyikan kartu yang cocok di Twitch.
 
-- Tipe konten: clips, stream/VOD, halaman channel.
-- Author: nama channel atau URL channel.
-- Path khusus seperti `/directory`, `/videos`, `/settings`, dll. tidak dianggap sebagai nama channel.
-- Feed hiding menyembunyikan kartu yang cocok di Twitch.
+### 5.7 `Reddit` — memblokir Reddit atau subreddit tertentu
 
-### 5.7 `Reddit` — blokir Reddit atau subreddit tertentu
+- **Subreddit**: satu subreddit per baris. Daftar kosong berarti grup tersebut berlaku untuk seluruh Reddit. `productivity` dan `r/productivity` keduanya diterima.
 
-- **Subreddits**: satu subreddit per baris. Daftar kosong berarti grup berlaku untuk seluruh Reddit. Baik `productivity` maupun `r/productivity` diterima.
+### 5.8 `Custom` — diblokir oleh JavaScript berbasis peristiwa
 
-### 5.8 `Custom` — blokir dengan fungsi JavaScript
+Anda menulis fungsi JavaScript yang **mendaftarkan penangan** untuk peristiwa seperti pembukaan halaman, perubahan URL, detak jantung halaman, akhir waktu, dan peristiwa khusus Anda sendiri. Fungsi ini berjalan satu kali per klik Jalankan; penangan terdaftar tetap aktif di seluruh navigasi sampai Anda menekan Jalankan lagi, menonaktifkan grup, atau menghapusnya.
 
-Anda menulis fungsi JavaScript. Ekstensi memanggilnya kira-kira setiap detik dan menggunakan nilai kembaliannya sebagai blocklist saat ini.
+Grup `Custom` tidak menampilkan: perilaku pemblokiran, situs yang diblokir, menit yang diizinkan, interval penyetelan ulang, hari jadwal, atau jangka waktu. Mereka mempertahankan editor **Aturan Pemblokiran** ditambah kontrol pembekuan/tunda standar. Ada juga tombol **Template** yang membuka browser preset dengan aturan starter berparameter; menerapkan preset menggantikan aturan saat ini setelah konfirmasi.
 
-Grup `Custom` tidak menampilkan: perilaku blokir, situs yang diblokir, menit yang diizinkan, interval reset, hari jadwal, atau jendela waktu. Hanya ada satu input besar — fungsi **Blocking Rules** — plus kontrol freeze/snooze standar.
-
-Lihat **Bagian 11** untuk referensi lengkap aturan kustom dan helper API.
+Lihat **Bagian 11** untuk referensi aturan khusus dan API pembantu selengkapnya.
 
 ---
 
-## 6. Perilaku pemblokiran
+## 6. Memblokir perilaku
 
-Untuk sebagian besar tipe grup Anda memilih salah satu dari dua mode:
+Untuk sebagian besar tipe grup, Anda memilih salah satu dari tiga mode.
 
-### 6.1 Blokir langsung
+### 6.1 Blokir segera
 
-Aturan aktif kapan pun grup aktif, jadwal mengizinkan, dan (untuk grup platform) halaman cocok.
+Aturan ini aktif setiap kali grup aktif, jadwal mengizinkannya, dan (untuk grup platform) halamannya cocok.
 
-Untuk grup `Default` ini memakai pemblokiran native Chrome. Untuk grup platform, ini memakai logika overlay/exit di halaman.
+Untuk grup `Default` ini menggunakan pemblokiran asli Chrome. Untuk grup platform, ini menggunakan logika overlay/keluar dalam halaman.
 
-### 6.2 Blokir setelah sejumlah menit
+### 6.2 Blokir setelah beberapa menit
 
 Ini adalah anggaran penggunaan.
 
-- **Allowed minutes before block** (desimal): berapa menit yang Anda izinkan per periode. Contoh: `15`, `0.5`, `90`.
-- **Timer reset interval (hours)** (desimal): seberapa sering anggaran di-reset. Contoh: `24` untuk harian, `1` untuk per jam, `0.25` untuk tiap 15 menit.
+- **Menit yang diizinkan sebelum blok** (desimal): berapa menit yang Anda izinkan per periode. Contoh: `15`, `0.5`, `90`.
+- **Interval penyetelan ulang pengatur waktu (jam)** (desimal): seberapa sering anggaran disetel ulang. Contoh: `24` untuk harian, `1` untuk setiap jam, `0.25` untuk setiap 15 menit.
 
-Selama waktu masih tersisa, halaman berfungsi normal dan menampilkan overlay timer. Ketika anggaran mencapai nol, halaman diblokir untuk sisa periode dan overlay menampilkan `0:00`, lalu tab mencoba keluar.
+Meskipun Anda memiliki waktu tersisa, halaman berfungsi normal dan menampilkan hamparan pengatur waktu. Bila anggaran mencapai nol, laman diblokir selama sisa periode dan hamparan menampilkan `0:00`, lalu tab mencoba keluar.
 
-Ekstensi bekerja per-grup, per-periode:
+Perpanjangannya per grup, per periode:
 
-- Setiap grup memiliki anggaran sendiri.
-- Waktu yang dihabiskan pada halaman mana pun yang cocok dengan grup dihitung ke anggaran grup itu.
-- Beberapa tab dalam grup yang sama berbagi anggaran. Timer tetap sinkron; berpindah ke tab lain juga memaksa refresh agar langsung menampilkan waktu bersama terbaru.
+- Setiap kelompok memiliki anggarannya sendiri.
+- Waktu yang dihabiskan pada halaman mana pun yang cocok dengan grup diperhitungkan dalam anggaran grup tersebut.
+- Beberapa tab dalam grup yang sama berbagi anggaran. Pengatur waktunya tetap tersinkronisasi; beralih ke tab lain juga memaksa penyegaran sehingga segera menampilkan waktu bersama saat ini.
 
-Jika beberapa grup berbatas waktu berlaku pada halaman yang sama, yang paling ketat menang.
+Jika beberapa grup dengan batas waktu berlaku pada halaman yang sama, grup yang paling ketat akan menang.
+
+### 6.3 Timer (hitung mundur, lalu blok)
+
+Mode ini menampilkan penghitung waktu mundur dan memblokir setelah mencapai `0:00`.
+
+- **Interval pengaturan ulang pengatur waktu (jam)** (desimal): panjang pengatur waktu dan frekuensi pengaturan ulang. Contoh: `24` untuk harian, `1` untuk setiap jam, `0.25` untuk setiap 15 menit.
+
+Tidak seperti **Blokir setelah beberapa menit**, mode ini **tidak** memiliki kolom "Menit yang diizinkan sebelum blok" terpisah. Pengatur waktu dimulai pada interval penyetelan ulang, menghitung mundur saat halaman yang cocok terbuka, lalu memblokir hingga penyetelan ulang berikutnya.Hitung mundur grup default dan Timer grup khusus (lihat **Bagian 11.3.1**) keduanya **hanya maju saat tab terlihat**. Beralih tab, meminimalkan jendela, atau mengunci layar akan menjeda hitungan mundur secara otomatis.
 
 ---
 
 ## 7. Jadwal
 
-Di kartu **Schedule** Anda dapat membatasi kapan grup aktif:
+Di kartu **Jadwal** Anda dapat membatasi kapan grup aktif:
 
-- **Days to block**: pilih hari ketika grup berlaku. Hari yang tidak dicentang berarti grup tidak aktif pada hari itu.
-- **Time windows**: daftar bebas, satu jendela per baris dalam format `HHMM-HHMM`, misalnya:
+- **Hari untuk diblokir**: pilih hari dimana grup berlaku. Hari yang tidak dicentang berarti grup tidak aktif pada hari itu.
+- **Jendela waktu**: daftar bentuk bebas, satu jendela per baris dalam format `HHMM-HHMM`, misalnya:
 
   ```
   0900-1000
   1200-1300
   ```
 
-  Grup aktif hanya di dalam jendela tersebut. Daftar kosong berarti sepanjang hari.
+  Grup ini hanya aktif di dalam jendela tersebut. Daftar kosong berarti sepanjang hari.
 
-Ini berlaku untuk semua tipe grup kecuali `Custom`.
-
----
-
-## 8. Freeze (anti-tampering)
-
-Freeze membuat grup sulit dinonaktifkan secara impulsif.
-
-Di kartu **Freeze** Anda memilih:
-
-- **Frozen** — Anda tidak bisa mengedit atau menghapus grup, dan tidak bisa mematikan toggle aktifnya. Untuk mengubah apa pun, Anda harus menjalankan ritual unfreeze (lihat di bawah).
-- **Strict frozen** — sama seperti Frozen, tetapi tetap terkunci selama jumlah jam yang Anda pilih (desimal, hingga 72). Sampai timer itu habis, bahkan ritual unfreeze tidak tersedia.
-
-Saat grup frozen bisa dibuka, tombol **Unfreeze** muncul. Mengekliknya memulai **ritual 20 langkah**:
-
-- Modal menampilkan pesan disiplin diri.
-- Anda harus klik `Confirm` sebanyak 20 kali.
-- Ada jeda wajib 5 detik di antara klik.
-- Jika Anda membatalkan kapan saja, Anda harus mengulang dari langkah 1.
-- 20 pesan berputar agar benar-benar dibaca.
-
-Jika grup juga ditandai "no snooze" (lihat bagian berikutnya), Anda juga tidak bisa melakukan snooze saat frozen.
-
-Status freeze ditampilkan di baris meta kartu grup, termasuk sisa waktu untuk strict freeze.
+Ini berlaku untuk semua jenis grup kecuali `Custom`. (Aturan khusus dapat menerapkan jadwalnya sendiri menggunakan `ev.time.dayName` / `ev.time.hour`; lihat **Bagian 11.4**.)
 
 ---
 
-## 9. Snooze (nonaktif sementara)
+## 8. Beku (anti gangguan)
 
-Snooze menonaktifkan grup sementara tanpa unfreeze, tetapi hanya dengan alasan tertulis.
+Pembekuan membuat suatu kelompok sulit untuk dilumpuhkan secara impulsif.
 
-Di kartu **Snooze**:
+Di kartu **Bekukan** Anda memilih:
 
-- **Allow snooze for this group** — jika mati, grup ini tidak bisa disnooze sama sekali (termasuk saat frozen).
-- **Snooze for (minutes)** — desimal, berapa lama snooze berlangsung.
-- **Reason** — harus **minimal 100 karakter dan lebih dari 20 kata**. Tombol Start tetap nonaktif sampai keduanya terpenuhi. Jika aturan gagal, peringatan inline muncul di samping tombol.
+- **Beku** — Anda tidak dapat mengedit atau menghapus grup, dan Anda tidak dapat menghapus centang tombol pengaktifannya. Untuk mengubah apa pun Anda harus menjalankan ritual pencairan (lihat di bawah).
+- **Strict frozen** — sama seperti Frozen, namun tetap terkunci selama beberapa jam yang Anda pilih (desimal, hingga 72). Hingga penghitung waktu tersebut habis, bahkan ritual pencairan tidak dapat dilakukan.
 
-Jika grup frozen, menit snooze terkunci pada nilai yang dipilih sebelum freeze. Anda tetap bisa snooze selama snooze diizinkan dan alasan memenuhi aturan.
+Saat grup yang dibekukan tidak dapat dibuka kuncinya, tombol **Unfreeze** akan muncul. Mengkliknya akan memulai **ritual 20 langkah**:
 
-Pesan status mengonfirmasi snooze. Saat snooze berakhir, grup otomatis kembali normal.
+- Modalnya menunjukkan pesan disiplin diri.
+- Anda harus mengklik `Confirm` sebanyak 20 kali.
+- Ada waktu tunggu paksa selama 5 detik di antara klik.
+- Jika suatu saat Anda membatalkan, Anda harus memulai ulang dari langkah 1.
+- 20 pesan diputar sehingga Anda benar-benar membacanya.
 
-Anda juga dapat mengakhiri snooze lebih awal dengan tombol **End Snooze**.
+Jika grup juga ditandai "tidak ada tunda" (lihat bagian selanjutnya), Anda juga tidak dapat menundanya saat dibekukan.
+
+Status pembekuan ditampilkan di baris meta kartu grup, termasuk waktu yang tersisa untuk pembekuan ketat.
 
 ---
 
-## 10. Aksi massal
+## 9. Tunda (nonaktifkan sementara)
 
-- **Delete All** menghapus semua grup.
+Tunda menonaktifkan sementara grup tanpa mencairkannya. Ini mendukung aktivasi tertunda, cooldown pasca-tunda, langkah konfirmasi, dan total waktu tunda yang berjalan.
+
+Di kartu **Tunda**:
+
+- **Izinkan tunda untuk grup ini** — jika nonaktif, grup ini tidak dapat ditunda sama sekali (termasuk saat dibekukan).
+- **Tunda selama (menit)** — desimal, berapa lama tunda berlangsung.
+- **Penundaan aktivasi (menit)** — desimal `>= 0`. Setelah Anda mengonfirmasi penundaan, grup terus memblokir hingga penundaan ini berlalu; baru setelah itu tunda menjadi aktif.
+- **Cooldown setelah tunda (menit)** — desimal dari `0` ke `5`. Setelah tunda selesai, Anda tidak dapat memulai tunda lagi untuk grup ini hingga cooldown berakhir.
+- **Waktu konfirmasi** — bilangan bulat `>= 0`. Jika ini `0`, penundaan akan segera dijadwalkan. Jika tidak, memulai tunda akan meluncurkan ritual konfirmasi dengan banyak langkah yang persis sama.
+
+Setiap langkah tunda konfirmasi memerlukan **penantian 5 detik** sebelum klik berikutnya diizinkan. Modal memberi tahu Anda hal ini secara eksplisit dan menunjukkan hitungan mundur langsung pada tombol.
+
+Jika grup dibekukan, pengaturan tunda dikunci pada nilai yang dipilih sebelum pembekuan. Anda masih dapat menundanya, selama penundaan diperbolehkan, tetapi Anda harus menggunakan pengaturan penundaan/pendinginan/konfirmasi yang disimpan.
+
+Kartu Tunda juga menunjukkan **Total waktu tunda** untuk grup tersebut. Total ini menghitung durasi tunda aktif penuh meskipun situs dapat dijangkau karena alasan lain selama jangka waktu tersebut.
+
+Saat penundaan selesai, aturan akan segera muncul kembali. Jika grup belum dibekukan, ekstensi secara otomatis membekukannya lagi saat tunda berakhir.
+
+Pesan status mengkonfirmasi penundaan tersebut. Ketika tunda berakhir, grup secara otomatis kembali normal.
+
+Anda juga dapat mengakhiri tunda lebih awal dengan tombol **Akhiri Tunda**.
+
+Untuk grup Kustom, menekan **Mulai Tunda** juga mengirimkan peristiwa `snoozePress` ke dalam aturan (lihat tabel peristiwa di **Bagian 11**), sehingga aturan kustom dapat mencatat pers, mencatat pembenaran, atau mengaktifkan peristiwa tindak lanjut. Aturan ini **tidak memiliki API tunda terprogram** — aturan ini dapat bereaksi terhadap penekanan, namun tidak dapat membatalkan atau memperpanjangnya.
+
+---
+
+## 10. Tindakan massal- **Hapus Semua** menghapus setiap grup.
   - Selalu meminta konfirmasi.
-  - Jika setidaknya satu grup frozen, membutuhkan ritual 20 langkah yang sama seperti unfreeze.
-  - Jika ada grup strict-frozen dan masih terkunci, **Delete All** dinonaktifkan.
+  - Jika setidaknya satu kelompok dibekukan, diperlukan ritual 20 langkah yang sama seperti pencairan.
+  - Jika ada grup yang dibekukan secara ketat dan masih terkunci, **Hapus Semua** dinonaktifkan.
 
 ---
 
-## 11. Grup Custom (referensi lengkap)
+## 11. Grup khusus — referensi berdasarkan peristiwa (v1.1+)
 
-Grup `Custom` menjalankan fungsi JavaScript di background service worker. Fungsi dipanggil kira-kira setiap detik, dan ekstensi menggunakan hasilnya untuk menentukan domain mana yang harus diblokir sekarang.
+Dimulai dengan v1.1, aturan khusus **didorong oleh peristiwa**. Aturan Anda bukan lagi fungsi per detak jantung yang nilai kembaliannya memblokir halaman. Sebaliknya, badan aturan adalah skrip yang **mendaftarkan penangan** untuk peristiwa tertentu (halaman terbuka, perubahan URL, detak jantung halaman, peristiwa khusus,…). Penangan tetap terdaftar di seluruh navigasi halaman dan peralihan tab dan tinggal di dalam **kotak pasir di luar layar** yang berumur panjang.
 
-### 11.1 Tanda tangan fungsi
+Badan aturan dijalankan **sekali per klik Jalankan** (atau satu kali saat grup diaktifkan dan sumber aktif sudah ada). Untuk memuat ulang penangan, klik **Jalankan** di editor. Munculan menampilkan pengingat yang meminta Anda memuat ulang halaman yang sudah terbuka sehingga aturan baru juga berlaku di sana.
+
+### 11.1 Tanda tangan aturan
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  // your logic
-  return blockedDomains;
+(event, helpers) => {
+  // Register handlers here. This function is called exactly once
+  // per Run click (or when the group is enabled).
 }
 ```
 
-Parameter:
+Dua argumen:
 
-- `month` — `1` sampai `12`.
-- `dayOfMonth` — `1` sampai `31`.
-- `dayName` — misalnya `"Monday"`.
-- `hour` — `0` sampai `23`.
-- `minute` — `0` sampai `59`.
-- `blockedDomains` — daftar domain berjalan yang sudah dihasilkan aturan lain. Anda bisa menambahkannya, menggantinya, atau mengabaikannya.
-- `helpers` — bundel objek helper (lihat di bawah).
+- `event` — **registrasi peristiwa** untuk grup ini. Gunakan untuk mendaftarkan, mengganti, mencantumkan, menghitung, atau membatalkan pendaftaran penangan, dan untuk peristiwa khusus `post(...)`.
+- `helpers` — paket pembantu (lihat **11.3**).
 
-Nilai kembali:
+Fungsi ini **tidak** diharapkan mengembalikan nilai. Keputusan untuk memblokir atau mengizinkan dibuat kemudian, ketika suatu peristiwa terjadi dan salah satu pengendali terdaftar Anda memanggil `ev.preventDefault()` dan/atau `ev.setResult(...)`.
 
-- Array string domain yang harus diblokir sekarang, ATAU
-- tidak mengembalikan apa pun (dalam hal ini ekstensi menggunakan hasil mutasi `blockedDomains` Anda).
+### 11.2 Siklus Hidup
 
-Fungsi divalidasi saat disimpan. Error sintaks menghasilkan peringatan status, dan aturan tidak digunakan sampai Anda memperbaikinya. Jika fungsi melempar error saat runtime, ekstensi menangkapnya, mencatat ke konsol background, lalu fallback ke hasil sebelumnya.
+- **Jalankan** (tombol per grup di editor): mesin terlebih dahulu menghapus setiap pengendali yang sebelumnya diberi tag dengan grup ini, lalu menjalankan kembali isi aturan di kotak pasir di luar layar. Ini adalah satu-satunya cara untuk mendaftar ulang setelah mengedit sumbernya.
+- **Nonaktifkan grup**: setiap pengendali yang diberi tag dengan grup ini akan dihapus. Sumber grup disimpan di penyimpanan tetapi berhenti merespons peristiwa.
+- **Aktifkan kembali grup**: mesin secara otomatis menjalankan kembali sumber aktif untuk grup ini.
+- **Hapus grup**: sama dengan menonaktifkan; semua penangan yang ditandai dengan grup akan dihapus.
+- **Mendaftar ulang dengan `(eventType, id)` yang sama**: secara diam-diam mengesampingkan pendaftaran sebelumnya.
 
-### 11.2 Penjadwalan adaptif
+Sandbox di luar layar digunakan bersama oleh **semua** grup khusus. Penangan dari grup berbeda hidup berdampingan di sana, masing-masing diberi tag secara internal dengan id grupnya masing-masing sehingga "Jalankan", nonaktifkan, atau hapus hanya menyentuh grup yang tepat.
 
-Aturan custom biasanya berjalan kira-kira setiap detik. Jika aturan Anda mulai terlalu lambat, ekstensi otomatis memperlambat loop (hingga sekitar tiap 5 detik). Anda tidak perlu mengatur ini sendiri.
+Jika aturan khusus berperilaku buruk (loop tak terbatas sinkron, spam log yang tidak terkendali, dll.) kotak pasir akan mengkarantina aturan tersebut: grup dinonaktifkan secara otomatis dan kegagalan dicatat sehingga Anda dapat melihatnya di panel Log. Untuk mengaktifkan kembali aturan yang dikarantina, perbaiki sumbernya dan klik **Jalankan** — mesin akan menghapus alasan pembatalan dan memuat ulang aturan.
 
-### 11.3 Objek `helpers`
+### 11.2.1 Registri peristiwa (`event`)
 
-Di dalam fungsi, `helpers` mengekspos beberapa sub-helper. Masing-masing punya nama panjang dan alias pendek. Ada juga metode getter eksplisit:
+Metode umum:
 
-- `helpers.timerHelper` / `helpers.timer` / `helpers.getTimerHelper()`
-- `helpers.persistenceHelper` / `helpers.persistence` / `helpers.getPersistenceHelper()`
-- `helpers.domainHelper` / `helpers.domain` / `helpers.getDomainHelper()`
-- `helpers.logHelper` / `helpers.log` / `helpers.getLogHelper()`
-- `helpers.platformHelper` / `helpers.platform` / `helpers.getPlatformHelper()`
-- `helpers.now` — waktu epoch saat ini dalam milidetik.
+- `event.register(type, id, handler, options?)` — mendaftarkan pengendali untuk tipe kejadian arbitrer. `id` adalah pilihan Anda sendiri. `options.priority` (default `0`) — dijalankan lebih tinggi terlebih dahulu. `options.intervalMs` — hanya untuk `tickEvent`; membatasi penangan khusus ini relatif terhadap kutu global. Mendaftar ulang dengan penggantian `(type, id)` yang sama.
+- `event.unregister(type, id)`, `event.unregisterAll(type)`.
+- `event.post(type, data?, { scope })` — jalankan acara khusus. `scope: "global"` menjangkau setiap kelompok; default `scope: "group"` hanya menjangkau penangan di grup **sama**.
 
-Semua metode helper dirancang aman: parameter buruk mengembalikan `null`, `false`, atau nilai kosong alih-alih melempar error.
+Gula per tipe peristiwa (satu set metode per tipe bawaan):
 
-#### 11.3.1 `timerHelper`
+- `event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
+- `event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
+- Bentuk yang sama untuk `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`.
 
-Mengelola countdown timer yang terikat ke domain. Timer bertahan melintasi restart browser. Setiap timer dimiliki oleh grup custom yang membuatnya.
+### 11.2.2 Jenis peristiwa bawaan
 
-- `createTimer(domain, durationMs, displayName?)` — membuat dan mengembalikan id timer unik, atau `null` jika tidak valid. Contoh: `createTimer("youtube.com", 30 * 60 * 1000, "Timer1")`. Saat pengguna berada di halaman yang cocok dengan domain itu, overlay halaman akan menampilkan `Timer1: 30:00` dan terus menghitung mundur.
-- `deleteTimer(id)` — menghapus timer. Mengembalikan `true` saat berhasil.
-- `pauseTimer(id)` — menjeda countdown.
-- `continueTimer(id)` / `resumeTimer(id)` — melanjutkan timer yang dijeda.
-- `resetTimer(id, durationMs?)` — memulai ulang timer. Tanpa `durationMs`, memakai durasi awal.
-- `addMs(id, ms)` — menambah milidetik (atau mengurangi dengan nilai negatif).
-- `remainingMs(id)` — sisa milidetik.
-- `isExpired(id)` / `isPaused(id)` / `exists(id)` — boolean.
-- `getDomain(id)` / `getDisplayName(id)` — baca info timer.
-- `findByDomain(domain)` — array id timer untuk domain itu.
-- `list()` — array `{ id, domain, displayName, durationMs, remainingMs, isPaused }` untuk setiap timer milik grup ini.
+| Ketik | Saat kebakaran | muatan `ev.data` |
+|---|---|---|
+| `tickEvent` | Centang 1 detik yang dibagikan secara global di seluruh browser. Diaktifkan terlepas dari visibilitas tab. Gunakan ini untuk logika gaya jam yang harus tetap berjalan meskipun tidak ada tab yang fokus. | `{ intervalMs: 1000 }` |
+| `pageHeartbeatEvent` | ~250 ms detak jantung dari tab **aktif**, **terlihat**. Menggerakan semua logika yang peka terhadap visibilitas tab, termasuk centang otomatis yang terpasang di `getOrCreateTimer({ scope })`. **Tidak** aktif dari tab latar belakang atau saat layar terkunci. | `{ elapsedMs }` |
+| `openWebEvent` | Tab baru dibuat ATAU navigasi baru mendarat di URL yang belum dilihat mesin untuk tab tersebut. **Tidak** diaktifkan kembali untuk tab yang sudah terbuka setelah klik Jalankan. | `{ previousUrl, isNewTab }` |
+| `closeWebEvent` | Sebuah tab ditutup. | `{ reason, nextUrl }` |
+| `switchWebEvent` | URL **berubah** di dalam tab yang sama — maju/mundur, perubahan rute SPA, atau navigasi yang mengarah ke URL berbeda dari sebelumnya. **Tidak** aktif saat memuat ulang biasa (URL yang sama). | `{ previousUrl, previousHostname, sameDomain }` |
+| `switchDomainEvent` | Perubahan URL melintasi batas nama host (misalnya `youtube.com` → `wikipedia.org`). Menembak di samping `switchWebEvent`. | `{ previousUrl, previousHostname }` |
+| `webChangedEvent` | Halaman dimuat (ulang) dengan cara apa pun: terbuka, beralih, pembaruan riwayat SPA, **atau memuat ulang biasa yang mempertahankan URL yang sama**. Ini adalah pengait "halaman diubah, evaluasi ulang semuanya" yang dapat diandalkan. Diaktifkan bersama `openWebEvent` / `switchWebEvent` / `switchDomainEvent`, dan merupakan satu-satunya yang diaktifkan untuk memuat ulang URL yang sama. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` dengan `transition` adalah `"tabCreated"`, `"commit"`, atau `"history"` |
+| `timerEnded` | Pengatur waktu yang dikelola oleh grup mencapai `currentMs === 0`. Hanya dikirim ke grup pemilik. | `{ timerId, displayName, direction, currentMs }` |
+| `snoozePress` | Pengguna menekan **Mulai Tunda** di popup untuk grup **kustom** ini. Peristiwa notifikasi murni — pengendali dapat menjalankan kode arbitrer (mencatat, mengalihkan, mengaktifkan peristiwa lain) namun aturan khusus **tidak memiliki API tunda terprogram**. Log yang dihasilkan di sini muncul sebagai toast pada tab aktif. Hanya disampaikan kepada kelompok yang ditekan. | `{ triggeredAt }` |
 
-Durasi timer maksimum sekitar 30 hari.
+URL di `ev.url` dan data peristiwa **dinormalisasi** untuk peristiwa: Laman Tab Baru Chrome (yang menampilkan tampilan "Telusuri Google atau ketik URL" Google), `about:blank`, dan skema tab baru yang setara diekspos sebagai string kosong `""`. Jadi pengatur waktu dengan cakupan `ev.url === ""` hanya berdetak saat Anda berada di halaman tab baru. URL `google.com` reguler tidak berubah.
 
-#### 11.3.2 `persistenceHelper`
+### 11.2.3 Objek acara (`ev`)
 
-Penyimpanan mirip map yang scoped ke grup Anda. Nilai harus bisa diserialkan JSON. Berguna untuk mengingat state antar pemanggilan.
+Setiap penangan dipanggil sebagai `(ev, helpers) => void`. `ev` membawa:
 
-- `set(key, value)` — menyimpan nilai JSON apa pun. Mengembalikan `true` jika sukses.
-- `get(key, defaultValue?)` — mengembalikan nilai tersimpan, atau `defaultValue` jika tidak ada.
-- `has(key)` / `delete(key)` / `keys()` / `entries()` / `size()` / `clear()`.
+- `ev.type` — jenis acara yang dikirim.
+- `ev.groupId` — id grup penerima.
+- `ev.tabId`, `ev.pageId`, `ev.url`, `ev.hostname` — konteks acara.
+- `ev.time` — Cuplikan `{ now, month, dayOfMonth, dayName, hour, minute }` saat pengiriman. `dayName` adalah `"Sunday"`..`"Saturday"`.
+- `ev.data` — muatan khusus peristiwa (lihat tabel di atas).
 
-Batas lunak: sekitar 200 key per grup, 16 KB per nilai.
+Metode:
 
-#### 11.3.3 `domainHelper`
+- `ev.preventDefault()` — tandai pengiriman sebagai "diblokir". Skrip konten host akan keluar dari halaman (atau mengikuti `setRedirectLink`) kecuali pengendali dengan prioritas lebih tinggi kemudian menetapkan `setResult(1)`.
+- `ev.stopPropagation()` — segera hentikan pengiriman ini. **Tidak ada penangan lebih lanjut di grup mana pun** yang dipanggil untuk acara ini.
+- `ev.setResult(value)` — mengatur hasil pengiriman. `value` dapat berupa **angka** di `[-255, 255]` (blok `-1`, `0` netral, `1` mengizinkan; bilangan bulat lainnya dipertahankan untuk logika debug Anda sendiri), atau **string** (ditafsirkan sebagai URL pengalihan). Panggilan `setResult` terakhir di semua penangan menang. `1` numerik menggantikan `preventDefault` sebelumnya.
+- `ev.setRedirectLink(url)` / `ev.getRedirectLink()` — URL yang harus dinavigasi oleh host ketika pengiriman berakhir sebagai diblokir. Ini adalah **satu-satunya** cara untuk mengalihkan dari aturan khusus; editor tidak lagi menampilkan bidang "URL Pengalihan saat diblokir" untuk Grup khusus.
+- `ev.post(type, data, { scope })` — jalankan acara tindak lanjut dari dalam handler.
 
-- `normalize(value)` — mengembalikan domain kanonis seperti `youtube.com`, atau `null`.
-- `matches(hostname, site)` — `true` jika `hostname` termasuk dalam `site` (mencakup subdomain).
+Selain itu, `ev` adalah Proxy: bidang apa pun yang Anda tetapkan di dalamnya (misalnya `ev.foo = 42`) disimpan dalam peta `custom` dan dapat dibaca kembali dari penangan yang sama atau dari penangan selanjutnya dalam pengiriman yang sama.### 11.3 Objek `helpers`
 
-#### 11.3.4 `logHelper`
+Setiap panggilan pengendali mendapat bundel `helpers` baru yang dicakup ke grup penerima dan URL acara. Bidang konstan:
 
-- `log(...args)`, `warn(...args)`, `error(...args)` — menulis ke konsol background.
+- `helpers.now` — waktu milidetik saat pengiriman.
+- `helpers.currentUrl` — URL acara, setelah normalisasi tab baru/kosong.
+- `helpers.groupId` — menerima id grup.
 
-Untuk melihat pesan ini: `chrome://extensions` → aktifkan Developer Mode → klik link "service worker" milik ekstensi.
+Pintasan praktis (rute ke fungsi sadar akumulator yang sama dengan yang digunakan oleh pembantu di bawah ini, sehingga outputnya masih masuk ke panel Log):
 
-#### 11.3.5 `platformHelper`
+- `helpers.log(...)`, `helpers.warn(...)`, `helpers.error(...)`.
 
-Inspeksi platform sosial/video yang didukung.
+Metode pengakses:
 
-- `supportedPlatforms` — `["youtube", "tiktok", "facebook", "instagram", "twitch"]`.
-- `normalizePlatform(value)` — mengembalikan nama platform kanonis, atau `null`.
-- `normalizeAuthor(author, platform)` — menormalkan identifier author (handle, URL, dll.) untuk platform tertentu, atau `null`.
-- `detect(urlOrHost)` / `getContext(urlOrHost)` — mengembalikan `{ platform, hostname, pathname, type, authors, url }`, atau `null`.
-  - `type` adalah `"short" | "long" | "post" | "unknown"`.
-  - `authors` adalah daftar author ternormalisasi yang bisa dideteksi dari URL itu.
-- `getType(urlOrHost)` — shortcut untuk `detect(...).type`.
-- `getPlatform(urlOrHost)` — shortcut untuk `detect(...).platform`.
-- `getAuthors(urlOrHost)` — shortcut untuk `detect(...).authors`.
-- `matchesAuthor(urlOrHost, platform, authors)` — mengembalikan `true` jika URL ada di platform itu dan salah satu author yang diberikan cocok.
+- `helpers.getLogHelper()` — `log` / `warn` / `error`. Output dibatasi tingkatnya dan dibatasi per pengiriman untuk mencegah aturan yang tidak berlaku membekukan popup.
+- `helpers.getDomainHelper()` (alias `helpers.getDomainUtility()`) — Inspeksi URL (lihat **11.3.5**).
+- `helpers.getTimerHelper()` — penghitung waktu dalam lingkup grup (hitung mundur / penghitungan); status tetap ada saat browser dimulai ulang.
+- `helpers.getPersistenceHelper()` — Penyimpanan kunci/nilai JSON tercakup dalam grup.
+- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (dan alias `set` / `get`) ditambah `createMessageUrl(message)` yang mengembalikan URL `chrome-extension://...` yang menampilkan pesan tertentu.
+- `helpers.getPlatformHelper()` — maksud DOM per platform (lihat **11.3.6**).
+- `helpers.getDOMHelper()` — maksud DOM generik: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. Operasi dikumpulkan dan diterapkan setelah pengendali kembali.
+- `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Efek diterapkan ke tab asal acara.
+- `helpers.getStorageHelper()` — superset `getPersistenceHelper` ditambah kait async `requestAsyncGet(key)` / `requestAsyncSet(key, value)` untuk penyimpanan lintas-ekstensi (hasil diterima sebagai peristiwa khusus tindak lanjut).
+- `helpers.getTabHelper()` — `list()`, `getActiveTab()`, `getById(id)`, `countOpen()` terhadap cuplikan yang disertakan dengan acara.
+
+Semua metode pembantu aman: parameter buruk mengembalikan `null`, `false`, atau nilai kosong alih-alih membuang.
+
+#### 11.3.1 `getTimerHelper()`
+
+Pengatur waktu per grup. Setiap pengatur waktu diidentifikasi oleh string `id` yang Anda pilih; identitas tercakup dalam grup, sehingga dua grup dapat menggunakan id `"yt-shorts"` tanpa bertabrakan. Status tetap ada saat browser dimulai ulang.
+
+Status bertahan pengatur waktu persis seperti ini: `id`, `displayName`, `direction` (`"forward"` atau `"backward"`), `isPaused`, dan `currentMs`. Tidak ada "durasi awal" yang disimpan — `isExpired` hanyalah `currentMs === 0`. Pengatur waktu maju terus berjalan selamanya dan tidak pernah kedaluwarsa dengan sendirinya. Pengatur waktu mundur berhenti berdetak di `0` (tidak ada nilai negatif).
+
+Ada dua metode konstruksi. Pilih salah satu yang semantiknya sesuai dengan yang Anda inginkan:
+
+- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **selalu membuat (ulang)** pengatur waktu dengan nilai init yang diberikan, menimpa status apa pun yang ada termasuk `currentMs`. Gunakan ini ketika yang Anda maksud adalah "mulai dari awal", mis. di dalam cabang reset sekali pakai.
+- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **idempoten**. Jika pengatur waktu dengan `id` tersebut sudah ada, `displayName` dan `direction`-nya dapat diperbarui tetapi `currentMs` dipertahankan. Kalau tidak, itu dibuat dengan nilai init yang disediakan. Inilah yang Anda inginkan untuk pola umum "pastikan pengatur waktu saya ada, lalu biarkan berdetak".
+
+Kedua metode menerima dua fungsi predikat yang diingat mesin selama masa berlaku aturan (mereka bertahan di seluruh detak jantung dan di seluruh evaluasi ulang `webChangedEvent`, namun **tidak pernah disimpan** ke penyimpanan):- `scope: (url) => boolean` — ketika `true` untuk URL yang terlihat saat ini di setiap `pageHeartbeatEvent`, pengatur waktu otomatis berdetak berdasarkan interval detak jantung (~250 ms). Penolong itu sendiri tidak pernah memblokir; itu hanya memperbarui `currentMs`. Maksimal satu centang otomatis per detak jantung per pengatur waktu.
+- `domain: (url) => boolean` — ketika `true` untuk URL yang terlihat saat ini, pengatur waktu ditampilkan di hamparan dalam halaman (kiri atas). Ketika `domain` dihilangkan, mesin kembali ke `scope` untuk ditampilkan, sehingga pengatur waktu "centang /shorts/ halaman" juga muncul di sana tanpa kabel tambahan. Berikan `domain` secara eksplisit jika Anda menginginkan gerbang tampilan yang berbeda (misalnya, centang hanya pada `/shorts/`, tetapi tampilkan sisa waktu di seluruh `youtube.com`).
+
+> **Penting — pengatur waktu tidak pernah berhenti dengan sendirinya.** Saat pengatur waktu mundur mencapai angka nol, pengatur waktu hanya berhenti di angka nol dan mengaktifkan `timerEnded` satu kali. Apakah akan benar-benar memblokir halaman atau tidak, itu tergantung pada pengendali `openWebEvent` / `switchWebEvent` terpisah yang memanggil `ev.preventDefault()` setelah memeriksa `helpers.getTimerHelper().isExpired(id)`. Pemisahan ini memungkinkan Anda membuat pengatur waktu "hanya peringatan", pelacak penghitungan, dorongan lembut, atau blok keras — sama primitifnya, pilihan Anda.
+
+Metode lain:
+
+- `delete(id)`, `pause(id)`, `resume(id)` — siklus hidup standar. Jeda membekukan `currentMs`.
+- `setDirection(id, "forward" | "backward")`, `setCurrentMs(id, ms)`, `addMs(id, deltaMs)` — mutator langsung (sebagian besar aturan tidak memerlukan ini — biarkan detak jantung Anda berdetak sesuai waktunya).
+- `setDisplayName(id, name)` — memberi label ulang.
+- `getCurrentMs(id)`, `getDirection(id)`, `getDisplayName(id)`, `isPaused(id)`, `exists(id)`.
+- `isExpired(id)` — `true` jika `currentMs === 0`.
+- `getState(id)` — `{ id, displayName, direction, isPaused, currentMs, isExpired }` atau `null`.
+- `list()` — setiap pengatur waktu yang dimiliki grup ini, sebagai larik objek status.
+
+#### 11.3.2 `getPersistenceHelper()`
+
+Penyimpanan seperti peta yang tercakup dalam grup Anda. Nilai harus dapat diserialkan JSON.
+
+- `set(key, value)`, `get(key, defaultValue?)`, `has(key)`, `delete(key)`, `keys()`, `entries()`, `clear()`, `size()`.
+
+Batas lunak: sekitar 200 kunci per grup, 16 KB per nilai.
+
+#### 11.3.3 `getLogHelper()`
+
+- `log(...args)`, `warn(...args)`, `error(...args)` — tulis ke panel **Log** di popup (bundel pembantu masih mengarahkannya melalui akumulator yang sama, apa pun pengiriman yang menghasilkannya). Setiap baris diawali dengan `[CustomBlocker:groupId]`.
+- Helper memiliki batasan keras: kira-kira **200 entri log per pengiriman** dan panjang string maksimum per entri. Entri berlebih dihilangkan dan dihitung dalam `accumulator.logsDropped`. Inilah yang melindungi popup dari pelarian `for (let i = 0; i < 100000; i++) helpers.log(i)`.
+- Saat **Mode debug** tidak aktif (default), entri tingkat jejak yang dihasilkan mesin itu sendiri (waktu mulai pengiriman/penanganan) akan disembunyikan di semua tempat — entri tersebut tidak ditampilkan di panel Log dan tidak dicetak ke konsol. Panggilan `log` / `warn` / `error` Anda sendiri selalu tersambung.
+
+#### 11.3.4 `getRedirectionHelper()`
+
+Periksa/timpa URL pengalihan yang akan digunakan skrip konten jika halaman saat ini diblokir.
+
+- `get()` — mengembalikan URL pengalihan efektif saat ini untuk pengiriman ini. Awalnya ini adalah URL cadangan yang dikonfigurasi grup bawaan (jika ada), jika tidak, `""`.
+- `set(url)` — mengganti URL pengalihan untuk pengiriman ini. Mengembalikan `true` jika berhasil, `false` untuk input non-string. Meneruskan `""` akan menghapus pengalihan pengalihan dan kembali ke perilaku keluar default normal.
+- `createMessageUrl(message)` — mengembalikan URL `chrome-extension://<id>/message-page.html?msg=...` yang, ketika dinavigasi, menampilkan pesan di tengah halaman bersih. Berguna untuk mengarahkan pengguna ke layar "Mulai Bekerja" / "Istirahat" setelah penghitung waktu berakhir. Contoh: `ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`.
+
+Seperti efek samping aturan khusus lainnya, status ini dibagikan ke seluruh aturan dalam pengiriman saat ini. Karena aturan dijalankan dari bawah ke atas, aturan paling atas yang memanggil `set(...)` menang.
+
+#### 11.3.5 `getDomainHelper()` (alias `getDomainUtility()`)
+
+Pembantu pemeriksaan URL. Tidak ada `normalize()` karena URL masuk sudah dinormalisasi tab baru.
+
+Inti:- `hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
+- `isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
+- `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()` — masing-masing mengembalikan `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`.
+
+Pemfilteran URL dan pembantu bagian:
+
+- `isEmptyStartPage(url)` — `true` untuk laman tab baru dan yang setara (URL yang ditampilkan sebagai `""` ke penangan).
+- `matchesAny(url, patterns)` — `patterns` dapat berupa regex, string regex, atau array keduanya.
+- `pathStartsWith(url, path)` — sadar batas (`pathStartsWith("/r/", "/r")` benar; `"/results/"` tidak).
+- `queryHas(url, key, value?)`, `queryGet(url, key)` — inspeksi string kueri.
+- `isSearchPage(url)` — mengenali hasil pencarian Google / Bing / DuckDuckGo / YouTube / Reddit / Twitter / X.
+- `isInfiniteFeedUrl(url)` — mengenali permukaan umpan algoritmik YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `sameSection(a, b)` — nama host yang sama DAN segmen jalur pertama yang sama.
+
+#### 11.3.6 `getPlatformHelper()`
+
+Maksud DOM per platform dan pengatur waktu sub-bagian, ditambah inspeksi. Setiap `helpers.getPlatformHelper().<platform>()` mengembalikan sebuah objek yang kumpulan metodenya **dilindungi oleh platform** — metode yang tidak masuk akal pada platform tertentu tidak ada, jadi memanggilnya akan membuang `TypeError: ... is not a function` daripada diam-diam tidak melakukan operasi. Misalnya, `twitch().hidePosts` tidak ada (Twitch tidak memiliki postingan), dan `tiktok().hideShortButton` tidak ada (seluruh pengalaman TikTok sudah _adalah_ video berdurasi pendek). Gunakan `helpers.getPlatformHelper().hasMethod(platform, name)` atau `.listMethods(platform)` untuk melakukan introspeksi saat runtime.
+
+Matriks metode per platform:
+
+| metode | youtube | tiktok | instagram | facebook | kedutan |
+|---|:---:|:---:|:---:|:---:|:---:|
+| `hideShorts` / `showShorts` | ✓ |  |  |  |  |
+| `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
+| `hideClips` / `showClips` |  |  |  |  | ✓ |
+| `hideStreams` / `showStreams` |  |  |  |  | ✓ |
+| `hideVideos` / `showVideos` | ✓ | ✓ |  | ✓ | ✓ (VOD) |
+| `hidePosts` / `showPosts` | ✓ |  | ✓ | ✓ |  |
+| `hideShortButton` / `showShortButton` | ✓ |  |  |  |  |
+| `hideHomePage` / `showHomePage` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓ (obrolan) |
+| `filterComments` | ✓ | ✓ | ✓ | ✓ |  |
+| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |  | ✓ | ✓ |
+| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |  |  |  | ✓ |
+| `isCurrentChannelVerified` | ✓ |  |  |  |  |
+| `isLiveNow` | ✓ | ✓ |  | ✓ | ✓ |
+| `isItemLive` | ✓ | ✓ |  | ✓ | ✓ |
+| `isAlgorithmicRecommendation` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `isSponsored` | ✓ | ✓ | ✓ | ✓ |  |
+| `setShortsTimer` | ✓ |  |  |  |  |
+| `setReelsTimer` |  |  | ✓ | ✓ |  |
+| `setClipsTimer` |  |  |  |  | ✓ |
+| `setStreamsTimer` |  |  |  |  | ✓ |
+| `setVideosTimer` | ✓ | ✓ |  | ✓ | ✓ |
+| `setPostsTimer` | ✓ |  | ✓ | ✓ |  |
+
+Nama asli platform (`hideReels`, `hideClips`, `hideStreams`) BUKAN merupakan wadah terpisah dari `hideShorts` / `hideVideos` — slot penyimpanannya sama; hanya nama yang dapat dilihat pengguna yang mengikuti terminologi masing-masing platform.
+
+> **Predikat seumur hidup & aturan slot tunggal.** Masing-masing `hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` memiliki **satu** persisten predikat per `(group, platform, slot)`. Predikat tersebut **tidak** tercakup dalam peristiwa saat ini — setelah Anda menyetelnya, predikat tersebut tetap aktif di setiap pemuatan halaman dan setiap pengiriman hingga `show*()` yang cocok dipanggil atau grup dibongkar. Memanggil kembali metode yang sama dengan fungsi baru **menggantikan** fungsi sebelumnya — mesin tidak pernah ATAU menggabungkan beberapa predikat dalam satu grup. Untuk menggabungkan kondisi, tulis satu predikat yang melakukan penggabungan itu sendiri, mis. `yt.hideVideos(item => isShort(item) || hasKeyword(item))`. Di **grup berbeda**, tiap grup menyumbangkan predikatnya sendiri dan sebuah item disembunyikan jika predikat grup mana pun cocok.
+
+Metode inspeksi mengambil nilainya pada waktu pengiriman dari snapshot yang digabungkan dengan peristiwa; ketersediaannya dibatasi oleh matriks di atas.
+
+Pengklasifikasi URL selalu diekspos ulang, apa pun platformnya: `isPlatformUrl`, `isShortUrl`, `isVideoUrl`, `isPostUrl`, `isHomePage`, `extractAuthor`, `extractVideoId`.Pengatur waktu sub-bagian mendaftarkan pengatur waktu dalam keranjang grup persisten dan, ketika dicakup, hanya mencentang URL yang cocok dengan sub-bagian tersebut. Metode pengatur waktu menerima `{ id, direction, currentMs, displayName }` dan mengikuti gerbang per platform yang sama.
+
+Untuk metode predikat, predikat dipanggil per kartu yang cocok dengan `item` yang dinormalisasi: `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`. Bidang apa pun bisa berupa `null`; "tidak bersalah sampai terbukti bersalah" — kembalikan `false` jika kolom yang Anda perlukan tidak ada.
 
 ### 11.4 Contoh
 
-Mudah: blokir media sosial pada pagi hari kerja.
+**Mudah** — memblokir halaman YouTube Shorts pada pagi hari kerja:
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const isWeekday = !["Saturday", "Sunday"].includes(dayName);
+(event, helpers) => {
+  const yt = helpers.getDomainHelper().youtube();
 
-  if (isWeekday && hour >= 9 && hour < 12) {
-    return [...blockedDomains, "facebook.com", "instagram.com", "tiktok.com"];
-  }
-
-  return blockedDomains;
-}
-```
-
-Menengah: 30 menit YouTube per sesi browser, dengan countdown yang terlihat.
-
-```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const { timerHelper, persistenceHelper } = helpers;
-  let id = persistenceHelper.get("youtubeTimer");
-
-  if (!id || !timerHelper.exists(id)) {
-    id = timerHelper.createTimer("youtube.com", 30 * 60 * 1000, "YouTube");
-    persistenceHelper.set("youtubeTimer", id);
-  }
-
-  if (timerHelper.isExpired(id)) {
-    return [...blockedDomains, "youtube.com"];
-  }
-
-  return blockedDomains;
-}
-```
-
-Lebih sulit: blokir sesi TikTok hanya jika itu video pendek DAN author ada di daftar distraktor Anda. Gunakan `platformHelper`.
-
-```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const { platformHelper, logHelper } = helpers;
-  const distractors = ["someuser", "anotheruser"];
-  const url = "https://www.tiktok.com" + (globalThis.location?.pathname ?? "");
-  const ctx = platformHelper.detect(url);
-
-  if (ctx?.platform === "tiktok" && ctx.type === "short") {
-    if (platformHelper.matchesAuthor(url, "tiktok", distractors)) {
-      logHelper.log("Blocking TikTok short by", ctx.authors);
-      return [...blockedDomains, "tiktok.com"];
+  function maybeBlock(ev) {
+    if (!yt.isShortUrl(ev.url)) return;
+    const { dayName, hour } = ev.time;
+    const weekday = !["Saturday", "Sunday"].includes(dayName);
+    if (weekday && hour >= 9 && hour < 12) {
+      ev.preventDefault();
+      ev.setResult(-1);
     }
   }
 
-  return blockedDomains;
+  event.registerOpenWebEvent("morning-block", maybeBlock);
+  event.registerSwitchWebEvent("morning-block", maybeBlock);
 }
 ```
 
-(`globalThis.location` hanya placeholder contoh — biasanya Anda menggerakkan `platformHelper` dari logika Anda sendiri, bukan dari location worker, karena background worker tidak memiliki URL halaman nyata.)
-
-Paling sulit: "site of the day" berputar dengan batas harian, persisten lintas restart.
+**Sedang** — Anggaran harian 30 menit untuk YouTube Shorts. Pengatur waktu otomatis berdetak di `pageHeartbeatEvent` saat URL Shorts terlihat; penangan terpisah memberlakukan blok ketika pengatur waktu mencapai nol.
 
 ```js
-(month, dayOfMonth, dayName, hour, minute, blockedDomains, helpers) => {
-  const { timerHelper, persistenceHelper, domainHelper, logHelper } = helpers;
-  const sites = ["reddit.com", "twitter.com", "news.ycombinator.com"];
-  const today = `${month}-${dayOfMonth}`;
-  const lastDay = persistenceHelper.get("lastDay");
+(event, helpers) => {
+  const TIMER_ID = "yt-shorts-budget";
+  const yt = helpers.getDomainHelper().youtube();
+  const onShorts = (url) => yt.isShortUrl(url);
 
-  if (today !== lastDay) {
-    for (const id of timerHelper.list().map((t) => t.id)) {
-      timerHelper.deleteTimer(id);
+  helpers.getTimerHelper().getOrCreateTimer({
+    id: TIMER_ID,
+    direction: "backward",
+    currentMs: 30 * 60 * 1000,
+    displayName: "YT Shorts",
+    scope: onShorts,
+    domain: onShorts
+  });
+
+  function maybeBlock(ev, h) {
+    if (!yt.isShortUrl(ev.url)) return;
+    if (h.getTimerHelper().isExpired(TIMER_ID)) {
+      ev.setRedirectLink("https://example.com/focus");
+      ev.preventDefault();
+      ev.setResult(-1);
     }
-    persistenceHelper.set("lastDay", today);
+  }
+  event.registerOpenWebEvent("budget-block", maybeBlock);
+  event.registerSwitchWebEvent("budget-block", maybeBlock);
+
+  event.registerTimerEndedEvent("budget-warn", (_ev, h) => {
+    h.getLogHelper().log("Budget hit zero.");
+  });
+}
+```
+
+**Lebih sulit** — menyembunyikan masing-masing YouTube Shorts yang nama pengarangnya terlalu panjang, dan memasukkan CSS "short ini tersembunyi":
+
+```js
+(event, helpers) => {
+  const MAX_AUTHOR_LEN = 16;
+
+  function configure(_ev, h) {
+    const yt = h.getPlatformHelper().youtube();
+    yt.hideShorts(
+      (item) => item.author && item.author.length > MAX_AUTHOR_LEN,
+      { blockPageOnVisit: true }
+    );
+    h.getDOMHelper().injectCss(
+      "ytd-rich-grid-media[data-cb-hidden] { opacity: 0.2 !important; }",
+      "long-author-label"
+    );
   }
 
-  const site = sites[(month + dayOfMonth) % sites.length];
-  let id = persistenceHelper.get(`timer:${site}`);
+  event.registerOpenWebEvent("hide-long-shorts", configure);
+  event.registerSwitchWebEvent("hide-long-shorts", configure);
+  event.registerWebChangedEvent("hide-long-shorts", configure);
+}
+```
 
-  if (!id || !timerHelper.exists(id)) {
-    id = timerHelper.createTimer(site, 20 * 60 * 1000, `${site} budget`);
-    persistenceHelper.set(`timer:${site}`, id);
-    logHelper.log("Started budget for", site);
-  }
+**Yang paling sulit** — menyiarkan acara khusus dari satu penangan ke penangan lainnya:
 
-  if (timerHelper.isExpired(id)) {
-    return [...blockedDomains, domainHelper.normalize(site)];
-  }
+```js
+(event, helpers) => {
+  event.registerSwitchDomainEvent("track-domain", (ev) => {
+    ev.post("domainChange", { from: ev.data.previousHostname, to: ev.hostname });
+  });
 
-  return blockedDomains;
+  event.register("domainChange", "log-it", (ev, h) => {
+    h.getLogHelper().log("crossed", ev.data.from, "→", ev.data.to);
+  });
 }
 ```
 
 ---
 
-## 12. Perilaku multi-halaman
+## 12. Templat
 
-- Semua tab terbuka dalam grup yang sama berbagi timer yang sama.
-- Saat Anda berpindah ke tab dalam grup yang sama, overlay langsung refresh untuk menampilkan waktu bersama terkini.
-- Saat aturan baru ditambahkan, semua halaman terbuka mendeteksi perubahan dan refresh dalam sepersekian detik; Anda tidak perlu reload tab secara manual.
-- Saat aturan berakhir, kartu feed dan tombol navigasi yang tersembunyi dipulihkan pada refresh berikutnya.
+Setiap grup Kustom memiliki pemilih **Template** yang membuka browser preset yang dapat dicari. Perpustakaan kini menyediakan **50+ templat** yang disusun dalam sembilan kategori sehingga Anda dapat menjelajah tanpa harus menulis aturan dari awal:
 
----
+| Kategori | Contoh |
+|---|---|
+| **Pengatur Waktu** | Anggaran waktu situs (hitung mundur + blok), pelacak waktu situs (penghitungan), batas YouTube Shorts, batas umpan TikTok, batas Reel Instagram, batas Reel Facebook, batas Klip Twitch, Anggaran gangguan universal, Pelacak kerja mendalam harian |
+| **Jadwal** | Blokir jam kerja di hari kerja, situs khusus akhir pekan, penutupan sebelum tidur, izinkan hanya satu jam, berita hanya makan siang, hari Senin yang baru dimulai, izinkan N menit pertama setiap jam, blok kerja yang ketat |
+| **Umpan / Celana Pendek** | Blokir URL Shorts YouTube, sembunyikan kartu Shorts, sembunyikan Shorts berdasarkan kata kunci, sembunyikan feed beranda / komentar / tren YouTube, blokir FYP TikTok, sembunyikan celana pendek TikTok, blokir URL Reel Instagram, sembunyikan feed Reel Instagram, sembunyikan feed / Reel Facebook, sembunyikan beranda Reddit / Twitter / LinkedIn |
+| **Alihkan** | Gangguan → halaman fokus, Shorts → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, tab baru → daftar tugas |
+| **Fokus** | Sesi fokus yang hanya diperbolehkan, Pomodoro 25/5, blokir saat rapat, blokir setelah N kunjungan hari ini, blokir kekalahan beruntun |
+| **Dorong** | Catat setiap kunjungan gangguan, peringatkan pada setiap kunjungan Shorts, hitung kunjungan harian ke situs |
+| **Kegigihan** | Batas kunjungan bulanan, larangan mingguan, lacak saluran Discord yang dikunjungi |
+| **Penyesuaian DOM** | Sembunyikan tombol putar otomatis YouTube, sembunyikan Twitter / X "Apa yang terjadi", umum "sembunyikan pemilih di situs" |
+| **Debug** | Hitung mundur demo (3 detik), catat setiap peristiwa khusus |
 
-## 13. Internasionalisasi
+Filter chip di bagian atas pemilih mempersempit daftar berdasarkan kategori (`Timer`, `Schedule`, `Feed`, …) dan platform (`YouTube`, `TikTok`, `Instagram`, …). Memilih templat:
 
-Seluruh UI sudah diterjemahkan. Gunakan pemilih **Language** di kanan atas.
+1. Memuat input parameternya (URL, menit, rentang jam, dll.) ke dalam bentuk kecil.
+2. **Terapkan preset** mempratinjau sumber yang dihasilkan.
+3. Setelah mengonfirmasi **Ganti aturan kustom saat ini dengan preset ini?**, sumber ditulis ke dalam editor.
+4. Anda lalu klik **Jalankan** untuk mendaftarkan penangan aturan di kotak pasir luar layar.
 
-Bahasa yang didukung mencakup Inggris, Mandarin (Sederhana), Spanyol, Jepang, Korea, plus cakupan parsial untuk Hindi, Arab, Bengali, Portugis, Rusia, Punjabi, Jerman, Prancis, Turki, Vietnam, Italia, Thai, Belanda, Polandia, Indonesia, Urdu, dan Persia. Bahasa dengan cakupan parsial akan fallback ke Inggris untuk string yang hilang.
-
-Manual instruksi sendiri memuat file markdown yang sesuai dengan bahasa pilihan Anda, dengan Inggris sebagai fallback.
-
----
-
-## 14. Pesan status
-
-Pesan status muncul sebagai toast di tengah yang memudar setelah sekitar dua detik:
-
-- "Saved changes."
-- "Created \"Group name\"."
-- Error validasi seperti "Allowed minutes must be a number greater than 0."
-- "Snooze minutes must be a number greater than 0."
-- "Frozen groups cannot be changed."
-
-Untuk field input dengan syarat format, pesan juga muncul di dekat tombol terkait (untuk snooze).
+Templat ditentukan di bawah `templates/*.js` (`timers.js`, `schedule.js`, `feed.js`, …). Setiap file memanggil `CB_REGISTER_TEMPLATES([...])` pada waktu buka, dan popup menggunakan daftar gabungan. Menambahkan templat baru berarti menulis satu entri ke dalam file yang sesuai — tidak ada pipa ledeng lainnya.
 
 ---
 
-## 15. Privasi dan penyimpanan
+## 13. Perilaku multi-halaman- Semua tab yang terbuka di grup yang sama berbagi pengatur waktu yang sama.
+- Saat Anda beralih ke tab dalam grup yang sama, hamparannya akan segera disegarkan untuk menampilkan waktu bersama saat ini.
+- Pengatur waktu aturan khusus hanya dicentang pada tab **aktif terlihat** — didorong oleh `pageHeartbeatEvent`. Tab latar belakang dan jendela yang diperkecil tidak memajukannya. Ini cocok dengan hitungan mundur grup blok default.
+- Saat aturan baru ditambahkan, setiap halaman terbuka mendeteksi perubahan dan mengevaluasi ulang dalam sepersekian detik; **tetapi** penangan yang baru terdaftar tidak "membuka" tab yang sudah terbuka secara surut. Popup menunjukkan pengingat memuat ulang setelah setiap Jalankan karena alasan itu.
+- Saat aturan kedaluwarsa, kartu umpan tersembunyi dan tombol navigasi dipulihkan pada penyegaran berikutnya.
+
+---
+
+## 14. Pengaturan
+
+Buka dialog **Pengaturan** melalui ikon roda gigi di bilah atas.
+
+- **Interval detak jantung** — seberapa sering skrip konten melaporkan waktu tab dan menggerakkan `pageHeartbeatEvent`. Defaultnya 250 mdtk. Nilai yang lebih rendah lebih responsif tetapi menggunakan lebih banyak CPU.
+- **Interval centang** — seberapa sering `tickEvent` menyala. Standarnya 1000 ms.
+- **Mode debug** — *mati* secara default. Saat *aktif*, mesin mengeluarkan entri tingkat jejak ke panel Log (`[trace] dispatchEvent`, `[trace] N handler(s)`) dan baris `[CustomBlocker:trace]` ke konsol browser. Biarkan saja dalam penggunaan sehari-hari; nyalakan saat mendiagnosis aturan yang berperilaku buruk. `pageHeartbeatEvent` dikecualikan dari pencatatan log jejak meskipun mode debug aktif, karena mode ini diaktifkan empat kali per detik dan akan menghilangkan sisanya.
+
+---
+
+## 15. Internasionalisasi
+
+Seluruh UI diterjemahkan. Gunakan alat pilih **Bahasa** di kanan atas.
+
+Bahasa yang didukung mencakup Inggris, China (Sederhana), Spanyol, Jepang, Korea, ditambah cakupan sebagian untuk bahasa Hindi, Arab, Bengali, Portugis, Rusia, Punjabi, Jerman, Prancis, Turki, Vietnam, Italia, Thailand, Belanda, Polandia, Indonesia, Urdu, dan Persia. Bahasa dengan cakupan sebagian akan kembali ke bahasa Inggris karena string yang hilang.
+
+Manual instruksi itu sendiri memuat file penurunan harga yang cocok dengan bahasa pilihan Anda, dengan bahasa Inggris sebagai penggantinya.
+
+---
+
+## 16. Pesan status
+
+Pesan status muncul sebagai roti panggang di tengah yang menghilang setelah sekitar dua detik:
+
+- "Perubahan tersimpan."
+- "Membuat \"Nama grup\"."
+- "Aturan khusus dimuat — N pengendali aktif. Untuk menerapkan aturan ini pada tab yang sudah Anda buka, muat ulang tab tersebut."
+- Kesalahan validasi seperti "Menit yang diizinkan harus lebih besar dari 0."
+- "Tunda menit harus lebih besar dari 0."
+- "Grup yang dibekukan tidak dapat diubah."
+
+Untuk kolom input dengan persyaratan format, pesan juga muncul di sebelah tombol yang relevan (untuk tunda).
+
+---
+
+## 17. Privasi dan penyimpanan
 
 - Semuanya disimpan secara lokal di `chrome.storage.local`. Tidak ada data yang dikirim ke mana pun.
-- Item yang disimpan mencakup: grup Anda, timer penggunaan, waktu reset terakhir, catatan snooze, timer kustom, dan nilai persisten kustom.
-- Ekstensi tidak membaca isi halaman di luar yang dibutuhkan untuk mendeteksi tipe halaman (path/hostname/marker DOM yang dikenal untuk situs video). Ekstensi tidak membaca pesan, postingan, komentar, atau konten privat Anda.
+- Item yang disimpan meliputi: grup Anda, pengatur waktu penggunaan, waktu reset terakhir, catatan tunda, pengatur waktu khusus, dan nilai persisten khusus.
+- Ekstensi tidak membaca konten halaman melebihi apa yang diperlukan untuk mendeteksi jenis halaman (jalur/nama host/penanda DOM yang diketahui untuk situs video) dan untuk mengevaluasi predikat yang ditulis pengguna. Itu tidak membaca pesan, kiriman, komentar, atau konten pribadi Anda.
 
 ---
 
-## 16. Izin
+## 18. Izin
 
 - `storage` — untuk data di atas.
-- `declarativeNetRequest` — untuk pemblokiran native pada grup `Default`.
+- `declarativeNetRequest` — untuk pemblokiran asli grup `Default`.
 - `alarms` — untuk menjadwalkan transisi aturan secara efisien.
-- `host_permissions: <all_urls>` — agar content script bisa menampilkan overlay timer dan mendeteksi konteks platform pada halaman apa pun.
+- `tabs`, `webNavigation` — untuk mendeteksi pembuatan tab, perubahan URL, dan detak jantung halaman sehingga acara dapat dikirim.
+- `offscreen` — untuk menjadi tuan rumah kotak pasir aturan khusus yang berumur panjang.
+- `host_permissions: <all_urls>` — sehingga skrip konten dapat menampilkan overlay pengatur waktu dan mendeteksi konteks platform di halaman mana pun.
 
 ---
 
-## 17. Troubleshooting
-
-- **Grup yang saya tambahkan tidak melakukan apa-apa.** Pastikan grup aktif, jadwal saat ini mengizinkan, tidak ada snooze aktif, dan (untuk grup platform) halaman benar-benar cocok dengan tipe konten serta filter author yang dipilih.
-- **Timer macet atau salah pada satu tab.** Berpindahlah ke tab lain lalu kembali, atau fokuskan tab — itu memicu refresh paksa dari timer bersama.
-- **Kartu feed muncul lagi padahal seharusnya tersembunyi.** Feed hiding hanya berjalan saat aturan benar-benar sedang memblokir. Jika Anda punya aturan `after-minutes`, feed hiding aktif begitu waktu mencapai nol.
-- **Tombol navigasi YouTube yang saya harapkan tersembunyi masih ada.** Nav hiding membutuhkan aturan diatur ke "do not filter by author" dan tipe konten Shorts atau YouTube posts. Dengan author filter, hiding hanya per-kartu.
-- **Aturan custom tidak bekerja atau error diam-diam.** Buka `chrome://extensions`, aktifkan Developer Mode, klik link "service worker" ekstensi, lalu cek konsol. Gunakan `helpers.logHelper.log(...)` untuk melacak aturan Anda.
-- **Saya tidak bisa menghapus grup.** Kemungkinan grup dibekukan. Grup strict-frozen tidak bisa dihapus sama sekali sampai lock kedaluwarsa; grup frozen non-strict bisa dihapus lewat ritual unfreeze.
-
----
-
-## 18. Glosarium
-
-- **Block group** — satu set aturan dengan tipe, perilaku, jadwal, dan freeze/snooze sendiri.
-- **Instant block** — aturan langsung memblokir kapan pun aktif.
-- **After-minutes block** — aturan mulai memblokir hanya setelah anggaran waktu periode habis.
-- **Reset interval** — seberapa sering anggaran after-minutes direset.
-- **Schedule** — hari + jendela waktu saat grup aktif.
-- **Freeze / Strict freeze** — status anti-manipulasi.
-- **Snooze** — nonaktif sementara dengan alasan tertulis.
-- **Author filter** — untuk grup platform, membatasi aturan ke kreator konten tertentu.
-- **Content type** — untuk grup platform, membatasi aturan ke bentuk konten tertentu (short, long, post).
-- **Helpers** — utilitas yang diteruskan ke fungsi aturan custom.
-- **Platform** — salah satu dari `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`. Masing-masing punya tipe grup dan logika feed hiding sendiri.
+## 19. Pemecahan masalah- **Grup yang saya tambahkan tidak melakukan apa pun.** Pastikan grup tersebut diaktifkan, jadwal mengizinkannya sekarang, tidak ada penundaan yang aktif, dan (untuk grup platform) halaman benar-benar cocok dengan jenis konten dan filter penulis yang dipilih.
+- **Pengatur waktu macet atau salah pada satu tab.** Beralih dan kembali, atau fokuskan tab — yang memicu penyegaran paksa dari pengatur waktu bersama.
+- **Kartu feed muncul kembali setelah menurut saya kartu tersebut harus disembunyikan.** Penyembunyian feed hanya berjalan saat aturan aktif memblokir. Jika Anda memiliki aturan `after-minutes`, penyembunyian feed akan dimulai setelah waktu Anda mencapai nol.
+- **Tombol navigasi YouTube yang saya harapkan disembunyikan masih ada.** Menyembunyikan navigasi memerlukan aturan yang disetel ke "jangan filter menurut penulis" dan jenis kontennya berupa postingan Shorts atau YouTube. Dengan filter penulis, penyembunyian hanya dilakukan per kartu.
+- **Aturan khusus tidak melakukan apa pun atau melempar secara diam-diam.** Buka Pengaturan → aktifkan **Mode debug**, lalu klik **Jalankan** lagi dan lihat panel Log. Baris yang diawali dengan `[trace]` menunjukkan setiap pengiriman dan penanganan. Gunakan `helpers.getLogHelper().log(...)` untuk menambahkan titik jejak Anda sendiri. Jika aturan yang berperilaku buruk terus dikarantina secara otomatis, perbaiki sumbernya dan klik Jalankan — Jalankan menghapus alasan pembatalan.
+- **Aturan Kustom saya yang baru tidak memengaruhi tab yang sudah terbuka.** Muat ulang. Aturan khusus dilampirkan pada acara halaman *masa depan*; popup menunjukkan pengingat untuk memuat ulang setelah setiap Lari.
+- **Penghitung waktu mundur saya tidak maju.** Penghitung waktu dengan aturan khusus hanya mencentang tab **aktif terlihat** melalui `pageHeartbeatEvent`. Tab latar belakang, jendela yang diperkecil, dan layar terkunci menjedanya sesuai desain — perilaku yang sama seperti hitungan mundur grup blok default.
+- **Saya tidak dapat menghapus grup.** Mungkin grup tersebut dibekukan. Grup yang dibekukan secara ketat tidak dapat dihapus sama sekali sampai masa kuncinya habis; grup beku yang tidak ketat dapat dihapus melalui ritual pencairan.
+- **Popup menampilkan "Berjalan..." selamanya.** Aturan khusus mungkin mengalami kesulitan. Mesin mematikannya setelah waktu tunggu yang sulit dan mengkarantina aturan. Buka panel Log untuk alasan pembatalan; perbaiki aturannya dan klik Jalankan.
 
 ---
 
-## 19. Keterbatasan
+## 20. Glosarium
 
-- Feed hiding bergantung pada DOM terkini tiap platform. Jika platform mengubah layout, selector hiding mungkin perlu diperbarui.
-- Deteksi konteks platform untuk situs non-YouTube sebagian besar berbasis URL, jadi paling andal pada URL konten kanonis.
-- Loop aturan custom terjadi di background worker, bukan di halaman, jadi informasi level DOM tidak tersedia di dalam fungsi. Gunakan `platformHelper.detect(url)` dengan string URL sebagai gantinya.
-- Browser bisa menangguhkan service worker saat idle. Ekstensi akan melanjutkannya begitu halaman atau alarm membutuhkannya; timer penggunaan tetap akurat karena ini.
+- **Blokir grup** — satu aturan yang ditetapkan dengan jenis, perilaku, jadwal, dan pembekuan/tundanya sendiri.
+- **Pemblokiran instan** — aturan langsung memblokir setiap kali aktif.
+- **Blok setelah menit** — aturan mulai memblokir hanya setelah anggaran waktu untuk periode tersebut habis.
+- **Reset interval** — seberapa sering anggaran setelah menit direset.
+- **Jadwal** — hari + jangka waktu aktifnya grup.
+- **Bekukan / Pembekuan ketat** — status anti-gangguan.
+- **Tunda** — penonaktifan sementara dengan ritual konfirmasi yang dapat dikonfigurasi.
+- **Filter penulis** — untuk grup platform, membatasi aturan hanya untuk pembuat konten tertentu.
+- **Jenis konten** — untuk grup platform, membatasi aturan pada bentuk konten tertentu (pendek, panjang, postingan).
+- **Helpers** — utilitas diteruskan ke pengendali aturan khusus.
+- **Platform** — salah satu dari `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`. Masing-masing memiliki tipe grup dan logika penyembunyian feed sendiri.
+- **Detak Jantung** — `pageHeartbeatEvent` ~250 ms yang dikirim dari tab terlihat aktif.
+- **Centang** — angka 1 yang dibagikan secara global `tickEvent` (tidak tergantung visibilitas).
+- **Mode debug** — pengaturan yang menampilkan pencatatan log jejak internal di panel Log dan konsol browser.
+- **Karantina** — menonaktifkan otomatis aturan khusus yang melebihi batas keamanan waktu proses (tenggat waktu, log spam,…). Diselesaikan pada Jalankan berikutnya.
+
+---
+
+## 21. Keterbatasan- Penyembunyian feed bergantung pada DOM masing-masing platform saat ini. Jika platform mengubah tata letaknya, penyeleksi yang tersembunyi mungkin perlu diperbarui.
+- Deteksi konteks platform untuk situs non-YouTube sebagian besar berbasis URL, sehingga paling dapat diandalkan pada URL konten kanonik.
+- Pengatur waktu aturan khusus berdetak pada resolusi detak jantung (~250 ms). Jangan mengandalkan mereka untuk waktu sub-detik.
+- Predikat yang diteruskan ke `hideShorts` / `hideVideos` / `hidePosts` dievaluasi secara serempak per kartu feed. Logika yang berat dalam sebuah predikat dapat memperlambat pengguliran feed; tetap murah.
+- Dua tab yang mengedit pengatur waktu per grup yang sama secara bersamaan menggunakan strategi "kemenangan penulisan terakhir". Untuk penggunaan biasa, ini baik-baik saja; jika Anda bergantung pada akuntansi yang tepat, perkirakan ada penyimpangan kecil sesekali.
+- Browser mungkin menangguhkan pekerja layanan latar belakang saat menganggur. Ekstensi melanjutkannya segera setelah halaman atau alarm membutuhkannya; anggaran penggunaan situs/waktunya terus dihitung melalui pemutaran ulang detak jantung.

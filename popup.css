@@ -1,5 +1,25 @@
 :root {
   --groups-panel-width: 300px;
+
+  /* Navy primary (replaces sky-blue) */
+  --navy-700: #1e3a8a;
+  --navy-300: #c7d2fe;
+  --navy-100: #eef2ff;
+  --navy-ring: rgba(30, 58, 138, 0.18);
+
+  /* Gold / yellow accent (snooze + "weird / random / experimental").
+     Used as a faint tint, not a loud solid — navy stays dominant. */
+  --gold-200: #fde68a;
+  --gold-100: #fef3c7;
+  --gold-50: #fffbeb;
+  --gold-text: #854d0e;
+
+  /* Red accent (freeze + "dangerous / irreversible").
+     Same idea — pale tint with red text rather than solid red. */
+  --red-200: #fecaca;
+  --red-100: #fee2e2;
+  --red-50: #fef2f2;
+  --red-text: #991b1b;
 }
 
 .popup {
@@ -8,7 +28,7 @@
   padding: 14px;
   font-family: Arial, sans-serif;
   color: #1f2937;
-  background: linear-gradient(180deg, #f8fafc 0%, #eff6ff 100%);
+  background: linear-gradient(180deg, #f8fafc 0%, var(--navy-100) 100%);
   box-sizing: border-box;
   /* The popup fills the tab exactly; the inner panels handle their own
      scrolling. We deliberately DO NOT set overflow: auto here, otherwise
@@ -129,13 +149,13 @@ button,
 
 .layout-resizer:hover::before,
 .layout-resizer.dragging::before {
-  background: #60a5fa;
+  background: var(--navy-700);
 }
 
 .groups-panel,
 .editor-panel {
   background: rgba(255, 255, 255, 0.92);
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--navy-300);
   border-radius: 16px;
   padding: 12px;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
@@ -200,22 +220,22 @@ button,
 }
 
 .group-card.drop-target-before {
-  border-top-color: #2563eb;
-  box-shadow: inset 0 3px 0 0 rgba(37, 99, 235, 0.9);
+  border-top-color: var(--navy-700);
+  box-shadow: inset 0 3px 0 0 rgba(30, 58, 138, 0.9);
 }
 
 .group-card.drop-target-after {
-  border-bottom-color: #2563eb;
-  box-shadow: inset 0 -3px 0 0 rgba(37, 99, 235, 0.9);
+  border-bottom-color: var(--navy-700);
+  box-shadow: inset 0 -3px 0 0 rgba(30, 58, 138, 0.9);
 }
 
 .group-card.active {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+  border-color: var(--navy-700);
+  box-shadow: 0 0 0 2px var(--navy-ring);
 }
 
 .group-card:hover {
-  border-color: #93c5fd;
+  border-color: var(--navy-300);
 }
 
 .group-card-header {
@@ -303,8 +323,8 @@ input[type="text"]:focus,
 input[type="number"]:focus,
 select:focus,
 textarea:focus {
-  outline: 2px solid #93c5fd;
-  border-color: #60a5fa;
+  outline: 2px solid var(--navy-300);
+  border-color: var(--navy-700);
 }
 
 .settings-grid {
@@ -358,9 +378,43 @@ textarea:focus {
 .section-card {
   margin-top: 14px;
   padding: 14px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--navy-300);
   border-radius: 12px;
-  background: #f8fbff;
+  background: var(--navy-100);
+}
+
+/* Freeze section: barely-tinted red wash so navy stays dominant. Buttons
+   sit on white with a red border + red text so they pop against the
+   wash without being loud. */
+.section-card.freeze-section {
+  border-color: var(--red-200);
+  background: var(--red-50);
+}
+
+.section-card.freeze-section button {
+  background: #ffffff;
+  color: var(--red-text);
+  border: 1px solid var(--red-200);
+}
+
+.section-card.freeze-section button:hover {
+  background: var(--red-100);
+}
+
+/* Snooze section: same idea, gold palette. */
+.section-card.snooze-section {
+  border-color: var(--gold-200);
+  background: var(--gold-50);
+}
+
+.section-card.snooze-section button {
+  background: #ffffff;
+  color: var(--gold-text);
+  border: 1px solid var(--gold-200);
+}
+
+.section-card.snooze-section button:hover {
+  background: var(--gold-100);
 }
 
 .section-header {
@@ -404,9 +458,9 @@ textarea:focus {
 .usage-row {
   margin-bottom: 14px;
   padding: 10px 12px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--navy-300);
   border-radius: 10px;
-  background: #f8fbff;
+  background: var(--navy-100);
 }
 
 .usage-summary {
@@ -427,7 +481,7 @@ button {
   padding: 5px 8px;
   font-weight: 700;
   cursor: pointer;
-  background: #2563eb;
+  background: var(--navy-700);
   color: #ffffff;
   font-size: 10px;
 }
@@ -437,13 +491,27 @@ button.secondary {
   color: #0f172a;
 }
 
-button.danger {
-  background: #fee2e2;
-  color: #991b1b;
+/* Red = potentially dangerous / irreversible. Kept faint (pale-pink with
+   red text) so it signals "be careful" without competing with the navy
+   primary buttons that drive normal flow. */
+button.danger,
+button.secondary.danger {
+  background: var(--red-100);
+  color: var(--red-text);
+  border: 1px solid var(--red-200);
+}
+
+/* Gold = experimental / "random weird" actions (run user JS, apply
+   template, clear logs). Same faint treatment as .danger, gold palette. */
+button.weird,
+button.secondary.weird {
+  background: var(--gold-100);
+  color: var(--gold-text);
+  border: 1px solid var(--gold-200);
 }
 
 button:hover {
-  filter: brightness(0.98);
+  filter: brightness(0.96);
 }
 
 .group-card:hover {
@@ -640,7 +708,7 @@ textarea:disabled {
 }
 
 .template-filter-chip:focus-visible {
-  outline: 2px solid rgba(37, 99, 235, 0.45);
+  outline: 2px solid var(--navy-ring);
   outline-offset: 1px;
 }
 
@@ -663,16 +731,16 @@ textarea:disabled {
   margin: 0 0 12px;
   padding: 14px;
   box-sizing: border-box;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--navy-300);
   border-radius: 14px;
-  background: #f8fbff;
+  background: var(--navy-100);
   break-inside: avoid;
   cursor: pointer;
 }
 
 .template-card.selected {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+  border-color: var(--navy-700);
+  box-shadow: 0 0 0 2px var(--navy-ring);
 }
 
 .template-card h4 {
@@ -756,6 +824,59 @@ textarea:disabled {
 
 .manual-content pre code {
   color: inherit;
+}
+
+.manual-content table.manual-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+  display: block;
+  overflow-x: auto;
+}
+
+.manual-content table.manual-table thead th {
+  text-align: left;
+  background: #f1f5f9;
+  border-bottom: 2px solid #cbd5e1;
+  padding: 8px 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.manual-content table.manual-table tbody td {
+  border-top: 1px solid #e2e8f0;
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.manual-content table.manual-table tbody tr:nth-child(even) td {
+  background: #f8fafc;
+}
+
+.manual-content table.manual-table code {
+  white-space: nowrap;
+}
+
+.manual-content blockquote {
+  border-left: 4px solid #cbd5e1;
+  background: #f8fafc;
+  padding: 8px 12px;
+  margin: 12px 0;
+  color: #334155;
+}
+
+.manual-content blockquote.mt-banner {
+  border-left-color: var(--gold-200);
+  background: var(--gold-50);
+  color: var(--gold-text);
+  font-style: italic;
+}
+
+.manual-content hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 18px 0;
 }
 
 .modal-card h3 {
