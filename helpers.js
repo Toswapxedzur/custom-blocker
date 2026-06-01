@@ -353,10 +353,11 @@
   // Timer helper.
   // Persisted state per id: { displayName, direction, isPaused, currentMs }.
   //   create()          — always resets currentMs.
-  //   getOrCreateTimer  — idempotent; preserves existing currentMs.
-  // Both accept transient (non-persisted) per-call predicates:
+  //   getOrCreateTimer  — idempotent; returns existing timers unchanged.
+  // Creation accepts transient (non-persisted) predicates:
   //   scope(url)   — when true, auto-tick by heartbeat elapsedMs.
   //   domain(url)  — when true, show in overlay (defaults to scope).
+  // Existing getOrCreateTimer() calls reuse remembered predicates.
   function createTimerHelper(ctx) {
     const { groupId, timersBucket } = ctx;
     const accumulatorRef = ctx?.accumulatorRef
@@ -526,22 +527,13 @@
       },
       getOrCreateTimer({ id, displayName, direction, currentMs, scope, domain } = {}) {
         if (typeof id !== "string" || !id) return null;
-        let timer = getTimer(id);
-        if (!timer) {
-          timer = buildFresh({ displayName, direction, currentMs });
-          timersBucket[id] = timer;
+        if (!getTimer(id)) {
+          timersBucket[id] = buildFresh({ displayName, direction, currentMs });
           markTimerRegistryChanged();
+          applyScopeAndDomain(id, scope, domain);
         } else {
-          if ((direction === "forward" || direction === "backward") && timer.direction !== direction) {
-            timer.direction = direction;
-            markTimerRegistryChanged();
-          }
-          if (typeof displayName === "string" && timer.displayName !== displayName) {
-            timer.displayName = displayName;
-            markTimerRegistryChanged();
-          }
+          applyScopeAndDomain(id);
         }
-        applyScopeAndDomain(id, scope, domain);
         return id;
       },
       delete(id) {
@@ -644,6 +636,439 @@
       // doing `helpers.getTimerHelper().reset(...)` won't ever clash.
       __cb_tickAllScopedTimers: tickAllScopedTimers,
       __cb_getDisplayedTimerSnapshots: getDisplayedTimerSnapshots
+    };
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Panel helper. Rules describe panels as safe JSON-like schemas; content.js
+  // owns the fixed layout and turns snapshots into DOM.
+  // ────────────────────────────────────────────────────────────────────────
+
+  const PANEL_POSITIONS = new Set(["top-left", "top-right", "bottom-left", "bottom-right", "center"]);
+  const PANEL_ALIGNS = new Set(["left", "center", "right"]);
+  const PANEL_WIDTHS = new Set(["small", "medium", "large"]);
+  const PANEL_CONTROL_TYPES = new Set(["text", "checkbox", "select", "textInput", "textarea", "button"]);
+
+  function truncateText(value, maxLength) {
+    const text = String(value ?? "");
+    return text.length > maxLength ? text.slice(0, maxLength) : text;
+  }
+
+  function normalizePanelControlType(type) {
+    if (type === "input") return "textInput";
+    if (type === "dropdown") return "select";
+    return PANEL_CONTROL_TYPES.has(type) ? type : "text";
+  }
+
+  function sanitizePanelId(value, fallback = "") {
+    return truncateText(value || fallback, 80)
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/[^A-Za-z0-9_-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
+  function sanitizePanelColor(value) {
+    const text = String(value ?? "").trim();
+    if (!text || text.length > 64) return null;
+    if (/^#[0-9a-f]{3,8}$/i.test(text)) return text;
+    if (/^rgba?\([\d\s.,%+-]+\)$/i.test(text)) return text;
+    if (/^hsla?\([\d\s.,%+-]+\)$/i.test(text)) return text;
+    if (/^[a-z]{3,32}$/i.test(text)) return text;
+    return null;
+  }
+
+  function sanitizePanelSize(value) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.max(10, Math.min(32, Math.round(value))) + "px";
+    }
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    const match = text.match(/^(\d+(?:\.\d+)?)(px|rem|em)$/i);
+    if (!match) return "";
+    const n = Number(match[1]);
+    if (!Number.isFinite(n)) return "";
+    if (match[2].toLowerCase() === "px") return Math.max(10, Math.min(32, Math.round(n))) + "px";
+    return Math.max(0.65, Math.min(2, n)).toFixed(2).replace(/\.?0+$/, "") + match[2].toLowerCase();
+  }
+
+  function sanitizePanelWidth(value) {
+    if (PANEL_WIDTHS.has(value)) return value;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.max(180, Math.min(520, Math.round(value))) + "px";
+    }
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    const match = text.match(/^(\d+(?:\.\d+)?)px$/i);
+    if (!match) return "";
+    const n = Number(match[1]);
+    if (!Number.isFinite(n)) return "";
+    return Math.max(180, Math.min(520, Math.round(n))) + "px";
+  }
+
+  function sanitizePanelTheme(theme) {
+    if (!theme || typeof theme !== "object") return {};
+    const out = {};
+    for (const key of ["background", "foreground", "accent", "border", "muted"]) {
+      const color = sanitizePanelColor(theme[key]);
+      if (color) out[key] = color;
+    }
+    const fontSize = sanitizePanelSize(theme.fontSize ?? theme.textSize);
+    const titleSize = sanitizePanelSize(theme.titleSize);
+    if (fontSize) out.fontSize = fontSize;
+    if (titleSize) out.titleSize = titleSize;
+    return out;
+  }
+
+  function sanitizePanelValue(type, value) {
+    if (type === "checkbox") return value === true;
+    if (type === "select") return truncateText(value, 256);
+    if (type === "textInput" || type === "textarea") return truncateText(value, 2000);
+    return truncateText(value, 512);
+  }
+
+  function sanitizePanelOptions(rawOptions, selectedValue) {
+    if (!Array.isArray(rawOptions)) return [];
+    const out = [];
+    for (const item of rawOptions.slice(0, HELPERS_MAX_PANEL_OPTIONS)) {
+      if (item && typeof item === "object") {
+        const value = truncateText(item.value ?? item.label, 256);
+        if (!value) continue;
+        out.push({
+          value,
+          label: truncateText(item.label ?? value, 256)
+        });
+      } else {
+        const value = truncateText(item, 256);
+        if (value) out.push({ value, label: value });
+      }
+    }
+    if (out.length > 0 && !out.some((item) => item.value === selectedValue)) {
+      return [{ value: selectedValue, label: selectedValue }, ...out].slice(0, HELPERS_MAX_PANEL_OPTIONS);
+    }
+    return out;
+  }
+
+  function sanitizePanelControl(control, index) {
+    if (!control || typeof control !== "object") return null;
+    const type = normalizePanelControlType(control.type);
+    const id = sanitizePanelId(control.id, "control-" + (index + 1));
+    if (!id) return null;
+    const value = sanitizePanelValue(type, control.value);
+    const out = {
+      id,
+      type,
+      label: truncateText(control.label ?? "", 240),
+      value,
+      disabled: control.disabled === true
+    };
+    if (type === "text") {
+      out.text = truncateText(control.text ?? control.label ?? "", 1000);
+    }
+    if (type === "textInput" || type === "textarea") {
+      out.placeholder = truncateText(control.placeholder ?? "", 500);
+    }
+    if (type === "select") {
+      out.options = sanitizePanelOptions(control.options, value);
+    }
+    if (type === "button" && !out.label) {
+      out.label = truncateText(control.text ?? "Button", 120);
+    }
+    return out;
+  }
+
+  function sanitizePanelConfig(config) {
+    if (!config || typeof config !== "object") return null;
+    const id = sanitizePanelId(config.id);
+    if (!id) return null;
+    const controls = [];
+    const rawControls = Array.isArray(config.controls) ? config.controls : [];
+    for (let i = 0; i < rawControls.length && controls.length < HELPERS_MAX_PANEL_CONTROLS; i++) {
+      const control = sanitizePanelControl(rawControls[i], i);
+      if (control) controls.push(control);
+    }
+    const position = PANEL_POSITIONS.has(config.position) ? config.position : "bottom-right";
+    const align = PANEL_ALIGNS.has(config.align) ? config.align : "left";
+    const width = sanitizePanelWidth(config.width);
+    const textSize = sanitizePanelSize(config.textSize ?? config.fontSize);
+    return {
+      id,
+      title: truncateText(config.title ?? "", 240),
+      description: truncateText(config.description ?? config.body ?? "", 1000),
+      position,
+      align,
+      width,
+      textSize,
+      theme: sanitizePanelTheme(config.theme || config.colors || {}),
+      controls,
+      visible: config.visible !== false
+    };
+  }
+
+  function clonePanelForSnapshot(panel) {
+    return safeCloneJson(panel) || null;
+  }
+
+  function createPanelHelper(ctx) {
+    const { groupId, panelsBucket } = ctx;
+    const accumulatorRef = ctx?.accumulatorRef
+      ? ctx.accumulatorRef
+      : { get: () => ensureAccumulatorShape(ctx?.accumulator || {}) };
+    const readCurrentUrl = typeof ctx.currentUrlRef === "function"
+      ? ctx.currentUrlRef
+      : () => (typeof ctx.currentUrl === "string" ? ctx.currentUrl : "");
+    const readDisplayedSet = typeof ctx.panelDisplayedSetRef === "function"
+      ? ctx.panelDisplayedSetRef
+      : () => (ctx.panelDisplayedSet instanceof Set ? ctx.panelDisplayedSet : (ctx.panelDisplayedSet = new Set()));
+    const predicatesBucket = ctx.predicatesBucket && typeof ctx.predicatesBucket === "object"
+      ? ctx.predicatesBucket
+      : {};
+
+    function getPanel(id) {
+      if (typeof id !== "string" || !id) return null;
+      const panel = panelsBucket[id];
+      return panel && typeof panel === "object" ? panel : null;
+    }
+
+    function markPanelRegistryChanged() {
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      acc.panelRegistryChanged = true;
+    }
+
+    function safePredicate(predicate) {
+      if (typeof predicate !== "function") return false;
+      try { return Boolean(predicate(readCurrentUrl())); } catch { return false; }
+    }
+
+    function rememberPredicates(id, scope, domain) {
+      const slot = predicatesBucket[id] || {};
+      let changed = false;
+      if (typeof scope === "function") {
+        if (typeof slot.scope !== "function") changed = true;
+        slot.scope = scope;
+      } else if (scope === null) {
+        if (typeof slot.scope === "function") changed = true;
+        delete slot.scope;
+      }
+      if (typeof domain === "function") {
+        if (typeof slot.domain !== "function") changed = true;
+        slot.domain = domain;
+      } else if (domain === null) {
+        if (typeof slot.domain === "function") changed = true;
+        delete slot.domain;
+      }
+      predicatesBucket[id] = slot;
+      if (changed) markPanelRegistryChanged();
+    }
+
+    function applyScopeAndDomain(id, scope, domain) {
+      rememberPredicates(id, scope, domain);
+      const panel = getPanel(id);
+      if (!panel || panel.visible === false) return;
+      const slot = predicatesBucket[id] || {};
+      const effectiveScope = typeof scope === "function" ? scope : slot.scope;
+      const effectiveDomain = typeof domain === "function" ? domain : slot.domain;
+      const displayPredicate = typeof effectiveDomain === "function" ? effectiveDomain : effectiveScope;
+      if (typeof displayPredicate !== "function" || safePredicate(displayPredicate)) {
+        readDisplayedSet().add(id);
+      }
+    }
+
+    function hasInlineHandlers(rawConfig) {
+      if (!rawConfig || typeof rawConfig !== "object") return false;
+      if (
+        typeof rawConfig.onEvent === "function" ||
+        typeof rawConfig.onChange === "function" ||
+        typeof rawConfig.onClick === "function"
+      ) {
+        return true;
+      }
+      const controls = Array.isArray(rawConfig.controls) ? rawConfig.controls : [];
+      return controls.some((control) =>
+        control && typeof control === "object" &&
+        (
+          typeof control.onEvent === "function" ||
+          typeof control.onChange === "function" ||
+          typeof control.onClick === "function"
+        )
+      );
+    }
+
+    function registerInlineHandlers(id, rawConfig) {
+      if (typeof ctx.unregisterPanelHandlers === "function") {
+        ctx.unregisterPanelHandlers(id);
+      }
+      if (typeof ctx.registerPanelHandler !== "function" || !rawConfig || typeof rawConfig !== "object") {
+        return;
+      }
+      const register = (controlId, eventName, handler, options) => {
+        if (typeof handler !== "function") return;
+        ctx.registerPanelHandler(id, controlId, eventName, handler, options || {});
+      };
+      register(null, "*", rawConfig.onEvent, rawConfig.options);
+      register(null, "change", rawConfig.onChange, rawConfig.options);
+      register(null, "click", rawConfig.onClick, rawConfig.options);
+      const controls = Array.isArray(rawConfig.controls) ? rawConfig.controls : [];
+      for (let i = 0; i < controls.length; i++) {
+        const rawControl = controls[i];
+        if (!rawControl || typeof rawControl !== "object") continue;
+        const sanitized = sanitizePanelControl(rawControl, i);
+        if (!sanitized) continue;
+        register(sanitized.id, "*", rawControl.onEvent, rawControl.options);
+        register(sanitized.id, "change", rawControl.onChange, rawControl.options);
+        register(sanitized.id, "click", rawControl.onClick, rawControl.options);
+      }
+    }
+
+    function create(config) {
+      if (Object.keys(panelsBucket).length >= HELPERS_MAX_PANELS_PER_GROUP && !getPanel(config?.id)) {
+        return null;
+      }
+      const panel = sanitizePanelConfig(config);
+      if (!panel) return null;
+      panelsBucket[panel.id] = panel;
+      rememberPredicates(panel.id, config.scope, config.domain);
+      registerInlineHandlers(panel.id, config);
+      markPanelRegistryChanged();
+      applyScopeAndDomain(panel.id, config.scope, config.domain);
+      return panel.id;
+    }
+
+    function getValues(panel) {
+      const out = {};
+      for (const control of panel?.controls || []) {
+        if (control.type === "button" || control.type === "text") continue;
+        out[control.id] = control.value;
+      }
+      return out;
+    }
+
+    return {
+      groupId,
+      create,
+      getOrCreatePanel(config = {}) {
+        if (typeof config.id !== "string" || !config.id) return null;
+        const id = sanitizePanelId(config.id);
+        if (!id) return null;
+        if (!getPanel(id)) return create({ ...config, id });
+        applyScopeAndDomain(id);
+        return id;
+      },
+      update(id, patch = {}) {
+        const panel = getPanel(id);
+        if (!panel || !patch || typeof patch !== "object") return false;
+        const next = sanitizePanelConfig({ ...panel, ...patch, id: panel.id });
+        if (!next) return false;
+        panelsBucket[panel.id] = next;
+        if (Object.prototype.hasOwnProperty.call(patch, "scope") || Object.prototype.hasOwnProperty.call(patch, "domain")) {
+          rememberPredicates(panel.id, patch.scope, patch.domain);
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, "controls") || hasInlineHandlers(patch)) {
+          registerInlineHandlers(panel.id, patch);
+        }
+        markPanelRegistryChanged();
+        applyScopeAndDomain(panel.id);
+        return true;
+      },
+      delete(id) {
+        if (!getPanel(id)) return false;
+        delete panelsBucket[id];
+        delete predicatesBucket[id];
+        if (typeof ctx.unregisterPanelHandlers === "function") ctx.unregisterPanelHandlers(id);
+        markPanelRegistryChanged();
+        return true;
+      },
+      show(id) {
+        const panel = getPanel(id);
+        if (!panel || panel.visible === true) return Boolean(panel);
+        panel.visible = true;
+        markPanelRegistryChanged();
+        applyScopeAndDomain(id);
+        return true;
+      },
+      hide(id) {
+        const panel = getPanel(id);
+        if (!panel || panel.visible === false) return Boolean(panel);
+        panel.visible = false;
+        markPanelRegistryChanged();
+        return true;
+      },
+      setValue(panelId, controlId, value) {
+        const panel = getPanel(panelId);
+        if (!panel || typeof controlId !== "string") return false;
+        const control = panel.controls.find((item) => item.id === controlId);
+        if (!control || control.type === "button" || control.type === "text") return false;
+        const nextValue = sanitizePanelValue(control.type, value);
+        if (JSON.stringify(control.value) === JSON.stringify(nextValue)) return true;
+        control.value = nextValue;
+        markPanelRegistryChanged();
+        return true;
+      },
+      getValue(panelId, controlId) {
+        const panel = getPanel(panelId);
+        const control = panel?.controls?.find((item) => item.id === controlId);
+        return control ? safeCloneJson(control.value) : undefined;
+      },
+      getValues(panelId) {
+        return safeCloneJson(getValues(getPanel(panelId))) || {};
+      },
+      getState(id) {
+        const panel = getPanel(id);
+        return panel ? clonePanelForSnapshot(panel) : null;
+      },
+      list() {
+        return Object.keys(panelsBucket).map((id) => clonePanelForSnapshot(panelsBucket[id])).filter(Boolean);
+      },
+      __cb_applyPanelEvent(data) {
+        if (!data || typeof data !== "object") return false;
+        const panelId = typeof data.panelId === "string" ? data.panelId : "";
+        const panel = getPanel(panelId);
+        if (!panel) return false;
+        let changed = false;
+        const values = data.values && typeof data.values === "object" ? data.values : null;
+        if (values) {
+          for (const control of panel.controls) {
+            if (control.type === "button" || control.type === "text") continue;
+            if (!Object.prototype.hasOwnProperty.call(values, control.id)) continue;
+            const nextValue = sanitizePanelValue(control.type, values[control.id]);
+            if (JSON.stringify(control.value) !== JSON.stringify(nextValue)) {
+              control.value = nextValue;
+              changed = true;
+            }
+          }
+        } else if (typeof data.controlId === "string") {
+          const control = panel.controls.find((item) => item.id === data.controlId);
+          if (control && control.type !== "button" && control.type !== "text") {
+            const nextValue = sanitizePanelValue(control.type, data.value);
+            if (JSON.stringify(control.value) !== JSON.stringify(nextValue)) {
+              control.value = nextValue;
+              changed = true;
+            }
+          }
+        }
+        if (changed) markPanelRegistryChanged();
+        return changed;
+      },
+      __cb_refreshDisplayedPanels() {
+        for (const id of Object.keys(panelsBucket)) {
+          applyScopeAndDomain(id);
+        }
+      },
+      __cb_getDisplayedPanelSnapshots() {
+        const out = [];
+        const displayed = readDisplayedSet();
+        for (const id of Object.keys(panelsBucket)) {
+          if (!displayed.has(id)) continue;
+          const panel = getPanel(id);
+          const snap = panel ? clonePanelForSnapshot(panel) : null;
+          if (snap) {
+            snap.values = getValues(panel);
+            out.push(snap);
+          }
+        }
+        return out;
+      }
     };
   }
 
@@ -851,6 +1276,7 @@
     accumulator.logs = accumulator.logs || [];
     accumulator.domOps = accumulator.domOps || [];
     if (accumulator.timerRegistryChanged === undefined) accumulator.timerRegistryChanged = false;
+    if (accumulator.panelRegistryChanged === undefined) accumulator.panelRegistryChanged = false;
     if (accumulator.redirectUrl === undefined) accumulator.redirectUrl = null;
     if (accumulator.logsDropped === undefined) accumulator.logsDropped = 0;
     return accumulator;
@@ -863,6 +1289,9 @@
   const HELPERS_MAX_LOGS_PER_DISPATCH = 200;
   const HELPERS_MAX_DOM_OPS_PER_DISPATCH = 256;
   const HELPERS_MAX_INTENTS_PER_DISPATCH = 256;
+  const HELPERS_MAX_PANELS_PER_GROUP = 24;
+  const HELPERS_MAX_PANEL_CONTROLS = 32;
+  const HELPERS_MAX_PANEL_OPTIONS = 64;
   const HELPERS_HANDLER_DEADLINE_GRACE_MS = 0;
   // Sentinel error type. Throwing it from a helper unwinds the user's
   // handler all the way out to dispatchEvent's try/catch, which records
@@ -1338,6 +1767,7 @@
       groupId,
       currentUrl,
       timersBucket,
+      panelsBucket,
       persistenceBucket,
       // Optional shared predicate registry (sandbox-lifetime). When the
       // event-sandbox passes one in, scope/domain predicates set during
@@ -1365,6 +1795,7 @@
     // per-dispatch sets and elapsedMs.
     const fallbackTickedSet = new Set();
     const fallbackDisplayedSet = new Set();
+    const fallbackPanelDisplayedSet = new Set();
 
     const domain = createEventDomainHelper();
     const timer = createTimerHelper({
@@ -1388,6 +1819,22 @@
       displayedSetRef: () => {
         const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
         return dc?.displayedSet instanceof Set ? dc.displayedSet : fallbackDisplayedSet;
+      }
+    });
+    const panel = createPanelHelper({
+      groupId,
+      panelsBucket: panelsBucket || {},
+      accumulatorRef,
+      predicatesBucket: ctx?.panelPredicatesBucket || {},
+      registerPanelHandler: ctx?.registerPanelHandler,
+      unregisterPanelHandlers: ctx?.unregisterPanelHandlers,
+      currentUrlRef: () => {
+        const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
+        return normalizeUrlForEvents(dc?.currentUrl ?? currentUrl ?? "");
+      },
+      panelDisplayedSetRef: () => {
+        const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;
+        return dc?.panelDisplayedSet instanceof Set ? dc.panelDisplayedSet : fallbackPanelDisplayedSet;
       }
     });
     const persistence = createPersistenceHelper(persistenceBucket || {});
@@ -1427,6 +1874,7 @@
       getDomainHelper: () => domain,
       getDomainUtility: () => domain,
       getTimerHelper: () => timer,
+      getPanelHelper: () => panel,
       getPersistenceHelper: () => persistence,
       getRedirectionHelper: () => redirect,
       getDOMHelper: () => dom,
@@ -1453,6 +1901,7 @@
     // change.
     createEventLogHelper,
     createDOMHelper,
+    createPanelHelper,
     createTabHelper,
     // Exposed so event-sandbox.js can call it from registerHandler too,
     // ensuring a registration loop (`for (let i = 0; i < 1e5; i++)

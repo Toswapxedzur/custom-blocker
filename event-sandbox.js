@@ -42,6 +42,7 @@ let cbDebugMode = false;
 const handlersByType = new Map(); // type -> Array<{ groupId, id, handler, priority, intervalMs, registeredAt }>
 const groupSources = new Map();   // groupId -> source string (last loaded)
 const groupTimers = new Map();    // groupId -> { [timerId]: { ... persisted state ... } }
+const groupPanels = new Map();    // groupId -> { [panelId]: { ... persisted panel state ... } }
 const groupPersistence = new Map(); // groupId -> { ... persisted state ... }
 const groupPlatformPredicates = new Map(); // groupId -> { [platform]: { [slot]: [{predicate, blockPageOnVisit}] } }
 // Sandbox-lifetime registry of timer scope/domain predicates. Lives
@@ -49,6 +50,8 @@ const groupPlatformPredicates = new Map(); // groupId -> { [platform]: { [slot]:
 // reset of the sandbox loses them — but the rule is reloaded
 // immediately afterwards which re-registers them.
 const groupTimerPredicates = new Map(); // groupId -> { [timerId]: { scope?, domain? } }
+const groupPanelPredicates = new Map(); // groupId -> { [panelId]: { scope?, domain? } }
+const groupPanelHandlerIds = new Map(); // groupId -> { [panelId]: Set<handlerId> }
 const previouslyExpiredTimers = new Map(); // groupId -> Set<timerId>
 
 function getGroupTimers(groupId) {
@@ -63,6 +66,20 @@ function getGroupTimerPredicates(groupId) {
     groupTimerPredicates.set(groupId, {});
   }
   return groupTimerPredicates.get(groupId);
+}
+
+function getGroupPanels(groupId) {
+  if (!groupPanels.has(groupId)) {
+    groupPanels.set(groupId, {});
+  }
+  return groupPanels.get(groupId);
+}
+
+function getGroupPanelPredicates(groupId) {
+  if (!groupPanelPredicates.has(groupId)) {
+    groupPanelPredicates.set(groupId, {});
+  }
+  return groupPanelPredicates.get(groupId);
 }
 
 function getGroupPersistence(groupId) {
@@ -202,8 +219,49 @@ function unregisterAllForType(groupId, type) {
   return removed;
 }
 
+function unregisterPanelHandlers(groupId, panelId) {
+  const byPanel = groupPanelHandlerIds.get(groupId);
+  const ids = byPanel && byPanel[panelId];
+  if (!ids) return 0;
+  let removed = 0;
+  for (const id of ids) {
+    if (unregisterHandler(groupId, "panelEvent", id)) removed += 1;
+  }
+  delete byPanel[panelId];
+  return removed;
+}
+
+function registerInlinePanelHandler(groupId, panelId, controlId, eventName, handler, options) {
+  if (typeof panelId !== "string" || !panelId || typeof handler !== "function") return false;
+  const normalizedEvent = typeof eventName === "string" && eventName ? eventName : "*";
+  const normalizedControl = typeof controlId === "string" && controlId ? controlId : "*";
+  const handlerId = "_panel:" + panelId + ":" + normalizedControl + ":" + normalizedEvent;
+  const wrapped = (ev, helpers) => {
+    const data = ev && ev.data && typeof ev.data === "object" ? ev.data : {};
+    if (data.panelId !== panelId) return;
+    if (normalizedControl !== "*" && data.controlId !== normalizedControl) return;
+    if (normalizedEvent !== "*" && data.eventName !== normalizedEvent) return;
+    ev.panelId = data.panelId;
+    ev.controlId = data.controlId || "";
+    ev.eventName = data.eventName || "";
+    ev.value = data.value;
+    ev.values = data.values && typeof data.values === "object" ? data.values : {};
+    handler(ev, helpers);
+  };
+  const ok = registerHandler(groupId, "panelEvent", handlerId, wrapped, options || {});
+  if (ok) {
+    const byPanel = groupPanelHandlerIds.get(groupId) || {};
+    const ids = byPanel[panelId] || new Set();
+    ids.add(handlerId);
+    byPanel[panelId] = ids;
+    groupPanelHandlerIds.set(groupId, byPanel);
+  }
+  return ok;
+}
+
 function unloadGroup(groupId, { clearState = false } = {}) {
   const hadTimers = Boolean(groupTimers.get(groupId) && Object.keys(groupTimers.get(groupId)).length > 0);
+  const hadPanels = Boolean(groupPanels.get(groupId) && Object.keys(groupPanels.get(groupId)).length > 0);
   const hadPersistence =
     Boolean(groupPersistence.get(groupId) && Object.keys(groupPersistence.get(groupId)).length > 0);
   for (const [type, list] of handlersByType.entries()) {
@@ -217,13 +275,19 @@ function unloadGroup(groupId, { clearState = false } = {}) {
   // version's closures (which may close over now-stale module
   // references). The rule re-registers them on its next dispatch.
   groupTimerPredicates.delete(groupId);
+  groupPanelPredicates.delete(groupId);
+  groupPanelHandlerIds.delete(groupId);
   previouslyExpiredTimers.delete(groupId);
   handlerCountByGroup.delete(groupId);
   if (clearState) {
     groupTimers.delete(groupId);
+    groupPanels.delete(groupId);
     groupPersistence.delete(groupId);
   }
-  return { timerRegistryChanged: clearState && (hadTimers || hadPersistence) };
+  return {
+    timerRegistryChanged: clearState && (hadTimers || hadPersistence),
+    panelRegistryChanged: clearState && hadPanels
+  };
 }
 
 function listHandlers(groupId) {
@@ -260,6 +324,8 @@ const BUILTIN_EVENT_TYPES = [
   // snoozePress fires when the user clicks Start Snooze in the popup for a
   // custom group. The rule owns the snooze semantics (no built-in fallback).
   "snoozePress",
+  // panelEvent fires when a content-script-rendered panel control is used.
+  "panelEvent",
   // pageHeartbeatEvent fires for every visibility-aware content-script
   // heartbeat (≈ every 250ms when the tab is visible and not hidden,
   // matching the default block group's countdown). It carries elapsedMs
@@ -362,6 +428,7 @@ function buildEventsRegistry(groupId, dispatchContext) {
   api.countWebChangedRegistered = typedCount("webChangedEvent");
   api.countTimerEndedRegistered = typedCount("timerEnded");
   api.countSnoozePressRegistered = typedCount("snoozePress");
+  api.countPanelRegistered = typedCount("panelEvent");
   // timerEnded and snoozePress wire types lack the Event suffix; expose
   // friendlier aliases so user code can use registerXxxEvent uniformly.
   api.registerTimerEndedEvent = typedRegister("timerEnded");
@@ -372,6 +439,10 @@ function buildEventsRegistry(groupId, dispatchContext) {
   api.getSnoozePressEvent = typedGet("snoozePress");
   api.getSnoozePressEvents = typedGetAll("snoozePress");
   api.countSnoozePressEventRegistered = typedCount("snoozePress");
+  api.registerPanelEvent = typedRegister("panelEvent");
+  api.getPanelEvent = typedGet("panelEvent");
+  api.getPanelEvents = typedGetAll("panelEvent");
+  api.countPanelEventRegistered = typedCount("panelEvent");
 
   return api;
 }
@@ -395,6 +466,11 @@ function getOrCreateGroupHelpers(groupId) {
     currentUrl: "",
     timersBucket: getGroupTimers(groupId),
     timerPredicatesBucket: getGroupTimerPredicates(groupId),
+    panelsBucket: getGroupPanels(groupId),
+    panelPredicatesBucket: getGroupPanelPredicates(groupId),
+    registerPanelHandler: (panelId, controlId, eventName, handler, options) =>
+      registerInlinePanelHandler(groupId, panelId, controlId, eventName, handler, options),
+    unregisterPanelHandlers: (panelId) => unregisterPanelHandlers(groupId, panelId),
     persistenceBucket: getGroupPersistence(groupId),
     platformPredicatesBucket: getGroupPlatformPredicates(groupId),
     accumulatorRef: { get: () => currentDispatchAccumulator || makeAccumulator() },
@@ -436,6 +512,7 @@ function makeAccumulator() {
     redirectUrl: null,
     domOps: [],
     timerRegistryChanged: false,
+    panelRegistryChanged: false,
     logsDropped: 0,
     postsDropped: 0
   };
@@ -516,6 +593,16 @@ function buildEventObject(descriptor, recipientGroupId, accumulator) {
     }
   };
 
+  if (descriptor.type === "panelEvent" && descriptor.data && typeof descriptor.data === "object") {
+    evt.panelId = descriptor.data.panelId || "";
+    evt.controlId = descriptor.data.controlId || "";
+    evt.eventName = descriptor.data.eventName || "";
+    evt.value = descriptor.data.value;
+    evt.values = descriptor.data.values && typeof descriptor.data.values === "object"
+      ? descriptor.data.values
+      : {};
+  }
+
   // Allow free-form fields to be set by the user without touching our
   // reserved keys. We make them go through a property bag.
   return new Proxy(evt, {
@@ -593,19 +680,21 @@ function dispatchEvent(descriptor) {
   const dispatchNow = descriptor.time?.now ?? Date.now();
   const tickedByGroup = new Map();    // groupId -> Set<timerId>
   const displayedByGroup = new Map(); // groupId -> Set<timerId>
+  const panelDisplayedByGroup = new Map(); // groupId -> Set<panelId>
   const rawElapsed = Number(descriptor.elapsedMs);
   const dispatchElapsedMs = Number.isFinite(rawElapsed) && rawElapsed >= 0
     ? Math.min(rawElapsed, 60_000)
     : 0;
 
-  for (const entry of filtered) {
-    const helpers = getOrCreateGroupHelpers(entry.groupId);
-    const evt = buildEventObject(descriptor, entry.groupId, accumulator);
-    if (!tickedByGroup.has(entry.groupId)) {
-      tickedByGroup.set(entry.groupId, new Set());
-      displayedByGroup.set(entry.groupId, new Set());
+  const makeDispatchContext = (groupId) => {
+    if (!tickedByGroup.has(groupId)) {
+      tickedByGroup.set(groupId, new Set());
+      displayedByGroup.set(groupId, new Set());
     }
-    const dispatchContext = {
+    if (!panelDisplayedByGroup.has(groupId)) {
+      panelDisplayedByGroup.set(groupId, new Set());
+    }
+    return {
       tabId: descriptor.tabId ?? null,
       pageId: descriptor.pageId ?? null,
       currentUrl: descriptor.url,
@@ -613,9 +702,26 @@ function dispatchEvent(descriptor) {
       tabsSnapshot: descriptor.tabsSnapshot,
       platformSnapshot: descriptor.platformSnapshot,
       elapsedMs: dispatchElapsedMs,
-      tickedSet: tickedByGroup.get(entry.groupId),
-      displayedSet: displayedByGroup.get(entry.groupId)
+      tickedSet: tickedByGroup.get(groupId),
+      displayedSet: displayedByGroup.get(groupId),
+      panelDisplayedSet: panelDisplayedByGroup.get(groupId)
     };
+  };
+
+  if (descriptor.type === "panelEvent" && descriptor.targetGroupId) {
+    const helpers = getOrCreateGroupHelpers(descriptor.targetGroupId);
+    const panelHelper = helpers && helpers.getPanelHelper && helpers.getPanelHelper();
+    if (panelHelper && typeof panelHelper.__cb_applyPanelEvent === "function") {
+      withDispatchContext(accumulator, makeDispatchContext(descriptor.targetGroupId), () => {
+        try { panelHelper.__cb_applyPanelEvent(descriptor.data || {}); } catch (_) {}
+      });
+    }
+  }
+
+  for (const entry of filtered) {
+    const helpers = getOrCreateGroupHelpers(entry.groupId);
+    const evt = buildEventObject(descriptor, entry.groupId, accumulator);
+    const dispatchContext = makeDispatchContext(entry.groupId);
     withDispatchContext(accumulator, dispatchContext, () => {
       const handlerStart = performance.now();
       accumulator._handlerDeadline = handlerStart + HANDLER_TIME_BUDGET_MS;
@@ -708,21 +814,7 @@ function dispatchEvent(descriptor) {
     const helpers = getOrCreateGroupHelpers(groupId);
     const tickFn = helpers && helpers.getTimerHelper && helpers.getTimerHelper();
     if (!tickFn || typeof tickFn.__cb_tickAllScopedTimers !== "function") continue;
-    if (!tickedByGroup.has(groupId)) {
-      tickedByGroup.set(groupId, new Set());
-      displayedByGroup.set(groupId, new Set());
-    }
-    const dispatchContext = {
-      tabId: descriptor.tabId ?? null,
-      pageId: descriptor.pageId ?? null,
-      currentUrl: descriptor.url,
-      now: dispatchNow,
-      tabsSnapshot: descriptor.tabsSnapshot,
-      platformSnapshot: descriptor.platformSnapshot,
-      elapsedMs: dispatchElapsedMs,
-      tickedSet: tickedByGroup.get(groupId),
-      displayedSet: displayedByGroup.get(groupId)
-    };
+    const dispatchContext = makeDispatchContext(groupId);
     withDispatchContext(accumulator, dispatchContext, () => {
       try { tickFn.__cb_tickAllScopedTimers(); } catch (_) {}
       try {
@@ -732,6 +824,33 @@ function dispatchEvent(descriptor) {
         }
       } catch (_) {}
     });
+  }
+
+  const panelSnapshotsByGroup = {};
+  const panelGroupsWithPanels = [];
+  const shouldCollectPanelSnapshots =
+    descriptor.type !== "pageHeartbeatEvent" ||
+    dispatchElapsedMs === 0 ||
+    accumulator.panelRegistryChanged;
+  if (shouldCollectPanelSnapshots) {
+    for (const groupId of groupPanels.keys()) {
+      const panels = groupPanels.get(groupId);
+      if (!panels || Object.keys(panels).length === 0) continue;
+      panelGroupsWithPanels.push(groupId);
+      const helpers = getOrCreateGroupHelpers(groupId);
+      const panelFn = helpers && helpers.getPanelHelper && helpers.getPanelHelper();
+      if (!panelFn || typeof panelFn.__cb_refreshDisplayedPanels !== "function") continue;
+      const dispatchContext = makeDispatchContext(groupId);
+      withDispatchContext(accumulator, dispatchContext, () => {
+        try { panelFn.__cb_refreshDisplayedPanels(); } catch (_) {}
+        try {
+          const snaps = panelFn.__cb_getDisplayedPanelSnapshots();
+          if (Array.isArray(snaps) && snaps.length > 0) {
+            panelSnapshotsByGroup[groupId] = snaps;
+          }
+        } catch (_) {}
+      });
+    }
   }
 
   if (typeof lastResult === "number" && lastResult === 1) {
@@ -763,12 +882,15 @@ function dispatchEvent(descriptor) {
     postsDropped: accumulator.postsDropped || 0,
     quarantine: accumulator.quarantine || null,
     timerRegistryChanged: Boolean(accumulator.timerRegistryChanged),
+    panelRegistryChanged: Boolean(accumulator.panelRegistryChanged),
     // Map of groupId -> [{id, displayName, direction, currentMs,
     // isPaused, isExpired}] for timers whose domain (or scope) matches
     // descriptor.url. background.js merges these into the page session
     // items so they render in the same overlay as the default block
     // group countdown.
-    timerSnapshotsByGroup
+    timerSnapshotsByGroup,
+    panelSnapshotsByGroup,
+    panelGroupsWithPanels
   };
 }
 
@@ -787,7 +909,8 @@ function loadSource(groupId, source) {
       ok: true,
       handlers: 0,
       error: null,
-      timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged)
+      timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged),
+      panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged)
     };
   }
 
@@ -836,7 +959,8 @@ function loadSource(groupId, source) {
         ok: false,
         handlers: 0,
         error: msg,
-        timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged)
+        timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged),
+        panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged)
       };
     }
   }
@@ -894,32 +1018,35 @@ function loadSource(groupId, source) {
       quarantine: isBudgetAbort
         ? { groupId, reason: "registration-deadline-overrun" }
         : null,
-      timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged || accumulator.timerRegistryChanged)
+      timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged || accumulator.timerRegistryChanged),
+      panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged || accumulator.panelRegistryChanged)
     };
   }
 
   groupSources.set(groupId, trimmed);
   const handlerCount = listHandlers(groupId).length;
-  const noteLogs = handlerCount === 0
+  const panelCount = Object.keys(groupPanels.get(groupId) || {}).length;
+  const noteLogs = handlerCount === 0 && panelCount === 0
     ? [{
         level: "warn",
         groupId,
         args: [
           "[register] code ran without errors but registered 0 handler(s). " +
-            "Check that you're calling events.registerWebChangedEvent (or similar) inside the function body."
+            "Check that you're calling events.registerWebChangedEvent (or similar), or creating a panel/timer, inside the function body."
         ]
       }]
     : [{
         level: "log",
         groupId,
-        args: ["[register] " + handlerCount + " handler(s) registered for group " + groupId]
+        args: ["[register] " + handlerCount + " handler(s), " + panelCount + " panel(s) registered for group " + groupId]
       }];
   return {
     ok: true,
     handlers: handlerCount,
     error: null,
     logs: [...earlyLogs, ...noteLogs],
-    timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged || accumulator.timerRegistryChanged)
+    timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged || accumulator.timerRegistryChanged),
+    panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged || accumulator.panelRegistryChanged)
   };
 }
 

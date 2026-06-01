@@ -1201,6 +1201,34 @@ function buildCustomTimerItems(dispatchResult) {
   return out;
 }
 
+function collectPanelSnapshots(dispatchResult) {
+  const panels = [];
+  const groups = new Set();
+  function addFrom(result) {
+    if (!result || typeof result !== "object") return;
+    if (Array.isArray(result.panelGroupsWithPanels)) {
+      for (const groupId of result.panelGroupsWithPanels) {
+        if (typeof groupId === "string" && groupId) groups.add(groupId);
+      }
+    }
+    const byGroup = result.panelSnapshotsByGroup;
+    if (!byGroup || typeof byGroup !== "object") return;
+    for (const [groupId, snapshots] of Object.entries(byGroup)) {
+      if (typeof groupId === "string" && groupId) groups.add(groupId);
+      if (!Array.isArray(snapshots)) continue;
+      for (const snap of snapshots) {
+        if (!snap || typeof snap !== "object") continue;
+        panels.push({ ...snap, groupId });
+      }
+    }
+  }
+  addFrom(dispatchResult);
+  if (Array.isArray(dispatchResult?.synthResults)) {
+    for (const synth of dispatchResult.synthResults) addFrom(synth?.result);
+  }
+  return { panels, groups: Array.from(groups) };
+}
+
 function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now) {
   return relevantGroups
     .filter((group) => isTimedBlockingMode(group.mode))
@@ -2563,11 +2591,14 @@ async function trySendApply(tabId, message) {
 
 let customTimerRefreshTimeoutId = null;
 
-function resultHasTimerRegistryChange(result) {
+function resultHasRefreshableUiChange(result) {
   if (!result) return false;
   if (result.timerRegistryChanged) return true;
+  if (result.panelRegistryChanged) return true;
   if (!Array.isArray(result.synthResults)) return false;
-  return result.synthResults.some((synth) => Boolean(synth?.result?.timerRegistryChanged));
+  return result.synthResults.some((synth) =>
+    Boolean(synth?.result?.timerRegistryChanged || synth?.result?.panelRegistryChanged)
+  );
 }
 
 function scheduleCustomTimerRefreshBroadcast(delayMs = 100) {
@@ -2602,6 +2633,7 @@ async function applySandboxResultToTab(tabId, result, descriptor) {
   const logs = Array.isArray(result.logs) ? result.logs.slice() : [];
   const domOps = Array.isArray(result.domOps) ? result.domOps.slice() : [];
   const intents = Array.isArray(result.intents) ? result.intents.slice() : [];
+  const panelPayload = collectPanelSnapshots(result);
   if (Array.isArray(result.synthResults)) {
     for (const synth of result.synthResults) {
       const sr = synth && synth.result;
@@ -2614,6 +2646,7 @@ async function applySandboxResultToTab(tabId, result, descriptor) {
   // Skip empty applies (they would only spam the per-tab queue with
   // ticks that have no observable side effect).
   if (logs.length === 0 && domOps.length === 0 && intents.length === 0 &&
+      panelPayload.panels.length === 0 && panelPayload.groups.length === 0 &&
       !result.defaultPrevented && !result.redirectUrl &&
       typeof result.result !== "string") {
     return;
@@ -2626,6 +2659,8 @@ async function applySandboxResultToTab(tabId, result, descriptor) {
     redirectUrl: result.redirectUrl || "",
     domOps,
     intents,
+    panelSnapshots: panelPayload.panels,
+    panelGroups: panelPayload.groups,
     logs
   };
   const sent = await trySendApply(tabId, message);
@@ -2666,7 +2701,7 @@ async function dispatchEventToTab(type, tabInfo, extras = {}) {
   ingestSandboxLogs(result, descriptor);
   maybeQuarantineFromResult(result, descriptor);
   await applySandboxResultToTab(descriptor.tabId, result, descriptor);
-  if (type !== "pageHeartbeatEvent" && resultHasTimerRegistryChange(result)) {
+  if (type !== "pageHeartbeatEvent" && resultHasRefreshableUiChange(result)) {
     scheduleCustomTimerRefreshBroadcast();
   }
   return result;
@@ -3096,6 +3131,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const r = await dispatchToSandbox(descriptor);
       sendResponse({ ok: true, result: r });
     })();
+    return true;
+  }
+
+  if (message.type === "custom-panel-event") {
+    (async () => {
+      await ensureStartupGate();
+      const tabId = sender?.tab?.id ?? (typeof message.tabId === "number" ? message.tabId : null);
+      const url = normalizeUrlForEvents(message.url || sender?.tab?.url || sender?.url || "");
+      const groupId = typeof message.groupId === "string" ? message.groupId : "";
+      const data = {
+        panelId: typeof message.panelId === "string" ? message.panelId : "",
+        controlId: typeof message.controlId === "string" ? message.controlId : "",
+        eventName: typeof message.eventName === "string" ? message.eventName : "",
+        value: message.value,
+        values: message.values && typeof message.values === "object" ? message.values : {}
+      };
+      const result = await dispatchEventToTab(
+        "panelEvent",
+        { tabId, url },
+        { data, targetGroupId: groupId }
+      );
+      sendResponse({ ok: true, result });
+    })().catch((error) => {
+      sendResponse({ ok: false, error: String(error && error.message ? error.message : error) });
+    });
     return true;
   }
 

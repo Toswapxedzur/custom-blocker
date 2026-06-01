@@ -320,7 +320,7 @@ Per-event-type sugar (one set of methods per built-in type):
 
 - `event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
 - `event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
-- Same shape for `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`.
+- Same shape for `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`, `panelEvent`.
 
 ### 11.2.2 Built-in event types
 
@@ -335,6 +335,7 @@ Per-event-type sugar (one set of methods per built-in type):
 | `webChangedEvent` | The page (re)loads in any way: open, switch, SPA history update, **or a plain reload that keeps the same URL**. This is the reliable "the page changed, re-evaluate everything" hook. Fires alongside `openWebEvent` / `switchWebEvent` / `switchDomainEvent`, and is the only one that fires for same-URL reloads. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` where `transition` is `"tabCreated"`, `"commit"`, or `"history"` |
 | `timerEnded` | A timer managed by the group reaches `currentMs === 0`. Only delivered to the owning group. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | The user pressed **Start Snooze** in the popup for this **custom** group. Pure notification event — the handler can run arbitrary code (log, redirect, fire other events) but custom rules have **no programmatic snooze API**. Logs produced here surface as toasts on the active tab. Only delivered to the pressed group. | `{ triggeredAt }` |
+| `panelEvent` | A page panel control rendered by `helpers.getPanelHelper()` was used. Delivered to the owning group, and also available through `event.registerPanelEvent(...)` for group-level handling. | `{ panelId, controlId, eventName, value, values }`; shortcuts also exist as `ev.panelId`, `ev.controlId`, `ev.eventName`, `ev.value`, `ev.values` |
 
 URLs in `ev.url` and in event data are **normalized** for events: Chrome's New Tab Page (which renders Google's "Search Google or type URL" surface), `about:blank`, and equivalent newtab schemes are exposed as the empty string `""`. So a timer scoped to `ev.url === ""` only ticks while you are on the new-tab page. Regular `google.com` URLs are unchanged.
 
@@ -373,11 +374,12 @@ Convenience shortcuts (route to the same accumulator-aware functions used by the
 Accessor methods:
 
 - `helpers.getLogHelper()` — `log` / `warn` / `error`. Output is rate-limited and capped per dispatch to prevent runaway rules from freezing the popup.
-- `helpers.getDomainHelper()` (alias `helpers.getDomainUtility()`) — URL inspection (see **11.3.5**).
+- `helpers.getDomainHelper()` (alias `helpers.getDomainUtility()`) — URL inspection (see **11.3.6**).
 - `helpers.getTimerHelper()` — group-scoped timers (countdown / count-up); state persists across browser restarts.
+- `helpers.getPanelHelper()` — fixed-layout on-page panels with configurable content, colors, position, and event handlers.
 - `helpers.getPersistenceHelper()` — JSON key/value store scoped to the group.
 - `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (and `set` / `get` aliases) plus `createMessageUrl(message)` which returns a `chrome-extension://...` URL that displays the given message.
-- `helpers.getPlatformHelper()` — per-platform DOM intents (see **11.3.6**).
+- `helpers.getPlatformHelper()` — per-platform DOM intents (see **11.3.7**).
 - `helpers.getDOMHelper()` — generic DOM intents: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. Operations are batched and applied after the handler returns.
 - `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Effects are applied to the tab the event came from.
 - `helpers.getStorageHelper()` — superset of `getPersistenceHelper` plus async `requestAsyncGet(key)` / `requestAsyncSet(key, value)` hooks for cross-extension storage (results arrive as a follow-up custom event).
@@ -394,9 +396,9 @@ A timer's persisted state is exactly: `id`, `displayName`, `direction` (`"forwar
 There are two construction methods. Pick the one whose semantics match what you want:
 
 - `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **always (re)creates** the timer with the supplied init values, overwriting any existing state including `currentMs`. Use this when you mean "start fresh", e.g. inside a one-shot reset branch.
-- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **idempotent**. If a timer with that `id` already exists, its `displayName` and `direction` may be updated but `currentMs` is preserved. Otherwise it's created with the supplied init values. This is what you want for the common "ensure my timer exists, then let it tick" pattern.
+- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **idempotent**. If a timer with that `id` already exists, it is returned unchanged; init fields such as `displayName`, `direction`, and `currentMs` apply only when the timer is first created. Use explicit setters such as `setDirection`, `setCurrentMs`, `addMs`, or `setDisplayName` when you want to mutate an existing timer.
 
-Both methods accept two predicate functions that the engine remembers for the lifetime of the rule (they survive across heartbeats and across `webChangedEvent` re-evaluations, but they are **never persisted** to storage):
+When a timer is created, both methods accept two predicate functions that the engine remembers for the lifetime of the rule (they survive across heartbeats and across `webChangedEvent` re-evaluations, but they are **never persisted** to storage). Existing `getOrCreateTimer()` calls reuse the remembered predicates instead of replacing them:
 
 - `scope: (url) => boolean` — when `true` for the current visible URL on each `pageHeartbeatEvent`, the timer auto-ticks by the heartbeat interval (~250 ms). The helper itself never blocks; it only updates `currentMs`. At most one auto-tick per heartbeat per timer.
 - `domain: (url) => boolean` — when `true` for the current visible URL, the timer is rendered in the in-page overlay (top-left). When `domain` is omitted, the engine falls back to `scope` for display, so a "tick on /shorts/ pages" timer also shows up there with no extra wiring. Provide `domain` explicitly if you want a different display gate (e.g. tick only on `/shorts/`, but show the remaining time across all of `youtube.com`).
@@ -413,7 +415,37 @@ Other methods:
 - `getState(id)` — `{ id, displayName, direction, isPaused, currentMs, isExpired }` or `null`.
 - `list()` — every timer this group owns, as an array of state objects.
 
-#### 11.3.2 `getPersistenceHelper()`
+#### 11.3.2 `getPanelHelper()`
+
+Group-scoped on-page panels. A panel is defined by a safe schema; the extension owns the layout, while the rule controls content, position, alignment, colors, text sizes, and handlers.
+
+Construction:
+
+- `create({ id, title?, description?, position?, align?, width?, textSize?, theme?, scope?, domain?, controls?, onEvent?, onChange?, onClick? })` — creates or replaces the panel and resets its stored control values.
+- `getOrCreatePanel(config)` — creates the panel only if missing. If the `id` already exists, it returns the existing panel unchanged.
+- `update(id, patch)`, `delete(id)`, `show(id)`, `hide(id)`.
+
+Display:
+
+- `scope(url)` / `domain(url)` decide where the panel appears, like timer display predicates. If neither is provided, the panel can appear on every page where the custom rule is active.
+- `position` is one of `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"`, or `"center"`.
+- `align` is `"left"`, `"center"`, or `"right"`.
+- `theme` accepts color tokens such as `background`, `foreground`, `accent`, `border`, and `muted`, plus `fontSize` / `titleSize`. Use safe color strings such as hex, `rgb(...)`, `rgba(...)`, `hsl(...)`, or named colors.
+
+Controls:
+
+- Supported control types: `"text"`, `"checkbox"`, `"select"`, `"textInput"`, `"textarea"`, `"button"`.
+- Control schema: `{ id, type, label?, text?, placeholder?, value?, options?, disabled?, onEvent?, onChange?, onClick? }`.
+- `setValue(panelId, controlId, value)`, `getValue(panelId, controlId)`, `getValues(panelId)`, `getState(id)`, and `list()` read/mutate panel state.
+
+Events:
+
+- Inline handlers can live on the panel (`onEvent`, `onChange`, `onClick`) or individual controls (`onEvent`, `onChange`, `onClick`).
+- `event.registerPanelEvent(id, handler, opts)` registers a group-level handler that can detect every panel event for the group.
+- Checkbox/select changes fire immediately. Text inputs fire on Enter or blur. Textareas fire on blur or Cmd/Ctrl+Enter. Buttons fire on click.
+- Panel handlers receive the normal `(ev, helpers)` object and can block/redirect with `ev.preventDefault()`, `ev.setResult(...)`, and `ev.setRedirectLink(...)`.
+
+#### 11.3.3 `getPersistenceHelper()`
 
 Map-like storage scoped to your group. Values must be JSON-serializable.
 
@@ -421,13 +453,13 @@ Map-like storage scoped to your group. Values must be JSON-serializable.
 
 Soft limits: about 200 keys per group, 16 KB per value.
 
-#### 11.3.3 `getLogHelper()`
+#### 11.3.4 `getLogHelper()`
 
 - `log(...args)`, `warn(...args)`, `error(...args)` — write to the **Log** panel in the popup (the helper bundle still routes them through the same accumulator no matter which dispatch produced them). Each line is prefixed with `[CustomBlocker:groupId]`.
 - The helper has hard caps: roughly **200 log entries per dispatch** and a maximum string length per entry. Excess entries are dropped and counted in `accumulator.logsDropped`. This is what protects the popup from a `for (let i = 0; i < 100000; i++) helpers.log(i)` runaway.
 - When **Debug mode** is off (default), trace-level entries the engine itself emits (dispatch start / handler timing) are suppressed everywhere — they don't show in the Log panel and don't print to the console. Your own `log` / `warn` / `error` calls always go through.
 
-#### 11.3.4 `getRedirectionHelper()`
+#### 11.3.5 `getRedirectionHelper()`
 
 Inspect / override the redirect URL the content script will use if the current page ends up blocked.
 
@@ -437,7 +469,7 @@ Inspect / override the redirect URL the content script will use if the current p
 
 Like the other custom-rule side effects, this state is shared across all rules in the current dispatch. Because rules run bottom-to-top, the top-most rule to call `set(...)` wins.
 
-#### 11.3.5 `getDomainHelper()` (alias `getDomainUtility()`)
+#### 11.3.6 `getDomainHelper()` (alias `getDomainUtility()`)
 
 URL inspection helpers. There is no `normalize()` because incoming URLs are already newtab-normalized.
 
@@ -457,7 +489,7 @@ URL filtering and section helpers:
 - `isInfiniteFeedUrl(url)` — recognizes the algorithmic-feed surfaces of YouTube, TikTok, Instagram, Facebook, Reddit, X.
 - `sameSection(a, b)` — same hostname AND same first path segment.
 
-#### 11.3.6 `getPlatformHelper()`
+#### 11.3.7 `getPlatformHelper()`
 
 Per-platform DOM intents and sub-section timers, plus inspection. Each `helpers.getPlatformHelper().<platform>()` returns an object whose method set is **gated by the platform** — methods that don't make sense on a given platform are simply absent, so calling them throws `TypeError: ... is not a function` rather than silently no-op'ing. For example, `twitch().hidePosts` does not exist (Twitch has no posts), and `tiktok().hideShortButton` does not exist (TikTok's whole experience already _is_ short-form video). Use `helpers.getPlatformHelper().hasMethod(platform, name)` or `.listMethods(platform)` to introspect at runtime.
 

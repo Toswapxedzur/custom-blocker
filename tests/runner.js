@@ -523,12 +523,13 @@ log.section("S12: timer helper auto-ticks per-dispatch");
   assertEqual("new dispatch with fresh tickedSet ticks again",
     bucket2.x.currentMs, 3000);
 
-  // scope:false → no tick even with elapsedMs > 0.
+  // Existing getOrCreateTimer calls are strict "get" operations: the
+  // original scope predicate is preserved, so this still ticks.
   dc2.tickedSet = new Set();
   dc2.elapsedMs = 1000;
   t2.getOrCreateTimer({ id: "x", direction: "backward", currentMs: 5000, scope: () => false });
-  assertEqual("scope predicate false suppresses auto-tick",
-    bucket2.x.currentMs, 3000);
+  assertEqual("existing getOrCreateTimer does not replace the original scope predicate",
+    bucket2.x.currentMs, 2000);
 
   // forward direction: counts up.
   const dc3 = {
@@ -686,6 +687,74 @@ log.section("S13: scope predicates + heartbeat-driven sweep");
     Object.prototype.hasOwnProperty.call(timersBucket, "watch-time"), false);
   assertEqual("S13: delete clears the predicates registry",
     Object.prototype.hasOwnProperty.call(predicatesBucket, "watch-time"), false);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// S14: panel helper schema, predicates, values, and inline handlers.
+// ────────────────────────────────────────────────────────────────────────
+log.section("S14: panel helper state + snapshots");
+{
+  const dc = {
+    currentUrl: "https://www.youtube.com/watch?v=abc",
+    panelDisplayedSet: new Set()
+  };
+  const panelsBucket = {};
+  const predicatesBucket = {};
+  const registered = [];
+  const helpers = H.createEventGroupHelpers({
+    groupId: "g-panel",
+    panelsBucket,
+    panelPredicatesBucket: predicatesBucket,
+    persistenceBucket: {},
+    dispatchContextRef: () => dc,
+    registerPanelHandler(panelId, controlId, eventName, handler) {
+      registered.push({ panelId, controlId, eventName, handler });
+      return true;
+    },
+    unregisterPanelHandlers() {}
+  });
+  const panel = helpers.getPanelHelper();
+  const id = panel.create({
+    id: "yt-panel",
+    title: "Creator filter",
+    position: "bottom-right",
+    align: "center",
+    theme: { background: "rgb(1,2,3)", foreground: "#fff", accent: "dodgerblue" },
+    scope: (url) => typeof url === "string" && url.includes("youtube.com"),
+    controls: [
+      { id: "block", type: "checkbox", label: "Block creator", value: false, onChange() {} },
+      { id: "reason", type: "select", label: "Reason", value: "game", options: ["game", "politics"] },
+      { id: "note", type: "textInput", label: "Note", value: "hello" }
+    ]
+  });
+  assertEqual("S14: create returns panel id", id, "yt-panel");
+  assertEqual("S14: inline control handler registered", registered.length, 1);
+  panel.__cb_refreshDisplayedPanels();
+  let snaps = panel.__cb_getDisplayedPanelSnapshots();
+  assertEqual("S14: scope-matching URL displays panel", snaps.length, 1);
+  assertEqual("S14: snapshot carries checkbox value", snaps[0].values.block, false);
+
+  panel.setValue("yt-panel", "block", true);
+  panel.setValue("yt-panel", "note", "stored");
+  snaps = panel.__cb_getDisplayedPanelSnapshots();
+  assertEqual("S14: setValue persists checkbox", snaps[0].values.block, true);
+  assertEqual("S14: setValue persists text", snaps[0].values.note, "stored");
+
+  panel.getOrCreatePanel({
+    id: "yt-panel",
+    title: "Should not replace",
+    controls: [{ id: "block", type: "checkbox", value: false }]
+  });
+  assertEqual("S14: existing getOrCreatePanel leaves title unchanged",
+    panelsBucket["yt-panel"].title, "Creator filter");
+  assertEqual("S14: existing getOrCreatePanel leaves value unchanged",
+    panelsBucket["yt-panel"].controls[0].value, true);
+
+  dc.currentUrl = "https://example.com/";
+  dc.panelDisplayedSet = new Set();
+  panel.__cb_refreshDisplayedPanels();
+  snaps = panel.__cb_getDisplayedPanelSnapshots();
+  assertEqual("S14: off-scope URL hides panel", snaps.length, 0);
 }
 
 // ────────────────────────────────────────────────────────────────────────

@@ -2151,6 +2151,27 @@ function getSelectedGroup() {
   return state.groups.find((group) => group.id === state.selectedGroupId) ?? null;
 }
 
+function markCustomGroupSourceActive(groupId, source) {
+  const activeSource = String(source ?? "");
+  state.groups = state.groups.map((item) =>
+    item.id === groupId
+      ? {
+          ...item,
+          enabled: true,
+          blockingRulesText: activeSource,
+          activeEventSource: activeSource,
+          lastAbortReason: null,
+          lastAbortAt: null
+        }
+      : item
+  );
+  state.drafts[groupId] = {
+    ...(state.drafts[groupId] ?? {}),
+    blockingRulesText: activeSource,
+    enabled: true
+  };
+}
+
 function getDraftForGroup(groupId) {
   const group = state.groups.find((item) => item.id === groupId);
   return group ? state.drafts[groupId] ?? groupToDraft(group) : null;
@@ -4333,14 +4354,15 @@ function buildCustomRuleAiPrompt(userRequest, currentRule) {
     "USER_REQUEST_END",
     "API.EVENT_REGISTRY:",
     "event.register(type,id,handler,options?) -> boolean; event.getEvent(type,id) -> function|null; event.getEvents(type) -> object; event.countRegistered(type) -> number; event.unregister(type,id) -> boolean; event.unregisterAll(type) -> number; event.post(type,data?,{scope?}) -> void. Reserved event names starting '_' are rejected. options.priority default 0, higher runs first. options.intervalMs throttles tickEvent/pageHeartbeat-style frequent handlers. Same type+id replaces.",
-    "BUILTIN_EVENT_TYPES: tickEvent, openWebEvent, closeWebEvent, switchWebEvent, switchDomainEvent, webChangedEvent, timerEnded, snoozePress, pageHeartbeatEvent.",
-    "TYPED_EVENT_METHODS: for each built-in type suffix S = TickEvent/OpenWebEvent/CloseWebEvent/SwitchWebEvent/SwitchDomainEvent/WebChangedEvent/TimerEnded/SnoozePress/PageHeartbeatEvent: event.registerS(id,handler,opts), event.getS(id), event.getSs(), count name as event.countTickRegistered/countOpenWebRegistered/countCloseWebRegistered/countSwitchWebRegistered/countSwitchDomainRegistered/countWebChangedRegistered/countTimerEndedRegistered/countSnoozePressRegistered/countPageHeartbeatRegistered. Also aliases: registerTimerEndedEvent/getTimerEndedEvent/getTimerEndedEvents/countTimerEndedEventRegistered; registerSnoozePressEvent/getSnoozePressEvent/getSnoozePressEvents/countSnoozePressEventRegistered.",
-    "EVENT_SEMANTICS: tickEvent global browser tick data {intervalMs}; pageHeartbeatEvent active visible tab heartbeat data {elapsedMs}; openWebEvent new tab/fresh navigation data {previousUrl,isNewTab}; closeWebEvent tab close data {reason,nextUrl}; switchWebEvent same-tab URL change data {previousUrl,previousHostname,sameDomain}; switchDomainEvent hostname boundary data {previousUrl,previousHostname}; webChangedEvent any open/switch/reload/history data {previousUrl,previousHostname,sameDomain,isFirstLoad,isReload,transition}; timerEnded owning group only data {timerId,displayName,direction,currentMs}; snoozePress custom group only when Start Snooze clicked data {triggeredAt}. New tab/about blank exposed as ev.url === ''.",
+    "BUILTIN_EVENT_TYPES: tickEvent, openWebEvent, closeWebEvent, switchWebEvent, switchDomainEvent, webChangedEvent, timerEnded, snoozePress, panelEvent, pageHeartbeatEvent.",
+    "TYPED_EVENT_METHODS: for each built-in type suffix S = TickEvent/OpenWebEvent/CloseWebEvent/SwitchWebEvent/SwitchDomainEvent/WebChangedEvent/TimerEnded/SnoozePress/PanelEvent/PageHeartbeatEvent: event.registerS(id,handler,opts), event.getS(id), event.getSs(), count name as event.countTickRegistered/countOpenWebRegistered/countCloseWebRegistered/countSwitchWebRegistered/countSwitchDomainRegistered/countWebChangedRegistered/countTimerEndedRegistered/countSnoozePressRegistered/countPanelRegistered/countPageHeartbeatRegistered. Also aliases: registerTimerEndedEvent/getTimerEndedEvent/getTimerEndedEvents/countTimerEndedEventRegistered; registerSnoozePressEvent/getSnoozePressEvent/getSnoozePressEvents/countSnoozePressEventRegistered; registerPanelEvent/getPanelEvent/getPanelEvents/countPanelEventRegistered.",
+    "EVENT_SEMANTICS: tickEvent global browser tick data {intervalMs}; pageHeartbeatEvent active visible tab heartbeat data {elapsedMs}; openWebEvent new tab/fresh navigation data {previousUrl,isNewTab}; closeWebEvent tab close data {reason,nextUrl}; switchWebEvent same-tab URL change data {previousUrl,previousHostname,sameDomain}; switchDomainEvent hostname boundary data {previousUrl,previousHostname}; webChangedEvent any open/switch/reload/history data {previousUrl,previousHostname,sameDomain,isFirstLoad,isReload,transition}; timerEnded owning group only data {timerId,displayName,direction,currentMs}; snoozePress custom group only when Start Snooze clicked data {triggeredAt}; panelEvent owning group only data {panelId,controlId,eventName,value,values} and ev.panelId/ev.controlId/ev.eventName/ev.value/ev.values shortcuts. New tab/about blank exposed as ev.url === ''.",
     "HANDLER_SHAPE: (ev, helpers) => void. ev fields: type, groupId, tabId, pageId, url, hostname, time:{now,month,dayOfMonth,dayName,hour,minute}, data. ev methods: preventDefault(), stopPropagation(), setResult(number|string), getResult(), post(type,data,{scope?}), setRedirectLink(url), getRedirectLink(). setResult(-1)=block, 0=neutral/pass, 1=allow override; string result is redirect URL; setRedirectLink sets redirect target for blocked result; stopPropagation halts all later handlers across groups. ev is Proxy: custom fields can be assigned/read during same dispatch.",
-    "HELPERS.TOP: helpers.now, helpers.currentUrl, helpers.groupId, helpers.log(...), helpers.warn(...), helpers.error(...), getLogHelper, getDomainHelper, getDomainUtility, getTimerHelper, getPersistenceHelper, getRedirectionHelper, getDOMHelper, getNavigationHelper, getStorageHelper, getTabHelper, getPlatformHelper.",
+    "HELPERS.TOP: helpers.now, helpers.currentUrl, helpers.groupId, helpers.log(...), helpers.warn(...), helpers.error(...), getLogHelper, getDomainHelper, getDomainUtility, getTimerHelper, getPanelHelper, getPersistenceHelper, getRedirectionHelper, getDOMHelper, getNavigationHelper, getStorageHelper, getTabHelper, getPlatformHelper.",
     "HELPERS.LOG: getLogHelper().log(...), warn(...), error(...). Logs go to popup Log panel; capped/rate-limited.",
     "HELPERS.DOMAIN: d=helpers.getDomainHelper(); d.hostnameOf(url); d.pathnameOf(url); d.matches(hostname,site); d.getPlatform(url); d.isYouTubeHost(host); d.isTikTokHost(host); d.isInstagramHost(host); d.isFacebookHost(host); d.isTwitchHost(host); d.isRedditHost(host); d.isDiscordHost(host); d.isEmptyStartPage(url); d.matchesAny(url,regexOrArrayOrString); d.pathStartsWith(url,path); d.queryHas(url,key,value?); d.queryGet(url,key); d.isSearchPage(url); d.isInfiniteFeedUrl(url); d.sameSection(a,b). Platform URL classifiers: d.youtube()/tiktok()/instagram()/facebook()/twitch() each expose isPlatformUrl(url), isShortUrl(url), isVideoUrl(url), isPostUrl(url), isHomePage(url), extractAuthor(url), extractVideoId(url).",
-    "HELPERS.TIMER: tm=helpers.getTimerHelper(); tm.groupId; tm.create({id,displayName?,direction?,currentMs?,scope?,domain?}) resets; tm.getOrCreateTimer({id,displayName?,direction?,currentMs?,scope?,domain?}) preserves currentMs; direction forward/backward; currentMs ms; scope(url) auto-ticks on visible page heartbeat; domain(url) controls overlay display. tm.delete(id), pause(id), resume(id), setDirection(id,dir), setCurrentMs(id,ms), addMs(id,deltaMs), setDisplayName(id,name), getCurrentMs(id), isExpired(id), isPaused(id), getDirection(id), getDisplayName(id), exists(id), getState(id)->{id,displayName,direction,isPaused,currentMs,isExpired}|null, list()->array. Timers do not block by themselves; check isExpired in open/switch/webChanged handler and then block.",
+    "HELPERS.TIMER: tm=helpers.getTimerHelper(); tm.groupId; tm.create({id,displayName?,direction?,currentMs?,scope?,domain?}) resets; tm.getOrCreateTimer({id,displayName?,direction?,currentMs?,scope?,domain?}) creates only when missing and otherwise returns existing timer unchanged; init fields including scope/domain apply only on creation. direction forward/backward; currentMs ms; scope(url) auto-ticks on visible page heartbeat; domain(url) controls overlay display. To change an existing timer use setDirection/setCurrentMs/addMs/setDisplayName or create() to reset. tm.delete(id), pause(id), resume(id), setDirection(id,dir), setCurrentMs(id,ms), addMs(id,deltaMs), setDisplayName(id,name), getCurrentMs(id), isExpired(id), isPaused(id), getDirection(id), getDisplayName(id), exists(id), getState(id)->{id,displayName,direction,isPaused,currentMs,isExpired}|null, list()->array. Timers do not block by themselves; check isExpired in open/switch/webChanged handler and then block.",
+    "HELPERS.PANEL: pn=helpers.getPanelHelper(); pn.create({id,title?,description?,position?,align?,width?,textSize?,theme?,scope?,domain?,controls?,onEvent?,onChange?,onClick?}) replaces/resets; pn.getOrCreatePanel(config) creates only when missing and otherwise returns existing panel unchanged; pn.update(id,patch), delete(id), show(id), hide(id), setValue(panelId,controlId,value), getValue(panelId,controlId), getValues(panelId), getState(id), list(). Controls: {id,type,label?,text?,placeholder?,value?,options?,disabled?,onEvent?,onChange?,onClick?}; types text, checkbox, select, textInput, textarea, button. Layout is fixed by extension; user controls position top-left/top-right/bottom-left/bottom-right/center, align left/center/right, theme colors background/foreground/accent/border/muted, font sizes. scope/domain decide where the panel is shown. Inline handlers and event.registerPanelEvent receive panelEvent and may preventDefault/setResult/setRedirectLink.",
     "HELPERS.PERSISTENCE: p=helpers.getPersistenceHelper(); p.get(key,defaultValue?), set(key,valueJSON), delete(key), has(key), keys(), entries(), clear(), size(). Values JSON-serializable; scoped to group.",
     "HELPERS.REDIRECT: r=helpers.getRedirectionHelper(); r.get(); r.set(url); r.setRedirectLink(url); r.getRedirectLink(); r.createMessageUrl(message). ev.setRedirectLink can also be used directly.",
     "HELPERS.DOM: dom=helpers.getDOMHelper(); dom.hide(selector), show(selector), addClass(selector,className), removeClass(selector,className), setText(selector,text), click(selector), injectCss(css,id?), removeInjectedCss(id), scrollTo(selector). These enqueue content-script DOM intents, applied after handler returns.",
@@ -4429,6 +4451,7 @@ async function runSelectedCustomGroup() {
     if (response && response.ok && response.loadResult) {
       const lr = response.loadResult;
       if (lr.ok) {
+        markCustomGroupSourceActive(group.id, source);
         if (runCustomGroupStatus) {
           // Append a reload reminder so the user knows that already-
           // open tabs need a refresh before content-script-driven

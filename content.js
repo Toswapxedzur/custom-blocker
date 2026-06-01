@@ -1457,6 +1457,356 @@ function __cb_renderLogs(logs) {
   }
 }
 
+const __cb_PANEL_ROOT_ID = "__custom_blocker_panel_root__";
+const __cb_PANEL_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right", "center"];
+const __cb_activePanelElements = new Map(); // groupId:panelId -> element
+const __cb_panelStacks = new Map(); // position -> element
+
+function __cb_safePanelText(value, max = 1000) {
+  const text = String(value ?? "");
+  return text.length > max ? text.slice(0, max) : text;
+}
+
+function __cb_safeCssColor(value, fallback) {
+  const text = String(value ?? "").trim();
+  if (!text || text.length > 64) return fallback;
+  if (/^#[0-9a-f]{3,8}$/i.test(text)) return text;
+  if (/^rgba?\([\d\s.,%+-]+\)$/i.test(text)) return text;
+  if (/^hsla?\([\d\s.,%+-]+\)$/i.test(text)) return text;
+  if (/^[a-z]{3,32}$/i.test(text)) return text;
+  return fallback;
+}
+
+function __cb_safeCssSize(value, fallback) {
+  const text = String(value ?? "").trim();
+  if (/^\d+(?:\.\d+)?(px|rem|em)$/i.test(text)) return text;
+  return fallback;
+}
+
+function __cb_ensurePanelRoot() {
+  let host = document.getElementById(__cb_PANEL_ROOT_ID);
+  if (host && host.isConnected) {
+    if (!host.shadowRoot) {
+      try { host.attachShadow({ mode: "open" }); } catch (_) {}
+    }
+    return host.shadowRoot || host;
+  }
+  if (!document.body && !document.documentElement) return null;
+  host = document.createElement("div");
+  host.id = __cb_PANEL_ROOT_ID;
+  host.style.cssText = [
+    "position:fixed",
+    "inset:0",
+    "z-index:2147483646",
+    "pointer-events:none",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+  ].join(";");
+  (document.body || document.documentElement).appendChild(host);
+  let root = host;
+  try {
+    root = host.attachShadow({ mode: "open" });
+  } catch (_) {}
+  __cb_panelStacks.clear();
+  return root;
+}
+
+function __cb_ensurePanelStack(position) {
+  const normalized = __cb_PANEL_POSITIONS.includes(position) ? position : "bottom-right";
+  const root = __cb_ensurePanelRoot();
+  if (!root) return null;
+  let stack = __cb_panelStacks.get(normalized);
+  if (stack && stack.isConnected) return stack;
+  stack = document.createElement("div");
+  stack.setAttribute("data-cb-panel-stack", normalized);
+  const common = [
+    "position:fixed",
+    "display:flex",
+    "gap:10px",
+    "pointer-events:none",
+    "max-width:min(92vw,560px)"
+  ];
+  const byPosition = {
+    "top-left": ["top:16px", "left:16px", "flex-direction:column", "align-items:flex-start"],
+    "top-right": ["top:16px", "right:16px", "flex-direction:column", "align-items:flex-end"],
+    "bottom-left": ["bottom:16px", "left:16px", "flex-direction:column-reverse", "align-items:flex-start"],
+    "bottom-right": ["bottom:16px", "right:16px", "flex-direction:column-reverse", "align-items:flex-end"],
+    center: ["top:50%", "left:50%", "transform:translate(-50%,-50%)", "flex-direction:column", "align-items:center"]
+  };
+  stack.style.cssText = common.concat(byPosition[normalized]).join(";");
+  root.appendChild(stack);
+  __cb_panelStacks.set(normalized, stack);
+  return stack;
+}
+
+function __cb_panelKey(groupId, panelId) {
+  return String(groupId || "") + ":" + String(panelId || "");
+}
+
+function __cb_removePanel(key) {
+  const node = __cb_activePanelElements.get(key);
+  if (node && node.parentNode) node.parentNode.removeChild(node);
+  __cb_activePanelElements.delete(key);
+}
+
+function __cb_clearPanels() {
+  for (const key of Array.from(__cb_activePanelElements.keys())) __cb_removePanel(key);
+}
+
+function __cb_collectPanelValues(panelEl) {
+  const values = {};
+  panelEl.querySelectorAll("[data-cb-panel-control-id]").forEach((el) => {
+    const id = el.getAttribute("data-cb-panel-control-id");
+    const type = el.getAttribute("data-cb-panel-control-type");
+    if (!id || type === "button" || type === "text") return;
+    if (type === "checkbox") {
+      values[id] = Boolean(el.checked);
+    } else {
+      values[id] = String(el.value ?? "");
+    }
+  });
+  return values;
+}
+
+function __cb_sendPanelEvent(panelEl, control, eventName, value) {
+  if (!panelEl || !control || typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return;
+  const values = __cb_collectPanelValues(panelEl);
+  chrome.runtime.sendMessage({
+    type: "custom-panel-event",
+    groupId: panelEl.getAttribute("data-cb-panel-group-id") || "",
+    panelId: panelEl.getAttribute("data-cb-panel-id") || "",
+    controlId: control.id || "",
+    eventName,
+    value,
+    values,
+    url: location.href
+  }).catch((error) => {
+    cbDebugWarn("[CustomBlocker] panel event failed", error);
+  });
+}
+
+function __cb_appendPanelControl(panelEl, body, control, theme) {
+  if (!control || typeof control !== "object") return;
+  const type = control.type || "text";
+  const wrap = document.createElement("label");
+  wrap.style.cssText = [
+    "display:flex",
+    "flex-direction:column",
+    "gap:4px",
+    "font:inherit",
+    "color:inherit"
+  ].join(";");
+
+  if (type === "text") {
+    const text = document.createElement("div");
+    text.textContent = __cb_safePanelText(control.text || control.label || "", 1000);
+    text.style.cssText = "white-space:pre-wrap;word-break:break-word;color:inherit;";
+    body.appendChild(text);
+    return;
+  }
+
+  const label = __cb_safePanelText(control.label || "", 240);
+  if (label && type !== "checkbox" && type !== "button") {
+    const labelEl = document.createElement("span");
+    labelEl.textContent = label;
+    labelEl.style.cssText = "font-size:0.9em;opacity:0.82;";
+    wrap.appendChild(labelEl);
+  }
+
+  let input = null;
+  if (type === "checkbox") {
+    wrap.style.flexDirection = "row";
+    wrap.style.alignItems = "center";
+    wrap.style.cursor = control.disabled === true ? "default" : "pointer";
+    input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = control.value === true;
+    input.addEventListener("change", () => __cb_sendPanelEvent(panelEl, control, "change", input.checked));
+    const labelEl = document.createElement("span");
+    labelEl.textContent = label;
+    labelEl.style.cssText = "user-select:none;line-height:1.3;";
+    wrap.appendChild(input);
+    wrap.appendChild(labelEl);
+  } else if (type === "select") {
+    input = document.createElement("select");
+    for (const option of Array.isArray(control.options) ? control.options : []) {
+      const opt = document.createElement("option");
+      opt.value = __cb_safePanelText(option.value, 256);
+      opt.textContent = __cb_safePanelText(option.label ?? option.value, 256);
+      input.appendChild(opt);
+    }
+    input.value = __cb_safePanelText(control.value, 256);
+    input.addEventListener("change", () => __cb_sendPanelEvent(panelEl, control, "change", input.value));
+    wrap.appendChild(input);
+  } else if (type === "textarea") {
+    input = document.createElement("textarea");
+    input.value = __cb_safePanelText(control.value, 2000);
+    input.placeholder = __cb_safePanelText(control.placeholder || "", 500);
+    input.rows = 3;
+    input.addEventListener("blur", () => __cb_sendPanelEvent(panelEl, control, "change", input.value));
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) {
+        __cb_sendPanelEvent(panelEl, control, "change", input.value);
+      }
+    });
+    wrap.appendChild(input);
+  } else if (type === "button") {
+    input = document.createElement("button");
+    input.type = "button";
+    input.textContent = label || "Button";
+    input.addEventListener("click", () => __cb_sendPanelEvent(panelEl, control, "click", control.value ?? true));
+    input.addEventListener("pointerdown", (ev) => {
+      ev.stopPropagation();
+    });
+    wrap.appendChild(input);
+  } else {
+    input = document.createElement("input");
+    input.type = "text";
+    input.value = __cb_safePanelText(control.value, 2000);
+    input.placeholder = __cb_safePanelText(control.placeholder || "", 500);
+    input.addEventListener("blur", () => __cb_sendPanelEvent(panelEl, control, "change", input.value));
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") __cb_sendPanelEvent(panelEl, control, "change", input.value);
+    });
+    wrap.appendChild(input);
+  }
+
+  if (input) {
+    input.disabled = control.disabled === true;
+    input.setAttribute("data-cb-panel-control-id", control.id || "");
+    input.setAttribute("data-cb-panel-control-type", type);
+    if (type === "checkbox") {
+      input.style.cssText = [
+        "box-sizing:border-box",
+        "display:inline-block",
+        "width:16px",
+        "height:16px",
+        "min-width:16px",
+        "margin:0",
+        "padding:0",
+        "vertical-align:middle",
+        "accent-color:" + __cb_safeCssColor(theme.accent, "#2563eb"),
+        "cursor:" + (control.disabled === true ? "default" : "pointer"),
+        "appearance:auto",
+        "-webkit-appearance:checkbox"
+      ].join(";");
+    } else {
+      input.style.cssText = [
+        "box-sizing:border-box",
+        "width:100%",
+        "border:1px solid " + __cb_safeCssColor(theme.border, "rgba(148,163,184,0.55)"),
+        "border-radius:8px",
+        "padding:7px 9px",
+        "background:rgba(255,255,255,0.08)",
+        "color:inherit",
+        "font:inherit",
+        "outline:none",
+        "appearance:auto"
+      ].join(";");
+      if (type === "button") {
+        input.style.background = __cb_safeCssColor(theme.accent, "#2563eb");
+        input.style.color = __cb_safeCssColor(theme.buttonForeground, "#ffffff");
+        input.style.cursor = "pointer";
+        input.style.userSelect = "none";
+      }
+    }
+  }
+
+  body.appendChild(wrap);
+}
+
+function __cb_renderPanel(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const groupId = String(snapshot.groupId || "");
+  const panelId = String(snapshot.id || "");
+  if (!groupId || !panelId) return null;
+  const key = __cb_panelKey(groupId, panelId);
+  const position = __cb_PANEL_POSITIONS.includes(snapshot.position) ? snapshot.position : "bottom-right";
+  const stack = __cb_ensurePanelStack(position);
+  if (!stack) return null;
+  let panelEl = __cb_activePanelElements.get(key);
+  if (!panelEl || !panelEl.isConnected) {
+    panelEl = document.createElement("section");
+    __cb_activePanelElements.set(key, panelEl);
+  }
+  panelEl.setAttribute("data-cb-panel-group-id", groupId);
+  panelEl.setAttribute("data-cb-panel-id", panelId);
+  panelEl.setAttribute("data-cb-panel-position", position);
+  panelEl.textContent = "";
+
+  const theme = snapshot.theme && typeof snapshot.theme === "object" ? snapshot.theme : {};
+  const background = __cb_safeCssColor(theme.background, "rgba(15,23,42,0.96)");
+  const foreground = __cb_safeCssColor(theme.foreground, "#f8fafc");
+  const border = __cb_safeCssColor(theme.border, "rgba(148,163,184,0.45)");
+  const fontSize = __cb_safeCssSize(snapshot.textSize || theme.fontSize, "13px");
+  const titleSize = __cb_safeCssSize(theme.titleSize, "14px");
+  const align = ["left", "center", "right"].includes(snapshot.align) ? snapshot.align : "left";
+  const width = snapshot.width === "small"
+    ? "220px"
+    : snapshot.width === "large"
+      ? "360px"
+      : snapshot.width === "medium" || !snapshot.width
+        ? "280px"
+        : __cb_safeCssSize(snapshot.width, "280px");
+
+  panelEl.style.cssText = [
+    "box-sizing:border-box",
+    "pointer-events:auto",
+    "width:" + width,
+    "max-width:calc(100vw - 32px)",
+    "background:" + background,
+    "color:" + foreground,
+    "border:1px solid " + border,
+    "border-radius:14px",
+    "box-shadow:0 14px 40px rgba(0,0,0,0.32)",
+    "padding:12px",
+    "font:" + fontSize + "/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    "text-align:" + align,
+    "display:flex",
+    "flex-direction:column",
+    "gap:9px"
+  ].join(";");
+
+  const title = __cb_safePanelText(snapshot.title || "", 240);
+  if (title) {
+    const titleEl = document.createElement("div");
+    titleEl.textContent = title;
+    titleEl.style.cssText = "font-weight:700;font-size:" + titleSize + ";";
+    panelEl.appendChild(titleEl);
+  }
+  const description = __cb_safePanelText(snapshot.description || "", 1000);
+  if (description) {
+    const descEl = document.createElement("div");
+    descEl.textContent = description;
+    descEl.style.cssText = "opacity:0.82;white-space:pre-wrap;word-break:break-word;";
+    panelEl.appendChild(descEl);
+  }
+  const body = document.createElement("div");
+  body.style.cssText = "display:flex;flex-direction:column;gap:8px;text-align:" + align + ";";
+  for (const control of Array.isArray(snapshot.controls) ? snapshot.controls : []) {
+    __cb_appendPanelControl(panelEl, body, control, theme);
+  }
+  panelEl.appendChild(body);
+
+  if (panelEl.parentNode !== stack) stack.appendChild(panelEl);
+  return key;
+}
+
+function __cb_applyPanelSnapshots(panelSnapshots, panelGroups) {
+  const snapshots = Array.isArray(panelSnapshots) ? panelSnapshots : [];
+  const groups = new Set(Array.isArray(panelGroups) ? panelGroups.filter((id) => typeof id === "string") : []);
+  const incoming = new Set();
+  for (const snapshot of snapshots) {
+    const key = __cb_renderPanel(snapshot);
+    if (key) incoming.add(key);
+  }
+  if (groups.size > 0) {
+    for (const key of Array.from(__cb_activePanelElements.keys())) {
+      const groupId = key.split(":")[0];
+      if (groups.has(groupId) && !incoming.has(key)) __cb_removePanel(key);
+    }
+  }
+}
+
 function __cb_applyDomOp(op) {
   if (!op || typeof op.kind !== "string") return;
   try {
@@ -2024,9 +2374,11 @@ function __cb_processApplyMessage(message) {
     cbDebugLog("[CustomBlocker:trace] content event-sandbox-apply",
       message.descriptor && message.descriptor.type,
       "logs:", Array.isArray(message.logs) ? message.logs.length : 0,
-      "domOps:", Array.isArray(message.domOps) ? message.domOps.length : 0);
+      "domOps:", Array.isArray(message.domOps) ? message.domOps.length : 0,
+      "panels:", Array.isArray(message.panelSnapshots) ? message.panelSnapshots.length : 0);
   } catch (_) {}
   __cb_renderLogs(message.logs);
+  __cb_applyPanelSnapshots(message.panelSnapshots, message.panelGroups);
   const ops = Array.isArray(message.domOps) ? message.domOps : [];
   for (const op of ops) __cb_applyDomOp(op);
   const intents = Array.isArray(message.intents) ? message.intents : [];
@@ -2088,7 +2440,8 @@ if (document.readyState === "loading") {
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message !== "object") return false;
-    if (message.type === "custom-timers-refresh") {
+    if (message.type === "custom-timers-refresh" || message.type === "custom-panels-refresh") {
+      __cb_clearPanels();
       scheduleRefreshSession(0);
       sendResponse({ ok: true });
       return true;
