@@ -539,7 +539,22 @@ function sanitizeGroups(groups) {
           : [],
         blockHomePage: Boolean(group?.blockHomePage),
         fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
-        skipToNextOnBlock: Boolean(group?.skipToNextOnBlock)
+        skipToNextOnBlock: Boolean(group?.skipToNextOnBlock),
+        // Preserve custom-rule fields verbatim so that any path which
+        // eventually persists the sanitised group (e.g. getState() →
+        // applyRuntimeNormalizations() when changed=true) does not silently
+        // strip the user's saved source code, abort reason, or update
+        // timestamp. The defaults are deliberately empty / null so non-custom
+        // groups stay shape-compatible with the previous serialised form.
+        activeEventSource:
+          typeof group?.activeEventSource === "string" ? group.activeEventSource : "",
+        lastAbortReason:
+          typeof group?.lastAbortReason === "string" ? group.lastAbortReason : "",
+        lastSourceUpdatedAt:
+          Number.isFinite(Number(group?.lastSourceUpdatedAt)) &&
+          Number(group.lastSourceUpdatedAt) > 0
+            ? Number(group.lastSourceUpdatedAt)
+            : null
       };
     })
     .filter((group) => group.name);
@@ -1668,14 +1683,143 @@ async function getPageSession(pageContextInput) {
   );
 }
 
-function openExtensionPage() {
-  return chrome.tabs.create({ url: chrome.runtime.getURL("popup.html") });
+// Activate an existing popup.html tab when present instead of stacking
+// duplicates on every action click. Falls back to creating a new tab if
+// none is open or the tab query fails (e.g. tabs API temporarily unhappy
+// right after a service worker wake-up).
+async function openExtensionPage() {
+  const popupUrl = chrome.runtime.getURL("popup.html");
+  try {
+    const tabs = await chrome.tabs.query({ url: popupUrl + "*" });
+    const existing = Array.isArray(tabs) && tabs.length > 0 ? tabs[0] : null;
+    if (existing && typeof existing.id === "number") {
+      try {
+        await chrome.tabs.update(existing.id, { active: true });
+        if (typeof existing.windowId === "number") {
+          await chrome.windows.update(existing.windowId, { focused: true });
+        }
+        return existing;
+      } catch (_) {
+        // Fall through to creating a new tab if focusing fails.
+      }
+    }
+  } catch (_) {}
+  return chrome.tabs.create({ url: popupUrl });
 }
 
-chrome.runtime.onInstalled.addListener(() => {
-  syncBlockingRules().catch((error) => {
-    console.error("Failed to sync blocking rules on install.", error);
+// Schema version is bumped whenever a release changes the shape of
+// persisted records or needs to clean up data written by an earlier
+// version. Each migration step is idempotent so re-running it (after a
+// failed install, or after an unpacked → packed transition) is safe.
+const CB_SCHEMA_VERSION_KEY = "schemaVersion";
+const CB_CURRENT_SCHEMA_VERSION = 2;
+
+// In a dev build of this extension the ID is derived from the install
+// path. When a user transitions from unpacked → Web Store install (or
+// just reinstalls under a new ID), any chrome-extension://<old-id>/...
+// URL the user pasted into their custom rule source or
+// blockingRulesText / fallbackUrl will 404 on the new ID. We rewrite the
+// prefix to the live extension URL so previously-working redirects keep
+// working. The exact byte sequence "chrome-extension://" is matched
+// case-insensitively because Chrome lowercases the scheme on load.
+function rewriteExtensionUrlsInString(text, livePrefix) {
+  if (typeof text !== "string" || !text) return text;
+  if (typeof livePrefix !== "string" || !livePrefix) return text;
+  // Capture group is the ID; we only rewrite when the ID differs from
+  // the current one, so this is a no-op when the user is already on the
+  // correct ID (e.g. published build → republished build).
+  return text.replace(
+    /chrome-extension:\/\/([a-z]{32})\//gi,
+    (match, id) => {
+      const liveId = livePrefix.replace(/^chrome-extension:\/\/([^/]+)\/.*$/i, "$1");
+      if (!liveId || id.toLowerCase() === liveId.toLowerCase()) return match;
+      return livePrefix;
+    }
+  );
+}
+
+async function runChromeExtensionUrlSanitization() {
+  let livePrefix = "";
+  try {
+    livePrefix = chrome.runtime.getURL("");
+  } catch (_) {
+    return { changed: false, groupsTouched: 0 };
+  }
+  if (!livePrefix) return { changed: false, groupsTouched: 0 };
+
+  const stored = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
+  const groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
+  if (groups.length === 0) return { changed: false, groupsTouched: 0 };
+
+  let touched = 0;
+  const next = groups.map((group) => {
+    if (!group || typeof group !== "object") return group;
+    const before = {
+      activeEventSource: group.activeEventSource,
+      blockingRulesText: group.blockingRulesText,
+      fallbackUrl: group.fallbackUrl
+    };
+    const after = {
+      activeEventSource: rewriteExtensionUrlsInString(before.activeEventSource, livePrefix),
+      blockingRulesText: rewriteExtensionUrlsInString(before.blockingRulesText, livePrefix),
+      fallbackUrl: rewriteExtensionUrlsInString(before.fallbackUrl, livePrefix)
+    };
+    const groupChanged =
+      after.activeEventSource !== before.activeEventSource ||
+      after.blockingRulesText !== before.blockingRulesText ||
+      after.fallbackUrl !== before.fallbackUrl;
+    if (!groupChanged) return group;
+    touched += 1;
+    return { ...group, ...after };
   });
+
+  if (touched === 0) return { changed: false, groupsTouched: 0 };
+  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+  return { changed: true, groupsTouched: touched };
+}
+
+async function runInstallMigrations(details) {
+  const reason = details && typeof details.reason === "string" ? details.reason : "";
+  try {
+    const stored = await chrome.storage.local.get(CB_SCHEMA_VERSION_KEY);
+    const previousSchema = Number(stored[CB_SCHEMA_VERSION_KEY]) || 0;
+
+    // 1) Sanitise stored chrome-extension://<old-id>/ URLs. Safe to run on
+    //    every install/update reason because rewriteExtensionUrlsInString
+    //    only touches URLs whose embedded ID differs from the live one.
+    if (reason === "install" || reason === "update") {
+      const r = await runChromeExtensionUrlSanitization();
+      if (r.changed) {
+        console.log(
+          "[CustomBlocker] migration: rewrote chrome-extension:// URLs in",
+          r.groupsTouched,
+          "group(s)"
+        );
+      }
+    }
+
+    // 2) Future migrations key off previousSchema and bump the version
+    //    only when their write step succeeds. Placeholder for now: just
+    //    record the current schema so later migrations have a baseline.
+    if (previousSchema !== CB_CURRENT_SCHEMA_VERSION) {
+      await chrome.storage.local.set({
+        [CB_SCHEMA_VERSION_KEY]: CB_CURRENT_SCHEMA_VERSION
+      });
+    }
+  } catch (error) {
+    console.warn("[CustomBlocker] install migration failed", error);
+  }
+}
+
+chrome.runtime.onInstalled.addListener((details) => {
+  // Migrations run before syncBlockingRules so the DNR rebuild sees the
+  // post-migration state on the very first sync. Awaited via the Promise
+  // chain — both calls are independent of each other beyond ordering.
+  runInstallMigrations(details)
+    .then(() => syncBlockingRules())
+    .catch((error) => {
+      console.error("Failed to sync blocking rules on install.", error);
+    });
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -1830,6 +1974,78 @@ const TICK_ALARM_PERIOD_MINUTES = 1;
 const previousTabUrls = new Map(); // tabId -> { url, hostname }
 const pendingApplyByTab = new Map(); // tabId -> Array<applyMessage>
 const PENDING_APPLY_MAX_PER_TAB = 32;
+
+// chrome.storage.session is a TRUSTED_CONTEXTS-only key/value store that
+// survives MV3 service-worker idle restarts but is cleared when the
+// browser process exits. Mirroring previousTabUrls + pendingApplyByTab
+// there lets us recover from a SW restart without dropping the
+// "previous URL" memory used by switchDomainEvent / switchWebEvent /
+// isReload, and without losing apply messages that were queued for tabs
+// whose content script hadn't checked in yet.
+const SESSION_TAB_URLS_KEY = "__cb_previous_tab_urls__";
+const SESSION_PENDING_APPLY_KEY = "__cb_pending_apply_by_tab__";
+const SESSION_FLUSH_DEBOUNCE_MS = 50;
+
+let sessionFlushHandle = null;
+function scheduleSessionFlush() {
+  if (!chrome?.storage?.session?.set) return;
+  if (sessionFlushHandle !== null) return;
+  sessionFlushHandle = setTimeout(() => {
+    sessionFlushHandle = null;
+    flushTabStateToSession();
+  }, SESSION_FLUSH_DEBOUNCE_MS);
+}
+
+async function flushTabStateToSession() {
+  if (!chrome?.storage?.session?.set) return;
+  try {
+    const tabsObj = {};
+    for (const [tabId, value] of previousTabUrls.entries()) {
+      tabsObj[String(tabId)] = value;
+    }
+    const pendingObj = {};
+    for (const [tabId, list] of pendingApplyByTab.entries()) {
+      if (Array.isArray(list) && list.length > 0) {
+        pendingObj[String(tabId)] = list;
+      }
+    }
+    await chrome.storage.session.set({
+      [SESSION_TAB_URLS_KEY]: tabsObj,
+      [SESSION_PENDING_APPLY_KEY]: pendingObj
+    });
+  } catch (_) {}
+}
+
+async function hydrateTabStateFromSession() {
+  if (!chrome?.storage?.session?.get) return;
+  try {
+    const r = await chrome.storage.session.get({
+      [SESSION_TAB_URLS_KEY]: {},
+      [SESSION_PENDING_APPLY_KEY]: {}
+    });
+    const tabsObj = r[SESSION_TAB_URLS_KEY];
+    if (tabsObj && typeof tabsObj === "object") {
+      for (const [tabId, value] of Object.entries(tabsObj)) {
+        const idNum = Number(tabId);
+        if (!Number.isInteger(idNum) || idNum < 0) continue;
+        if (!value || typeof value !== "object") continue;
+        previousTabUrls.set(idNum, {
+          url: typeof value.url === "string" ? value.url : "",
+          hostname: typeof value.hostname === "string" ? value.hostname : ""
+        });
+      }
+    }
+    const pendingObj = r[SESSION_PENDING_APPLY_KEY];
+    if (pendingObj && typeof pendingObj === "object") {
+      for (const [tabId, list] of Object.entries(pendingObj)) {
+        const idNum = Number(tabId);
+        if (!Number.isInteger(idNum) || idNum < 0) continue;
+        if (!Array.isArray(list) || list.length === 0) continue;
+        pendingApplyByTab.set(idNum, list.slice(0, PENDING_APPLY_MAX_PER_TAB));
+      }
+    }
+  } catch (_) {}
+}
 
 // Ring buffer of recent log entries surfaced from the sandbox. The popup's
 // Activity log panel reads this on open, then subscribes to live entries
@@ -1996,15 +2212,48 @@ function maybeQuarantineFromResult(result, descriptor) {
   }
 }
 
+// Tracks the most recent reason ensureOffscreenDocument returned false
+// so we only push one log-feed entry per distinct failure type — without
+// this guard, every 1 s tick attempt would spam the popup with the same
+// "couldn't create offscreen document" line.
+let lastOffscreenFailureSignature = "";
+function reportOffscreenFailure(signature, message) {
+  if (lastOffscreenFailureSignature === signature) return;
+  lastOffscreenFailureSignature = signature;
+  console.error("[CustomBlocker] offscreen unavailable:", message);
+  try {
+    pushLogFeedEntry({
+      level: "error",
+      eventType: "startup",
+      args: [
+        "Custom-rule sandbox unavailable: " + message +
+          ". Custom rules and the 1 s tickEvent will run on the 1-minute alarm fallback only."
+      ]
+    });
+  } catch (_) {}
+}
+function clearOffscreenFailure() {
+  if (lastOffscreenFailureSignature !== "") {
+    lastOffscreenFailureSignature = "";
+  }
+}
+
 async function ensureOffscreenDocument() {
   if (!chrome.offscreen || typeof chrome.offscreen.createDocument !== "function") {
+    reportOffscreenFailure(
+      "api-missing",
+      "chrome.offscreen API is not available in this Chrome build"
+    );
     return false;
   }
   try {
     const has = chrome.offscreen.hasDocument
       ? await chrome.offscreen.hasDocument()
       : false;
-    if (has) return true;
+    if (has) {
+      clearOffscreenFailure();
+      return true;
+    }
   } catch {}
   try {
     await chrome.offscreen.createDocument({
@@ -2012,10 +2261,16 @@ async function ensureOffscreenDocument() {
       reasons: ["IFRAME_SCRIPTING"],
       justification: "Hosts the persistent custom-rule event sandbox."
     });
+    clearOffscreenFailure();
     return true;
   } catch (error) {
-    if (String(error && error.message).includes("already")) return true;
-    console.warn("[CustomBlocker] failed to create offscreen document", error);
+    const message = String(error && error.message ? error.message : error);
+    if (message.includes("already")) {
+      // Race with another caller; the document is up.
+      clearOffscreenFailure();
+      return true;
+    }
+    reportOffscreenFailure("create-failed:" + message.slice(0, 64), message);
     return false;
   }
 }
@@ -2117,6 +2372,14 @@ async function reconcileCustomGroupHandlers(change) {
 }
 
 async function loadAllCustomGroupsAtStartup() {
+  // Recover per-tab URL history and queued apply messages from
+  // chrome.storage.session BEFORE the first dispatch fans out. Every
+  // dispatch already awaits ensureStartupGate(), so completing the
+  // hydration inside this function is the cheapest way to guarantee
+  // ordering without touching every event handler.
+  try {
+    await hydrateTabStateFromSession();
+  } catch (_) {}
   try {
     const result = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
     const groups = Array.isArray(result[BLOCKED_GROUPS_KEY]) ? result[BLOCKED_GROUPS_KEY] : [];
@@ -2256,6 +2519,7 @@ function enqueueApply(tabId, message) {
   list.push(message);
   while (list.length > PENDING_APPLY_MAX_PER_TAB) list.shift();
   pendingApplyByTab.set(tabId, list);
+  scheduleSessionFlush();
 }
 
 async function trySendApply(tabId, message) {
@@ -2347,6 +2611,7 @@ if (chrome.tabs && chrome.tabs.onCreated) {
     if (!tab || typeof tab.id !== "number") return;
     const url = tab.url || tab.pendingUrl || "";
     previousTabUrls.set(tab.id, { url, hostname: hostnameOf(url) });
+    scheduleSessionFlush();
     await dispatchEventToTab("openWebEvent", { tabId: tab.id, url }, { data: { isNewTab: true, previousUrl: null } });
     // webChangedEvent always fires alongside any navigation event so handlers
     // that just want "the page changed in any way" don't have to subscribe
@@ -2372,6 +2637,13 @@ if (chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener(async (tabId, _info) => {
     const previous = previousTabUrls.get(tabId);
     previousTabUrls.delete(tabId);
+    // The tab is gone — any apply messages we queued for it will never
+    // be drained, so clear that entry too to keep both in-memory and
+    // session-persisted state from leaking forever.
+    if (pendingApplyByTab.has(tabId)) {
+      pendingApplyByTab.delete(tabId);
+    }
+    scheduleSessionFlush();
     await dispatchEventToTab(
       "closeWebEvent",
       { tabId, url: previous?.url || "" },
@@ -2391,6 +2663,7 @@ if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
     const nextUrl = details.url || "";
     const nextHost = hostnameOf(nextUrl);
     previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
+    scheduleSessionFlush();
 
     const isFirstLoad = !previous;
     const isReload = !!previous && previousUrl === nextUrl;
@@ -2448,6 +2721,7 @@ if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
     const nextUrl = details.url || "";
     const nextHost = hostnameOf(nextUrl);
     previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
+    scheduleSessionFlush();
     const sameDomain = previousHost === nextHost;
     const isReload = !!previousUrl && previousUrl === nextUrl;
     if (previousUrl && previousUrl !== nextUrl) {
@@ -2638,6 +2912,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     const queued = pendingApplyByTab.get(tabId) || [];
     pendingApplyByTab.delete(tabId);
+    scheduleSessionFlush();
     // Refresh the handler-count cache asynchronously; no blocking.
     refreshHandlerCount();
     sendResponse({

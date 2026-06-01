@@ -25,7 +25,7 @@
 .popup {
   width: 100vw;
   height: 100vh;
-  padding: 14px;
+  padding: 10px 12px;
   font-family: Arial, sans-serif;
   color: #1f2937;
   background: linear-gradient(180deg, #f8fafc 0%, var(--navy-100) 100%);
@@ -63,7 +63,7 @@ h2 {
 
 .hero {
   flex: 0 0 auto;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .hero-topbar {
@@ -76,18 +76,13 @@ h2 {
 .hero-actions {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
 }
 
 .language-picker {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   min-width: 180px;
-}
-
-.compact-label {
-  margin-bottom: 0;
 }
 
 .subtitle,
@@ -123,7 +118,7 @@ button,
   min-height: 0;
   display: grid;
   grid-template-columns: var(--groups-panel-width) 4px minmax(0, 1fr);
-  gap: 0 10px;
+  gap: 0 4px;
   align-items: stretch;
 }
 
@@ -139,8 +134,8 @@ button,
 .layout-resizer::before {
   content: "";
   position: absolute;
-  top: 12px;
-  bottom: 12px;
+  top: 8px;
+  bottom: 8px;
   left: 1px;
   width: 2px;
   border-radius: 999px;
@@ -373,6 +368,19 @@ textarea:focus {
   display: flex;
   gap: 8px;
   margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-prompt-panel {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--gold-200);
+  border-radius: 12px;
+  background: var(--gold-50);
+}
+
+.ai-prompt-panel textarea {
+  min-height: 96px;
 }
 
 .timed-settings {
@@ -597,6 +605,49 @@ textarea:disabled {
   margin: 8px 0 0;
   font-size: 11px;
   color: #b91c1c;
+}
+
+/* Visible-only-on-mismatch banner that warns users when Chrome is
+   restricting host_permissions ("On click" / "On specific sites" site
+   access mode). The banner is dismissable per-install via
+   chrome.storage.local; see initializeSiteAccessBanner() in popup.js. */
+.site-access-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--gold-50);
+  border: 1px solid var(--gold-200);
+  color: var(--gold-text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.site-access-banner[hidden] {
+  display: none !important;
+}
+
+.site-access-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.site-access-banner-text strong {
+  font-size: 13px;
+  color: var(--gold-text);
+}
+
+.site-access-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .modal {

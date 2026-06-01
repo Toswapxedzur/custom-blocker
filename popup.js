@@ -65,6 +65,9 @@ const layoutResizer = document.getElementById("layoutResizer");
 const groupList = document.getElementById("groupList");
 const bulkActionNotice = document.getElementById("bulkActionNotice");
 const languageSelect = document.getElementById("languageSelect");
+const siteAccessBanner = document.getElementById("siteAccessBanner");
+const siteAccessGrantButton = document.getElementById("siteAccessGrantButton");
+const siteAccessDismissButton = document.getElementById("siteAccessDismissButton");
 const manualButton = document.getElementById("manualButton");
 const addGroupTypeField = document.getElementById("addGroupType");
 const addGroupButton = document.getElementById("addGroupButton");
@@ -143,6 +146,10 @@ const clearSitesButton = document.getElementById("clearSitesButton");
 const runCustomGroupButton = document.getElementById("runCustomGroupButton");
 const checkSyntaxButton = document.getElementById("checkSyntaxButton");
 const runCustomGroupStatus = document.getElementById("runCustomGroupStatus");
+const aiPromptPanel = document.getElementById("aiPromptPanel");
+const aiPromptInput = document.getElementById("aiPromptInput");
+const aiPromptCopyButton = document.getElementById("aiPromptCopyButton");
+const aiPromptStatus = document.getElementById("aiPromptStatus");
 const editorTitle = document.getElementById("editorTitle");
 const statusMessage = document.getElementById("statusMessage");
 const confirmModal = document.getElementById("confirmModal");
@@ -2799,6 +2806,19 @@ function renderEditor(now = Date.now()) {
   if (checkSyntaxButton) {
     checkSyntaxButton.disabled = !editable || !isCustomGroup;
   }
+  if (aiPromptInput) {
+    aiPromptInput.disabled = !editable || !isCustomGroup;
+  }
+  if (aiPromptCopyButton) {
+    aiPromptCopyButton.disabled = !editable || !isCustomGroup;
+  }
+  if (!isCustomGroup && aiPromptPanel) {
+    aiPromptPanel.classList.add("hidden");
+  }
+  if (aiPromptStatus && (!isCustomGroup || !editable)) {
+    aiPromptStatus.textContent = "";
+    aiPromptStatus.className = "run-status";
+  }
   if (runCustomGroupStatus && (!isCustomGroup || !editable)) {
     runCustomGroupStatus.textContent = "";
     runCustomGroupStatus.className = "run-status";
@@ -4196,16 +4216,132 @@ function timeoutFallback(ms) {
   }), ms));
 }
 
+async function requestCustomGroupSyntaxCheck(source) {
+  const response = await Promise.race([
+    chrome.runtime.sendMessage({
+      type: "check-custom-group-syntax",
+      source
+    }),
+    timeoutFallback(RUN_CUSTOM_GROUP_TIMEOUT_MS)
+  ]);
+
+  if (response && response.__timedOut) {
+    return {
+      ok: false,
+      text:
+        "Halted: syntax check took too long. Your code likely contains " +
+        "an infinite loop in the registration body.",
+      statusKey: "status.customSyntaxHaltedTimeBudget"
+    };
+  }
+
+  if (response && response.ok && response.result && response.result.ok) {
+    const handlers = response.result.handlers ?? 0;
+    return {
+      ok: true,
+      handlers,
+      text: t("custom.checkSyntaxOk", { count: String(handlers) })
+    };
+  }
+
+  return {
+    ok: false,
+    text:
+      (response && response.result && response.result.error) ||
+      (response && response.error) ||
+      t("custom.checkSyntaxFailed")
+  };
+}
+
+function buildCustomRuleAiPrompt(userRequest, currentRule) {
+  const demand = String(userRequest || "").trim() || "(No extra user request was provided.)";
+  const existingRule = String(currentRule || "").trim() || "(No current rule.)";
+
+  return [
+    "TASK: generate custom-rule JavaScript for Chrome extension Screen Time Limiter: Custom Website Blocker & Focus Timer.",
+    "OUTPUT_CONTRACT: return only valid JS source; no markdown; no prose; no code fences.",
+    "TOP_LEVEL_SHAPE: (event, helpers) => { /* register handlers here */ }",
+    "EXECUTION_MODEL: top-level function runs once per Run click or enable; it must register persistent handlers. Do not do the blocking work only at top level. Handlers persist until Run again, disable, delete, or same (type,id) re-register. Sandbox is long-lived and shared by groups. Keep synchronous work bounded. No infinite loops, network fetches, external packages, eval/new Function, DOM globals, chrome APIs, timers like setInterval for rule logic, or assumptions that browser/page globals exist.",
+    "USER_REQUEST_BEGIN",
+    demand,
+    "USER_REQUEST_END",
+    "API.EVENT_REGISTRY:",
+    "event.register(type,id,handler,options?) -> boolean; event.getEvent(type,id) -> function|null; event.getEvents(type) -> object; event.countRegistered(type) -> number; event.unregister(type,id) -> boolean; event.unregisterAll(type) -> number; event.post(type,data?,{scope?}) -> void. Reserved event names starting '_' are rejected. options.priority default 0, higher runs first. options.intervalMs throttles tickEvent/pageHeartbeat-style frequent handlers. Same type+id replaces.",
+    "BUILTIN_EVENT_TYPES: tickEvent, openWebEvent, closeWebEvent, switchWebEvent, switchDomainEvent, webChangedEvent, timerEnded, snoozePress, pageHeartbeatEvent.",
+    "TYPED_EVENT_METHODS: for each built-in type suffix S = TickEvent/OpenWebEvent/CloseWebEvent/SwitchWebEvent/SwitchDomainEvent/WebChangedEvent/TimerEnded/SnoozePress/PageHeartbeatEvent: event.registerS(id,handler,opts), event.getS(id), event.getSs(), count name as event.countTickRegistered/countOpenWebRegistered/countCloseWebRegistered/countSwitchWebRegistered/countSwitchDomainRegistered/countWebChangedRegistered/countTimerEndedRegistered/countSnoozePressRegistered/countPageHeartbeatRegistered. Also aliases: registerTimerEndedEvent/getTimerEndedEvent/getTimerEndedEvents/countTimerEndedEventRegistered; registerSnoozePressEvent/getSnoozePressEvent/getSnoozePressEvents/countSnoozePressEventRegistered.",
+    "EVENT_SEMANTICS: tickEvent global browser tick data {intervalMs}; pageHeartbeatEvent active visible tab heartbeat data {elapsedMs}; openWebEvent new tab/fresh navigation data {previousUrl,isNewTab}; closeWebEvent tab close data {reason,nextUrl}; switchWebEvent same-tab URL change data {previousUrl,previousHostname,sameDomain}; switchDomainEvent hostname boundary data {previousUrl,previousHostname}; webChangedEvent any open/switch/reload/history data {previousUrl,previousHostname,sameDomain,isFirstLoad,isReload,transition}; timerEnded owning group only data {timerId,displayName,direction,currentMs}; snoozePress custom group only when Start Snooze clicked data {triggeredAt}. New tab/about blank exposed as ev.url === ''.",
+    "HANDLER_SHAPE: (ev, helpers) => void. ev fields: type, groupId, tabId, pageId, url, hostname, time:{now,month,dayOfMonth,dayName,hour,minute}, data. ev methods: preventDefault(), stopPropagation(), setResult(number|string), getResult(), post(type,data,{scope?}), setRedirectLink(url), getRedirectLink(). setResult(-1)=block, 0=neutral/pass, 1=allow override; string result is redirect URL; setRedirectLink sets redirect target for blocked result; stopPropagation halts all later handlers across groups. ev is Proxy: custom fields can be assigned/read during same dispatch.",
+    "HELPERS.TOP: helpers.now, helpers.currentUrl, helpers.groupId, helpers.log(...), helpers.warn(...), helpers.error(...), getLogHelper, getDomainHelper, getDomainUtility, getTimerHelper, getPersistenceHelper, getRedirectionHelper, getDOMHelper, getNavigationHelper, getStorageHelper, getTabHelper, getPlatformHelper.",
+    "HELPERS.LOG: getLogHelper().log(...), warn(...), error(...). Logs go to popup Log panel; capped/rate-limited.",
+    "HELPERS.DOMAIN: d=helpers.getDomainHelper(); d.hostnameOf(url); d.pathnameOf(url); d.matches(hostname,site); d.getPlatform(url); d.isYouTubeHost(host); d.isTikTokHost(host); d.isInstagramHost(host); d.isFacebookHost(host); d.isTwitchHost(host); d.isRedditHost(host); d.isDiscordHost(host); d.isEmptyStartPage(url); d.matchesAny(url,regexOrArrayOrString); d.pathStartsWith(url,path); d.queryHas(url,key,value?); d.queryGet(url,key); d.isSearchPage(url); d.isInfiniteFeedUrl(url); d.sameSection(a,b). Platform URL classifiers: d.youtube()/tiktok()/instagram()/facebook()/twitch() each expose isPlatformUrl(url), isShortUrl(url), isVideoUrl(url), isPostUrl(url), isHomePage(url), extractAuthor(url), extractVideoId(url).",
+    "HELPERS.TIMER: tm=helpers.getTimerHelper(); tm.groupId; tm.create({id,displayName?,direction?,currentMs?,scope?,domain?}) resets; tm.getOrCreateTimer({id,displayName?,direction?,currentMs?,scope?,domain?}) preserves currentMs; direction forward/backward; currentMs ms; scope(url) auto-ticks on visible page heartbeat; domain(url) controls overlay display. tm.delete(id), pause(id), resume(id), setDirection(id,dir), setCurrentMs(id,ms), addMs(id,deltaMs), setDisplayName(id,name), getCurrentMs(id), isExpired(id), isPaused(id), getDirection(id), getDisplayName(id), exists(id), getState(id)->{id,displayName,direction,isPaused,currentMs,isExpired}|null, list()->array. Timers do not block by themselves; check isExpired in open/switch/webChanged handler and then block.",
+    "HELPERS.PERSISTENCE: p=helpers.getPersistenceHelper(); p.get(key,defaultValue?), set(key,valueJSON), delete(key), has(key), keys(), entries(), clear(), size(). Values JSON-serializable; scoped to group.",
+    "HELPERS.REDIRECT: r=helpers.getRedirectionHelper(); r.get(); r.set(url); r.setRedirectLink(url); r.getRedirectLink(); r.createMessageUrl(message). ev.setRedirectLink can also be used directly.",
+    "HELPERS.DOM: dom=helpers.getDOMHelper(); dom.hide(selector), show(selector), addClass(selector,className), removeClass(selector,className), setText(selector,text), click(selector), injectCss(css,id?), removeInjectedCss(id), scrollTo(selector). These enqueue content-script DOM intents, applied after handler returns.",
+    "HELPERS.NAVIGATION: nav=helpers.getNavigationHelper(); nav.back(), forward(), reload(), goTo(url), closeTab(). These enqueue tab navigation intents for current event tab.",
+    "HELPERS.STORAGE: s=helpers.getStorageHelper(); includes persistence methods plus s.requestAsyncGet(key), s.requestAsyncSet(key,valueJSON). Async results arrive via follow-up custom storage events; do not await.",
+    "HELPERS.TAB: tab=helpers.getTabHelper(); tab.list(), getActiveTab(), getById(id), countOpen(), requestRefresh(). Uses snapshot bundled with dispatch.",
+    "HELPERS.PLATFORM: ph=helpers.getPlatformHelper(); ph.youtube(), ph.tiktok(), ph.instagram(), ph.facebook(), ph.twitch(); ph.listMethods(platform); ph.hasMethod(platform,methodName). Each platform API always has URL classifiers isPlatformUrl,isShortUrl,isVideoUrl,isPostUrl,isHomePage,extractAuthor,extractVideoId.",
+    "PLATFORM_METHODS.YOUTUBE: hideShorts(predicate,{blockPageOnVisit?}), showShorts(), hideVideos(predicate,opts), showVideos(), hidePosts(predicate,opts), showPosts(), hideShortButton(), showShortButton(), hideHomePage(), showHomePage(), hideComments(), showComments(), filterComments(predicate,opts), hideLive(), showLive(), filterLive(predicate,opts), isCurrentChannelSubscribed(), isChannelSubscribed(id), isCurrentChannelVerified(), isLiveNow(), isItemLive(item), isAlgorithmicRecommendation(item), isSponsored(item), setShortsTimer(opts), setVideosTimer(opts), setPostsTimer(opts).",
+    "PLATFORM_METHODS.TIKTOK: hideVideos(predicate,opts), showVideos(), hideHomePage(), showHomePage(), hideComments(), showComments(), filterComments(predicate,opts), hideLive(), showLive(), filterLive(predicate,opts), isLiveNow(), isItemLive(item), isAlgorithmicRecommendation(item), isSponsored(item), setVideosTimer(opts).",
+    "PLATFORM_METHODS.INSTAGRAM: hideReels(predicate,opts), showReels(), hidePosts(predicate,opts), showPosts(), hideHomePage(), showHomePage(), hideComments(), showComments(), filterComments(predicate,opts), isAlgorithmicRecommendation(item), isSponsored(item), setReelsTimer(opts), setPostsTimer(opts).",
+    "PLATFORM_METHODS.FACEBOOK: hideReels(predicate,opts), showReels(), hideVideos(predicate,opts), showVideos(), hidePosts(predicate,opts), showPosts(), hideHomePage(), showHomePage(), hideComments(), showComments(), filterComments(predicate,opts), hideLive(), showLive(), filterLive(predicate,opts), isLiveNow(), isItemLive(item), isAlgorithmicRecommendation(item), isSponsored(item), setReelsTimer(opts), setVideosTimer(opts), setPostsTimer(opts).",
+    "PLATFORM_METHODS.TWITCH: hideComments(), showComments(), hideClips(predicate,opts), showClips(), hideStreams(predicate,opts), showStreams(), hideVideos(predicate,opts), showVideos(), hideHomePage(), showHomePage(), hideLive(), showLive(), filterLive(predicate,opts), isCurrentChannelSubscribed(), isChannelSubscribed(id), isLiveNow(), isItemLive(item), isAlgorithmicRecommendation(item), setClipsTimer(opts), setStreamsTimer(opts), setVideosTimer(opts).",
+    "PLATFORM_PREDICATE_ITEM: item={url,name,author,length,views,publishedAt,description,live?,sponsored?,algorithmic?}; fields may be null. Predicate methods keep one persistent predicate per group+platform+slot; each call replaces previous predicate; show* clears. opts.blockPageOnVisit can block page visits when predicate matches.",
+    "COMMON_PATTERNS: immediate block -> registerOpenWebEvent and registerSwitchWebEvent or registerWebChangedEvent; if condition matches ev.url then ev.setRedirectLink(optional), ev.preventDefault(), ev.setResult(-1). Reload-sensitive logic -> webChangedEvent. SPA URL changes -> switchWebEvent. Time budgets -> getOrCreateTimer with scope/domain plus block handler checking isExpired. DOM hiding -> run on open/switch/webChanged and call platform/DOM helper.",
+    "CURRENT_RULE_BEGIN",
+    "BEGIN_CURRENT_RULE",
+    existingRule,
+    "END_CURRENT_RULE",
+    "CURRENT_RULE_END"
+  ].join("\n");
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) {
+    throw new Error(t("custom.aiPromptCopyFailed"));
+  }
+}
+
 async function runSelectedCustomGroup() {
   const group = getSelectedGroup();
   if (!group || group.groupType !== "custom") return;
   await flushAutosave();
   const source = String(blockingRulesField?.value ?? "").trim();
   if (runCustomGroupStatus) {
-    runCustomGroupStatus.textContent = t("custom.runStatusRunning");
+    runCustomGroupStatus.textContent = t("custom.checkSyntaxRunning");
     runCustomGroupStatus.className = "run-status";
   }
   try {
+    const syntaxResult = await requestCustomGroupSyntaxCheck(source);
+    if (!syntaxResult.ok) {
+      if (runCustomGroupStatus) {
+        runCustomGroupStatus.textContent = syntaxResult.text;
+        runCustomGroupStatus.className = "run-status error";
+      }
+      setStatus(syntaxResult.statusKey ? t(syntaxResult.statusKey) : syntaxResult.text, true);
+      return;
+    }
+
+    if (runCustomGroupStatus) {
+      runCustomGroupStatus.textContent = t("custom.runStatusRunning");
+      runCustomGroupStatus.className = "run-status";
+    }
+
     const response = await Promise.race([
       chrome.runtime.sendMessage({
         type: "run-custom-group",
@@ -4289,46 +4425,30 @@ async function checkSelectedCustomGroupSyntax() {
     runCustomGroupStatus.className = "run-status";
   }
   try {
-    // Sandbox compiles under a synthetic groupId and discards results;
-    // the real group's loaded handlers are not touched. The watchdog
-    // protects this path too — a registration body that does
-    // `while (true) {}` would otherwise hang the popup just like Run.
-    const response = await Promise.race([
-      chrome.runtime.sendMessage({
-        type: "check-custom-group-syntax",
-        source
-      }),
-      timeoutFallback(RUN_CUSTOM_GROUP_TIMEOUT_MS)
-    ]);
-    if (response && response.__timedOut) {
+    const syntaxResult = await requestCustomGroupSyntaxCheck(source);
+    if (syntaxResult.ok) {
       if (runCustomGroupStatus) {
-        runCustomGroupStatus.textContent =
-          "Halted: syntax check took too long. Your code likely contains " +
-          "an infinite loop in the registration body.";
-        runCustomGroupStatus.className = "run-status error";
-      }
-      setStatus(t("status.customSyntaxHaltedTimeBudget"), true);
-      return;
-    }
-    if (response && response.ok && response.result && response.result.ok) {
-      const handlers = response.result.handlers ?? 0;
-      const text = t("custom.checkSyntaxOk", { count: String(handlers) });
-      if (runCustomGroupStatus) {
-        runCustomGroupStatus.textContent = text;
+        runCustomGroupStatus.textContent = syntaxResult.text;
         runCustomGroupStatus.className = "run-status success";
       }
-      setStatus(text);
+      setStatus(syntaxResult.text);
       return;
     }
-    const err =
-      (response && response.result && response.result.error) ||
-      (response && response.error) ||
-      t("custom.checkSyntaxFailed");
+
+    if (syntaxResult.statusKey) {
+      if (runCustomGroupStatus) {
+        runCustomGroupStatus.textContent = syntaxResult.text;
+        runCustomGroupStatus.className = "run-status error";
+      }
+      setStatus(t(syntaxResult.statusKey), true);
+      return;
+    }
+
     if (runCustomGroupStatus) {
-      runCustomGroupStatus.textContent = err;
+      runCustomGroupStatus.textContent = syntaxResult.text;
       runCustomGroupStatus.className = "run-status error";
     }
-    setStatus(err, true);
+    setStatus(syntaxResult.text, true);
   } catch (error) {
     const text = String(error && error.message ? error.message : error);
     if (runCustomGroupStatus) {
@@ -4339,9 +4459,56 @@ async function checkSelectedCustomGroupSyntax() {
   }
 }
 
+function toggleAiPromptPanel() {
+  const group = getSelectedGroup();
+  if (!group || group.groupType !== "custom") return;
+  if (!aiPromptPanel) return;
+  const shouldOpen = aiPromptPanel.classList.contains("hidden");
+  aiPromptPanel.classList.toggle("hidden", !shouldOpen);
+  if (aiPromptStatus) {
+    aiPromptStatus.textContent = "";
+    aiPromptStatus.className = "run-status";
+  }
+  if (shouldOpen) {
+    aiPromptInput?.focus();
+  }
+}
+
+async function copyAiPromptForCustomRule() {
+  const group = getSelectedGroup();
+  if (!group || group.groupType !== "custom") return;
+
+  const prompt = buildCustomRuleAiPrompt(
+    aiPromptInput?.value ?? "",
+    blockingRulesField?.value ?? group.blockingRulesText
+  );
+
+  try {
+    await copyTextToClipboard(prompt);
+    if (aiPromptStatus) {
+      aiPromptStatus.textContent = t("custom.aiPromptCopied");
+      aiPromptStatus.className = "run-status success";
+    }
+    setStatus(t("custom.aiPromptCopied"));
+  } catch (error) {
+    const text = error?.message || t("custom.aiPromptCopyFailed");
+    if (aiPromptStatus) {
+      aiPromptStatus.textContent = text;
+      aiPromptStatus.className = "run-status error";
+    }
+    setStatus(text, true);
+  }
+}
+
 if (checkSyntaxButton) {
   checkSyntaxButton.addEventListener("click", () => {
-    checkSelectedCustomGroupSyntax();
+    toggleAiPromptPanel();
+  });
+}
+
+if (aiPromptCopyButton) {
+  aiPromptCopyButton.addEventListener("click", () => {
+    copyAiPromptForCustomRule();
   });
 }
 
@@ -4794,6 +4961,84 @@ if (chrome.runtime && chrome.runtime.onMessage) {
   });
 }
 
+// Storage key for the site-access banner dismissal state. Stored in
+// chrome.storage.local rather than localStorage so it survives popup
+// reloads, Chrome restarts, and so the same dismissal is honoured if
+// the popup is ever embedded somewhere other than a tab.
+const SITE_ACCESS_BANNER_DISMISSED_KEY = "siteAccessBannerDismissedV1";
+
+async function readSiteAccessBannerDismissed() {
+  try {
+    if (!chrome?.storage?.local?.get) return false;
+    const r = await chrome.storage.local.get({ [SITE_ACCESS_BANNER_DISMISSED_KEY]: false });
+    return r[SITE_ACCESS_BANNER_DISMISSED_KEY] === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function writeSiteAccessBannerDismissed(value) {
+  try {
+    if (!chrome?.storage?.local?.set) return;
+    await chrome.storage.local.set({ [SITE_ACCESS_BANNER_DISMISSED_KEY]: Boolean(value) });
+  } catch (_) {}
+}
+
+// Returns true iff the extension currently has the manifest-declared
+// <all_urls> host permission granted by the user. Chrome treats site
+// access UI ("On all sites" / "On click" / "On specific sites") as
+// effective grants of host permissions; switching to "On click" causes
+// this check to return false even though <all_urls> is declared.
+async function hasAllUrlsHostAccess() {
+  try {
+    if (!chrome?.permissions?.contains) return true;
+    return await chrome.permissions.contains({ origins: ["<all_urls>"] });
+  } catch (_) {
+    return true;
+  }
+}
+
+async function initializeSiteAccessBanner() {
+  if (!siteAccessBanner) return;
+  const dismissed = await readSiteAccessBannerDismissed();
+  const granted = await hasAllUrlsHostAccess();
+  if (granted || dismissed) {
+    siteAccessBanner.hidden = true;
+    return;
+  }
+  siteAccessBanner.hidden = false;
+
+  if (siteAccessGrantButton && !siteAccessGrantButton.__cbWired) {
+    siteAccessGrantButton.__cbWired = true;
+    siteAccessGrantButton.addEventListener("click", async () => {
+      try {
+        if (!chrome?.permissions?.request) {
+          setStatus(t("siteAccess.grantFailed"), true);
+          return;
+        }
+        const ok = await chrome.permissions.request({ origins: ["<all_urls>"] });
+        if (ok) {
+          siteAccessBanner.hidden = true;
+          await writeSiteAccessBannerDismissed(true);
+        } else {
+          setStatus(t("siteAccess.grantFailed"), true);
+        }
+      } catch (error) {
+        cbDebugError("siteAccess request failed", error);
+        setStatus(t("siteAccess.grantFailed"), true);
+      }
+    });
+  }
+
+  if (siteAccessDismissButton && !siteAccessDismissButton.__cbWired) {
+    siteAccessDismissButton.__cbWired = true;
+    siteAccessDismissButton.addEventListener("click", async () => {
+      siteAccessBanner.hidden = true;
+      await writeSiteAccessBannerDismissed(true);
+    });
+  }
+}
+
 async function initializePopupApp() {
   const defaultLanguage = getDefaultLanguageCode();
   state.language = loadLanguage();
@@ -4814,6 +5059,12 @@ async function initializePopupApp() {
 
   await loadGroups();
   await loadLogFeedSnapshot();
+  // Banner runs after translations are applied so the labels read in
+  // the user's language, and runs after loadGroups so the popup is in a
+  // visible-and-laid-out state before the banner pops in.
+  initializeSiteAccessBanner().catch((error) => {
+    cbDebugError("site access banner init failed", error);
+  });
   state.tickIntervalId = window.setInterval(() => {
     renderDynamicView();
   }, 1000);

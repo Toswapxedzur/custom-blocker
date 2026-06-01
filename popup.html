@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title data-i18n="app.title">Custom Web Blocker</title>
+    <title data-i18n="app.title">Screen Time Limiter: Custom Website Blocker & Focus Timer</title>
     <link rel="icon" href="icons/icon-128.png" />
     <link rel="stylesheet" href="popup.css" />
   </head>
@@ -12,7 +12,7 @@
       <header class="hero">
         <div class="hero-topbar">
           <div>
-            <h1 data-i18n="app.title">Custom Web Blocker</h1>
+            <h1>Custom Website Blocker</h1>
             <p class="subtitle" data-i18n="hero.subtitle">
               Organize blocked sites into named groups, then enable or disable each
               group whenever you want.
@@ -26,12 +26,40 @@
               Instruction Manual
             </button>
             <div class="language-picker">
-              <label class="label compact-label" for="languageSelect" data-i18n="language.label">Language</label>
               <select id="languageSelect" aria-label="Language" data-i18n-aria-label="language.label"></select>
             </div>
           </div>
         </div>
       </header>
+
+      <div
+        id="siteAccessBanner"
+        class="site-access-banner"
+        role="status"
+        aria-live="polite"
+        hidden
+      >
+        <div class="site-access-banner-text">
+          <strong data-i18n="siteAccess.title">Limited site access detected</strong>
+          <span data-i18n="siteAccess.body">
+            Chrome is currently restricting this extension's access to web pages.
+            Screen Time Limiter: Custom Website Blocker & Focus Timer needs access to all sites in order to block them.
+          </span>
+        </div>
+        <div class="site-access-banner-actions">
+          <button id="siteAccessGrantButton" type="button" data-i18n="siteAccess.grant">
+            Grant access
+          </button>
+          <button
+            id="siteAccessDismissButton"
+            type="button"
+            class="secondary"
+            data-i18n="siteAccess.dismiss"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
 
       <section id="layout" class="layout">
         <aside class="groups-panel">
@@ -207,14 +235,29 @@
               <button id="runCustomGroupButton" type="button" class="weird" data-i18n="custom.runButton">
                 Run
               </button>
-              <button id="checkSyntaxButton" type="button" class="secondary weird" data-i18n="custom.checkSyntaxButton">
-                Check syntax
+              <button id="checkSyntaxButton" type="button" class="secondary weird" data-i18n="custom.letAiCodeButton">
+                Let AI Code
               </button>
               <span id="runCustomGroupStatus" class="run-status"></span>
             </div>
-            <p class="field-help" data-i18n="custom.help">
-              The function receives month, dayOfMonth, dayName, hour, minute, and blockedDomains. Return an updated list of domains, or mutate blockedDomains and return nothing.
-            </p>
+            <div id="aiPromptPanel" class="ai-prompt-panel hidden">
+              <label class="label" for="aiPromptInput" data-i18n="custom.aiPromptLabel">Prompt for AI</label>
+              <textarea
+                id="aiPromptInput"
+                rows="4"
+                data-i18n-placeholder="custom.aiPromptPlaceholder"
+                spellcheck="true"
+              ></textarea>
+              <div class="field-actions">
+                <button id="aiPromptCopyButton" type="button" class="weird" data-i18n="custom.aiPromptCopyButton">
+                  Prompt for AI
+                </button>
+                <span id="aiPromptStatus" class="run-status"></span>
+              </div>
+              <p class="field-help" data-i18n="custom.aiPromptHelp">
+                This copies a bundled prompt with your request, the current rule, and the custom-rule API reference. Paste it into your AI tool, then paste the generated code back here.
+              </p>
+            </div>
 
             <details id="logFeedSection" class="log-feed">
               <summary>
@@ -512,11 +555,6 @@
       </section>
 
       <p id="statusMessage" class="status" aria-live="polite"></p>
-
-      <p class="hint" data-i18n="hint.copy">
-        Enabled groups use the browser's native extension-blocked behavior,
-        similar to <code>ERR_BLOCKED_BY_CLIENT</code>.
-      </p>
     </main>
 
     <div id="confirmModal" class="modal hidden">

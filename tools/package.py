@@ -68,7 +68,11 @@ INCLUDE_DIRS = [
 ]
 
 # Filenames anywhere under an included directory that should be skipped.
-EXCLUDE_NAMES = {".DS_Store", "Thumbs.db"}
+# icon-master.png is the high-res source we render the four manifest icons
+# from in tools/generate_icons.py — it is never referenced at runtime, so
+# shipping it just bloats the upload and invites Web Store review questions
+# about unused assets.
+EXCLUDE_NAMES = {".DS_Store", "Thumbs.db", "icon-master.png"}
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 
 
