@@ -6,6 +6,7 @@ const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
 const GLOBAL_SETTINGS_KEY = "globalSettings";
 const LAYOUT_WIDTH_STORAGE_KEY = "custom-blocker-groups-panel-width";
 const LANGUAGE_STORAGE_KEY = "custom-blocker-language";
+const AI_PROMPT_STORAGE_PREFIX = "custom-blocker-ai-prompt:";
 const GROUP_TRANSFER_PREFIX = "custom-blocker-group:v1:";
 
 // Debug-mode-gated console helpers. Mirror the implementation in
@@ -207,10 +208,35 @@ const state = {
   templateDrafts: {},
   suppressGroupStorageUpdatesUntil: 0,
   panelWidth: 300,
+  aiPromptGroupId: null,
   language: "en",
   translationMessages: {},
   translationLoadPromises: {}
 };
+
+function getAiPromptStorageKey(groupId) {
+  return `${AI_PROMPT_STORAGE_PREFIX}${groupId}`;
+}
+
+function loadAiPromptDraft(groupId) {
+  try {
+    return window.localStorage.getItem(getAiPromptStorageKey(groupId)) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveAiPromptDraft(groupId, value) {
+  try {
+    const key = getAiPromptStorageKey(groupId);
+    const text = String(value ?? "");
+    if (text) {
+      window.localStorage.setItem(key, text);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {}
+}
 
 function getTranslationsConfig() {
   return window.CUSTOM_BLOCKER_I18N ?? {
@@ -2680,6 +2706,21 @@ function renderEditor(now = Date.now()) {
     discordBlockHomePageField.disabled = true;
     fallbackUrlField.disabled = true;
     skipToNextOnBlockField.disabled = true;
+    state.aiPromptGroupId = null;
+    if (aiPromptPanel) {
+      aiPromptPanel.classList.add("hidden");
+    }
+    if (aiPromptInput) {
+      aiPromptInput.value = "";
+      aiPromptInput.disabled = true;
+    }
+    if (aiPromptCopyButton) {
+      aiPromptCopyButton.disabled = true;
+    }
+    if (aiPromptStatus) {
+      aiPromptStatus.textContent = "";
+      aiPromptStatus.className = "run-status";
+    }
     updateFreezeUI(null, now);
     updateSnoozeUI(null, now);
     setSnoozeWarning("");
@@ -2695,6 +2736,18 @@ function renderEditor(now = Date.now()) {
   const isRedditGroup = group.groupType === "reddit";
   const isDiscordGroup = group.groupType === "discord";
   const isCustomGroup = group.groupType === "custom";
+
+  if (aiPromptInput) {
+    if (isCustomGroup) {
+      if (state.aiPromptGroupId !== group.id) {
+        aiPromptInput.value = loadAiPromptDraft(group.id);
+        state.aiPromptGroupId = group.id;
+      }
+    } else {
+      aiPromptInput.value = "";
+      state.aiPromptGroupId = null;
+    }
+  }
 
   if (isPlatformVideoGroup) {
     applyPlatformVideoUi(group.groupType);
@@ -4199,6 +4252,19 @@ blockingRulesField.addEventListener("blur", () => {
   });
 });
 
+if (aiPromptInput) {
+  aiPromptInput.addEventListener("input", () => {
+    const group = getSelectedGroup();
+    if (!group || group.groupType !== "custom") return;
+    state.aiPromptGroupId = group.id;
+    saveAiPromptDraft(group.id, aiPromptInput.value);
+    if (aiPromptStatus) {
+      aiPromptStatus.textContent = "";
+      aiPromptStatus.className = "run-status";
+    }
+  });
+}
+
 // Wall-clock watchdog for the Run flow. If a previous custom rule
 // already locked the sandbox iframe with an infinite loop, the
 // background's `await chrome.runtime.sendMessage(... event-sandbox-request)`
@@ -4259,7 +4325,7 @@ function buildCustomRuleAiPrompt(userRequest, currentRule) {
 
   return [
     "TASK: generate custom-rule JavaScript for Chrome extension Screen Time Limiter: Custom Website Blocker & Focus Timer.",
-    "OUTPUT_CONTRACT: return only valid JS source; no markdown; no prose; no code fences.",
+    "OUTPUT_CONTRACT: put only the final valid JavaScript source inside one copyable fenced code block labeled javascript; no prose before or after the code block.",
     "TOP_LEVEL_SHAPE: (event, helpers) => { /* register handlers here */ }",
     "EXECUTION_MODEL: top-level function runs once per Run click or enable; it must register persistent handlers. Do not do the blocking work only at top level. Handlers persist until Run again, disable, delete, or same (type,id) re-register. Sandbox is long-lived and shared by groups. Keep synchronous work bounded. No infinite loops, network fetches, external packages, eval/new Function, DOM globals, chrome APIs, timers like setInterval for rule logic, or assumptions that browser/page globals exist.",
     "USER_REQUEST_BEGIN",

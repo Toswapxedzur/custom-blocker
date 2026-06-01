@@ -202,22 +202,28 @@ function unregisterAllForType(groupId, type) {
   return removed;
 }
 
-function unloadGroup(groupId) {
+function unloadGroup(groupId, { clearState = false } = {}) {
+  const hadTimers = Boolean(groupTimers.get(groupId) && Object.keys(groupTimers.get(groupId)).length > 0);
+  const hadPersistence =
+    Boolean(groupPersistence.get(groupId) && Object.keys(groupPersistence.get(groupId)).length > 0);
   for (const [type, list] of handlersByType.entries()) {
     handlersByType.set(type, list.filter((entry) => entry.groupId !== groupId));
   }
   groupSources.delete(groupId);
   groupHelpersCache.delete(groupId);
   groupPlatformPredicates.delete(groupId);
+  overrunHistoryByGroup.delete(groupId);
   // Drop scope/domain predicates so a re-Run doesn't leak the previous
   // version's closures (which may close over now-stale module
   // references). The rule re-registers them on its next dispatch.
   groupTimerPredicates.delete(groupId);
   previouslyExpiredTimers.delete(groupId);
   handlerCountByGroup.delete(groupId);
-  // groupTimers and groupPersistence are intentionally preserved across
-  // re-Runs so user countdowns and persisted state survive a "Run" click.
-  // check-source uses a unique synthetic groupId, so leak is bounded.
+  if (clearState) {
+    groupTimers.delete(groupId);
+    groupPersistence.delete(groupId);
+  }
+  return { timerRegistryChanged: clearState && (hadTimers || hadPersistence) };
 }
 
 function listHandlers(groupId) {
@@ -429,6 +435,7 @@ function makeAccumulator() {
     logs: [],
     redirectUrl: null,
     domOps: [],
+    timerRegistryChanged: false,
     logsDropped: 0,
     postsDropped: 0
   };
@@ -755,6 +762,7 @@ function dispatchEvent(descriptor) {
     logsDropped: accumulator.logsDropped || 0,
     postsDropped: accumulator.postsDropped || 0,
     quarantine: accumulator.quarantine || null,
+    timerRegistryChanged: Boolean(accumulator.timerRegistryChanged),
     // Map of groupId -> [{id, displayName, direction, currentMs,
     // isPaused, isExpired}] for timers whose domain (or scope) matches
     // descriptor.url. background.js merges these into the page session
@@ -769,10 +777,19 @@ function dispatchEvent(descriptor) {
 // ────────────────────────────────────────────────────────────────────────
 
 function loadSource(groupId, source) {
-  // Always wipe previous registrations for this group first.
-  unloadGroup(groupId);
+  // Always wipe previous registrations and stale timer state for this
+  // group first. A Run click should reflect the current script, not keep
+  // orphaned timers from an older version.
+  const unloadResult = unloadGroup(groupId, { clearState: true });
   const rawTrimmed = String(source ?? "").trim();
-  if (!rawTrimmed) return { ok: true, handlers: 0, error: null };
+  if (!rawTrimmed) {
+    return {
+      ok: true,
+      handlers: 0,
+      error: null,
+      timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged)
+    };
+  }
 
   // Two source styles are supported:
   //   (events, helpers) => { ... }     ← function expression
@@ -815,7 +832,12 @@ function loadSource(groupId, source) {
         (exprCompileError && exprCompileError.message
           ? " (also failed as expression: " + exprCompileError.message + ")"
           : "");
-      return { ok: false, handlers: 0, error: msg };
+      return {
+        ok: false,
+        handlers: 0,
+        error: msg,
+        timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged)
+      };
     }
   }
 
@@ -871,7 +893,8 @@ function loadSource(groupId, source) {
       // than silently re-running it on every reload.
       quarantine: isBudgetAbort
         ? { groupId, reason: "registration-deadline-overrun" }
-        : null
+        : null,
+      timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged || accumulator.timerRegistryChanged)
     };
   }
 
@@ -895,7 +918,8 @@ function loadSource(groupId, source) {
     ok: true,
     handlers: handlerCount,
     error: null,
-    logs: [...earlyLogs, ...noteLogs]
+    logs: [...earlyLogs, ...noteLogs],
+    timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged || accumulator.timerRegistryChanged)
   };
 }
 
@@ -1001,15 +1025,17 @@ window.addEventListener("message", (msg) => {
         error: "Compile failed: " + (error && error.message ? error.message : String(error))
       };
     } finally {
-      unloadGroup(syntheticGroupId);
+      unloadGroup(syntheticGroupId, { clearState: true });
     }
     reply(msg.source, id, result);
     return;
   }
 
   if (payload.kind === "unload-group") {
-    unloadGroup(String(payload.groupId));
-    reply(msg.source, id, { ok: true });
+    const result = unloadGroup(String(payload.groupId), {
+      clearState: payload.clearState !== false
+    });
+    reply(msg.source, id, { ok: true, ...result });
     return;
   }
 

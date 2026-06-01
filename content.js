@@ -2088,6 +2088,11 @@ if (document.readyState === "loading") {
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message !== "object") return false;
+    if (message.type === "custom-timers-refresh") {
+      scheduleRefreshSession(0);
+      sendResponse({ ok: true });
+      return true;
+    }
     if (message.type !== "event-sandbox-apply") return false;
     try {
       __cb_processApplyMessage(message);

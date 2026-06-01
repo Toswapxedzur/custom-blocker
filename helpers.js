@@ -359,6 +359,9 @@
   //   domain(url)  — when true, show in overlay (defaults to scope).
   function createTimerHelper(ctx) {
     const { groupId, timersBucket } = ctx;
+    const accumulatorRef = ctx?.accumulatorRef
+      ? ctx.accumulatorRef
+      : { get: () => ensureAccumulatorShape(ctx?.accumulator || {}) };
     // Accept either fixed values (legacy / tests) or thunks
     // (createEventGroupHelpers wires these to per-dispatch state so
     // every dispatch sees fresh elapsedMs / tickedSet / currentUrl).
@@ -408,16 +411,33 @@
       try { return Boolean(predicate(readCurrentUrl())); } catch { return false; }
     }
 
+    function markTimerRegistryChanged() {
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      acc.timerRegistryChanged = true;
+    }
+
     function rememberPredicates(id, scope, domain) {
       // Only update slots that the caller actually provided so a
       // subsequent getOrCreateTimer call without explicit predicates
       // doesn't accidentally drop the scope set at create time.
       const slot = predicatesBucket[id] || {};
-      if (typeof scope === "function") slot.scope = scope;
-      else if (scope === null) delete slot.scope;
-      if (typeof domain === "function") slot.domain = domain;
-      else if (domain === null) delete slot.domain;
+      let changed = false;
+      if (typeof scope === "function") {
+        if (typeof slot.scope !== "function") changed = true;
+        slot.scope = scope;
+      } else if (scope === null) {
+        if (typeof slot.scope === "function") changed = true;
+        delete slot.scope;
+      }
+      if (typeof domain === "function") {
+        if (typeof slot.domain !== "function") changed = true;
+        slot.domain = domain;
+      } else if (domain === null) {
+        if (typeof slot.domain === "function") changed = true;
+        delete slot.domain;
+      }
       predicatesBucket[id] = slot;
+      if (changed) markTimerRegistryChanged();
     }
 
     function applyScopeAndDomain(id, scope, domain) {
@@ -500,6 +520,7 @@
       create({ id, displayName, direction, currentMs, scope, domain } = {}) {
         if (typeof id !== "string" || !id) return null;
         timersBucket[id] = buildFresh({ displayName, direction, currentMs });
+        markTimerRegistryChanged();
         applyScopeAndDomain(id, scope, domain);
         return id;
       },
@@ -509,9 +530,16 @@
         if (!timer) {
           timer = buildFresh({ displayName, direction, currentMs });
           timersBucket[id] = timer;
+          markTimerRegistryChanged();
         } else {
-          if (direction === "forward" || direction === "backward") timer.direction = direction;
-          if (typeof displayName === "string") timer.displayName = displayName;
+          if ((direction === "forward" || direction === "backward") && timer.direction !== direction) {
+            timer.direction = direction;
+            markTimerRegistryChanged();
+          }
+          if (typeof displayName === "string" && timer.displayName !== displayName) {
+            timer.displayName = displayName;
+            markTimerRegistryChanged();
+          }
         }
         applyScopeAndDomain(id, scope, domain);
         return id;
@@ -520,6 +548,7 @@
         if (!getTimer(id)) return false;
         delete timersBucket[id];
         delete predicatesBucket[id];
+        markTimerRegistryChanged();
         return true;
       },
       pause(id) {
@@ -537,27 +566,37 @@
       setDirection(id, direction) {
         const timer = getTimer(id);
         if (!timer || (direction !== "forward" && direction !== "backward")) return false;
+        if (timer.direction === direction) return true;
         timer.direction = direction;
+        markTimerRegistryChanged();
         return true;
       },
       setCurrentMs(id, ms) {
         const timer = getTimer(id);
         const value = Number(ms);
         if (!timer || !Number.isFinite(value)) return false;
-        timer.currentMs = Math.max(0, Math.floor(value));
+        const nextMs = Math.max(0, Math.floor(value));
+        if (timer.currentMs === nextMs) return true;
+        timer.currentMs = nextMs;
+        markTimerRegistryChanged();
         return true;
       },
       addMs(id, deltaMs) {
         const timer = getTimer(id);
         const value = Number(deltaMs);
         if (!timer || !Number.isFinite(value)) return false;
-        timer.currentMs = Math.max(0, Math.floor(timer.currentMs + value));
+        const nextMs = Math.max(0, Math.floor(timer.currentMs + value));
+        if (timer.currentMs === nextMs) return true;
+        timer.currentMs = nextMs;
+        markTimerRegistryChanged();
         return true;
       },
       setDisplayName(id, displayName) {
         const timer = getTimer(id);
         if (!timer || typeof displayName !== "string") return false;
+        if (timer.displayName === displayName) return true;
         timer.displayName = displayName;
+        markTimerRegistryChanged();
         return true;
       },
       getCurrentMs(id) {
@@ -811,6 +850,7 @@
     accumulator.intents = accumulator.intents || [];
     accumulator.logs = accumulator.logs || [];
     accumulator.domOps = accumulator.domOps || [];
+    if (accumulator.timerRegistryChanged === undefined) accumulator.timerRegistryChanged = false;
     if (accumulator.redirectUrl === undefined) accumulator.redirectUrl = null;
     if (accumulator.logsDropped === undefined) accumulator.logsDropped = 0;
     return accumulator;
@@ -1330,6 +1370,7 @@
     const timer = createTimerHelper({
       groupId,
       timersBucket: timersBucket || {},
+      accumulatorRef,
       predicatesBucket: timerPredicatesBucket || {},
       elapsedMsRef: () => {
         const dc = typeof dispatchContextRef === "function" ? dispatchContextRef() : dispatchContextRef;

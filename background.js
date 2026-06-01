@@ -2217,6 +2217,7 @@ function maybeQuarantineFromResult(result, descriptor) {
 // this guard, every 1 s tick attempt would spam the popup with the same
 // "couldn't create offscreen document" line.
 let lastOffscreenFailureSignature = "";
+let offscreenCreationPromise = null;
 function reportOffscreenFailure(signature, message) {
   if (lastOffscreenFailureSignature === signature) return;
   lastOffscreenFailureSignature = signature;
@@ -2255,6 +2256,18 @@ async function ensureOffscreenDocument() {
       return true;
     }
   } catch {}
+  if (offscreenCreationPromise) {
+    return await offscreenCreationPromise;
+  }
+  offscreenCreationPromise = createOffscreenDocumentOnce();
+  try {
+    return await offscreenCreationPromise;
+  } finally {
+    offscreenCreationPromise = null;
+  }
+}
+
+async function createOffscreenDocumentOnce() {
   try {
     await chrome.offscreen.createDocument({
       url: OFFSCREEN_DOCUMENT_PATH,
@@ -2265,7 +2278,8 @@ async function ensureOffscreenDocument() {
     return true;
   } catch (error) {
     const message = String(error && error.message ? error.message : error);
-    if (message.includes("already")) {
+    const lowerMessage = message.toLowerCase();
+    if (lowerMessage.includes("already") || lowerMessage.includes("single offscreen document")) {
       // Race with another caller; the document is up.
       clearOffscreenFailure();
       return true;
@@ -2291,13 +2305,23 @@ async function sendToEventSandbox(payload) {
 async function loadCustomGroupSource(group) {
   if (!group || group.groupType !== "custom") return null;
   if (!group.enabled) {
-    await sendToEventSandbox({ kind: "unload-group", groupId: group.id });
+    await sendToEventSandbox({
+      kind: "unload-group",
+      groupId: group.id,
+      clearState: true
+    });
+    scheduleCustomTimerRefreshBroadcast();
     refreshHandlerCount();
     return { ok: true, handlers: 0, error: null };
   }
   const source = typeof group.activeEventSource === "string" ? group.activeEventSource : "";
   if (!source.trim()) {
-    await sendToEventSandbox({ kind: "unload-group", groupId: group.id });
+    await sendToEventSandbox({
+      kind: "unload-group",
+      groupId: group.id,
+      clearState: true
+    });
+    scheduleCustomTimerRefreshBroadcast();
     refreshHandlerCount();
     return { ok: true, handlers: 0, error: null };
   }
@@ -2329,6 +2353,7 @@ async function loadCustomGroupSource(group) {
     const reason = result.quarantine.reason || "load-source-timeout";
     quarantineGroup(group.id, reason).catch(() => {});
   }
+  scheduleCustomTimerRefreshBroadcast();
   refreshHandlerCount();
   return result;
 }
@@ -2338,6 +2363,7 @@ async function unloadCustomGroupHandlers(groupId) {
 }
 
 let lastReconcileSnapshot = new Map();
+const suppressReconcileLoadByGroup = new Set();
 
 async function reconcileCustomGroupHandlers(change) {
   const newGroups = Array.isArray(change?.newValue) ? change.newValue : [];
@@ -2359,6 +2385,10 @@ async function reconcileCustomGroupHandlers(change) {
   // Groups that toggled or changed source
   for (const [groupId, snapshot] of next.entries()) {
     const before = previous.get(groupId);
+    if (suppressReconcileLoadByGroup.has(groupId)) {
+      suppressReconcileLoadByGroup.delete(groupId);
+      continue;
+    }
     if (
       !before ||
       before.enabled !== snapshot.enabled ||
@@ -2531,6 +2561,40 @@ async function trySendApply(tabId, message) {
   }
 }
 
+let customTimerRefreshTimeoutId = null;
+
+function resultHasTimerRegistryChange(result) {
+  if (!result) return false;
+  if (result.timerRegistryChanged) return true;
+  if (!Array.isArray(result.synthResults)) return false;
+  return result.synthResults.some((synth) => Boolean(synth?.result?.timerRegistryChanged));
+}
+
+function scheduleCustomTimerRefreshBroadcast(delayMs = 100) {
+  if (customTimerRefreshTimeoutId !== null) {
+    clearTimeout(customTimerRefreshTimeoutId);
+  }
+  customTimerRefreshTimeoutId = setTimeout(() => {
+    customTimerRefreshTimeoutId = null;
+    broadcastCustomTimerRefresh().catch((error) => {
+      try { console.warn("[CustomBlocker] custom timer refresh broadcast failed", error); } catch (_) {}
+    });
+  }, delayMs);
+}
+
+async function broadcastCustomTimerRefresh() {
+  if (!chrome.tabs || !chrome.tabs.query) return;
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (!tab || typeof tab.id !== "number") return;
+      const url = tab.url || tab.pendingUrl || "";
+      if (url && !/^https?:/i.test(url)) return;
+      await trySendApply(tab.id, { type: "custom-timers-refresh" });
+    })
+  );
+}
+
 async function applySandboxResultToTab(tabId, result, descriptor) {
   if (!result || typeof tabId !== "number") return;
   // Aggregate logs from the main dispatch + any synthResults (posted
@@ -2602,6 +2666,9 @@ async function dispatchEventToTab(type, tabInfo, extras = {}) {
   ingestSandboxLogs(result, descriptor);
   maybeQuarantineFromResult(result, descriptor);
   await applySandboxResultToTab(descriptor.tabId, result, descriptor);
+  if (type !== "pageHeartbeatEvent" && resultHasTimerRegistryChange(result)) {
+    scheduleCustomTimerRefreshBroadcast();
+  }
   return result;
 }
 
@@ -2785,6 +2852,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "run-custom-group") {
     (async () => {
+      await ensureStartupGate();
       const groupId = String(message.groupId || "");
       if (!groupId) return sendResponse({ ok: false, error: "missing groupId" });
       const result = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
@@ -2815,6 +2883,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         lastAbortAt: null
       };
       groups[idx] = next;
+      suppressReconcileLoadByGroup.add(groupId);
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
       if (wasQuarantined) {
         pushLogFeedEntry({
@@ -2832,6 +2901,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "unload-custom-group") {
     (async () => {
+      await ensureStartupGate();
       const groupId = String(message.groupId || "");
       if (!groupId) return sendResponse({ ok: false });
       const r = await unloadCustomGroupHandlers(groupId);
@@ -2999,6 +3069,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "evaluate-platform-items") {
     (async () => {
+      await ensureStartupGate();
       const r = await sendToEventSandbox({
         kind: "evaluate-platform-items",
         platform: message.platform,
@@ -3012,6 +3083,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "post-custom-event") {
     (async () => {
+      await ensureStartupGate();
       const descriptor = {
         type: String(message.eventType || ""),
         url: normalizeUrlForEvents(message.url || ""),
