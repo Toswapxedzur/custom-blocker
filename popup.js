@@ -32,6 +32,7 @@ const DEFAULT_GLOBAL_SETTINGS = {
   // [CustomBlocker:trace] / [CustomBlocker] dispatch console lines.
   // The user-facing helpers.log() output continues to flow regardless.
   debugMode: false,
+  showOnPageLogToasts: true,
   defaultSnoozeMinutes: 30,
   defaultFallbackUrl: "about:blank"
 };
@@ -180,6 +181,7 @@ const settingsCloseButton = document.getElementById("settingsCloseButton");
 const settingsTickRateField = document.getElementById("settingsTickRate");
 const settingsAutosaveDebounceField = document.getElementById("settingsAutosaveDebounce");
 const settingsDebugModeField = document.getElementById("settingsDebugMode");
+const settingsShowOnPageLogToastsField = document.getElementById("settingsShowOnPageLogToasts");
 const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
 const settingsDefaultFallbackUrlField = document.getElementById("settingsDefaultFallbackUrl");
 const localFolderChooseButton = document.getElementById("localFolderChooseButton");
@@ -533,6 +535,7 @@ function syncSettingsFormFromState() {
   if (settingsTickRateField) settingsTickRateField.value = String(s.tickRateMs);
   if (settingsAutosaveDebounceField) settingsAutosaveDebounceField.value = String(s.autosaveDebounceMs);
   if (settingsDebugModeField) settingsDebugModeField.checked = Boolean(s.debugMode);
+  if (settingsShowOnPageLogToastsField) settingsShowOnPageLogToastsField.checked = s.showOnPageLogToasts !== false;
   if (settingsDefaultSnoozeMinutesField) settingsDefaultSnoozeMinutesField.value = String(s.defaultSnoozeMinutes);
   if (settingsDefaultFallbackUrlField) settingsDefaultFallbackUrlField.value = s.defaultFallbackUrl ?? "";
   if (settingsStatus) settingsStatus.textContent = "";
@@ -558,6 +561,7 @@ async function saveSettingsFromForm() {
     tickRateMs: settingsTickRateField?.value,
     autosaveDebounceMs: settingsAutosaveDebounceField?.value,
     debugMode: settingsDebugModeField?.checked ?? false,
+    showOnPageLogToasts: settingsShowOnPageLogToastsField?.checked ?? true,
     defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
     defaultFallbackUrl: settingsDefaultFallbackUrlField?.value
   };
@@ -904,7 +908,15 @@ function sanitizeGlobalSettings(raw) {
   const debugMode =
     src.debugMode === true ||
     (src.debugMode === undefined && src.showDebugOverlay === true);
-  return { tickRateMs, autosaveDebounceMs, debugMode, defaultSnoozeMinutes, defaultFallbackUrl };
+  const showOnPageLogToasts = src.showOnPageLogToasts !== false;
+  return {
+    tickRateMs,
+    autosaveDebounceMs,
+    debugMode,
+    showOnPageLogToasts,
+    defaultSnoozeMinutes,
+    defaultFallbackUrl
+  };
 }
 
 function normalizeTimeWindowLine(line) {
@@ -4500,8 +4512,8 @@ function buildCustomRuleAiPrompt(userRequest, currentRule) {
     "TYPED_EVENT_METHODS: for each built-in type suffix S = TickEvent/OpenWebEvent/CloseWebEvent/SwitchWebEvent/SwitchDomainEvent/WebChangedEvent/TimerEnded/SnoozePress/PanelEvent/LocalFileEvent/PageHeartbeatEvent: event.registerS(id,handler,opts), event.getS(id), event.getSs(), count name as event.countTickRegistered/countOpenWebRegistered/countCloseWebRegistered/countSwitchWebRegistered/countSwitchDomainRegistered/countWebChangedRegistered/countTimerEndedRegistered/countSnoozePressRegistered/countPanelRegistered/countLocalFileRegistered/countPageHeartbeatRegistered. Also aliases: registerTimerEndedEvent/getTimerEndedEvent/getTimerEndedEvents/countTimerEndedEventRegistered; registerSnoozePressEvent/getSnoozePressEvent/getSnoozePressEvents/countSnoozePressEventRegistered; registerPanelEvent/getPanelEvent/getPanelEvents/countPanelEventRegistered; registerLocalFileEvent/getLocalFileEvent/getLocalFileEvents/countLocalFileEventRegistered.",
     "EVENT_SEMANTICS: tickEvent global browser tick data {intervalMs}; pageHeartbeatEvent active visible tab heartbeat data {elapsedMs}; openWebEvent new tab/fresh navigation data {previousUrl,isNewTab}; closeWebEvent tab close data {reason,nextUrl}; switchWebEvent same-tab URL change data {previousUrl,previousHostname,sameDomain}; switchDomainEvent hostname boundary data {previousUrl,previousHostname}; webChangedEvent any open/switch/reload/history data {previousUrl,previousHostname,sameDomain,isFirstLoad,isReload,transition}; timerEnded owning group only data {timerId,displayName,direction,currentMs}; snoozePress custom group only when Start Snooze clicked data {triggeredAt}; panelEvent owning group only data {panelId,controlId,eventName,value,values,key,code,keyInfo} and ev.panelId/ev.controlId/ev.eventName/ev.value/ev.values/ev.key/ev.code/ev.keyInfo shortcuts; localFileEvent owning group only data {eventName,action,path,directoryPath,requestId,ok,text,value,entries,exists,bytes,error} and same-name ev shortcuts. New tab/about blank exposed as ev.url === ''.",
     "HANDLER_SHAPE: (ev, helpers) => void. ev fields: type, groupId, tabId, pageId, url, hostname, time:{now,month,dayOfMonth,dayName,hour,minute}, data. ev methods: preventDefault(), stopPropagation(), setResult(number|string), getResult(), post(type,data,{scope?}), setRedirectLink(url), getRedirectLink(). setResult(-1)=block, 0=neutral/pass, 1=allow override; string result is redirect URL; setRedirectLink sets redirect target for blocked result; stopPropagation halts all later handlers across groups. ev is Proxy: custom fields can be assigned/read during same dispatch.",
-    "HELPERS.TOP: helpers.now, helpers.currentUrl, helpers.groupId, helpers.log(...), helpers.warn(...), helpers.error(...), getLogHelper, getDomainHelper, getDomainUtility, getTimerHelper, getPanelHelper, getPersistenceHelper, getRedirectionHelper, getDOMHelper, getNavigationHelper, getStorageHelper, getLocalFolderHelper, getTabHelper, getPlatformHelper.",
-    "HELPERS.LOG: getLogHelper().log(...), warn(...), error(...). Logs go to popup Log panel; capped/rate-limited.",
+    "HELPERS.TOP: helpers.now, helpers.currentUrl, helpers.groupId, helpers.log(...), helpers.warn(...), helpers.error(...), helpers.logScreen(...), helpers.warnScreen(...), helpers.errorScreen(...), helpers.logPopup(...), helpers.warnPopup(...), helpers.errorPopup(...), getLogHelper, getDomainHelper, getDomainUtility, getTimerHelper, getPanelHelper, getPersistenceHelper, getRedirectionHelper, getDOMHelper, getNavigationHelper, getStorageHelper, getLocalFolderHelper, getTabHelper, getPlatformHelper.",
+    "HELPERS.LOG: log=helpers.getLogHelper(); log.log/warn/error write popup Log panel and follow Settings → Show custom rule logs on web pages for page toasts. log.logScreen/warnScreen/errorScreen write screen/page toast only. log.logPopup/warnPopup/errorPopup write popup only. Top-level helpers.log*, warn*, error* shortcuts mirror these. Logs are capped/rate-limited.",
     "HELPERS.DOMAIN: d=helpers.getDomainHelper(); d.hostnameOf(url); d.pathnameOf(url); d.matches(hostname,site); d.getPlatform(url); d.isYouTubeHost(host); d.isTikTokHost(host); d.isInstagramHost(host); d.isFacebookHost(host); d.isTwitchHost(host); d.isRedditHost(host); d.isDiscordHost(host); d.isEmptyStartPage(url); d.matchesAny(url,regexOrArrayOrString); d.pathStartsWith(url,path); d.queryHas(url,key,value?); d.queryGet(url,key); d.isSearchPage(url); d.isInfiniteFeedUrl(url); d.sameSection(a,b). Platform URL classifiers: d.youtube()/tiktok()/instagram()/facebook()/twitch() each expose isPlatformUrl(url), isShortUrl(url), isVideoUrl(url), isPostUrl(url), isHomePage(url), extractAuthor(url), extractVideoId(url).",
     "HELPERS.TIMER: tm=helpers.getTimerHelper(); tm.groupId; tm.create({id,displayName?,direction?,currentMs?,scope?,domain?}) resets; tm.getOrCreateTimer({id,displayName?,direction?,currentMs?,scope?,domain?}) creates only when missing and otherwise returns existing timer unchanged; init fields including scope/domain apply only on creation. direction forward/backward; currentMs ms; scope(url) auto-ticks on visible page heartbeat; domain(url) controls overlay display. To change an existing timer use setDirection/setCurrentMs/addMs/setDisplayName or create() to reset. tm.delete(id), pause(id), resume(id), setDirection(id,dir), setCurrentMs(id,ms), addMs(id,deltaMs), setDisplayName(id,name), getCurrentMs(id), isExpired(id), isPaused(id), getDirection(id), getDisplayName(id), exists(id), getState(id)->{id,displayName,direction,isPaused,currentMs,isExpired}|null, list()->array. Timers do not block by themselves; check isExpired in open/switch/webChanged handler and then block.",
     "HELPERS.PANEL: pn=helpers.getPanelHelper(); pn.create({id,title?,description?,position?,align?,layout?,priority?,width?,textSize?,theme?,ariaLabel?,role?,closable?,autoFocus?,scope?,domain?,controls?,onEvent?,onChange?,onClick?,onInput?,onFocus?,onBlur?,onSubmit?,onClose?,onMount?,onUnmount?,onKey?}) replaces/resets; pn.getOrCreatePanel(config) creates only when missing and otherwise returns existing panel unchanged; pn.update(id,patch), delete(id), show(id), hide(id), setValue(panelId,controlId,value), updateControl(panelId,controlId,patch), enable/disable(panelId,controlId), setOptions(panelId,controlId,options), setText(panelId,controlId,text), setTheme(panelId,theme), setTitle(panelId,title), setDescription(panelId,text), getValue(panelId,controlId), getValues(panelId), getState(id), list(); builders: notice(config), confirm(config), checklist(config), form(config). Controls: {id,type,label?,text?,placeholder?,value?,options?,min?,max?,step?,timerId?,timer?,format?,showProgress?,showExpired?,action?,layout?,priority?,width?,height?,rows?,disabled?,ariaLabel?,autoFocus?,onEvent?,onChange?,onClick?,onInput?,onFocus?,onBlur?,onSubmit?,onClose?,onMount?,onUnmount?,onKey?}; types text, checkbox, select, textInput, textarea, button, section, timer, numberInput, range, toggle, radio, date, time, color. section has nested controls and its own layout/priority. timer is display-only: use timerId to hydrate from getTimerHelper state, or timer: tm.getState(id) for a snapshot. numberInput/range support min/max/step; radio uses options; toggle is boolean. Layout presets: vertical, compact, comfortable, spacious, inline, row, wrap, twoColumn, grid, split, form, toolbar, stack. Higher priority panels/controls/sections appear earlier/closer to corner. Per-control width accepts px/%, full, auto; height accepts px/auto; rows affects textarea. If panel width is omitted, the outer panel auto-fits content tightly. Panel events include change/click/input/focus/blur/submit/close/mount/unmount/key; key events expose ev.key/ev.code/ev.keyInfo. scope/domain decide where shown.",

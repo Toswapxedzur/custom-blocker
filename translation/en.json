@@ -26,6 +26,8 @@
   "settings.showDebugOverlay": "Show debug log overlay for custom rules",
   "settings.debugMode": "Debug mode",
   "settings.debugModeHelp": "When on, shows the on-page debug overlay for custom rules and emits verbose [CustomBlocker] / [CustomBlocker:trace] console output. Your own helpers.log() calls always work regardless.",
+  "settings.showOnPageLogToasts": "Show custom rule logs on web pages",
+  "settings.showOnPageLogToastsHelp": "When off, helpers.log(), warn(), and error() still appear in the popup Log panel but do not show page toasts. Rules can use logScreen() for screen-only toasts.",
   "settings.defaultSnoozeMinutes": "Default snooze duration (minutes)",
   "settings.defaultSnoozeMinutesHelp": "Snooze length used when creating new non-custom groups.",
   "settings.defaultSnoozeMinutesPlaceholder": "30",

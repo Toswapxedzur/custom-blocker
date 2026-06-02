@@ -378,6 +378,19 @@ log.section("S11: deadline + caps protect Chrome from runaway rules");
   assert("h.log() records dropped overage in accumulator.logsDropped",
     acc.logsDropped >= 50);
 
+  const accScreen = {};
+  const helperScreen = H.createEventLogHelper("g-screen", { get: () => accScreen });
+  helperScreen.log("default");
+  helperScreen.warnScreen("screen");
+  helperScreen.errorPopup("popup");
+  assertEqual("h.log* records routing preference metadata",
+    accScreen.logs.map((entry) => ({ level: entry.level, screen: entry.screen, popup: entry.popup, args: entry.args })),
+    [
+      { level: "log", args: ["default"] },
+      { level: "warn", screen: true, popup: false, args: ["screen"] },
+      { level: "error", screen: false, popup: true, args: ["popup"] }
+    ]);
+
   // Drive the deadline: a tight loop calling h.log() should throw
   // HandlerBudgetExceededError after ~1s, NOT lock up.
   const acc2 = {};
@@ -804,11 +817,32 @@ log.section("S14: panel helper state + snapshots");
   assertEqual("S14: existing getOrCreatePanel leaves value unchanged",
     panelsBucket["yt-panel"].controls[0].value, true);
 
+  panel.__cb_applyPanelEvent({ panelId: "yt-panel", eventName: "close", values: panel.getValues("yt-panel") });
+  dc.panelDisplayedSet = new Set();
+  panel.__cb_refreshDisplayedPanels();
+  snaps = panel.__cb_getDisplayedPanelSnapshots();
+  assertEqual("S14: close panel event hides the target panel",
+    snaps.some((snap) => snap.id === "yt-panel"), false);
+
+  panel.show("yt-panel");
+  dc.panelDisplayedSet = new Set();
+  panel.__cb_refreshDisplayedPanels();
+  snaps = panel.__cb_getDisplayedPanelSnapshots();
+  assertEqual("S14: show() restores an in-scope panel",
+    snaps.some((snap) => snap.id === "yt-panel"), true);
+
   dc.currentUrl = "https://example.com/";
   dc.panelDisplayedSet = new Set();
   panel.__cb_refreshDisplayedPanels();
   snaps = panel.__cb_getDisplayedPanelSnapshots();
   assertEqual("S14: off-scope URL hides panel", snaps.length, 0);
+
+  panel.hide("yt-panel");
+  panel.show("yt-panel");
+  dc.panelDisplayedSet = new Set();
+  panel.__cb_refreshDisplayedPanels();
+  snaps = panel.__cb_getDisplayedPanelSnapshots();
+  assertEqual("S14: show() still respects scope", snaps.length, 0);
 
   const acc = {};
   const accHelpers = H.createEventGroupHelpers({
@@ -830,6 +864,8 @@ log.section("S14: panel helper state + snapshots");
   });
   assertEqual("S14: create marks panel changed",
     acc.panelRegistryChanged, true);
+  assertEqual("S14: panel changes record the affected group",
+    acc.panelGroupsChanged, ["g-panel-change"]);
   acc.panelRegistryChanged = false;
   panel2.update("stable", {
     title: "Stable",

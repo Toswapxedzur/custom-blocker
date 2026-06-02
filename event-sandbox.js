@@ -34,9 +34,8 @@ const helpersBundle = self.__customBlockerHelpers;
 
 // Debug-mode flag. Updated by offscreen via a `set-debug-mode`
 // postMessage (the iframe has no chrome.storage access). Off by
-// default — when off, both verbose console.log AND the in-result
-// "[trace]" log entries are suppressed so the popup's Log panel
-// only shows what the rule itself emits.
+// default. Trace output stays in DevTools; the popup Log panel only shows
+// what rules emit through the log helper.
 let cbDebugMode = false;
 
 const handlersByType = new Map(); // type -> Array<{ groupId, id, handler, priority, intervalMs, registeredAt }>
@@ -349,6 +348,21 @@ const PANEL_VISIBILITY_EVENT_TYPES = new Set([
   "webChangedEvent"
 ]);
 
+function panelControlsContainTimer(controls, depth = 0) {
+  if (!Array.isArray(controls) || depth > 3) return false;
+  for (const control of controls) {
+    if (!control || typeof control !== "object") continue;
+    if (control.type === "timer") return true;
+    if (panelControlsContainTimer(control.controls, depth + 1)) return true;
+  }
+  return false;
+}
+
+function panelBucketContainsTimerControl(panels) {
+  if (!panels || typeof panels !== "object") return false;
+  return Object.values(panels).some((panel) => panelControlsContainTimer(panel?.controls));
+}
+
 function buildEventsRegistry(groupId, dispatchContext) {
   function typedRegister(type) {
     return (id, handler, options) => registerHandler(groupId, type, id, handler, options);
@@ -531,6 +545,7 @@ function makeAccumulator() {
     domOps: [],
     timerRegistryChanged: false,
     panelRegistryChanged: false,
+    panelGroupsChanged: [],
     logsDropped: 0,
     postsDropped: 0
   };
@@ -684,22 +699,10 @@ function dispatchEvent(descriptor) {
     return true;
   });
 
-  // Diagnostic trace. Gated behind Settings → Debug mode so a normal
-  // user's popup Log panel doesn't fill up with one "[trace] …" entry
-  // for every event. The log helper that user rules call is unaffected.
+  // Diagnostic trace. Gated behind Settings → Debug mode and kept in
+  // DevTools only; the popup Log panel is reserved for rule-created logs.
   if (cbDebugMode && descriptor.type !== "tickEvent" && descriptor.type !== "pageHeartbeatEvent") {
     try { console.log("[CustomBlocker:trace] sandbox dispatchEvent", descriptor.type, "registered:", list.length, "after-filter:", filtered.length, "targetGroupId:", descriptor.targetGroupId); } catch (_) {}
-    boundedPush(
-      accumulator.logs,
-      {
-        level: filtered.length === 0 ? "warn" : "log",
-        groupId: "trace",
-        args: ["[trace] " + descriptor.type + " · " + filtered.length + "/" + list.length + " handler(s)"]
-      },
-      MAX_LOGS_PER_DISPATCH,
-      "logsDropped",
-      accumulator
-    );
   }
 
   let lastResult = null;
@@ -782,36 +785,19 @@ function dispatchEvent(descriptor) {
         if (cbDebugMode) { try { console.log("[CustomBlocker:trace] sandbox handler", descriptor.type, entry.groupId, entry.id); } catch (_) {} }
         entry.handler(evt, helpers);
       } catch (error) {
-        boundedPush(
-          accumulator.logs,
-          {
-            level: "error",
-            groupId: entry.groupId,
-            args: ["[handler error]", entry.id, String(error && error.message ? error.message : error)]
-          },
-          MAX_LOGS_PER_DISPATCH,
-          "logsDropped",
-          accumulator
-        );
+        try { console.error("[CustomBlocker:" + entry.groupId + "] handler error", entry.id, error); } catch (_) {}
       } finally {
         if (accumulator._handlerOverrun) {
           const overrunCount = recordOverrun(entry.groupId);
-          boundedPush(
-            accumulator.logs,
-            {
-              level: "warn",
-              groupId: entry.groupId,
-              args: [
-                "[handler aborted] " + entry.id +
-                  " exceeded the " + HANDLER_TIME_BUDGET_MS + "ms time budget; remaining iterations were skipped" +
-                  " (" + overrunCount + "/" + OVERRUN_QUARANTINE_THRESHOLD + " in the last " +
-                  Math.round(OVERRUN_WINDOW_MS / 1000) + "s)"
-              ]
-            },
-            MAX_LOGS_PER_DISPATCH,
-            "logsDropped",
-            accumulator
-          );
+          try {
+            console.warn(
+              "[CustomBlocker:" + entry.groupId + "] handler aborted",
+              entry.id,
+              "exceeded",
+              HANDLER_TIME_BUDGET_MS + "ms",
+              "(" + overrunCount + "/" + OVERRUN_QUARANTINE_THRESHOLD + ")"
+            );
+          } catch (_) {}
           // Once we've crossed the threshold, surface a quarantine hint
           // on this dispatch's reply. background.js will pick it up and
           // disable the group in storage; the reconciler then unloads
@@ -869,10 +855,12 @@ function dispatchEvent(descriptor) {
   const shouldCollectPanelSnapshots =
     Boolean(accumulator.panelRegistryChanged) ||
     PANEL_VISIBILITY_EVENT_TYPES.has(descriptor.type);
-  if (shouldCollectPanelSnapshots) {
+  const shouldRefreshPanelTimers = descriptor.type === "pageHeartbeatEvent";
+  if (shouldCollectPanelSnapshots || shouldRefreshPanelTimers) {
     for (const groupId of groupPanels.keys()) {
       const panels = groupPanels.get(groupId);
       if (!panels || Object.keys(panels).length === 0) continue;
+      if (!shouldCollectPanelSnapshots && !panelBucketContainsTimerControl(panels)) continue;
       panelGroupsWithPanels.push(groupId);
       const helpers = getOrCreateGroupHelpers(groupId);
       const panelFn = helpers && helpers.getPanelHelper && helpers.getPanelHelper();
@@ -892,18 +880,6 @@ function dispatchEvent(descriptor) {
 
   if (typeof lastResult === "number" && lastResult === 1) {
     anyPreventDefault = false;
-  }
-
-  if (accumulator.logsDropped > 0 && accumulator.logs.length < MAX_LOGS_PER_DISPATCH) {
-    accumulator.logs.push({
-      level: "warn",
-      groupId: "trace",
-      args: [
-        "[truncated] " + accumulator.logsDropped +
-          " log entr" + (accumulator.logsDropped === 1 ? "y was" : "ies were") +
-          " dropped to keep the popup responsive (cap " + MAX_LOGS_PER_DISPATCH + ")"
-      ]
-    });
   }
 
   return {
@@ -927,6 +903,7 @@ function dispatchEvent(descriptor) {
     // group countdown.
     timerSnapshotsByGroup,
     panelSnapshotsByGroup,
+    panelGroupsChanged: Array.isArray(accumulator.panelGroupsChanged) ? accumulator.panelGroupsChanged.slice() : [],
     panelGroupsWithPanels
   };
 }
@@ -947,7 +924,8 @@ function loadSource(groupId, source) {
       handlers: 0,
       error: null,
       timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged),
-      panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged)
+      panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged),
+      panelGroupsChanged: unloadResult.panelRegistryChanged ? [groupId] : []
     };
   }
 
@@ -997,7 +975,8 @@ function loadSource(groupId, source) {
         handlers: 0,
         error: msg,
         timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged),
-        panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged)
+        panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged),
+        panelGroupsChanged: unloadResult.panelRegistryChanged ? [groupId] : []
       };
     }
   }
@@ -1027,9 +1006,9 @@ function loadSource(groupId, source) {
       accumulator._handlerDeadline = 0;
     }
   });
-  // Forward any registration-time logs and an error/zero-handlers warning
-  // through the same channel that handler-time logs use, so they show up
-  // in the popup's Activity log feed instead of vanishing.
+  // Forward only user-created registration-time helper logs. Engine
+  // registration status is reported through the Run status UI, not the
+  // popup Log panel.
   const earlyLogs = Array.isArray(accumulator.logs) ? accumulator.logs.slice() : [];
   if (invokeError) {
     const isBudgetAbort = invokeError && invokeError.__customBlockerBudgetAbort;
@@ -1039,15 +1018,7 @@ function loadSource(groupId, source) {
       error: "Runtime error during registration: " +
         (invokeError && invokeError.message ? invokeError.message : String(invokeError)),
       logs: [
-        ...earlyLogs,
-        {
-          level: "error",
-          groupId,
-          args: [
-            "[register error] " +
-              (invokeError && invokeError.message ? invokeError.message : String(invokeError))
-          ]
-        }
+        ...earlyLogs
       ],
       // Registration body itself overran the time budget — that's a
       // hard programming error that warrants disabling the rule rather
@@ -1056,34 +1027,21 @@ function loadSource(groupId, source) {
         ? { groupId, reason: "registration-deadline-overrun" }
         : null,
       timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged || accumulator.timerRegistryChanged),
-      panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged || accumulator.panelRegistryChanged)
+      panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged || accumulator.panelRegistryChanged),
+      panelGroupsChanged: (unloadResult.panelRegistryChanged || accumulator.panelRegistryChanged) ? [groupId] : []
     };
   }
 
   groupSources.set(groupId, trimmed);
   const handlerCount = listHandlers(groupId).length;
-  const panelCount = Object.keys(groupPanels.get(groupId) || {}).length;
-  const noteLogs = handlerCount === 0 && panelCount === 0
-    ? [{
-        level: "warn",
-        groupId,
-        args: [
-          "[register] code ran without errors but registered 0 handler(s). " +
-            "Check that you're calling events.registerWebChangedEvent (or similar), or creating a panel/timer, inside the function body."
-        ]
-      }]
-    : [{
-        level: "log",
-        groupId,
-        args: ["[register] " + handlerCount + " handler(s), " + panelCount + " panel(s) registered for group " + groupId]
-      }];
   return {
     ok: true,
     handlers: handlerCount,
     error: null,
-    logs: [...earlyLogs, ...noteLogs],
+    logs: earlyLogs,
     timerRegistryChanged: Boolean(unloadResult.timerRegistryChanged || accumulator.timerRegistryChanged),
-    panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged || accumulator.panelRegistryChanged)
+    panelRegistryChanged: Boolean(unloadResult.panelRegistryChanged || accumulator.panelRegistryChanged),
+    panelGroupsChanged: (unloadResult.panelRegistryChanged || accumulator.panelRegistryChanged) ? [groupId] : []
   };
 }
 

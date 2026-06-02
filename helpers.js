@@ -1068,6 +1068,10 @@
     function markPanelRegistryChanged() {
       const acc = ensureAccumulatorShape(accumulatorRef.get());
       acc.panelRegistryChanged = true;
+      acc.panelGroupsChanged = Array.isArray(acc.panelGroupsChanged) ? acc.panelGroupsChanged : [];
+      if (typeof groupId === "string" && groupId && !acc.panelGroupsChanged.includes(groupId)) {
+        acc.panelGroupsChanged.push(groupId);
+      }
     }
 
     function safePredicate(predicate) {
@@ -1099,13 +1103,15 @@
     function applyScopeAndDomain(id, scope, domain) {
       rememberPredicates(id, scope, domain);
       const panel = getPanel(id);
+      const displayed = readDisplayedSet();
+      displayed.delete(id);
       if (!panel || panel.visible === false) return;
       const slot = predicatesBucket[id] || {};
       const effectiveScope = typeof scope === "function" ? scope : slot.scope;
       const effectiveDomain = typeof domain === "function" ? domain : slot.domain;
       const displayPredicate = typeof effectiveDomain === "function" ? effectiveDomain : effectiveScope;
       if (typeof displayPredicate !== "function" || safePredicate(displayPredicate)) {
-        readDisplayedSet().add(id);
+        displayed.add(id);
       }
     }
 
@@ -1444,6 +1450,10 @@
         const panel = getPanel(panelId);
         if (!panel) return false;
         let changed = false;
+        if (data.eventName === "close" && panel.visible !== false) {
+          panel.visible = false;
+          changed = true;
+        }
         const values = data.values && typeof data.values === "object" ? data.values : null;
         if (values) {
           const applyValues = (controls) => {
@@ -1709,6 +1719,7 @@
     accumulator.domOps = accumulator.domOps || [];
     if (accumulator.timerRegistryChanged === undefined) accumulator.timerRegistryChanged = false;
     if (accumulator.panelRegistryChanged === undefined) accumulator.panelRegistryChanged = false;
+    accumulator.panelGroupsChanged = Array.isArray(accumulator.panelGroupsChanged) ? accumulator.panelGroupsChanged : [];
     if (accumulator.redirectUrl === undefined) accumulator.redirectUrl = null;
     if (accumulator.logsDropped === undefined) accumulator.logsDropped = 0;
     return accumulator;
@@ -1726,9 +1737,9 @@
   const HELPERS_MAX_PANEL_OPTIONS = 64;
   const HELPERS_HANDLER_DEADLINE_GRACE_MS = 0;
   // Sentinel error type. Throwing it from a helper unwinds the user's
-  // handler all the way out to dispatchEvent's try/catch, which records
-  // a single "[handler aborted]" warning instead of letting the loop run
-  // forever. Sub-classed from Error so user `try { ... } catch (e) {}`
+  // handler all the way out to dispatchEvent's try/catch instead of
+  // letting the loop run forever. Sub-classed from Error so user
+  // `try { ... } catch (e) {}`
   // blocks can detect it via instanceof if they care.
   function HandlerBudgetExceededError(message) {
     const err = new Error(message || "Handler exceeded time budget");
@@ -1944,28 +1955,59 @@
     // bounded. checkHandlerDeadline throws after the 1s budget so an
     // infinite while-loop calling h.log gets unwound instead of locking
     // the sandbox.
-    function push(level, args) {
+    function push(level, args, options) {
       const acc = ensureAccumulatorShape(accumulatorRef.get());
       checkHandlerDeadline(acc);
       if (acc.logs.length >= HELPERS_MAX_LOGS_PER_DISPATCH) {
         acc.logsDropped = (acc.logsDropped || 0) + 1;
         return false;
       }
-      acc.logs.push({ level, groupId, args });
+      const entry = { level, groupId, args };
+      const opts = options && typeof options === "object" ? options : {};
+      if (opts.screen === true || opts.screen === false) entry.screen = opts.screen;
+      if (opts.popup === true || opts.popup === false) entry.popup = opts.popup;
+      acc.logs.push(entry);
       return true;
+    }
+    function printToConsole(level, args) {
+      try {
+        const prefix = "[CustomBlocker:" + groupId + "]";
+        if (level === "error") console.error(prefix, ...args);
+        else if (level === "warn") console.warn(prefix, ...args);
+        else console.log(prefix, ...args);
+      } catch {}
+    }
+    function record(level, args, options) {
+      if (!push(level, args, options)) return;
+      printToConsole(level, args);
     }
     return {
       log(...args) {
-        if (!push("log", args)) return;
-        try { console.log("[CustomBlocker:" + groupId + "]", ...args); } catch {}
+        record("log", args);
       },
       warn(...args) {
-        if (!push("warn", args)) return;
-        try { console.warn("[CustomBlocker:" + groupId + "]", ...args); } catch {}
+        record("warn", args);
       },
       error(...args) {
-        if (!push("error", args)) return;
-        try { console.error("[CustomBlocker:" + groupId + "]", ...args); } catch {}
+        record("error", args);
+      },
+      logScreen(...args) {
+        record("log", args, { screen: true, popup: false });
+      },
+      warnScreen(...args) {
+        record("warn", args, { screen: true, popup: false });
+      },
+      errorScreen(...args) {
+        record("error", args, { screen: true, popup: false });
+      },
+      logPopup(...args) {
+        record("log", args, { screen: false, popup: true });
+      },
+      warnPopup(...args) {
+        record("warn", args, { screen: false, popup: true });
+      },
+      errorPopup(...args) {
+        record("error", args, { screen: false, popup: true });
       }
     };
   }
@@ -2380,6 +2422,12 @@
       log: (...args) => log.log(...args),
       warn: (...args) => log.warn(...args),
       error: (...args) => log.error(...args),
+      logScreen: (...args) => log.logScreen(...args),
+      warnScreen: (...args) => log.warnScreen(...args),
+      errorScreen: (...args) => log.errorScreen(...args),
+      logPopup: (...args) => log.logPopup(...args),
+      warnPopup: (...args) => log.warnPopup(...args),
+      errorPopup: (...args) => log.errorPopup(...args),
       getLogHelper: () => log,
       getDomainHelper: () => domain,
       getDomainUtility: () => domain,

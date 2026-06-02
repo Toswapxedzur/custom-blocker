@@ -2,20 +2,26 @@
 // by default so an idle page is silent in DevTools. Toggle via
 // Settings → Debug mode.
 let cbDebugMode = false;
+let cbShowOnPageLogToasts = true;
 function cbDebugLog(...args) { if (cbDebugMode) { try { console.log(...args); } catch (_) {} } }
 function cbDebugWarn(...args) { if (cbDebugMode) { try { console.warn(...args); } catch (_) {} } }
 function cbDebugError(...args) { if (cbDebugMode) { try { console.error(...args); } catch (_) {} } }
+function cbApplyGlobalSettings(settings) {
+  const s = settings && typeof settings === "object" ? settings : {};
+  cbDebugMode = s.debugMode === true;
+  cbShowOnPageLogToasts = s.showOnPageLogToasts !== false;
+}
 try {
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
     chrome.storage.local.get("globalSettings", (r) => {
       const s = r && r.globalSettings;
-      if (s && typeof s === "object") cbDebugMode = s.debugMode === true;
+      cbApplyGlobalSettings(s);
     });
     if (chrome.storage.onChanged) {
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area !== "local" || !changes.globalSettings) return;
         const next = changes.globalSettings.newValue;
-        cbDebugMode = next && typeof next === "object" ? next.debugMode === true : false;
+        cbApplyGlobalSettings(next);
       });
     }
   }
@@ -1230,7 +1236,7 @@ function refreshSession() {
   );
 }
 
-function refreshPanels() {
+function refreshPanels(extraPanelGroups = []) {
   if (exitAttempted || extensionContextInvalid) return;
   if (!isExtensionContextValid()) {
     shutdownContentScript();
@@ -1242,11 +1248,15 @@ function refreshPanels() {
       url: location.href
     }).then((message) => {
       if (!message || !message.ok) return;
+      const panelGroups = new Set(Array.isArray(extraPanelGroups) ? extraPanelGroups : []);
+      for (const groupId of Array.isArray(message.panelGroups) ? message.panelGroups : []) {
+        if (typeof groupId === "string" && groupId) panelGroups.add(groupId);
+      }
       __cb_processApplyMessage({
         type: "event-sandbox-apply",
         descriptor: message.descriptor || { type: "panelRefreshEvent" },
         panelSnapshots: Array.isArray(message.panelSnapshots) ? message.panelSnapshots : [],
-        panelGroups: Array.isArray(message.panelGroups) ? message.panelGroups : [],
+        panelGroups: Array.from(panelGroups),
         logs: Array.isArray(message.logs) ? message.logs : [],
         domOps: [],
         intents: []
@@ -1484,6 +1494,8 @@ function __cb_renderLogs(logs) {
   if (!Array.isArray(logs) || logs.length === 0) return;
   for (const entry of logs) {
     if (!entry) continue;
+    if (entry.screen === false) continue;
+    if (entry.screen !== true && !cbShowOnPageLogToasts) continue;
     __cb_showToast(entry.level || "log", entry.groupId || "", entry.args || []);
   }
 }
@@ -1580,11 +1592,111 @@ function __cb_panelLayoutStyle(layout, align) {
     .join(";");
 }
 
+function __cb_panelSnapshotKeySnapshot(value) {
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(__cb_panelSnapshotKeySnapshot);
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "timer" && value.type === "timer") continue;
+    out[key] = __cb_panelSnapshotKeySnapshot(item);
+  }
+  return out;
+}
+
 function __cb_panelSnapshotKey(snapshot) {
   try {
-    return JSON.stringify(snapshot || {});
+    return JSON.stringify(__cb_panelSnapshotKeySnapshot(snapshot || {}));
   } catch (_) {
     return "";
+  }
+}
+
+function __cb_panelTimerDisplay(control) {
+  const timer = control && control.timer && typeof control.timer === "object" ? control.timer : null;
+  const currentMs = Number(timer?.currentMs);
+  const hasTimer = timer && Number.isFinite(currentMs);
+  const name = __cb_safePanelText(control?.label || timer?.displayName || control?.timerId || "Timer", 240);
+  return {
+    name,
+    currentMs,
+    hasTimer,
+    text: name + ": " + (hasTimer ? __cb_formatPanelTimerMs(currentMs, control?.format) : "not available"),
+    isExpired: Boolean(hasTimer && timer?.isExpired),
+    showExpired: control?.showExpired !== false,
+    showProgress: Boolean(hasTimer && control?.showProgress === true)
+  };
+}
+
+function __cb_collectPanelTimerControls(controls, out = []) {
+  for (const control of Array.isArray(controls) ? controls : []) {
+    if (!control || typeof control !== "object") continue;
+    if (control.type === "timer") out.push(control);
+    __cb_collectPanelTimerControls(control.controls, out);
+  }
+  return out;
+}
+
+function __cb_updatePanelTimerBox(timerBox, control, theme) {
+  if (!timerBox || !control) return;
+  const display = __cb_panelTimerDisplay(control);
+  let line = timerBox.querySelector("[data-cb-panel-timer-line='1']");
+  if (!line) {
+    line = document.createElement("div");
+    line.setAttribute("data-cb-panel-timer-line", "1");
+    line.style.cssText = "font-variant-numeric:tabular-nums;font-weight:700;";
+    timerBox.insertBefore(line, timerBox.firstChild);
+  }
+  line.textContent = display.text;
+
+  let expired = timerBox.querySelector("[data-cb-panel-timer-expired='1']");
+  if (display.isExpired && display.showExpired) {
+    if (!expired) {
+      expired = document.createElement("div");
+      expired.setAttribute("data-cb-panel-timer-expired", "1");
+      expired.style.cssText = "opacity:0.82;font-size:0.88em;";
+      const progress = timerBox.querySelector("[data-cb-panel-timer-progress='1']");
+      timerBox.insertBefore(expired, progress || null);
+    }
+    expired.textContent = "Expired";
+  } else if (expired) {
+    expired.remove();
+  }
+
+  let progress = timerBox.querySelector("[data-cb-panel-timer-progress='1']");
+  if (display.showProgress) {
+    if (!progress) {
+      progress = document.createElement("progress");
+      progress.setAttribute("data-cb-panel-timer-progress", "1");
+      progress.style.cssText = "width:100%;height:8px;accent-color:" + __cb_safeCssColor(theme?.accent, "#2563eb") + ";";
+      timerBox.appendChild(progress);
+    }
+    progress.max = Math.max(1, display.currentMs);
+    progress.value = Math.max(0, display.currentMs);
+  } else if (progress) {
+    progress.remove();
+  }
+}
+
+function __cb_updatePanelTimerControls(panelEl, snapshot) {
+  if (!panelEl || !snapshot) return;
+  const theme = snapshot.theme && typeof snapshot.theme === "object" ? snapshot.theme : {};
+  const controls = __cb_collectPanelTimerControls(snapshot.controls);
+  if (controls.length === 0) return;
+  const boxes = Array.from(panelEl.querySelectorAll("[data-cb-panel-control-type='timer']"));
+  const used = new Set();
+  for (const control of controls) {
+    const controlId = String(control.id || "");
+    const timerId = String(control.timerId || "");
+    const index = boxes.findIndex((box, i) => {
+      if (used.has(i)) return false;
+      return (
+        (controlId && box.getAttribute("data-cb-panel-control-id") === controlId) ||
+        (timerId && box.getAttribute("data-cb-panel-timer-id") === timerId)
+      );
+    });
+    if (index < 0) continue;
+    used.add(index);
+    __cb_updatePanelTimerBox(boxes[index], control, theme);
   }
 }
 
@@ -1846,7 +1958,6 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
   }
 
   if (type === "timer") {
-    const timer = control.timer && typeof control.timer === "object" ? control.timer : null;
     const timerBox = document.createElement("div");
     timerBox.setAttribute("data-cb-panel-control-id", control.id || "");
     timerBox.setAttribute("data-cb-panel-control-type", "timer");
@@ -1860,23 +1971,24 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
       "max-width:100%",
       "color:inherit"
     ].join(";");
-    const name = label || timer?.displayName || control.timerId || "Timer";
+    const display = __cb_panelTimerDisplay(control);
     const line = document.createElement("div");
-    const currentMs = Number(timer?.currentMs);
-    const hasTimer = timer && Number.isFinite(currentMs);
-    line.textContent = name + ": " + (hasTimer ? __cb_formatPanelTimerMs(currentMs, control.format) : "not available");
+    line.setAttribute("data-cb-panel-timer-line", "1");
+    line.textContent = display.text;
     line.style.cssText = "font-variant-numeric:tabular-nums;font-weight:700;";
     timerBox.appendChild(line);
-    if (hasTimer && timer.isExpired && control.showExpired !== false) {
+    if (display.isExpired && display.showExpired) {
       const expired = document.createElement("div");
+      expired.setAttribute("data-cb-panel-timer-expired", "1");
       expired.textContent = "Expired";
       expired.style.cssText = "opacity:0.82;font-size:0.88em;";
       timerBox.appendChild(expired);
     }
-    if (hasTimer && control.showProgress === true) {
+    if (display.showProgress) {
       const bar = document.createElement("progress");
-      bar.max = Math.max(1, currentMs);
-      bar.value = currentMs;
+      bar.setAttribute("data-cb-panel-timer-progress", "1");
+      bar.max = Math.max(1, display.currentMs);
+      bar.value = Math.max(0, display.currentMs);
       bar.style.cssText = "width:100%;height:8px;accent-color:" + __cb_safeCssColor(theme.accent, "#2563eb") + ";";
       timerBox.appendChild(bar);
     }
@@ -2109,6 +2221,7 @@ function __cb_renderPanel(snapshot) {
     panelEl.parentNode === stack &&
     panelEl.getAttribute("data-cb-panel-snapshot") === snapshotKey
   ) {
+    __cb_updatePanelTimerControls(panelEl, snapshot);
     stack.appendChild(panelEl);
     return key;
   }
@@ -2854,22 +2967,6 @@ function __cb_announceContentReady() {
           cbDebugWarn("[CustomBlocker] failed to apply queued message", error);
         }
       }
-      if (Number.isFinite(response.handlerCount)) {
-        const count = response.handlerCount;
-        if (count === 0) {
-          __cb_showToast(
-            "warn",
-            "system",
-            ["custom-blocker: 0 handlers active. Open the popup → your Custom group → click Run."]
-          );
-        } else {
-          __cb_showToast(
-            "log",
-            "system",
-            ["custom-blocker ready · " + count + " handler(s) active. Reload this page to fire openWebEvent."]
-          );
-        }
-      }
     }).catch(() => {});
   } catch {}
 }
@@ -2890,7 +2987,7 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
       return true;
     }
     if (message.type === "custom-panels-refresh") {
-      refreshPanels();
+      refreshPanels(Array.isArray(message.panelGroups) ? message.panelGroups : []);
       sendResponse({ ok: true });
       return true;
     }

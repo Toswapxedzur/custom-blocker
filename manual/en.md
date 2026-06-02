@@ -371,10 +371,12 @@ Every handler call gets a fresh `helpers` bundle scoped to the receiving group a
 Convenience shortcuts (route to the same accumulator-aware functions used by the helpers below, so the output still lands in the Log panel):
 
 - `helpers.log(...)`, `helpers.warn(...)`, `helpers.error(...)`.
+- `helpers.logScreen(...)`, `helpers.warnScreen(...)`, `helpers.errorScreen(...)`.
+- `helpers.logPopup(...)`, `helpers.warnPopup(...)`, `helpers.errorPopup(...)`.
 
 Accessor methods:
 
-- `helpers.getLogHelper()` — `log` / `warn` / `error`. Output is rate-limited and capped per dispatch to prevent runaway rules from freezing the popup.
+- `helpers.getLogHelper()` — `log` / `warn` / `error`, plus `logScreen` / `warnScreen` / `errorScreen` and `logPopup` / `warnPopup` / `errorPopup`. Output is rate-limited and capped per dispatch to prevent runaway rules from freezing the popup.
 - `helpers.getDomainHelper()` (alias `helpers.getDomainUtility()`) — URL inspection (see **11.3.6**).
 - `helpers.getTimerHelper()` — group-scoped timers (countdown / count-up); state persists across browser restarts.
 - `helpers.getPanelHelper()` — fixed-layout on-page panels with configurable content, colors, position, and event handlers.
@@ -510,7 +512,9 @@ Example:
 
 #### 11.3.5 `getLogHelper()`
 
-- `log(...args)`, `warn(...args)`, `error(...args)` — write to the **Log** panel in the popup (the helper bundle still routes them through the same accumulator no matter which dispatch produced them). Each line is prefixed with `[CustomBlocker:groupId]`.
+- `log(...args)`, `warn(...args)`, `error(...args)` — write to the **Log** panel in the popup. They also show on-page toasts when **Settings → Show custom rule logs on web pages** is enabled.
+- `logScreen(...args)`, `warnScreen(...args)`, `errorScreen(...args)` — show an on-page toast only. These do not write to the popup Log panel.
+- `logPopup(...args)`, `warnPopup(...args)`, `errorPopup(...args)` — write to the popup only and never show an on-page toast.
 - The helper has hard caps: roughly **200 log entries per dispatch** and a maximum string length per entry. Excess entries are dropped and counted in `accumulator.logsDropped`. This is what protects the popup from a `for (let i = 0; i < 100000; i++) helpers.log(i)` runaway.
 - When **Debug mode** is off (default), trace-level entries the engine itself emits (dispatch start / handler timing) are suppressed everywhere — they don't show in the Log panel and don't print to the console. Your own `log` / `warn` / `error` calls always go through.
 
@@ -728,7 +732,8 @@ Open the **Settings** dialog via the gear icon in the top bar.
 
 - **Heartbeat interval** — how often the content script reports tab time and drives `pageHeartbeatEvent`. Default 250 ms. Lower values are more responsive but use more CPU.
 - **Tick interval** — how often the global `tickEvent` fires. Default 1000 ms.
-- **Debug mode** — *off* by default. When *on*, the engine emits trace-level entries to the Log panel (`[trace] dispatchEvent`, `[trace] N handler(s)`) and `[CustomBlocker:trace]` lines to the browser console. Leave it off in everyday use; turn it on while diagnosing a misbehaving rule. `pageHeartbeatEvent` is excluded from trace logging even when debug mode is on, because it fires four times per second and would drown out the rest.
+- **Debug mode** — *off* by default. When *on*, the engine emits `[CustomBlocker:trace]` lines to the browser console. The popup Log panel stays reserved for rule-created helper logs. Leave debug mode off in everyday use; turn it on while diagnosing a misbehaving rule. `pageHeartbeatEvent` is excluded from trace logging even when debug mode is on, because it fires four times per second and would drown out the rest.
+- **Show custom rule logs on web pages** — when on, normal `helpers.log()`, `helpers.warn()`, and `helpers.error()` calls appear as page toasts as well as popup Log entries. When off, normal logs are popup-only; rules can still write screen-only toasts with `helpers.logScreen()` or force popup-only with `helpers.logPopup()`.
 
 ---
 
@@ -748,7 +753,6 @@ Status messages appear as a centered toast that fades out after about two second
 
 - "Saved changes."
 - "Created \"Group name\"."
-- "Custom rule loaded — N handler(s) active. To apply this rule on tabs you've already opened, reload them."
 - Validation errors like "Allowed minutes must be a number greater than 0."
 - "Snooze minutes must be a number greater than 0."
 - "Frozen groups cannot be changed."
@@ -782,7 +786,7 @@ For input fields with format requirements, the message also appears next to the 
 - **A timer is stuck or wrong on one tab.** Switch away and back, or focus the tab — that triggers a forced refresh from the shared timer.
 - **Feed cards reappear after I think they should be hidden.** Feed hiding only runs while the rule is actively blocking. If you have an `after-minutes` rule, feed hiding kicks in once your time hits zero.
 - **A YouTube nav button I expected to be hidden is still there.** Nav hiding requires the rule to be set to "do not filter by author" and the content type to be Shorts or YouTube posts. With author filters, hiding is per-card only.
-- **Custom rule did nothing or threw silently.** Open Settings → enable **Debug mode**, then click **Run** again and watch the Log panel. Lines prefixed with `[trace]` show every dispatch and handler. Use `helpers.getLogHelper().log(...)` to add your own trace points. If a misbehaving rule kept getting auto-quarantined, fix the source and click Run — Run clears the abort reason.
+- **Custom rule did nothing or threw silently.** Open Settings → enable **Debug mode**, then click **Run** again and watch the browser console for `[CustomBlocker:trace]` lines. Use `helpers.getLogHelper().log(...)` to add your own trace points in the popup Log panel. If a misbehaving rule kept getting auto-quarantined, fix the source and click Run — Run clears the abort reason.
 - **My new Custom rule does not affect already-open tabs.** Reload them. Custom rules attach to *future* page events; the popup shows a reminder to reload after every Run.
 - **My countdown timer is not advancing.** Custom-rule timers only tick on the **active visible** tab via `pageHeartbeatEvent`. Background tabs, minimised windows, and locked screens pause them by design — same behavior as the default block-group countdown.
 - **I cannot delete a group.** It is probably frozen. Strict-frozen groups cannot be deleted at all until their lock expires; non-strict frozen groups can be deleted via the unfreeze ritual.

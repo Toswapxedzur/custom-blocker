@@ -1206,6 +1206,11 @@ function collectPanelSnapshots(dispatchResult) {
   const groups = new Set();
   function addFrom(result) {
     if (!result || typeof result !== "object") return;
+    if (Array.isArray(result.panelGroupsChanged)) {
+      for (const groupId of result.panelGroupsChanged) {
+        if (typeof groupId === "string" && groupId) groups.add(groupId);
+      }
+    }
     if (Array.isArray(result.panelGroupsWithPanels)) {
       for (const groupId of result.panelGroupsWithPanels) {
         if (typeof groupId === "string" && groupId) groups.add(groupId);
@@ -2127,21 +2132,6 @@ let logFeedSuppressed = 0;
 
 function flushLogFeedSuppressionNote(now) {
   if (logFeedSuppressed <= 0) return;
-  const noteRecord = {
-    id: ++logFeedSeq,
-    ts: now,
-    level: "warn",
-    groupId: "trace",
-    eventType: "rate-limit",
-    message: "[rate-limited] " + logFeedSuppressed +
-      " log entr" + (logFeedSuppressed === 1 ? "y" : "ies") +
-      " suppressed in the last second"
-  };
-  logFeedBuffer.push(noteRecord);
-  if (logFeedBuffer.length > LOG_FEED_MAX_ENTRIES) {
-    logFeedBuffer.splice(0, logFeedBuffer.length - LOG_FEED_MAX_ENTRIES);
-  }
-  try { chrome.runtime.sendMessage({ type: "log-feed-entry", entry: noteRecord }).catch(() => {}); } catch (_) {}
   logFeedSuppressed = 0;
 }
 
@@ -2198,6 +2188,7 @@ function ingestSandboxLogs(result, descriptor) {
     if (!Array.isArray(logs)) return;
     for (const entry of logs) {
       if (!entry) continue;
+      if (entry.popup === false) continue;
       pushLogFeedEntry({
         level: entry.level,
         groupId: entry.groupId,
@@ -2235,15 +2226,6 @@ async function quarantineGroup(groupId, reason) {
       lastAbortAt: Date.now()
     };
     await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
-    pushLogFeedEntry({
-      level: "error",
-      eventType: "quarantine",
-      groupId,
-      args: [
-        "[" + groupId + "] auto-disabled: " + reason +
-          ". Edit the rule and click Run again to re-enable."
-      ]
-    });
     return true;
   } catch (error) {
     console.warn("[CustomBlocker] quarantineGroup failed", error);
@@ -2274,25 +2256,13 @@ function maybeQuarantineFromResult(result, descriptor) {
 }
 
 // Tracks the most recent reason ensureOffscreenDocument returned false
-// so we only push one log-feed entry per distinct failure type — without
-// this guard, every 1 s tick attempt would spam the popup with the same
-// "couldn't create offscreen document" line.
+// so the console error does not repeat on every 1 s tick attempt.
 let lastOffscreenFailureSignature = "";
 let offscreenCreationPromise = null;
 function reportOffscreenFailure(signature, message) {
   if (lastOffscreenFailureSignature === signature) return;
   lastOffscreenFailureSignature = signature;
   console.error("[CustomBlocker] offscreen unavailable:", message);
-  try {
-    pushLogFeedEntry({
-      level: "error",
-      eventType: "startup",
-      args: [
-        "Custom-rule sandbox unavailable: " + message +
-          ". Custom rules and the 1 s tickEvent will run on the 1-minute alarm fallback only."
-      ]
-    });
-  } catch (_) {}
 }
 function clearOffscreenFailure() {
   if (lastOffscreenFailureSignature !== "") {
@@ -2372,7 +2342,7 @@ async function loadCustomGroupSource(group) {
       clearState: true
     });
     scheduleCustomTimerRefreshBroadcast();
-    scheduleCustomPanelRefreshBroadcast();
+    scheduleCustomPanelRefreshBroadcast(100, [group.id]);
     refreshHandlerCount();
     return { ok: true, handlers: 0, error: null };
   }
@@ -2384,7 +2354,7 @@ async function loadCustomGroupSource(group) {
       clearState: true
     });
     scheduleCustomTimerRefreshBroadcast();
-    scheduleCustomPanelRefreshBroadcast();
+    scheduleCustomPanelRefreshBroadcast(100, [group.id]);
     refreshHandlerCount();
     return { ok: true, handlers: 0, error: null };
   }
@@ -2393,20 +2363,13 @@ async function loadCustomGroupSource(group) {
     groupId: group.id,
     source
   });
-  // Forward registration-time logs to the popup's Activity log. Without
-  // this, "Compile failed" / "registered 0 handlers" / runtime-error
-  // messages from loadSource only ever surface in the run-status pill —
-  // closing the popup loses them.
+  // Forward only user-created registration-time helper logs. Engine
+  // registration status is reported through the Run status UI.
   if (result && Array.isArray(result.logs)) {
     ingestSandboxLogs(result, { type: "load-source" });
   }
   if (result && result.ok === false && result.error) {
-    pushLogFeedEntry({
-      level: "error",
-      eventType: "load-source",
-      groupId: group.id,
-      args: ["[" + group.id + "] " + result.error]
-    });
+    try { console.error("[CustomBlocker:" + group.id + "]", result.error); } catch (_) {}
   }
   // If load-source itself was hard-killed by the offscreen timeout, the
   // synthetic reply carries quarantine={ reason } but no groupId — fill
@@ -2417,7 +2380,7 @@ async function loadCustomGroupSource(group) {
     quarantineGroup(group.id, reason).catch(() => {});
   }
   scheduleCustomTimerRefreshBroadcast();
-  scheduleCustomPanelRefreshBroadcast();
+  scheduleCustomPanelRefreshBroadcast(100, [group.id]);
   refreshHandlerCount();
   return result;
 }
@@ -2500,24 +2463,8 @@ async function loadAllCustomGroupsAtStartup() {
       "handler count:",
       cachedHandlerCount
     );
-    pushLogFeedEntry({
-      level: withSource === 0 && attempted > 0 ? "warn" : "log",
-      eventType: "startup",
-      args: [
-        `Startup loader: ${attempted} custom group(s), ${withSource} with active source, ` +
-          `${cachedHandlerCount} handler(s) registered.` +
-          (attempted > 0 && withSource === 0
-            ? " Click Run on the group to register handlers (Save alone does not run the code)."
-            : "")
-      ]
-    });
   } catch (error) {
     console.warn("[CustomBlocker] startup load of custom groups failed", error);
-    pushLogFeedEntry({
-      level: "error",
-      eventType: "startup",
-      args: ["Startup loader failed: " + String(error && error.message ? error.message : error)]
-    });
   }
 }
 
@@ -2735,14 +2682,22 @@ function scheduleCustomTimerRefreshBroadcast(delayMs = 100) {
 }
 
 let customPanelRefreshTimeoutId = null;
+const pendingCustomPanelRefreshGroups = new Set();
 
-function scheduleCustomPanelRefreshBroadcast(delayMs = 100) {
+function scheduleCustomPanelRefreshBroadcast(delayMs = 100, groupIds = []) {
+  if (Array.isArray(groupIds)) {
+    for (const groupId of groupIds) {
+      if (typeof groupId === "string" && groupId) pendingCustomPanelRefreshGroups.add(groupId);
+    }
+  }
   if (customPanelRefreshTimeoutId !== null) {
     clearTimeout(customPanelRefreshTimeoutId);
   }
   customPanelRefreshTimeoutId = setTimeout(() => {
     customPanelRefreshTimeoutId = null;
-    broadcastCustomPanelRefresh().catch((error) => {
+    const panelGroups = Array.from(pendingCustomPanelRefreshGroups);
+    pendingCustomPanelRefreshGroups.clear();
+    broadcastCustomPanelRefresh(panelGroups).catch((error) => {
       try { console.warn("[CustomBlocker] custom panel refresh broadcast failed", error); } catch (_) {}
     });
   }, delayMs);
@@ -2761,7 +2716,7 @@ async function broadcastCustomTimerRefresh() {
   );
 }
 
-async function broadcastCustomPanelRefresh() {
+async function broadcastCustomPanelRefresh(panelGroups = []) {
   if (!chrome.tabs || !chrome.tabs.query) return;
   const tabs = await chrome.tabs.query({});
   await Promise.all(
@@ -2769,7 +2724,7 @@ async function broadcastCustomPanelRefresh() {
       if (!tab || typeof tab.id !== "number") return;
       const url = tab.url || tab.pendingUrl || "";
       if (url && !/^https?:/i.test(url)) return;
-      await trySendApply(tab.id, { type: "custom-panels-refresh" });
+      await trySendApply(tab.id, { type: "custom-panels-refresh", panelGroups });
     })
   );
 }
@@ -3076,14 +3031,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       groups[idx] = next;
       suppressReconcileLoadByGroup.add(groupId);
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
-      if (wasQuarantined) {
-        pushLogFeedEntry({
-          level: "log",
-          eventType: "run-custom-group",
-          groupId,
-          args: ["[" + groupId + "] re-enabled by Run; previous quarantine reason: " + group.lastAbortReason]
-        });
-      }
       const loadResult = await loadCustomGroupSource(next);
       sendResponse({ ok: true, loadResult });
     })();
@@ -3140,13 +3087,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "event-sandbox-reset") {
     (async () => {
       try {
-        pushLogFeedEntry({
-          level: "warn",
-          eventType: "sandbox-reset",
-          groupId: "trace",
-          args: ["[sandbox-reset] reason: " + (message.reason || "unknown") +
-            " — reloading enabled custom rules"]
-        });
         const stored = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
         const groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
         // Wait a tick so the offscreen iframe finishes loading the new

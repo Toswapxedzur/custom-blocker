@@ -680,6 +680,14 @@
           When on, shows the on-page debug overlay for custom rules and emits verbose [CustomBlocker] / [CustomBlocker:trace] console output. Your own helpers.log() calls always work regardless.
         </p>
 
+        <label class="checkbox-row compact" for="settingsShowOnPageLogToasts">
+          <input id="settingsShowOnPageLogToasts" type="checkbox" />
+          <span data-i18n="settings.showOnPageLogToasts">Show custom rule logs on web pages</span>
+        </label>
+        <p class="field-help" data-i18n="settings.showOnPageLogToastsHelp">
+          When off, helpers.log(), warn(), and error() still appear in the popup Log panel but do not show page toasts. Rules can use logScreen() for screen-only toasts.
+        </p>
+
         <section class="section-card settings-section-card">
           <div class="section-header">
             <div>
