@@ -320,7 +320,7 @@ Per-event-type sugar (one set of methods per built-in type):
 
 - `event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
 - `event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
-- Same shape for `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`, `panelEvent`.
+- Same shape for `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`, `panelEvent`, `localFileEvent`.
 
 ### 11.2.2 Built-in event types
 
@@ -336,6 +336,7 @@ Per-event-type sugar (one set of methods per built-in type):
 | `timerEnded` | A timer managed by the group reaches `currentMs === 0`. Only delivered to the owning group. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | The user pressed **Start Snooze** in the popup for this **custom** group. Pure notification event — the handler can run arbitrary code (log, redirect, fire other events) but custom rules have **no programmatic snooze API**. Logs produced here surface as toasts on the active tab. Only delivered to the pressed group. | `{ triggeredAt }` |
 | `panelEvent` | A page panel control rendered by `helpers.getPanelHelper()` was used. Delivered to the owning group, and also available through `event.registerPanelEvent(...)` for group-level handling. | `{ panelId, controlId, eventName, value, values }`; shortcuts also exist as `ev.panelId`, `ev.controlId`, `ev.eventName`, `ev.value`, `ev.values` |
+| `localFileEvent` | A `helpers.getLocalFolderHelper()` request finished. Delivered to the owning group. | `{ eventName, action, path, directoryPath, requestId, ok, text, value, entries, exists, bytes, error }`; shortcuts exist on `ev` with the same names |
 
 URLs in `ev.url` and in event data are **normalized** for events: Chrome's New Tab Page (which renders Google's "Search Google or type URL" surface), `about:blank`, and equivalent newtab schemes are exposed as the empty string `""`. So a timer scoped to `ev.url === ""` only ticks while you are on the new-tab page. Regular `google.com` URLs are unchanged.
 
@@ -379,10 +380,11 @@ Accessor methods:
 - `helpers.getPanelHelper()` — fixed-layout on-page panels with configurable content, colors, position, and event handlers.
 - `helpers.getPersistenceHelper()` — JSON key/value store scoped to the group.
 - `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (and `set` / `get` aliases) plus `createMessageUrl(message)` which returns a `chrome-extension://...` URL that displays the given message.
-- `helpers.getPlatformHelper()` — per-platform DOM intents (see **11.3.7**).
+- `helpers.getPlatformHelper()` — per-platform DOM intents (see **11.3.8**).
 - `helpers.getDOMHelper()` — generic DOM intents: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. Operations are batched and applied after the handler returns.
 - `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Effects are applied to the tab the event came from.
 - `helpers.getStorageHelper()` — superset of `getPersistenceHelper` plus async `requestAsyncGet(key)` / `requestAsyncSet(key, value)` hooks for cross-extension storage (results arrive as a follow-up custom event).
+- `helpers.getLocalFolderHelper()` — async access to a user-granted local folder. Supports `.txt`, `.csv`, and `.json` files inside that folder only; results arrive as `localFileEvent`.
 - `helpers.getTabHelper()` — `list()`, `getActiveTab()`, `getById(id)`, `countOpen()` against a snapshot bundled with the event.
 
 All helper methods are safe: bad parameters return `null`, `false`, or an empty value instead of throwing.
@@ -417,32 +419,41 @@ Other methods:
 
 #### 11.3.2 `getPanelHelper()`
 
-Group-scoped on-page panels. A panel is defined by a safe schema; the extension owns the layout, while the rule controls content, position, alignment, colors, text sizes, and handlers.
+Group-scoped on-page panels. A panel is defined by a safe schema; the extension owns exact positioning, while the rule controls content, preset layout, priority, alignment, colors, text sizes, accessibility labels, and handlers.
 
 Construction:
 
-- `create({ id, title?, description?, position?, align?, width?, textSize?, theme?, scope?, domain?, controls?, onEvent?, onChange?, onClick? })` — creates or replaces the panel and resets its stored control values.
+- `create({ id, title?, description?, position?, align?, layout?, priority?, width?, textSize?, theme?, ariaLabel?, role?, closable?, autoFocus?, scope?, domain?, controls?, onEvent?, onChange?, onClick?, onInput?, onFocus?, onBlur?, onSubmit?, onClose?, onMount?, onUnmount?, onKey? })` — creates or replaces the panel and resets its stored control values.
 - `getOrCreatePanel(config)` — creates the panel only if missing. If the `id` already exists, it returns the existing panel unchanged.
 - `update(id, patch)`, `delete(id)`, `show(id)`, `hide(id)`.
+- Preset builders: `notice(config)`, `confirm(config)`, `checklist(config)`, and `form(config)` create common panel shapes on top of the same schema.
 
 Display:
 
 - `scope(url)` / `domain(url)` decide where the panel appears, like timer display predicates. If neither is provided, the panel can appear on every page where the custom rule is active.
 - `position` is one of `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"`, or `"center"`.
 - `align` is `"left"`, `"center"`, or `"right"`.
+- `layout` is a safe preset: `"vertical"`, `"compact"`, `"comfortable"`, `"spacious"`, `"inline"`, `"row"`, `"wrap"`, `"twoColumn"`, `"grid"`, `"split"`, `"form"`, `"toolbar"`, or `"stack"`.
+- `priority` controls stacking/layout order. Higher priority panels are placed closer to the selected corner; higher priority controls/sections are laid out earlier within their container.
+- If panel `width` is omitted, the outer panel auto-fits its content as tightly as possible. Set panel `width` only when you want a fixed container width.
 - `theme` accepts color tokens such as `background`, `foreground`, `accent`, `border`, and `muted`, plus `fontSize` / `titleSize`. Use safe color strings such as hex, `rgb(...)`, `rgba(...)`, `hsl(...)`, or named colors.
+- `ariaLabel`, `role`, and `autoFocus` improve keyboard/screen-reader behavior.
 
 Controls:
 
-- Supported control types: `"text"`, `"checkbox"`, `"select"`, `"textInput"`, `"textarea"`, `"button"`.
-- Control schema: `{ id, type, label?, text?, placeholder?, value?, options?, disabled?, onEvent?, onChange?, onClick? }`.
-- `setValue(panelId, controlId, value)`, `getValue(panelId, controlId)`, `getValues(panelId)`, `getState(id)`, and `list()` read/mutate panel state.
+- Supported control types: `"text"`, `"checkbox"`, `"select"`, `"textInput"`, `"textarea"`, `"button"`, `"section"`, `"timer"`, `"numberInput"`, `"range"`, `"toggle"`, `"radio"`, `"date"`, `"time"`, and `"color"`.
+- `section` is a real element/group with its own `{ id, type:"section", label?, text?, layout?, priority?, width?, height?, align?, ariaLabel?, role?, controls? }`.
+- `timer` is a display element. Use `{ id, type:"timer", timerId, format?, showProgress?, showExpired? }` to hydrate from the group timer bucket, or `{ timer: helpers.getTimerHelper().getState(id) }` to pass a timer object snapshot.
+- Control schema: `{ id, type, label?, text?, placeholder?, value?, options?, min?, max?, step?, timerId?, timer?, format?, showProgress?, showExpired?, action?, layout?, priority?, width?, height?, rows?, disabled?, ariaLabel?, autoFocus?, onEvent?, onChange?, onClick?, onInput?, onFocus?, onBlur?, onSubmit?, onClose?, onMount?, onUnmount?, onKey? }`.
+- `width` accepts pixel numbers/strings, percentages, `"full"`, or `"auto"`; `height` accepts pixel numbers/strings or `"auto"`; `rows` controls textarea row count. These scale the control itself while the extension still controls ordering and position.
+- `numberInput` and `range` support `min`, `max`, and `step`; `toggle` is a switch-style boolean; `radio` uses the same `options` shape as `select`; `date`, `time`, and `color` use native browser input values.
+- `setValue(panelId, controlId, value)`, `updateControl(panelId, controlId, patch)`, `enable(panelId, controlId)`, `disable(panelId, controlId)`, `setOptions(panelId, controlId, options)`, `setText(panelId, controlId, text)`, `setTheme(panelId, theme)`, `setTitle(panelId, title)`, `setDescription(panelId, text)`, `getValue(panelId, controlId)`, `getValues(panelId)`, `getState(id)`, and `list()` read/mutate panel state.
 
 Events:
 
-- Inline handlers can live on the panel (`onEvent`, `onChange`, `onClick`) or individual controls (`onEvent`, `onChange`, `onClick`).
+- Inline handlers can live on the panel or individual controls/sections. Supported inline handlers include `onEvent`, `onChange`, `onClick`, `onInput`, `onFocus`, `onBlur`, `onSubmit`, `onClose`, `onMount`, `onUnmount`, and `onKey`.
 - `event.registerPanelEvent(id, handler, opts)` registers a group-level handler that can detect every panel event for the group.
-- Checkbox/select changes fire immediately. Text inputs fire on Enter or blur. Textareas fire on blur or Cmd/Ctrl+Enter. Buttons fire on click.
+- Checkbox/select changes fire immediately. Text inputs fire change on Enter or blur. Textareas fire change on blur or Cmd/Ctrl+Enter. Inputs also emit `input`, `focus`, `blur`, and `key`; key events include `ev.key`, `ev.code`, and `ev.keyInfo` with modifier flags. Buttons fire `click`, or `submit` / `cancel` / `close` when `action` is set.
 - Panel handlers receive the normal `(ev, helpers)` object and can block/redirect with `ev.preventDefault()`, `ev.setResult(...)`, and `ev.setRedirectLink(...)`.
 
 #### 11.3.3 `getPersistenceHelper()`
@@ -453,13 +464,57 @@ Map-like storage scoped to your group. Values must be JSON-serializable.
 
 Soft limits: about 200 keys per group, 16 KB per value.
 
-#### 11.3.4 `getLogHelper()`
+#### 11.3.4 `getLocalFolderHelper()`
+
+`getLocalFolderHelper()` lets custom rules request reads and writes in a folder the user explicitly chooses in **Settings → Local File Folder**. Browser security still applies: the rule never receives unrestricted filesystem access, and all paths are constrained to the granted folder.
+
+Safety rules:
+
+- Supported file extensions are `.txt`, `.csv`, and `.json`.
+- Paths must be relative, for example `notes/focus.txt` or `data/today.csv`.
+- Absolute paths, URL-like paths, `..` traversal, and hidden files/folders such as `.env` are rejected.
+- Files over 1 MB are rejected.
+- Operations are asynchronous. Request methods return a `requestId`; handle the result in `event.registerLocalFileEvent(...)`.
+
+Methods:
+
+- `requestRead(path)` — reads a text file. Result: `ev.eventName === "read"`, `ev.text`, `ev.bytes`.
+- `requestWrite(path, text)` — writes/replaces a text file. Result: `ev.eventName === "write"`, `ev.bytes`.
+- `requestAppend(path, text)` — appends by reading the current file and writing the combined text. Result: `ev.eventName === "append"`.
+- `requestList(directoryPath?)` — lists supported files and subfolders. Result: `ev.eventName === "list"`, `ev.entries`.
+- `requestExists(path)` — checks for a supported file. Result: `ev.eventName === "exists"`, `ev.exists`.
+- `requestReadJson(path)` — reads and parses a `.json` file. Result: `ev.eventName === "read"`, `ev.text`, `ev.value`.
+- `requestWriteJson(path, value)` — JSON-serializes and writes a `.json` file. Result: `ev.eventName === "write"`.
+
+Example:
+
+```js
+(event, helpers) => {
+  const files = helpers.getLocalFolderHelper();
+
+  event.registerOpenWebEvent("load-config", (ev, h) => {
+    h.getLocalFolderHelper().requestReadJson("config/focus.json");
+  });
+
+  event.registerLocalFileEvent("use-config", (ev, h) => {
+    if (ev.eventName === "error") {
+      h.warn("Local file error", ev.path, ev.error);
+      return;
+    }
+    if (ev.path === "config/focus.json" && ev.value && ev.value.redirectUrl) {
+      h.getPersistenceHelper().set("redirectUrl", ev.value.redirectUrl);
+    }
+  });
+}
+```
+
+#### 11.3.5 `getLogHelper()`
 
 - `log(...args)`, `warn(...args)`, `error(...args)` — write to the **Log** panel in the popup (the helper bundle still routes them through the same accumulator no matter which dispatch produced them). Each line is prefixed with `[CustomBlocker:groupId]`.
 - The helper has hard caps: roughly **200 log entries per dispatch** and a maximum string length per entry. Excess entries are dropped and counted in `accumulator.logsDropped`. This is what protects the popup from a `for (let i = 0; i < 100000; i++) helpers.log(i)` runaway.
 - When **Debug mode** is off (default), trace-level entries the engine itself emits (dispatch start / handler timing) are suppressed everywhere — they don't show in the Log panel and don't print to the console. Your own `log` / `warn` / `error` calls always go through.
 
-#### 11.3.5 `getRedirectionHelper()`
+#### 11.3.6 `getRedirectionHelper()`
 
 Inspect / override the redirect URL the content script will use if the current page ends up blocked.
 
@@ -469,7 +524,7 @@ Inspect / override the redirect URL the content script will use if the current p
 
 Like the other custom-rule side effects, this state is shared across all rules in the current dispatch. Because rules run bottom-to-top, the top-most rule to call `set(...)` wins.
 
-#### 11.3.6 `getDomainHelper()` (alias `getDomainUtility()`)
+#### 11.3.7 `getDomainHelper()` (alias `getDomainUtility()`)
 
 URL inspection helpers. There is no `normalize()` because incoming URLs are already newtab-normalized.
 
@@ -489,7 +544,7 @@ URL filtering and section helpers:
 - `isInfiniteFeedUrl(url)` — recognizes the algorithmic-feed surfaces of YouTube, TikTok, Instagram, Facebook, Reddit, X.
 - `sameSection(a, b)` — same hostname AND same first path segment.
 
-#### 11.3.7 `getPlatformHelper()`
+#### 11.3.8 `getPlatformHelper()`
 
 Per-platform DOM intents and sub-section timers, plus inspection. Each `helpers.getPlatformHelper().<platform>()` returns an object whose method set is **gated by the platform** — methods that don't make sense on a given platform are simply absent, so calling them throws `TypeError: ... is not a function` rather than silently no-op'ing. For example, `twitch().hidePosts` does not exist (Twitch has no posts), and `tiktok().hideShortButton` does not exist (TikTok's whole experience already _is_ short-form video). Use `helpers.getPlatformHelper().hasMethod(platform, name)` or `.listMethods(platform)` to introspect at runtime.
 

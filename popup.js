@@ -8,6 +8,11 @@ const LAYOUT_WIDTH_STORAGE_KEY = "custom-blocker-groups-panel-width";
 const LANGUAGE_STORAGE_KEY = "custom-blocker-language";
 const AI_PROMPT_STORAGE_PREFIX = "custom-blocker-ai-prompt:";
 const GROUP_TRANSFER_PREFIX = "custom-blocker-group:v1:";
+const LOCAL_FOLDER_DB_NAME = "custom-blocker-local-folder";
+const LOCAL_FOLDER_DB_VERSION = 1;
+const LOCAL_FOLDER_STORE = "handles";
+const LOCAL_FOLDER_ROOT_KEY = "root";
+const LOCAL_FOLDER_META_KEY = "metadata";
 
 // Debug-mode-gated console helpers. Mirror the implementation in
 // background.js / content.js / event-sandbox.js so every context has
@@ -177,6 +182,9 @@ const settingsAutosaveDebounceField = document.getElementById("settingsAutosaveD
 const settingsDebugModeField = document.getElementById("settingsDebugMode");
 const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
 const settingsDefaultFallbackUrlField = document.getElementById("settingsDefaultFallbackUrl");
+const localFolderChooseButton = document.getElementById("localFolderChooseButton");
+const localFolderRevokeButton = document.getElementById("localFolderRevokeButton");
+const localFolderStatus = document.getElementById("localFolderStatus");
 const settingsResetButton = document.getElementById("settingsResetButton");
 const settingsSaveButton = document.getElementById("settingsSaveButton");
 const settingsStatus = document.getElementById("settingsStatus");
@@ -389,6 +397,137 @@ function closeManual() {
   manualModal.classList.add("hidden");
 }
 
+function openLocalFolderDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(LOCAL_FOLDER_DB_NAME, LOCAL_FOLDER_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(LOCAL_FOLDER_STORE)) {
+        db.createObjectStore(LOCAL_FOLDER_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not open local folder storage."));
+  });
+}
+
+async function localFolderDbGet(key) {
+  const db = await openLocalFolderDb();
+  return await new Promise((resolve, reject) => {
+    const tx = db.transaction(LOCAL_FOLDER_STORE, "readonly");
+    const request = tx.objectStore(LOCAL_FOLDER_STORE).get(key);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not read local folder storage."));
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => {
+      try { db.close(); } catch (_) {}
+      reject(tx.error || new Error("Could not read local folder storage."));
+    };
+  });
+}
+
+async function localFolderDbSet(key, value) {
+  const db = await openLocalFolderDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(LOCAL_FOLDER_STORE, "readwrite");
+    tx.objectStore(LOCAL_FOLDER_STORE).put(value, key);
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      try { db.close(); } catch (_) {}
+      reject(tx.error || new Error("Could not write local folder storage."));
+    };
+  });
+}
+
+async function localFolderDbDelete(key) {
+  const db = await openLocalFolderDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(LOCAL_FOLDER_STORE, "readwrite");
+    tx.objectStore(LOCAL_FOLDER_STORE).delete(key);
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onerror = () => {
+      try { db.close(); } catch (_) {}
+      reject(tx.error || new Error("Could not delete local folder storage."));
+    };
+  });
+}
+
+async function renderLocalFolderStatus() {
+  if (!localFolderStatus) return;
+  if (!("showDirectoryPicker" in window)) {
+    localFolderStatus.textContent = t("settings.localFolderUnsupported");
+    if (localFolderChooseButton) localFolderChooseButton.disabled = true;
+    if (localFolderRevokeButton) localFolderRevokeButton.disabled = true;
+    return;
+  }
+  if (localFolderChooseButton) localFolderChooseButton.disabled = false;
+  try {
+    const handle = await localFolderDbGet(LOCAL_FOLDER_ROOT_KEY);
+    const metadata = await localFolderDbGet(LOCAL_FOLDER_META_KEY);
+    if (!handle || handle.kind !== "directory") {
+      localFolderStatus.textContent = t("settings.localFolderStatusNone");
+      if (localFolderRevokeButton) localFolderRevokeButton.disabled = true;
+      return;
+    }
+    if (localFolderRevokeButton) localFolderRevokeButton.disabled = false;
+    const name = handle.name || metadata?.name || t("settings.localFolderUnknownName");
+    let permission = "granted";
+    if (typeof handle.queryPermission === "function") {
+      permission = await handle.queryPermission({ mode: "readwrite" });
+    }
+    if (permission === "granted") {
+      localFolderStatus.textContent = t("settings.localFolderStatusConnected").replace("{name}", name);
+    } else {
+      localFolderStatus.textContent = t("settings.localFolderStatusNeedsPermission").replace("{name}", name);
+    }
+  } catch (error) {
+    localFolderStatus.textContent = String(error?.message ?? error);
+    if (localFolderRevokeButton) localFolderRevokeButton.disabled = true;
+  }
+}
+
+async function chooseLocalFolder() {
+  if (!("showDirectoryPicker" in window)) {
+    if (localFolderStatus) localFolderStatus.textContent = t("settings.localFolderUnsupported");
+    return;
+  }
+  if (localFolderStatus) localFolderStatus.textContent = t("settings.localFolderChoosing");
+  try {
+    const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+    let permission = "granted";
+    if (typeof handle.requestPermission === "function") {
+      permission = await handle.requestPermission({ mode: "readwrite" });
+    }
+    if (permission !== "granted") {
+      throw new Error(t("settings.localFolderPermissionDenied"));
+    }
+    await localFolderDbSet(LOCAL_FOLDER_ROOT_KEY, handle);
+    await localFolderDbSet(LOCAL_FOLDER_META_KEY, {
+      name: handle.name || "",
+      grantedAt: Date.now()
+    });
+    await renderLocalFolderStatus();
+  } catch (error) {
+    if (localFolderStatus) {
+      localFolderStatus.textContent = error?.name === "AbortError"
+        ? t("settings.localFolderStatusNone")
+        : String(error?.message ?? error);
+    }
+  }
+}
+
+async function revokeLocalFolder() {
+  await localFolderDbDelete(LOCAL_FOLDER_ROOT_KEY);
+  await localFolderDbDelete(LOCAL_FOLDER_META_KEY);
+  await renderLocalFolderStatus();
+}
+
 function syncSettingsFormFromState() {
   const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
   if (settingsTickRateField) settingsTickRateField.value = String(s.tickRateMs);
@@ -403,6 +542,9 @@ function openSettings() {
   state.isSettingsOpen = true;
   syncSettingsFormFromState();
   settingsModal.classList.remove("hidden");
+  renderLocalFolderStatus().catch((error) => {
+    if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
+  });
 }
 
 function closeSettings() {
@@ -4354,20 +4496,21 @@ function buildCustomRuleAiPrompt(userRequest, currentRule) {
     "USER_REQUEST_END",
     "API.EVENT_REGISTRY:",
     "event.register(type,id,handler,options?) -> boolean; event.getEvent(type,id) -> function|null; event.getEvents(type) -> object; event.countRegistered(type) -> number; event.unregister(type,id) -> boolean; event.unregisterAll(type) -> number; event.post(type,data?,{scope?}) -> void. Reserved event names starting '_' are rejected. options.priority default 0, higher runs first. options.intervalMs throttles tickEvent/pageHeartbeat-style frequent handlers. Same type+id replaces.",
-    "BUILTIN_EVENT_TYPES: tickEvent, openWebEvent, closeWebEvent, switchWebEvent, switchDomainEvent, webChangedEvent, timerEnded, snoozePress, panelEvent, pageHeartbeatEvent.",
-    "TYPED_EVENT_METHODS: for each built-in type suffix S = TickEvent/OpenWebEvent/CloseWebEvent/SwitchWebEvent/SwitchDomainEvent/WebChangedEvent/TimerEnded/SnoozePress/PanelEvent/PageHeartbeatEvent: event.registerS(id,handler,opts), event.getS(id), event.getSs(), count name as event.countTickRegistered/countOpenWebRegistered/countCloseWebRegistered/countSwitchWebRegistered/countSwitchDomainRegistered/countWebChangedRegistered/countTimerEndedRegistered/countSnoozePressRegistered/countPanelRegistered/countPageHeartbeatRegistered. Also aliases: registerTimerEndedEvent/getTimerEndedEvent/getTimerEndedEvents/countTimerEndedEventRegistered; registerSnoozePressEvent/getSnoozePressEvent/getSnoozePressEvents/countSnoozePressEventRegistered; registerPanelEvent/getPanelEvent/getPanelEvents/countPanelEventRegistered.",
-    "EVENT_SEMANTICS: tickEvent global browser tick data {intervalMs}; pageHeartbeatEvent active visible tab heartbeat data {elapsedMs}; openWebEvent new tab/fresh navigation data {previousUrl,isNewTab}; closeWebEvent tab close data {reason,nextUrl}; switchWebEvent same-tab URL change data {previousUrl,previousHostname,sameDomain}; switchDomainEvent hostname boundary data {previousUrl,previousHostname}; webChangedEvent any open/switch/reload/history data {previousUrl,previousHostname,sameDomain,isFirstLoad,isReload,transition}; timerEnded owning group only data {timerId,displayName,direction,currentMs}; snoozePress custom group only when Start Snooze clicked data {triggeredAt}; panelEvent owning group only data {panelId,controlId,eventName,value,values} and ev.panelId/ev.controlId/ev.eventName/ev.value/ev.values shortcuts. New tab/about blank exposed as ev.url === ''.",
+    "BUILTIN_EVENT_TYPES: tickEvent, openWebEvent, closeWebEvent, switchWebEvent, switchDomainEvent, webChangedEvent, timerEnded, snoozePress, panelEvent, localFileEvent, pageHeartbeatEvent.",
+    "TYPED_EVENT_METHODS: for each built-in type suffix S = TickEvent/OpenWebEvent/CloseWebEvent/SwitchWebEvent/SwitchDomainEvent/WebChangedEvent/TimerEnded/SnoozePress/PanelEvent/LocalFileEvent/PageHeartbeatEvent: event.registerS(id,handler,opts), event.getS(id), event.getSs(), count name as event.countTickRegistered/countOpenWebRegistered/countCloseWebRegistered/countSwitchWebRegistered/countSwitchDomainRegistered/countWebChangedRegistered/countTimerEndedRegistered/countSnoozePressRegistered/countPanelRegistered/countLocalFileRegistered/countPageHeartbeatRegistered. Also aliases: registerTimerEndedEvent/getTimerEndedEvent/getTimerEndedEvents/countTimerEndedEventRegistered; registerSnoozePressEvent/getSnoozePressEvent/getSnoozePressEvents/countSnoozePressEventRegistered; registerPanelEvent/getPanelEvent/getPanelEvents/countPanelEventRegistered; registerLocalFileEvent/getLocalFileEvent/getLocalFileEvents/countLocalFileEventRegistered.",
+    "EVENT_SEMANTICS: tickEvent global browser tick data {intervalMs}; pageHeartbeatEvent active visible tab heartbeat data {elapsedMs}; openWebEvent new tab/fresh navigation data {previousUrl,isNewTab}; closeWebEvent tab close data {reason,nextUrl}; switchWebEvent same-tab URL change data {previousUrl,previousHostname,sameDomain}; switchDomainEvent hostname boundary data {previousUrl,previousHostname}; webChangedEvent any open/switch/reload/history data {previousUrl,previousHostname,sameDomain,isFirstLoad,isReload,transition}; timerEnded owning group only data {timerId,displayName,direction,currentMs}; snoozePress custom group only when Start Snooze clicked data {triggeredAt}; panelEvent owning group only data {panelId,controlId,eventName,value,values,key,code,keyInfo} and ev.panelId/ev.controlId/ev.eventName/ev.value/ev.values/ev.key/ev.code/ev.keyInfo shortcuts; localFileEvent owning group only data {eventName,action,path,directoryPath,requestId,ok,text,value,entries,exists,bytes,error} and same-name ev shortcuts. New tab/about blank exposed as ev.url === ''.",
     "HANDLER_SHAPE: (ev, helpers) => void. ev fields: type, groupId, tabId, pageId, url, hostname, time:{now,month,dayOfMonth,dayName,hour,minute}, data. ev methods: preventDefault(), stopPropagation(), setResult(number|string), getResult(), post(type,data,{scope?}), setRedirectLink(url), getRedirectLink(). setResult(-1)=block, 0=neutral/pass, 1=allow override; string result is redirect URL; setRedirectLink sets redirect target for blocked result; stopPropagation halts all later handlers across groups. ev is Proxy: custom fields can be assigned/read during same dispatch.",
-    "HELPERS.TOP: helpers.now, helpers.currentUrl, helpers.groupId, helpers.log(...), helpers.warn(...), helpers.error(...), getLogHelper, getDomainHelper, getDomainUtility, getTimerHelper, getPanelHelper, getPersistenceHelper, getRedirectionHelper, getDOMHelper, getNavigationHelper, getStorageHelper, getTabHelper, getPlatformHelper.",
+    "HELPERS.TOP: helpers.now, helpers.currentUrl, helpers.groupId, helpers.log(...), helpers.warn(...), helpers.error(...), getLogHelper, getDomainHelper, getDomainUtility, getTimerHelper, getPanelHelper, getPersistenceHelper, getRedirectionHelper, getDOMHelper, getNavigationHelper, getStorageHelper, getLocalFolderHelper, getTabHelper, getPlatformHelper.",
     "HELPERS.LOG: getLogHelper().log(...), warn(...), error(...). Logs go to popup Log panel; capped/rate-limited.",
     "HELPERS.DOMAIN: d=helpers.getDomainHelper(); d.hostnameOf(url); d.pathnameOf(url); d.matches(hostname,site); d.getPlatform(url); d.isYouTubeHost(host); d.isTikTokHost(host); d.isInstagramHost(host); d.isFacebookHost(host); d.isTwitchHost(host); d.isRedditHost(host); d.isDiscordHost(host); d.isEmptyStartPage(url); d.matchesAny(url,regexOrArrayOrString); d.pathStartsWith(url,path); d.queryHas(url,key,value?); d.queryGet(url,key); d.isSearchPage(url); d.isInfiniteFeedUrl(url); d.sameSection(a,b). Platform URL classifiers: d.youtube()/tiktok()/instagram()/facebook()/twitch() each expose isPlatformUrl(url), isShortUrl(url), isVideoUrl(url), isPostUrl(url), isHomePage(url), extractAuthor(url), extractVideoId(url).",
     "HELPERS.TIMER: tm=helpers.getTimerHelper(); tm.groupId; tm.create({id,displayName?,direction?,currentMs?,scope?,domain?}) resets; tm.getOrCreateTimer({id,displayName?,direction?,currentMs?,scope?,domain?}) creates only when missing and otherwise returns existing timer unchanged; init fields including scope/domain apply only on creation. direction forward/backward; currentMs ms; scope(url) auto-ticks on visible page heartbeat; domain(url) controls overlay display. To change an existing timer use setDirection/setCurrentMs/addMs/setDisplayName or create() to reset. tm.delete(id), pause(id), resume(id), setDirection(id,dir), setCurrentMs(id,ms), addMs(id,deltaMs), setDisplayName(id,name), getCurrentMs(id), isExpired(id), isPaused(id), getDirection(id), getDisplayName(id), exists(id), getState(id)->{id,displayName,direction,isPaused,currentMs,isExpired}|null, list()->array. Timers do not block by themselves; check isExpired in open/switch/webChanged handler and then block.",
-    "HELPERS.PANEL: pn=helpers.getPanelHelper(); pn.create({id,title?,description?,position?,align?,width?,textSize?,theme?,scope?,domain?,controls?,onEvent?,onChange?,onClick?}) replaces/resets; pn.getOrCreatePanel(config) creates only when missing and otherwise returns existing panel unchanged; pn.update(id,patch), delete(id), show(id), hide(id), setValue(panelId,controlId,value), getValue(panelId,controlId), getValues(panelId), getState(id), list(). Controls: {id,type,label?,text?,placeholder?,value?,options?,disabled?,onEvent?,onChange?,onClick?}; types text, checkbox, select, textInput, textarea, button. Layout is fixed by extension; user controls position top-left/top-right/bottom-left/bottom-right/center, align left/center/right, theme colors background/foreground/accent/border/muted, font sizes. scope/domain decide where the panel is shown. Inline handlers and event.registerPanelEvent receive panelEvent and may preventDefault/setResult/setRedirectLink.",
+    "HELPERS.PANEL: pn=helpers.getPanelHelper(); pn.create({id,title?,description?,position?,align?,layout?,priority?,width?,textSize?,theme?,ariaLabel?,role?,closable?,autoFocus?,scope?,domain?,controls?,onEvent?,onChange?,onClick?,onInput?,onFocus?,onBlur?,onSubmit?,onClose?,onMount?,onUnmount?,onKey?}) replaces/resets; pn.getOrCreatePanel(config) creates only when missing and otherwise returns existing panel unchanged; pn.update(id,patch), delete(id), show(id), hide(id), setValue(panelId,controlId,value), updateControl(panelId,controlId,patch), enable/disable(panelId,controlId), setOptions(panelId,controlId,options), setText(panelId,controlId,text), setTheme(panelId,theme), setTitle(panelId,title), setDescription(panelId,text), getValue(panelId,controlId), getValues(panelId), getState(id), list(); builders: notice(config), confirm(config), checklist(config), form(config). Controls: {id,type,label?,text?,placeholder?,value?,options?,min?,max?,step?,timerId?,timer?,format?,showProgress?,showExpired?,action?,layout?,priority?,width?,height?,rows?,disabled?,ariaLabel?,autoFocus?,onEvent?,onChange?,onClick?,onInput?,onFocus?,onBlur?,onSubmit?,onClose?,onMount?,onUnmount?,onKey?}; types text, checkbox, select, textInput, textarea, button, section, timer, numberInput, range, toggle, radio, date, time, color. section has nested controls and its own layout/priority. timer is display-only: use timerId to hydrate from getTimerHelper state, or timer: tm.getState(id) for a snapshot. numberInput/range support min/max/step; radio uses options; toggle is boolean. Layout presets: vertical, compact, comfortable, spacious, inline, row, wrap, twoColumn, grid, split, form, toolbar, stack. Higher priority panels/controls/sections appear earlier/closer to corner. Per-control width accepts px/%, full, auto; height accepts px/auto; rows affects textarea. If panel width is omitted, the outer panel auto-fits content tightly. Panel events include change/click/input/focus/blur/submit/close/mount/unmount/key; key events expose ev.key/ev.code/ev.keyInfo. scope/domain decide where shown.",
     "HELPERS.PERSISTENCE: p=helpers.getPersistenceHelper(); p.get(key,defaultValue?), set(key,valueJSON), delete(key), has(key), keys(), entries(), clear(), size(). Values JSON-serializable; scoped to group.",
     "HELPERS.REDIRECT: r=helpers.getRedirectionHelper(); r.get(); r.set(url); r.setRedirectLink(url); r.getRedirectLink(); r.createMessageUrl(message). ev.setRedirectLink can also be used directly.",
     "HELPERS.DOM: dom=helpers.getDOMHelper(); dom.hide(selector), show(selector), addClass(selector,className), removeClass(selector,className), setText(selector,text), click(selector), injectCss(css,id?), removeInjectedCss(id), scrollTo(selector). These enqueue content-script DOM intents, applied after handler returns.",
     "HELPERS.NAVIGATION: nav=helpers.getNavigationHelper(); nav.back(), forward(), reload(), goTo(url), closeTab(). These enqueue tab navigation intents for current event tab.",
     "HELPERS.STORAGE: s=helpers.getStorageHelper(); includes persistence methods plus s.requestAsyncGet(key), s.requestAsyncSet(key,valueJSON). Async results arrive via follow-up custom storage events; do not await.",
+    "HELPERS.LOCAL_FOLDER: lf=helpers.getLocalFolderHelper(); requires Settings → Local File Folder. Supported files: .txt, .csv, .json inside the granted folder only. Request methods are async and return requestId: requestRead(path), requestWrite(path,text), requestAppend(path,text), requestList(directoryPath?), requestExists(path), requestReadJson(path), requestWriteJson(path,valueJSON). Results arrive via event.registerLocalFileEvent(id,(ev,h)=>{}) with ev.eventName read/write/append/list/exists/error, ev.path, ev.directoryPath, ev.requestId, ev.text, ev.value, ev.entries, ev.exists, ev.error.",
     "HELPERS.TAB: tab=helpers.getTabHelper(); tab.list(), getActiveTab(), getById(id), countOpen(), requestRefresh(). Uses snapshot bundled with dispatch.",
     "HELPERS.PLATFORM: ph=helpers.getPlatformHelper(); ph.youtube(), ph.tiktok(), ph.instagram(), ph.facebook(), ph.twitch(); ph.listMethods(platform); ph.hasMethod(platform,methodName). Each platform API always has URL classifiers isPlatformUrl,isShortUrl,isVideoUrl,isPostUrl,isHomePage,extractAuthor,extractVideoId.",
     "PLATFORM_METHODS.YOUTUBE: hideShorts(predicate,{blockPageOnVisit?}), showShorts(), hideVideos(predicate,opts), showVideos(), hidePosts(predicate,opts), showPosts(), hideShortButton(), showShortButton(), hideHomePage(), showHomePage(), hideComments(), showComments(), filterComments(predicate,opts), hideLive(), showLive(), filterLive(predicate,opts), isCurrentChannelSubscribed(), isChannelSubscribed(id), isCurrentChannelVerified(), isLiveNow(), isItemLive(item), isAlgorithmicRecommendation(item), isSponsored(item), setShortsTimer(opts), setVideosTimer(opts), setPostsTimer(opts).",
@@ -4797,6 +4940,22 @@ if (settingsSaveButton) {
   settingsSaveButton.addEventListener("click", () => {
     saveSettingsFromForm().catch((error) => {
       console.error("Failed to save global settings.", error);
+    });
+  });
+}
+
+if (localFolderChooseButton) {
+  localFolderChooseButton.addEventListener("click", () => {
+    chooseLocalFolder().catch((error) => {
+      if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
+    });
+  });
+}
+
+if (localFolderRevokeButton) {
+  localFolderRevokeButton.addEventListener("click", () => {
+    revokeLocalFolder().catch((error) => {
+      if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
     });
   });
 }

@@ -719,26 +719,80 @@ log.section("S14: panel helper state + snapshots");
     title: "Creator filter",
     position: "bottom-right",
     align: "center",
+    layout: "twoColumn",
+    priority: 9,
+    ariaLabel: "Creator filter panel",
+    role: "dialog",
+    closable: true,
     theme: { background: "rgb(1,2,3)", foreground: "#fff", accent: "dodgerblue" },
     scope: (url) => typeof url === "string" && url.includes("youtube.com"),
     controls: [
       { id: "block", type: "checkbox", label: "Block creator", value: false, onChange() {} },
-      { id: "reason", type: "select", label: "Reason", value: "game", options: ["game", "politics"] },
-      { id: "note", type: "textInput", label: "Note", value: "hello" }
+      { id: "reason", type: "select", label: "Reason", value: "game", options: ["game", "politics"], width: "70%", height: 44 },
+      { id: "note", type: "textInput", label: "Note", value: "hello", width: "full" },
+      { id: "details", type: "textarea", label: "Details", value: "", width: 240, height: "160px", rows: 6 },
+      {
+        id: "advanced",
+        type: "section",
+        label: "Advanced",
+        layout: "compact",
+        priority: 5,
+        controls: [
+          { id: "shortcut", type: "textInput", label: "Shortcut", value: "", onKey() {} }
+        ]
+      }
     ]
   });
   assertEqual("S14: create returns panel id", id, "yt-panel");
-  assertEqual("S14: inline control handler registered", registered.length, 1);
+  assertEqual("S14: inline control handlers registered", registered.length, 2);
   panel.__cb_refreshDisplayedPanels();
   let snaps = panel.__cb_getDisplayedPanelSnapshots();
   assertEqual("S14: scope-matching URL displays panel", snaps.length, 1);
   assertEqual("S14: snapshot carries checkbox value", snaps[0].values.block, false);
+  assertEqual("S14: snapshot carries layout + priority + a11y fields",
+    { layout: snaps[0].layout, priority: snaps[0].priority, role: snaps[0].role, ariaLabel: snaps[0].ariaLabel, closable: snaps[0].closable },
+    { layout: "twoColumn", priority: 9, role: "dialog", ariaLabel: "Creator filter panel", closable: true });
+  assertEqual("S14: select control keeps custom dimensions",
+    { width: snaps[0].controls[1].width, height: snaps[0].controls[1].height },
+    { width: "70%", height: "44px" });
+  assertEqual("S14: textarea control keeps custom dimensions",
+    { width: snaps[0].controls[3].width, height: snaps[0].controls[3].height, rows: snaps[0].controls[3].rows },
+    { width: "240px", height: "160px", rows: 6 });
+  assertEqual("S14: section control keeps nested controls",
+    { type: snaps[0].controls[4].type, layout: snaps[0].controls[4].layout, nested: snaps[0].controls[4].controls[0].id },
+    { type: "section", layout: "compact", nested: "shortcut" });
 
   panel.setValue("yt-panel", "block", true);
   panel.setValue("yt-panel", "note", "stored");
+  panel.setValue("yt-panel", "shortcut", "k");
   snaps = panel.__cb_getDisplayedPanelSnapshots();
   assertEqual("S14: setValue persists checkbox", snaps[0].values.block, true);
   assertEqual("S14: setValue persists text", snaps[0].values.note, "stored");
+  assertEqual("S14: setValue reaches nested section controls", snaps[0].values.shortcut, "k");
+
+  panel.disable("yt-panel", "note");
+  panel.setOptions("yt-panel", "reason", ["game", "study"]);
+  panel.setText("yt-panel", "advanced", "More settings");
+  panel.setTheme("yt-panel", { background: "#111", foreground: "#eee" });
+  snaps = panel.__cb_getDisplayedPanelSnapshots();
+  assertEqual("S14: convenience helpers mutate controls/theme",
+    {
+      disabled: snaps[0].controls[2].disabled,
+      option: snaps[0].controls[1].options[1].value,
+      sectionText: snaps[0].controls[4].text,
+      bg: snaps[0].theme.background
+    },
+    { disabled: true, option: "study", sectionText: "More settings", bg: "#111" });
+
+  assertEqual("S14: notice builder creates text panel",
+    panel.notice({ id: "notice", message: "Heads up", scope: (url) => typeof url === "string" && url.includes("youtube.com") }),
+    "notice");
+  assertEqual("S14: confirm builder creates submit/cancel buttons",
+    panel.confirm({ id: "confirm-delete", message: "Are you sure?", scope: (url) => typeof url === "string" && url.includes("youtube.com") }),
+    "confirm-delete");
+  assertEqual("S14: builder button action is preserved",
+    panelsBucket["confirm-delete"].controls[1].action,
+    "submit");
 
   panel.getOrCreatePanel({
     id: "yt-panel",
@@ -755,6 +809,219 @@ log.section("S14: panel helper state + snapshots");
   panel.__cb_refreshDisplayedPanels();
   snaps = panel.__cb_getDisplayedPanelSnapshots();
   assertEqual("S14: off-scope URL hides panel", snaps.length, 0);
+
+  const acc = {};
+  const accHelpers = H.createEventGroupHelpers({
+    groupId: "g-panel-change",
+    panelsBucket: {},
+    panelPredicatesBucket: {},
+    persistenceBucket: {},
+    accumulatorRef: { get: () => acc },
+    dispatchContextRef: () => ({
+      currentUrl: "https://example.com/",
+      panelDisplayedSet: new Set()
+    })
+  });
+  const panel2 = accHelpers.getPanelHelper();
+  panel2.create({
+    id: "stable",
+    title: "Stable",
+    controls: [{ id: "flag", type: "checkbox", value: false }]
+  });
+  assertEqual("S14: create marks panel changed",
+    acc.panelRegistryChanged, true);
+  acc.panelRegistryChanged = false;
+  panel2.update("stable", {
+    title: "Stable",
+    controls: [{ id: "flag", type: "checkbox", value: false }]
+  });
+  assertEqual("S14: identical update does not mark panel changed",
+    acc.panelRegistryChanged, false);
+  panel2.update("stable", {
+    title: "Changed",
+    controls: [{ id: "flag", type: "checkbox", value: false }]
+  });
+  assertEqual("S14: real update marks panel changed",
+    acc.panelRegistryChanged, true);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// S15: expanded panel control types and timer elements.
+// ────────────────────────────────────────────────────────────────────────
+log.section("S15: expanded panel controls + timer element");
+{
+  const dc = {
+    currentUrl: "https://example.com/",
+    elapsedMs: 0,
+    tickedSet: new Set(),
+    displayedSet: new Set(),
+    panelDisplayedSet: new Set()
+  };
+  const timersBucket = {};
+  const panelsBucket = {};
+  const helpers = H.createEventGroupHelpers({
+    groupId: "g-panel-controls",
+    timersBucket,
+    panelsBucket,
+    panelPredicatesBucket: {},
+    persistenceBucket: {},
+    dispatchContextRef: () => dc
+  });
+  const timer = helpers.getTimerHelper();
+  const panel = helpers.getPanelHelper();
+
+  timer.create({
+    id: "focus",
+    displayName: "Focus",
+    direction: "backward",
+    currentMs: 90000,
+    scope: () => true,
+    domain: () => true
+  });
+
+  panel.create({
+    id: "expanded",
+    title: "Expanded controls",
+    controls: [
+      { id: "liveTimer", type: "timer", timerId: "focus", format: "mm:ss", showProgress: true },
+      { id: "snapshotTimer", type: "timer", timer: timer.getState("focus"), format: "ss" },
+      { id: "minutes", type: "numberInput", value: 25, min: 1, max: 120, step: 5 },
+      { id: "strictness", type: "range", value: 7, min: 1, max: 10, step: 1 },
+      { id: "enabled", type: "toggle", value: true },
+      { id: "mode", type: "radio", value: "strict", options: ["soft", "strict", "lockdown"] },
+      { id: "startDate", type: "date", value: "2026-06-02" },
+      { id: "startTime", type: "time", value: "09:30" },
+      { id: "accent", type: "color", value: "#3366ff" }
+    ]
+  });
+
+  panel.__cb_refreshDisplayedPanels();
+  let snap = panel.__cb_getDisplayedPanelSnapshots()[0];
+  assertEqual("S15: new control types are preserved",
+    snap.controls.map((control) => control.type),
+    ["timer", "timer", "numberInput", "range", "toggle", "radio", "date", "time", "color"]);
+  assertEqual("S15: timerId control hydrates live timer snapshot",
+    { timerId: snap.controls[0].timerId, currentMs: snap.controls[0].timer.currentMs, displayName: snap.controls[0].timer.displayName },
+    { timerId: "focus", currentMs: 90000, displayName: "Focus" });
+  assertEqual("S15: timer object snapshot is preserved",
+    { timerId: snap.controls[1].timer.id, currentMs: snap.controls[1].timer.currentMs },
+    { timerId: "focus", currentMs: 90000 });
+  assertEqual("S15: timer controls are display-only values",
+    Object.prototype.hasOwnProperty.call(snap.values, "liveTimer") || Object.prototype.hasOwnProperty.call(snap.values, "snapshotTimer"),
+    false);
+  assertEqual("S15: values keep typed new input semantics",
+    {
+      minutes: snap.values.minutes,
+      strictness: snap.values.strictness,
+      enabled: snap.values.enabled,
+      mode: snap.values.mode,
+      startDate: snap.values.startDate,
+      startTime: snap.values.startTime,
+      accent: snap.values.accent
+    },
+    {
+      minutes: 25,
+      strictness: 7,
+      enabled: true,
+      mode: "strict",
+      startDate: "2026-06-02",
+      startTime: "09:30",
+      accent: "#3366ff"
+    });
+
+  panel.setValue("expanded", "minutes", 999);
+  panel.setValue("expanded", "strictness", -5);
+  panel.setValue("expanded", "enabled", false);
+  panel.setValue("expanded", "mode", "lockdown");
+  panel.setValue("expanded", "startDate", "bad-date");
+  panel.setValue("expanded", "startTime", "25:00");
+  panel.setValue("expanded", "accent", "red");
+  snap = panel.__cb_getDisplayedPanelSnapshots()[0];
+  assertEqual("S15: new input values sanitize on setValue",
+    {
+      minutes: snap.values.minutes,
+      strictness: snap.values.strictness,
+      enabled: snap.values.enabled,
+      mode: snap.values.mode,
+      startDate: snap.values.startDate,
+      startTime: snap.values.startTime,
+      accent: snap.values.accent
+    },
+    {
+      minutes: 120,
+      strictness: 1,
+      enabled: false,
+      mode: "lockdown",
+      startDate: "",
+      startTime: "",
+      accent: "#000000"
+    });
+
+  dc.elapsedMs = 30000;
+  dc.tickedSet = new Set();
+  timer.__cb_tickAllScopedTimers();
+  snap = panel.__cb_getDisplayedPanelSnapshots()[0];
+  assertEqual("S15: timer element reflects current timer bucket state",
+    snap.controls[0].timer.currentMs,
+    60000);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// S16: local folder helper async intents.
+// ────────────────────────────────────────────────────────────────────────
+log.section("S16: local folder helper intents");
+{
+  const accumulator = {};
+  const helpers = H.createEventGroupHelpers({
+    groupId: "g-local",
+    persistenceBucket: {},
+    accumulatorRef: { get: () => accumulator },
+    dispatchContextRef: () => ({ currentUrl: "https://example.com/" })
+  });
+  const folder = helpers.getLocalFolderHelper();
+  const readId = folder.requestRead("notes/focus.txt");
+  const writeId = folder.requestWrite("data/today.csv", "time,site\n1,example.com\n");
+  const appendId = folder.requestAppend("notes/focus.txt", "more\n");
+  const listId = folder.requestList("notes");
+  const rootListId = folder.requestList();
+  const existsId = folder.requestExists("config/settings.json");
+  const readJsonId = folder.requestReadJson("config/settings.json");
+  const writeJsonId = folder.requestWriteJson("config/settings.json", { enabled: true, count: 2 });
+
+  assert("S16: request methods return request ids",
+    [readId, writeId, appendId, listId, rootListId, existsId, readJsonId, writeJsonId].every((id) => typeof id === "string" && id));
+  assertEqual("S16: local file intents carry action/path/group",
+    accumulator.intents.map((intent) => ({ kind: intent.kind, action: intent.action, path: intent.path, groupId: intent.groupId })),
+    [
+      { kind: "localFile", action: "read", path: "notes/focus.txt", groupId: "g-local" },
+      { kind: "localFile", action: "write", path: "data/today.csv", groupId: "g-local" },
+      { kind: "localFile", action: "append", path: "notes/focus.txt", groupId: "g-local" },
+      { kind: "localFile", action: "list", path: "notes", groupId: "g-local" },
+      { kind: "localFile", action: "list", path: "", groupId: "g-local" },
+      { kind: "localFile", action: "exists", path: "config/settings.json", groupId: "g-local" },
+      { kind: "localFile", action: "readJson", path: "config/settings.json", groupId: "g-local" },
+      { kind: "localFile", action: "writeJson", path: "config/settings.json", groupId: "g-local" }
+    ]);
+  assertEqual("S16: write text and JSON payloads are preserved",
+    {
+      text: accumulator.intents[1].text,
+      value: accumulator.intents[7].value,
+      directoryPath: accumulator.intents[3].directoryPath
+    },
+    {
+      text: "time,site\n1,example.com\n",
+      value: { enabled: true, count: 2 },
+      directoryPath: "notes"
+    });
+
+  const beforeInvalid = accumulator.intents.length;
+  assertEqual("S16: rejects unsupported extension", folder.requestRead("notes/focus.md"), "");
+  assertEqual("S16: rejects traversal", folder.requestWrite("../secrets.txt", "bad"), "");
+  assertEqual("S16: rejects hidden path", folder.requestRead(".hidden.txt"), "");
+  assertEqual("S16: rejects invalid JSON helper extension", folder.requestWriteJson("notes/focus.txt", { bad: true }), "");
+  assertEqual("S16: invalid local folder requests do not enqueue intents",
+    accumulator.intents.length,
+    beforeInvalid);
 }
 
 // ────────────────────────────────────────────────────────────────────────

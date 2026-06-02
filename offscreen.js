@@ -217,9 +217,253 @@ window.addEventListener("message", (event) => {
   }
 });
 
+// ────────────────────────────────────────────────────────────────────────
+// Local folder broker. Popup stores a user-granted directory handle in
+// IndexedDB; custom rules enqueue async intents; background asks this
+// offscreen window to perform the file operation.
+// ────────────────────────────────────────────────────────────────────────
+const LOCAL_FOLDER_DB_NAME = "custom-blocker-local-folder";
+const LOCAL_FOLDER_DB_VERSION = 1;
+const LOCAL_FOLDER_STORE = "handles";
+const LOCAL_FOLDER_ROOT_KEY = "root";
+const LOCAL_FOLDER_MAX_BYTES = 1024 * 1024;
+const LOCAL_FOLDER_EXTENSIONS = new Set([".txt", ".csv", ".json"]);
+
+function openLocalFolderDb() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(LOCAL_FOLDER_DB_NAME, LOCAL_FOLDER_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(LOCAL_FOLDER_STORE)) db.createObjectStore(LOCAL_FOLDER_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not open local folder storage."));
+  });
+}
+
+async function readLocalFolderDbValue(key) {
+  const db = await openLocalFolderDb();
+  return await new Promise((resolve, reject) => {
+    const tx = db.transaction(LOCAL_FOLDER_STORE, "readonly");
+    const store = tx.objectStore(LOCAL_FOLDER_STORE);
+    const request = store.get(key);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not read local folder storage."));
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => {
+      try { db.close(); } catch (_) {}
+      reject(tx.error || new Error("Could not read local folder storage."));
+    };
+  });
+}
+
+function localFolderExtensionOf(path) {
+  const match = String(path || "").toLowerCase().match(/(\.[a-z0-9]+)$/);
+  return match ? match[1] : "";
+}
+
+function normalizeLocalFolderPath(path, { allowDirectory = false } = {}) {
+  const raw = String(path ?? "").trim().replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/$/, "");
+  if (!raw && allowDirectory) return { ok: true, path: "", parts: [], ext: "" };
+  if (!raw || raw.startsWith("/") || /^[a-z]:\//i.test(raw) || /^[a-z][a-z0-9+.-]*:/i.test(raw)) {
+    return { ok: false, error: "invalid-path" };
+  }
+  const parts = raw.split("/").filter(Boolean);
+  if (parts.length === 0) return { ok: false, error: "invalid-path" };
+  for (const part of parts) {
+    if (part === "." || part === ".." || part.startsWith(".")) return { ok: false, error: "invalid-path" };
+    if (!/^[A-Za-z0-9 _.,@()\-]+$/.test(part)) return { ok: false, error: "invalid-path" };
+  }
+  const normalized = parts.join("/");
+  const ext = localFolderExtensionOf(normalized);
+  if (!allowDirectory && !LOCAL_FOLDER_EXTENSIONS.has(ext)) {
+    return { ok: false, error: "unsupported-file-type" };
+  }
+  return { ok: true, path: normalized, parts, ext };
+}
+
+async function getLocalFolderRootHandle() {
+  const handle = await readLocalFolderDbValue(LOCAL_FOLDER_ROOT_KEY);
+  if (!handle || handle.kind !== "directory") {
+    throw new Error("local-folder-not-connected");
+  }
+  return handle;
+}
+
+async function ensureLocalFolderPermission(handle) {
+  if (!handle || typeof handle.queryPermission !== "function") return "granted";
+  try {
+    const state = await handle.queryPermission({ mode: "readwrite" });
+    return state;
+  } catch (_) {
+    return "denied";
+  }
+}
+
+async function getDirectoryByParts(root, parts, { create = false } = {}) {
+  let current = root;
+  for (const part of parts) {
+    current = await current.getDirectoryHandle(part, { create });
+  }
+  return current;
+}
+
+async function getFileByPath(root, normalized, { create = false } = {}) {
+  const dirParts = normalized.parts.slice(0, -1);
+  const fileName = normalized.parts[normalized.parts.length - 1];
+  const directory = await getDirectoryByParts(root, dirParts, { create });
+  return await directory.getFileHandle(fileName, { create });
+}
+
+function byteLengthOf(text) {
+  return new TextEncoder().encode(String(text ?? "")).byteLength;
+}
+
+function baseLocalFileResponse(request, patch = {}) {
+  return {
+    ok: patch.ok === true,
+    eventName: patch.eventName || request.action || "",
+    action: request.action || "",
+    path: typeof request.path === "string" ? request.path : "",
+    directoryPath: typeof request.directoryPath === "string" ? request.directoryPath : "",
+    requestId: typeof request.requestId === "string" ? request.requestId : "",
+    ...patch
+  };
+}
+
+async function handleLocalFileRequest(request) {
+  const action = typeof request?.action === "string" ? request.action : "";
+  if (action === "status") {
+    const root = await getLocalFolderRootHandle();
+    const permission = await ensureLocalFolderPermission(root);
+    return baseLocalFileResponse(request || {}, {
+      ok: permission === "granted",
+      eventName: "status",
+      hasFolder: true,
+      permission,
+      error: permission === "granted" ? "" : "local-folder-permission-required"
+    });
+  }
+  const allowDirectory = action === "list";
+  const normalized = normalizeLocalFolderPath(
+    allowDirectory ? (request.directoryPath || request.path || "") : request.path,
+    { allowDirectory }
+  );
+  if (!normalized.ok) {
+    return baseLocalFileResponse(request || {}, { ok: false, eventName: "error", error: normalized.error });
+  }
+  const root = await getLocalFolderRootHandle();
+  const permission = await ensureLocalFolderPermission(root);
+  if (permission !== "granted") {
+    return baseLocalFileResponse(request || {}, { ok: false, eventName: "error", error: "local-folder-permission-required" });
+  }
+
+  if (action === "list") {
+    const directory = await getDirectoryByParts(root, normalized.parts, { create: false });
+    const entries = [];
+    for await (const [name, handle] of directory.entries()) {
+      if (!name || name.startsWith(".")) continue;
+      const entryPath = normalized.path ? normalized.path + "/" + name : name;
+      if (handle.kind === "directory") {
+        entries.push({ name, path: entryPath, kind: "directory" });
+      } else if (handle.kind === "file" && LOCAL_FOLDER_EXTENSIONS.has(localFolderExtensionOf(name))) {
+        entries.push({ name, path: entryPath, kind: "file", extension: localFolderExtensionOf(name) });
+      }
+    }
+    entries.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+    return baseLocalFileResponse(request, { ok: true, eventName: "list", directoryPath: normalized.path, entries });
+  }
+
+  if (action === "exists") {
+    try {
+      await getFileByPath(root, normalized, { create: false });
+      return baseLocalFileResponse(request, { ok: true, eventName: "exists", exists: true });
+    } catch (_) {
+      return baseLocalFileResponse(request, { ok: true, eventName: "exists", exists: false });
+    }
+  }
+
+  if (action === "read" || action === "readJson") {
+    const handle = await getFileByPath(root, normalized, { create: false });
+    const file = await handle.getFile();
+    if (file.size > LOCAL_FOLDER_MAX_BYTES) {
+      return baseLocalFileResponse(request, { ok: false, eventName: "error", error: "file-too-large", bytes: file.size });
+    }
+    const text = await file.text();
+    if (action === "readJson") {
+      try {
+        return baseLocalFileResponse(request, {
+          ok: true,
+          eventName: "read",
+          text,
+          value: JSON.parse(text),
+          bytes: file.size
+        });
+      } catch (_) {
+        return baseLocalFileResponse(request, { ok: false, eventName: "error", error: "invalid-json", text });
+      }
+    }
+    return baseLocalFileResponse(request, { ok: true, eventName: "read", text, bytes: file.size });
+  }
+
+  if (action === "write" || action === "writeJson" || action === "append") {
+    let text = "";
+    if (action === "writeJson") {
+      text = JSON.stringify(request.value, null, 2);
+    } else {
+      text = String(request.text ?? "");
+    }
+    if (action === "append") {
+      const existingHandle = await getFileByPath(root, normalized, { create: true });
+      let existing = "";
+      try {
+        const existingFile = await existingHandle.getFile();
+        if (existingFile.size > LOCAL_FOLDER_MAX_BYTES) {
+          return baseLocalFileResponse(request, { ok: false, eventName: "error", error: "file-too-large", bytes: existingFile.size });
+        }
+        existing = await existingFile.text();
+      } catch (_) {}
+      text = existing + text;
+    }
+    const bytes = byteLengthOf(text);
+    if (bytes > LOCAL_FOLDER_MAX_BYTES) {
+      return baseLocalFileResponse(request, { ok: false, eventName: "error", error: "file-too-large", bytes });
+    }
+    const handle = await getFileByPath(root, normalized, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(text);
+    await writable.close();
+    return baseLocalFileResponse(request, {
+      ok: true,
+      eventName: action === "append" ? "append" : "write",
+      bytes
+    });
+  }
+
+  return baseLocalFileResponse(request || {}, { ok: false, eventName: "error", error: "unsupported-action" });
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message !== "object") {
     return false;
+  }
+  if (message.type === "local-file-request") {
+    (async () => {
+      try {
+        const result = await handleLocalFileRequest(message.request || {});
+        sendResponse({ ok: true, result });
+      } catch (error) {
+        sendResponse({
+          ok: true,
+          result: baseLocalFileResponse(message.request || {}, {
+            ok: false,
+            eventName: "error",
+            error: String(error?.message || error || "local-file-error")
+          })
+        });
+      }
+    })();
+    return true;
   }
   if (message.type !== "event-sandbox-request") {
     return false;

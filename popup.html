@@ -680,6 +680,28 @@
           When on, shows the on-page debug overlay for custom rules and emits verbose [CustomBlocker] / [CustomBlocker:trace] console output. Your own helpers.log() calls always work regardless.
         </p>
 
+        <section class="section-card settings-section-card">
+          <div class="section-header">
+            <div>
+              <h3 data-i18n="settings.localFolderTitle">Local File Folder</h3>
+              <p class="section-copy" data-i18n="settings.localFolderCopy">
+                Grant a folder for custom rules to read and write .txt, .csv, and .json files. Paths stay inside this folder.
+              </p>
+            </div>
+          </div>
+          <div class="field-actions">
+            <button id="localFolderChooseButton" type="button" class="secondary" data-i18n="settings.localFolderChoose">
+              Choose folder
+            </button>
+            <button id="localFolderRevokeButton" type="button" class="secondary danger" data-i18n="settings.localFolderRevoke">
+              Revoke folder
+            </button>
+          </div>
+          <p id="localFolderStatus" class="field-help" data-i18n="settings.localFolderStatusNone">
+            No folder connected.
+          </p>
+        </section>
+
         <div class="modal-actions">
           <button id="settingsResetButton" type="button" class="secondary danger" data-i18n="settings.reset">
             Reset to defaults

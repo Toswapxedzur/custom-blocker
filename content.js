@@ -1230,6 +1230,37 @@ function refreshSession() {
   );
 }
 
+function refreshPanels() {
+  if (exitAttempted || extensionContextInvalid) return;
+  if (!isExtensionContextValid()) {
+    shutdownContentScript();
+    return;
+  }
+  try {
+    chrome.runtime.sendMessage({
+      type: "get-custom-panels",
+      url: location.href
+    }).then((message) => {
+      if (!message || !message.ok) return;
+      __cb_processApplyMessage({
+        type: "event-sandbox-apply",
+        descriptor: message.descriptor || { type: "panelRefreshEvent" },
+        panelSnapshots: Array.isArray(message.panelSnapshots) ? message.panelSnapshots : [],
+        panelGroups: Array.isArray(message.panelGroups) ? message.panelGroups : [],
+        logs: Array.isArray(message.logs) ? message.logs : [],
+        domOps: [],
+        intents: []
+      });
+    }).catch((error) => {
+      if (isContextInvalidatedError(error)) shutdownContentScript();
+      else cbDebugWarn("[CustomBlocker] panel refresh failed", error);
+    });
+  } catch (error) {
+    if (isContextInvalidatedError(error)) shutdownContentScript();
+    else cbDebugWarn("[CustomBlocker] panel refresh failed", error);
+  }
+}
+
 if (/^https?:$/i.test(location.protocol)) {
   refreshSession();
 
@@ -1461,6 +1492,7 @@ const __cb_PANEL_ROOT_ID = "__custom_blocker_panel_root__";
 const __cb_PANEL_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right", "center"];
 const __cb_activePanelElements = new Map(); // groupId:panelId -> element
 const __cb_panelStacks = new Map(); // position -> element
+const __cb_PANEL_STYLE_ID = "__custom_blocker_panel_style__";
 
 function __cb_safePanelText(value, max = 1000) {
   const text = String(value ?? "");
@@ -1483,13 +1515,88 @@ function __cb_safeCssSize(value, fallback) {
   return fallback;
 }
 
+function __cb_safeCssControlWidth(value) {
+  const text = String(value ?? "").trim();
+  if (text === "full") return "100%";
+  if (text === "auto") return "auto";
+  if (/^\d+(?:\.\d+)?px$/i.test(text)) return text;
+  if (/^\d+(?:\.\d+)?%$/i.test(text)) return text;
+  return "";
+}
+
+function __cb_safeCssControlHeight(value) {
+  const text = String(value ?? "").trim();
+  if (text === "auto") return "auto";
+  if (/^\d+(?:\.\d+)?px$/i.test(text)) return text;
+  return "";
+}
+
+function __cb_safePanelRole(value, fallback) {
+  return ["region", "dialog", "alert", "status", "form", "group"].includes(value) ? value : fallback;
+}
+
+function __cb_formatPanelTimerMs(ms, format) {
+  const totalMs = Math.max(0, Math.floor(Number(ms) || 0));
+  if (format === "ms") return String(totalMs) + " ms";
+  const totalSeconds = Math.floor(totalMs / 1000);
+  if (format === "ss") return String(totalSeconds) + "s";
+  const seconds = totalSeconds % 60;
+  const minutesTotal = Math.floor(totalSeconds / 60);
+  const minutes = minutesTotal % 60;
+  const hours = Math.floor(minutesTotal / 60);
+  const pad = (value) => String(value).padStart(2, "0");
+  if (format === "hh:mm:ss") return String(hours) + ":" + pad(minutes) + ":" + pad(seconds);
+  return String(minutesTotal) + ":" + pad(seconds);
+}
+
+function __cb_sortedPanelControls(controls) {
+  return (Array.isArray(controls) ? controls.slice() : []).sort((a, b) => {
+    const pa = Number(a?.priority) || 0;
+    const pb = Number(b?.priority) || 0;
+    if (pb !== pa) return pb - pa;
+    return 0;
+  });
+}
+
+function __cb_panelLayoutStyle(layout, align) {
+  const normalized = String(layout || "vertical");
+  const alignItems = align === "center" ? "center" : align === "right" ? "flex-end" : "flex-start";
+  const map = {
+    compact: ["display:flex", "flex-direction:column", "gap:5px", "align-items:" + alignItems],
+    comfortable: ["display:flex", "flex-direction:column", "gap:10px", "align-items:" + alignItems],
+    spacious: ["display:flex", "flex-direction:column", "gap:14px", "align-items:" + alignItems],
+    inline: ["display:flex", "flex-direction:row", "gap:8px", "align-items:center", "flex-wrap:nowrap"],
+    row: ["display:flex", "flex-direction:row", "gap:8px", "align-items:center", "flex-wrap:nowrap"],
+    wrap: ["display:flex", "flex-direction:row", "gap:8px", "align-items:center", "flex-wrap:wrap"],
+    twoColumn: ["display:grid", "grid-template-columns:repeat(2, minmax(0, max-content))", "gap:8px 10px", "align-items:start"],
+    grid: ["display:grid", "grid-template-columns:repeat(auto-fit, minmax(120px, max-content))", "gap:8px", "align-items:start"],
+    split: ["display:grid", "grid-template-columns:1fr auto", "gap:8px 10px", "align-items:center"],
+    form: ["display:grid", "grid-template-columns:max-content max-content", "gap:8px 10px", "align-items:center"],
+    toolbar: ["display:flex", "flex-direction:row", "gap:6px", "align-items:center", "flex-wrap:wrap"],
+    stack: ["display:flex", "flex-direction:column", "gap:2px", "align-items:" + alignItems]
+  };
+  return (map[normalized] || ["display:flex", "flex-direction:column", "gap:8px", "align-items:" + alignItems])
+    .concat(["text-align:" + align, "width:fit-content", "max-width:100%"])
+    .join(";");
+}
+
+function __cb_panelSnapshotKey(snapshot) {
+  try {
+    return JSON.stringify(snapshot || {});
+  } catch (_) {
+    return "";
+  }
+}
+
 function __cb_ensurePanelRoot() {
   let host = document.getElementById(__cb_PANEL_ROOT_ID);
   if (host && host.isConnected) {
     if (!host.shadowRoot) {
       try { host.attachShadow({ mode: "open" }); } catch (_) {}
     }
-    return host.shadowRoot || host;
+    const root = host.shadowRoot || host;
+    __cb_ensurePanelStyle(root);
+    return root;
   }
   if (!document.body && !document.documentElement) return null;
   host = document.createElement("div");
@@ -1506,8 +1613,50 @@ function __cb_ensurePanelRoot() {
   try {
     root = host.attachShadow({ mode: "open" });
   } catch (_) {}
+  __cb_ensurePanelStyle(root);
   __cb_panelStacks.clear();
   return root;
+}
+
+function __cb_ensurePanelStyle(root) {
+  if (!root || root.getElementById?.(__cb_PANEL_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = __cb_PANEL_STYLE_ID;
+  style.textContent = `
+    button[data-cb-panel-control-type="button"] {
+      transition: transform 80ms ease, filter 120ms ease, box-shadow 120ms ease;
+    }
+    button[data-cb-panel-control-type="button"]:hover:not(:disabled) {
+      filter: brightness(1.08);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+    }
+    button[data-cb-panel-control-type="button"]:active:not(:disabled) {
+      transform: translateY(1px) scale(0.98);
+      filter: brightness(0.92);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+    button[data-cb-panel-control-type="button"]:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
+    }
+    input[data-cb-panel-control-type="checkbox"]:focus-visible,
+    input[data-cb-panel-control-type="toggle"]:focus-visible,
+    input[data-cb-panel-control-type="radio"]:focus-visible,
+    input[data-cb-panel-control-type="numberInput"]:focus-visible,
+    input[data-cb-panel-control-type="range"]:focus-visible,
+    input[data-cb-panel-control-type="date"]:focus-visible,
+    input[data-cb-panel-control-type="time"]:focus-visible,
+    input[data-cb-panel-control-type="color"]:focus-visible,
+    select[data-cb-panel-control-type="select"]:focus-visible,
+    textarea[data-cb-panel-control-type="textarea"]:focus-visible,
+    input[data-cb-panel-control-type="textInput"]:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 2px;
+    }
+  `;
+  try {
+    root.appendChild(style);
+  } catch (_) {}
 }
 
 function __cb_ensurePanelStack(position) {
@@ -1526,10 +1675,10 @@ function __cb_ensurePanelStack(position) {
     "max-width:min(92vw,560px)"
   ];
   const byPosition = {
-    "top-left": ["top:16px", "left:16px", "flex-direction:column", "align-items:flex-start"],
-    "top-right": ["top:16px", "right:16px", "flex-direction:column", "align-items:flex-end"],
-    "bottom-left": ["bottom:16px", "left:16px", "flex-direction:column-reverse", "align-items:flex-start"],
-    "bottom-right": ["bottom:16px", "right:16px", "flex-direction:column-reverse", "align-items:flex-end"],
+    "top-left": ["top:6.4px", "left:6.4px", "flex-direction:column", "align-items:flex-start"],
+    "top-right": ["top:6.4px", "right:6.4px", "flex-direction:column", "align-items:flex-end"],
+    "bottom-left": ["bottom:6.4px", "left:6.4px", "flex-direction:column-reverse", "align-items:flex-start"],
+    "bottom-right": ["bottom:6.4px", "right:6.4px", "flex-direction:column-reverse", "align-items:flex-end"],
     center: ["top:50%", "left:50%", "transform:translate(-50%,-50%)", "flex-direction:column", "align-items:center"]
   };
   stack.style.cssText = common.concat(byPosition[normalized]).join(";");
@@ -1544,12 +1693,11 @@ function __cb_panelKey(groupId, panelId) {
 
 function __cb_removePanel(key) {
   const node = __cb_activePanelElements.get(key);
-  if (node && node.parentNode) node.parentNode.removeChild(node);
+  if (node && node.parentNode) {
+    __cb_sendPanelEvent(node, { id: "", type: "panel" }, "unmount", true);
+    node.parentNode.removeChild(node);
+  }
   __cb_activePanelElements.delete(key);
-}
-
-function __cb_clearPanels() {
-  for (const key of Array.from(__cb_activePanelElements.keys())) __cb_removePanel(key);
 }
 
 function __cb_collectPanelValues(panelEl) {
@@ -1557,9 +1705,14 @@ function __cb_collectPanelValues(panelEl) {
   panelEl.querySelectorAll("[data-cb-panel-control-id]").forEach((el) => {
     const id = el.getAttribute("data-cb-panel-control-id");
     const type = el.getAttribute("data-cb-panel-control-type");
-    if (!id || type === "button" || type === "text") return;
-    if (type === "checkbox") {
+    if (!id || type === "button" || type === "text" || type === "section" || type === "timer") return;
+    if (type === "checkbox" || type === "toggle") {
       values[id] = Boolean(el.checked);
+    } else if (type === "radio") {
+      if (el.checked) values[id] = String(el.value ?? "");
+    } else if (type === "numberInput" || type === "range") {
+      const n = Number(el.value);
+      values[id] = Number.isFinite(n) ? n : 0;
     } else {
       values[id] = String(el.value ?? "");
     }
@@ -1567,27 +1720,72 @@ function __cb_collectPanelValues(panelEl) {
   return values;
 }
 
-function __cb_sendPanelEvent(panelEl, control, eventName, value) {
-  if (!panelEl || !control || typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return;
+function __cb_sendPanelEvent(panelEl, control, eventName, value, extra) {
+  if (!panelEl || !control || extensionContextInvalid || !isExtensionContextValid()) return;
   const values = __cb_collectPanelValues(panelEl);
-  chrome.runtime.sendMessage({
-    type: "custom-panel-event",
-    groupId: panelEl.getAttribute("data-cb-panel-group-id") || "",
-    panelId: panelEl.getAttribute("data-cb-panel-id") || "",
-    controlId: control.id || "",
-    eventName,
-    value,
-    values,
-    url: location.href
-  }).catch((error) => {
-    cbDebugWarn("[CustomBlocker] panel event failed", error);
+  const details = extra && typeof extra === "object" ? extra : {};
+  try {
+    chrome.runtime.sendMessage({
+      type: "custom-panel-event",
+      groupId: panelEl.getAttribute("data-cb-panel-group-id") || "",
+      panelId: panelEl.getAttribute("data-cb-panel-id") || "",
+      controlId: control.id || "",
+      eventName,
+      value,
+      values,
+      key: details.key,
+      code: details.code,
+      keyInfo: details.keyInfo,
+      url: location.href
+    }).catch((error) => {
+      if (isContextInvalidatedError(error)) {
+        shutdownContentScript();
+      } else {
+        cbDebugWarn("[CustomBlocker] panel event failed", error);
+      }
+    });
+  } catch (error) {
+    if (isContextInvalidatedError(error)) {
+      shutdownContentScript();
+    } else {
+      cbDebugWarn("[CustomBlocker] panel event failed", error);
+    }
+  }
+}
+
+function __cb_keyEventInfo(ev) {
+  return {
+    key: String(ev.key || ""),
+    code: String(ev.code || ""),
+    altKey: Boolean(ev.altKey),
+    ctrlKey: Boolean(ev.ctrlKey),
+    metaKey: Boolean(ev.metaKey),
+    shiftKey: Boolean(ev.shiftKey),
+    repeat: Boolean(ev.repeat)
+  };
+}
+
+function __cb_attachPanelControlEvents(panelEl, control, input, valueOf) {
+  const readValue = typeof valueOf === "function" ? valueOf : () => input.value;
+  input.addEventListener("focus", () => __cb_sendPanelEvent(panelEl, control, "focus", readValue()));
+  input.addEventListener("blur", () => __cb_sendPanelEvent(panelEl, control, "blur", readValue()));
+  input.addEventListener("keydown", (ev) => {
+    const keyInfo = __cb_keyEventInfo(ev);
+    __cb_sendPanelEvent(panelEl, control, "key", readValue(), {
+      key: keyInfo.key,
+      code: keyInfo.code,
+      keyInfo
+    });
   });
 }
 
 function __cb_appendPanelControl(panelEl, body, control, theme) {
   if (!control || typeof control !== "object") return;
   const type = control.type || "text";
-  const wrap = document.createElement("label");
+  const label = __cb_safePanelText(control.label || "", 240);
+  const controlWidth = __cb_safeCssControlWidth(control.width);
+  const controlHeight = __cb_safeCssControlHeight(control.height);
+  const wrap = document.createElement("div");
   wrap.style.cssText = [
     "display:flex",
     "flex-direction:column",
@@ -1604,8 +1802,94 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     return;
   }
 
-  const label = __cb_safePanelText(control.label || "", 240);
-  if (label && type !== "checkbox" && type !== "button") {
+  if (type === "section") {
+    const section = document.createElement("section");
+    section.setAttribute("data-cb-panel-control-id", control.id || "");
+    section.setAttribute("data-cb-panel-control-type", "section");
+    section.setAttribute("role", __cb_safePanelRole(control.role, "group"));
+    const sectionAlign = ["left", "center", "right"].includes(control.align) ? control.align : "left";
+    if (control.ariaLabel) section.setAttribute("aria-label", __cb_safePanelText(control.ariaLabel, 240));
+    section.style.cssText = [
+      "box-sizing:border-box",
+      "display:flex",
+      "flex-direction:column",
+      "gap:6px",
+      "padding:8px",
+      "border:1px solid " + __cb_safeCssColor(theme.border, "rgba(148,163,184,0.35)"),
+      "border-radius:10px",
+      "width:" + (controlWidth && controlWidth !== "auto" ? controlWidth : "fit-content"),
+      "max-width:100%",
+      "text-align:" + sectionAlign
+    ].join(";");
+    if (controlHeight) section.style.height = controlHeight;
+    if (label) {
+      const heading = document.createElement("div");
+      heading.textContent = label;
+      heading.style.cssText = "font-weight:700;font-size:0.95em;";
+      section.appendChild(heading);
+    }
+    const text = __cb_safePanelText(control.text || "", 1000);
+    if (text) {
+      const desc = document.createElement("div");
+      desc.textContent = text;
+      desc.style.cssText = "opacity:0.82;white-space:pre-wrap;word-break:break-word;";
+      section.appendChild(desc);
+    }
+    const inner = document.createElement("div");
+    inner.style.cssText = __cb_panelLayoutStyle(control.layout || "vertical", sectionAlign);
+    for (const child of __cb_sortedPanelControls(control.controls)) {
+      __cb_appendPanelControl(panelEl, inner, child, theme);
+    }
+    section.appendChild(inner);
+    body.appendChild(section);
+    return;
+  }
+
+  if (type === "timer") {
+    const timer = control.timer && typeof control.timer === "object" ? control.timer : null;
+    const timerBox = document.createElement("div");
+    timerBox.setAttribute("data-cb-panel-control-id", control.id || "");
+    timerBox.setAttribute("data-cb-panel-control-type", "timer");
+    if (control.timerId) timerBox.setAttribute("data-cb-panel-timer-id", control.timerId);
+    timerBox.style.cssText = [
+      "box-sizing:border-box",
+      "display:flex",
+      "flex-direction:column",
+      "gap:5px",
+      "width:" + (controlWidth && controlWidth !== "auto" ? controlWidth : "fit-content"),
+      "max-width:100%",
+      "color:inherit"
+    ].join(";");
+    const name = label || timer?.displayName || control.timerId || "Timer";
+    const line = document.createElement("div");
+    const currentMs = Number(timer?.currentMs);
+    const hasTimer = timer && Number.isFinite(currentMs);
+    line.textContent = name + ": " + (hasTimer ? __cb_formatPanelTimerMs(currentMs, control.format) : "not available");
+    line.style.cssText = "font-variant-numeric:tabular-nums;font-weight:700;";
+    timerBox.appendChild(line);
+    if (hasTimer && timer.isExpired && control.showExpired !== false) {
+      const expired = document.createElement("div");
+      expired.textContent = "Expired";
+      expired.style.cssText = "opacity:0.82;font-size:0.88em;";
+      timerBox.appendChild(expired);
+    }
+    if (hasTimer && control.showProgress === true) {
+      const bar = document.createElement("progress");
+      bar.max = Math.max(1, currentMs);
+      bar.value = currentMs;
+      bar.style.cssText = "width:100%;height:8px;accent-color:" + __cb_safeCssColor(theme.accent, "#2563eb") + ";";
+      timerBox.appendChild(bar);
+    }
+    body.appendChild(timerBox);
+    return;
+  }
+
+  if (controlWidth) {
+    wrap.style.width = controlWidth;
+    wrap.style.maxWidth = "100%";
+    if (controlWidth === "auto") wrap.style.alignSelf = "flex-start";
+  }
+  if (label && type !== "checkbox" && type !== "toggle" && type !== "button") {
     const labelEl = document.createElement("span");
     labelEl.textContent = label;
     labelEl.style.cssText = "font-size:0.9em;opacity:0.82;";
@@ -1613,19 +1897,67 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
   }
 
   let input = null;
-  if (type === "checkbox") {
+  if (type === "checkbox" || type === "toggle") {
     wrap.style.flexDirection = "row";
     wrap.style.alignItems = "center";
     wrap.style.cursor = control.disabled === true ? "default" : "pointer";
     input = document.createElement("input");
     input.type = "checkbox";
+    input.id = "cb-panel-control-" + Math.random().toString(36).slice(2, 10);
     input.checked = control.value === true;
     input.addEventListener("change", () => __cb_sendPanelEvent(panelEl, control, "change", input.checked));
-    const labelEl = document.createElement("span");
+    input.addEventListener("input", () => __cb_sendPanelEvent(panelEl, control, "input", input.checked));
+    const labelEl = document.createElement("label");
+    labelEl.htmlFor = input.id;
     labelEl.textContent = label;
-    labelEl.style.cssText = "user-select:none;line-height:1.3;";
+    labelEl.style.cssText = "user-select:none;line-height:1.3;cursor:" + (control.disabled === true ? "default" : "pointer") + ";";
     wrap.appendChild(input);
     wrap.appendChild(labelEl);
+  } else if (type === "radio") {
+    const options = Array.isArray(control.options) ? control.options : [];
+    const groupName = "cb-panel-" + (panelEl.getAttribute("data-cb-panel-group-id") || "") + "-" + (panelEl.getAttribute("data-cb-panel-id") || "") + "-" + (control.id || "");
+    const radioGroup = document.createElement("div");
+    radioGroup.setAttribute("role", "radiogroup");
+    if (label) radioGroup.setAttribute("aria-label", label);
+    radioGroup.style.cssText = "display:flex;flex-direction:column;gap:5px;";
+    for (let optionIndex = 0; optionIndex < options.length; optionIndex++) {
+      const option = options[optionIndex];
+      const optionLabel = document.createElement("label");
+      optionLabel.style.cssText = "display:flex;align-items:center;gap:6px;cursor:" + (control.disabled === true ? "default" : "pointer") + ";";
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.id = "cb-panel-control-" + Math.random().toString(36).slice(2, 10) + "-" + optionIndex;
+      radio.name = groupName;
+      radio.value = __cb_safePanelText(option.value, 256);
+      radio.checked = radio.value === __cb_safePanelText(control.value, 256);
+      radio.disabled = control.disabled === true;
+      radio.setAttribute("data-cb-panel-control-id", control.id || "");
+      radio.setAttribute("data-cb-panel-control-type", "radio");
+      radio.addEventListener("change", () => {
+        if (radio.checked) __cb_sendPanelEvent(panelEl, control, "change", radio.value);
+      });
+      radio.addEventListener("input", () => {
+        if (radio.checked) __cb_sendPanelEvent(panelEl, control, "input", radio.value);
+      });
+      __cb_attachPanelControlEvents(panelEl, control, radio, () => radio.value);
+      radio.style.cssText = [
+        "box-sizing:border-box",
+        "width:15px",
+        "height:15px",
+        "margin:0",
+        "accent-color:" + __cb_safeCssColor(theme.accent, "#2563eb"),
+        "cursor:" + (control.disabled === true ? "default" : "pointer")
+      ].join(";");
+      const span = document.createElement("span");
+      span.textContent = __cb_safePanelText(option.label ?? option.value, 256);
+      span.style.cssText = "user-select:none;line-height:1.3;";
+      optionLabel.appendChild(radio);
+      optionLabel.appendChild(span);
+      radioGroup.appendChild(optionLabel);
+    }
+    wrap.appendChild(radioGroup);
+    body.appendChild(wrap);
+    return;
   } else if (type === "select") {
     input = document.createElement("select");
     for (const option of Array.isArray(control.options) ? control.options : []) {
@@ -1636,12 +1968,34 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     }
     input.value = __cb_safePanelText(control.value, 256);
     input.addEventListener("change", () => __cb_sendPanelEvent(panelEl, control, "change", input.value));
+    input.addEventListener("input", () => __cb_sendPanelEvent(panelEl, control, "input", input.value));
+    wrap.appendChild(input);
+  } else if (type === "numberInput" || type === "range" || type === "date" || type === "time" || type === "color") {
+    input = document.createElement("input");
+    input.type = type === "numberInput" ? "number" : type;
+    if (type === "numberInput" || type === "range") {
+      if (Number.isFinite(Number(control.min))) input.min = String(control.min);
+      if (Number.isFinite(Number(control.max))) input.max = String(control.max);
+      if (Number.isFinite(Number(control.step)) && Number(control.step) > 0) input.step = String(control.step);
+      input.value = String(Number.isFinite(Number(control.value)) ? Number(control.value) : 0);
+    } else {
+      input.value = __cb_safePanelText(control.value, type === "color" ? 16 : 64);
+    }
+    input.addEventListener("change", () => {
+      const value = type === "numberInput" || type === "range" ? Number(input.value) || 0 : input.value;
+      __cb_sendPanelEvent(panelEl, control, "change", value);
+    });
+    input.addEventListener("input", () => {
+      const value = type === "numberInput" || type === "range" ? Number(input.value) || 0 : input.value;
+      __cb_sendPanelEvent(panelEl, control, "input", value);
+    });
     wrap.appendChild(input);
   } else if (type === "textarea") {
     input = document.createElement("textarea");
     input.value = __cb_safePanelText(control.value, 2000);
     input.placeholder = __cb_safePanelText(control.placeholder || "", 500);
-    input.rows = 3;
+    input.rows = Number.isFinite(Number(control.rows)) ? Math.max(1, Math.min(12, Math.floor(Number(control.rows)))) : 3;
+    input.addEventListener("input", () => __cb_sendPanelEvent(panelEl, control, "input", input.value));
     input.addEventListener("blur", () => __cb_sendPanelEvent(panelEl, control, "change", input.value));
     input.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) {
@@ -1653,7 +2007,12 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     input = document.createElement("button");
     input.type = "button";
     input.textContent = label || "Button";
-    input.addEventListener("click", () => __cb_sendPanelEvent(panelEl, control, "click", control.value ?? true));
+    input.addEventListener("click", () => {
+      const action = control.action === "submit" || control.action === "cancel" || control.action === "close"
+        ? control.action
+        : "click";
+      __cb_sendPanelEvent(panelEl, control, action, control.value ?? true);
+    });
     input.addEventListener("pointerdown", (ev) => {
       ev.stopPropagation();
     });
@@ -1663,6 +2022,7 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     input.type = "text";
     input.value = __cb_safePanelText(control.value, 2000);
     input.placeholder = __cb_safePanelText(control.placeholder || "", 500);
+    input.addEventListener("input", () => __cb_sendPanelEvent(panelEl, control, "input", input.value));
     input.addEventListener("blur", () => __cb_sendPanelEvent(panelEl, control, "change", input.value));
     input.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") __cb_sendPanelEvent(panelEl, control, "change", input.value);
@@ -1674,7 +2034,19 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     input.disabled = control.disabled === true;
     input.setAttribute("data-cb-panel-control-id", control.id || "");
     input.setAttribute("data-cb-panel-control-type", type);
-    if (type === "checkbox") {
+    if (control.ariaLabel) input.setAttribute("aria-label", __cb_safePanelText(control.ariaLabel, 240));
+    if (control.autoFocus === true) input.setAttribute("data-cb-panel-autofocus", "1");
+    __cb_attachPanelControlEvents(
+      panelEl,
+      control,
+      input,
+      type === "checkbox" || type === "toggle"
+        ? () => input.checked
+        : type === "numberInput" || type === "range"
+          ? () => Number(input.value) || 0
+          : () => input.value
+    );
+    if (type === "checkbox" || type === "toggle") {
       input.style.cssText = [
         "box-sizing:border-box",
         "display:inline-block",
@@ -1692,7 +2064,7 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     } else {
       input.style.cssText = [
         "box-sizing:border-box",
-        "width:100%",
+        "width:" + (controlWidth && controlWidth !== "auto" ? "100%" : "auto"),
         "border:1px solid " + __cb_safeCssColor(theme.border, "rgba(148,163,184,0.55)"),
         "border-radius:8px",
         "padding:7px 9px",
@@ -1700,8 +2072,10 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
         "color:inherit",
         "font:inherit",
         "outline:none",
-        "appearance:auto"
+        "appearance:auto",
+        type === "textarea" ? "resize:none" : ""
       ].join(";");
+      if (controlHeight) input.style.height = controlHeight;
       if (type === "button") {
         input.style.background = __cb_safeCssColor(theme.accent, "#2563eb");
         input.style.color = __cb_safeCssColor(theme.buttonForeground, "#ffffff");
@@ -1724,13 +2098,30 @@ function __cb_renderPanel(snapshot) {
   const stack = __cb_ensurePanelStack(position);
   if (!stack) return null;
   let panelEl = __cb_activePanelElements.get(key);
+  let isNewPanel = false;
   if (!panelEl || !panelEl.isConnected) {
     panelEl = document.createElement("section");
     __cb_activePanelElements.set(key, panelEl);
+    isNewPanel = true;
+  }
+  const snapshotKey = __cb_panelSnapshotKey(snapshot);
+  if (
+    panelEl.parentNode === stack &&
+    panelEl.getAttribute("data-cb-panel-snapshot") === snapshotKey
+  ) {
+    stack.appendChild(panelEl);
+    return key;
   }
   panelEl.setAttribute("data-cb-panel-group-id", groupId);
   panelEl.setAttribute("data-cb-panel-id", panelId);
   panelEl.setAttribute("data-cb-panel-position", position);
+  panelEl.setAttribute("data-cb-panel-snapshot", snapshotKey);
+  panelEl.setAttribute("role", __cb_safePanelRole(snapshot.role, "region"));
+  if (snapshot.ariaLabel) {
+    panelEl.setAttribute("aria-label", __cb_safePanelText(snapshot.ariaLabel, 240));
+  } else {
+    panelEl.removeAttribute("aria-label");
+  }
   panelEl.textContent = "";
 
   const theme = snapshot.theme && typeof snapshot.theme === "object" ? snapshot.theme : {};
@@ -1740,19 +2131,23 @@ function __cb_renderPanel(snapshot) {
   const fontSize = __cb_safeCssSize(snapshot.textSize || theme.fontSize, "13px");
   const titleSize = __cb_safeCssSize(theme.titleSize, "14px");
   const align = ["left", "center", "right"].includes(snapshot.align) ? snapshot.align : "left";
+  const layout = String(snapshot.layout || "vertical");
   const width = snapshot.width === "small"
     ? "220px"
-    : snapshot.width === "large"
-      ? "360px"
-      : snapshot.width === "medium" || !snapshot.width
-        ? "280px"
-        : __cb_safeCssSize(snapshot.width, "280px");
+    : snapshot.width === "medium"
+      ? "280px"
+      : snapshot.width === "large"
+        ? "360px"
+        : snapshot.width
+          ? __cb_safeCssSize(snapshot.width, "fit-content")
+          : "fit-content";
 
   panelEl.style.cssText = [
     "box-sizing:border-box",
     "pointer-events:auto",
     "width:" + width,
-    "max-width:calc(100vw - 32px)",
+    "min-width:0",
+    "max-width:calc(100vw - 16px)",
     "background:" + background,
     "color:" + foreground,
     "border:1px solid " + border,
@@ -1765,6 +2160,19 @@ function __cb_renderPanel(snapshot) {
     "flex-direction:column",
     "gap:9px"
   ].join(";");
+  panelEl.onkeydown = (ev) => {
+    if (ev.target === panelEl) {
+      const keyInfo = __cb_keyEventInfo(ev);
+      __cb_sendPanelEvent(panelEl, { id: "", type: "panel" }, "key", keyInfo.key, {
+        key: keyInfo.key,
+        code: keyInfo.code,
+        keyInfo
+      });
+    }
+    if (snapshot.closable === true && ev.key === "Escape") {
+      __cb_sendPanelEvent(panelEl, { id: "", type: "panel" }, "close", true);
+    }
+  };
 
   const title = __cb_safePanelText(snapshot.title || "", 240);
   if (title) {
@@ -1772,6 +2180,26 @@ function __cb_renderPanel(snapshot) {
     titleEl.textContent = title;
     titleEl.style.cssText = "font-weight:700;font-size:" + titleSize + ";";
     panelEl.appendChild(titleEl);
+  }
+  if (snapshot.closable === true) {
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.textContent = "Close";
+    closeButton.setAttribute("aria-label", "Close panel");
+    closeButton.style.cssText = [
+      "box-sizing:border-box",
+      "align-self:flex-end",
+      "border:1px solid " + border,
+      "border-radius:999px",
+      "padding:3px 8px",
+      "background:rgba(255,255,255,0.08)",
+      "color:inherit",
+      "font:inherit",
+      "font-size:0.82em",
+      "cursor:pointer"
+    ].join(";");
+    closeButton.addEventListener("click", () => __cb_sendPanelEvent(panelEl, { id: "", type: "panel" }, "close", true));
+    panelEl.appendChild(closeButton);
   }
   const description = __cb_safePanelText(snapshot.description || "", 1000);
   if (description) {
@@ -1781,13 +2209,23 @@ function __cb_renderPanel(snapshot) {
     panelEl.appendChild(descEl);
   }
   const body = document.createElement("div");
-  body.style.cssText = "display:flex;flex-direction:column;gap:8px;text-align:" + align + ";";
-  for (const control of Array.isArray(snapshot.controls) ? snapshot.controls : []) {
+  body.style.cssText = __cb_panelLayoutStyle(layout, align);
+  for (const control of __cb_sortedPanelControls(snapshot.controls)) {
     __cb_appendPanelControl(panelEl, body, control, theme);
   }
   panelEl.appendChild(body);
 
-  if (panelEl.parentNode !== stack) stack.appendChild(panelEl);
+  stack.appendChild(panelEl);
+  if (isNewPanel) {
+    __cb_sendPanelEvent(panelEl, { id: "", type: "panel" }, "mount", true);
+  }
+  const autoFocus = panelEl.querySelector("[data-cb-panel-autofocus='1']");
+  if (autoFocus && typeof autoFocus.focus === "function") {
+    try { autoFocus.focus({ preventScroll: true }); } catch (_) { try { autoFocus.focus(); } catch (_) {} }
+  } else if (snapshot.autoFocus === true) {
+    panelEl.tabIndex = -1;
+    try { panelEl.focus({ preventScroll: true }); } catch (_) { try { panelEl.focus(); } catch (_) {} }
+  }
   return key;
 }
 
@@ -1795,7 +2233,13 @@ function __cb_applyPanelSnapshots(panelSnapshots, panelGroups) {
   const snapshots = Array.isArray(panelSnapshots) ? panelSnapshots : [];
   const groups = new Set(Array.isArray(panelGroups) ? panelGroups.filter((id) => typeof id === "string") : []);
   const incoming = new Set();
-  for (const snapshot of snapshots) {
+  const sortedSnapshots = snapshots.slice().sort((a, b) => {
+    const pa = Number(a?.priority) || 0;
+    const pb = Number(b?.priority) || 0;
+    if (pb !== pa) return pb - pa;
+    return String(a?.id || "").localeCompare(String(b?.id || ""));
+  });
+  for (const snapshot of sortedSnapshots) {
     const key = __cb_renderPanel(snapshot);
     if (key) incoming.add(key);
   }
@@ -2440,9 +2884,13 @@ if (document.readyState === "loading") {
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message !== "object") return false;
-    if (message.type === "custom-timers-refresh" || message.type === "custom-panels-refresh") {
-      __cb_clearPanels();
+    if (message.type === "custom-timers-refresh") {
       scheduleRefreshSession(0);
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === "custom-panels-refresh") {
+      refreshPanels();
       sendResponse({ ok: true });
       return true;
     }

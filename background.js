@@ -1919,6 +1919,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "get-custom-panels") {
+    (async () => {
+      await ensureStartupGate();
+      const tabId = sender?.tab?.id ?? null;
+      const tabUrl = normalizeUrlForEvents(message.url || sender?.tab?.url || sender?.url || "");
+      const descriptor = {
+        type: "panelRefreshEvent",
+        tabId,
+        pageId: null,
+        url: tabUrl,
+        hostname: hostnameOf(tabUrl),
+        time: todayContext(),
+        data: null,
+        targetGroupId: null,
+        elapsedMs: 0
+      };
+      const result = await dispatchToSandbox(descriptor);
+      ingestSandboxLogs(result, descriptor);
+      maybeQuarantineFromResult(result, descriptor);
+      const panelPayload = collectPanelSnapshots(result);
+      sendResponse({
+        ok: true,
+        descriptor,
+        panelSnapshots: panelPayload.panels,
+        panelGroups: panelPayload.groups,
+        logs: Array.isArray(result?.logs) ? result.logs : []
+      });
+    })().catch((error) => {
+      sendResponse({ ok: false, error: String(error && error.message ? error.message : error) });
+    });
+    return true;
+  }
+
   if (message?.type === "track-page-time") {
     const tabId = sender?.tab?.id ?? null;
     const tabUrl = sender?.tab?.url || sender?.url || "";
@@ -2339,6 +2372,7 @@ async function loadCustomGroupSource(group) {
       clearState: true
     });
     scheduleCustomTimerRefreshBroadcast();
+    scheduleCustomPanelRefreshBroadcast();
     refreshHandlerCount();
     return { ok: true, handlers: 0, error: null };
   }
@@ -2350,6 +2384,7 @@ async function loadCustomGroupSource(group) {
       clearState: true
     });
     scheduleCustomTimerRefreshBroadcast();
+    scheduleCustomPanelRefreshBroadcast();
     refreshHandlerCount();
     return { ok: true, handlers: 0, error: null };
   }
@@ -2382,6 +2417,7 @@ async function loadCustomGroupSource(group) {
     quarantineGroup(group.id, reason).catch(() => {});
   }
   scheduleCustomTimerRefreshBroadcast();
+  scheduleCustomPanelRefreshBroadcast();
   refreshHandlerCount();
   return result;
 }
@@ -2572,6 +2608,87 @@ async function dispatchToSandbox(descriptor) {
   });
 }
 
+async function sendToLocalFileBroker(request) {
+  await ensureOffscreenDocument();
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "local-file-request",
+      request
+    });
+    if (response && response.ok) return response.result || null;
+  } catch (error) {
+    return {
+      ok: false,
+      eventName: "error",
+      action: request?.action || "",
+      path: request?.path || "",
+      directoryPath: request?.directoryPath || "",
+      requestId: request?.requestId || "",
+      error: String(error?.message || error || "local-file-error")
+    };
+  }
+  return {
+    ok: false,
+    eventName: "error",
+    action: request?.action || "",
+    path: request?.path || "",
+    directoryPath: request?.directoryPath || "",
+    requestId: request?.requestId || "",
+    error: "local-file-broker-unavailable"
+  };
+}
+
+function collectLocalFileIntentsFromResult(result) {
+  const out = [];
+  function add(resultPart) {
+    const intents = Array.isArray(resultPart?.intents) ? resultPart.intents : [];
+    for (const intent of intents) {
+      if (!intent || intent.kind !== "localFile") continue;
+      out.push(intent);
+    }
+  }
+  add(result);
+  if (Array.isArray(result?.synthResults)) {
+    for (const synth of result.synthResults) add(synth?.result);
+  }
+  return out;
+}
+
+async function processLocalFileIntents(result, descriptor, depth = 0) {
+  if (!result || depth > 3) return;
+  const intents = collectLocalFileIntentsFromResult(result);
+  for (const intent of intents) {
+    const groupId = typeof intent.groupId === "string" ? intent.groupId : "";
+    if (!groupId) continue;
+    const brokerResult = await sendToLocalFileBroker(intent);
+    const localFileDescriptor = {
+      type: "localFileEvent",
+      tabId: descriptor?.tabId ?? null,
+      pageId: descriptor?.pageId ?? null,
+      url: descriptor?.url || "",
+      hostname: descriptor?.hostname || "",
+      time: todayContext(),
+      data: brokerResult || {
+        ok: false,
+        eventName: "error",
+        action: intent.action || "",
+        path: intent.path || "",
+        requestId: intent.requestId || "",
+        error: "local-file-error"
+      },
+      targetGroupId: groupId,
+      elapsedMs: 0
+    };
+    const eventResult = await dispatchToSandbox(localFileDescriptor);
+    ingestSandboxLogs(eventResult, localFileDescriptor);
+    maybeQuarantineFromResult(eventResult, localFileDescriptor);
+    await applySandboxResultToTab(localFileDescriptor.tabId, eventResult, localFileDescriptor);
+    if (resultHasTimerRegistryChange(eventResult)) scheduleCustomTimerRefreshBroadcast();
+    if (resultHasPanelRegistryChange(eventResult)) scheduleCustomPanelRefreshBroadcast();
+    await processLocalFileIntents(eventResult, localFileDescriptor, depth + 1);
+  }
+}
+
 function enqueueApply(tabId, message) {
   const list = pendingApplyByTab.get(tabId) || [];
   list.push(message);
@@ -2591,14 +2708,18 @@ async function trySendApply(tabId, message) {
 
 let customTimerRefreshTimeoutId = null;
 
-function resultHasRefreshableUiChange(result) {
+function resultHasTimerRegistryChange(result) {
   if (!result) return false;
   if (result.timerRegistryChanged) return true;
+  if (!Array.isArray(result.synthResults)) return false;
+  return result.synthResults.some((synth) => Boolean(synth?.result?.timerRegistryChanged));
+}
+
+function resultHasPanelRegistryChange(result) {
+  if (!result) return false;
   if (result.panelRegistryChanged) return true;
   if (!Array.isArray(result.synthResults)) return false;
-  return result.synthResults.some((synth) =>
-    Boolean(synth?.result?.timerRegistryChanged || synth?.result?.panelRegistryChanged)
-  );
+  return result.synthResults.some((synth) => Boolean(synth?.result?.panelRegistryChanged));
 }
 
 function scheduleCustomTimerRefreshBroadcast(delayMs = 100) {
@@ -2609,6 +2730,20 @@ function scheduleCustomTimerRefreshBroadcast(delayMs = 100) {
     customTimerRefreshTimeoutId = null;
     broadcastCustomTimerRefresh().catch((error) => {
       try { console.warn("[CustomBlocker] custom timer refresh broadcast failed", error); } catch (_) {}
+    });
+  }, delayMs);
+}
+
+let customPanelRefreshTimeoutId = null;
+
+function scheduleCustomPanelRefreshBroadcast(delayMs = 100) {
+  if (customPanelRefreshTimeoutId !== null) {
+    clearTimeout(customPanelRefreshTimeoutId);
+  }
+  customPanelRefreshTimeoutId = setTimeout(() => {
+    customPanelRefreshTimeoutId = null;
+    broadcastCustomPanelRefresh().catch((error) => {
+      try { console.warn("[CustomBlocker] custom panel refresh broadcast failed", error); } catch (_) {}
     });
   }, delayMs);
 }
@@ -2626,13 +2761,28 @@ async function broadcastCustomTimerRefresh() {
   );
 }
 
+async function broadcastCustomPanelRefresh() {
+  if (!chrome.tabs || !chrome.tabs.query) return;
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (!tab || typeof tab.id !== "number") return;
+      const url = tab.url || tab.pendingUrl || "";
+      if (url && !/^https?:/i.test(url)) return;
+      await trySendApply(tab.id, { type: "custom-panels-refresh" });
+    })
+  );
+}
+
 async function applySandboxResultToTab(tabId, result, descriptor) {
   if (!result || typeof tabId !== "number") return;
   // Aggregate logs from the main dispatch + any synthResults (posted
   // events, timerEnded). Each entry: { level, groupId, args }.
   const logs = Array.isArray(result.logs) ? result.logs.slice() : [];
   const domOps = Array.isArray(result.domOps) ? result.domOps.slice() : [];
-  const intents = Array.isArray(result.intents) ? result.intents.slice() : [];
+  const intents = Array.isArray(result.intents)
+    ? result.intents.filter((intent) => !intent || intent.kind !== "localFile")
+    : [];
   const panelPayload = collectPanelSnapshots(result);
   if (Array.isArray(result.synthResults)) {
     for (const synth of result.synthResults) {
@@ -2640,7 +2790,9 @@ async function applySandboxResultToTab(tabId, result, descriptor) {
       if (!sr) continue;
       if (Array.isArray(sr.logs)) logs.push(...sr.logs);
       if (Array.isArray(sr.domOps)) domOps.push(...sr.domOps);
-      if (Array.isArray(sr.intents)) intents.push(...sr.intents);
+      if (Array.isArray(sr.intents)) {
+        intents.push(...sr.intents.filter((intent) => !intent || intent.kind !== "localFile"));
+      }
     }
   }
   // Skip empty applies (they would only spam the per-tab queue with
@@ -2701,8 +2853,12 @@ async function dispatchEventToTab(type, tabInfo, extras = {}) {
   ingestSandboxLogs(result, descriptor);
   maybeQuarantineFromResult(result, descriptor);
   await applySandboxResultToTab(descriptor.tabId, result, descriptor);
-  if (type !== "pageHeartbeatEvent" && resultHasRefreshableUiChange(result)) {
+  await processLocalFileIntents(result, descriptor);
+  if (type !== "pageHeartbeatEvent" && resultHasTimerRegistryChange(result)) {
     scheduleCustomTimerRefreshBroadcast();
+  }
+  if (type !== "pageHeartbeatEvent" && resultHasPanelRegistryChange(result)) {
+    scheduleCustomPanelRefreshBroadcast();
   }
   return result;
 }
@@ -3090,6 +3246,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } else {
           cbDebugWarn("[CustomBlocker:trace] bg has no active tab id — toast cannot render");
         }
+        await processLocalFileIntents(result, descriptor);
         sendResponse({ ok: true, result });
       } catch (error) {
         cbDebugError("[CustomBlocker:trace] bg fire-snooze-press error", error);
@@ -3129,6 +3286,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         tabId: typeof message.tabId === "number" ? message.tabId : null
       };
       const r = await dispatchToSandbox(descriptor);
+      await processLocalFileIntents(r, descriptor);
       sendResponse({ ok: true, result: r });
     })();
     return true;
@@ -3145,7 +3303,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         controlId: typeof message.controlId === "string" ? message.controlId : "",
         eventName: typeof message.eventName === "string" ? message.eventName : "",
         value: message.value,
-        values: message.values && typeof message.values === "object" ? message.values : {}
+        values: message.values && typeof message.values === "object" ? message.values : {},
+        key: typeof message.key === "string" ? message.key : "",
+        code: typeof message.code === "string" ? message.code : "",
+        keyInfo: message.keyInfo && typeof message.keyInfo === "object" ? message.keyInfo : null
       };
       const result = await dispatchEventToTab(
         "panelEvent",

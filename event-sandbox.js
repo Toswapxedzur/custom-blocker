@@ -246,6 +246,9 @@ function registerInlinePanelHandler(groupId, panelId, controlId, eventName, hand
     ev.eventName = data.eventName || "";
     ev.value = data.value;
     ev.values = data.values && typeof data.values === "object" ? data.values : {};
+    ev.key = data.key || "";
+    ev.code = data.code || "";
+    ev.keyInfo = data.keyInfo && typeof data.keyInfo === "object" ? data.keyInfo : null;
     handler(ev, helpers);
   };
   const ok = registerHandler(groupId, "panelEvent", handlerId, wrapped, options || {});
@@ -326,6 +329,8 @@ const BUILTIN_EVENT_TYPES = [
   "snoozePress",
   // panelEvent fires when a content-script-rendered panel control is used.
   "panelEvent",
+  // localFileEvent fires after getLocalFolderHelper() async file requests.
+  "localFileEvent",
   // pageHeartbeatEvent fires for every visibility-aware content-script
   // heartbeat (≈ every 250ms when the tab is visible and not hidden,
   // matching the default block group's countdown). It carries elapsedMs
@@ -335,6 +340,14 @@ const BUILTIN_EVENT_TYPES = [
   // already auto-tick under it.
   "pageHeartbeatEvent"
 ];
+
+const PANEL_VISIBILITY_EVENT_TYPES = new Set([
+  "panelRefreshEvent",
+  "openWebEvent",
+  "switchWebEvent",
+  "switchDomainEvent",
+  "webChangedEvent"
+]);
 
 function buildEventsRegistry(groupId, dispatchContext) {
   function typedRegister(type) {
@@ -429,6 +442,7 @@ function buildEventsRegistry(groupId, dispatchContext) {
   api.countTimerEndedRegistered = typedCount("timerEnded");
   api.countSnoozePressRegistered = typedCount("snoozePress");
   api.countPanelRegistered = typedCount("panelEvent");
+  api.countLocalFileRegistered = typedCount("localFileEvent");
   // timerEnded and snoozePress wire types lack the Event suffix; expose
   // friendlier aliases so user code can use registerXxxEvent uniformly.
   api.registerTimerEndedEvent = typedRegister("timerEnded");
@@ -443,6 +457,10 @@ function buildEventsRegistry(groupId, dispatchContext) {
   api.getPanelEvent = typedGet("panelEvent");
   api.getPanelEvents = typedGetAll("panelEvent");
   api.countPanelEventRegistered = typedCount("panelEvent");
+  api.registerLocalFileEvent = typedRegister("localFileEvent");
+  api.getLocalFileEvent = typedGet("localFileEvent");
+  api.getLocalFileEvents = typedGetAll("localFileEvent");
+  api.countLocalFileEventRegistered = typedCount("localFileEvent");
 
   return api;
 }
@@ -601,6 +619,26 @@ function buildEventObject(descriptor, recipientGroupId, accumulator) {
     evt.values = descriptor.data.values && typeof descriptor.data.values === "object"
       ? descriptor.data.values
       : {};
+    evt.key = descriptor.data.key || "";
+    evt.code = descriptor.data.code || "";
+    evt.keyInfo = descriptor.data.keyInfo && typeof descriptor.data.keyInfo === "object"
+      ? descriptor.data.keyInfo
+      : null;
+  }
+
+  if (descriptor.type === "localFileEvent" && descriptor.data && typeof descriptor.data === "object") {
+    evt.eventName = descriptor.data.eventName || "";
+    evt.action = descriptor.data.action || evt.eventName || "";
+    evt.path = descriptor.data.path || "";
+    evt.directoryPath = descriptor.data.directoryPath || "";
+    evt.requestId = descriptor.data.requestId || "";
+    evt.ok = descriptor.data.ok === true;
+    evt.text = typeof descriptor.data.text === "string" ? descriptor.data.text : "";
+    evt.value = descriptor.data.value;
+    evt.entries = Array.isArray(descriptor.data.entries) ? descriptor.data.entries.slice() : [];
+    evt.exists = descriptor.data.exists === true;
+    evt.bytes = Number.isFinite(Number(descriptor.data.bytes)) ? Number(descriptor.data.bytes) : 0;
+    evt.error = typeof descriptor.data.error === "string" ? descriptor.data.error : "";
   }
 
   // Allow free-form fields to be set by the user without touching our
@@ -829,9 +867,8 @@ function dispatchEvent(descriptor) {
   const panelSnapshotsByGroup = {};
   const panelGroupsWithPanels = [];
   const shouldCollectPanelSnapshots =
-    descriptor.type !== "pageHeartbeatEvent" ||
-    dispatchElapsedMs === 0 ||
-    accumulator.panelRegistryChanged;
+    Boolean(accumulator.panelRegistryChanged) ||
+    PANEL_VISIBILITY_EVENT_TYPES.has(descriptor.type);
   if (shouldCollectPanelSnapshots) {
     for (const groupId of groupPanels.keys()) {
       const panels = groupPanels.get(groupId);

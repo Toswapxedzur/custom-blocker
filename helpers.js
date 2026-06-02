@@ -647,7 +647,40 @@
   const PANEL_POSITIONS = new Set(["top-left", "top-right", "bottom-left", "bottom-right", "center"]);
   const PANEL_ALIGNS = new Set(["left", "center", "right"]);
   const PANEL_WIDTHS = new Set(["small", "medium", "large"]);
-  const PANEL_CONTROL_TYPES = new Set(["text", "checkbox", "select", "textInput", "textarea", "button"]);
+  const PANEL_LAYOUTS = new Set([
+    "vertical",
+    "compact",
+    "comfortable",
+    "spacious",
+    "inline",
+    "row",
+    "wrap",
+    "twoColumn",
+    "grid",
+    "split",
+    "form",
+    "toolbar",
+    "stack"
+  ]);
+  const PANEL_ROLES = new Set(["region", "dialog", "alert", "status", "form", "group"]);
+  const PANEL_CONTROL_TYPES = new Set([
+    "text",
+    "checkbox",
+    "select",
+    "textInput",
+    "textarea",
+    "button",
+    "section",
+    "timer",
+    "numberInput",
+    "range",
+    "toggle",
+    "radio",
+    "date",
+    "time",
+    "color"
+  ]);
+  const PANEL_CONTROL_ACTIONS = new Set(["submit", "cancel", "close"]);
 
   function truncateText(value, maxLength) {
     const text = String(value ?? "");
@@ -657,7 +690,24 @@
   function normalizePanelControlType(type) {
     if (type === "input") return "textInput";
     if (type === "dropdown") return "select";
+    if (type === "group") return "section";
+    if (type === "number") return "numberInput";
+    if (type === "slider") return "range";
+    if (type === "switch") return "toggle";
     return PANEL_CONTROL_TYPES.has(type) ? type : "text";
+  }
+
+  function sanitizePanelLayout(value) {
+    return PANEL_LAYOUTS.has(value) ? value : "";
+  }
+
+  function sanitizePanelRole(value, fallback = "") {
+    return PANEL_ROLES.has(value) ? value : fallback;
+  }
+
+  function sanitizePanelPriority(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(-1000, Math.min(1000, Math.round(n))) : 0;
   }
 
   function sanitizePanelId(value, fallback = "") {
@@ -707,6 +757,88 @@
     return Math.max(180, Math.min(520, Math.round(n))) + "px";
   }
 
+  function sanitizePanelControlWidth(value) {
+    if (value === "full" || value === "auto") return value;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.max(32, Math.min(520, Math.round(value))) + "px";
+    }
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    if (/^\d+(?:\.\d+)?%$/.test(text)) {
+      const n = Number(text.slice(0, -1));
+      return Math.max(10, Math.min(100, n)).toFixed(2).replace(/\.?0+$/, "") + "%";
+    }
+    const match = text.match(/^(\d+(?:\.\d+)?)px$/i);
+    if (!match) return "";
+    const n = Number(match[1]);
+    if (!Number.isFinite(n)) return "";
+    return Math.max(32, Math.min(520, Math.round(n))) + "px";
+  }
+
+  function sanitizePanelControlHeight(value) {
+    if (value === "auto") return value;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.max(20, Math.min(360, Math.round(value))) + "px";
+    }
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    const match = text.match(/^(\d+(?:\.\d+)?)px$/i);
+    if (!match) return "";
+    const n = Number(match[1]);
+    if (!Number.isFinite(n)) return "";
+    return Math.max(20, Math.min(360, Math.round(n))) + "px";
+  }
+
+  function sanitizePanelRows(value) {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) ? Math.max(1, Math.min(12, n)) : null;
+  }
+
+  function sanitizePanelNumber(value, min, max, fallback = 0) {
+    const n = Number(value);
+    const lower = Number.isFinite(Number(min)) ? Number(min) : -1_000_000;
+    const upper = Number.isFinite(Number(max)) ? Number(max) : 1_000_000;
+    const boundedLower = Math.min(lower, upper);
+    const boundedUpper = Math.max(lower, upper);
+    const base = Number.isFinite(n) ? n : fallback;
+    return Math.max(boundedLower, Math.min(boundedUpper, base));
+  }
+
+  function sanitizePanelStep(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.min(1_000_000, n) : null;
+  }
+
+  function sanitizePanelDateValue(value) {
+    const text = String(value ?? "").trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+  }
+
+  function sanitizePanelTimeValue(value) {
+    const text = String(value ?? "").trim();
+    return /^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(text) ? text : "";
+  }
+
+  function sanitizePanelInputColor(value) {
+    const text = String(value ?? "").trim();
+    return /^#[0-9a-f]{6}$/i.test(text) ? text : "#000000";
+  }
+
+  function sanitizePanelTimerSnapshot(value) {
+    if (!value || typeof value !== "object") return null;
+    const id = sanitizePanelId(value.id);
+    if (!id) return null;
+    const currentMs = Math.max(0, Math.floor(Number(value.currentMs) || 0));
+    return {
+      id,
+      displayName: truncateText(value.displayName ?? id, 240),
+      direction: value.direction === "forward" ? "forward" : "backward",
+      isPaused: value.isPaused === true,
+      currentMs,
+      isExpired: value.isExpired === true || currentMs === 0
+    };
+  }
+
   function sanitizePanelTheme(theme) {
     if (!theme || typeof theme !== "object") return {};
     const out = {};
@@ -721,10 +853,17 @@
     return out;
   }
 
-  function sanitizePanelValue(type, value) {
-    if (type === "checkbox") return value === true;
-    if (type === "select") return truncateText(value, 256);
+  function sanitizePanelValue(type, value, control) {
+    if (type === "checkbox" || type === "toggle") return value === true;
+    if (type === "numberInput" || type === "range") {
+      return sanitizePanelNumber(value, control?.min, control?.max, 0);
+    }
+    if (type === "select" || type === "radio") return truncateText(value, 256);
     if (type === "textInput" || type === "textarea") return truncateText(value, 2000);
+    if (type === "date") return sanitizePanelDateValue(value);
+    if (type === "time") return sanitizePanelTimeValue(value);
+    if (type === "color") return sanitizePanelInputColor(value);
+    if (type === "section" || type === "timer") return "";
     return truncateText(value, 512);
   }
 
@@ -750,30 +889,78 @@
     return out;
   }
 
-  function sanitizePanelControl(control, index) {
+  function sanitizePanelControl(control, index, depth = 0) {
     if (!control || typeof control !== "object") return null;
     const type = normalizePanelControlType(control.type);
     const id = sanitizePanelId(control.id, "control-" + (index + 1));
     if (!id) return null;
-    const value = sanitizePanelValue(type, control.value);
+    const value = sanitizePanelValue(type, control.value, control);
     const out = {
       id,
       type,
       label: truncateText(control.label ?? "", 240),
       value,
-      disabled: control.disabled === true
+      disabled: control.disabled === true,
+      priority: sanitizePanelPriority(control.priority)
     };
+    const layout = sanitizePanelLayout(control.layout);
+    const align = PANEL_ALIGNS.has(control.align) ? control.align : "";
+    const ariaLabel = truncateText(control.ariaLabel ?? control.a11yLabel ?? "", 240);
+    if (layout) out.layout = layout;
+    if (align) out.align = align;
+    if (ariaLabel) out.ariaLabel = ariaLabel;
+    if (control.autoFocus === true) out.autoFocus = true;
+    const width = sanitizePanelControlWidth(control.width);
+    const height = sanitizePanelControlHeight(control.height);
+    const rows = sanitizePanelRows(control.rows);
+    if (width) out.width = width;
+    if (height) out.height = height;
+    if (rows !== null) out.rows = rows;
+    if (type === "numberInput" || type === "range") {
+      const min = Number(control.min);
+      const max = Number(control.max);
+      const step = sanitizePanelStep(control.step);
+      if (Number.isFinite(min)) out.min = Math.max(-1_000_000, Math.min(1_000_000, min));
+      if (Number.isFinite(max)) out.max = Math.max(-1_000_000, Math.min(1_000_000, max));
+      if (step !== null) out.step = step;
+      out.value = sanitizePanelValue(type, value, out);
+    }
     if (type === "text") {
       out.text = truncateText(control.text ?? control.label ?? "", 1000);
+    }
+    if (type === "section") {
+      out.text = truncateText(control.text ?? control.description ?? "", 1000);
+      out.role = sanitizePanelRole(control.role, "group");
+      out.controls = [];
+      const rawChildren = Array.isArray(control.controls) ? control.controls : [];
+      if (depth < 3) {
+        for (let i = 0; i < rawChildren.length && out.controls.length < HELPERS_MAX_PANEL_CONTROLS; i++) {
+          const child = sanitizePanelControl(rawChildren[i], i, depth + 1);
+          if (child) out.controls.push(child);
+        }
+      }
     }
     if (type === "textInput" || type === "textarea") {
       out.placeholder = truncateText(control.placeholder ?? "", 500);
     }
-    if (type === "select") {
+    if (type === "select" || type === "radio") {
       out.options = sanitizePanelOptions(control.options, value);
+    }
+    if (type === "timer") {
+      const timerId = sanitizePanelId(control.timerId ?? control.timer?.id);
+      if (timerId) out.timerId = timerId;
+      const timer = sanitizePanelTimerSnapshot(control.timer);
+      if (timer) out.timer = timer;
+      out.format = ["ms", "ss", "mm:ss", "hh:mm:ss"].includes(control.format) ? control.format : "mm:ss";
+      out.showProgress = control.showProgress === true;
+      out.showExpired = control.showExpired !== false;
+      out.value = "";
     }
     if (type === "button" && !out.label) {
       out.label = truncateText(control.text ?? "Button", 120);
+    }
+    if (type === "button" && PANEL_CONTROL_ACTIONS.has(control.action)) {
+      out.action = control.action;
     }
     return out;
   }
@@ -792,14 +979,22 @@
     const align = PANEL_ALIGNS.has(config.align) ? config.align : "left";
     const width = sanitizePanelWidth(config.width);
     const textSize = sanitizePanelSize(config.textSize ?? config.fontSize);
+    const layout = sanitizePanelLayout(config.layout) || "vertical";
+    const ariaLabel = truncateText(config.ariaLabel ?? config.a11yLabel ?? "", 240);
     return {
       id,
       title: truncateText(config.title ?? "", 240),
       description: truncateText(config.description ?? config.body ?? "", 1000),
       position,
       align,
+      layout,
+      priority: sanitizePanelPriority(config.priority),
       width,
       textSize,
+      ariaLabel,
+      role: sanitizePanelRole(config.role, "region"),
+      closable: config.closable === true,
+      autoFocus: config.autoFocus === true,
       theme: sanitizePanelTheme(config.theme || config.colors || {}),
       controls,
       visible: config.visible !== false
@@ -810,8 +1005,17 @@
     return safeCloneJson(panel) || null;
   }
 
+  function panelStateEquals(left, right) {
+    try {
+      return JSON.stringify(left) === JSON.stringify(right);
+    } catch {
+      return false;
+    }
+  }
+
   function createPanelHelper(ctx) {
     const { groupId, panelsBucket } = ctx;
+    const timersBucket = ctx?.timersBucket && typeof ctx.timersBucket === "object" ? ctx.timersBucket : {};
     const accumulatorRef = ctx?.accumulatorRef
       ? ctx.accumulatorRef
       : { get: () => ensureAccumulatorShape(ctx?.accumulator || {}) };
@@ -829,6 +1033,36 @@
       if (typeof id !== "string" || !id) return null;
       const panel = panelsBucket[id];
       return panel && typeof panel === "object" ? panel : null;
+    }
+
+    function getTimerSnapshot(id) {
+      const timer = timersBucket[id];
+      if (!timer || typeof timer !== "object") return null;
+      const currentMs = Math.max(0, Math.floor(Number(timer.currentMs) || 0));
+      return {
+        id,
+        displayName: truncateText(timer.displayName || id, 240),
+        direction: timer.direction === "forward" ? "forward" : "backward",
+        isPaused: timer.isPaused === true,
+        currentMs,
+        isExpired: currentMs === 0
+      };
+    }
+
+    function hydrateTimerControls(panel) {
+      if (!panel || typeof panel !== "object") return panel;
+      const visit = (controls) => {
+        for (const control of controls || []) {
+          if (control.type === "section") {
+            visit(control.controls);
+          } else if (control.type === "timer" && control.timerId) {
+            const timer = getTimerSnapshot(control.timerId);
+            if (timer) control.timer = timer;
+          }
+        }
+      };
+      visit(panel.controls);
+      return panel;
     }
 
     function markPanelRegistryChanged() {
@@ -875,24 +1109,67 @@
       }
     }
 
+    function eachRawControl(controls, visit, depth = 0) {
+      if (!Array.isArray(controls) || depth > 3) return;
+      for (let i = 0; i < controls.length; i++) {
+        const rawControl = controls[i];
+        if (!rawControl || typeof rawControl !== "object") continue;
+        visit(rawControl, i);
+        eachRawControl(rawControl.controls, visit, depth + 1);
+      }
+    }
+
+    function findControl(panel, controlId) {
+      if (!panel || typeof controlId !== "string" || !controlId) return null;
+      const walk = (controls) => {
+        for (const control of controls || []) {
+          if (control.id === controlId) return control;
+          const child = walk(control.controls);
+          if (child) return child;
+        }
+        return null;
+      };
+      return walk(panel.controls);
+    }
+
     function hasInlineHandlers(rawConfig) {
       if (!rawConfig || typeof rawConfig !== "object") return false;
       if (
         typeof rawConfig.onEvent === "function" ||
         typeof rawConfig.onChange === "function" ||
-        typeof rawConfig.onClick === "function"
+        typeof rawConfig.onClick === "function" ||
+        typeof rawConfig.onInput === "function" ||
+        typeof rawConfig.onFocus === "function" ||
+        typeof rawConfig.onBlur === "function" ||
+        typeof rawConfig.onSubmit === "function" ||
+        typeof rawConfig.onClose === "function" ||
+        typeof rawConfig.onMount === "function" ||
+        typeof rawConfig.onUnmount === "function" ||
+        typeof rawConfig.onKey === "function" ||
+        typeof rawConfig.onKeyDown === "function"
       ) {
         return true;
       }
-      const controls = Array.isArray(rawConfig.controls) ? rawConfig.controls : [];
-      return controls.some((control) =>
-        control && typeof control === "object" &&
-        (
+      let found = false;
+      eachRawControl(rawConfig.controls, (control) => {
+        if (
           typeof control.onEvent === "function" ||
           typeof control.onChange === "function" ||
-          typeof control.onClick === "function"
-        )
-      );
+          typeof control.onClick === "function" ||
+          typeof control.onInput === "function" ||
+          typeof control.onFocus === "function" ||
+          typeof control.onBlur === "function" ||
+          typeof control.onSubmit === "function" ||
+          typeof control.onClose === "function" ||
+          typeof control.onMount === "function" ||
+          typeof control.onUnmount === "function" ||
+          typeof control.onKey === "function" ||
+          typeof control.onKeyDown === "function"
+        ) {
+          found = true;
+        }
+      });
+      return found;
     }
 
     function registerInlineHandlers(id, rawConfig) {
@@ -906,19 +1183,25 @@
         if (typeof handler !== "function") return;
         ctx.registerPanelHandler(id, controlId, eventName, handler, options || {});
       };
-      register(null, "*", rawConfig.onEvent, rawConfig.options);
-      register(null, "change", rawConfig.onChange, rawConfig.options);
-      register(null, "click", rawConfig.onClick, rawConfig.options);
-      const controls = Array.isArray(rawConfig.controls) ? rawConfig.controls : [];
-      for (let i = 0; i < controls.length; i++) {
-        const rawControl = controls[i];
-        if (!rawControl || typeof rawControl !== "object") continue;
+      const registerAll = (controlId, raw, options) => {
+        register(controlId, "*", raw.onEvent, options);
+        register(controlId, "change", raw.onChange, options);
+        register(controlId, "click", raw.onClick, options);
+        register(controlId, "input", raw.onInput, options);
+        register(controlId, "focus", raw.onFocus, options);
+        register(controlId, "blur", raw.onBlur, options);
+        register(controlId, "submit", raw.onSubmit, options);
+        register(controlId, "close", raw.onClose, options);
+        register(controlId, "mount", raw.onMount, options);
+        register(controlId, "unmount", raw.onUnmount, options);
+        register(controlId, "key", raw.onKey || raw.onKeyDown, options);
+      };
+      registerAll(null, rawConfig, rawConfig.options);
+      eachRawControl(rawConfig.controls, (rawControl, i) => {
         const sanitized = sanitizePanelControl(rawControl, i);
-        if (!sanitized) continue;
-        register(sanitized.id, "*", rawControl.onEvent, rawControl.options);
-        register(sanitized.id, "change", rawControl.onChange, rawControl.options);
-        register(sanitized.id, "click", rawControl.onClick, rawControl.options);
-      }
+        if (!sanitized) return;
+        registerAll(sanitized.id, rawControl, rawControl.options);
+      });
     }
 
     function create(config) {
@@ -927,20 +1210,30 @@
       }
       const panel = sanitizePanelConfig(config);
       if (!panel) return null;
+      const previous = getPanel(panel.id);
       panelsBucket[panel.id] = panel;
       rememberPredicates(panel.id, config.scope, config.domain);
       registerInlineHandlers(panel.id, config);
-      markPanelRegistryChanged();
+      if (!panelStateEquals(previous, panel)) {
+        markPanelRegistryChanged();
+      }
       applyScopeAndDomain(panel.id, config.scope, config.domain);
       return panel.id;
     }
 
     function getValues(panel) {
       const out = {};
-      for (const control of panel?.controls || []) {
-        if (control.type === "button" || control.type === "text") continue;
-        out[control.id] = control.value;
-      }
+      const visit = (controls) => {
+        for (const control of controls || []) {
+          if (control.type === "section") {
+            visit(control.controls);
+            continue;
+          }
+          if (control.type === "button" || control.type === "text" || control.type === "timer") continue;
+          out[control.id] = control.value;
+        }
+      };
+      visit(panel?.controls);
       return out;
     }
 
@@ -960,14 +1253,19 @@
         if (!panel || !patch || typeof patch !== "object") return false;
         const next = sanitizePanelConfig({ ...panel, ...patch, id: panel.id });
         if (!next) return false;
-        panelsBucket[panel.id] = next;
+        const changed = !panelStateEquals(panel, next);
+        if (changed) {
+          panelsBucket[panel.id] = next;
+        }
         if (Object.prototype.hasOwnProperty.call(patch, "scope") || Object.prototype.hasOwnProperty.call(patch, "domain")) {
           rememberPredicates(panel.id, patch.scope, patch.domain);
         }
         if (Object.prototype.hasOwnProperty.call(patch, "controls") || hasInlineHandlers(patch)) {
           registerInlineHandlers(panel.id, patch);
         }
-        markPanelRegistryChanged();
+        if (changed) {
+          markPanelRegistryChanged();
+        }
         applyScopeAndDomain(panel.id);
         return true;
       },
@@ -997,17 +1295,76 @@
       setValue(panelId, controlId, value) {
         const panel = getPanel(panelId);
         if (!panel || typeof controlId !== "string") return false;
-        const control = panel.controls.find((item) => item.id === controlId);
-        if (!control || control.type === "button" || control.type === "text") return false;
-        const nextValue = sanitizePanelValue(control.type, value);
+        const control = findControl(panel, controlId);
+        if (!control || control.type === "button" || control.type === "text" || control.type === "timer") return false;
+        const nextValue = sanitizePanelValue(control.type, value, control);
         if (JSON.stringify(control.value) === JSON.stringify(nextValue)) return true;
         control.value = nextValue;
         markPanelRegistryChanged();
         return true;
       },
+      updateControl(panelId, controlId, patch = {}) {
+        const panel = getPanel(panelId);
+        const control = findControl(panel, controlId);
+        if (!control || !patch || typeof patch !== "object") return false;
+        const next = sanitizePanelControl({ ...control, ...patch, id: control.id }, 0);
+        if (!next) return false;
+        if (panelStateEquals(control, next)) return true;
+        for (const key of Object.keys(control)) delete control[key];
+        Object.assign(control, next);
+        markPanelRegistryChanged();
+        return true;
+      },
+      disable(panelId, controlId) {
+        return this.updateControl(panelId, controlId, { disabled: true });
+      },
+      enable(panelId, controlId) {
+        return this.updateControl(panelId, controlId, { disabled: false });
+      },
+      setOptions(panelId, controlId, options) {
+        const panel = getPanel(panelId);
+        const control = findControl(panel, controlId);
+        if (!control || (control.type !== "select" && control.type !== "radio")) return false;
+        return this.updateControl(panelId, controlId, { options });
+      },
+      setText(panelId, controlId, text) {
+        const panel = getPanel(panelId);
+        const control = findControl(panel, controlId);
+        if (!control) return false;
+        if (control.type === "button") return this.updateControl(panelId, controlId, { label: text });
+        if (control.type === "text" || control.type === "section") return this.updateControl(panelId, controlId, { text });
+        return this.updateControl(panelId, controlId, { label: text });
+      },
+      setTheme(panelId, theme) {
+        const panel = getPanel(panelId);
+        if (!panel) return false;
+        const nextTheme = sanitizePanelTheme(theme);
+        if (panelStateEquals(panel.theme, nextTheme)) return true;
+        panel.theme = nextTheme;
+        markPanelRegistryChanged();
+        return true;
+      },
+      setTitle(panelId, title) {
+        const panel = getPanel(panelId);
+        if (!panel) return false;
+        const next = truncateText(title ?? "", 240);
+        if (panel.title === next) return true;
+        panel.title = next;
+        markPanelRegistryChanged();
+        return true;
+      },
+      setDescription(panelId, description) {
+        const panel = getPanel(panelId);
+        if (!panel) return false;
+        const next = truncateText(description ?? "", 1000);
+        if (panel.description === next) return true;
+        panel.description = next;
+        markPanelRegistryChanged();
+        return true;
+      },
       getValue(panelId, controlId) {
         const panel = getPanel(panelId);
-        const control = panel?.controls?.find((item) => item.id === controlId);
+        const control = findControl(panel, controlId);
         return control ? safeCloneJson(control.value) : undefined;
       },
       getValues(panelId) {
@@ -1015,10 +1372,71 @@
       },
       getState(id) {
         const panel = getPanel(id);
-        return panel ? clonePanelForSnapshot(panel) : null;
+        return panel ? hydrateTimerControls(clonePanelForSnapshot(panel)) : null;
       },
       list() {
-        return Object.keys(panelsBucket).map((id) => clonePanelForSnapshot(panelsBucket[id])).filter(Boolean);
+        return Object.keys(panelsBucket).map((id) => hydrateTimerControls(clonePanelForSnapshot(panelsBucket[id]))).filter(Boolean);
+      },
+      notice(config = {}) {
+        return create({
+          position: "bottom-right",
+          layout: "compact",
+          role: "status",
+          ...config,
+          controls: [
+            ...(config.message || config.text ? [{ id: "message", type: "text", text: config.message ?? config.text }] : []),
+            ...(Array.isArray(config.controls) ? config.controls : [])
+          ]
+        });
+      },
+      confirm(config = {}) {
+        const confirmText = truncateText(config.confirmText ?? "Confirm", 120);
+        const cancelText = truncateText(config.cancelText ?? "Cancel", 120);
+        return create({
+          position: "center",
+          layout: "compact",
+          role: "dialog",
+          ...config,
+          controls: [
+            ...(config.message || config.text ? [{ id: "message", type: "text", text: config.message ?? config.text }] : []),
+            ...(Array.isArray(config.controls) ? config.controls : []),
+            {
+              id: config.confirmId || "confirm",
+              type: "button",
+              label: confirmText,
+              action: "submit",
+              priority: 1
+            },
+            {
+              id: config.cancelId || "cancel",
+              type: "button",
+              label: cancelText,
+              action: "cancel"
+            }
+          ]
+        });
+      },
+      checklist(config = {}) {
+        const items = Array.isArray(config.items) ? config.items : [];
+        return create({
+          layout: "compact",
+          ...config,
+          controls: items.map((item, index) => {
+            if (item && typeof item === "object") {
+              return { type: "checkbox", id: item.id || ("item-" + (index + 1)), label: item.label ?? item.text ?? item.id, value: item.value === true };
+            }
+            return { type: "checkbox", id: "item-" + (index + 1), label: item, value: false };
+          }).concat(Array.isArray(config.controls) ? config.controls : [])
+        });
+      },
+      form(config = {}) {
+        const fields = Array.isArray(config.fields) ? config.fields : [];
+        return create({
+          layout: config.layout || "form",
+          role: "form",
+          ...config,
+          controls: fields.concat(Array.isArray(config.controls) ? config.controls : [])
+        });
       },
       __cb_applyPanelEvent(data) {
         if (!data || typeof data !== "object") return false;
@@ -1028,19 +1446,26 @@
         let changed = false;
         const values = data.values && typeof data.values === "object" ? data.values : null;
         if (values) {
-          for (const control of panel.controls) {
-            if (control.type === "button" || control.type === "text") continue;
-            if (!Object.prototype.hasOwnProperty.call(values, control.id)) continue;
-            const nextValue = sanitizePanelValue(control.type, values[control.id]);
-            if (JSON.stringify(control.value) !== JSON.stringify(nextValue)) {
-              control.value = nextValue;
-              changed = true;
+          const applyValues = (controls) => {
+            for (const control of controls || []) {
+              if (control.type === "section") {
+                applyValues(control.controls);
+                continue;
+              }
+              if (control.type === "button" || control.type === "text" || control.type === "timer") continue;
+              if (!Object.prototype.hasOwnProperty.call(values, control.id)) continue;
+              const nextValue = sanitizePanelValue(control.type, values[control.id], control);
+              if (JSON.stringify(control.value) !== JSON.stringify(nextValue)) {
+                control.value = nextValue;
+                changed = true;
+              }
             }
-          }
+          };
+          applyValues(panel.controls);
         } else if (typeof data.controlId === "string") {
-          const control = panel.controls.find((item) => item.id === data.controlId);
-          if (control && control.type !== "button" && control.type !== "text") {
-            const nextValue = sanitizePanelValue(control.type, data.value);
+          const control = findControl(panel, data.controlId);
+          if (control && control.type !== "button" && control.type !== "text" && control.type !== "timer") {
+            const nextValue = sanitizePanelValue(control.type, data.value, control);
             if (JSON.stringify(control.value) !== JSON.stringify(nextValue)) {
               control.value = nextValue;
               changed = true;
@@ -1063,10 +1488,17 @@
           const panel = getPanel(id);
           const snap = panel ? clonePanelForSnapshot(panel) : null;
           if (snap) {
+            hydrateTimerControls(snap);
             snap.values = getValues(panel);
             out.push(snap);
           }
         }
+        out.sort((a, b) => {
+          const pa = Number(a.priority) || 0;
+          const pb = Number(b.priority) || 0;
+          if (pb !== pa) return pb - pa;
+          return String(a.id || "").localeCompare(String(b.id || ""));
+        });
         return out;
       }
     };
@@ -1405,6 +1837,82 @@
         if (acc.intents.length >= HELPERS_MAX_INTENTS_PER_DISPATCH) return false;
         acc.intents.push({ kind: "storage", action: "set", key, value: cloned });
         return true;
+      }
+    };
+  }
+
+  const LOCAL_FOLDER_SUPPORTED_EXTENSIONS = new Set([".txt", ".csv", ".json"]);
+
+  function localFolderExtensionOf(path) {
+    const match = String(path || "").toLowerCase().match(/(\.[a-z0-9]+)$/);
+    return match ? match[1] : "";
+  }
+
+  function sanitizeLocalFolderPath(path, { allowDirectory = false } = {}) {
+    const text = String(path ?? "").trim().replace(/\\/g, "/").replace(/\/+/g, "/");
+    if (!text || text.startsWith("/") || /^[a-z]:\//i.test(text)) return "";
+    const parts = text.split("/").filter(Boolean);
+    if (parts.length === 0) return "";
+    for (const part of parts) {
+      if (part === "." || part === ".." || part.startsWith(".")) return "";
+      if (!/^[A-Za-z0-9 _.,@()\-]+$/.test(part)) return "";
+    }
+    const normalized = parts.join("/");
+    if (allowDirectory) return normalized.replace(/\/$/, "");
+    return LOCAL_FOLDER_SUPPORTED_EXTENSIONS.has(localFolderExtensionOf(normalized)) ? normalized : "";
+  }
+
+  function createLocalFolderHelper(groupId, accumulatorRef) {
+    let requestCounter = 0;
+    function request(action, path, extra = {}) {
+      const allowDirectory = action === "list";
+      const safePath = sanitizeLocalFolderPath(path || (allowDirectory ? "" : ""), { allowDirectory });
+      if (!safePath && !allowDirectory) return "";
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      checkHandlerDeadline(acc);
+      if (acc.intents.length >= HELPERS_MAX_INTENTS_PER_DISPATCH) return "";
+      requestCounter += 1;
+      const requestId = "lf-" + Date.now().toString(36) + "-" + requestCounter.toString(36);
+      acc.intents.push({
+        kind: "localFile",
+        groupId,
+        action,
+        path: safePath,
+        requestId,
+        ...extra
+      });
+      return requestId;
+    }
+    return {
+      isAvailable() {
+        return true;
+      },
+      requestRead(path) {
+        return request("read", path);
+      },
+      requestWrite(path, text) {
+        if (typeof text !== "string") return "";
+        return request("write", path, { text });
+      },
+      requestAppend(path, text) {
+        if (typeof text !== "string") return "";
+        return request("append", path, { text });
+      },
+      requestList(path = "") {
+        return request("list", path || "", { directoryPath: sanitizeLocalFolderPath(path || "", { allowDirectory: true }) });
+      },
+      requestExists(path) {
+        return request("exists", path);
+      },
+      requestReadJson(path) {
+        if (localFolderExtensionOf(path) !== ".json") return "";
+        return request("readJson", path);
+      },
+      requestWriteJson(path, value) {
+        if (localFolderExtensionOf(path) !== ".json") return "";
+        const cloned = safeCloneJson(value);
+        if (cloned === undefined) return "";
+        return request("writeJson", path, { value: cloned });
       }
     };
   }
@@ -1824,6 +2332,7 @@
     const panel = createPanelHelper({
       groupId,
       panelsBucket: panelsBucket || {},
+      timersBucket: timersBucket || {},
       accumulatorRef,
       predicatesBucket: ctx?.panelPredicatesBucket || {},
       registerPanelHandler: ctx?.registerPanelHandler,
@@ -1846,6 +2355,7 @@
       return dc?.tabId ?? null;
     });
     const storage = createStorageHelper(persistenceBucket || {}, accumulatorRef);
+    const localFolder = createLocalFolderHelper(groupId, accumulatorRef);
     const tabs = createTabHelper(accumulatorRef, dispatchContextRef);
     const platform = createEventPlatformHelper(
       accumulatorRef,
@@ -1880,6 +2390,7 @@
       getDOMHelper: () => dom,
       getNavigationHelper: () => navigation,
       getStorageHelper: () => storage,
+      getLocalFolderHelper: () => localFolder,
       getTabHelper: () => tabs,
       getPlatformHelper: () => platform
     };
