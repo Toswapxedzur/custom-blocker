@@ -326,9 +326,9 @@ Per-event-type sugar (one set of methods per built-in type):
 
 | Type | When it fires | `ev.data` payload |
 |---|---|---|
-| `tickEvent` | Globally shared 1-second tick across the entire browser. Fires regardless of tab visibility. Use this for clock-style logic that must keep running even when no tab is focused. | `{ intervalMs: 1000 }` |
+| `tickEvent` | 1-second tick for each open tab. Fires regardless of tab visibility, with at most one tick per tab per second. Use this for clock-style logic that must keep running even when no tab is focused. | `{ intervalMs: 1000 }` |
 | `pageHeartbeatEvent` | ~250 ms heartbeat from the **active**, **visible** tab. Drives all tab-visibility-aware logic, including the auto-tick built into `getOrCreateTimer({ scope })`. Does **not** fire from background tabs or while the screen is locked. | `{ elapsedMs }` |
-| `openWebEvent` | A new tab is created OR a fresh navigation lands on a URL the engine has not seen for that tab yet. Does **not** re-fire for already-open tabs after a Run click. | `{ previousUrl, isNewTab }` |
+| `openWebEvent` | A new tab is created. Does not fire when an existing new-tab/search page navigates to a website, and does not re-fire for already-open tabs after a Run click. | `{ previousUrl, isNewTab }` |
 | `closeWebEvent` | A tab is closed. | `{ reason, nextUrl }` |
 | `switchWebEvent` | URL **changes** on a committed top-level navigation inside the same tab — back/forward or a navigation that lands on a different URL than before. Does **not** fire on a plain reload (same URL). | `{ previousUrl, previousHostname, sameDomain }` |
 | `switchDomainEvent` | URL change crosses a hostname boundary (e.g. `youtube.com` → `wikipedia.org`). Fires alongside `switchWebEvent`. | `{ previousUrl, previousHostname }` |

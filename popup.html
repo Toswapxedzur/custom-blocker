@@ -13,10 +13,6 @@
         <div class="hero-topbar">
           <div>
             <h1>Custom Website Blocker</h1>
-            <p class="subtitle" data-i18n="hero.subtitle">
-              Organize blocked sites into named groups, then enable or disable each
-              group whenever you want.
-            </p>
           </div>
           <div class="hero-actions">
             <button id="settingsButton" type="button" class="secondary" data-i18n="settings.button">
@@ -82,8 +78,10 @@
                 <option value="discord" data-i18n="groupType.discord">Discord</option>
                 <option value="custom" data-i18n="groupType.custom">Custom</option>
               </select>
-              <button id="addGroupButton" type="button" data-i18n="groups.addButton">Add</button>
-              <button id="deleteAllGroupsButton" type="button" class="secondary danger" data-i18n="groups.deleteAllButton">Delete All</button>
+              <div class="add-group-buttons">
+                <button id="addGroupButton" type="button" data-i18n="groups.addButton">Add</button>
+                <button id="deleteAllGroupsButton" type="button" class="secondary danger" data-i18n="groups.deleteAllButton">Clear</button>
+              </div>
             </div>
           </div>
           <p id="bulkActionNotice" class="field-help"></p>
@@ -214,18 +212,16 @@
           <section id="customSettingsCard" class="section-card hidden">
             <div class="section-header">
               <div>
-                <h3 data-i18n="custom.title">Blocking Rules</h3>
-                <p class="section-copy" data-i18n="custom.copy">
-                  Enter a JavaScript function that can add or return the domains that should be blocked right now.
-                </p>
+                <h3>Blocking Rules</h3>
               </div>
             </div>
 
-            <label class="label" for="blockingRules" data-i18n="custom.rules">Blocking Rules</label>
             <textarea
               id="blockingRules"
               rows="8"
-              data-i18n-placeholder="custom.rulesPlaceholder"
+              aria-label="Custom Rules"
+              data-i18n-aria-label="custom.rules"
+              placeholder="(event, helpers) => {&#10;  // Register handlers here.&#10;}"
               spellcheck="false"
             ></textarea>
             <div class="field-actions">

@@ -7,12 +7,27 @@
   --navy-100: #eef2ff;
   --navy-ring: rgba(30, 58, 138, 0.18);
 
-  /* Gold / yellow accent (snooze + "weird / random / experimental").
-     Used as a faint tint, not a loud solid — navy stays dominant. */
+  /* Gold / yellow accent for custom/AI/experimental surfaces. */
+  --gold-700: #a16207;
   --gold-200: #fde68a;
   --gold-100: #fef3c7;
   --gold-50: #fffbeb;
   --gold-text: #854d0e;
+
+  /* Pink accent for Snooze. */
+  --pink-700: #be185d;
+  --pink-800: #9d174d;
+  --pink-200: #fbcfe8;
+  --pink-100: #fce7f3;
+  --pink-50: #fdf2f8;
+  --pink-text: #9d174d;
+
+  /* Cyan accent for filter cards. */
+  --cyan-700: #0e7490;
+  --cyan-200: #a5f3fc;
+  --cyan-100: #cffafe;
+  --cyan-50: #ecfeff;
+  --cyan-text: #155e75;
 
   /* Red accent (freeze + "dangerous / irreversible").
      Same idea — pale tint with red text rather than solid red. */
@@ -63,7 +78,7 @@ h2 {
 
 .hero {
   flex: 0 0 auto;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .hero-topbar {
@@ -82,7 +97,13 @@ h2 {
 .language-picker {
   display: flex;
   flex-direction: column;
-  min-width: 180px;
+  min-width: 132px;
+}
+
+.language-picker select {
+  padding: 5px 8px;
+  border-radius: 8px;
+  line-height: 1.2;
 }
 
 .subtitle,
@@ -150,10 +171,10 @@ button,
 .groups-panel,
 .editor-panel {
   background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--navy-300);
+  border: none;
   border-radius: 16px;
   padding: 12px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
   overflow: auto;
   /* Allow the panel to shrink below its content height inside the grid row
      so overflow: auto actually produces a scrollbar instead of expanding. */
@@ -173,6 +194,13 @@ button,
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.add-group-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .editor-header {
@@ -200,14 +228,15 @@ button,
 
 .group-card {
   width: calc(100% - 12px);
-  border: 1px solid #cbd5e1;
+  border: none;
   border-radius: 12px;
   background: #ffffff;
   padding: 10px 9px;
   cursor: pointer;
   color: #1f2937;
   text-align: left;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
   /* Suppress the browser's native text-selection drag so a mousedown on
      the group name starts our reorder drag instead of dragging text. */
   user-select: none;
@@ -219,22 +248,21 @@ button,
 }
 
 .group-card.drop-target-before {
-  border-top-color: var(--navy-700);
   box-shadow: inset 0 3px 0 0 rgba(30, 58, 138, 0.9);
 }
 
 .group-card.drop-target-after {
-  border-bottom-color: var(--navy-700);
   box-shadow: inset 0 -3px 0 0 rgba(30, 58, 138, 0.9);
 }
 
 .group-card.active {
-  border-color: var(--navy-700);
-  box-shadow: 0 0 0 2px var(--navy-ring);
+  background: var(--navy-100);
+  box-shadow: 0 8px 18px rgba(30, 58, 138, 0.16);
 }
 
 .group-card:hover {
-  border-color: var(--navy-300);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
 }
 
 .group-card-header {
@@ -302,11 +330,12 @@ select,
 textarea {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #cbd5e1;
+  border: none;
   border-radius: 10px;
   box-sizing: border-box;
   font: inherit;
   background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.45);
 }
 
 textarea {
@@ -322,8 +351,10 @@ input[type="text"]:focus,
 input[type="number"]:focus,
 select:focus,
 textarea:focus {
-  outline: 2px solid var(--navy-300);
-  border-color: var(--navy-700);
+  outline: none;
+  box-shadow:
+    inset 0 0 0 1px var(--navy-700),
+    0 0 0 3px var(--navy-ring);
 }
 
 .settings-grid {
@@ -346,9 +377,10 @@ textarea:focus {
   justify-content: center;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid #cbd5e1;
+  border: none;
   border-radius: 999px;
   background: #ffffff;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
   cursor: pointer;
   font-size: 11px;
   color: #334155;
@@ -374,9 +406,9 @@ textarea:focus {
 .ai-prompt-panel {
   margin-top: 10px;
   padding: 10px;
-  border: 1px solid var(--gold-200);
   border-radius: 12px;
   background: var(--gold-50);
+  box-shadow: inset 4px 0 0 rgba(161, 98, 7, 0.28);
 }
 
 .ai-prompt-panel textarea {
@@ -388,18 +420,96 @@ textarea:focus {
 }
 
 .section-card {
+  position: relative;
   margin-top: 14px;
-  padding: 14px;
-  border: 1px solid var(--navy-300);
+  padding: 14px 14px 14px 18px;
+  border: none;
   border-radius: 12px;
   background: var(--navy-100);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+}
+
+.section-card::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 4px;
+  border-radius: 0 999px 999px 0;
+  background: rgba(30, 58, 138, 0.28);
+}
+
+#customSettingsCard {
+  background: var(--gold-50);
+}
+
+#customSettingsCard::before {
+  background: linear-gradient(180deg, #fbbf24 0%, var(--gold-700) 100%);
+}
+
+#customSettingsCard h3 {
+  color: var(--gold-text);
+}
+
+#blockingRules {
+  min-height: 300px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  line-height: 1.55;
+  color: #e5e7eb;
+  background: #0f172a;
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.18);
+}
+
+#blockingRules::placeholder {
+  color: rgba(226, 232, 240, 0.58);
+}
+
+#blockingRules:focus {
+  box-shadow:
+    inset 0 0 0 1px rgba(251, 191, 36, 0.45),
+    0 10px 28px rgba(15, 23, 42, 0.18);
+}
+
+#platformVideoCard,
+#redditSettingsCard,
+#discordSettingsCard {
+  background: var(--cyan-50);
+}
+
+#platformVideoCard::before,
+#redditSettingsCard::before,
+#discordSettingsCard::before {
+  background: var(--cyan-700);
+}
+
+#platformVideoCard h3,
+#redditSettingsCard h3,
+#discordSettingsCard h3 {
+  color: var(--cyan-text);
+}
+
+#platformVideoCard select:focus,
+#platformVideoCard textarea:focus,
+#redditSettingsCard select:focus,
+#redditSettingsCard textarea:focus,
+#discordSettingsCard select:focus,
+#discordSettingsCard textarea:focus {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 1px var(--cyan-700),
+    0 0 0 3px rgba(14, 116, 144, 0.16);
 }
 
 /* Freeze section: faint red wash with a single bold red action button.
    Secondary buttons (e.g. Unfreeze) keep the .secondary look. */
 .section-card.freeze-section {
-  border-color: var(--red-200);
   background: var(--red-50);
+}
+
+.section-card.freeze-section::before {
+  background: #b91c1c;
 }
 
 #applyFreezeButton {
@@ -412,34 +522,37 @@ textarea:focus {
   background: #991b1b;
 }
 
-/* Snooze section: faint gold wash with a single bold amber action button. */
+/* Snooze section: pink card with a single bold pink action button. */
 .section-card.snooze-section {
-  border-color: var(--gold-200);
-  background: var(--gold-50);
+  background: var(--pink-50);
+}
+
+.section-card.snooze-section::before {
+  background: var(--pink-700);
+}
+
+.section-card.snooze-section h3 {
+  color: var(--pink-text);
 }
 
 #startSnoozeButton {
-  background: #b45309;
+  background: var(--pink-700);
   color: #ffffff;
   border: none;
 }
 
 #startSnoozeButton:hover {
-  background: #92400e;
+  background: var(--pink-800);
 }
 
-/* "Allow snooze for this group" toggle: yellow accent, faint yellow row. */
+/* "Allow snooze for this group" toggle: keep the checkbox aligned with other rows. */
 .section-card.snooze-section .checkbox-row {
-  background: var(--gold-100);
-  padding: 6px 10px;
-  border-radius: 8px;
-  color: var(--gold-text);
+  padding: 0;
+  color: var(--pink-text);
 }
 
 #allowSnooze {
-  accent-color: #b45309;
-  width: 16px;
-  height: 16px;
+  accent-color: var(--pink-700);
   cursor: pointer;
 }
 
@@ -481,10 +594,15 @@ textarea:focus {
   margin: 0 0 10px;
 }
 
+.checkbox-row input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+}
+
 .usage-row {
   margin-bottom: 14px;
   padding: 10px 12px;
-  border: 1px solid var(--navy-300);
   border-radius: 10px;
   background: var(--navy-100);
 }
@@ -522,9 +640,14 @@ button.secondary {
    primary buttons that drive normal flow. */
 button.danger,
 button.secondary.danger {
-  background: var(--red-100);
-  color: var(--red-text);
+  background: #b91c1c;
+  color: #ffffff;
   border: none;
+}
+
+button.danger:hover,
+button.secondary.danger:hover {
+  background: #991b1b;
 }
 
 /* Gold = experimental / "random weird" actions (run user JS, apply
@@ -534,6 +657,22 @@ button.secondary.weird {
   background: var(--gold-100);
   color: var(--gold-text);
   border: none;
+}
+
+#customSettingsCard .field-actions button,
+#customSettingsCard .log-feed-toolbar button {
+  background: #dbeafe;
+  color: var(--navy-700);
+  border: none;
+}
+
+#customSettingsCard #runCustomGroupButton {
+  background: var(--navy-700);
+  color: #ffffff;
+}
+
+#customSettingsCard #runCustomGroupButton:hover {
+  background: #172554;
 }
 
 button:hover {
@@ -621,7 +760,8 @@ textarea:disabled {
   padding: 10px 14px;
   border-radius: 12px;
   background: var(--gold-50);
-  border: 1px solid var(--gold-200);
+  border: none;
+  box-shadow: inset 4px 0 0 rgba(161, 98, 7, 0.28);
   color: var(--gold-text);
   font-size: 13px;
   line-height: 1.4;
@@ -777,8 +917,8 @@ textarea:disabled {
 }
 
 .template-filter-chip:focus-visible {
-  outline: 2px solid var(--navy-ring);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--navy-ring);
 }
 
 .template-filter-scroller::-webkit-scrollbar {
@@ -800,16 +940,17 @@ textarea:disabled {
   margin: 0 0 12px;
   padding: 14px;
   box-sizing: border-box;
-  border: 1px solid var(--navy-300);
+  border: none;
   border-radius: 14px;
   background: var(--navy-100);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
   break-inside: avoid;
   cursor: pointer;
 }
 
 .template-card.selected {
-  border-color: var(--navy-700);
-  box-shadow: 0 0 0 2px var(--navy-ring);
+  background: #dbeafe;
+  box-shadow: 0 10px 26px rgba(30, 58, 138, 0.14);
 }
 
 .template-card h4 {
@@ -971,7 +1112,7 @@ textarea:disabled {
 
 .empty-state {
   padding: 18px 12px;
-  border: 1px dashed #cbd5e1;
+  border: none;
   border-radius: 12px;
   background: rgba(248, 250, 252, 0.8);
   color: #64748b;
@@ -985,9 +1126,10 @@ code {
 
 .log-feed {
   margin-top: 12px;
-  border: 1px solid #e2e8f0;
+  border: none;
   border-radius: 8px;
-  background: #f8fafc;
+  background: rgba(248, 250, 252, 0.78);
+  box-shadow: inset 4px 0 0 rgba(30, 58, 138, 0.16);
 }
 
 .log-feed > summary {

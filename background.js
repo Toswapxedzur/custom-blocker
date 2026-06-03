@@ -2820,13 +2820,15 @@ async function dispatchEventToTab(type, tabInfo, extras = {}) {
 
 // Tab + webNavigation watchers
 if (chrome.tabs && chrome.tabs.onCreated) {
-  chrome.tabs.onCreated.addListener((tab) => {
+  chrome.tabs.onCreated.addListener(async (tab) => {
     if (!tab || typeof tab.id !== "number") return;
-    // Bookkeeping only. The canonical source for page navigation events is
-    // webNavigation.onCommitted, which prevents tab creation from producing
-    // an early duplicate webChangedEvent before the real page commits.
     previousTabUrls.delete(tab.id);
     scheduleSessionFlush();
+    await dispatchEventToTab(
+      "openWebEvent",
+      { tabId: tab.id, url: tab.url || tab.pendingUrl || "" },
+      { data: { previousUrl: null, isNewTab: true } }
+    );
   });
 }
 
@@ -2865,13 +2867,7 @@ async function handleCommittedWebNavigation(details) {
   const isReload = !!previous && previousUrl === nextUrl;
   const sameDomain = !!previousHost && previousHost === nextHost;
 
-  if (isFirstLoad) {
-    await dispatchEventToTab(
-      "openWebEvent",
-      { tabId, url: nextUrl },
-      { data: { previousUrl: null, isNewTab: true } }
-    );
-  } else if (previousHost && previousHost !== nextHost) {
+  if (!isFirstLoad && previousHost && previousHost !== nextHost) {
     await dispatchEventToTab(
       "switchDomainEvent",
       { tabId, url: nextUrl },
@@ -2891,8 +2887,8 @@ async function handleCommittedWebNavigation(details) {
   }
 
   // webChangedEvent is emitted exactly once for this accepted committed
-  // navigation record. More specific events above are derived from the same
-  // record so rule authors do not see tabCreated/history duplicates.
+  // navigation record. More specific navigation events above are derived from
+  // the same record; openWebEvent is reserved for actual tab creation.
   await dispatchEventToTab(
     "webChangedEvent",
     { tabId, url: nextUrl },
@@ -2917,16 +2913,26 @@ if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
   });
 }
 
-// Shared tickEvent — fires once per second across all open tabs.
+const lastTickSecondByTab = new Map();
+
+// Shared tickEvent — fires once per second for each open tab.
 async function emitTickToAllTabs() {
   const tabs = await chrome.tabs.query({});
+  const tickSecond = Math.floor(Date.now() / 1000);
+  const liveTabIds = new Set();
   for (const tab of tabs) {
     if (!tab || typeof tab.id !== "number") continue;
+    liveTabIds.add(tab.id);
+    if (lastTickSecondByTab.get(tab.id) === tickSecond) continue;
+    lastTickSecondByTab.set(tab.id, tickSecond);
     await dispatchEventToTab(
       "tickEvent",
       { tabId: tab.id, url: tab.url || "" },
       { data: { intervalMs: 1000 } }
     );
+  }
+  for (const tabId of Array.from(lastTickSecondByTab.keys())) {
+    if (!liveTabIds.has(tabId)) lastTickSecondByTab.delete(tabId);
   }
 }
 
