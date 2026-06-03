@@ -2820,29 +2820,13 @@ async function dispatchEventToTab(type, tabInfo, extras = {}) {
 
 // Tab + webNavigation watchers
 if (chrome.tabs && chrome.tabs.onCreated) {
-  chrome.tabs.onCreated.addListener(async (tab) => {
+  chrome.tabs.onCreated.addListener((tab) => {
     if (!tab || typeof tab.id !== "number") return;
-    const url = tab.url || tab.pendingUrl || "";
-    previousTabUrls.set(tab.id, { url, hostname: hostnameOf(url) });
+    // Bookkeeping only. The canonical source for page navigation events is
+    // webNavigation.onCommitted, which prevents tab creation from producing
+    // an early duplicate webChangedEvent before the real page commits.
+    previousTabUrls.delete(tab.id);
     scheduleSessionFlush();
-    await dispatchEventToTab("openWebEvent", { tabId: tab.id, url }, { data: { isNewTab: true, previousUrl: null } });
-    // webChangedEvent always fires alongside any navigation event so handlers
-    // that just want "the page changed in any way" don't have to subscribe
-    // to every individual event (open / switch / domain / history).
-    await dispatchEventToTab(
-      "webChangedEvent",
-      { tabId: tab.id, url },
-      {
-        data: {
-          previousUrl: null,
-          previousHostname: "",
-          sameDomain: false,
-          isFirstLoad: true,
-          isReload: false,
-          transition: "tabCreated"
-        }
-      }
-    );
   });
 }
 
@@ -2865,109 +2849,71 @@ if (chrome.tabs && chrome.tabs.onRemoved) {
   });
 }
 
-if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
-  chrome.webNavigation.onCommitted.addListener(async (details) => {
-    if (!details || details.frameId !== 0) return;
-    const tabId = details.tabId;
-    if (typeof tabId !== "number" || tabId < 0) return;
-    const previous = previousTabUrls.get(tabId);
-    const previousUrl = previous?.url || null;
-    const previousHost = previous?.hostname || "";
-    const nextUrl = details.url || "";
-    const nextHost = hostnameOf(nextUrl);
-    previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
-    scheduleSessionFlush();
+async function handleCommittedWebNavigation(details) {
+  if (!details || details.frameId !== 0) return;
+  const tabId = details.tabId;
+  if (typeof tabId !== "number" || tabId < 0) return;
+  const previous = previousTabUrls.get(tabId);
+  const previousUrl = previous?.url || null;
+  const previousHost = previous?.hostname || "";
+  const nextUrl = details.url || "";
+  const nextHost = hostnameOf(nextUrl);
+  previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
+  scheduleSessionFlush();
 
-    const isFirstLoad = !previous;
-    const isReload = !!previous && previousUrl === nextUrl;
-    const sameDomain = !!previousHost && previousHost === nextHost;
+  const isFirstLoad = !previous;
+  const isReload = !!previous && previousUrl === nextUrl;
+  const sameDomain = !!previousHost && previousHost === nextHost;
 
-    if (isFirstLoad) {
-      await dispatchEventToTab("openWebEvent", { tabId, url: nextUrl }, { data: { previousUrl: null, isNewTab: true } });
-    } else if (previousHost && previousHost !== nextHost) {
-      await dispatchEventToTab(
-        "switchDomainEvent",
-        { tabId, url: nextUrl },
-        { data: { previousUrl, previousHostname: previousHost } }
-      );
-      await dispatchEventToTab(
-        "switchWebEvent",
-        { tabId, url: nextUrl },
-        { data: { previousUrl, previousHostname: previousHost, sameDomain: false } }
-      );
-    } else if (previousUrl !== nextUrl) {
-      await dispatchEventToTab(
-        "switchWebEvent",
-        { tabId, url: nextUrl },
-        { data: { previousUrl, previousHostname: previousHost, sameDomain: true } }
-      );
-    }
-    // Always fire webChangedEvent, even when previousUrl === nextUrl (i.e.
-    // a plain reload). This is the reliable "page just (re)loaded" hook;
-    // switchWebEvent intentionally skips reloads because the URL is
-    // unchanged.
+  if (isFirstLoad) {
     await dispatchEventToTab(
-      "webChangedEvent",
+      "openWebEvent",
       { tabId, url: nextUrl },
-      {
-        data: {
-          previousUrl,
-          previousHostname: previousHost,
-          sameDomain,
-          isFirstLoad,
-          isReload,
-          transition: "commit"
-        }
-      }
+      { data: { previousUrl: null, isNewTab: true } }
     );
-  });
+  } else if (previousHost && previousHost !== nextHost) {
+    await dispatchEventToTab(
+      "switchDomainEvent",
+      { tabId, url: nextUrl },
+      { data: { previousUrl, previousHostname: previousHost } }
+    );
+    await dispatchEventToTab(
+      "switchWebEvent",
+      { tabId, url: nextUrl },
+      { data: { previousUrl, previousHostname: previousHost, sameDomain: false } }
+    );
+  } else if (previousUrl !== nextUrl) {
+    await dispatchEventToTab(
+      "switchWebEvent",
+      { tabId, url: nextUrl },
+      { data: { previousUrl, previousHostname: previousHost, sameDomain: true } }
+    );
+  }
+
+  // webChangedEvent is emitted exactly once for this accepted committed
+  // navigation record. More specific events above are derived from the same
+  // record so rule authors do not see tabCreated/history duplicates.
+  await dispatchEventToTab(
+    "webChangedEvent",
+    { tabId, url: nextUrl },
+    {
+      data: {
+        previousUrl,
+        previousHostname: previousHost,
+        sameDomain,
+        isFirstLoad,
+        isReload,
+        transition: "commit"
+      }
+    }
+  );
 }
 
-if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
-  chrome.webNavigation.onHistoryStateUpdated.addListener(async (details) => {
-    if (!details || details.frameId !== 0) return;
-    const tabId = details.tabId;
-    if (typeof tabId !== "number" || tabId < 0) return;
-    const previous = previousTabUrls.get(tabId);
-    const previousUrl = previous?.url || null;
-    const previousHost = previous?.hostname || "";
-    const nextUrl = details.url || "";
-    const nextHost = hostnameOf(nextUrl);
-    previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
-    scheduleSessionFlush();
-    const sameDomain = previousHost === nextHost;
-    const isReload = !!previousUrl && previousUrl === nextUrl;
-    if (previousUrl && previousUrl !== nextUrl) {
-      await dispatchEventToTab(
-        "switchWebEvent",
-        { tabId, url: nextUrl },
-        { data: { previousUrl, previousHostname: previousHost, sameDomain } }
-      );
-      if (previousHost && previousHost !== nextHost) {
-        await dispatchEventToTab(
-          "switchDomainEvent",
-          { tabId, url: nextUrl },
-          { data: { previousUrl, previousHostname: previousHost } }
-        );
-      }
-    }
-    // Always fire webChangedEvent on history-state updates too. This covers
-    // SPA navigations whose URL didn't change (e.g. replaceState to the
-    // same href) as well as the standard "URL changed via pushState" case.
-    await dispatchEventToTab(
-      "webChangedEvent",
-      { tabId, url: nextUrl },
-      {
-        data: {
-          previousUrl,
-          previousHostname: previousHost,
-          sameDomain,
-          isFirstLoad: false,
-          isReload,
-          transition: "history"
-        }
-      }
-    );
+if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
+  chrome.webNavigation.onCommitted.addListener((details) => {
+    handleCommittedWebNavigation(details).catch((error) => {
+      try { console.warn("[CustomBlocker] committed navigation dispatch failed", error); } catch (_) {}
+    });
   });
 }
 

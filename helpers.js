@@ -952,7 +952,6 @@
       const timer = sanitizePanelTimerSnapshot(control.timer);
       if (timer) out.timer = timer;
       out.format = ["ms", "ss", "mm:ss", "hh:mm:ss"].includes(control.format) ? control.format : "mm:ss";
-      out.showProgress = control.showProgress === true;
       out.showExpired = control.showExpired !== false;
       out.value = "";
     }
@@ -993,7 +992,6 @@
       textSize,
       ariaLabel,
       role: sanitizePanelRole(config.role, "region"),
-      closable: config.closable === true,
       autoFocus: config.autoFocus === true,
       theme: sanitizePanelTheme(config.theme || config.colors || {}),
       controls,

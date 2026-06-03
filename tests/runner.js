@@ -736,7 +736,6 @@ log.section("S14: panel helper state + snapshots");
     priority: 9,
     ariaLabel: "Creator filter panel",
     role: "dialog",
-    closable: true,
     theme: { background: "rgb(1,2,3)", foreground: "#fff", accent: "dodgerblue" },
     scope: (url) => typeof url === "string" && url.includes("youtube.com"),
     controls: [
@@ -763,8 +762,8 @@ log.section("S14: panel helper state + snapshots");
   assertEqual("S14: scope-matching URL displays panel", snaps.length, 1);
   assertEqual("S14: snapshot carries checkbox value", snaps[0].values.block, false);
   assertEqual("S14: snapshot carries layout + priority + a11y fields",
-    { layout: snaps[0].layout, priority: snaps[0].priority, role: snaps[0].role, ariaLabel: snaps[0].ariaLabel, closable: snaps[0].closable },
-    { layout: "twoColumn", priority: 9, role: "dialog", ariaLabel: "Creator filter panel", closable: true });
+    { layout: snaps[0].layout, priority: snaps[0].priority, role: snaps[0].role, ariaLabel: snaps[0].ariaLabel },
+    { layout: "twoColumn", priority: 9, role: "dialog", ariaLabel: "Creator filter panel" });
   assertEqual("S14: select control keeps custom dimensions",
     { width: snaps[0].controls[1].width, height: snaps[0].controls[1].height },
     { width: "70%", height: "44px" });
@@ -919,7 +918,7 @@ log.section("S15: expanded panel controls + timer element");
     id: "expanded",
     title: "Expanded controls",
     controls: [
-      { id: "liveTimer", type: "timer", timerId: "focus", format: "mm:ss", showProgress: true },
+      { id: "liveTimer", type: "timer", timerId: "focus", format: "mm:ss" },
       { id: "snapshotTimer", type: "timer", timer: timer.getState("focus"), format: "ss" },
       { id: "minutes", type: "numberInput", value: 25, min: 1, max: 120, step: 5 },
       { id: "strictness", type: "range", value: 7, min: 1, max: 10, step: 1 },
