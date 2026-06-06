@@ -12,16 +12,16 @@ O Custom Web Blocker permite bloquear sites e distrações online de acordo com 
 
 - Bloqueie sites imediatamente com o bloqueio de rede nativo do navegador (o mesmo tipo de bloqueio que produz `ERR_BLOCKED_BY_CLIENT`).
 - Permita-se um certo número de minutos por dia em um site e bloqueie-o quando ultrapassar esse limite.
-- Bloqueie tipos específicos de conteúdo no YouTube, TikTok, Facebook, Instagram, Twitch e Reddit (não no site inteiro).
+- Bloqueie tipos específicos de conteúdo no Iutube, TiqueToque, Feicebuque, Instagrã, Tuíteche e Réditi (não no site inteiro).
 - Oculte conteúdo bloqueado de feeds em plataformas suportadas, em vez de bloquear apenas páginas individuais.
 - Programar quando uma regra está ativa por dia da semana e por janelas de horário `HHMM-HHMM`.
 - Congelar uma regra para que você não possa alterá-la facilmente. O congelamento estrito o bloqueia por um determinado número de horas e requer um ritual de confirmação de 20 etapas para ser desfeito.
 - Adie uma regra temporariamente, mas somente depois de escrever uma justificativa longa o suficiente.
-- Escreva regras personalizadas **orientadas por eventos** em JavaScript com auxiliares para temporizadores de avanço/retrocesso, armazenamento persistente por grupo, intenções DOM por plataforma (ocultar botões de navegação, ocultar cartões de feed por predicado, definir temporizadores por subseção), utilitários de URL e registro estruturado.
+- Escreva regras personalizadas **orientadas por eventos** em linguagem de scripts com auxiliares para temporizadores de avanço/retrocesso, armazenamento persistente por grupo, intenções DOM por plataforma (ocultar botões de navegação, ocultar cartões de feed por predicado, definir temporizadores por subseção), utilitários de URL e registro estruturado.
 - Escolha em uma biblioteca integrada de mais de 50 modelos prontos (temporizadores, programações, ocultação de feed, sessões de foco, redirecionamentos, cutucadas, persistência, ajustes de DOM, auxiliares de depuração).
 - Use a extensão em mais de 20 idiomas.
 
-A extensão é uma extensão do Chrome Manifest V3 com uma página de editor (o pop-up), um trabalhador de serviço em segundo plano, uma sandbox fora da tela que hospeda código de regra personalizado e um script de conteúdo que é executado em cada página. As regras personalizadas ficam na sandbox fora da tela; eles são carregados uma vez por clique em Executar e permanecem registrados até que a regra seja desativada ou excluída.
+A extensão é uma extensão do navegador Cromo Manifest V3 com uma página de editor (o pop-up), um trabalhador de serviço em segundo plano, uma sandbox fora da tela que hospeda código de regra personalizado e um script de conteúdo que é executado em cada página. As regras personalizadas ficam na sandbox fora da tela; eles são carregados uma vez por clique em Executar e permanecem registrados até que a regra seja desativada ou excluída.
 
 ---
 
@@ -50,7 +50,7 @@ Quando você clica no ícone da extensão, o editor abre como uma página da web
 
 ## 3. Início rápido1. Clique no ícone da extensão. O editor abre como uma página inteira.
 2. No painel **Bloquear grupos**, escolha um tipo de grupo no menu suspenso:
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit` ou `Custom`.
+   - `Default`, `Iutube`, `TiqueToque`, `Feicebuque`, `Instagrã`, `Tuíteche`, `Réditi` ou `Custom`.
 3. Clique em **Adicionar**. Um novo grupo aparece e o editor o abre.
 4. Dê um nome a ele.
 5. Preencha os campos específicos do tipo (para `Default`, isso significa a lista **Sites bloqueados**).
@@ -70,7 +70,7 @@ Tudo nesta extensão é organizado como **grupos de blocos**. Um grupo de blocos
 - Possui um nome, um tipo e um estado habilitado/desabilitado.
 - Possui comportamento de bloqueio (imediato, após alguns minutos ou contagem regressiva fixa).
 - Possui programação opcional (dias + janelas de tempo) e controles opcionais de congelamento/soneca.
-- Dependendo do tipo, possui campos adicionais, como uma lista de sites, filtros de criadores do YouTube, nomes de subreddit ou uma regra JavaScript orientada a eventos.
+- Dependendo do tipo, possui campos adicionais, como uma lista de sites, filtros de criadores do Iutube, nomes de subreddit ou uma regra linguagem de scripts orientada a eventos.
 
 Você pode ter qualquer número de grupos. Vários grupos podem se inscrever na mesma página; nesse caso, a regra **mais rigorosa** vence:
 
@@ -91,61 +91,61 @@ Para bloquear domínios específicos (o caso de uso típico).
 
 - **Sites bloqueados**: um site por linha. Tanto `facebook.com` quanto `https://www.facebook.com/somepage` funcionam; a extensão extrai e normaliza o nome do host.
 - Uma regra de site se aplica a esse nome de host e a todos os seus subdomínios.
-- Este tipo de grupo usa o bloqueio de rede nativo do Chrome, semelhante ao `ERR_BLOCKED_BY_CLIENT`. Isso significa que a navegação para um URL bloqueado é interrompida antes mesmo de a página carregar.
+- Este tipo de grupo usa o bloqueio de rede nativo do navegador Cromo, semelhante ao `ERR_BLOCKED_BY_CLIENT`. Isso significa que a navegação para um URL bloqueado é interrompida antes mesmo de a página carregar.
 
-### 5.2 `YouTube` – bloquear YouTube e sites de vídeo semelhantes
+### 5.2 `Iutube` – bloquear Iutube e sites de vídeo semelhantes
 
 Adiciona uma seção **Filtros** ao editor:
 
 - **Tipo de conteúdo**:
-  - `Apply to all YouTube pages` — cada página do YouTube conta.
+  - `Apply to all Iutube pages` — cada página do Iutube conta.
   - `Apply to Shorts` — apenas contam páginas de Shorts.
   - `Apply to long videos` — apenas `/watch`, `/live/`, `/embed/`, etc.
-  - `Apply to YouTube posts` — postagens da comunidade (`/post/...`, guias comunidade/postagens do canal).
+  - `Apply to Iutube posts` — postagens da comunidade (`/post/...`, guias comunidade/postagens do canal).
 - **Filtro de autor**:
   - `Do not filter by author` — a identidade do autor não importa.
   - `Apply to certain authors` — apenas autores listados acionam este grupo.
   - `Apply to all except certain authors` — os autores listados estão isentos.
 - **Autores**: um autor por linha. Aceita `@handle`, URLs completos, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Ocultar entradas bloqueadas no feed do YouTube**: enquanto este grupo estiver bloqueando ativamente, os cartões correspondentes nos feeds do YouTube ficarão ocultos. Quando o bloco fica inativo, eles voltam na próxima atualização.
+- **Ocultar entradas bloqueadas no feed do Iutube**: enquanto este grupo estiver bloqueando ativamente, os cartões correspondentes nos feeds do Iutube ficarão ocultos. Quando o bloco fica inativo, eles voltam na próxima atualização.
 
-Para tipos de conteúdo de Shorts e Postagens, quando nenhum filtro de autor está definido e o grupo está bloqueado no momento, a extensão também oculta entradas de navegação relevantes (entrada da barra lateral de Shorts, guias de canal Comunidade/Postagens) e as prateleiras correspondentes, como "Últimas postagens do YouTube".
+Para tipos de conteúdo de Shorts e Postagens, quando nenhum filtro de autor está definido e o grupo está bloqueado no momento, a extensão também oculta entradas de navegação relevantes (entrada da barra lateral de Shorts, guias de canal Comunidade/Postagens) e as prateleiras correspondentes, como "Últimas postagens do Iutube".
 
-A detecção de curto versus longo se estende a outros sites de vídeo, como TikTok, Vimeo, clipes/VODs Twitch e Dailymotion, quando seu formato de página pode ser detectado.
+A detecção de curto versus longo se estende a outros sites de vídeo, como TiqueToque, Vimeo, clipes/VODs Tuíteche e Dailymotion, quando seu formato de página pode ser detectado.
 
-### 5.3 `TikTok` – bloquear conteúdo do TikTok
+### 5.3 `TiqueToque` – bloquear conteúdo do TiqueToque
 
-O mesmo cartão de editor do editor de vídeo da plataforma, mas com rótulos específicos do TikTok:- Tipos de conteúdo: vídeos curtos, vídeos, páginas de perfil.
-- Autores: identificadores TikTok (`@handle`) ou URLs de perfil.
-- A ocultação de feed oculta cartões correspondentes nas páginas do TikTok enquanto o grupo está ativo.
+O mesmo cartão de editor do editor de vídeo da plataforma, mas com rótulos específicos do TiqueToque:- Tipos de conteúdo: vídeos curtos, vídeos, páginas de perfil.
+- Autores: identificadores TiqueToque (`@handle`) ou URLs de perfil.
+- A ocultação de feed oculta cartões correspondentes nas páginas do TiqueToque enquanto o grupo está ativo.
 
-### 5.4 `Facebook` – bloquear conteúdo do Facebook
+### 5.4 `Feicebuque` – bloquear conteúdo do Feicebuque
 
 - Tipos de conteúdo: Reels, vídeos, posts.
 - Autores: nome da página (`page.name`), URL do perfil ou formulário `profile.php?id=...` (o id numérico é preservado como `id:<number>`).
-- A ocultação de feed oculta os cartões de feed correspondentes no Facebook.
+- A ocultação de feed oculta os cartões de feed correspondentes no Feicebuque.
 
-### 5.5 `Instagram` – bloquear conteúdo do Instagram
+### 5.5 `Instagrã` – bloquear conteúdo do Instagrã
 
 - Tipos de conteúdo: Reels, vídeos, posts.
-- Autores: identificadores do Instagram ou URLs de perfil.
+- Autores: identificadores do Instagrã ou URLs de perfil.
 - Caminhos reservados como `/reel/`, `/p/`, `/tv/`, `/explore/` não são tratados como autores.
-- A ocultação de feed oculta cartões correspondentes no Instagram.
+- A ocultação de feed oculta cartões correspondentes no Instagrã.
 
-### 5.6 `Twitch` – bloquear conteúdo do Twitch
+### 5.6 `Tuíteche` – bloquear conteúdo do Tuíteche
 
 - Tipos de conteúdo: clipes, streams/VODs, páginas de canais.
 - Autores: nomes de canais ou URLs de canais.
 - Caminhos reservados como `/directory`, `/videos`, `/settings`, etc. não são tratados como nomes de canais.
-- Ocultação de feeds esconde cartas correspondentes no Twitch.
+- Ocultação de feeds esconde cartas correspondentes no Tuíteche.
 
-### 5.7 `Reddit` – bloquear Reddit ou subreddits específicos
+### 5.7 `Réditi` – bloquear Réditi ou subreddits específicos
 
-- **Subreddits**: um subreddit por linha. Lista vazia significa que o grupo se aplica a todo o Reddit. Tanto `productivity` quanto `r/productivity` são aceitos.
+- **Subreddits**: um subreddit por linha. Lista vazia significa que o grupo se aplica a todo o Réditi. Tanto `productivity` quanto `r/productivity` são aceitos.
 
-### 5.8 `Custom` — bloqueio por JavaScript orientado a eventos
+### 5.8 `Custom` — bloqueio por linguagem de scripts orientado a eventos
 
-Você escreve uma função JavaScript que **registra manipuladores** para eventos como abertura de página, alteração de URL, pulsação da página, término do cronômetro e seus próprios eventos personalizados. A função é executada uma vez por clique em Executar; os manipuladores registrados permanecem ativos nas navegações até você clicar em Executar novamente, desativar o grupo ou excluí-lo.
+Você escreve uma função linguagem de scripts que **registra manipuladores** para eventos como abertura de página, alteração de URL, pulsação da página, término do cronômetro e seus próprios eventos personalizados. A função é executada uma vez por clique em Executar; os manipuladores registrados permanecem ativos nas navegações até você clicar em Executar novamente, desativar o grupo ou excluí-lo.
 
 Os grupos `Custom` não mostram: comportamento de bloqueio, sites bloqueados, minutos permitidos, intervalo de redefinição, dias agendados ou janelas de tempo. Eles mantêm o editor de **Regras de bloqueio** além de controles padrão de congelamento/soneca. Há também um botão **Modelos** que abre um navegador predefinido com regras iniciais parametrizadas; aplicar uma predefinição substitui a regra atual após a confirmação.
 
@@ -161,7 +161,7 @@ Para a maioria dos tipos de grupo você escolhe um dos três modos.
 
 A regra fica ativa sempre que o grupo está ativado, a programação permite e (para grupos de plataforma) a página corresponde.
 
-Para grupos `Default`, isso usa o bloqueio nativo do Chrome. Para grupos de plataformas, ele usa a lógica de sobreposição/saída na página.
+Para grupos `Default`, isso usa o bloqueio nativo do navegador Cromo. Para grupos de plataformas, ele usa a lógica de sobreposição/saída na página.
 
 ### 6.2 Bloqueio após alguns minutos
 
@@ -328,7 +328,7 @@ Açúcar por tipo de evento (um conjunto de métodos por tipo integrado):
 | `timerEnded` | Um temporizador gerenciado pelo grupo chega a `currentMs === 0`. Entregue apenas ao grupo proprietário. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | O usuário pressionou **Iniciar soneca** no pop-up deste grupo **personalizado**. Evento de notificação pura — o manipulador pode executar código arbitrário (registrar, redirecionar, disparar outros eventos), mas as regras personalizadas **não possuem API de suspensão programática**. Os registros produzidos aqui aparecem como brindes na guia ativa. Entregue apenas ao grupo pressionado. | `{ triggeredAt }` |
 
-URLs em `ev.url` e em dados de eventos são **normalizados** para eventos: a página Nova guia do Chrome (que renderiza a superfície "Pesquise no Google ou digite URL" do Google), `about:blank` e esquemas de nova guia equivalentes são expostos como a string vazia `""`. Portanto, um cronômetro com escopo definido para `ev.url === ""` apenas funciona enquanto você está na página da nova guia. URLs `google.com` normais permanecem inalterados.
+URLs em `ev.url` e em dados de eventos são **normalizados** para eventos: a página Nova guia do navegador Cromo (que renderiza a superfície "Pesquise no Google ou digite URL" do Google), `about:blank` e esquemas de nova guia equivalentes são expostos como a string vazia `""`. Portanto, um cronômetro com escopo definido para `ev.url === ""` apenas funciona enquanto você está na página da nova guia. URLs `google.com` normais permanecem inalterados.
 
 ### 11.2.3 O objeto de evento (`ev`)
 
@@ -439,17 +439,17 @@ Filtragem de URL e ajudantes de seção:
 - `matchesAny(url, patterns)` — `patterns` pode ser um regex, um regex de string ou uma matriz de ambos.
 - `pathStartsWith(url, path)` — com reconhecimento de limite (`pathStartsWith("/r/", "/r")` é verdadeiro; `"/results/"` não é).
 - `queryHas(url, key, value?)`, `queryGet(url, key)` — inspeção de string de consulta.
-- `isSearchPage(url)` — reconhece pesquisas do Google / Bing / DuckDuckGo / YouTube / Reddit / Twitter / X.
-- `isInfiniteFeedUrl(url)` — reconhece as superfícies de feed algorítmico do YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `isSearchPage(url)` — reconhece pesquisas do Google / Bing / DuckDuckGo / Iutube / Réditi / Tuíter / X.
+- `isInfiniteFeedUrl(url)` — reconhece as superfícies de feed algorítmico do Iutube, TiqueToque, Instagrã, Feicebuque, Réditi, X.
 - `sameSection(a, b)` — mesmo nome de host E mesmo primeiro segmento de caminho.
 
 #### 11.3.6 `getPlatformHelper()`
 
-Intenções DOM por plataforma e temporizadores de subseção, além de inspeção. Cada `helpers.getPlatformHelper().<platform>()` retorna um objeto cujo conjunto de métodos é **bloqueado pela plataforma** — métodos que não fazem sentido em uma determinada plataforma estão simplesmente ausentes, portanto, chamá-los lança `TypeError: ... is not a function` em vez de ficar silenciosamente sem operação. Por exemplo, `twitch().hidePosts` não existe (Twitch não tem postagens) e `tiktok().hideShortButton` não existe (toda a experiência do TikTok já _é_ um vídeo curto). Use `helpers.getPlatformHelper().hasMethod(platform, name)` ou `.listMethods(platform)` para introspecção em tempo de execução.
+Intenções DOM por plataforma e temporizadores de subseção, além de inspeção. Cada `helpers.getPlatformHelper().<platform>()` retorna um objeto cujo conjunto de métodos é **bloqueado pela plataforma** — métodos que não fazem sentido em uma determinada plataforma estão simplesmente ausentes, portanto, chamá-los lança `TypeError: ... is not a function` em vez de ficar silenciosamente sem operação. Por exemplo, `twitch().hidePosts` não existe (Tuíteche não tem postagens) e `tiktok().hideShortButton` não existe (toda a experiência do TiqueToque já _é_ um vídeo curto). Use `helpers.getPlatformHelper().hasMethod(platform, name)` ou `.listMethods(platform)` para introspecção em tempo de execução.
 
 Matriz de método por plataforma:
 
-| método | youtube | tiktok | Instagram | facebook | contrair |
+| método | youtube | tiktok | Instagrã | facebook | contrair |
 |---|:---:|:---:|:---:|:---:|:---:|
 | `hideShorts` / `showShorts` | ✓ |  |  |  |  |
 | `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
@@ -487,7 +487,7 @@ Para métodos de predicado, o predicado é chamado por cartão correspondente co
 
 ### 11.4 Exemplos
 
-**Fácil** — bloqueie as páginas de Shorts do YouTube nas manhãs dos dias de semana:
+**Fácil** — bloqueie as páginas de Shorts do Iutube nas manhãs dos dias de semana:
 
 ```js
 (event, helpers) => {
@@ -508,7 +508,7 @@ Para métodos de predicado, o predicado é chamado por cartão correspondente co
 }
 ```
 
-**Médio** — orçamento diário de 30 minutos para YouTube Shorts. O cronômetro marca automaticamente em `pageHeartbeatEvent`s enquanto um URL de Shorts está visível; um manipulador separado impõe o bloco quando o cronômetro chega a zero.
+**Médio** — orçamento diário de 30 minutos para Iutube Shorts. O cronômetro marca automaticamente em `pageHeartbeatEvent`s enquanto um URL de Shorts está visível; um manipulador separado impõe o bloco quando o cronômetro chega a zero.
 
 ```js
 (event, helpers) => {
@@ -542,7 +542,7 @@ Para métodos de predicado, o predicado é chamado por cartão correspondente co
 }
 ```
 
-**Mais difícil** — oculte Shorts individuais do YouTube cujo identificador de autor seja muito longo e injete um CSS "este Short está oculto":
+**Mais difícil** — oculte Shorts individuais do Iutube cujo identificador de autor seja muito longo e injete um CSS "este Short está oculto":
 
 ```js
 (event, helpers) => {
@@ -588,17 +588,17 @@ Cada grupo Personalizado tem um seletor de **Modelos** que abre um navegador pre
 
 | Categoria | Exemplos |
 |---|---|
-| **Temporizadores** | Orçamento de tempo do site (contagem regressiva + bloqueio), rastreador de tempo do site (contagem crescente), limite de Shorts do YouTube, limite de feed do TikTok, limite de Instagram Reels, limite de Facebook Reels, limite de Twitch Clips, orçamento de distração universal, rastreador de trabalho profundo diário |
+| **Temporizadores** | Orçamento de tempo do site (contagem regressiva + bloqueio), rastreador de tempo do site (contagem crescente), limite de Shorts do Iutube, limite de feed do TiqueToque, limite de Instagrã Reels, limite de Feicebuque Reels, limite de Tuíteche Clips, orçamento de distração universal, rastreador de trabalho profundo diário |
 | **Programação** | Bloqueio de horário de trabalho durante a semana, sites somente nos finais de semana, desligamento antes da hora de dormir, permissão apenas de uma hora, notícias somente para o almoço, recomeço na segunda-feira, permissão dos primeiros N minutos de cada hora, bloqueio estrito de trabalho profundo |
-| **Alimentação/Shorts** | Bloquear URLs de Shorts do YouTube, ocultar cartões de Shorts, ocultar Shorts por palavra-chave, ocultar feed / comentários / tendências da página inicial do YouTube, bloquear TikTok FYP, ocultar shorts do TikTok, bloquear URLs de Instagram Reels, ocultar feed de Instagram Reels, ocultar feed / Reels do Facebook, ocultar Reddit / Twitter / LinkedIn home |
+| **Alimentação/Shorts** | Bloquear URLs de Shorts do Iutube, ocultar cartões de Shorts, ocultar Shorts por palavra-chave, ocultar feed / comentários / tendências da página inicial do Iutube, bloquear TiqueToque FYP, ocultar shorts do TiqueToque, bloquear URLs de Instagrã Reels, ocultar feed de Instagrã Reels, ocultar feed / Reels do Feicebuque, ocultar Réditi / Tuíter / LinkedIn home |
 | **Redirecionar** | Distrações → página de foco, Shorts → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, nova guia → lista de tarefas |
 | **Foco** | Sessão de foco somente na lista de permissões, Pomodoro 25/5, bloqueio durante a reunião, bloqueio após N visitas hoje, bloqueio em caso de perda consecutiva |
 | **Empurrão** | Registrar cada visita de distração, avisar sobre cada visita de Shorts, contar visitas diárias a um site |
-| **Persistência** | Limite de visitas mensais, alternância de banimento semanal, rastreamento de canais Discord visitados |
-| **Ajustes no DOM** | Ocultar alternância de reprodução automática do YouTube, ocultar Twitter / X “O que está acontecendo”, genérico “ocultar seletores em um site” |
+| **Persistência** | Limite de visitas mensais, alternância de banimento semanal, rastreamento de canais Discórdia visitados |
+| **Ajustes no DOM** | Ocultar alternância de reprodução automática do Iutube, ocultar Tuíter / X “O que está acontecendo”, genérico “ocultar seletores em um site” |
 | **Depurar** | Contagem regressiva de demonstração (3 s), registre todos os eventos personalizados |
 
-Os chips de filtro na parte superior do seletor restringem a lista por categoria (`Timer`, `Schedule`, `Feed`,…) e plataforma (`YouTube`, `TikTok`, `Instagram`,…). Selecionando um modelo:
+Os chips de filtro na parte superior do seletor restringem a lista por categoria (`Timer`, `Schedule`, `Feed`,…) e plataforma (`Iutube`, `TiqueToque`, `Instagrã`,…). Selecionando um modelo:
 
 1. Carrega suas entradas de parâmetros (URL, minutos, intervalos de horas, etc.) em um formato pequeno.
 2. **Aplicar predefinição** visualiza a fonte gerada.
@@ -674,7 +674,7 @@ Para campos de entrada com requisitos de formato, a mensagem também aparece ao 
 ## 19. Solução de problemas- **Um grupo que adicionei não faz nada.** Certifique-se de que o grupo esteja ativado, que a programação permita isso agora, que nenhuma suspensão esteja ativa e (para grupos de plataforma) que a página realmente corresponda ao tipo de conteúdo escolhido e ao filtro de autor.
 - **Um cronômetro está travado ou errado em uma guia.** Afaste-se e volte ou foque a guia - isso aciona uma atualização forçada do cronômetro compartilhado.
 - **Os cartões de feed reaparecem depois que eu acho que eles deveriam ser ocultados.** A ocultação de feed só é executada enquanto a regra está bloqueando ativamente. Se você tiver uma regra `after-minutes`, a ocultação de feed entrará em ação quando seu tempo chegar a zero.
-- **Um botão de navegação do YouTube que eu esperava estar oculto ainda está lá.** A ocultação de navegação exige que a regra seja definida como "não filtrar por autor" e que o tipo de conteúdo seja Shorts ou postagens do YouTube. Com filtros de autor, a ocultação ocorre apenas por cartão.
+- **Um botão de navegação do Iutube que eu esperava estar oculto ainda está lá.** A ocultação de navegação exige que a regra seja definida como "não filtrar por autor" e que o tipo de conteúdo seja Shorts ou postagens do Iutube. Com filtros de autor, a ocultação ocorre apenas por cartão.
 - **A regra personalizada não fez nada ou foi lançada silenciosamente.** Abra Configurações → habilite **Modo de depuração**, clique em **Executar** novamente e observe o painel Log. As linhas prefixadas com `[trace]` mostram cada despacho e manipulador. Use `helpers.getLogHelper().log(...)` para adicionar seus próprios pontos de rastreamento. Se uma regra com comportamento incorreto continuou sendo colocada em quarentena automática, corrija a origem e clique em Executar – Executar limpa o motivo da interrupção.
 - **Minha nova regra personalizada não afeta as guias já abertas.** Recarregue-as. Regras personalizadas são anexadas a eventos de página *futuros*; o pop-up mostra um lembrete para recarregar após cada corrida.
 - **Meu cronômetro de contagem regressiva não está avançando.** Os cronômetros de regras personalizadas marcam apenas na guia **ativo visível** via `pageHeartbeatEvent`. Guias de fundo, janelas minimizadas e telas bloqueadas os pausam por design – mesmo comportamento da contagem regressiva padrão do grupo de blocos.
@@ -704,8 +704,13 @@ Para campos de entrada com requisitos de formato, a mensagem também aparece ao 
 ---
 
 ## 21. Limitações- A ocultação de feed depende do DOM atual de cada plataforma. Se a plataforma alterar seu layout, os seletores de ocultação poderão precisar ser atualizados.
-- A detecção de contexto de plataforma para sites que não são do YouTube é baseada principalmente em URLs, por isso é mais confiável em URLs de conteúdo canônico.
+- A detecção de contexto de plataforma para sites que não são do Iutube é baseada principalmente em URLs, por isso é mais confiável em URLs de conteúdo canônico.
 - Temporizadores de regras personalizadas marcam na resolução de pulsação (~250 ms). Não confie neles para cronometragem abaixo de um segundo.
 - Os predicados passados ​​para `hideShorts`/`hideVideos`/`hidePosts` são avaliados de forma síncrona por cartão de alimentação. Lógica pesada em um predicado pode retardar a rolagem do feed; mantenha-os baratos.
 - Duas guias editando o mesmo cronômetro por grupo usam simultaneamente uma estratégia de "última gravação ganha". Para uso típico, isso é bom; se você depende de uma contabilidade exata, espere pequenos desvios ocasionais.
 - O navegador pode suspender o trabalhador do serviço em segundo plano quando estiver ocioso. A extensão retoma assim que uma página ou alarme precisar; os orçamentos de uso do site/temporizado continuam contando por meio da repetição de pulsação.
+
+## Nota da v1.2
+
+O editor de regras personalizadas agora colore a sintaxe linguagem de scripts, e o navegador de modelos usa as mesmas cores nas prévias de código. A ação em massa dos grupos se chama **Limpar**.
+

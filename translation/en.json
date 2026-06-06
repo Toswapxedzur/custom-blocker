@@ -167,7 +167,7 @@
   "custom.copy": "",
   "custom.rules": "Custom rule editor",
   "custom.rulesPlaceholder": "(event, helpers) => {\n  // Register handlers here.\n}",
-  "custom.editorCopy": "Custom rules are now event-driven. The script registers handlers; the system fires events (open/switch/close/tick/custom) and runs handlers in priority order across ALL groups. Click Run to (re)load this group's handlers in every open tab. Disabling the group clears its handlers; enabling it re-runs the script.",
+  "custom.editorCopy": "Custom rules are event-driven. The script registers handlers that run across tabs and navigations until you click Run again, disable the group, or delete it.",
   "custom.defaultRule": "(event, helpers) => {\n  // Register handlers here.\n}",
   "custom.runButton": "Run",
   "custom.checkSyntaxButton": "Check syntax",
@@ -368,12 +368,12 @@
   "status.customSyntaxHaltedTimeBudget": "Syntax check halted: rule exceeded the time budget.",
   "status.customGroupRan": "{name}: loaded {count} handler(s).",
   "status.strictFreezeHours": "Strict freeze hours must be greater than 0 and no more than {max}.",
-  "status.bulkDeleteStrictLocked": "Delete all is disabled while a strict freeze is still locked.",
-  "status.bulkDeleted": "Deleted all groups.",
+  "status.bulkDeleteStrictLocked": "Clear is disabled while a strict freeze is still locked.",
+  "status.bulkDeleted": "Cleared all groups.",
   "status.errorReorderGroups": "Could not reorder your block groups.",
   "status.errorSaveGroup": "Could not save this block group.",
   "status.errorCreateGroup": "Could not create a new block group.",
-  "status.errorDeleteAllGroups": "Could not delete all groups.",
+  "status.errorDeleteAllGroups": "Could not clear all groups.",
   "status.errorDeleteGroup": "Could not delete this block group.",
   "status.errorFreezeGroup": "Could not freeze this block group.",
   "status.errorStartSnooze": "Could not start this snooze.",
@@ -392,5 +392,6 @@
   "logFeed.title": "Log",
   "logFeed.hint": "Output from helpers.log() / helpers.warn() / helpers.error() inside your custom rules.",
   "logFeed.empty": "Nothing logged yet. Call helpers.log(\"hello\") inside one of your handlers to see entries here.",
-  "logFeed.clear": "Clear"
+  "logFeed.clear": "Clear",
+  "app.shortTitle": "Custom Website Blocker"
 }

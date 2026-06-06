@@ -15,7 +15,19 @@
  * "last word".
  */
 
-importScripts("helpers.js");
+// On Chromium the background context is a classic service worker, so we
+// pull in helpers.js with importScripts(). On Firefox/Safari the background
+// is a DOM-bearing page (it has to be — it hosts the sandbox iframe in the
+// absence of chrome.offscreen), where importScripts() does not exist; there
+// the packaging step lists helpers.js ahead of background.js in
+// manifest.background.scripts, so it is already loaded by this point.
+if (typeof importScripts === "function") {
+  try {
+    importScripts("helpers.js");
+  } catch (error) {
+    console.error("[CustomBlocker] importScripts(helpers.js) failed", error);
+  }
+}
 
 const helperBundle = self.__customBlockerHelpers;
 
@@ -2032,6 +2044,47 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 // ────────────────────────────────────────────────────────────────────────
 
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
+
+// ────────────────────────────────────────────────────────────────────────
+// Sandbox transport. The custom-rule event engine has to run somewhere with
+// a DOM + relaxed CSP (so `new Function` works). Where that "somewhere" is
+// depends on the browser, and is the ONLY thing that differs between our
+// per-browser packages:
+//
+//   "offscreen" — Chromium (Chrome/Edge/Brave/Opera/…): a chrome.offscreen
+//                 document hosts event-sandbox.html. (default)
+//   "inpage"    — Firefox: no chrome.offscreen, but the background is a real
+//                 page, so we host offscreen.html as a hidden in-page iframe.
+//   "native"    — Safari: the extension is a thin client; custom-rule logic
+//                 is redirected to the macosBlocker app over native
+//                 messaging (browser.runtime.sendNativeMessage). Default and
+//                 platform groups still run entirely in the extension.
+//
+// package.py writes sandbox-transport.js for the firefox/safari targets to
+// pin this; otherwise we auto-detect (offscreen when available, else inpage).
+const SANDBOX_TRANSPORT_OVERRIDE =
+  (typeof self !== "undefined" && typeof self.CB_SANDBOX_TRANSPORT === "string")
+    ? self.CB_SANDBOX_TRANSPORT
+    : "auto";
+// Native-messaging application id for the Safari host. Safari ignores the
+// value (it routes to the containing app's SafariWebExtensionHandler), but
+// other engines require one, so we keep it explicit and overridable.
+const NATIVE_HOST_APPLICATION_ID =
+  (typeof self !== "undefined" && typeof self.CB_NATIVE_HOST_ID === "string")
+    ? self.CB_NATIVE_HOST_ID
+    : "com.customblocker.macosBlocker";
+
+function sandboxTransportMode() {
+  if (SANDBOX_TRANSPORT_OVERRIDE === "native") return "native";
+  if (SANDBOX_TRANSPORT_OVERRIDE === "inpage") return "inpage";
+  if (SANDBOX_TRANSPORT_OVERRIDE === "offscreen") return "offscreen";
+  if (chrome.offscreen && typeof chrome.offscreen.createDocument === "function") {
+    return "offscreen";
+  }
+  if (typeof document !== "undefined") return "inpage";
+  return "offscreen";
+}
+
 const TICK_ALARM_NAME = "custom-blocker-event-tick";
 // Chrome alarms floor at 1 minute. The 1 s tickEvent is driven from the
 // offscreen document; this alarm is a SW keepalive / safety net.
@@ -2270,11 +2323,76 @@ function clearOffscreenFailure() {
   }
 }
 
+// Firefox in-page host: id of the hidden iframe we inject into the
+// background page to stand in for the (missing) offscreen document.
+const INPAGE_SANDBOX_HOST_ID = "cb-inpage-sandbox-host";
+let inPageHostReadyPromise = null;
+
+// Hosts offscreen.html as a hidden iframe inside the background PAGE. This
+// is the Firefox equivalent of chrome.offscreen.createDocument: offscreen.js
+// runs unchanged inside that iframe (a separate extension context, so its
+// chrome.runtime.sendMessage round-trips with this background page exactly
+// as it does with a real offscreen document on Chromium).
+function ensureInPageSandboxHost() {
+  if (typeof document === "undefined") {
+    reportOffscreenFailure("no-document", "in-page sandbox host needs a DOM");
+    return Promise.resolve(false);
+  }
+  if (document.getElementById(INPAGE_SANDBOX_HOST_ID)) {
+    clearOffscreenFailure();
+    return Promise.resolve(true);
+  }
+  if (inPageHostReadyPromise) return inPageHostReadyPromise;
+  inPageHostReadyPromise = new Promise((resolve) => {
+    const mount = () => {
+      try {
+        if (document.getElementById(INPAGE_SANDBOX_HOST_ID)) {
+          clearOffscreenFailure();
+          resolve(true);
+          return;
+        }
+        const frame = document.createElement("iframe");
+        frame.id = INPAGE_SANDBOX_HOST_ID;
+        frame.setAttribute("aria-hidden", "true");
+        frame.style.cssText = "display:none;width:0;height:0;border:0;";
+        frame.src = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH);
+        (document.body || document.documentElement).appendChild(frame);
+        clearOffscreenFailure();
+        resolve(true);
+      } catch (error) {
+        reportOffscreenFailure(
+          "inpage-mount-failed",
+          String(error && error.message ? error.message : error)
+        );
+        resolve(false);
+      }
+    };
+    if (document.body || document.readyState === "complete") {
+      mount();
+    } else {
+      document.addEventListener("DOMContentLoaded", mount, { once: true });
+    }
+  }).finally(() => {
+    inPageHostReadyPromise = null;
+  });
+  return inPageHostReadyPromise;
+}
+
 async function ensureOffscreenDocument() {
+  const mode = sandboxTransportMode();
+  if (mode === "native") {
+    // Safari client mode: the sandbox lives in the macosBlocker app; there
+    // is no local host document to create.
+    clearOffscreenFailure();
+    return true;
+  }
+  if (mode === "inpage") {
+    return await ensureInPageSandboxHost();
+  }
   if (!chrome.offscreen || typeof chrome.offscreen.createDocument !== "function") {
     reportOffscreenFailure(
       "api-missing",
-      "chrome.offscreen API is not available in this Chrome build"
+      "chrome.offscreen API is not available in this build"
     );
     return false;
   }
@@ -2320,7 +2438,35 @@ async function createOffscreenDocumentOnce() {
   }
 }
 
+// Safari client transport: forward an event-sandbox request to the
+// macosBlocker app's SafariWebExtensionHandler, which runs the rule in
+// JavaScriptCore and returns the same { ok, result } shape the in-browser
+// sandbox produces. Any DOM/redirect intents in the reply are applied by
+// the caller exactly as for the offscreen path.
+async function sendToEventSandboxNative(payload) {
+  try {
+    const message = { type: "event-sandbox-request", payload };
+    let response;
+    if (chrome.runtime && typeof chrome.runtime.sendNativeMessage === "function") {
+      // Safari accepts a single-arg form (routes to the container app); other
+      // engines need an application id. Try the app-id form, fall back.
+      try {
+        response = await chrome.runtime.sendNativeMessage(NATIVE_HOST_APPLICATION_ID, message);
+      } catch (_) {
+        response = await chrome.runtime.sendNativeMessage(message);
+      }
+    }
+    return response && response.ok ? response.result : null;
+  } catch (error) {
+    console.error("[CustomBlocker] native sandbox request failed", error);
+    return null;
+  }
+}
+
 async function sendToEventSandbox(payload) {
+  if (sandboxTransportMode() === "native") {
+    return await sendToEventSandboxNative(payload);
+  }
   await ensureOffscreenDocument();
   try {
     const response = await chrome.runtime.sendMessage({
@@ -2556,6 +2702,20 @@ async function dispatchToSandbox(descriptor) {
 }
 
 async function sendToLocalFileBroker(request) {
+  if (sandboxTransportMode() === "native") {
+    // The local-folder broker uses the File System Access API, which only
+    // exists in the browser. In Safari client mode there is no offscreen
+    // document to host it, so the feature is unavailable.
+    return {
+      ok: false,
+      eventName: "error",
+      action: request?.action || "",
+      path: request?.path || "",
+      directoryPath: request?.directoryPath || "",
+      requestId: request?.requestId || "",
+      error: "local-folder-not-available"
+    };
+  }
   await ensureOffscreenDocument();
   try {
     const response = await chrome.runtime.sendMessage({

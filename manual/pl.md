@@ -12,16 +12,16 @@ Niestandardowy moduł blokowania sieci umożliwia blokowanie witryn internetowyc
 
 - Natychmiast blokuj witryny za pomocą natywnego blokowania sieci przeglądarki (tego samego rodzaju, który generuje `ERR_BLOCKED_BY_CLIENT`).
 - Pozwól sobie na określoną liczbę minut dziennie na stronie, a następnie zablokuj ją po przekroczeniu tego limitu.
-- Blokuj określone rodzaje treści w YouTube, TikTok, Facebooku, Instagramie, Twitchu i Reddicie (nie w całej witrynie).
+- Blokuj określone rodzaje treści w Jutub, krótkie wideo, Fejsbuku, sieci zdjęć, Tłiczu i forum społeczności (nie w całej witrynie).
 - Ukryj zablokowaną zawartość z kanałów na obsługiwanych platformach, zamiast blokować tylko pojedyncze strony.
 - Zaplanuj, kiedy reguła jest aktywna według dnia tygodnia i okien czasowych `HHMM-HHMM`.
 - Zablokuj regułę, aby nie można było jej łatwo zmienić. Ścisłe zamrożenie blokuje go na określoną liczbę godzin, a jego cofnięcie wymaga 20-etapowego rytuału potwierdzenia.
 - Odłóż regułę tymczasowo, ale dopiero po napisaniu wystarczająco długiego uzasadnienia.
-- Napisz **sterowane zdarzeniami** niestandardowe reguły w JavaScript z pomocnikami dla liczników czasu do przodu/do tyłu, trwałego przechowywania dla grup, intencji DOM dla poszczególnych platform (ukryj przyciski nawigacyjne, ukryj karty kanałów według predykatu, ustaw liczniki czasu dla podsekcji), narzędzia URL i rejestrowanie strukturalne.
+- Napisz **sterowane zdarzeniami** niestandardowe reguły w język skryptowy z pomocnikami dla liczników czasu do przodu/do tyłu, trwałego przechowywania dla grup, intencji DOM dla poszczególnych platform (ukryj przyciski nawigacyjne, ukryj karty kanałów według predykatu, ustaw liczniki czasu dla podsekcji), narzędzia URL i rejestrowanie strukturalne.
 - Wybieraj z wbudowanej biblioteki ponad 50 gotowych szablonów (timery, harmonogramy, ukrywanie kanałów, sesje fokusowe, przekierowania, szturchnięcia, trwałość, poprawki DOM, pomocnicy debugowania).
 - Użyj rozszerzenia w ponad 20 językach.
 
-Rozszerzenie to rozszerzenie Chrome Manifest V3 z jedną stroną edytora (wyskakującym okienkiem), jednym procesem roboczym usług w tle, jedną piaskownicą poza ekranem, w której znajduje się kod niestandardowych reguł, i jednym skryptem treści uruchamianym na każdej stronie. Niestandardowe reguły znajdują się w piaskownicy poza ekranem; są ładowane raz na kliknięcie Uruchom i pozostają zarejestrowane do momentu wyłączenia lub usunięcia reguły.
+Rozszerzenie to rozszerzenie przeglądarka Chrom Manifest V3 z jedną stroną edytora (wyskakującym okienkiem), jednym procesem roboczym usług w tle, jedną piaskownicą poza ekranem, w której znajduje się kod niestandardowych reguł, i jednym skryptem treści uruchamianym na każdej stronie. Niestandardowe reguły znajdują się w piaskownicy poza ekranem; są ładowane raz na kliknięcie Uruchom i pozostają zarejestrowane do momentu wyłączenia lub usunięcia reguły.
 
 ---
 
@@ -50,7 +50,7 @@ Po kliknięciu ikony rozszerzenia edytor otwiera się jako pełna strona interne
 
 ## 3. Szybki start1. Kliknij ikonę rozszerzenia. Edytor otwiera się jako pełna strona.
 2. W panelu **Grupy bloków** wybierz z listy rozwijanej typ grupy:
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit` lub `Custom`.
+   - `Default`, `Jutub`, `krótkie wideo`, `Fejsbuk`, `sieć zdjęć`, `Tłicz`, `forum społeczności` lub `Custom`.
 3. Kliknij **Dodaj**. Pojawi się nowa grupa, którą edytor otworzy.
 4. Nazwij to.
 5. Wypełnij pola specyficzne dla typu (dla `Default` oznacza to listę **Zablokowane strony internetowe**).
@@ -70,7 +70,7 @@ Wszystko w tym rozszerzeniu jest zorganizowane jako **grupy bloków**. Grupa blo
 - Ma nazwę, typ i stan włączenia/wyłączenia.
 - Ma działanie blokujące (natychmiastowe, po określonej liczbie minut lub ze stałym odliczaniem).
 - Posiada opcjonalny harmonogram (dni + okna czasowe) i opcjonalne elementy sterujące zamrażaniem/drzemką.
-- W zależności od typu zawiera dodatkowe pola, takie jak lista stron internetowych, filtry twórców YouTube, nazwy subredditów lub reguła JavaScript sterowana zdarzeniami.
+- W zależności od typu zawiera dodatkowe pola, takie jak lista stron internetowych, filtry twórców Jutub, nazwy subredditów lub reguła język skryptowy sterowana zdarzeniami.
 
 Możesz mieć dowolną liczbę grup. Do tej samej strony może aplikować wiele grup; w takim przypadku wygrywa **najsurowsza** zasada:
 
@@ -91,61 +91,61 @@ Do blokowania określonych domen (typowy przypadek użycia).
 
 - **Zablokowane strony internetowe**: jedna witryna w wierszu. Działają zarówno `facebook.com`, jak i `https://www.facebook.com/somepage`; rozszerzenie wyodrębnia i normalizuje nazwę hosta.
 - Reguła witryny ma zastosowanie do tej nazwy hosta i wszystkich jej subdomen.
-— Ten typ grupy korzysta z natywnego blokowania sieci Chrome, podobnie jak `ERR_BLOCKED_BY_CLIENT`. Oznacza to, że nawigacja do zablokowanego adresu URL zostaje zatrzymana jeszcze przed załadowaniem strony.
+— Ten typ grupy korzysta z natywnego blokowania sieci przeglądarka Chrom, podobnie jak `ERR_BLOCKED_BY_CLIENT`. Oznacza to, że nawigacja do zablokowanego adresu URL zostaje zatrzymana jeszcze przed załadowaniem strony.
 
-### 5.2 `YouTube` — blokuj YouTube i podobne witryny wideo
+### 5.2 `Jutub` — blokuj Jutub i podobne witryny wideo
 
 Dodaje sekcję **Filtry** do edytora:
 
 - **Typ treści**:
-  - `Apply to all YouTube pages` — liczy się każda strona YouTube.
+  - `Apply to all Jutub pages` — liczy się każda strona Jutub.
   - `Apply to Shorts` — liczą się tylko strony z filmami Short.
   - `Apply to long videos` — tylko `/watch`, `/live/`, `/embed/` itp.
-  - `Apply to YouTube posts` — posty społeczności (`/post/...`, zakładki społeczność/posty kanału).
+  - `Apply to Jutub posts` — posty społeczności (`/post/...`, zakładki społeczność/posty kanału).
 - **Filtr autora**:
   - `Do not filter by author` — tożsamość autora nie ma znaczenia.
   - `Apply to certain authors` — tylko wymienieni autorzy tworzą tę grupę.
   - `Apply to all except certain authors` — autorzy wymienieni są zwolnieni.
 - **Autorzy**: jeden autor w każdym wierszu. Akceptuje `@handle`, pełne adresy URL, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Ukryj zablokowane wpisy w kanale YouTube**: gdy ta grupa aktywnie blokuje, pasujące karty w kanałach YouTube są ukryte. Gdy blok stanie się nieaktywny, powrócą przy następnym odświeżeniu.
+- **Ukryj zablokowane wpisy w kanale Jutub**: gdy ta grupa aktywnie blokuje, pasujące karty w kanałach Jutub są ukryte. Gdy blok stanie się nieaktywny, powrócą przy następnym odświeżeniu.
 
-W przypadku treści typu Shorts i Posts, gdy nie jest ustawiony żaden filtr autora, a grupa jest aktualnie blokowana, rozszerzenie ukrywa również odpowiednie wpisy nawigacyjne (wpis na pasku bocznym Shorts, karty kanałów Społeczność/Posty) i pasujące półki, takie jak „Najnowsze posty w YouTube”.
+W przypadku treści typu Shorts i Posts, gdy nie jest ustawiony żaden filtr autora, a grupa jest aktualnie blokowana, rozszerzenie ukrywa również odpowiednie wpisy nawigacyjne (wpis na pasku bocznym Shorts, karty kanałów Społeczność/Posty) i pasujące półki, takie jak „Najnowsze posty w Jutub”.
 
-Wykrywanie krótkich i długich treści obejmuje inne witryny wideo, takie jak TikTok, Vimeo, klipy/VOD na Twitchu i Dailymotion, jeśli można wykryć ich formę strony.
+Wykrywanie krótkich i długich treści obejmuje inne witryny wideo, takie jak krótkie wideo, Vimeo, klipy/VOD na Tłiczu i Dailymotion, jeśli można wykryć ich formę strony.
 
-### 5.3 `TikTok` — blokuj treści TikTok
+### 5.3 `krótkie wideo` — blokuj treści krótkie wideo
 
-Ta sama karta edytora, co edytor wideo platformy, ale z etykietami specyficznymi dla TikTok:- Typy treści: krótkie filmy, filmy, strony profilowe.
-- Autorzy: uchwyty TikTok (`@handle`) lub adresy URL profili.
-- Ukrywanie kanałów ukrywa pasujące karty na stronach TikTok, gdy grupa jest aktywna.
+Ta sama karta edytora, co edytor wideo platformy, ale z etykietami specyficznymi dla krótkie wideo:- Typy treści: krótkie filmy, filmy, strony profilowe.
+- Autorzy: uchwyty krótkie wideo (`@handle`) lub adresy URL profili.
+- Ukrywanie kanałów ukrywa pasujące karty na stronach krótkie wideo, gdy grupa jest aktywna.
 
-### 5.4 `Facebook` — blokuj treści na Facebooku
+### 5.4 `Fejsbuk` — blokuj treści na Fejsbuku
 
 - Typy treści: krążki, filmy, posty.
 - Autorzy: nazwa strony (`page.name`), adres URL profilu lub formularz `profile.php?id=...` (identyfikator numeryczny zostaje zachowany jako `id:<number>`).
-- Ukrywanie kanałów ukrywa pasujące karty kanałów na Facebooku.
+- Ukrywanie kanałów ukrywa pasujące karty kanałów na Fejsbuku.
 
-### 5.5 `Instagram` — blokuj treści na Instagramie
+### 5.5 `sieć zdjęć` — blokuj treści na sieci zdjęć
 
 - Typy treści: krążki, filmy, posty.
-- Autorzy: uchwyty na Instagramie lub adresy URL profili.
+- Autorzy: uchwyty na sieci zdjęć lub adresy URL profili.
 - Zarezerwowane ścieżki, takie jak `/reel/`, `/p/`, `/tv/`, `/explore/` nie są traktowane jako autorzy.
-- Ukrywanie kanałów ukrywa pasujące karty na Instagramie.
+- Ukrywanie kanałów ukrywa pasujące karty na sieci zdjęć.
 
-### 5.6 `Twitch` — blokowanie zawartości Twitcha
+### 5.6 `Tłicz` — blokowanie zawartości Tłicza
 
 - Typy treści: klipy, strumienie/VOD, strony kanałów.
 - Autorzy: nazwy kanałów lub adresy URL kanałów.
 - Zarezerwowane ścieżki, takie jak `/directory`, `/videos`, `/settings` itp. nie są traktowane jako nazwy kanałów.
-- Ukrywanie kanałów ukrywa pasujące karty na Twitchu.
+- Ukrywanie kanałów ukrywa pasujące karty na Tłiczu.
 
-### 5.7 `Reddit` — blokuj Reddita lub określone subreddity
+### 5.7 `forum społeczności` — blokuj forum społeczności lub określone subreddity
 
-- **Subreddity**: jeden subreddit w każdym wierszu. Pusta lista oznacza, że ​​grupa dotyczy całego Reddita. Akceptowane są zarówno `productivity`, jak i `r/productivity`.
+- **Subreddity**: jeden subreddit w każdym wierszu. Pusta lista oznacza, że ​​grupa dotyczy całego forum społeczności. Akceptowane są zarówno `productivity`, jak i `r/productivity`.
 
-### 5.8 `Custom` — blok przez JavaScript sterowany zdarzeniami
+### 5.8 `Custom` — blok przez język skryptowy sterowany zdarzeniami
 
-Piszesz funkcję JavaScript, która **rejestruje moduły obsługi** zdarzeń takich jak otwarcie strony, zmiana adresu URL, puls strony, koniec licznika czasu i własne zdarzenia niestandardowe. Funkcja jest uruchamiana raz na kliknięcie Uruchom; zarejestrowane programy obsługi pozostają aktywne podczas nawigacji, dopóki nie naciśniesz ponownie Uruchom, nie wyłączysz grupy lub ją nie usuniesz.
+Piszesz funkcję język skryptowy, która **rejestruje moduły obsługi** zdarzeń takich jak otwarcie strony, zmiana adresu URL, puls strony, koniec licznika czasu i własne zdarzenia niestandardowe. Funkcja jest uruchamiana raz na kliknięcie Uruchom; zarejestrowane programy obsługi pozostają aktywne podczas nawigacji, dopóki nie naciśniesz ponownie Uruchom, nie wyłączysz grupy lub ją nie usuniesz.
 
 Grupy `Custom` nie pokazują: zachowań blokujących, zablokowanych witryn, dozwolonych minut, interwału resetowania, dni harmonogramu ani okien czasowych. Zachowują edytor **Reguł blokowania** oraz standardowe elementy sterujące blokowaniem/drzemieniem. Dostępny jest także przycisk **Szablony**, który otwiera gotową przeglądarkę ze sparametryzowanymi regułami startowymi; zastosowanie ustawienia wstępnego zastępuje bieżącą regułę po potwierdzeniu.
 
@@ -161,7 +161,7 @@ W przypadku większości typów grup można wybrać jeden z trzech trybów.
 
 Reguła jest aktywna zawsze, gdy grupa jest włączona, pozwala na to harmonogram i (w przypadku grup platform) strona jest zgodna.
 
-W przypadku grup `Default` wykorzystuje to natywne blokowanie przeglądarki Chrome. W przypadku grup platform wykorzystuje logikę nakładki/wyjścia na stronie.
+W przypadku grup `Default` wykorzystuje to natywne blokowanie przeglądarki przeglądarka Chrom. W przypadku grup platform wykorzystuje logikę nakładki/wyjścia na stronie.
 
 ### 6.2 Blokuj po kilku minutach
 
@@ -328,7 +328,7 @@ Cukier na typ zdarzenia (jeden zestaw metod na każdy typ wbudowany):
 | `timerEnded` | Timer zarządzany przez grupę osiąga `currentMs === 0`. Dostarczone tylko grupie właścicieli. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | Użytkownik nacisnął **Rozpocznij drzemkę** w wyskakującym okienku dla tej **niestandardowej** grupy. Czyste zdarzenie powiadomienia — moduł obsługi może uruchomić dowolny kod (logowanie, przekierowanie, uruchomienie innych zdarzeń), ale reguły niestandardowe nie mają **braku API programistycznego drzemki**. Wytworzone tutaj kłody pojawiają się jako tosty na aktywnej karcie. Dostarczane tylko do tłoczonej grupy. | `{ triggeredAt }` |
 
-Adresy URL w `ev.url` i dane zdarzeń są **normalizowane** pod kątem zdarzeń: strona nowej karty przeglądarki Chrome (która renderuje powierzchnię Google „Wyszukaj w Google lub wpisz adres URL”), `about:blank` i równoważne schematy nowej karty są prezentowane jako pusty ciąg znaków `""`. Zatem licznik czasu o zakresie `ev.url === ""` odmierza czas tylko wtedy, gdy jesteś na stronie nowej karty. Zwykłe adresy URL `google.com` pozostają niezmienione.
+Adresy URL w `ev.url` i dane zdarzeń są **normalizowane** pod kątem zdarzeń: strona nowej karty przeglądarki przeglądarka Chrom (która renderuje powierzchnię Google „Wyszukaj w Google lub wpisz adres URL”), `about:blank` i równoważne schematy nowej karty są prezentowane jako pusty ciąg znaków `""`. Zatem licznik czasu o zakresie `ev.url === ""` odmierza czas tylko wtedy, gdy jesteś na stronie nowej karty. Zwykłe adresy URL `google.com` pozostają niezmienione.
 
 ### 11.2.3 Obiekt zdarzenia (`ev`)
 
@@ -430,7 +430,7 @@ Podobnie jak inne skutki uboczne reguł niestandardowych, ten stan jest wspólny
 Pomocnicy do sprawdzania adresów URL. Nie ma `normalize()`, ponieważ przychodzące adresy URL są już znormalizowane w nowej karcie.
 
 Rdzeń:- `hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
-- `isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
+- `isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTłiczHost`, `isRedditHost`, `isDyskordHost`.
 - `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()` — każdy zwraca `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`.
 
 Filtrowanie adresów URL i pomocnicy sekcji:
@@ -439,17 +439,17 @@ Filtrowanie adresów URL i pomocnicy sekcji:
 - `matchesAny(url, patterns)` — `patterns` może być wyrażeniem regularnym, wyrażeniem regularnym łańcuchowym lub tablicą obu.
 - `pathStartsWith(url, path)` — obsługujący granice (`pathStartsWith("/r/", "/r")` ma wartość true; `"/results/"` nie).
 - `queryHas(url, key, value?)`, `queryGet(url, key)` — kontrola ciągu zapytań.
-- `isSearchPage(url)` — rozpoznaje wyszukiwania w Google / Bing / DuckDuckGo / YouTube / Reddit / Twitterze / X.
-- `isInfiniteFeedUrl(url)` — rozpoznaje platformy obsługujące algorytmy YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `isSearchPage(url)` — rozpoznaje wyszukiwania w Google / Bing / DuckDuckGo / Jutub / forum społeczności / Twiterze / X.
+- `isInfiniteFeedUrl(url)` — rozpoznaje platformy obsługujące algorytmy Jutub, krótkie wideo, sieć zdjęć, Fejsbuk, forum społeczności, X.
 - `sameSection(a, b)` — ta sama nazwa hosta ORAZ ten sam pierwszy segment ścieżki.
 
 #### 11.3.6 `getPlatformHelper()`
 
-Intencje DOM dla poszczególnych platform i liczniki czasu podsekcji oraz inspekcja. Każdy `helpers.getPlatformHelper().<platform>()` zwraca obiekt, którego zestaw metod jest **bramkowany przez platformę** — metod, które nie mają sensu na danej platformie, po prostu nie ma, więc wywołanie ich powoduje wygenerowanie `TypeError: ... is not a function`, zamiast cichego braku działania. Na przykład `twitch().hidePosts` nie istnieje (Twitch nie ma postów) i `tiktok().hideShortButton` nie istnieje (całe doświadczenie TikToka to już _krótki film). Użyj `helpers.getPlatformHelper().hasMethod(platform, name)` lub `.listMethods(platform)` do introspekcji w czasie wykonywania.
+Intencje DOM dla poszczególnych platform i liczniki czasu podsekcji oraz inspekcja. Każdy `helpers.getPlatformHelper().<platform>()` zwraca obiekt, którego zestaw metod jest **bramkowany przez platformę** — metod, które nie mają sensu na danej platformie, po prostu nie ma, więc wywołanie ich powoduje wygenerowanie `TypeError: ... is not a function`, zamiast cichego braku działania. Na przykład `twitch().hidePosts` nie istnieje (Tłicz nie ma postów) i `tiktok().hideShortButton` nie istnieje (całe doświadczenie krótkiego wideo to już _krótki film). Użyj `helpers.getPlatformHelper().hasMethod(platform, name)` lub `.listMethods(platform)` do introspekcji w czasie wykonywania.
 
 Macierz metod dla poszczególnych platform:
 
-| metoda | YouTube | tiktok | instagramie | facebooku | drgać |
+| metoda | Jutub | tiktok | instagramie | facebooku | drgać |
 |---|:---:|:---:|:---:|:---:|:---:|
 | `hideShorts` / `showShorts` | ✓ |  |  |  |  |
 | `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
@@ -487,7 +487,7 @@ W przypadku metod predykatów predykat jest wywoływany na pasującą kartę ze 
 
 ### 11.4 Przykłady
 
-**Łatwe** — blokuj strony YouTube Shorts w dni powszednie:
+**Łatwe** — blokuj strony Jutub Shorts w dni powszednie:
 
 ```js
 (event, helpers) => {
@@ -508,7 +508,7 @@ W przypadku metod predykatów predykat jest wywoływany na pasującą kartę ze 
 }
 ```
 
-**Średni** – 30-minutowy budżet dzienny na YouTube Shorts. Licznik czasu w `pageHeartbeatEvent` odlicza się automatycznie, gdy widoczny jest adres URL Shorts; oddzielny moduł obsługi wymusza blok, gdy licznik czasu osiągnie zero.
+**Średni** – 30-minutowy budżet dzienny na Jutub Shorts. Licznik czasu w `pageHeartbeatEvent` odlicza się automatycznie, gdy widoczny jest adres URL Shorts; oddzielny moduł obsługi wymusza blok, gdy licznik czasu osiągnie zero.
 
 ```js
 (event, helpers) => {
@@ -542,7 +542,7 @@ W przypadku metod predykatów predykat jest wywoływany na pasującą kartę ze 
 }
 ```
 
-**Trudniej** — ukryj poszczególne filmy Short w YouTube, których nazwa autora jest za długa, i wstrzyknij kod CSS „ten film Short jest ukryty”:
+**Trudniej** — ukryj poszczególne filmy Short w Jutub, których nazwa autora jest za długa, i wstrzyknij kod CSS „ten film Short jest ukryty”:
 
 ```js
 (event, helpers) => {
@@ -588,17 +588,17 @@ Każda grupa niestandardowa ma selektor **Szablony**, który otwiera przeglądar
 
 | Kategoria | Przykłady |
 |---|---|
-| **Timery** | Budżet czasu witryny (odliczanie + blokowanie), moduł śledzenia czasu witryny (odliczanie), limit YouTube Shorts, limit kanałów TikTok, limit Instagram Reels, limit Facebook Reels, limit Twitch Clips, uniwersalny budżet na rozrywkę, codzienny moduł do śledzenia głębokiej pracy |
+| **Timery** | Budżet czasu witryny (odliczanie + blokowanie), moduł śledzenia czasu witryny (odliczanie), limit Jutub Shorts, limit kanałów krótkie wideo, limit sieć zdjęć Reels, limit Fejsbuk Reels, limit Tłicz Clips, uniwersalny budżet na rozrywkę, codzienny moduł do śledzenia głębokiej pracy |
 | **Harmonogram** | Blokada godzin pracy w dni powszednie, witryny tylko w weekendy, wyłączenie przed snem, zezwolenie tylko na jedną godzinę, wiadomości tylko w porze lunchu, świeży start w poniedziałek, zezwolenie na pierwsze N ​​minut każdej godziny, ścisła blokada dotycząca głębokiej pracy |
-| **Kanał / Szorty** | Blokuj adresy URL YouTube Shorts, ukryj karty Shorts, ukryj Shorts według słów kluczowych, ukryj kanał główny YouTube / komentarze / trendy, zablokuj TikTok FYP, ukryj Shorty TikTok, zablokuj adresy URL Instagram Reels, ukryj kanał Instagram Reels, ukryj kanał / Reels na Facebooku, ukryj stronę główną Reddit / Twitter / LinkedIn |
+| **Kanał / Szorty** | Blokuj adresy URL Jutub Shorts, ukryj karty Shorts, ukryj Shorts według słów kluczowych, ukryj kanał główny Jutub / komentarze / trendy, zablokuj krótkie wideo FYP, ukryj Shorty krótkie wideo, zablokuj adresy URL sieć zdjęć Reels, ukryj kanał sieć zdjęć Reels, ukryj kanał / Reels na Fejsbuku, ukryj stronę główną forum społeczności / Twiter / LinkedIn |
 | **Przekierowanie** | Rozproszenia → strona fokusowa, Shorts → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, nowa karta → lista zadań |
 | **Skupienie** | Sesja fokusowa dostępna tylko na liście dozwolonych, Pomodoro 25/5, blokada podczas spotkania, blokada po N wizyt dzisiaj, blokada w przypadku utraty passy |
 | **Szturchnięcie** | Rejestruj każdą odwracającą uwagę wizytę, ostrzegaj przy każdej wizycie w Shorts, licz codzienne wizyty na stronie |
-| **Trwałość** | Miesięczny limit odwiedzin, przełącznik cotygodniowego bana, śledzenie odwiedzonych kanałów Discord |
-| **Ulepszenia DOM** | Ukryj przełącznik automatycznego odtwarzania YouTube, ukryj Twitter / X „Co się dzieje”, ogólne „ukryj selektory w witrynie” |
+| **Trwałość** | Miesięczny limit odwiedzin, przełącznik cotygodniowego bana, śledzenie odwiedzonych kanałów Dyskord |
+| **Ulepszenia DOM** | Ukryj przełącznik automatycznego odtwarzania Jutub, ukryj Twiter / X „Co się dzieje”, ogólne „ukryj selektory w witrynie” |
 | **Debugowanie** | Odliczanie wersji demonstracyjnej (3 s), rejestrowanie każdego niestandardowego zdarzenia |
 
-Filtruj żetony na górze selektora zawęź listę według kategorii (`Timer`, `Schedule`, `Feed`, …) i platformy (`YouTube`, `TikTok`, `Instagram`, …). Wybór szablonu:
+Filtruj żetony na górze selektora zawęź listę według kategorii (`Timer`, `Schedule`, `Feed`, …) i platformy (`Jutub`, `krótkie wideo`, `sieć zdjęć`, …). Wybór szablonu:
 
 1. Ładuje wprowadzone parametry (adres URL, minuty, zakresy godzin itp.) do małego formularza.
 2. **Zastosuj ustawienie wstępne** umożliwia podgląd wygenerowanego źródła.
@@ -674,7 +674,7 @@ W przypadku pól wejściowych z wymaganiami dotyczącymi formatu komunikat pojaw
 ## 19. Rozwiązywanie problemów- **Dodana przeze mnie grupa nic nie robi.** Upewnij się, że grupa jest włączona, harmonogram na to pozwala, drzemka nie jest aktywna i (w przypadku grup platform) strona faktycznie pasuje do wybranego typu treści i filtra autora.
 - **Zegar zatrzymał się lub jest nieprawidłowy na jednej karcie.** Przełącz się i cofnij lub skoncentruj kartę — powoduje to wymuszone odświeżenie udostępnionego licznika czasu.
 - **Karty kanałów pojawiają się ponownie, gdy uważam, że powinny być ukryte.** Ukrywanie kanałów działa tylko wtedy, gdy reguła aktywnie blokuje. Jeśli masz regułę `after-minutes`, ukrywanie kanałów rozpoczyna się, gdy Twój czas osiągnie zero.
-– **Przycisk nawigacyjny YouTube, który powinien być ukryty, nadal jest tam widoczny.** Ukrywanie nawigacji wymaga ustawienia reguły na „nie filtruj według autora” i typu treści na Shorts lub Posty w YouTube. W przypadku filtrów autorskich ukrywanie odbywa się tylko dla poszczególnych kart.
+– **Przycisk nawigacyjny Jutub, który powinien być ukryty, nadal jest tam widoczny.** Ukrywanie nawigacji wymaga ustawienia reguły na „nie filtruj według autora” i typu treści na Shorts lub Posty w Jutub. W przypadku filtrów autorskich ukrywanie odbywa się tylko dla poszczególnych kart.
 - **Reguła niestandardowa nic nie zrobiła lub wyrzuciła cicho.** Otwórz Ustawienia → włącz **Tryb debugowania**, następnie kliknij ponownie **Uruchom** i obejrzyj panel Dziennik. Linie z prefiksem `[trace]` pokazują każdą wysyłkę i osobę obsługującą. Użyj `helpers.getLogHelper().log(...)`, aby dodać własne punkty śledzenia. Jeśli źle działająca reguła jest automatycznie poddawana kwarantannie, napraw źródło i kliknij Uruchom — Uruchom powoduje usunięcie przyczyny przerwania.
 - **Moja nowa reguła niestandardowa nie wpływa na już otwarte karty.** Załaduj je ponownie. Niestandardowe reguły są dołączane do *przyszłych* zdarzeń na stronie; wyskakujące okienko pokazuje przypomnienie o ponownym załadowaniu po każdym uruchomieniu.
 - **Mój licznik czasu nie przyspiesza.** Zegary z regułami niestandardowymi zaznaczają się tylko na karcie **aktywne widoczne** za pośrednictwem `pageHeartbeatEvent`. Karty w tle, zminimalizowane okna i zablokowane ekrany wstrzymują je zgodnie z projektem — takie samo zachowanie jak domyślne odliczanie grup bloków.
@@ -704,8 +704,13 @@ W przypadku pól wejściowych z wymaganiami dotyczącymi formatu komunikat pojaw
 ---
 
 ## 21. Ograniczenia- Ukrywanie kanałów zależy od aktualnego DOM każdej platformy. Jeśli platforma zmieni swój układ, może zaistnieć potrzeba aktualizacji ukrywanych selektorów.
-— Wykrywanie kontekstu platformy w witrynach innych niż YouTube opiera się głównie na adresach URL, dlatego jest najbardziej niezawodne w przypadku adresów URL treści kanonicznych.
+— Wykrywanie kontekstu platformy w witrynach innych niż Jutub opiera się głównie na adresach URL, dlatego jest najbardziej niezawodne w przypadku adresów URL treści kanonicznych.
 - Zegary reguł niestandardowych tykają z rozdzielczością pulsu (~250 ms). Nie polegaj na nich w przypadku pomiaru czasu poniżej sekundy.
 - Predykaty przekazywane do `hideShorts` / `hideVideos` / `hidePosts` są oceniane synchronicznie dla każdej karty źródła. Ciężka logika w predykacie może spowolnić przewijanie kanału; żeby były tanie.
 - Dwie zakładki edytujące ten sam licznik czasu dla każdej grupy jednocześnie korzystają ze strategii „wygrywa ostatni zapis”. Do typowego użytku jest to w porządku; jeśli polegasz na dokładnej księgowości, spodziewaj się sporadycznych niewielkich odchyleń.
 - Przeglądarka może zawiesić pracownika usługi działającej w tle, gdy jest bezczynny. Rozszerzenie wznawia je, gdy tylko potrzebuje tego strona lub alarm; Budżety użytkowania witryny/czasu są stale zliczane poprzez odtwarzanie pulsu.
+
+## Uwaga v1.2
+
+Edytor reguł niestandardowych koloruje teraz składnię język skryptowy, a przeglądarka szablonów używa tych samych kolorów w podglądach kodu. Zbiorcza akcja grup nazywa się **Wyczyść**.
+

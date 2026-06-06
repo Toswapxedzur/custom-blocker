@@ -12,16 +12,16 @@ Custom Web Blocker vous permet de bloquer les sites Web et les distractions en l
 
 - Bloquez immédiatement les sites avec le blocage réseau natif du navigateur (le même type de blocage qui produit `ERR_BLOCKED_BY_CLIENT`).
 - Accordez-vous un certain nombre de minutes par jour sur un site, puis bloquez-le dès que vous dépassez cette limite.
-- Bloquez des types spécifiques de contenu sur YouTube, TikTok, Facebook, Instagram, Twitch et Reddit (pas sur l'ensemble du site).
+- Bloquez des types spécifiques de contenu sur plateforme vidéo, TicToc, réseau social bleu, Insta localisé, plateforme de direct et forum communautaire (pas sur l'ensemble du site).
 - Masquez le contenu bloqué des flux sur les plates-formes prises en charge au lieu de bloquer uniquement des pages individuelles.
 - Planifiez le moment où une règle est active par jour de la semaine et par fenêtres horaires `HHMM-HHMM`.
 - Gelez une règle afin de ne pas pouvoir la modifier facilement. Un gel strict le verrouille pendant un nombre d'heures spécifié et nécessite un rituel de confirmation en 20 étapes pour l'annuler.
 - Répéter temporairement une règle, mais seulement après avoir rédigé une justification suffisamment longue.
-- Écrivez des règles personnalisées **basées sur les événements** en JavaScript avec des aides pour les minuteries avant/arrière, le stockage persistant par groupe, les intentions DOM par plate-forme (masquer les boutons de navigation, masquer les cartes de flux par prédicat, définir les minuteries par sous-section), les utilitaires d'URL et la journalisation structurée.
+- Écrivez des règles personnalisées **basées sur les événements** en langage de script avec des aides pour les minuteries avant/arrière, le stockage persistant par groupe, les intentions DOM par plate-forme (masquer les boutons de navigation, masquer les cartes de flux par prédicat, définir les minuteries par sous-section), les utilitaires d'URL et la journalisation structurée.
 - Choisissez parmi une bibliothèque intégrée de plus de 50 modèles prêts à l'emploi (minuteries, plannings, masquage de flux, sessions de focus, redirections, nudges, persistance, ajustements DOM, aides au débogage).
 - Utilisez l'extension dans plus de 20 langues.
 
-L'extension est une extension Chrome Manifest V3 avec une page d'éditeur (la fenêtre contextuelle), un travailleur de service en arrière-plan, un bac à sable hors écran qui héberge le code de règles personnalisées et un script de contenu qui s'exécute dans chaque page. Les règles personnalisées résident dans le bac à sable hors écran ; ils sont chargés une fois par clic d'exécution et restent enregistrés jusqu'à ce que la règle soit désactivée ou supprimée.
+L'extension est une extension navigateur de Google Manifest V3 avec une page d'éditeur (la fenêtre contextuelle), un travailleur de service en arrière-plan, un bac à sable hors écran qui héberge le code de règles personnalisées et un script de contenu qui s'exécute dans chaque page. Les règles personnalisées résident dans le bac à sable hors écran ; ils sont chargés une fois par clic d'exécution et restent enregistrés jusqu'à ce que la règle soit désactivée ou supprimée.
 
 ---
 
@@ -50,7 +50,7 @@ Lorsque vous cliquez sur l'icône de l'extension, l'éditeur s'ouvre sous la for
 
 ## 3. Démarrage rapide1. Cliquez sur l'icône d'extension. L'éditeur s'ouvre en pleine page.
 2. Dans le panneau **Bloquer les groupes**, choisissez un type de groupe dans la liste déroulante :
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit` ou `Custom`.
+   - `Default`, `plateforme vidéo`, `TicToc`, `réseau social bleu`, `Insta localisé`, `plateforme de direct`, `forum communautaire` ou `Custom`.
 3. Cliquez sur **Ajouter**. Un nouveau groupe apparaît et l'éditeur l'ouvre.
 4. Donnez-lui un nom.
 5. Remplissez les champs spécifiques au type (pour `Default`, cela signifie la liste des **Sites Web bloqués**).
@@ -70,7 +70,7 @@ Tout dans cette extension est organisé en **groupes de blocs**. Un groupe de bl
 - Il a un nom, un type et un état activé/désactivé.
 - Il a un comportement bloquant (immédiat, après un certain nombre de minutes ou compte à rebours fixe).
 - Il dispose d'un calendrier optionnel (jours + fenêtres horaires) et de commandes de gel/répétition optionnelles.
-- Selon le type, il comporte des champs supplémentaires comme une liste de sites Web, des filtres de créateur YouTube, des noms de subreddit ou une règle JavaScript basée sur des événements.
+- Selon le type, il comporte des champs supplémentaires comme une liste de sites Web, des filtres de créateur plateforme vidéo, des noms de subreddit ou une règle langage de script basée sur des événements.
 
 Vous pouvez avoir n'importe quel nombre de groupes. Plusieurs groupes peuvent postuler à la même page ; dans ce cas, la règle **la plus stricte** l'emporte :
 
@@ -91,61 +91,61 @@ Pour bloquer des domaines spécifiques (le cas d'utilisation typique).
 
 - **Sites Web bloqués** : un site par ligne. `facebook.com` et `https://www.facebook.com/somepage` fonctionnent ; l'extension extrait et normalise le nom d'hôte.
 - Une règle de site s'applique à ce nom d'hôte et à tous ses sous-domaines.
-- Ce type de groupe utilise le blocage de réseau natif de Chrome, similaire à `ERR_BLOCKED_BY_CLIENT`. Cela signifie que la navigation vers une URL bloquée est arrêtée avant même le chargement de la page.
+- Ce type de groupe utilise le blocage de réseau natif de navigateur de Google, similaire à `ERR_BLOCKED_BY_CLIENT`. Cela signifie que la navigation vers une URL bloquée est arrêtée avant même le chargement de la page.
 
-### 5.2 `YouTube` — bloque YouTube et les sites vidéo similaires
+### 5.2 `plateforme vidéo` — bloque plateforme vidéo et les sites vidéo similaires
 
 Ajoute une section **Filtres** à l'éditeur :
 
 - **Type de contenu** :
-  - `Apply to all YouTube pages` — chaque page YouTube compte.
+  - `Apply to all plateforme vidéo pages` — chaque page plateforme vidéo compte.
   - `Apply to Shorts` : seules les pages de courts métrages comptent.
   - `Apply to long videos` — uniquement `/watch`, `/live/`, `/embed/`, etc.
-  - `Apply to YouTube posts` — publications de la communauté (`/post/...`, onglets communauté/publications de la chaîne).
+  - `Apply to plateforme vidéo posts` — publications de la communauté (`/post/...`, onglets communauté/publications de la chaîne).
 - **Filtre auteur** :
   - `Do not filter by author` — l'identité de l'auteur n'a pas d'importance.
   - `Apply to certain authors` — seuls les auteurs répertoriés déclenchent ce groupe.
   - `Apply to all except certain authors` — les auteurs répertoriés sont exemptés.
 - **Auteurs** : un auteur par ligne. Accepte `@handle`, les URL complètes, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Masquer les entrées bloquées dans le flux YouTube** : pendant que ce groupe bloque activement, les cartes correspondantes dans les flux YouTube sont masquées. Lorsque le bloc devient inactif, ils reviennent au prochain rafraîchissement.
+- **Masquer les entrées bloquées dans le flux plateforme vidéo** : pendant que ce groupe bloque activement, les cartes correspondantes dans les flux plateforme vidéo sont masquées. Lorsque le bloc devient inactif, ils reviennent au prochain rafraîchissement.
 
-Pour les types de contenu Shorts et Posts, lorsqu'aucun filtre d'auteur n'est défini et que le groupe est actuellement bloqué, l'extension masque également les entrées de navigation pertinentes (entrée de la barre latérale Short, onglets de chaîne Communauté/Posts) et les étagères correspondantes telles que « Dernières publications YouTube ».
+Pour les types de contenu Shorts et Posts, lorsqu'aucun filtre d'auteur n'est défini et que le groupe est actuellement bloqué, l'extension masque également les entrées de navigation pertinentes (entrée de la barre latérale Short, onglets de chaîne Communauté/Posts) et les étagères correspondantes telles que « Dernières publications plateforme vidéo ».
 
-La détection courte/longue s'étend à d'autres sites vidéo tels que TikTok, Vimeo, Twitch clips/VOD et Dailymotion lorsque leur forme de page peut être détectée.
+La détection courte/longue s'étend à d'autres sites vidéo tels que TicToc, Vimeo, plateforme de direct clips/VOD et Dailymotion lorsque leur forme de page peut être détectée.
 
-### 5.3 `TikTok` — bloquer le contenu TikTok
+### 5.3 `TicToc` — bloquer le contenu TicToc
 
-Même fiche d'éditeur que l'éditeur vidéo de la plateforme, mais avec des étiquettes spécifiques à TikTok :- Types de contenu : courtes vidéos, vidéos, pages de profil.
-- Auteurs : identifiants TikTok (`@handle`) ou URL de profil.
-- Le masquage du flux masque les cartes correspondantes sur les pages TikTok pendant que le groupe est actif.
+Même fiche d'éditeur que l'éditeur vidéo de la plateforme, mais avec des étiquettes spécifiques à TicToc :- Types de contenu : courtes vidéos, vidéos, pages de profil.
+- Auteurs : identifiants TicToc (`@handle`) ou URL de profil.
+- Le masquage du flux masque les cartes correspondantes sur les pages TicToc pendant que le groupe est actif.
 
-### 5.4 `Facebook` — bloquer le contenu Facebook
+### 5.4 `réseau social bleu` — bloquer le contenu réseau social bleu
 
 - Types de contenu : Reels, vidéos, publications.
 - Auteurs : nom de la page (`page.name`), URL du profil ou formulaire `profile.php?id=...` (l'identifiant numérique est conservé sous la forme `id:<number>`).
-- Le masquage du flux masque les cartes de flux correspondantes sur Facebook.
+- Le masquage du flux masque les cartes de flux correspondantes sur réseau social bleu.
 
-### 5.5 `Instagram` — bloquer le contenu Instagram
+### 5.5 `Insta localisé` — bloquer le contenu Insta localisé
 
 - Types de contenu : Reels, vidéos, publications.
-- Auteurs : identifiants Instagram ou URL de profil.
+- Auteurs : identifiants Insta localisé ou URL de profil.
 - Les chemins réservés comme `/reel/`, `/p/`, `/tv/`, `/explore/` ne sont pas traités comme des auteurs.
-- Le masquage du flux cache les cartes correspondantes sur Instagram.
+- Le masquage du flux cache les cartes correspondantes sur Insta localisé.
 
-### 5.6 `Twitch` — bloquer le contenu Twitch
+### 5.6 `plateforme de direct` — bloquer le contenu plateforme de direct
 
 - Types de contenu : clips, flux/VOD, pages de chaînes.
 - Auteurs : noms de chaînes ou URL de chaînes.
 - Les chemins réservés comme `/directory`, `/videos`, `/settings`, etc. ne sont pas traités comme des noms de canaux.
-- Le masquage du flux cache les cartes correspondantes sur Twitch.
+- Le masquage du flux cache les cartes correspondantes sur plateforme de direct.
 
-### 5.7 `Reddit` — bloque Reddit ou des sous-reddits spécifiques
+### 5.7 `forum communautaire` — bloque forum communautaire ou des sous-reddits spécifiques
 
-- **Subreddits** : un subreddit par ligne. La liste vide signifie que le groupe s'applique à l'ensemble de Reddit. `productivity` et `r/productivity` sont acceptés.
+- **Subreddits** : un subreddit par ligne. La liste vide signifie que le groupe s'applique à l'ensemble de forum communautaire. `productivity` et `r/productivity` sont acceptés.
 
-### 5.8 `Custom` — blocage par JavaScript piloté par les événements
+### 5.8 `Custom` — blocage par langage de script piloté par les événements
 
-Vous écrivez une fonction JavaScript qui **enregistre les gestionnaires** pour des événements tels que l'ouverture de page, la modification d'URL, le battement de page, la fin du minuteur et vos propres événements personnalisés. La fonction s'exécute une fois par clic sur Exécuter ; les gestionnaires enregistrés restent actifs dans toutes les navigations jusqu'à ce que vous appuyiez à nouveau sur Exécuter, désactiviez le groupe ou le supprimiez.
+Vous écrivez une fonction langage de script qui **enregistre les gestionnaires** pour des événements tels que l'ouverture de page, la modification d'URL, le battement de page, la fin du minuteur et vos propres événements personnalisés. La fonction s'exécute une fois par clic sur Exécuter ; les gestionnaires enregistrés restent actifs dans toutes les navigations jusqu'à ce que vous appuyiez à nouveau sur Exécuter, désactiviez le groupe ou le supprimiez.
 
 Les groupes `Custom` n'affichent pas : comportement de blocage, sites bloqués, minutes autorisées, intervalle de réinitialisation, jours de programmation ou fenêtres horaires. Ils conservent l'éditeur **Règles de blocage** ainsi que les commandes de gel/répétition standard. Il existe également un bouton **Modèles** qui ouvre un navigateur prédéfini avec des règles de démarrage paramétrées ; l'application d'un préréglage remplace la règle actuelle après confirmation.
 
@@ -161,7 +161,7 @@ Pour la plupart des types de groupes, vous choisissez l'un des trois modes.
 
 La règle est active chaque fois que le groupe est activé, que le planning le permet et (pour les groupes de plateforme) que la page correspond.
 
-Pour les groupes `Default`, cela utilise le blocage natif de Chrome. Pour les groupes de plates-formes, il utilise la logique de superposition/sortie sur la page.
+Pour les groupes `Default`, cela utilise le blocage natif de navigateur de Google. Pour les groupes de plates-formes, il utilise la logique de superposition/sortie sur la page.
 
 ### 6.2 Bloquer après quelques minutes
 
@@ -328,7 +328,7 @@ Sucre par type d'événement (un ensemble de méthodes par type intégré) :
 | `timerEnded` | Un temporisateur géré par le groupe atteint `currentMs === 0`. Livré uniquement au groupe propriétaire. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | L'utilisateur a appuyé sur **Démarrer Snooze** dans la fenêtre contextuelle de ce groupe **personnalisé**. Événement de notification pur : le gestionnaire peut exécuter du code arbitraire (enregistrer, rediriger, déclencher d'autres événements), mais les règles personnalisées n'ont **pas d'API de répétition programmatique**. Les journaux produits ici apparaissent sous forme de toasts sur l'onglet actif. Livré uniquement au groupe pressé. | `{ triggeredAt }` |
 
-Les URL dans `ev.url` et dans les données d'événement sont **normalisées** pour les événements : la page Nouvel onglet de Chrome (qui affiche la surface "Rechercher sur Google ou saisir une URL") de Google, `about:blank` et les schémas de nouvel onglet équivalents sont exposés sous la forme de chaîne vide `""`. Ainsi, une minuterie limitée à `ev.url === ""` ne fonctionne que lorsque vous êtes sur la page du nouvel onglet. Les URL `google.com` normales restent inchangées.
+Les URL dans `ev.url` et dans les données d'événement sont **normalisées** pour les événements : la page Nouvel onglet de navigateur de Google (qui affiche la surface "Rechercher sur Google ou saisir une URL") de Google, `about:blank` et les schémas de nouvel onglet équivalents sont exposés sous la forme de chaîne vide `""`. Ainsi, une minuterie limitée à `ev.url === ""` ne fonctionne que lorsque vous êtes sur la page du nouvel onglet. Les URL `google.com` normales restent inchangées.
 
 ### 11.2.3 L'objet événement (`ev`)
 
@@ -439,17 +439,17 @@ Filtrage d'URL et aides de section :
 - `matchesAny(url, patterns)` — `patterns` peut être une expression régulière, une expression régulière de chaîne ou un tableau des deux.
 - `pathStartsWith(url, path)` — sensible aux limites (`pathStartsWith("/r/", "/r")` est vrai ; `"/results/"` ne l'est pas).
 - `queryHas(url, key, value?)`, `queryGet(url, key)` — inspection de chaîne de requête.
-- `isSearchPage(url)` — reconnaît les recherches Google / Bing / DuckDuckGo / YouTube / Reddit / Twitter / X.
-- `isInfiniteFeedUrl(url)` — reconnaît les surfaces de flux algorithmiques de YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `isSearchPage(url)` — reconnaît les recherches Google / Bing / DuckDuckGo / plateforme vidéo / forum communautaire / Touiteur / X.
+- `isInfiniteFeedUrl(url)` — reconnaît les surfaces de flux algorithmiques de plateforme vidéo, TicToc, Insta localisé, réseau social bleu, forum communautaire, X.
 - `sameSection(a, b)` — même nom d'hôte ET même premier segment de chemin.
 
 #### 11.3.6 `getPlatformHelper()`
 
-Intentions DOM par plate-forme et minuteries de sous-section, plus inspection. Chaque `helpers.getPlatformHelper().<platform>()` renvoie un objet dont l'ensemble de méthodes est **dépendant de la plate-forme** — les méthodes qui n'ont pas de sens sur une plate-forme donnée sont tout simplement absentes, donc les appeler lance `TypeError: ... is not a function` plutôt que de ne pas fonctionner en silence. Par exemple, `twitch().hidePosts` n'existe pas (Twitch n'a pas de publication) et `tiktok().hideShortButton` n'existe pas (toute l'expérience de TikTok _est déjà_ une vidéo courte). Utilisez `helpers.getPlatformHelper().hasMethod(platform, name)` ou `.listMethods(platform)` pour effectuer une introspection au moment de l'exécution.
+Intentions DOM par plate-forme et minuteries de sous-section, plus inspection. Chaque `helpers.getPlatformHelper().<platform>()` renvoie un objet dont l'ensemble de méthodes est **dépendant de la plate-forme** — les méthodes qui n'ont pas de sens sur une plate-forme donnée sont tout simplement absentes, donc les appeler lance `TypeError: ... is not a function` plutôt que de ne pas fonctionner en silence. Par exemple, `twitch().hidePosts` n'existe pas (plateforme de direct n'a pas de publication) et `tiktok().hideShortButton` n'existe pas (toute l'expérience de TicToc _est déjà_ une vidéo courte). Utilisez `helpers.getPlatformHelper().hasMethod(platform, name)` ou `.listMethods(platform)` pour effectuer une introspection au moment de l'exécution.
 
 Matrice de méthode par plateforme :
 
-| méthode | YouTube | tic tac | Instagram | Facebook | contraction |
+| méthode | plateforme vidéo | tic tac | Insta localisé | réseau social bleu | contraction |
 |---|:---:|:---:|:---:|:---:|:---:|
 | `hideShorts` / `showShorts` | ✓ |  |  |  |  |
 | `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
@@ -487,7 +487,7 @@ Pour les méthodes de prédicat, le prédicat est appelé par carte correspondan
 
 ### 11.4 Exemples
 
-**Facile** : bloquez les pages YouTube Shorts les matins de la semaine :
+**Facile** : bloquez les pages plateforme vidéo Shorts les matins de la semaine :
 
 ```js
 (event, helpers) => {
@@ -508,7 +508,7 @@ Pour les méthodes de prédicat, le prédicat est appelé par carte correspondan
 }
 ```
 
-**Moyen** : budget quotidien de 30 minutes pour YouTube Shorts. Le minuteur s'active automatiquement sur les `pageHeartbeatEvent` lorsqu'une URL de short est visible ; un gestionnaire distinct applique le blocage lorsque le minuteur atteint zéro.
+**Moyen** : budget quotidien de 30 minutes pour plateforme vidéo Shorts. Le minuteur s'active automatiquement sur les `pageHeartbeatEvent` lorsqu'une URL de short est visible ; un gestionnaire distinct applique le blocage lorsque le minuteur atteint zéro.
 
 ```js
 (event, helpers) => {
@@ -542,7 +542,7 @@ Pour les méthodes de prédicat, le prédicat est appelé par carte correspondan
 }
 ```
 
-**Plus dur** : masquez les Shorts YouTube individuels dont le pseudo de l'auteur est trop long et injectez un CSS "ce Short est masqué" :
+**Plus dur** : masquez les Shorts plateforme vidéo individuels dont le pseudo de l'auteur est trop long et injectez un CSS "ce Short est masqué" :
 
 ```js
 (event, helpers) => {
@@ -588,17 +588,17 @@ Chaque groupe personnalisé dispose d'un sélecteur de **Modèles** qui ouvre un
 
 | Catégorie | Exemples |
 |---|---|
-| **Minuteries** | Budget temps du site (compte à rebours + blocage), suivi du temps du site (compte croissant), plafond YouTube Shorts, plafond de flux TikTok, plafond Instagram Reels, plafond Facebook Reels, plafond Twitch Clips, budget de distraction universel, suivi quotidien du travail en profondeur |
+| **Minuteries** | Budget temps du site (compte à rebours + blocage), suivi du temps du site (compte croissant), plafond plateforme vidéo Shorts, plafond de flux TicToc, plafond Insta localisé Reels, plafond réseau social bleu Reels, plafond plateforme de direct Clips, budget de distraction universel, suivi quotidien du travail en profondeur |
 | **Horaire** | Blocage des heures de travail en semaine, sites uniquement le week-end, arrêt avant le coucher, autorisation d'une heure seulement, informations pour le déjeuner uniquement, nouveau départ du lundi, autorisation des N premières minutes de chaque heure, blocage strict du travail en profondeur |
-| **Flux / Shorts** | Bloquer les URL des courts métrages YouTube, masquer les cartes Shorts, masquer les courts métrages par mot-clé, masquer le flux d'accueil / commentaires / tendances YouTube, bloquer TikTok FYP, masquer les courts métrages TikTok, bloquer les URL des bobines Instagram, masquer le flux Instagram Reels, masquer le flux Facebook / Bobines, masquer l'accueil Reddit / Twitter / LinkedIn |
+| **Flux / Shorts** | Bloquer les URL des courts métrages plateforme vidéo, masquer les cartes Shorts, masquer les courts métrages par mot-clé, masquer le flux d'accueil / commentaires / tendances plateforme vidéo, bloquer TicToc FYP, masquer les courts métrages TicToc, bloquer les URL des bobines Insta localisé, masquer le flux Insta localisé Reels, masquer le flux réseau social bleu / Bobines, masquer l'accueil forum communautaire / Touiteur / LinkedIn |
 | **Redirection** | Distractions → page de focus, Shorts → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, nouvel onglet → liste de tâches |
 | **Concentration** | Session de discussion sur liste verte uniquement, Pomodoro 25/5, blocage pendant la réunion, blocage après N visites aujourd'hui, blocage en cas de perte consécutive |
 | **Coup de pouce** | Enregistrez chaque visite de distraction, avertissez à chaque visite Shorts, comptez les visites quotidiennes sur un site |
-| **Persistance** | Limite de visites mensuelle, bascule d'interdiction hebdomadaire, suivi des chaînes Discord visitées |
-| **Ajustements du DOM** | Masquer la bascule de lecture automatique de YouTube, masquer Twitter/X « Que se passe-t-il », générique « masquer les sélecteurs sur un site » |
+| **Persistance** | Limite de visites mensuelle, bascule d'interdiction hebdomadaire, suivi des chaînes salon de discussion visitées |
+| **Ajustements du DOM** | Masquer la bascule de lecture automatique de plateforme vidéo, masquer Touiteur/X « Que se passe-t-il », générique « masquer les sélecteurs sur un site » |
 | **Débogage** | Compte à rebours de la démo (3 s), enregistrez chaque événement personnalisé |
 
-Les puces de filtre en haut du sélecteur réduisent la liste par catégorie (`Timer`, `Schedule`, `Feed`, …) et par plate-forme (`YouTube`, `TikTok`, `Instagram`, …). Sélection d'un modèle :
+Les puces de filtre en haut du sélecteur réduisent la liste par catégorie (`Timer`, `Schedule`, `Feed`, …) et par plate-forme (`plateforme vidéo`, `TicToc`, `Insta localisé`, …). Sélection d'un modèle :
 
 1. Charge ses entrées de paramètres (URL, minutes, plages d'heures, etc.) dans un petit formulaire.
 2. **Appliquer le préréglage** prévisualise la source générée.
@@ -674,7 +674,7 @@ Pour les champs de saisie avec des exigences de format, le message apparaît ég
 ## 19. Dépannage- **Un groupe que j'ai ajouté ne fait rien.** Assurez-vous que le groupe est activé, que le calendrier le permet maintenant, qu'aucune répétition n'est active et (pour les groupes de plateforme) que la page correspond réellement au type de contenu et au filtre d'auteur choisis.
 - **Une minuterie est bloquée ou incorrecte sur un onglet.** Éloignez-vous et revenez en arrière, ou concentrez-vous sur l'onglet, ce qui déclenche une actualisation forcée à partir de la minuterie partagée.
 - **Les cartes de flux réapparaissent après que je pense qu'elles devraient être masquées.** Le masquage du flux ne s'exécute que lorsque la règle bloque activement. Si vous avez une règle `after-minutes`, le masquage du flux entre en vigueur une fois que votre temps atteint zéro.
-- **Un bouton de navigation YouTube que je m'attendais à masquer est toujours là.** Le masquage de la navigation nécessite que la règle soit définie sur « ne pas filtrer par auteur » et que le type de contenu soit des courts métrages ou des publications YouTube. Avec les filtres d'auteur, le masquage se fait uniquement par carte.
+- **Un bouton de navigation plateforme vidéo que je m'attendais à masquer est toujours là.** Le masquage de la navigation nécessite que la règle soit définie sur « ne pas filtrer par auteur » et que le type de contenu soit des courts métrages ou des publications plateforme vidéo. Avec les filtres d'auteur, le masquage se fait uniquement par carte.
 - **La règle personnalisée n'a rien fait ou s'est lancée silencieusement.** Ouvrez les paramètres → activez le **mode Débogage**, puis cliquez à nouveau sur **Exécuter** et regardez le panneau Journal. Les lignes précédées du préfixe `[trace]` indiquent chaque expédition et chaque gestionnaire. Utilisez `helpers.getLogHelper().log(...)` pour ajouter vos propres points de trace. Si une règle qui se comporte mal continue d'être mise en quarantaine automatiquement, corrigez la source et cliquez sur Exécuter — Exécuter efface la raison de l'abandon.
 - **Ma nouvelle règle personnalisée n'affecte pas les onglets déjà ouverts.** Rechargez-les. Des règles personnalisées s'attachent aux *futurs* événements de page ; la fenêtre contextuelle affiche un rappel de recharger après chaque exécution.
 - **Mon compte à rebours n'avance pas.** Les minuteries à règles personnalisées cochent uniquement sur l'onglet **actif visible** via `pageHeartbeatEvent`. Les onglets d'arrière-plan, les fenêtres réduites et les écrans verrouillés les mettent en pause de par leur conception - même comportement que le compte à rebours par défaut du groupe de blocs.
@@ -704,8 +704,13 @@ Pour les champs de saisie avec des exigences de format, le message apparaît ég
 ---
 
 ## 21. Limites- Le masquage des flux dépend du DOM actuel de chaque plateforme. Si la plateforme modifie sa présentation, les sélecteurs masqués devront peut-être être mis à jour.
-- La détection du contexte de la plate-forme pour les sites non YouTube est principalement basée sur les URL, elle est donc plus fiable sur les URL de contenu canonique.
+- La détection du contexte de la plate-forme pour les sites non plateforme vidéo est principalement basée sur les URL, elle est donc plus fiable sur les URL de contenu canonique.
 - Les minuteries personnalisées fonctionnent à la résolution du battement de cœur (~ 250 ms). Ne comptez pas sur eux pour un timing inférieur à la seconde.
 - Les prédicats transmis à `hideShorts` / `hideVideos` / `hidePosts` sont évalués de manière synchrone par carte d'alimentation. Une logique lourde dans un prédicat peut ralentir le défilement du fil ; gardez-les bon marché.
 - Deux onglets éditant le même minuteur par groupe utilisent simultanément une stratégie de « dernière écriture gagne ». Pour une utilisation typique, c'est très bien ; si vous dépendez d’une comptabilité exacte, attendez-vous à de légères dérives occasionnelles.
 - Le navigateur peut suspendre le service worker en arrière-plan lorsqu'il est inactif. L'extension le reprend dès qu'une page ou une alarme en a besoin ; les budgets d'utilisation du site / chronométrés continuent de compter via la relecture des battements de cœur.
+
+## Note v1.2
+
+L’éditeur de règles personnalisées colore désormais la syntaxe langage de script, et le navigateur de modèles utilise les mêmes couleurs pour les aperçus de code. L’action groupée des groupes s’appelle **Vider**.
+

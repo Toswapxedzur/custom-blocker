@@ -12,16 +12,16 @@ Trình chặn web tùy chỉnh cho phép bạn chặn các trang web và các ph
 
 - Chặn các trang web ngay lập tức bằng tính năng chặn mạng gốc của trình duyệt (cùng loại khối tạo ra `ERR_BLOCKED_BY_CLIENT`).
 - Cho phép bản thân dành một số phút nhất định mỗi ngày trên một trang web, sau đó chặn nó khi bạn vượt quá giới hạn đó.
-- Chặn các loại nội dung cụ thể trên YouTube, TikTok, Facebook, Instagram, Twitch và Reddit (không phải toàn bộ trang web).
+- Chặn các loại nội dung cụ thể trên Du-túp, Tích Tốc, Phây-búc, In-xta-gam, Tuých và Rét-đít (không phải toàn bộ trang web).
 - Ẩn nội dung bị chặn khỏi nguồn cấp dữ liệu trên các nền tảng được hỗ trợ thay vì chỉ chặn các trang đơn lẻ.
 - Lên lịch khi quy tắc được kích hoạt theo ngày trong tuần và theo khung thời gian `HHMM-HHMM`.
 - Đóng băng một quy tắc để bạn không thể dễ dàng thay đổi nó. Tính năng đóng băng nghiêm ngặt sẽ khóa nó trong một số giờ nhất định và yêu cầu quy trình xác nhận 20 bước để hoàn tác.
 - Tạm thời tạm dừng một quy tắc, nhưng chỉ sau khi viết một lời giải thích đủ dài.
-- Viết các quy tắc tùy chỉnh **theo hướng sự kiện** trong JavaScript với các công cụ trợ giúp cho bộ hẹn giờ tiến/lùi, bộ nhớ liên tục cho mỗi nhóm, ý định DOM trên mỗi nền tảng (ẩn nút điều hướng, ẩn thẻ nguồn cấp dữ liệu theo vị từ, đặt bộ hẹn giờ cho mỗi tiểu mục), tiện ích URL và ghi nhật ký có cấu trúc.
+- Viết các quy tắc tùy chỉnh **theo hướng sự kiện** trong ngôn ngữ kịch bản với các công cụ trợ giúp cho bộ hẹn giờ tiến/lùi, bộ nhớ liên tục cho mỗi nhóm, ý định DOM trên mỗi nền tảng (ẩn nút điều hướng, ẩn thẻ nguồn cấp dữ liệu theo vị từ, đặt bộ hẹn giờ cho mỗi tiểu mục), tiện ích URL và ghi nhật ký có cấu trúc.
 - Chọn từ thư viện tích hợp gồm hơn 50 mẫu tạo sẵn (bộ hẹn giờ, lịch biểu, ẩn nguồn cấp dữ liệu, phiên tập trung, chuyển hướng, nhắc nhở, kiên trì, chỉnh sửa DOM, trợ giúp gỡ lỗi).
 - Sử dụng tiện ích mở rộng bằng hơn 20 ngôn ngữ.
 
-Tiện ích mở rộng này là tiện ích mở rộng Chrome Manifest V3 với một trang soạn thảo (cửa sổ bật lên), một nhân viên dịch vụ nền, một hộp cát ngoài màn hình lưu trữ mã quy tắc tùy chỉnh và một tập lệnh nội dung chạy trên mỗi trang. Quy tắc tùy chỉnh tồn tại trong hộp cát ngoài màn hình; chúng được tải một lần cho mỗi lần nhấp Chạy và duy trì đăng ký cho đến khi quy tắc bị vô hiệu hóa hoặc bị xóa.
+Tiện ích mở rộng này là tiện ích mở rộng trình duyệt Cờ-rôm Manifest V3 với một trang soạn thảo (cửa sổ bật lên), một nhân viên dịch vụ nền, một hộp cát ngoài màn hình lưu trữ mã quy tắc tùy chỉnh và một tập lệnh nội dung chạy trên mỗi trang. Quy tắc tùy chỉnh tồn tại trong hộp cát ngoài màn hình; chúng được tải một lần cho mỗi lần nhấp Chạy và duy trì đăng ký cho đến khi quy tắc bị vô hiệu hóa hoặc bị xóa.
 
 ---
 
@@ -50,7 +50,7 @@ Khi bạn nhấp vào biểu tượng của tiện ích mở rộng, trình ch�
 
 ## 3. Bắt đầu nhanh1. Nhấp vào biểu tượng tiện ích mở rộng. Trình chỉnh sửa mở ra dưới dạng một trang đầy đủ.
 2. Trong bảng **Chặn nhóm**, chọn loại nhóm từ danh sách thả xuống:
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit` hoặc `Custom`.
+   - `Default`, `Du-túp`, `Tích Tốc`, `Phây-búc`, `In-xta-gam`, `Tuých`, `Rét-đít` hoặc `Custom`.
 3. Nhấp vào **Thêm**. Một nhóm mới xuất hiện và người soạn thảo sẽ mở nó.
 4. Đặt tên cho nó.
 5. Điền vào các trường dành riêng cho loại (đối với `Default`, nghĩa là danh sách **Trang web bị chặn**).
@@ -70,7 +70,7 @@ Mọi thứ trong tiện ích mở rộng này được sắp xếp dưới dạ
 - Nó có tên, loại và trạng thái bật/tắt.
 - Nó có hành vi chặn (ngay lập tức, sau một vài phút hoặc đếm ngược cố định).
 - Nó có lịch trình tùy chọn (ngày + cửa sổ thời gian) và các điều khiển đóng băng/báo lại tùy chọn.
-- Tùy thuộc vào loại, nó có các trường bổ sung như danh sách trang web, bộ lọc người sáng tạo trên YouTube, tên subreddit hoặc quy tắc JavaScript theo sự kiện.
+- Tùy thuộc vào loại, nó có các trường bổ sung như danh sách trang web, bộ lọc người sáng tạo trên Du-túp, tên subreddit hoặc quy tắc ngôn ngữ kịch bản theo sự kiện.
 
 Bạn có thể có bất kỳ số lượng nhóm. Nhiều nhóm có thể áp dụng cho cùng một trang; trong trường hợp đó quy tắc **nghiêm ngặt nhất** sẽ thắng:
 
@@ -91,61 +91,61 @@ Vì vậy, việc thêm nhiều nhóm hơn chỉ có thể tạo ra một khối
 
 - **Các trang web bị chặn**: một trang trên mỗi dòng. Cả `facebook.com` và `https://www.facebook.com/somepage` đều hoạt động; phần mở rộng trích xuất và chuẩn hóa tên máy chủ.
 - Quy tắc trang web áp dụng cho tên máy chủ đó và tất cả các tên miền phụ của nó.
-- Loại nhóm này sử dụng tính năng chặn mạng gốc của Chrome, tương tự như `ERR_BLOCKED_BY_CLIENT`. Điều đó có nghĩa là việc điều hướng đến một URL bị chặn sẽ bị dừng trước khi trang tải.
+- Loại nhóm này sử dụng tính năng chặn mạng gốc của trình duyệt Cờ-rôm, tương tự như `ERR_BLOCKED_BY_CLIENT`. Điều đó có nghĩa là việc điều hướng đến một URL bị chặn sẽ bị dừng trước khi trang tải.
 
-### 5.2 `YouTube` — chặn YouTube và các trang video tương tự
+### 5.2 `Du-túp` — chặn Du-túp và các trang video tương tự
 
 Thêm phần **Bộ lọc** vào trình chỉnh sửa:
 
 - **Loại nội dung**:
-  - `Apply to all YouTube pages` — mỗi trang YouTube đều có giá trị.
+  - `Apply to all Du-túp pages` — mỗi trang Du-túp đều có giá trị.
   - `Apply to Shorts` — chỉ tính trang Shorts.
   - `Apply to long videos` — chỉ `/watch`, `/live/`, `/embed/`, v.v.
-  - `Apply to YouTube posts` — bài đăng cộng đồng (`/post/...`, tab bài đăng/cộng đồng kênh).
+  - `Apply to Du-túp posts` — bài đăng cộng đồng (`/post/...`, tab bài đăng/cộng đồng kênh).
 - **Bộ lọc tác giả**:
   - `Do not filter by author` — danh tính tác giả không quan trọng.
   - `Apply to certain authors` — chỉ các tác giả được liệt kê mới kích hoạt nhóm này.
   - `Apply to all except certain authors` — các tác giả được liệt kê được miễn.
 - **Tác giả**: một tác giả trên mỗi dòng. Chấp nhận `@handle`, URL đầy đủ, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Ẩn các mục bị chặn trong nguồn cấp dữ liệu YouTube**: trong khi nhóm này đang tích cực chặn, các thẻ phù hợp trong nguồn cấp dữ liệu YouTube sẽ bị ẩn. Khi khối không hoạt động, chúng sẽ quay trở lại vào lần làm mới tiếp theo.
+- **Ẩn các mục bị chặn trong nguồn cấp dữ liệu Du-túp**: trong khi nhóm này đang tích cực chặn, các thẻ phù hợp trong nguồn cấp dữ liệu Du-túp sẽ bị ẩn. Khi khối không hoạt động, chúng sẽ quay trở lại vào lần làm mới tiếp theo.
 
-Đối với loại nội dung Video ngắn và Bài đăng, khi không đặt bộ lọc tác giả và nhóm hiện đang chặn, tiện ích này cũng ẩn các mục điều hướng có liên quan (mục nhập thanh bên Shorts, tab kênh Cộng đồng/Bài đăng) và các giá phù hợp như "Bài đăng mới nhất trên YouTube".
+Đối với loại nội dung Video ngắn và Bài đăng, khi không đặt bộ lọc tác giả và nhóm hiện đang chặn, tiện ích này cũng ẩn các mục điều hướng có liên quan (mục nhập thanh bên Shorts, tab kênh Cộng đồng/Bài đăng) và các giá phù hợp như "Bài đăng mới nhất trên Du-túp".
 
-Việc phát hiện ngắn và dài mở rộng sang các trang web video khác như TikTok, Vimeo, Twitch clip/VOD và Dailymotion khi có thể phát hiện được hình thức trang của chúng.
+Việc phát hiện ngắn và dài mở rộng sang các trang web video khác như Tích Tốc, Vimeo, Tuých clip/VOD và Dailymotion khi có thể phát hiện được hình thức trang của chúng.
 
-### 5.3 `TikTok` — chặn nội dung TikTok
+### 5.3 `Tích Tốc` — chặn nội dung Tích Tốc
 
-Thẻ trình chỉnh sửa tương tự như trình chỉnh sửa video trên nền tảng nhưng có nhãn dành riêng cho TikTok:- Các loại nội dung: video ngắn, video, trang profile.
-- Tác giả: TikTok xử lý (`@handle`) hoặc URL hồ sơ.
-- Ẩn nguồn cấp dữ liệu sẽ ẩn các thẻ phù hợp trên các trang TikTok khi nhóm đang hoạt động.
+Thẻ trình chỉnh sửa tương tự như trình chỉnh sửa video trên nền tảng nhưng có nhãn dành riêng cho Tích Tốc:- Các loại nội dung: video ngắn, video, trang profile.
+- Tác giả: Tích Tốc xử lý (`@handle`) hoặc URL hồ sơ.
+- Ẩn nguồn cấp dữ liệu sẽ ẩn các thẻ phù hợp trên các trang Tích Tốc khi nhóm đang hoạt động.
 
-### 5.4 `Facebook` — chặn nội dung Facebook
+### 5.4 `Phây-búc` — chặn nội dung Phây-búc
 
 - Các loại nội dung: Reels, video, post.
 - Tác giả: tên trang (`page.name`), URL hồ sơ hoặc dạng `profile.php?id=...` (id số được giữ nguyên là `id:<number>`).
-- Ẩn nguồn cấp dữ liệu ẩn các thẻ nguồn cấp dữ liệu phù hợp trên Facebook.
+- Ẩn nguồn cấp dữ liệu ẩn các thẻ nguồn cấp dữ liệu phù hợp trên Phây-búc.
 
-### 5.5 `Instagram` — chặn nội dung Instagram
+### 5.5 `In-xta-gam` — chặn nội dung In-xta-gam
 
 - Các loại nội dung: Reels, video, post.
-- Tác giả: Tay cầm Instagram hoặc URL hồ sơ.
+- Tác giả: Tay cầm In-xta-gam hoặc URL hồ sơ.
 - Các đường dẫn dành riêng như `/reel/`, `/p/`, `/tv/`, `/explore/` không được coi là tác giả.
-- Ẩn nguồn cấp dữ liệu ẩn các thẻ phù hợp trên Instagram.
+- Ẩn nguồn cấp dữ liệu ẩn các thẻ phù hợp trên In-xta-gam.
 
-### 5.6 `Twitch` — chặn nội dung Twitch
+### 5.6 `Tuých` — chặn nội dung Tuých
 
 - Loại nội dung: clip, luồng/VOD, trang kênh.
 - Tác giả: tên kênh hoặc URL kênh.
 - Các đường dẫn dành riêng như `/directory`, `/videos`, `/settings`, v.v. không được coi là tên kênh.
-- Ẩn nguồn cấp dữ liệu ẩn các thẻ phù hợp trên Twitch.
+- Ẩn nguồn cấp dữ liệu ẩn các thẻ phù hợp trên Tuých.
 
-### 5.7 `Reddit` — chặn Reddit hoặc các subreddits cụ thể
+### 5.7 `Rét-đít` — chặn Rét-đít hoặc các subreddits cụ thể
 
-- **Subreddits**: một subreddit trên mỗi dòng. Danh sách trống có nghĩa là nhóm áp dụng cho tất cả Reddit. Cả `productivity` và `r/productivity` đều được chấp nhận.
+- **Subreddits**: một subreddit trên mỗi dòng. Danh sách trống có nghĩa là nhóm áp dụng cho tất cả Rét-đít. Cả `productivity` và `r/productivity` đều được chấp nhận.
 
-### 5.8 `Custom` — chặn bằng JavaScript hướng sự kiện
+### 5.8 `Custom` — chặn bằng ngôn ngữ kịch bản hướng sự kiện
 
-Bạn viết một hàm JavaScript **đăng ký trình xử lý** cho các sự kiện như mở trang, thay đổi URL, nhịp độ trang, kết thúc bộ hẹn giờ và các sự kiện tùy chỉnh của riêng bạn. Hàm chạy một lần cho mỗi lần nhấp Chạy; các trình xử lý đã đăng ký vẫn hoạt động trên các điều hướng cho đến khi bạn nhấn Chạy lại, vô hiệu hóa nhóm hoặc xóa nhóm đó.
+Bạn viết một hàm ngôn ngữ kịch bản **đăng ký trình xử lý** cho các sự kiện như mở trang, thay đổi URL, nhịp độ trang, kết thúc bộ hẹn giờ và các sự kiện tùy chỉnh của riêng bạn. Hàm chạy một lần cho mỗi lần nhấp Chạy; các trình xử lý đã đăng ký vẫn hoạt động trên các điều hướng cho đến khi bạn nhấn Chạy lại, vô hiệu hóa nhóm hoặc xóa nhóm đó.
 
 Các nhóm `Custom` không hiển thị: hành vi chặn, trang web bị chặn, số phút được phép, khoảng thời gian đặt lại, ngày lên lịch hoặc khoảng thời gian. Họ giữ lại trình chỉnh sửa **Quy tắc chặn** cộng với các điều khiển đóng băng/tạm dừng tiêu chuẩn. Ngoài ra còn có nút **Mẫu** để mở trình duyệt cài sẵn với các quy tắc khởi động được tham số hóa; áp dụng giá trị đặt trước sẽ thay thế quy tắc hiện tại sau khi xác nhận.
 
@@ -161,7 +161,7 @@ Xem **Phần 11** để biết đầy đủ thông tin tham khảo về quy tắ
 
 Quy tắc này sẽ hoạt động bất cứ khi nào nhóm được bật, lịch trình cho phép và (đối với các nhóm nền tảng) trang phù hợp.
 
-Đối với các nhóm `Default`, tính năng này sử dụng tính năng chặn gốc của Chrome. Đối với các nhóm nền tảng, nó sử dụng logic lớp phủ/thoát trong trang.
+Đối với các nhóm `Default`, tính năng này sử dụng tính năng chặn gốc của trình duyệt Cờ-rôm. Đối với các nhóm nền tảng, nó sử dụng logic lớp phủ/thoát trong trang.
 
 ### 6.2 Chặn sau vài phút
 
@@ -328,7 +328,7 @@ Các phương pháp chung:
 | `timerEnded` | Bộ đếm thời gian do nhóm quản lý đạt `currentMs === 0`. Chỉ giao cho nhóm sở hữu. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | Người dùng đã nhấn **Bắt đầu báo lại** trong cửa sổ bật lên cho nhóm **tùy chỉnh** này. Sự kiện thông báo thuần túy — trình xử lý có thể chạy mã tùy ý (ghi nhật ký, chuyển hướng, kích hoạt các sự kiện khác) nhưng quy tắc tùy chỉnh **không có API báo lại theo chương trình**. Nhật ký được tạo ở đây hiển thị dưới dạng nâng cao trên tab đang hoạt động. Chỉ giao cho nhóm ép. | `{ triggeredAt }` |
 
-Các URL trong `ev.url` và trong dữ liệu sự kiện được **chuẩn hóa** cho các sự kiện: Trang tab mới của Chrome (hiển thị bề mặt "Tìm kiếm trên Google hoặc nhập URL" của Google), `about:blank` và các sơ đồ tab mới tương đương được hiển thị dưới dạng chuỗi trống `""`. Vì vậy, đồng hồ hẹn giờ trong phạm vi `ev.url === ""` chỉ tích tắc khi bạn đang ở trang tab mới. URL `google.com` thông thường không thay đổi.
+Các URL trong `ev.url` và trong dữ liệu sự kiện được **chuẩn hóa** cho các sự kiện: Trang tab mới của trình duyệt Cờ-rôm (hiển thị bề mặt "Tìm kiếm trên Google hoặc nhập URL" của Google), `about:blank` và các sơ đồ tab mới tương đương được hiển thị dưới dạng chuỗi trống `""`. Vì vậy, đồng hồ hẹn giờ trong phạm vi `ev.url === ""` chỉ tích tắc khi bạn đang ở trang tab mới. URL `google.com` thông thường không thay đổi.
 
 ### 11.2.3 Đối tượng sự kiện (`ev`)
 
@@ -439,13 +439,13 @@ Lọc URL và trợ giúp phần:
 - `matchesAny(url, patterns)` — `patterns` có thể là biểu thức chính quy, biểu thức chính quy chuỗi hoặc một mảng.
 - `pathStartsWith(url, path)` — nhận biết ranh giới (`pathStartsWith("/r/", "/r")` là đúng; `"/results/"` thì không).
 - `queryHas(url, key, value?)`, `queryGet(url, key)` — kiểm tra chuỗi truy vấn.
-- `isSearchPage(url)` — nhận dạng kết quả tìm kiếm trên Google / Bing / DuckDuckGo / YouTube / Reddit / Twitter / X.
-- `isInfiniteFeedUrl(url)` — nhận dạng các bề mặt nguồn cấp dữ liệu thuật toán của YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `isSearchPage(url)` — nhận dạng kết quả tìm kiếm trên Google / Bing / DuckDuckGo / Du-túp / Rét-đít / Tuýt-tơ / X.
+- `isInfiniteFeedUrl(url)` — nhận dạng các bề mặt nguồn cấp dữ liệu thuật toán của Du-túp, Tích Tốc, In-xta-gam, Phây-búc, Rét-đít, X.
 - `sameSection(a, b)` — cùng tên máy chủ VÀ cùng đoạn đường dẫn đầu tiên.
 
 #### 11.3.6 `getPlatformHelper()`
 
-Ý định DOM trên mỗi nền tảng và bộ tính giờ của phần phụ, cùng với việc kiểm tra. Mỗi `helpers.getPlatformHelper().<platform>()` trả về một đối tượng có bộ phương thức được **kiểm soát bởi nền tảng** — các phương thức không có ý nghĩa trên một nền tảng nhất định đơn giản là không có, vì vậy việc gọi chúng sẽ tạo ra `TypeError: ... is not a function` thay vì âm thầm không hoạt động. Ví dụ: `twitch().hidePosts` không tồn tại (Twitch không có bài đăng nào) và `tiktok().hideShortButton` không tồn tại (Toàn bộ trải nghiệm của TikTok đã là _video dạng ngắn). Sử dụng `helpers.getPlatformHelper().hasMethod(platform, name)` hoặc `.listMethods(platform)` để xem xét nội tâm trong thời gian chạy.
+Ý định DOM trên mỗi nền tảng và bộ tính giờ của phần phụ, cùng với việc kiểm tra. Mỗi `helpers.getPlatformHelper().<platform>()` trả về một đối tượng có bộ phương thức được **kiểm soát bởi nền tảng** — các phương thức không có ý nghĩa trên một nền tảng nhất định đơn giản là không có, vì vậy việc gọi chúng sẽ tạo ra `TypeError: ... is not a function` thay vì âm thầm không hoạt động. Ví dụ: `twitch().hidePosts` không tồn tại (Tuých không có bài đăng nào) và `tiktok().hideShortButton` không tồn tại (Toàn bộ trải nghiệm của Tích Tốc đã là _video dạng ngắn). Sử dụng `helpers.getPlatformHelper().hasMethod(platform, name)` hoặc `.listMethods(platform)` để xem xét nội tâm trong thời gian chạy.
 
 Ma trận phương pháp trên mỗi nền tảng:
 
@@ -487,7 +487,7 @@ Trình phân loại URL luôn được hiển thị lại bất kể nền tản
 
 ### 11.4 Ví dụ
 
-**Dễ dàng** — chặn các trang YouTube Shorts vào các buổi sáng các ngày trong tuần:
+**Dễ dàng** — chặn các trang Du-túp Shorts vào các buổi sáng các ngày trong tuần:
 
 ```js
 (event, helpers) => {
@@ -508,7 +508,7 @@ Trình phân loại URL luôn được hiển thị lại bất kể nền tản
 }
 ```
 
-**Trung bình** — Ngân sách 30 phút mỗi ngày dành cho YouTube Shorts. Đồng hồ tính giờ tự động đánh dấu trên `pageHeartbeatEvent` khi URL Video ngắn hiển thị; một trình xử lý riêng sẽ thực thi khối khi bộ đếm thời gian chạm 0.
+**Trung bình** — Ngân sách 30 phút mỗi ngày dành cho Du-túp Shorts. Đồng hồ tính giờ tự động đánh dấu trên `pageHeartbeatEvent` khi URL Video ngắn hiển thị; một trình xử lý riêng sẽ thực thi khối khi bộ đếm thời gian chạm 0.
 
 ```js
 (event, helpers) => {
@@ -542,7 +542,7 @@ Trình phân loại URL luôn được hiển thị lại bất kể nền tản
 }
 ```
 
-**Khó hơn** — ẩn từng video ngắn trên YouTube có tên tác giả quá dài và chèn CSS "Phim ngắn này bị ẩn":
+**Khó hơn** — ẩn từng video ngắn trên Du-túp có tên tác giả quá dài và chèn CSS "Phim ngắn này bị ẩn":
 
 ```js
 (event, helpers) => {
@@ -588,17 +588,17 @@ Mỗi nhóm Tùy chỉnh có một bộ chọn **Mẫu** để mở trình duy�
 
 | Danh mục | Ví dụ |
 |---|---|
-| **Bộ hẹn giờ** | Ngân sách thời gian của trang web (đếm ngược + khối), trình theo dõi thời gian của trang web (đếm ngược), giới hạn YouTube Shorts, giới hạn nguồn cấp dữ liệu TikTok, giới hạn Câu chuyện trên Instagram, giới hạn Câu chuyện trên Facebook, giới hạn Twitch Clips, Ngân sách phân tâm phổ quát, Trình theo dõi công việc sâu hàng ngày |
+| **Bộ hẹn giờ** | Ngân sách thời gian của trang web (đếm ngược + khối), trình theo dõi thời gian của trang web (đếm ngược), giới hạn Du-túp Shorts, giới hạn nguồn cấp dữ liệu Tích Tốc, giới hạn Câu chuyện trên In-xta-gam, giới hạn Câu chuyện trên Phây-búc, giới hạn Tuých Clips, Ngân sách phân tâm phổ quát, Trình theo dõi công việc sâu hàng ngày |
 | **Lịch trình** | Khối giờ làm việc các ngày trong tuần, các trang web chỉ dành cho cuối tuần, tắt máy trước khi đi ngủ, chỉ cho phép một giờ, tin tức chỉ ăn trưa, khởi đầu mới vào thứ Hai, cho phép N phút đầu tiên mỗi giờ, khối nghiêm ngặt làm việc sâu |
-| **Nguồn cấp dữ liệu / Quần short** | Chặn URL Quần short trên YouTube, ẩn thẻ Quần short, ẩn Quần short theo từ khóa, ẩn nguồn cấp dữ liệu / nhận xét / xu hướng trên trang chủ YouTube, chặn TikTok FYP, ẩn quần short TikTok, chặn URL Câu chuyện trên Instagram, ẩn nguồn cấp dữ liệu Câu chuyện trên Instagram, ẩn nguồn cấp dữ liệu Facebook / Câu chuyện, ẩn trang chủ Reddit / Twitter / LinkedIn |
+| **Nguồn cấp dữ liệu / Quần short** | Chặn URL Quần short trên Du-túp, ẩn thẻ Quần short, ẩn Quần short theo từ khóa, ẩn nguồn cấp dữ liệu / nhận xét / xu hướng trên trang chủ Du-túp, chặn Tích Tốc FYP, ẩn quần short Tích Tốc, chặn URL Câu chuyện trên In-xta-gam, ẩn nguồn cấp dữ liệu Câu chuyện trên In-xta-gam, ẩn nguồn cấp dữ liệu Phây-búc / Câu chuyện, ẩn trang chủ Rét-đít / Tuýt-tơ / LinkedIn |
 | **Chuyển hướng** | Sự phân tâm → trang tiêu điểm, Quần short → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, tab mới → danh sách nhiệm vụ |
 | **Tập trung** | Phiên tập trung chỉ dành cho danh sách cho phép, Pomodoro 25/5, chặn trong cuộc họp, chặn sau N lượt truy cập hôm nay, chặn khi mất chuỗi |
 | **Nhích** | Ghi lại mọi lượt truy cập gây mất tập trung, cảnh báo trên mỗi lượt truy cập Shorts, đếm số lượt truy cập hàng ngày vào một trang web |
-| **Kiên trì** | Giới hạn lượt truy cập hàng tháng, chuyển đổi lệnh cấm hàng tuần, theo dõi các kênh Discord đã truy cập |
-| **Chỉnh sửa DOM** | Ẩn chuyển đổi tự động phát YouTube, ẩn Twitter / X "Chuyện gì đang xảy ra", chung chung "ẩn bộ chọn trên một trang web" |
+| **Kiên trì** | Giới hạn lượt truy cập hàng tháng, chuyển đổi lệnh cấm hàng tuần, theo dõi các kênh Đít-co đã truy cập |
+| **Chỉnh sửa DOM** | Ẩn chuyển đổi tự động phát Du-túp, ẩn Tuýt-tơ / X "Chuyện gì đang xảy ra", chung chung "ẩn bộ chọn trên một trang web" |
 | **Gỡ lỗi** | Đếm ngược demo (3 giây), ghi lại mọi sự kiện tùy chỉnh |
 
-Các chip lọc ở đầu bộ chọn thu hẹp danh sách theo danh mục (`Timer`, `Schedule`, `Feed`, …) và nền tảng (`YouTube`, `TikTok`, `Instagram`, …). Lựa chọn một mẫu:
+Các chip lọc ở đầu bộ chọn thu hẹp danh sách theo danh mục (`Timer`, `Schedule`, `Feed`, …) và nền tảng (`Du-túp`, `Tích Tốc`, `In-xta-gam`, …). Lựa chọn một mẫu:
 
 1. Tải thông số đầu vào của nó (URL, phút, phạm vi giờ, v.v.) vào một dạng nhỏ.
 2. **Áp dụng giá trị đặt trước** xem trước nguồn được tạo.
@@ -674,7 +674,7 @@ Thông báo trạng thái xuất hiện dưới dạng bánh mì nướng ở gi
 ## 19. Khắc phục sự cố- **Nhóm tôi đã thêm không làm gì cả.** Hãy đảm bảo rằng nhóm đã được bật, lịch trình cho phép ngay bây giờ, không có chế độ tạm ẩn nào đang hoạt động và (đối với các nhóm nền tảng) trang thực sự khớp với loại nội dung đã chọn và bộ lọc tác giả.
 - **Bộ hẹn giờ bị kẹt hoặc sai trên một tab.** Chuyển đi và quay lại hoặc tập trung vào tab — việc này sẽ kích hoạt buộc làm mới từ bộ hẹn giờ dùng chung.
 - **Thẻ nguồn cấp dữ liệu xuất hiện lại sau khi tôi cho rằng chúng nên bị ẩn.** Tính năng ẩn nguồn cấp dữ liệu chỉ chạy khi quy tắc đang tích cực chặn. Nếu bạn có quy tắc `after-minutes`, tính năng ẩn nguồn cấp dữ liệu sẽ bắt đầu hoạt động khi thời gian của bạn về 0.
-- **Nút điều hướng YouTube mà tôi dự đoán sẽ bị ẩn vẫn còn đó.** Tính năng ẩn điều hướng yêu cầu phải đặt quy tắc thành "không lọc theo tác giả" và loại nội dung là Video ngắn hoặc bài đăng trên YouTube. Với bộ lọc tác giả, việc ẩn chỉ được thực hiện trên mỗi thẻ.
+- **Nút điều hướng Du-túp mà tôi dự đoán sẽ bị ẩn vẫn còn đó.** Tính năng ẩn điều hướng yêu cầu phải đặt quy tắc thành "không lọc theo tác giả" và loại nội dung là Video ngắn hoặc bài đăng trên Du-túp. Với bộ lọc tác giả, việc ẩn chỉ được thực hiện trên mỗi thẻ.
 - **Quy tắc tùy chỉnh không làm gì hoặc bị ném một cách im lặng.** Mở Cài đặt → bật **Chế độ gỡ lỗi**, sau đó nhấp vào **Chạy** lần nữa và xem bảng Nhật ký. Các dòng có tiền tố `[trace]` hiển thị mọi công văn và trình xử lý. Sử dụng `helpers.getLogHelper().log(...)` để thêm các điểm theo dõi của riêng bạn. Nếu một quy tắc hoạt động sai liên tục bị cách ly tự động, hãy sửa nguồn và nhấp vào Chạy — Chạy sẽ xóa lý do hủy bỏ.
 - **Quy tắc tùy chỉnh mới của tôi không ảnh hưởng đến các tab đã mở.** Tải lại chúng. Quy tắc tùy chỉnh đính kèm với các sự kiện trang *tương lai*; cửa sổ bật lên hiển thị lời nhắc tải lại sau mỗi lần Chạy.
 - **Đồng hồ đếm ngược của tôi không tiến lên.** Bộ hẹn giờ quy tắc tùy chỉnh chỉ đánh dấu vào tab **hoạt động hiển thị** qua `pageHeartbeatEvent`. Các tab nền, cửa sổ thu nhỏ và màn hình khóa sẽ tạm dừng chúng theo thiết kế — hoạt động tương tự như đếm ngược nhóm khối mặc định.
@@ -704,8 +704,13 @@ Thông báo trạng thái xuất hiện dưới dạng bánh mì nướng ở gi
 ---
 
 ## 21. Hạn chế- Việc ẩn nguồn cấp dữ liệu phụ thuộc vào DOM hiện tại của mỗi nền tảng. Nếu nền tảng thay đổi bố cục, bộ chọn ẩn có thể cần được cập nhật.
-- Tính năng phát hiện ngữ cảnh nền tảng cho các trang web không phải YouTube chủ yếu dựa trên URL, do đó, tính năng này đáng tin cậy nhất trên các URL nội dung chuẩn.
+- Tính năng phát hiện ngữ cảnh nền tảng cho các trang web không phải Du-túp chủ yếu dựa trên URL, do đó, tính năng này đáng tin cậy nhất trên các URL nội dung chuẩn.
 - Bộ hẹn giờ quy tắc tùy chỉnh đánh dấu ở độ phân giải nhịp tim (~250 ms). Đừng dựa vào chúng để tính thời gian dưới giây.
 - Các vị từ được chuyển đến `hideShorts` / `hideVideos` / `hidePosts` được đánh giá đồng bộ trên mỗi thẻ nguồn cấp dữ liệu. Logic nặng trong một vị từ có thể làm chậm quá trình cuộn nguồn cấp dữ liệu; giữ chúng giá rẻ.
 - Hai tab chỉnh sửa cùng một bộ đếm thời gian cho mỗi nhóm đồng thời sử dụng chiến lược "viết lần cuối sẽ thắng". Đối với mục đích sử dụng thông thường thì điều này là ổn; nếu bạn phụ thuộc vào việc tính toán chính xác, thỉnh thoảng sẽ có sự chênh lệch nhỏ.
 - Trình duyệt có thể tạm dừng nhân viên dịch vụ nền khi không hoạt động. Tiện ích mở rộng sẽ tiếp tục lại ngay khi có trang hoặc báo thức cần; ngân sách sử dụng trang web/theo thời gian tiếp tục được tính thông qua tính năng phát lại nhịp tim.
+
+## Ghi chú v1.2
+
+Trình soạn quy tắc tùy chỉnh hiện tô màu cú pháp ngôn ngữ kịch bản, và trình duyệt mẫu dùng cùng màu cho phần xem trước mã. Tác vụ hàng loạt của nhóm được gọi là **Xóa sạch**.
+

@@ -12,16 +12,16 @@ Pemblokir Web Khusus memungkinkan Anda memblokir situs web dan gangguan online s
 
 - Segera memblokir situs dengan pemblokiran jaringan asli browser (jenis pemblokiran yang sama yang menghasilkan `ERR_BLOCKED_BY_CLIENT`).
 - Beri diri Anda waktu tertentu per hari di sebuah situs, lalu blokir situs tersebut setelah Anda melampaui batas tersebut.
-- Blokir jenis konten tertentu di YouTube, TikTok, Facebook, Instagram, Twitch, dan Reddit (bukan keseluruhan situs).
+- Blokir jenis konten tertentu di YuTub, video pendek, Fesbuk, jejaring foto, Twic, dan Redit (bukan keseluruhan situs).
 - Sembunyikan konten yang diblokir dari feed pada platform yang didukung alih-alih hanya memblokir satu halaman.
 - Jadwalkan kapan aturan aktif berdasarkan hari dalam seminggu dan berdasarkan jendela waktu `HHMM-HHMM`.
 - Bekukan aturan sehingga Anda tidak dapat mengubahnya dengan mudah. Pembekuan ketat akan menguncinya selama beberapa jam tertentu dan memerlukan ritual konfirmasi 20 langkah untuk membatalkannya.
 - Tunda aturan untuk sementara, namun hanya setelah menulis justifikasi yang cukup panjang.
-- Tulis aturan khusus **berbasis peristiwa** dalam JavaScript dengan bantuan untuk pengatur waktu maju/mundur, penyimpanan persisten per grup, maksud DOM per platform (menyembunyikan tombol navigasi, menyembunyikan kartu umpan berdasarkan predikat, menyetel pengatur waktu per subbagian), utilitas URL, dan logging terstruktur.
+- Tulis aturan khusus **berbasis peristiwa** dalam bahasa skrip dengan bantuan untuk pengatur waktu maju/mundur, penyimpanan persisten per grup, maksud DOM per platform (menyembunyikan tombol navigasi, menyembunyikan kartu umpan berdasarkan predikat, menyetel pengatur waktu per subbagian), utilitas URL, dan logging terstruktur.
 - Pilih dari perpustakaan bawaan yang berisi 50+ templat siap pakai (pengatur waktu, jadwal, penyembunyian umpan, sesi fokus, pengalihan, dorongan, ketekunan, penyesuaian DOM, pembantu debug).
 - Gunakan ekstensi dalam 20+ bahasa.
 
-Ekstensi ini adalah ekstensi Chrome Manifest V3 dengan satu halaman editor (popup), satu pekerja layanan latar belakang, satu kotak pasir di luar layar yang menghosting kode aturan khusus, dan satu skrip konten yang berjalan di setiap halaman. Aturan khusus ada di kotak pasir di luar layar; aturan tersebut dimuat sekali per klik Jalankan dan tetap terdaftar hingga aturan dinonaktifkan atau dihapus.
+Ekstensi ini adalah ekstensi peramban Krom Manifest V3 dengan satu halaman editor (popup), satu pekerja layanan latar belakang, satu kotak pasir di luar layar yang menghosting kode aturan khusus, dan satu skrip konten yang berjalan di setiap halaman. Aturan khusus ada di kotak pasir di luar layar; aturan tersebut dimuat sekali per klik Jalankan dan tetap terdaftar hingga aturan dinonaktifkan atau dihapus.
 
 ---
 
@@ -50,7 +50,7 @@ Saat Anda mengeklik ikon ekstensi, editor akan terbuka sebagai halaman web penuh
 
 ## 3. Mulai cepat1. Klik ikon ekstensi. Editor terbuka sebagai satu halaman penuh.
 2. Di panel **Blokir Grup**, pilih jenis grup dari dropdown:
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit`, atau `Custom`.
+   - `Default`, `YuTub`, `video pendek`, `Fesbuk`, `jejaring foto`, `Twic`, `Redit`, atau `Custom`.
 3. Klik **Tambahkan**. Grup baru muncul, dan editor membukanya.
 4. Beri nama.
 5. Isi kolom jenis tertentu (untuk `Default`, itu berarti daftar **Situs web yang diblokir**).
@@ -70,7 +70,7 @@ Segala sesuatu di ekstensi ini diatur sebagai **grup blok**. Grup blok adalah sa
 - Ia memiliki nama, tipe, dan status aktif/nonaktif.
 - Ini memiliki perilaku pemblokiran (segera, setelah beberapa menit, atau hitungan mundur tetap).
 - Ini memiliki jadwal opsional (hari + jendela waktu) dan kontrol pembekuan/tunda opsional.
-- Tergantung pada jenisnya, ia memiliki bidang tambahan seperti daftar situs web, filter pembuat YouTube, nama subreddit, atau aturan JavaScript berbasis peristiwa.
+- Tergantung pada jenisnya, ia memiliki bidang tambahan seperti daftar situs web, filter pembuat YuTub, nama subreddit, atau aturan bahasa skrip berbasis peristiwa.
 
 Anda dapat memiliki sejumlah grup. Beberapa grup mungkin berlaku pada halaman yang sama; dalam hal ini, aturan **yang paling ketat** akan menang:
 
@@ -91,61 +91,61 @@ Untuk memblokir domain tertentu (kasus penggunaan umum).
 
 - **Situs web yang diblokir**: satu situs per baris. `facebook.com` dan `https://www.facebook.com/somepage` berfungsi; ekstensi mengekstrak dan menormalkan nama host.
 - Aturan situs berlaku untuk nama host tersebut dan semua subdomainnya.
-- Jenis grup ini menggunakan pemblokiran jaringan asli Chrome, mirip dengan `ERR_BLOCKED_BY_CLIENT`. Itu berarti navigasi ke URL yang diblokir dihentikan bahkan sebelum halaman dimuat.
+- Jenis grup ini menggunakan pemblokiran jaringan asli peramban Krom, mirip dengan `ERR_BLOCKED_BY_CLIENT`. Itu berarti navigasi ke URL yang diblokir dihentikan bahkan sebelum halaman dimuat.
 
-### 5.2 `YouTube` — memblokir YouTube dan situs video serupa
+### 5.2 `YuTub` — memblokir YuTub dan situs video serupa
 
 Menambahkan bagian **Filter** ke editor:
 
 - **Jenis konten**:
-  - `Apply to all YouTube pages` — setiap halaman YouTube berarti.
+  - `Apply to all YuTub pages` — setiap halaman YuTub berarti.
   - `Apply to Shorts` — hanya halaman Shorts yang dihitung.
   - `Apply to long videos` — hanya `/watch`, `/live/`, `/embed/`, dll.
-  - `Apply to YouTube posts` — postingan komunitas (`/post/...`, tab komunitas saluran/postingan).
+  - `Apply to YuTub posts` — postingan komunitas (`/post/...`, tab komunitas saluran/postingan).
 - **Filter penulis**:
   - `Do not filter by author` — identitas penulis tidak menjadi masalah.
   - `Apply to certain authors` — hanya penulis terdaftar yang memicu grup ini.
   - `Apply to all except certain authors` — penulis terdaftar dikecualikan.
 - **Penulis**: satu penulis per baris. Menerima `@handle`, URL lengkap, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Sembunyikan entri yang diblokir di feed YouTube**: saat grup ini aktif memblokir, kartu yang cocok di feed YouTube disembunyikan. Ketika blok menjadi tidak aktif, mereka kembali pada penyegaran berikutnya.
+- **Sembunyikan entri yang diblokir di feed YuTub**: saat grup ini aktif memblokir, kartu yang cocok di feed YuTub disembunyikan. Ketika blok menjadi tidak aktif, mereka kembali pada penyegaran berikutnya.
 
-Untuk jenis konten Shorts dan Postingan, jika tidak ada filter penulis yang disetel dan grup saat ini diblokir, ekstensi juga menyembunyikan entri navigasi yang relevan (entri sidebar Shorts, tab saluran Komunitas/Postingan) dan rak yang cocok seperti "Postingan YouTube Terbaru".
+Untuk jenis konten Shorts dan Postingan, jika tidak ada filter penulis yang disetel dan grup saat ini diblokir, ekstensi juga menyembunyikan entri navigasi yang relevan (entri sidebar Shorts, tab saluran Komunitas/Postingan) dan rak yang cocok seperti "Postingan YuTub Terbaru".
 
-Deteksi pendek-panjang meluas ke situs video lain seperti TikTok, Vimeo, klip Twitch/VOD, dan Dailymotion ketika formulir halamannya dapat dideteksi.
+Deteksi pendek-panjang meluas ke situs video lain seperti video pendek, Vimeo, klip Twic/VOD, dan Dailymotion ketika formulir halamannya dapat dideteksi.
 
-### 5.3 `TikTok` — memblokir konten TikTok
+### 5.3 `video pendek` — memblokir konten video pendek
 
-Kartu editor yang sama dengan editor video platform, tetapi dengan label khusus TikTok:- Jenis konten: video pendek, video, halaman profil.
-- Penulis: Pegangan TikTok (`@handle`) atau URL profil.
-- Penyembunyian umpan menyembunyikan kartu yang cocok di halaman TikTok saat grup aktif.
+Kartu editor yang sama dengan editor video platform, tetapi dengan label khusus video pendek:- Jenis konten: video pendek, video, halaman profil.
+- Penulis: Pegangan video pendek (`@handle`) atau URL profil.
+- Penyembunyian umpan menyembunyikan kartu yang cocok di halaman video pendek saat grup aktif.
 
-### 5.4 `Facebook` — memblokir konten Facebook
+### 5.4 `Fesbuk` — memblokir konten Fesbuk
 
 - Jenis konten: Gulungan, video, postingan.
 - Penulis: nama halaman (`page.name`), URL profil, atau formulir `profile.php?id=...` (id numerik dipertahankan sebagai `id:<number>`).
-- Penyembunyian umpan menyembunyikan kartu umpan yang cocok di Facebook.
+- Penyembunyian umpan menyembunyikan kartu umpan yang cocok di Fesbuk.
 
-### 5.5 `Instagram` — memblokir konten Instagram
+### 5.5 `jejaring foto` — memblokir konten jejaring foto
 
 - Jenis konten: Gulungan, video, postingan.
-- Penulis: Nama pengguna Instagram atau URL profil.
+- Penulis: Nama pengguna jejaring foto atau URL profil.
 - Jalur yang dicadangkan seperti `/reel/`, `/p/`, `/tv/`, `/explore/` tidak diperlakukan sebagai penulis.
-- Penyembunyian umpan menyembunyikan kartu yang cocok di Instagram.
+- Penyembunyian umpan menyembunyikan kartu yang cocok di jejaring foto.
 
-### 5.6 `Twitch` — memblokir konten Twitch
+### 5.6 `Twic` — memblokir konten Twic
 
 - Jenis konten: klip, streaming/VOD, halaman saluran.
 - Penulis: nama saluran atau URL saluran.
 - Jalur yang dicadangkan seperti `/directory`, `/videos`, `/settings`, dll. tidak diperlakukan sebagai nama saluran.
-- Penyembunyian umpan menyembunyikan kartu yang cocok di Twitch.
+- Penyembunyian umpan menyembunyikan kartu yang cocok di Twic.
 
-### 5.7 `Reddit` — memblokir Reddit atau subreddit tertentu
+### 5.7 `Redit` — memblokir Redit atau subreddit tertentu
 
-- **Subreddit**: satu subreddit per baris. Daftar kosong berarti grup tersebut berlaku untuk seluruh Reddit. `productivity` dan `r/productivity` keduanya diterima.
+- **Subreddit**: satu subreddit per baris. Daftar kosong berarti grup tersebut berlaku untuk seluruh Redit. `productivity` dan `r/productivity` keduanya diterima.
 
-### 5.8 `Custom` — diblokir oleh JavaScript berbasis peristiwa
+### 5.8 `Custom` — diblokir oleh bahasa skrip berbasis peristiwa
 
-Anda menulis fungsi JavaScript yang **mendaftarkan penangan** untuk peristiwa seperti pembukaan halaman, perubahan URL, detak jantung halaman, akhir waktu, dan peristiwa khusus Anda sendiri. Fungsi ini berjalan satu kali per klik Jalankan; penangan terdaftar tetap aktif di seluruh navigasi sampai Anda menekan Jalankan lagi, menonaktifkan grup, atau menghapusnya.
+Anda menulis fungsi bahasa skrip yang **mendaftarkan penangan** untuk peristiwa seperti pembukaan halaman, perubahan URL, detak jantung halaman, akhir waktu, dan peristiwa khusus Anda sendiri. Fungsi ini berjalan satu kali per klik Jalankan; penangan terdaftar tetap aktif di seluruh navigasi sampai Anda menekan Jalankan lagi, menonaktifkan grup, atau menghapusnya.
 
 Grup `Custom` tidak menampilkan: perilaku pemblokiran, situs yang diblokir, menit yang diizinkan, interval penyetelan ulang, hari jadwal, atau jangka waktu. Mereka mempertahankan editor **Aturan Pemblokiran** ditambah kontrol pembekuan/tunda standar. Ada juga tombol **Template** yang membuka browser preset dengan aturan starter berparameter; menerapkan preset menggantikan aturan saat ini setelah konfirmasi.
 
@@ -161,7 +161,7 @@ Untuk sebagian besar tipe grup, Anda memilih salah satu dari tiga mode.
 
 Aturan ini aktif setiap kali grup aktif, jadwal mengizinkannya, dan (untuk grup platform) halamannya cocok.
 
-Untuk grup `Default` ini menggunakan pemblokiran asli Chrome. Untuk grup platform, ini menggunakan logika overlay/keluar dalam halaman.
+Untuk grup `Default` ini menggunakan pemblokiran asli peramban Krom. Untuk grup platform, ini menggunakan logika overlay/keluar dalam halaman.
 
 ### 6.2 Blokir setelah beberapa menit
 
@@ -328,7 +328,7 @@ Gula per tipe peristiwa (satu set metode per tipe bawaan):
 | `timerEnded` | Pengatur waktu yang dikelola oleh grup mencapai `currentMs === 0`. Hanya dikirim ke grup pemilik. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | Pengguna menekan **Mulai Tunda** di popup untuk grup **kustom** ini. Peristiwa notifikasi murni — pengendali dapat menjalankan kode arbitrer (mencatat, mengalihkan, mengaktifkan peristiwa lain) namun aturan khusus **tidak memiliki API tunda terprogram**. Log yang dihasilkan di sini muncul sebagai toast pada tab aktif. Hanya disampaikan kepada kelompok yang ditekan. | `{ triggeredAt }` |
 
-URL di `ev.url` dan data peristiwa **dinormalisasi** untuk peristiwa: Laman Tab Baru Chrome (yang menampilkan tampilan "Telusuri Google atau ketik URL" Google), `about:blank`, dan skema tab baru yang setara diekspos sebagai string kosong `""`. Jadi pengatur waktu dengan cakupan `ev.url === ""` hanya berdetak saat Anda berada di halaman tab baru. URL `google.com` reguler tidak berubah.
+URL di `ev.url` dan data peristiwa **dinormalisasi** untuk peristiwa: Laman Tab Baru peramban Krom (yang menampilkan tampilan "Telusuri Google atau ketik URL" Google), `about:blank`, dan skema tab baru yang setara diekspos sebagai string kosong `""`. Jadi pengatur waktu dengan cakupan `ev.url === ""` hanya berdetak saat Anda berada di halaman tab baru. URL `google.com` reguler tidak berubah.
 
 ### 11.2.3 Objek acara (`ev`)
 
@@ -439,13 +439,13 @@ Pemfilteran URL dan pembantu bagian:
 - `matchesAny(url, patterns)` — `patterns` dapat berupa regex, string regex, atau array keduanya.
 - `pathStartsWith(url, path)` — sadar batas (`pathStartsWith("/r/", "/r")` benar; `"/results/"` tidak).
 - `queryHas(url, key, value?)`, `queryGet(url, key)` — inspeksi string kueri.
-- `isSearchPage(url)` — mengenali hasil pencarian Google / Bing / DuckDuckGo / YouTube / Reddit / Twitter / X.
-- `isInfiniteFeedUrl(url)` — mengenali permukaan umpan algoritmik YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `isSearchPage(url)` — mengenali hasil pencarian Google / Bing / DuckDuckGo / YuTub / Redit / Twiter / X.
+- `isInfiniteFeedUrl(url)` — mengenali permukaan umpan algoritmik YuTub, video pendek, jejaring foto, Fesbuk, Redit, X.
 - `sameSection(a, b)` — nama host yang sama DAN segmen jalur pertama yang sama.
 
 #### 11.3.6 `getPlatformHelper()`
 
-Maksud DOM per platform dan pengatur waktu sub-bagian, ditambah inspeksi. Setiap `helpers.getPlatformHelper().<platform>()` mengembalikan sebuah objek yang kumpulan metodenya **dilindungi oleh platform** — metode yang tidak masuk akal pada platform tertentu tidak ada, jadi memanggilnya akan membuang `TypeError: ... is not a function` daripada diam-diam tidak melakukan operasi. Misalnya, `twitch().hidePosts` tidak ada (Twitch tidak memiliki postingan), dan `tiktok().hideShortButton` tidak ada (seluruh pengalaman TikTok sudah _adalah_ video berdurasi pendek). Gunakan `helpers.getPlatformHelper().hasMethod(platform, name)` atau `.listMethods(platform)` untuk melakukan introspeksi saat runtime.
+Maksud DOM per platform dan pengatur waktu sub-bagian, ditambah inspeksi. Setiap `helpers.getPlatformHelper().<platform>()` mengembalikan sebuah objek yang kumpulan metodenya **dilindungi oleh platform** — metode yang tidak masuk akal pada platform tertentu tidak ada, jadi memanggilnya akan membuang `TypeError: ... is not a function` daripada diam-diam tidak melakukan operasi. Misalnya, `twitch().hidePosts` tidak ada (Twic tidak memiliki postingan), dan `tiktok().hideShortButton` tidak ada (seluruh pengalaman video pendek sudah _adalah_ video berdurasi pendek). Gunakan `helpers.getPlatformHelper().hasMethod(platform, name)` atau `.listMethods(platform)` untuk melakukan introspeksi saat runtime.
 
 Matriks metode per platform:
 
@@ -487,7 +487,7 @@ Untuk metode predikat, predikat dipanggil per kartu yang cocok dengan `item` yan
 
 ### 11.4 Contoh
 
-**Mudah** — memblokir halaman YouTube Shorts pada pagi hari kerja:
+**Mudah** — memblokir halaman YuTub Shorts pada pagi hari kerja:
 
 ```js
 (event, helpers) => {
@@ -508,7 +508,7 @@ Untuk metode predikat, predikat dipanggil per kartu yang cocok dengan `item` yan
 }
 ```
 
-**Sedang** — Anggaran harian 30 menit untuk YouTube Shorts. Pengatur waktu otomatis berdetak di `pageHeartbeatEvent` saat URL Shorts terlihat; penangan terpisah memberlakukan blok ketika pengatur waktu mencapai nol.
+**Sedang** — Anggaran harian 30 menit untuk YuTub Shorts. Pengatur waktu otomatis berdetak di `pageHeartbeatEvent` saat URL Shorts terlihat; penangan terpisah memberlakukan blok ketika pengatur waktu mencapai nol.
 
 ```js
 (event, helpers) => {
@@ -542,7 +542,7 @@ Untuk metode predikat, predikat dipanggil per kartu yang cocok dengan `item` yan
 }
 ```
 
-**Lebih sulit** — menyembunyikan masing-masing YouTube Shorts yang nama pengarangnya terlalu panjang, dan memasukkan CSS "short ini tersembunyi":
+**Lebih sulit** — menyembunyikan masing-masing YuTub Shorts yang nama pengarangnya terlalu panjang, dan memasukkan CSS "short ini tersembunyi":
 
 ```js
 (event, helpers) => {
@@ -588,17 +588,17 @@ Setiap grup Kustom memiliki pemilih **Template** yang membuka browser preset yan
 
 | Kategori | Contoh |
 |---|---|
-| **Pengatur Waktu** | Anggaran waktu situs (hitung mundur + blok), pelacak waktu situs (penghitungan), batas YouTube Shorts, batas umpan TikTok, batas Reel Instagram, batas Reel Facebook, batas Klip Twitch, Anggaran gangguan universal, Pelacak kerja mendalam harian |
+| **Pengatur Waktu** | Anggaran waktu situs (hitung mundur + blok), pelacak waktu situs (penghitungan), batas YuTub Shorts, batas umpan video pendek, batas Reel jejaring foto, batas Reel Fesbuk, batas Klip Twic, Anggaran gangguan universal, Pelacak kerja mendalam harian |
 | **Jadwal** | Blokir jam kerja di hari kerja, situs khusus akhir pekan, penutupan sebelum tidur, izinkan hanya satu jam, berita hanya makan siang, hari Senin yang baru dimulai, izinkan N menit pertama setiap jam, blok kerja yang ketat |
-| **Umpan / Celana Pendek** | Blokir URL Shorts YouTube, sembunyikan kartu Shorts, sembunyikan Shorts berdasarkan kata kunci, sembunyikan feed beranda / komentar / tren YouTube, blokir FYP TikTok, sembunyikan celana pendek TikTok, blokir URL Reel Instagram, sembunyikan feed Reel Instagram, sembunyikan feed / Reel Facebook, sembunyikan beranda Reddit / Twitter / LinkedIn |
+| **Umpan / Celana Pendek** | Blokir URL Shorts YuTub, sembunyikan kartu Shorts, sembunyikan Shorts berdasarkan kata kunci, sembunyikan feed beranda / komentar / tren YuTub, blokir FYP video pendek, sembunyikan celana pendek video pendek, blokir URL Reel jejaring foto, sembunyikan feed Reel jejaring foto, sembunyikan feed / Reel Fesbuk, sembunyikan beranda Redit / Twiter / LinkedIn |
 | **Alihkan** | Gangguan → halaman fokus, Shorts → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, tab baru → daftar tugas |
 | **Fokus** | Sesi fokus yang hanya diperbolehkan, Pomodoro 25/5, blokir saat rapat, blokir setelah N kunjungan hari ini, blokir kekalahan beruntun |
 | **Dorong** | Catat setiap kunjungan gangguan, peringatkan pada setiap kunjungan Shorts, hitung kunjungan harian ke situs |
-| **Kegigihan** | Batas kunjungan bulanan, larangan mingguan, lacak saluran Discord yang dikunjungi |
-| **Penyesuaian DOM** | Sembunyikan tombol putar otomatis YouTube, sembunyikan Twitter / X "Apa yang terjadi", umum "sembunyikan pemilih di situs" |
+| **Kegigihan** | Batas kunjungan bulanan, larangan mingguan, lacak saluran Diskord yang dikunjungi |
+| **Penyesuaian DOM** | Sembunyikan tombol putar otomatis YuTub, sembunyikan Twiter / X "Apa yang terjadi", umum "sembunyikan pemilih di situs" |
 | **Debug** | Hitung mundur demo (3 detik), catat setiap peristiwa khusus |
 
-Filter chip di bagian atas pemilih mempersempit daftar berdasarkan kategori (`Timer`, `Schedule`, `Feed`, …) dan platform (`YouTube`, `TikTok`, `Instagram`, …). Memilih templat:
+Filter chip di bagian atas pemilih mempersempit daftar berdasarkan kategori (`Timer`, `Schedule`, `Feed`, …) dan platform (`YuTub`, `video pendek`, `jejaring foto`, …). Memilih templat:
 
 1. Memuat input parameternya (URL, menit, rentang jam, dll.) ke dalam bentuk kecil.
 2. **Terapkan preset** mempratinjau sumber yang dihasilkan.
@@ -674,7 +674,7 @@ Untuk kolom input dengan persyaratan format, pesan juga muncul di sebelah tombol
 ## 19. Pemecahan masalah- **Grup yang saya tambahkan tidak melakukan apa pun.** Pastikan grup tersebut diaktifkan, jadwal mengizinkannya sekarang, tidak ada penundaan yang aktif, dan (untuk grup platform) halaman benar-benar cocok dengan jenis konten dan filter penulis yang dipilih.
 - **Pengatur waktu macet atau salah pada satu tab.** Beralih dan kembali, atau fokuskan tab — yang memicu penyegaran paksa dari pengatur waktu bersama.
 - **Kartu feed muncul kembali setelah menurut saya kartu tersebut harus disembunyikan.** Penyembunyian feed hanya berjalan saat aturan aktif memblokir. Jika Anda memiliki aturan `after-minutes`, penyembunyian feed akan dimulai setelah waktu Anda mencapai nol.
-- **Tombol navigasi YouTube yang saya harapkan disembunyikan masih ada.** Menyembunyikan navigasi memerlukan aturan yang disetel ke "jangan filter menurut penulis" dan jenis kontennya berupa postingan Shorts atau YouTube. Dengan filter penulis, penyembunyian hanya dilakukan per kartu.
+- **Tombol navigasi YuTub yang saya harapkan disembunyikan masih ada.** Menyembunyikan navigasi memerlukan aturan yang disetel ke "jangan filter menurut penulis" dan jenis kontennya berupa postingan Shorts atau YuTub. Dengan filter penulis, penyembunyian hanya dilakukan per kartu.
 - **Aturan khusus tidak melakukan apa pun atau melempar secara diam-diam.** Buka Pengaturan → aktifkan **Mode debug**, lalu klik **Jalankan** lagi dan lihat panel Log. Baris yang diawali dengan `[trace]` menunjukkan setiap pengiriman dan penanganan. Gunakan `helpers.getLogHelper().log(...)` untuk menambahkan titik jejak Anda sendiri. Jika aturan yang berperilaku buruk terus dikarantina secara otomatis, perbaiki sumbernya dan klik Jalankan — Jalankan menghapus alasan pembatalan.
 - **Aturan Kustom saya yang baru tidak memengaruhi tab yang sudah terbuka.** Muat ulang. Aturan khusus dilampirkan pada acara halaman *masa depan*; popup menunjukkan pengingat untuk memuat ulang setelah setiap Lari.
 - **Penghitung waktu mundur saya tidak maju.** Penghitung waktu dengan aturan khusus hanya mencentang tab **aktif terlihat** melalui `pageHeartbeatEvent`. Tab latar belakang, jendela yang diperkecil, dan layar terkunci menjedanya sesuai desain — perilaku yang sama seperti hitungan mundur grup blok default.
@@ -704,8 +704,13 @@ Untuk kolom input dengan persyaratan format, pesan juga muncul di sebelah tombol
 ---
 
 ## 21. Keterbatasan- Penyembunyian feed bergantung pada DOM masing-masing platform saat ini. Jika platform mengubah tata letaknya, penyeleksi yang tersembunyi mungkin perlu diperbarui.
-- Deteksi konteks platform untuk situs non-YouTube sebagian besar berbasis URL, sehingga paling dapat diandalkan pada URL konten kanonik.
+- Deteksi konteks platform untuk situs non-YuTub sebagian besar berbasis URL, sehingga paling dapat diandalkan pada URL konten kanonik.
 - Pengatur waktu aturan khusus berdetak pada resolusi detak jantung (~250 ms). Jangan mengandalkan mereka untuk waktu sub-detik.
 - Predikat yang diteruskan ke `hideShorts` / `hideVideos` / `hidePosts` dievaluasi secara serempak per kartu feed. Logika yang berat dalam sebuah predikat dapat memperlambat pengguliran feed; tetap murah.
 - Dua tab yang mengedit pengatur waktu per grup yang sama secara bersamaan menggunakan strategi "kemenangan penulisan terakhir". Untuk penggunaan biasa, ini baik-baik saja; jika Anda bergantung pada akuntansi yang tepat, perkirakan ada penyimpangan kecil sesekali.
 - Browser mungkin menangguhkan pekerja layanan latar belakang saat menganggur. Ekstensi melanjutkannya segera setelah halaman atau alarm membutuhkannya; anggaran penggunaan situs/waktunya terus dihitung melalui pemutaran ulang detak jantung.
+
+## Catatan v1.2
+
+Editor aturan kustom sekarang memberi warna pada sintaks bahasa skrip, dan browser templat memakai warna yang sama untuk pratinjau kode. Aksi massal grup disebut **Bersihkan**.
+

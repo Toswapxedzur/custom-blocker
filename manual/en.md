@@ -36,7 +36,7 @@ When you click the extension's icon, the editor opens as a full web page (not a 
 - **Left panel — Block Groups**
   - List of your block groups. Each card shows the group name, a short summary line, and an enable/disable checkbox.
   - **Add** button creates a new group. The dropdown next to it picks the type.
-  - **Delete All** removes every group, with extra confirmations if any group is frozen.
+  - **Clear** removes every group, with extra confirmations if any group is frozen.
   - You can drag the `::` handle on a card up or down to reorder groups.
   - You can drag the vertical splitter to resize this panel.
 - **Right panel — Editor**
@@ -267,10 +267,10 @@ For Custom groups, pressing **Start Snooze** also dispatches a `snoozePress` eve
 
 ## 10. Bulk actions
 
-- **Delete All** removes every group.
+- **Clear** removes every group.
   - It always asks for confirmation.
   - If at least one group is frozen, it requires the same 20-step ritual as unfreezing.
-  - If any group is strict-frozen and still locked, **Delete All** is disabled.
+  - If any group is strict-frozen and still locked, **Clear** is disabled.
 
 ---
 
@@ -822,3 +822,8 @@ For input fields with format requirements, the message also appears next to the 
 - Predicates passed to `hideShorts` / `hideVideos` / `hidePosts` are evaluated synchronously per feed card. Heavy logic in a predicate can slow down feed scrolling; keep them cheap.
 - Two tabs editing the same per-group timer concurrently use a "last write wins" strategy. For typical use this is fine; if you depend on exact accounting, expect occasional small drift.
 - The browser may suspend the background service worker when idle. The extension resumes it as soon as a page or alarm needs it; site / timed usage budgets keep counting via heartbeat replay.
+
+## v1.2 note
+
+The custom-rule editor now colors JavaScript syntax, and the template browser uses the same colors for code previews. The bulk group action is called **Clear**.
+

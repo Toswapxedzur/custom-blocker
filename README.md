@@ -59,12 +59,29 @@ template, and setting lives there.
 ## Install
 
 1. Clone or download this repo.
-2. Open `chrome://extensions` (Chrome, Edge, Brave, etc.).
+2. Open `chrome://extensions` (Chrome, Edge, Brave, Opera, Vivaldi, Arc…).
 3. Enable **Developer mode**.
 4. Click **Load unpacked** and pick this folder.
 
 Minimum browser: Chrome 116+ (the manifest declares this for offscreen
 documents and `declarativeNetRequest`).
+
+### Other browsers
+
+The same source tree ships to every browser; only the packaging differs
+(see [Release / packaging](#release--packaging)).
+
+- **Chrome / Edge / Brave / Opera / Vivaldi / Arc** — Chromium; identical
+  artifact. Edge installs the same package, just submitted to Microsoft
+  Partner Center.
+- **Firefox** — no `chrome.offscreen`, so the background is a DOM-bearing
+  page that hosts the custom-rule sandbox iframe in-page. Built from
+  `manifest.firefox.json` + `offscreen.firefox.html`; `browser-compat.js`
+  bridges the `chrome.*` / `browser.*` namespaces. Load the firefox build via
+  `about:debugging` → *This Firefox* → *Load Temporary Add-on*.
+- **Safari** — a thin client: default + platform groups run in the
+  extension, custom-rule logic is redirected to the macosBlocker app over
+  native messaging. See `safariBlocker/`.
 
 ## Quick start
 
@@ -108,13 +125,16 @@ quarantine rules, and the freeze ritual are documented in the in-app
 
 | Path | Purpose |
 | --- | --- |
-| [manifest.json](manifest.json) | MV3 manifest |
+| [manifest.json](manifest.json) | MV3 manifest (Chromium / Edge) |
+| [manifest.firefox.json](manifest.firefox.json) | MV3 manifest (Firefox / Gecko) |
+| [manifest.safari.json](manifest.safari.json) | MV3 manifest (Safari thin client) |
+| [browser-compat.js](browser-compat.js) | `chrome.*` / `browser.*` namespace bridge (no-op on Chromium) |
 | [popup.html](popup.html) / [popup.js](popup.js) / [popup.css](popup.css) | Editor UI |
-| [background.js](background.js) | Service worker, dNR rules, timer book-keeping |
+| [background.js](background.js) | Service worker, dNR rules, timer book-keeping, sandbox transport |
 | [content.js](content.js) | In-page overlay, DOM intents, SPA hooks |
 | [helpers.js](helpers.js) | Helper API used by both content + sandbox |
 | [event-sandbox.html](event-sandbox.html) / [event-sandbox.js](event-sandbox.js) | Sandboxed JS runtime for custom rules |
-| [offscreen.html](offscreen.html) / [offscreen.js](offscreen.js) | Bridge between sandbox and service worker |
+| [offscreen.html](offscreen.html) / [offscreen.firefox.html](offscreen.firefox.html) / [offscreen.js](offscreen.js) | Sandbox host (Chromium offscreen doc / Firefox in-page iframe) |
 | [translations.js](translations.js) | In-app language registry |
 | [translation/*.json](translation/) | Per-locale UI strings (loaded at runtime) |
 | [_locales/](_locales/) | Chrome Web Store name + description per locale |
@@ -132,21 +152,33 @@ quarantine rules, and the freeze ritual are documented in the in-app
 bash tests/run.sh
 ```
 
-137 tests, all green.
+178 helper tests and 36 markdown tests, all green.
 
 ## Release / packaging
 
-To build a Chrome Web Store upload zip:
+To build store upload zips:
 
 ```bash
-python3 tools/build_locales.py    # regen _locales/ from translation/*.json
-python3 tools/generate_icons.py   # regen icons/ from the design script
-python3 tools/package.py          # writes dist/custom-web-blocker-<version>.zip
+python3 tools/build_locales.py            # regen _locales/ from translation/*.json
+python3 tools/generate_icons.py           # regen icons/ from the design script
+python3 tools/package.py                   # builds every target into dist/
+python3 tools/package.py --target edge     # or build a single target
+```
+
+This writes one zip per browser:
+
+```text
+dist/custom-web-blocker-chrome-<version>.zip
+dist/custom-web-blocker-edge-<version>.zip      (identical artifact to chrome)
+dist/custom-web-blocker-firefox-<version>.zip   (firefox manifest + in-page host)
+dist/custom-web-blocker-safari-<version>.zip    (native transport; no eval sandbox)
 ```
 
 The packager uses an explicit allowlist, so dev files (`tools/`, `tests/`,
 dotfiles, IDE folders, `__pycache__`) are guaranteed to stay out of the
-upload. Listing copy and permission justifications live in
+upload. Each target gets the right `manifest.json` and sandbox host; the
+Safari target also gets a generated `sandbox-transport.js` pinning the native
+custom-rule transport. Listing copy and permission justifications live in
 [STORE_LISTING.md](STORE_LISTING.md); the privacy policy is
 [PRIVACY.md](PRIVACY.md).
 

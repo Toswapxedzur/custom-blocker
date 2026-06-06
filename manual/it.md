@@ -12,16 +12,16 @@ Custom Web Blocker ti consente di bloccare siti Web e distrazioni online in base
 
 - Blocca immediatamente i siti con il blocco di rete nativo del browser (lo stesso tipo di blocco che produce `ERR_BLOCKED_BY_CLIENT`).
 - Concediti un certo numero di minuti al giorno su un sito, quindi bloccalo una volta superato tale limite.
-- Blocca tipi specifici di contenuti su YouTube, TikTok, Facebook, Instagram, Twitch e Reddit (non sull'intero sito).
+- Blocca tipi specifici di contenuti su Iutub, Tic Toc, Feisbuc, rete fotografica, dirette video e Rèddit (non sull'intero sito).
 - Nascondi i contenuti bloccati dai feed sulle piattaforme supportate invece di bloccare solo singole pagine.
 - Pianifica quando una regola è attiva per giorno della settimana e per finestre temporali `HHMM-HHMM`.
 - Blocca una regola in modo da non poterla modificare facilmente. Il congelamento rigoroso lo blocca per un numero specificato di ore e richiede un rituale di conferma in 20 passaggi per essere annullato.
 - Posticipare temporaneamente una regola, ma solo dopo aver scritto una giustificazione sufficientemente lunga.
-- Scrivi regole personalizzate **guidate dagli eventi** in JavaScript con aiutanti per timer avanti/indietro, archiviazione persistente per gruppo, intenti DOM per piattaforma (nascondi pulsanti di navigazione, nascondi schede feed per predicato, imposta timer per sottosezione), utilità URL e registrazione strutturata.
+- Scrivi regole personalizzate **guidate dagli eventi** in linguaggio di script con aiutanti per timer avanti/indietro, archiviazione persistente per gruppo, intenti DOM per piattaforma (nascondi pulsanti di navigazione, nascondi schede feed per predicato, imposta timer per sottosezione), utilità URL e registrazione strutturata.
 - Scegli da una libreria integrata di oltre 50 modelli già pronti (timer, pianificazioni, occultamento dei feed, sessioni di focus, reindirizzamenti, solleciti, persistenza, modifiche DOM, aiutanti per il debug).
 - Utilizza l'estensione in oltre 20 lingue.
 
-L'estensione è un'estensione Chrome Manifest V3 con una pagina dell'editor (il popup), un operatore del servizio in background, un sandbox fuori schermo che ospita il codice delle regole personalizzate e uno script di contenuto eseguito in ogni pagina. Le regole personalizzate vivono nella sandbox fuori schermo; vengono caricati una volta per ogni clic su Esegui e rimangono registrati finché la regola non viene disabilitata o eliminata.
+L'estensione è un'estensione browser Cromo Manifest V3 con una pagina dell'editor (il popup), un operatore del servizio in background, un sandbox fuori schermo che ospita il codice delle regole personalizzate e uno script di contenuto eseguito in ogni pagina. Le regole personalizzate vivono nella sandbox fuori schermo; vengono caricati una volta per ogni clic su Esegui e rimangono registrati finché la regola non viene disabilitata o eliminata.
 
 ---
 
@@ -50,7 +50,7 @@ Quando fai clic sull'icona dell'estensione, l'editor si apre come una pagina Web
 
 ## 3. Avvio rapido1. Fare clic sull'icona dell'estensione. L'editor si apre come una pagina intera.
 2. Nel pannello **Blocca gruppi**, scegli un tipo di gruppo dal menu a discesa:
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit` o `Custom`.
+   - `Default`, `Iutub`, `Tic Toc`, `Feisbuc`, `rete fotografica`, `dirette video`, `Rèddit` o `Custom`.
 3. Fare clic su **Aggiungi**. Viene visualizzato un nuovo gruppo e l'editor lo apre.
 4. Dagli un nome.
 5. Compila i campi specifici del tipo (per `Default`, ciò significa l'elenco **Siti Web bloccati**).
@@ -70,7 +70,7 @@ Tutto in questa estensione è organizzato come **gruppi di blocchi**. Un gruppo 
 - Ha un nome, un tipo e uno stato abilitato/disabilitato.
 - Ha un comportamento di blocco (immediato, dopo un certo numero di minuti, o conto alla rovescia fisso).
 - Dispone di una pianificazione opzionale (giorni + finestre temporali) e controlli di blocco/posticipazione opzionali.
-- A seconda del tipo, dispone di campi aggiuntivi come un elenco di siti Web, filtri per creatori di YouTube, nomi di subreddit o una regola JavaScript basata sugli eventi.
+- A seconda del tipo, dispone di campi aggiuntivi come un elenco di siti Web, filtri per creatori di Iutub, nomi di subreddit o una regola linguaggio di script basata sugli eventi.
 
 Puoi avere un numero qualsiasi di gruppi. Più gruppi possono candidarsi alla stessa pagina; in tal caso prevale la regola **più rigorosa**:
 
@@ -91,61 +91,61 @@ Per bloccare domini specifici (il caso d'uso tipico).
 
 - **Siti Web bloccati**: un sito per riga. Funzionano sia `facebook.com` che `https://www.facebook.com/somepage`; l'estensione estrae e normalizza il nome host.
 - Una regola del sito si applica a quel nome host e a tutti i suoi sottodomini.
-- Questo tipo di gruppo utilizza il blocco di rete nativo di Chrome, simile a `ERR_BLOCKED_BY_CLIENT`. Ciò significa che la navigazione verso un URL bloccato viene interrotta prima ancora che la pagina venga caricata.
+- Questo tipo di gruppo utilizza il blocco di rete nativo di browser Cromo, simile a `ERR_BLOCKED_BY_CLIENT`. Ciò significa che la navigazione verso un URL bloccato viene interrotta prima ancora che la pagina venga caricata.
 
-### 5.2 `YouTube`: blocca YouTube e siti di video simili
+### 5.2 `Iutub`: blocca Iutub e siti di video simili
 
 Aggiunge una sezione **Filtri** all'editor:
 
 - **Tipo di contenuto**:
-  - `Apply to all YouTube pages`: ogni pagina YouTube conta.
+  - `Apply to all Iutub pages`: ogni pagina Iutub conta.
   - `Apply to Shorts`: contano solo le pagine di Short.
   - `Apply to long videos` — solo `/watch`, `/live/`, `/embed/`, ecc.
-  - `Apply to YouTube posts`: post della community (`/post/...`, schede community/post del canale).
+  - `Apply to Iutub posts`: post della community (`/post/...`, schede community/post del canale).
 - **Filtro autore**:
   - `Do not filter by author`: l'identità dell'autore non ha importanza.
   - `Apply to certain authors`: solo gli autori elencati attivano questo gruppo.
   - `Apply to all except certain authors`: gli autori elencati sono esenti.
 - **Autori**: un autore per riga. Accetta `@handle`, URL completi, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Nascondi le voci bloccate nel feed di YouTube**: mentre questo gruppo blocca attivamente, le schede corrispondenti nei feed di YouTube vengono nascoste. Quando il blocco diventa inattivo, ritornano al successivo aggiornamento.
+- **Nascondi le voci bloccate nel feed di Iutub**: mentre questo gruppo blocca attivamente, le schede corrispondenti nei feed di Iutub vengono nascoste. Quando il blocco diventa inattivo, ritornano al successivo aggiornamento.
 
-Per i tipi di contenuto Short e Post, quando non è impostato alcun filtro autore e il gruppo è attualmente bloccato, l'estensione nasconde anche le voci di navigazione pertinenti (voce della barra laterale Short, schede canale Community/Post) e gli scaffali corrispondenti come "Ultimi post di YouTube".
+Per i tipi di contenuto Short e Post, quando non è impostato alcun filtro autore e il gruppo è attualmente bloccato, l'estensione nasconde anche le voci di navigazione pertinenti (voce della barra laterale Short, schede canale Community/Post) e gli scaffali corrispondenti come "Ultimi post di Iutub".
 
-Il rilevamento breve/lungo si estende ad altri siti video come TikTok, Vimeo, clip/VOD Twitch e Dailymotion quando è possibile rilevare il modulo della pagina.
+Il rilevamento breve/lungo si estende ad altri siti video come Tic Toc, Vimeo, clip/VOD dirette video e Dailymotion quando è possibile rilevare il modulo della pagina.
 
-### 5.3 `TikTok`: blocca i contenuti di TikTok
+### 5.3 `Tic Toc`: blocca i contenuti di Tic Toc
 
-Stessa scheda editor dell'editor video della piattaforma, ma con etichette specifiche per TikTok:- Tipi di contenuto: brevi video, video, pagine del profilo.
-- Autori: TikTok gestisce (`@handle`) o URL del profilo.
-- Il feed hidden nasconde le carte corrispondenti sulle pagine TikTok mentre il gruppo è attivo.
+Stessa scheda editor dell'editor video della piattaforma, ma con etichette specifiche per Tic Toc:- Tipi di contenuto: brevi video, video, pagine del profilo.
+- Autori: Tic Toc gestisce (`@handle`) o URL del profilo.
+- Il feed hidden nasconde le carte corrispondenti sulle pagine Tic Toc mentre il gruppo è attivo.
 
-### 5.4 `Facebook`: blocca i contenuti di Facebook
+### 5.4 `Feisbuc`: blocca i contenuti di Feisbuc
 
 - Tipi di contenuto: Reels, video, post.
 - Autori: nome della pagina (`page.name`), URL del profilo o modulo `profile.php?id=...` (l'ID numerico viene conservato come `id:<number>`).
-- Il feed hidden nasconde le schede feed corrispondenti su Facebook.
+- Il feed hidden nasconde le schede feed corrispondenti su Feisbuc.
 
-### 5.5 `Instagram`: blocca i contenuti di Instagram
+### 5.5 `rete fotografica`: blocca i contenuti di rete fotografica
 
 - Tipi di contenuto: Reels, video, post.
-- Autori: handle di Instagram o URL del profilo.
+- Autori: handle di rete fotografica o URL del profilo.
 - I percorsi riservati come `/reel/`, `/p/`, `/tv/`, `/explore/` non sono trattati come autori.
-- Il feed hidden nasconde le carte corrispondenti su Instagram.
+- Il feed hidden nasconde le carte corrispondenti su rete fotografica.
 
-### 5.6 `Twitch`: blocca i contenuti di Twitch
+### 5.6 `dirette video`: blocca i contenuti di dirette video
 
 - Tipi di contenuti: clip, stream/VOD, pagine canale.
 - Autori: nomi di canali o URL di canali.
 - I percorsi riservati come `/directory`, `/videos`, `/settings`, ecc. non vengono trattati come nomi di canali.
-- Feed hidden nasconde le carte corrispondenti su Twitch.
+- Feed hidden nasconde le carte corrispondenti su dirette video.
 
-### 5.7 `Reddit`: blocca Reddit o subreddit specifici
+### 5.7 `Rèddit`: blocca Rèddit o subreddit specifici
 
-- **Subreddit**: un subreddit per riga. L'elenco vuoto significa che il gruppo si applica a tutto Reddit. Sono accettati sia `productivity` che `r/productivity`.
+- **Subreddit**: un subreddit per riga. L'elenco vuoto significa che il gruppo si applica a tutto Rèddit. Sono accettati sia `productivity` che `r/productivity`.
 
-### 5.8 `Custom`: blocco tramite JavaScript basato sugli eventi
+### 5.8 `Custom`: blocco tramite linguaggio di script basato sugli eventi
 
-Scrivi una funzione JavaScript che **registra i gestori** per eventi quali apertura della pagina, modifica dell'URL, heartbeat della pagina, fine del timer ed eventi personalizzati. La funzione viene eseguita una volta per ogni clic su Esegui; i gestori registrati rimangono attivi durante le navigazioni finché non premi nuovamente Esegui, disabiliti il ​​gruppo o lo elimini.
+Scrivi una funzione linguaggio di script che **registra i gestori** per eventi quali apertura della pagina, modifica dell'URL, heartbeat della pagina, fine del timer ed eventi personalizzati. La funzione viene eseguita una volta per ogni clic su Esegui; i gestori registrati rimangono attivi durante le navigazioni finché non premi nuovamente Esegui, disabiliti il ​​gruppo o lo elimini.
 
 I gruppi `Custom` non mostrano: comportamento di blocco, siti bloccati, minuti consentiti, intervallo di reimpostazione, giorni di pianificazione o finestre temporali. Mantengono l'editor delle **Regole di blocco** oltre ai controlli di blocco/posticipazione standard. C'è anche un pulsante **Modelli** che apre un browser preimpostato con regole iniziali parametrizzate; l'applicazione di una preimpostazione sostituisce la regola corrente dopo la conferma.
 
@@ -161,7 +161,7 @@ Per la maggior parte dei tipi di gruppo scegli una delle tre modalità.
 
 La regola è attiva ogni volta che il gruppo è attivo, la pianificazione lo consente e (per i gruppi sulla piattaforma) la pagina corrisponde.
 
-Per i gruppi `Default` viene utilizzato il blocco nativo di Chrome. Per i gruppi di piattaforme utilizza la logica di overlay/uscita in-page.
+Per i gruppi `Default` viene utilizzato il blocco nativo di browser Cromo. Per i gruppi di piattaforme utilizza la logica di overlay/uscita in-page.
 
 ### 6.2 Blocco dopo un certo numero di minuti
 
@@ -323,7 +323,7 @@ Zucchero per tipo di evento (un set di metodi per tipo integrato):
 | `timerEnded` | Un timer gestito dal gruppo raggiunge `currentMs === 0`. Consegnato solo al gruppo proprietario. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | L'utente ha premuto **Avvia posticipazione** nel popup per questo gruppo **personalizzato**. Evento di notifica puro: il gestore può eseguire codice arbitrario (registrazione, reindirizzamento, attivazione di altri eventi) ma le regole personalizzate **non hanno API di posticipazione programmatica**. I registri prodotti qui vengono visualizzati come toast nella scheda attiva. Consegnato solo al gruppo pressato. | `{ triggeredAt }` |
 
-Gli URL in `ev.url` e nei dati degli eventi sono **normalizzati** per gli eventi: la pagina Nuova scheda di Chrome (che esegue il rendering della superficie "Cerca in Google o digita URL") di Google), `about:blank` e gli schemi newtab equivalenti vengono esposti come stringa vuota `""`. Pertanto, un timer con ambito `ev.url === ""` funziona solo mentre ti trovi nella pagina nuova scheda. Gli URL `google.com` regolari rimangono invariati.
+Gli URL in `ev.url` e nei dati degli eventi sono **normalizzati** per gli eventi: la pagina Nuova scheda di browser Cromo (che esegue il rendering della superficie "Cerca in Google o digita URL") di Google), `about:blank` e gli schemi newtab equivalenti vengono esposti come stringa vuota `""`. Pertanto, un timer con ambito `ev.url === ""` funziona solo mentre ti trovi nella pagina nuova scheda. Gli URL `google.com` regolari rimangono invariati.
 
 ### 11.2.3 L'oggetto evento (`ev`)
 
@@ -425,7 +425,7 @@ Come gli altri effetti collaterali delle regole personalizzate, questo stato è 
 Aiutanti per l'ispezione degli URL. Non esiste `normalize()` perché gli URL in entrata sono già normalizzati newtab.
 
 Nucleo:-`hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
--`isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
+-`isYouTubeHost`, `isTikTokHost`, `isrete fotograficaHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
 - `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()`: ciascuno restituisce `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`.
 
 Filtraggio URL e aiutanti di sezione:
@@ -434,13 +434,13 @@ Filtraggio URL e aiutanti di sezione:
 - `matchesAny(url, patterns)` — `patterns` può essere una regex, una regex di stringa o un array di entrambe.
 - `pathStartsWith(url, path)`: riconoscimento dei confini (`pathStartsWith("/r/", "/r")` è vero; `"/results/"` non lo è).
 - `queryHas(url, key, value?)`, `queryGet(url, key)`: ispezione della stringa di query.
-- `isSearchPage(url)`: riconosce i risultati di Google / Bing / DuckDuckGo / YouTube / Reddit / Twitter / X.
-- `isInfiniteFeedUrl(url)`: riconosce le superfici di feed algoritmico di YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `isSearchPage(url)`: riconosce i risultati di Google / Bing / DuckDuckGo / Iutub / Rèddit / Tuitter / X.
+- `isInfiniteFeedUrl(url)`: riconosce le superfici di feed algoritmico di Iutub, Tic Toc, rete fotografica, Feisbuc, Rèddit, X.
 - `sameSection(a, b)`: stesso nome host E stesso primo segmento di percorso.
 
 #### 11.3.6 `getPlatformHelper()`
 
-Intenti DOM per piattaforma e timer di sottosezioni, oltre a ispezione. Ogni `helpers.getPlatformHelper().<platform>()` restituisce un oggetto il cui set di metodi è **controllato dalla piattaforma**: i metodi che non hanno senso su una determinata piattaforma sono semplicemente assenti, quindi chiamarli lancia `TypeError: ... is not a function` anziché silenziosamente no-op. Ad esempio, `twitch().hidePosts` non esiste (Twitch non ha post) e `tiktok().hideShortButton` non esiste (l'intera esperienza di TikTok è già un video in formato breve). Utilizza `helpers.getPlatformHelper().hasMethod(platform, name)` o `.listMethods(platform)` per eseguire l'introspezione in fase di esecuzione.
+Intenti DOM per piattaforma e timer di sottosezioni, oltre a ispezione. Ogni `helpers.getPlatformHelper().<platform>()` restituisce un oggetto il cui set di metodi è **controllato dalla piattaforma**: i metodi che non hanno senso su una determinata piattaforma sono semplicemente assenti, quindi chiamarli lancia `TypeError: ... is not a function` anziché silenziosamente no-op. Ad esempio, `twitch().hidePosts` non esiste (dirette video non ha post) e `tiktok().hideShortButton` non esiste (l'intera esperienza di Tic Toc è già un video in formato breve). Utilizza `helpers.getPlatformHelper().hasMethod(platform, name)` o `.listMethods(platform)` per eseguire l'introspezione in fase di esecuzione.
 
 Matrice del metodo per piattaforma:
 
@@ -482,15 +482,15 @@ Per i metodi del predicato, il predicato viene chiamato per la carta corrisponde
 
 ### 11.4 Esempi
 
-**Facile**: blocca le pagine di YouTube Shorts nelle mattine dei giorni feriali:
+**Facile**: blocca le pagine di Iutub Shorts nelle mattine dei giorni feriali:
 
 ZXQCODICE2ZXQ
 
-**Medio**: budget giornaliero di 30 minuti per YouTube Shorts. Il timer attiva automaticamente gli `pageHeartbeatEvent` mentre è visibile l'URL di uno Short; un gestore separato impone il blocco quando il timer raggiunge lo zero.
+**Medio**: budget giornaliero di 30 minuti per Iutub Shorts. Il timer attiva automaticamente gli `pageHeartbeatEvent` mentre è visibile l'URL di uno Short; un gestore separato impone il blocco quando il timer raggiunge lo zero.
 
 ZXQCODICE3ZXQ
 
-**Più difficile**: nascondi singoli Short di YouTube il cui nome dell'autore è troppo lungo e inserisci un CSS "questo Short è nascosto":
+**Più difficile**: nascondi singoli Short di Iutub il cui nome dell'autore è troppo lungo e inserisci un CSS "questo Short è nascosto":
 
 ```js
 (event, helpers) => {
@@ -526,17 +526,17 @@ Ogni gruppo personalizzato dispone di un selettore **Modelli** che apre un brows
 
 | Categoria | Esempi |
 |---|---|
-| **Timer** | Budget del tempo sul sito (conto alla rovescia + blocco), tracker del tempo del sito (conteggio alla rovescia), limite di YouTube Shorts, limite di feed TikTok, limite di Instagram Reels, limite di Facebook Reels, limite di Twitch Clips, budget di distrazione universale, tracker giornaliero del lavoro approfondito |
+| **Timer** | Budget del tempo sul sito (conto alla rovescia + blocco), tracker del tempo del sito (conteggio alla rovescia), limite di Iutub Shorts, limite di feed Tic Toc, limite di rete fotografica Reels, limite di Feisbuc Reels, limite di dirette video Clips, budget di distrazione universale, tracker giornaliero del lavoro approfondito |
 | **Programma** | Blocco dell'orario di lavoro nei giorni feriali, siti solo nel fine settimana, chiusura prima di andare a dormire, consenti solo un'ora, notizie solo per il pranzo, nuovo inizio del lunedì, consenti i primi N minuti di ogni ora, blocco rigoroso del lavoro profondo |
-| **Feed / Pantaloncini** | Blocca gli URL degli shorts di YouTube, nascondi le schede degli shorts, nascondi gli shorts per parola chiave, nascondi il feed della home page di YouTube/commenti/trending, blocca il FYP di TikTok, nascondi gli shorts di TikTok, blocca gli URL dei reels di Instagram, nascondi il feed dei reels di Instagram, nascondi il feed/reels di Facebook, nascondi la home page di Reddit/Twitter/Linkedin |
+| **Feed / Pantaloncini** | Blocca gli URL degli shorts di Iutub, nascondi le schede degli shorts, nascondi gli shorts per parola chiave, nascondi il feed della home page di Iutub/commenti/trending, blocca il FYP di Tic Toc, nascondi gli shorts di Tic Toc, blocca gli URL dei reels di rete fotografica, nascondi il feed dei reels di rete fotografica, nascondi il feed/reels di Feisbuc, nascondi la home page di Rèddit/Tuitter/Linkedin |
 | **Reindirizzamento** | Distrazioni → pagina focus, Pantaloncini → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, nuova scheda → elenco attività |
 | **Focus** | Sessione focus solo nella lista consentita, Pomodoro 25/5, blocco durante la riunione, blocco dopo N visite oggi, blocco in caso di perdita di serie |
 | **Spingi** | Registra ogni visita che distrae, avvisa per ogni visita a Shorts, conta le visite giornaliere a un sito |
-| **Persistenza** | Limite mensile delle visite, attivazione/disattivazione del divieto settimanale, traccia dei canali Discord visitati |
-| **Modifiche DOM** | Nascondi l'attivazione/disattivazione della riproduzione automatica di YouTube, nascondi Twitter / X "Cosa sta succedendo", generico "nascondi selettori su un sito" |
+| **Persistenza** | Limite mensile delle visite, attivazione/disattivazione del divieto settimanale, traccia dei canali Discor visitati |
+| **Modifiche DOM** | Nascondi l'attivazione/disattivazione della riproduzione automatica di Iutub, nascondi Tuitter / X "Cosa sta succedendo", generico "nascondi selettori su un sito" |
 | **Debug** | Conto alla rovescia demo (3 s), registra ogni evento personalizzato |
 
-I chip filtro nella parte superiore del selettore restringono l'elenco per categoria (`Timer`, `Schedule`, `Feed`, …) e piattaforma (`YouTube`, `TikTok`, `Instagram`, …). Selezione di un modello:
+I chip filtro nella parte superiore del selettore restringono l'elenco per categoria (`Timer`, `Schedule`, `Feed`, …) e piattaforma (`Iutub`, `Tic Toc`, `rete fotografica`, …). Selezione di un modello:
 
 1. Carica i suoi input di parametri (URL, minuti, intervalli di ore, ecc.) in un piccolo modulo.
 2. **Applica preimpostazione** visualizza in anteprima la sorgente generata.
@@ -612,7 +612,7 @@ Per i campi di input con requisiti di formato, il messaggio appare anche accanto
 ## 19. Risoluzione dei problemi- **Un gruppo che ho aggiunto non fa nulla.** Assicurati che il gruppo sia abilitato, che la pianificazione lo consenta adesso, che non sia attiva alcuna posticipazione e (per i gruppi di piattaforme) che la pagina corrisponda effettivamente al tipo di contenuto e al filtro dell'autore scelti.
 - **Un timer è bloccato o sbagliato su una scheda.** Passa indietro e indietro oppure focalizza la scheda: ciò attiva un aggiornamento forzato dal timer condiviso.
 - **Le carte feed riappaiono dopo che penso che dovrebbero essere nascoste.** L'occultamento del feed viene eseguito solo mentre la regola blocca attivamente. Se hai una regola `after-minutes`, alimenta il nascondiglio che entra in azione una volta che il tuo tempo raggiunge lo zero.
-- **Un pulsante di navigazione di YouTube che mi aspettavo fosse nascosto è ancora lì.** Per nascondere la navigazione è necessario che la regola sia impostata su "non filtrare per autore" e che il tipo di contenuto sia Short o post di YouTube. Con i filtri dell'autore, l'occultamento avviene solo per scheda.
+- **Un pulsante di navigazione di Iutub che mi aspettavo fosse nascosto è ancora lì.** Per nascondere la navigazione è necessario che la regola sia impostata su "non filtrare per autore" e che il tipo di contenuto sia Short o post di Iutub. Con i filtri dell'autore, l'occultamento avviene solo per scheda.
 - **La regola personalizzata non ha fatto nulla o è stata lanciata in modo silenzioso.** Apri Impostazioni → attiva la **Modalità debug**, quindi fai di nuovo clic su **Esegui** e osserva il pannello Registro. Le righe con prefisso `[trace]` mostrano ogni spedizione e gestore. Utilizza `helpers.getLogHelper().log(...)` per aggiungere i tuoi punti di tracciamento. Se una regola dal comportamento anomalo continuava a essere messa in quarantena automatica, correggi l'origine e fai clic su Esegui: Esegui cancella il motivo dell'interruzione.
 - **La mia nuova regola personalizzata non influisce sulle schede già aperte.** Ricaricale. Le regole personalizzate si allegano agli eventi *futuri* della pagina; il popup mostra un promemoria per ricaricare dopo ogni corsa.
 - **Il mio timer per il conto alla rovescia non avanza.** I timer con regole personalizzate spuntano solo sulla scheda **visibile attivo** tramite `pageHeartbeatEvent`. Le schede in background, le finestre ridotte a icona e le schermate bloccate le mettono in pausa in base alla progettazione: lo stesso comportamento del conto alla rovescia predefinito del gruppo di blocco.
@@ -642,8 +642,13 @@ Per i campi di input con requisiti di formato, il messaggio appare anche accanto
 ---
 
 ## 21. Limitazioni- L'occultamento dei feed dipende dal DOM attuale di ciascuna piattaforma. Se la piattaforma cambia layout, potrebbe essere necessario aggiornare i selettori nascosti.
-- Il rilevamento del contesto della piattaforma per i siti non YouTube è per lo più basato su URL, quindi è più affidabile sugli URL di contenuti canonici.
+- Il rilevamento del contesto della piattaforma per i siti non Iutub è per lo più basato su URL, quindi è più affidabile sugli URL di contenuti canonici.
 - I timer con regole personalizzate ticchettano alla risoluzione del battito cardiaco (~250 ms). Non fare affidamento su di loro per tempi inferiori al secondo.
 - I predicati passati a `hideShorts` / `hideVideos` / `hidePosts` vengono valutati in modo sincrono per scheda di alimentazione. La logica pesante in un predicato può rallentare lo scorrimento del feed; tenerli a buon mercato.
 - Due schede che modificano lo stesso timer per gruppo utilizzano contemporaneamente una strategia "l'ultima scrittura vince". Per l'uso tipico va bene; se dipendi da una contabilità esatta, aspettati piccole derive occasionali.
 - Il browser potrebbe sospendere l'operatore del servizio in background quando è inattivo. L'estensione lo riprende non appena una pagina o un allarme lo richiedono; i budget per l'utilizzo del sito/temporizzato continuano a essere conteggiati tramite la riproduzione dell'heartbeat.
+
+## Nota v1.2
+
+L’editor delle regole personalizzate ora colora la sintassi linguaggio di script, e il browser dei modelli usa gli stessi colori per le anteprime del codice. L’azione di massa dei gruppi si chiama **Svuota**.
+

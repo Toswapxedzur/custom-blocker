@@ -12,16 +12,16 @@ Met Custom Web Blocker kunt u websites en online afleidingen blokkeren volgens d
 
 - Blokkeer sites onmiddellijk met de eigen netwerkblokkering van de browser (hetzelfde soort blokkering dat `ERR_BLOCKED_BY_CLIENT` produceert).
 - Gun uzelf een bepaald aantal minuten per dag op een site en blokkeer deze zodra u die limiet overschrijdt.
-- Blokkeer specifieke soorten inhoud op YouTube, TikTok, Facebook, Instagram, Twitch en Reddit (niet de hele site).
+- Blokkeer specifieke soorten inhoud op Joetjoep, kortevideoportaal, Gezichtenboek, Fotogram, Livekanaal en gemeenschapsforum (niet de hele site).
 - Verberg geblokkeerde inhoud van feeds op ondersteunde platforms in plaats van alleen afzonderlijke pagina's te blokkeren.
 - Schema wanneer een regel actief is, per dag van de week en per `HHMM-HHMM`-tijdvenster.
 - Bevries een regel, zodat u deze niet gemakkelijk kunt wijzigen. Strikte bevriezing vergrendelt het voor een bepaald aantal uren en vereist een bevestigingsritueel van 20 stappen om het ongedaan te maken.
 - Sluimer een regel tijdelijk, maar pas nadat u een voldoende lange rechtvaardiging heeft geschreven.
-- Schrijf **gebeurtenisgestuurde** aangepaste regels in JavaScript met helpers voor voorwaartse/achterwaartse timers, permanente opslag per groep, DOM-intenties per platform (verberg navigatieknoppen, verberg feedkaarten per predikaat, stel timers per subsectie in), URL-hulpprogramma's en gestructureerde logboekregistratie.
+- Schrijf **gebeurtenisgestuurde** aangepaste regels in scripttaal met helpers voor voorwaartse/achterwaartse timers, permanente opslag per groep, DOM-intenties per platform (verberg navigatieknoppen, verberg feedkaarten per predikaat, stel timers per subsectie in), URL-hulpprogramma's en gestructureerde logboekregistratie.
 - Kies uit een ingebouwde bibliotheek met meer dan 50 kant-en-klare sjablonen (timers, schema's, het verbergen van feeds, focussessies, omleidingen, duwtjes, doorzettingsvermogen, DOM-tweaks, debug-helpers).
 - Gebruik de extensie in meer dan 20 talen.
 
-De extensie is een Chrome Manifest V3-extensie met één editorpagina (de pop-up), één achtergrondservicemedewerker, één offscreen sandbox die aangepaste regelcode host en één inhoudsscript dat op elke pagina wordt uitgevoerd. Aangepaste regels leven in de offscreen-sandbox; ze worden één keer per Run-klik geladen en blijven geregistreerd totdat de regel wordt uitgeschakeld of verwijderd.
+De extensie is een Chroom-browser Manifest V3-extensie met één editorpagina (de pop-up), één achtergrondservicemedewerker, één offscreen sandbox die aangepaste regelcode host en één inhoudsscript dat op elke pagina wordt uitgevoerd. Aangepaste regels leven in de offscreen-sandbox; ze worden één keer per Run-klik geladen en blijven geregistreerd totdat de regel wordt uitgeschakeld of verwijderd.
 
 ---
 
@@ -50,7 +50,7 @@ Wanneer u op het pictogram van de extensie klikt, wordt de editor geopend als ee
 
 ## 3. Snelle start1. Klik op het extensiepictogram. De editor wordt geopend als een volledige pagina.
 2. Kies in het paneel **Groepen blokkeren** een groepstype uit de vervolgkeuzelijst:
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit` of `Custom`.
+   - `Default`, `Joetjoep`, `kortevideoportaal`, `Gezichtenboek`, `Fotogram`, `Livekanaal`, `gemeenschapsforum` of `Custom`.
 3. Klik op **Toevoegen**. Er verschijnt een nieuwe groep en de editor opent deze.
 4. Geef het een naam.
 5. Vul de typespecifieke velden in (voor `Default` betekent dit de lijst **Geblokkeerde websites**).
@@ -70,7 +70,7 @@ Alles in deze extensie is georganiseerd als **blokgroepen**. Een blokgroep is é
 - Het heeft een naam, een type en een ingeschakelde/uitgeschakelde status.
 - Het heeft een blokkeergedrag (onmiddellijk, na een aantal minuten, of vast aftellen).
 - Het heeft een optioneel schema (dagen + tijdvensters) en optionele bedieningselementen voor bevriezen/sluimeren.
-- Afhankelijk van het type heeft het extra velden, zoals een lijst met websites, filters voor YouTube-creators, namen van subreddits of een gebeurtenisgestuurde JavaScript-regel.
+- Afhankelijk van het type heeft het extra velden, zoals een lijst met websites, filters voor Joetjoep-creators, namen van subreddits of een gebeurtenisgestuurde scripttaal-regel.
 
 U kunt een willekeurig aantal groepen hebben. Er kunnen meerdere groepen op dezelfde pagina van toepassing zijn; in dat geval wint de **strengste** regel:
 
@@ -91,61 +91,61 @@ Voor het blokkeren van specifieke domeinen (het typische gebruiksscenario).
 
 - **Geblokkeerde websites**: één site per regel. Zowel `facebook.com` als `https://www.facebook.com/somepage` werken; de extensie extraheert en normaliseert de hostnaam.
 - Er is een siteregel van toepassing op die hostnaam en al zijn subdomeinen.
-- Dit groepstype maakt gebruik van de eigen netwerkblokkering van Chrome, vergelijkbaar met `ERR_BLOCKED_BY_CLIENT`. Dat betekent dat de navigatie naar een geblokkeerde URL wordt gestopt voordat de pagina zelfs maar wordt geladen.
+- Dit groepstype maakt gebruik van de eigen netwerkblokkering van Chroom-browser, vergelijkbaar met `ERR_BLOCKED_BY_CLIENT`. Dat betekent dat de navigatie naar een geblokkeerde URL wordt gestopt voordat de pagina zelfs maar wordt geladen.
 
-### 5.2 `YouTube` — blokkeer YouTube en soortgelijke videosites
+### 5.2 `Joetjoep` — blokkeer Joetjoep en soortgelijke videosites
 
 Voegt een sectie **Filters** toe aan de editor:
 
 - **Inhoudstype**:
-  - `Apply to all YouTube pages` — elke YouTube-pagina telt.
+  - `Apply to all Joetjoep pages` — elke Joetjoep-pagina telt.
   - `Apply to Shorts`: alleen Shorts-pagina's tellen mee.
   - `Apply to long videos` — alleen `/watch`, `/live/`, `/embed/`, enz.
-  - `Apply to YouTube posts` — communityposts (`/post/...`, tabbladen kanaalcommunity/posts).
+  - `Apply to Joetjoep posts` — communityposts (`/post/...`, tabbladen kanaalcommunity/posts).
 - **Auteurfilter**:
   - `Do not filter by author` — identiteit van de auteur doet er niet toe.
   - `Apply to certain authors` — alleen vermelde auteurs activeren deze groep.
   - `Apply to all except certain authors` — vermelde auteurs zijn vrijgesteld.
 - **Auteurs**: één auteur per regel. Accepteert `@handle`, volledige URL's, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Geblokkeerde vermeldingen in de YouTube-feed verbergen**: terwijl deze groep actief blokkeert, zijn overeenkomende kaarten in YouTube-feeds verborgen. Wanneer het blok inactief wordt, komen ze terug bij de volgende vernieuwing.
+- **Geblokkeerde vermeldingen in de Joetjoep-feed verbergen**: terwijl deze groep actief blokkeert, zijn overeenkomende kaarten in Joetjoep-feeds verborgen. Wanneer het blok inactief wordt, komen ze terug bij de volgende vernieuwing.
 
-Voor Shorts- en Posts-inhoudstypen verbergt de extensie, als er geen auteursfilter is ingesteld en de groep momenteel blokkeert, ook relevante navigatie-items (invoer in de Shorts-zijbalk, Community-/Posts-kanaaltabbladen) en de bijbehorende planken zoals 'Nieuwste YouTube-posts'.
+Voor Shorts- en Posts-inhoudstypen verbergt de extensie, als er geen auteursfilter is ingesteld en de groep momenteel blokkeert, ook relevante navigatie-items (invoer in de Shorts-zijbalk, Community-/Posts-kanaaltabbladen) en de bijbehorende planken zoals 'Nieuwste Joetjoep-posts'.
 
-De korte versus lange detectie strekt zich uit tot andere videosites zoals TikTok, Vimeo, Twitch-clips/VOD's en Dailymotion wanneer hun paginavorm kan worden gedetecteerd.
+De korte versus lange detectie strekt zich uit tot andere videosites zoals kortevideoportaal, Vimeo, Livekanaal-clips/VOD's en Dailymotion wanneer hun paginavorm kan worden gedetecteerd.
 
-### 5.3 `TikTok` — blokkeer TikTok-inhoud
+### 5.3 `kortevideoportaal` — blokkeer kortevideoportaal-inhoud
 
-Dezelfde editorkaart als de platform-video-editor, maar met TikTok-specifieke labels:- Inhoudstypen: korte video's, video's, profielpagina's.
-- Auteurs: TikTok-handvatten (`@handle`) of profiel-URL's.
-- Feed verbergen verbergt overeenkomende kaarten op TikTok-pagina's terwijl de groep actief is.
+Dezelfde editorkaart als de platform-video-editor, maar met kortevideoportaal-specifieke labels:- Inhoudstypen: korte video's, video's, profielpagina's.
+- Auteurs: kortevideoportaal-handvatten (`@handle`) of profiel-URL's.
+- Feed verbergen verbergt overeenkomende kaarten op kortevideoportaal-pagina's terwijl de groep actief is.
 
-### 5.4 `Facebook` — blokkeer Facebook-inhoud
+### 5.4 `Gezichtenboek` — blokkeer Gezichtenboek-inhoud
 
 - Inhoudstypen: rollen, video's, berichten.
 - Auteurs: paginanaam (`page.name`), profiel-URL of `profile.php?id=...`-formulier (de numerieke id blijft behouden als `id:<number>`).
-- Feed verbergen verbergt bijpassende feedkaarten op Facebook.
+- Feed verbergen verbergt bijpassende feedkaarten op Gezichtenboek.
 
-### 5.5 `Instagram` — blokkeer Instagram-inhoud
+### 5.5 `Fotogram` — blokkeer Fotogram-inhoud
 
 - Inhoudstypen: rollen, video's, berichten.
-- Auteurs: Instagram-handvatten of profiel-URL's.
+- Auteurs: Fotogram-handvatten of profiel-URL's.
 - Gereserveerde paden zoals `/reel/`, `/p/`, `/tv/`, `/explore/` worden niet als auteurs behandeld.
-- Feed verbergen verbergt bijpassende kaarten op Instagram.
+- Feed verbergen verbergt bijpassende kaarten op Fotogram.
 
-### 5.6 `Twitch` — blokkeer Twitch-inhoud
+### 5.6 `Livekanaal` — blokkeer Livekanaal-inhoud
 
 - Inhoudstypen: clips, streams/VOD's, kanaalpagina's.
 - Auteurs: kanaalnamen of kanaal-URL's.
 - Gereserveerde paden zoals `/directory`, `/videos`, `/settings`, enz. worden niet behandeld als kanaalnamen.
-- Feed verbergen verbergt bijpassende kaarten op Twitch.
+- Feed verbergen verbergt bijpassende kaarten op Livekanaal.
 
-### 5.7 `Reddit` — blokkeer Reddit of specifieke subreddits
+### 5.7 `gemeenschapsforum` — blokkeer gemeenschapsforum of specifieke subreddits
 
-- **Subreddits**: één subreddit per regel. Een lege lijst betekent dat de groep van toepassing is op heel Reddit. Zowel `productivity` als `r/productivity` worden geaccepteerd.
+- **Subreddits**: één subreddit per regel. Een lege lijst betekent dat de groep van toepassing is op heel gemeenschapsforum. Zowel `productivity` als `r/productivity` worden geaccepteerd.
 
-### 5.8 `Custom` — blokkeren door gebeurtenisgestuurd JavaScript
+### 5.8 `Custom` — blokkeren door gebeurtenisgestuurd scripttaal
 
-U schrijft een JavaScript-functie die **handlers registreert** voor gebeurtenissen zoals het openen van de pagina, het wijzigen van de URL, de hartslag van de pagina, het einde van de timer en uw eigen aangepaste gebeurtenissen. De functie wordt één keer uitgevoerd per Run-klik; de geregistreerde handlers blijven actief in alle navigaties totdat u opnieuw op Uitvoeren drukt, de groep uitschakelt of verwijdert.
+U schrijft een scripttaal-functie die **handlers registreert** voor gebeurtenissen zoals het openen van de pagina, het wijzigen van de URL, de hartslag van de pagina, het einde van de timer en uw eigen aangepaste gebeurtenissen. De functie wordt één keer uitgevoerd per Run-klik; de geregistreerde handlers blijven actief in alle navigaties totdat u opnieuw op Uitvoeren drukt, de groep uitschakelt of verwijdert.
 
 `Custom`-groepen worden niet weergegeven: blokkeergedrag, geblokkeerde sites, toegestane minuten, reset-interval, planningsdagen of tijdvensters. Ze behouden de **Blokkeerregels**-editor plus standaard besturingselementen voor bevriezen/snooze. Er is ook een knop **Sjablonen** die een vooraf ingestelde browser opent met geparametreerde starterregels; het toepassen van een voorinstelling vervangt de huidige regel na bevestiging.
 
@@ -161,7 +161,7 @@ Voor de meeste groepstypes kies je één van de drie modi.
 
 De regel is actief wanneer de groep is ingeschakeld, de planning dit toestaat en (voor platformgroepen) de pagina overeenkomt.
 
-Voor `Default`-groepen wordt hierbij de native blokkering van Chrome gebruikt. Voor platformgroepen wordt de in-page overlay/exit-logica gebruikt.
+Voor `Default`-groepen wordt hierbij de native blokkering van Chroom-browser gebruikt. Voor platformgroepen wordt de in-page overlay/exit-logica gebruikt.
 
 ### 6.2 Blokkeren na een aantal minuten
 
@@ -328,7 +328,7 @@ Suiker per gebeurtenistype (één set methoden per ingebouwd type):
 | `timerEnded` | Een timer beheerd door de groep bereikt `currentMs === 0`. Enkel afgeleverd aan de eigenaarsgroep. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | De gebruiker heeft op **Start Snooze** gedrukt in de pop-up voor deze **aangepaste** groep. Pure notificatiegebeurtenis: de handler kan willekeurige code uitvoeren (loggen, omleiden, andere gebeurtenissen activeren), maar aangepaste regels hebben **geen programmatische snooze-API**. Houtblokken die hier worden geproduceerd, verschijnen als toast op het actieve tabblad. Enkel geleverd aan de geperste groep. | `{ triggeredAt }` |
 
-URL's in `ev.url` en in gebeurtenisgegevens worden **genormaliseerd** voor gebeurtenissen: de pagina 'Nieuw tabblad' van Chrome (die het 'Zoek Google of typ URL'-oppervlak van Google weergeeft), `about:blank` en gelijkwaardige newtab-schema's worden weergegeven als de lege tekenreeks `""`. Een timer gericht op `ev.url === ""` tikt dus alleen terwijl u zich op de nieuwe tabbladpagina bevindt. Reguliere `google.com`-URL's blijven ongewijzigd.
+URL's in `ev.url` en in gebeurtenisgegevens worden **genormaliseerd** voor gebeurtenissen: de pagina 'Nieuw tabblad' van Chroom-browser (die het 'Zoek Google of typ URL'-oppervlak van Google weergeeft), `about:blank` en gelijkwaardige newtab-schema's worden weergegeven als de lege tekenreeks `""`. Een timer gericht op `ev.url === ""` tikt dus alleen terwijl u zich op de nieuwe tabbladpagina bevindt. Reguliere `google.com`-URL's blijven ongewijzigd.
 
 ### 11.2.3 Het gebeurtenisobject (`ev`)
 
@@ -439,17 +439,17 @@ URL-filtering en sectiehelpers:
 - `matchesAny(url, patterns)` — `patterns` kan een regex, een stringregex of een array van beide zijn.
 - `pathStartsWith(url, path)` — grensbewust (`pathStartsWith("/r/", "/r")` is waar; `"/results/"` niet).
 - `queryHas(url, key, value?)`, `queryGet(url, key)` - inspectie van queryreeksen.
-- `isSearchPage(url)` - herkent Google / Bing / DuckDuckGo / YouTube-resultaten / Reddit / Twitter / X-zoekopdrachten.
-- `isInfiniteFeedUrl(url)` — herkent de algoritmische feedoppervlakken van YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `isSearchPage(url)` - herkent Google / Bing / DuckDuckGo / Joetjoep-resultaten / gemeenschapsforum / Tjilper / X-zoekopdrachten.
+- `isInfiniteFeedUrl(url)` — herkent de algoritmische feedoppervlakken van Joetjoep, kortevideoportaal, Fotogram, Gezichtenboek, gemeenschapsforum, X.
 - `sameSection(a, b)` — dezelfde hostnaam EN hetzelfde eerste padsegment.
 
 #### 11.3.6 `getPlatformHelper()`
 
-DOM-intenties per platform en timers voor subsecties, plus inspectie. Elke `helpers.getPlatformHelper().<platform>()` retourneert een object waarvan de methodeset **wordt beheerd door het platform** - methoden die op een bepaald platform niet zinvol zijn, zijn eenvoudigweg afwezig, dus als u ze aanroept, wordt `TypeError: ... is not a function` gegenereerd in plaats van stilzwijgend geen actie te ondernemen. `twitch().hidePosts` bestaat bijvoorbeeld niet (Twitch heeft geen berichten) en `tiktok().hideShortButton` bestaat niet (de hele ervaring van TikTok is al een korte video). Gebruik `helpers.getPlatformHelper().hasMethod(platform, name)` of `.listMethods(platform)` voor introspectie tijdens runtime.
+DOM-intenties per platform en timers voor subsecties, plus inspectie. Elke `helpers.getPlatformHelper().<platform>()` retourneert een object waarvan de methodeset **wordt beheerd door het platform** - methoden die op een bepaald platform niet zinvol zijn, zijn eenvoudigweg afwezig, dus als u ze aanroept, wordt `TypeError: ... is not a function` gegenereerd in plaats van stilzwijgend geen actie te ondernemen. `twitch().hidePosts` bestaat bijvoorbeeld niet (Livekanaal heeft geen berichten) en `tiktok().hideShortButton` bestaat niet (de hele ervaring van kortevideoportaal is al een korte video). Gebruik `helpers.getPlatformHelper().hasMethod(platform, name)` of `.listMethods(platform)` voor introspectie tijdens runtime.
 
 Methodematrix per platform:
 
-| methode | youtube | tiktok | Instagram | facebook | trillen |
+| methode | youtube | tiktok | Fotogram | facebook | trillen |
 |---|:---:|:---:|:---:|:---:|:---:|
 | `hideShorts` / `showShorts` | ✓ |  |  |  |  |
 | `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
@@ -487,7 +487,7 @@ Voor predikaatmethoden wordt het predikaat per overeenkomende kaart aangeroepen 
 
 ### 11.4 Voorbeelden
 
-**Eenvoudig**: blokkeer YouTube Shorts-pagina's op doordeweekse ochtenden:
+**Eenvoudig**: blokkeer Joetjoep Shorts-pagina's op doordeweekse ochtenden:
 
 ```js
 (event, helpers) => {
@@ -508,7 +508,7 @@ Voor predikaatmethoden wordt het predikaat per overeenkomende kaart aangeroepen 
 }
 ```
 
-**Gemiddeld** — Dagbudget van 30 minuten voor YouTube Shorts. De timer tikt automatisch aan op `pageHeartbeatEvent`'s terwijl een Shorts-URL zichtbaar is; een afzonderlijke handler dwingt het blok af wanneer de timer nul bereikt.
+**Gemiddeld** — Dagbudget van 30 minuten voor Joetjoep Shorts. De timer tikt automatisch aan op `pageHeartbeatEvent`'s terwijl een Shorts-URL zichtbaar is; een afzonderlijke handler dwingt het blok af wanneer de timer nul bereikt.
 
 ```js
 (event, helpers) => {
@@ -542,7 +542,7 @@ Voor predikaatmethoden wordt het predikaat per overeenkomende kaart aangeroepen 
 }
 ```
 
-**Harder**: verberg individuele YouTube Shorts waarvan de auteurshandle te lang is, en injecteer een 'deze Short is verborgen'-CSS:
+**Harder**: verberg individuele Joetjoep Shorts waarvan de auteurshandle te lang is, en injecteer een 'deze Short is verborgen'-CSS:
 
 ```js
 (event, helpers) => {
@@ -588,17 +588,17 @@ Elke aangepaste groep heeft een **Sjablonen**-kiezer waarmee een doorzoekbare, v
 
 | Categorie | Voorbeelden |
 |---|---|
-| **Timers** | Sitetijdbudget (aftellen + blokkeren), sitetijdtracker (optellen), YouTube Shorts-limiet, TikTok-feedlimiet, Instagram Reels-limiet, Facebook Reels-limiet, Twitch Clips-limiet, Universeel afleidingsbudget, Dagelijkse tracker voor diepgaand werk |
+| **Timers** | Sitetijdbudget (aftellen + blokkeren), sitetijdtracker (optellen), Joetjoep Shorts-limiet, kortevideoportaal-feedlimiet, Fotogram Reels-limiet, Gezichtenboek Reels-limiet, Livekanaal Clips-limiet, Universeel afleidingsbudget, Dagelijkse tracker voor diepgaand werk |
 | **Schema** | Werktijdenblok op weekdagen, sites die alleen in het weekend beschikbaar zijn, uitschakeling vóór bedtijd, slechts één uur toestaan, nieuws alleen tijdens de lunch, nieuwe start op maandag, eerste N minuten van elk uur toestaan, streng werkblok voor diep werk |
-| **Feed/Shorts** | Blokkeer YouTube Shorts-URL's, verberg Shorts-kaarten, verberg Shorts op trefwoord, verberg YouTube-homefeed / reacties / trending, blokkeer TikTok FYP, verberg TikTok-shorts, blokkeer Instagram Reels-URL's, verberg Instagram Reels-feed, verberg Facebook-feed / Reels, verberg Reddit / Twitter / LinkedIn-home |
+| **Feed/Shorts** | Blokkeer Joetjoep Shorts-URL's, verberg Shorts-kaarten, verberg Shorts op trefwoord, verberg Joetjoep-homefeed / reacties / trending, blokkeer kortevideoportaal FYP, verberg kortevideoportaal-shorts, blokkeer Fotogram Reels-URL's, verberg Fotogram Reels-feed, verberg Gezichtenboek-feed / Reels, verberg gemeenschapsforum / Tjilper / LinkedIn-home |
 | **Omleiding** | Afleidingen → focuspagina, Shorts → /feed/abonnementen, reddit.com → old.reddit.com, twitter / x → Nitter, nieuw tabblad → takenlijst |
 | **Focus** | Focussessie alleen op de toelatingslijst, Pomodoro 25/5, blokkeren tijdens vergadering, blokkeren na N bezoeken vandaag, blokkeren bij streakverlies |
 | ** Duw** | Registreer elk afleidingsbezoek, waarschuw bij elk Shorts-bezoek, tel dagelijkse bezoeken aan een site |
-| **Volharding** | Maandelijkse bezoeklimiet, wekelijkse ban-schakelaar, track bezochte Discord-kanalen |
-| **DOM-aanpassingen** | Verberg YouTube-autoplay-schakelaar, verberg Twitter / X "Wat er gebeurt", algemeen "verberg selectors op een site" |
+| **Volharding** | Maandelijkse bezoeklimiet, wekelijkse ban-schakelaar, track bezochte chatdienst-kanalen |
+| **DOM-aanpassingen** | Verberg Joetjoep-autoplay-schakelaar, verberg Tjilper / X "Wat er gebeurt", algemeen "verberg selectors op een site" |
 | **Debuggen** | Demo aftellen (3 s), elke aangepaste gebeurtenis registreren |
 
-Filterchips bovenaan de kiezer verfijnen de lijst op categorie (`Timer`, `Schedule`, `Feed`, …) en platform (`YouTube`, `TikTok`, `Instagram`, …). Een sjabloon selecteren:
+Filterchips bovenaan de kiezer verfijnen de lijst op categorie (`Timer`, `Schedule`, `Feed`, …) en platform (`Joetjoep`, `kortevideoportaal`, `Fotogram`, …). Een sjabloon selecteren:
 
 1. Laadt de parameterinvoer (URL, minuten, uurbereiken, enz.) in een klein formulier.
 2. **Voorinstelling toepassen** geeft een voorbeeld van de gegenereerde bron weer.
@@ -674,7 +674,7 @@ Bij invoervelden met formaatvereisten verschijnt de melding ook naast de betreff
 ## 19. Problemen oplossen- **Een groep die ik heb toegevoegd, doet niets.** Zorg ervoor dat de groep is ingeschakeld, dat de planning dit nu toestaat, dat er geen snooze actief is en (voor platformgroepen) dat de pagina daadwerkelijk overeenkomt met het gekozen inhoudstype en auteursfilter.
 - **Een timer loopt vast of is verkeerd op één tabblad.** Schakel weg en terug, of focus op het tabblad, waardoor een geforceerde vernieuwing van de gedeelde timer wordt geactiveerd.
 - **Feedkaarten verschijnen opnieuw nadat ik denk dat ze verborgen moeten worden.** Het verbergen van feeds wordt alleen uitgevoerd als de regel actief blokkeert. Als je een `after-minutes`-regel hebt, wordt het verbergen van feeds geactiveerd zodra je tijd nul bereikt.
-- **Er is nog steeds een YouTube-navigatieknop waarvan ik verwachtte dat deze verborgen zou zijn.** Voor het verbergen van de navigatie moet de regel zijn ingesteld op 'niet filteren op auteur' en moet het inhoudstype Shorts of YouTube-posts zijn. Met auteursfilters is het verbergen alleen per kaart mogelijk.
+- **Er is nog steeds een Joetjoep-navigatieknop waarvan ik verwachtte dat deze verborgen zou zijn.** Voor het verbergen van de navigatie moet de regel zijn ingesteld op 'niet filteren op auteur' en moet het inhoudstype Shorts of Joetjoep-posts zijn. Met auteursfilters is het verbergen alleen per kaart mogelijk.
 - **Aangepaste regel deed niets of gooide stil.** Open Instellingen → schakel **Debug-modus** in, klik vervolgens opnieuw op **Uitvoeren** en bekijk het logboekpaneel. Regels voorafgegaan door `[trace]` tonen elke verzending en afhandelaar. Gebruik `helpers.getLogHelper().log(...)` om uw eigen traceerpunten toe te voegen. Als een regel die zich misdraagt ​​steeds automatisch in quarantaine wordt geplaatst, repareer dan de bron en klik op Uitvoeren. Met Uitvoeren wordt de reden voor het afbreken gewist.
 - **Mijn nieuwe aangepaste regel heeft geen invloed op reeds geopende tabbladen.** Laad ze opnieuw. Aangepaste regels zijn gekoppeld aan *toekomstige* paginagebeurtenissen; de pop-up toont een herinnering om na elke run te herladen.
 - **Mijn afteltimer loopt niet door.** Timers met aangepaste regels vinken alleen aan op het tabblad **actief zichtbaar** via `pageHeartbeatEvent`. Achtergrondtabbladen, geminimaliseerde vensters en vergrendelde schermen pauzeren ze door hun ontwerp - hetzelfde gedrag als het standaard aftellen van blokgroepen.
@@ -704,8 +704,13 @@ Bij invoervelden met formaatvereisten verschijnt de melding ook naast de betreff
 ---
 
 ## 21. Beperkingen- Het verbergen van feeds is afhankelijk van de huidige DOM van elk platform. Als het platform van lay-out verandert, moeten de verborgen selectors mogelijk worden bijgewerkt.
-- Platformcontextdetectie voor niet-YouTube-sites is grotendeels gebaseerd op URL's en is dus het meest betrouwbaar op URL's van canonieke inhoud.
+- Platformcontextdetectie voor niet-Joetjoep-sites is grotendeels gebaseerd op URL's en is dus het meest betrouwbaar op URL's van canonieke inhoud.
 - Timers met aangepaste regels tikken met een hartslagresolutie (~250 ms). Vertrouw er niet op voor de timing van minder dan een seconde.
 - Predikaten doorgegeven aan `hideShorts` / `hideVideos` / `hidePosts` worden synchroon geëvalueerd per feedkaart. Zware logica in een predikaat kan het scrollen van de feed vertragen; hou ze goedkoop.
 - Twee tabbladen die dezelfde timer per groep bewerken, gebruiken gelijktijdig een strategie voor 'laatste schrijven wint'. Voor normaal gebruik is dit prima; als u afhankelijk bent van exacte boekhouding, kunt u af en toe een kleine afwijking verwachten.
 - De browser kan de achtergrondservicemedewerker opschorten wanneer deze niet actief is. De extensie hervat het zodra een pagina of alarm dit nodig heeft; site-/getimede gebruiksbudgetten blijven tellen via hartslagherhaling.
+
+## v1.2-opmerking
+
+De editor voor aangepaste regels kleurt nu scripttaal-syntaxis, en de templatebrowser gebruikt dezelfde kleuren voor codevoorbeelden. De bulkactie voor groepen heet **Wissen**.
+

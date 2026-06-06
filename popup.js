@@ -97,7 +97,10 @@ const scheduleSection = document.getElementById("scheduleSection");
 const daysGrid = document.getElementById("daysGrid");
 const scheduleWindowsField = document.getElementById("scheduleWindows");
 const customSettingsCard = document.getElementById("customSettingsCard");
+const blockingRulesEditor = document.getElementById("blockingRulesEditor");
+const blockingRulesHighlight = document.getElementById("blockingRulesHighlight");
 const blockingRulesField = document.getElementById("blockingRules");
+const blockingRulesLint = document.getElementById("blockingRulesLint");
 const openRuleTemplatesButton = document.getElementById("openRuleTemplatesButton");
 const platformVideoCard = document.getElementById("platformVideoCard");
 const platformVideoTitle = document.getElementById("platformVideoTitle");
@@ -202,8 +205,8 @@ const state = {
   isSettingsOpen: false,
   selectedGroupId: null,
   draggedGroupId: null,
-  dropTargetGroupId: null,
-  dropInsertAfter: false,
+  dragInsertIndex: null,
+  suppressGroupClickUntil: 0,
   drafts: {},
   autosaveTimeoutId: null,
   statusTimeoutId: null,
@@ -1701,7 +1704,7 @@ function createTemplateCardElement(template) {
 
   const pre = document.createElement("pre");
   const code = document.createElement("code");
-  code.textContent = preview;
+  code.innerHTML = highlightCustomRuleSource(preview);
   pre.appendChild(code);
   card.appendChild(pre);
 
@@ -1802,47 +1805,315 @@ async function applyTemplatePreset() {
   setStatus(t("status.templateApplied", { name: template.title }));
 }
 
+const CUSTOM_RULE_KEYWORDS = new Set([
+  "async", "await", "break", "case", "catch", "class", "const", "continue",
+  "debugger", "default", "delete", "do", "else", "export", "extends", "finally",
+  "for", "from", "function", "get", "if", "import", "in", "instanceof", "let",
+  "new", "of", "return", "set", "static", "switch", "throw", "try", "typeof",
+  "var", "void", "while", "with", "yield"
+]);
+const CUSTOM_RULE_LITERALS = new Set(["true", "false", "null", "undefined", "NaN", "Infinity"]);
+const CUSTOM_RULE_API_NAMES = new Set(["event", "events", "helpers", "ev", "h"]);
+
+function escapeCodeEditorHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function wrapCodeToken(className, value) {
+  return `<span class="${className}">${escapeCodeEditorHtml(value)}</span>`;
+}
+
+function highlightCustomRuleSource(source) {
+  const text = String(source ?? "");
+  let html = "";
+  let index = 0;
+
+  while (index < text.length) {
+    const char = text[index];
+    const next = text[index + 1];
+
+    if (char === "/" && next === "/") {
+      let end = index + 2;
+      while (end < text.length && text[end] !== "\n") end += 1;
+      html += wrapCodeToken("token-comment", text.slice(index, end));
+      index = end;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      let end = index + 2;
+      while (end < text.length && !(text[end] === "*" && text[end + 1] === "/")) end += 1;
+      end = Math.min(text.length, end + 2);
+      html += wrapCodeToken("token-comment", text.slice(index, end));
+      index = end;
+      continue;
+    }
+
+    if (char === "\"" || char === "'" || char === "`") {
+      const quote = char;
+      let end = index + 1;
+      let escaped = false;
+      while (end < text.length) {
+        const current = text[end];
+        if (escaped) {
+          escaped = false;
+        } else if (current === "\\") {
+          escaped = true;
+        } else if (current === quote) {
+          end += 1;
+          break;
+        } else if (quote !== "`" && current === "\n") {
+          break;
+        }
+        end += 1;
+      }
+      html += wrapCodeToken("token-string", text.slice(index, end));
+      index = end;
+      continue;
+    }
+
+    if (/\d/.test(char)) {
+      let end = index + 1;
+      while (end < text.length && /[\w.]/.test(text[end])) end += 1;
+      html += wrapCodeToken("token-number", text.slice(index, end));
+      index = end;
+      continue;
+    }
+
+    if (/[A-Za-z_$]/.test(char)) {
+      let end = index + 1;
+      while (end < text.length && /[\w$]/.test(text[end])) end += 1;
+      const word = text.slice(index, end);
+      if (CUSTOM_RULE_KEYWORDS.has(word)) {
+        html += wrapCodeToken("token-keyword", word);
+      } else if (CUSTOM_RULE_LITERALS.has(word)) {
+        html += wrapCodeToken("token-literal", word);
+      } else if (CUSTOM_RULE_API_NAMES.has(word)) {
+        html += wrapCodeToken("token-api", word);
+      } else if (text[end] === "(") {
+        html += wrapCodeToken("token-function", word);
+      } else {
+        html += escapeCodeEditorHtml(word);
+      }
+      index = end;
+      continue;
+    }
+
+    if (/[{}()[\].,;:+\-*%=&|!?<>]/.test(char)) {
+      html += wrapCodeToken("token-punctuation", char);
+      index += 1;
+      continue;
+    }
+
+    html += escapeCodeEditorHtml(char);
+    index += 1;
+  }
+
+  return html || " ";
+}
+
+function isCspEvalBlockedError(error) {
+  const message = String(error && error.message ? error.message : error);
+  return message.includes("unsafe-eval") ||
+    message.includes("Content Security Policy") ||
+    message.includes("Evaluating a string as JavaScript");
+}
+
+function getCustomRuleLocalSyntaxError(source) {
+  const rawTrimmed = String(source ?? "").trim();
+  if (!rawTrimmed) return null;
+
+  const trimmed = rawTrimmed.replace(/;+\s*$/, "");
+  let exprCompileError = null;
+  try {
+    // Compile only; do not call the generated function in the popup.
+    new Function("return (" + trimmed + ");");
+    return null;
+  } catch (error) {
+    if (isCspEvalBlockedError(error)) return null;
+    exprCompileError = error;
+  }
+
+  try {
+    new Function("events", "event", "helpers", trimmed);
+    return null;
+  } catch (error) {
+    if (isCspEvalBlockedError(error)) return null;
+    const message = error && error.message ? error.message : String(error);
+    const exprMessage = exprCompileError && exprCompileError.message
+      ? ` Also failed as expression: ${exprCompileError.message}`
+      : "";
+    return `Syntax error: ${message}.${exprMessage}`;
+  }
+}
+
+function syncBlockingRulesEditorScroll() {
+  if (!blockingRulesField || !blockingRulesHighlight) return;
+  blockingRulesHighlight.style.transform =
+    `translate(${-blockingRulesField.scrollLeft}px, ${-blockingRulesField.scrollTop}px)`;
+}
+
+function updateBlockingRulesEditor() {
+  if (!blockingRulesEditor || !blockingRulesField || !blockingRulesHighlight) return;
+
+  blockingRulesHighlight.innerHTML = highlightCustomRuleSource(blockingRulesField.value);
+  syncBlockingRulesEditorScroll();
+
+  const isVisible = !customSettingsCard?.classList.contains("hidden");
+  const syntaxError = isVisible ? getCustomRuleLocalSyntaxError(blockingRulesField.value) : null;
+  blockingRulesEditor.classList.toggle("is-disabled", blockingRulesField.disabled);
+  blockingRulesEditor.classList.toggle("has-error", Boolean(syntaxError));
+  if (blockingRulesLint) {
+    blockingRulesLint.textContent = syntaxError || "";
+  }
+}
+
 function clearDragState(shouldRender = true) {
   state.draggedGroupId = null;
-  state.dropTargetGroupId = null;
-  state.dropInsertAfter = false;
+  state.dragInsertIndex = null;
+  resetGroupDragLayout();
 
   if (shouldRender) {
     renderGroupList();
   }
 }
 
-function updateDragTarget(clientY) {
-  const cards = Array.from(groupList.querySelectorAll(".group-card[data-group-id]")).filter(
-    (card) => card.dataset.groupId !== state.draggedGroupId
-  );
+function getGroupDragCards() {
+  return Array.from(groupList.querySelectorAll(".group-card[data-group-id]"));
+}
 
-  if (cards.length === 0) {
-    state.dropTargetGroupId = null;
-    state.dropInsertAfter = false;
-    renderGroupList();
-    return;
+function getGroupCardGap() {
+  const computed = window.getComputedStyle(groupList);
+  const parsed = Number.parseFloat(computed.rowGap || computed.gap || "0");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function resetGroupDragLayout() {
+  groupList.classList.remove("is-reordering");
+  for (const card of getGroupDragCards()) {
+    card.classList.remove("dragging");
+    card.style.removeProperty("transform");
+    card.style.removeProperty("transition");
+    card.style.removeProperty("z-index");
   }
+}
 
-  let bestCard = cards[0];
-  let bestDistance = Number.POSITIVE_INFINITY;
+function createGroupDragContext(groupId, pointerY) {
+  const cards = getGroupDragCards();
+  const sourceIndex = cards.findIndex((card) => card.dataset.groupId === groupId);
+  if (sourceIndex === -1) return null;
 
-  for (const card of cards) {
-    const rect = card.getBoundingClientRect();
-    const centerY = rect.top + rect.height / 2;
-    const distance = Math.abs(clientY - centerY);
+  const draggedCard = cards[sourceIndex];
+  const draggedRect = draggedCard.getBoundingClientRect();
+  const listRect = groupList.getBoundingClientRect();
+  const gap = getGroupCardGap();
 
-    if (distance < bestDistance) {
-      bestCard = card;
-      bestDistance = distance;
+  return {
+    cards,
+    sourceIndex,
+    startY: pointerY,
+    pointerOffsetY: pointerY - draggedRect.top,
+    draggedHeight: draggedRect.height,
+    minTop: listRect.top,
+    shiftDistance: draggedRect.height + gap,
+    rects: cards.map((card) => card.getBoundingClientRect())
+  };
+}
+
+function getGroupDragInsertIndex(context, pointerY) {
+  const draggedTop = pointerY - context.pointerOffsetY;
+  const draggedCenterY = draggedTop + context.draggedHeight / 2;
+  let insertIndex = 0;
+
+  for (let i = 0; i < context.rects.length; i++) {
+    if (i === context.sourceIndex) continue;
+    const rect = context.rects[i];
+    if (draggedCenterY > rect.top + rect.height / 2) {
+      insertIndex += 1;
     }
   }
 
-  const bestRect = bestCard.getBoundingClientRect();
-  const bestCenterY = bestRect.top + bestRect.height / 2;
-  state.dropTargetGroupId = bestCard.dataset.groupId;
-  state.dropInsertAfter = clientY > bestCenterY;
-  renderGroupList();
+  return insertIndex;
+}
+
+function applyGroupDragLayout(context, pointerY) {
+  if (!context) return;
+
+  const clampedPointerY = Math.max(pointerY, context.minTop + context.pointerOffsetY);
+  const dragY = clampedPointerY - context.startY;
+  const insertIndex = getGroupDragInsertIndex(context, clampedPointerY);
+  state.dragInsertIndex = insertIndex;
+
+  for (let i = 0; i < context.cards.length; i++) {
+    const card = context.cards[i];
+    let offsetY = 0;
+
+    if (i === context.sourceIndex) {
+      offsetY = dragY;
+      card.style.zIndex = "20";
+    } else if (insertIndex > context.sourceIndex && i > context.sourceIndex && i <= insertIndex) {
+      offsetY = -context.shiftDistance;
+    } else if (insertIndex < context.sourceIndex && i >= insertIndex && i < context.sourceIndex) {
+      offsetY = context.shiftDistance;
+    }
+
+    if (offsetY === 0) {
+      card.style.removeProperty("transform");
+    } else {
+      card.style.transform = `translateY(${offsetY}px)`;
+    }
+  }
+}
+
+function getGroupDragSnapOffset(context, insertIndex) {
+  if (!context || !Number.isInteger(insertIndex)) return 0;
+
+  const normalizedInsertIndex = Math.max(0, Math.min(insertIndex, context.rects.length - 1));
+  const sourceRect = context.rects[context.sourceIndex];
+  const targetRect = context.rects[normalizedInsertIndex];
+  if (!sourceRect || !targetRect) return 0;
+
+  return targetRect.top - sourceRect.top;
+}
+
+function finishGroupDragRelease(context, insertIndex, callback) {
+  if (!context) {
+    callback();
+    return;
+  }
+
+  const draggedCard = context.cards[context.sourceIndex];
+  if (!draggedCard) {
+    callback();
+    return;
+  }
+
+  const snapOffset = getGroupDragSnapOffset(context, insertIndex);
+  const done = () => {
+    draggedCard.removeEventListener("transitionend", handleTransitionEnd);
+    window.clearTimeout(fallbackTimeout);
+    callback();
+  };
+  const handleTransitionEnd = (event) => {
+    if (event.target === draggedCard && event.propertyName === "transform") {
+      done();
+    }
+  };
+  const fallbackTimeout = window.setTimeout(done, 220);
+
+  draggedCard.addEventListener("transitionend", handleTransitionEnd);
+  draggedCard.style.transition = "transform 180ms ease, box-shadow 120ms ease, opacity 120ms ease";
+
+  window.requestAnimationFrame(() => {
+    if (snapOffset === 0) {
+      draggedCard.style.removeProperty("transform");
+    } else {
+      draggedCard.style.transform = `translateY(${snapOffset}px)`;
+    }
+  });
 }
 
 // Pixels of movement required before a mousedown on a group card commits to
@@ -1858,17 +2129,22 @@ function startGroupReorder(event, groupId) {
   const startX = event.clientX;
   const startY = event.clientY;
   let dragActive = false;
+  let dragContext = null;
 
   const beginDrag = () => {
+    dragContext = createGroupDragContext(groupId, startY);
+    if (!dragContext) return;
+
     dragActive = true;
     flushAutosave().catch((error) => {
       console.error("Failed to flush autosave before reordering.", error);
     });
     state.draggedGroupId = groupId;
-    state.dropTargetGroupId = null;
-    state.dropInsertAfter = false;
+    state.dragInsertIndex = dragContext.sourceIndex;
     document.body.style.userSelect = "none";
-    renderGroupList();
+    groupList.classList.add("is-reordering");
+    dragContext.cards[dragContext.sourceIndex].classList.add("dragging");
+    applyGroupDragLayout(dragContext, startY);
   };
 
   const handleMove = (moveEvent) => {
@@ -1880,7 +2156,10 @@ function startGroupReorder(event, groupId) {
       }
       beginDrag();
     }
-    updateDragTarget(moveEvent.clientY);
+
+    if (!dragActive) return;
+    moveEvent.preventDefault();
+    applyGroupDragLayout(dragContext, moveEvent.clientY);
   };
 
   const handleUp = () => {
@@ -1894,20 +2173,23 @@ function startGroupReorder(event, groupId) {
     }
 
     document.body.style.userSelect = "";
+    state.suppressGroupClickUntil = Date.now() + 250;
 
     const draggedGroupId = state.draggedGroupId;
-    const targetGroupId = state.dropTargetGroupId;
-    const insertAfter = state.dropInsertAfter;
+    const insertIndex = state.dragInsertIndex;
+    const sourceIndex = dragContext?.sourceIndex ?? -1;
 
-    if (!draggedGroupId || !targetGroupId || draggedGroupId === targetGroupId) {
-      clearDragState(true);
+    if (!draggedGroupId || !Number.isInteger(insertIndex) || insertIndex === sourceIndex) {
+      finishGroupDragRelease(dragContext, sourceIndex, () => clearDragState(true));
       return;
     }
 
-    reorderGroups(draggedGroupId, targetGroupId, insertAfter).catch((error) => {
-      console.error("Failed to reorder block groups.", error);
-      setStatus(t("status.errorReorderGroups"), true);
-      clearDragState(true);
+    finishGroupDragRelease(dragContext, insertIndex, () => {
+      reorderGroups(draggedGroupId, insertIndex).catch((error) => {
+        console.error("Failed to reorder block groups.", error);
+        setStatus(t("status.errorReorderGroups"), true);
+        clearDragState(true);
+      });
     });
   };
 
@@ -2565,6 +2847,7 @@ function updateBulkActionsUI(now = Date.now()) {
 }
 
 function renderGroupList(now = Date.now()) {
+  groupList.classList.remove("is-reordering");
   groupList.textContent = "";
 
   if (state.groups.length === 0) {
@@ -2584,10 +2867,6 @@ function renderGroupList(now = Date.now()) {
 
     if (group.id === state.draggedGroupId) {
       card.classList.add("dragging");
-    }
-
-    if (group.id === state.dropTargetGroupId) {
-      card.classList.add(state.dropInsertAfter ? "drop-target-after" : "drop-target-before");
     }
 
     const header = document.createElement("div");
@@ -2642,7 +2921,7 @@ function renderGroupList(now = Date.now()) {
     });
 
     card.addEventListener("click", (event) => {
-      if (state.draggedGroupId) {
+      if (state.draggedGroupId || Date.now() < state.suppressGroupClickUntil) {
         // We just finished a drag; suppress the trailing synthetic click
         // so we don't accidentally re-select after reordering.
         event.preventDefault();
@@ -2899,6 +3178,7 @@ function renderEditor(now = Date.now()) {
     updateFreezeUI(null, now);
     updateSnoozeUI(null, now);
     setSnoozeWarning("");
+    updateBlockingRulesEditor();
     return;
   }
 
@@ -3060,6 +3340,7 @@ function renderEditor(now = Date.now()) {
   updateUsageSummary(group, draft, now);
   updateFreezeUI(group, now);
   updateSnoozeUI(group, now);
+  updateBlockingRulesEditor();
 }
 
 function render(now = Date.now()) {
@@ -3728,35 +4009,26 @@ function clearSelectedSites() {
   scheduleAutosave();
 }
 
-async function reorderGroups(draggedGroupId, targetGroupId, insertAfter) {
+async function reorderGroups(draggedGroupId, insertIndex) {
   await flushAutosave();
 
   const draggedIndex = state.groups.findIndex((group) => group.id === draggedGroupId);
-  const targetIndex = state.groups.findIndex((group) => group.id === targetGroupId);
 
-  if (draggedIndex === -1 || targetIndex === -1 || draggedIndex === targetIndex) {
+  if (draggedIndex === -1 || !Number.isInteger(insertIndex)) {
     state.draggedGroupId = null;
-    state.dropTargetGroupId = null;
+    state.dragInsertIndex = null;
     renderGroupList();
     return;
   }
 
   const reordered = [...state.groups];
   const [draggedGroup] = reordered.splice(draggedIndex, 1);
-  let insertIndex = targetIndex;
+  const normalizedInsertIndex = Math.max(0, Math.min(insertIndex, reordered.length));
 
-  if (draggedIndex < targetIndex) {
-    insertIndex -= 1;
-  }
-
-  if (insertAfter) {
-    insertIndex += 1;
-  }
-
-  reordered.splice(insertIndex, 0, draggedGroup);
+  reordered.splice(normalizedInsertIndex, 0, draggedGroup);
   state.groups = reordered;
   state.draggedGroupId = null;
-  state.dropTargetGroupId = null;
+  state.dragInsertIndex = null;
 
   await persistState();
   render();
@@ -4415,9 +4687,12 @@ blockedSitesField.addEventListener("input", () => {
 });
 
 blockingRulesField.addEventListener("input", () => {
+  updateBlockingRulesEditor();
   stashCurrentDraft();
   scheduleAutosave();
 });
+
+blockingRulesField.addEventListener("scroll", syncBlockingRulesEditorScroll);
 
 // Commit on blur so a user who types then immediately runs the rule
 // doesn't lose the most recent keystrokes to the autosave debounce.

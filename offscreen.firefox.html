@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Screen Time Limiter: Custom Website Blocker & Focus Timer - offscreen host (Firefox)</title>
+  </head>
+  <body>
+    <!--
+      Firefox build of offscreen.html. Firefox does not support the manifest
+      "sandbox" key that Chromium uses to relax CSP for event-sandbox.html, so
+      we sandbox the frame at the element level instead: a sandbox="allow-scripts"
+      iframe gets an opaque origin and the default (eval-permitting) CSP, which
+      is exactly what the custom-rule engine needs for `new Function`. It still
+      talks to offscreen.js purely over postMessage, so no extension-API access
+      is required inside the frame.
+    -->
+    <iframe
+      id="eventSandbox"
+      src="event-sandbox.html"
+      sandbox="allow-scripts"
+      style="display:none;width:0;height:0;border:0;"
+      aria-hidden="true"
+    ></iframe>
+    <script src="browser-compat.js"></script>
+    <script src="offscreen.js"></script>
+  </body>
+</html>

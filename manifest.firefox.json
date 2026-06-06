@@ -4,9 +4,14 @@
   "version": "1.2.0",
   "description": "__MSG_appDescription__",
   "default_locale": "en",
-  "minimum_chrome_version": "116",
-  "permissions": ["storage", "declarativeNetRequest", "alarms", "offscreen", "tabs", "webNavigation"],
+  "permissions": ["storage", "declarativeNetRequest", "alarms", "tabs", "webNavigation"],
   "host_permissions": ["<all_urls>"],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "custom-web-blocker@customblocker.app",
+      "strict_min_version": "121.0"
+    }
+  },
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -14,12 +19,12 @@
     "128": "icons/icon-128.png"
   },
   "background": {
-    "service_worker": "background.js"
+    "scripts": ["browser-compat.js", "helpers.js", "background.js"]
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["helpers.js", "content.js"],
+      "js": ["browser-compat.js", "helpers.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
@@ -30,9 +35,6 @@
       "32": "icons/icon-32.png",
       "48": "icons/icon-48.png"
     }
-  },
-  "sandbox": {
-    "pages": ["event-sandbox.html"]
   },
   "web_accessible_resources": [
     {

@@ -12,16 +12,16 @@ Yepyeniyseniz **Hızlı başlangıç** ve **Grupları engelle'ye genel bakış**
 
 - Tarayıcının yerel ağ engellemesiyle siteleri hemen engelleyin (`ERR_BLOCKED_BY_CLIENT` üreten aynı tür blok).
 - Bir sitede kendinize günde belirli sayıda dakika ayırın ve bu sınırı aştığınızda siteyi engelleyin.
-- YouTube, TikTok, Facebook, Instagram, Twitch ve Reddit'te (sitenin tamamında değil) belirli içerik türlerini engelleyin.
+- Yutub, kısa video ağı, Feysbuk, fotoğraf ağı, Tiviç ve Redit'te (sitenin tamamında değil) belirli içerik türlerini engelleyin.
 - Yalnızca tek sayfaları engellemek yerine, desteklenen platformlardaki akışlarda engellenen içeriği gizleyin.
 - Haftanın gününe ve `HHMM-HHMM` zaman pencerelerine göre bir kuralın ne zaman aktif olacağını zamanlayın.
 - Kolayca değiştirememek için bir kuralı dondurun. Kesin dondurma, belirli bir saat boyunca onu kilitler ve geri alınması için 20 adımlı bir onay ritüeli gerektirir.
 - Bir kuralı geçici olarak erteleyin, ancak bunu yalnızca yeterince uzun bir gerekçe yazdıktan sonra yapın.
-- İleri/geri zamanlayıcılar, grup başına kalıcı depolama, platform başına DOM amaçları (gezinme düğmelerini gizleme, besleme kartlarını yüklemeye göre gizleme, alt bölüm başına zamanlayıcıları ayarlama), URL yardımcı programları ve yapılandırılmış günlük kaydı için yardımcılarla JavaScript'te **olay odaklı** özel kurallar yazın.
+- İleri/geri zamanlayıcılar, grup başına kalıcı depolama, platform başına DOM amaçları (gezinme düğmelerini gizleme, besleme kartlarını yüklemeye göre gizleme, alt bölüm başına zamanlayıcıları ayarlama), URL yardımcı programları ve yapılandırılmış günlük kaydı için yardımcılarla betik dili'te **olay odaklı** özel kurallar yazın.
 - 50'den fazla hazır şablondan (zamanlayıcılar, programlar, yayın gizleme, odak oturumları, yönlendirmeler, dürtüklemeler, kalıcılık, DOM ayarlamaları, hata ayıklama yardımcıları) oluşan yerleşik kitaplıktan seçim yapın.
 - Uzantıyı 20'den fazla dilde kullanın.
 
-Uzantı, bir düzenleyici sayfası (açılır pencere), bir arka plan hizmet çalışanı, özel kural kodunu barındıran bir ekran dışı sanal alan ve her sayfada çalışan bir içerik komut dosyası içeren bir Chrome Manifest V3 uzantısıdır. Özel kurallar ekran dışı sanal alanda bulunur; Çalıştır tıklaması başına bir kez yüklenirler ve kural devre dışı bırakılana veya silinene kadar kayıtlı kalırlar.
+Uzantı, bir düzenleyici sayfası (açılır pencere), bir arka plan hizmet çalışanı, özel kural kodunu barındıran bir ekran dışı sanal alan ve her sayfada çalışan bir içerik komut dosyası içeren bir Krom tarayıcısı Manifest V3 uzantısıdır. Özel kurallar ekran dışı sanal alanda bulunur; Çalıştır tıklaması başına bir kez yüklenirler ve kural devre dışı bırakılana veya silinene kadar kayıtlı kalırlar.
 
 ---
 
@@ -50,7 +50,7 @@ Uzantının simgesini tıkladığınızda düzenleyici tam bir web sayfası olar
 
 ## 3. Hızlı başlangıç1. Uzantı simgesine tıklayın. Editör tam sayfa olarak açılır.
 2. **Grupları Engelle** panelinde açılır menüden bir grup türü seçin:
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit` veya `Custom`.
+   - `Default`, `Yutub`, `kısa video ağı`, `Feysbuk`, `fotoğraf ağı`, `Tiviç`, `Redit` veya `Custom`.
 3. **Ekle**'yi tıklayın. Yeni bir grup belirir ve editör onu açar.
 4. Ona bir isim verin.
 5. Türe özel alanları doldurun (`Default` için bu, **Engellenen web siteleri** listesi anlamına gelir).
@@ -70,7 +70,7 @@ Bu uzantıdaki her şey **blok grupları** olarak düzenlenmiştir. Bir blok gru
 - Bir adı, türü ve etkin/devre dışı durumu vardır.
 - Engelleme davranışı vardır (hemen, birkaç dakika sonra veya sabit geri sayım).
 - İsteğe bağlı bir programa (günler + zaman pencereleri) ve isteğe bağlı dondurma/erteleme kontrollerine sahiptir.
-- Türe bağlı olarak web siteleri listesi, YouTube içerik oluşturucu filtreleri, alt düzenleme adları veya etkinliğe dayalı JavaScript kuralı gibi ek alanlar bulunur.
+- Türe bağlı olarak web siteleri listesi, Yutub içerik oluşturucu filtreleri, alt düzenleme adları veya etkinliğe dayalı betik dili kuralı gibi ek alanlar bulunur.
 
 İstediğiniz sayıda gruba sahip olabilirsiniz. Aynı sayfaya birden fazla grup uygulanabilir; bu durumda **en katı** kural kazanır:
 
@@ -91,61 +91,61 @@ Belirli etki alanlarını engellemek için (tipik kullanım durumu).
 
 - **Engellenen web siteleri**: satır başına bir site. Hem `facebook.com` hem de `https://www.facebook.com/somepage` çalışır; uzantı ana bilgisayar adını çıkarır ve normalleştirir.
 - Bu ana makine adı ve tüm alt alan adları için bir site kuralı geçerlidir.
-- Bu grup türü, `ERR_BLOCKED_BY_CLIENT`'ya benzer şekilde Chrome'un yerel ağ engellemesini kullanır. Bu, engellenen bir URL'ye gezinmenin sayfa yüklenmeden önce durdurulduğu anlamına gelir.
+- Bu grup türü, `ERR_BLOCKED_BY_CLIENT`'ya benzer şekilde Krom tarayıcısı'un yerel ağ engellemesini kullanır. Bu, engellenen bir URL'ye gezinmenin sayfa yüklenmeden önce durdurulduğu anlamına gelir.
 
-### 5.2 `YouTube` — YouTube ve benzeri video sitelerini engelleyin
+### 5.2 `Yutub` — Yutub ve benzeri video sitelerini engelleyin
 
 Düzenleyiciye **Filtreler** bölümü ekler:
 
 - **İçerik türü**:
-  - `Apply to all YouTube pages` — her YouTube sayfası önemlidir.
+  - `Apply to all Yutub pages` — her Yutub sayfası önemlidir.
   - `Apply to Shorts` — yalnızca Shorts sayfaları sayılır.
   - `Apply to long videos` — yalnızca `/watch`, `/live/`, `/embed/`, vb.
-  - `Apply to YouTube posts` — topluluk gönderileri (`/post/...`, kanal topluluğu/gönderiler sekmeleri).
+  - `Apply to Yutub posts` — topluluk gönderileri (`/post/...`, kanal topluluğu/gönderiler sekmeleri).
 - **Yazar filtresi**:
   - `Do not filter by author` — yazarın kimliği önemli değil.
   - `Apply to certain authors` — yalnızca listelenen yazarlar bu grubu tetikler.
   - `Apply to all except certain authors` — listelenen yazarlar muaftır.
 - **Yazarlar**: her satıra bir yazar. `@handle`, tam URL'ler, `/channel/UC...`, `/c/...`, `/user/...`'yu kabul eder.
-- **YouTube yayınındaki engellenen girişleri gizle**: Bu grup aktif olarak engelleme yaparken, YouTube yayınlarındaki eşleşen kartlar gizlenir. Blok devre dışı kaldığında bir sonraki yenilemede geri gelirler.
+- **Yutub yayınındaki engellenen girişleri gizle**: Bu grup aktif olarak engelleme yaparken, Yutub yayınlarındaki eşleşen kartlar gizlenir. Blok devre dışı kaldığında bir sonraki yenilemede geri gelirler.
 
-Kısa Videolar ve Gönderiler içerik türleri için, herhangi bir yazar filtresi ayarlanmadığında ve grup şu anda engelleme yapıyorsa, uzantı aynı zamanda ilgili gezinme girişlerini (Kısalar kenar çubuğu girişi, Topluluk/Yayınlar kanal sekmeleri) ve "En Son YouTube gönderileri" gibi eşleşen rafları da gizler.
+Kısa Videolar ve Gönderiler içerik türleri için, herhangi bir yazar filtresi ayarlanmadığında ve grup şu anda engelleme yapıyorsa, uzantı aynı zamanda ilgili gezinme girişlerini (Kısalar kenar çubuğu girişi, Topluluk/Yayınlar kanal sekmeleri) ve "En Son Yutub gönderileri" gibi eşleşen rafları da gizler.
 
-Kısa-uzun tespiti, sayfa biçimleri tespit edilebildiğinde TikTok, Vimeo, Twitch klipleri/VOD'lar ve Dailymotion gibi diğer video sitelerini de kapsar.
+Kısa-uzun tespiti, sayfa biçimleri tespit edilebildiğinde kısa video ağı, Vimeo, Tiviç klipleri/VOD'lar ve Dailymotion gibi diğer video sitelerini de kapsar.
 
-### 5.3 `TikTok` — TikTok içeriğini engelle
+### 5.3 `kısa video ağı` — kısa video ağı içeriğini engelle
 
-Platform video düzenleyicisiyle aynı editör kartı, ancak TikTok'a özel etiketler içeriyor:- İçerik türleri: kısa videolar, videolar, profil sayfaları.
-- Yazarlar: TikTok (`@handle`) veya profil URL'lerini yönetir.
-- Feed gizleme, grup aktifken TikTok sayfalarındaki eşleşen kartları gizler.
+Platform video düzenleyicisiyle aynı editör kartı, ancak kısa video ağı'a özel etiketler içeriyor:- İçerik türleri: kısa videolar, videolar, profil sayfaları.
+- Yazarlar: kısa video ağı (`@handle`) veya profil URL'lerini yönetir.
+- Feed gizleme, grup aktifken kısa video ağı sayfalarındaki eşleşen kartları gizler.
 
-### 5.4 `Facebook` — Facebook içeriğini engelle
+### 5.4 `Feysbuk` — Feysbuk içeriğini engelle
 
 - İçerik türleri: Makaralar, videolar, gönderiler.
 - Yazarlar: sayfa adı (`page.name`), profil URL'si veya `profile.php?id=...` formu (sayısal kimlik `id:<number>` olarak korunur).
-- Feed gizleme, Facebook'ta eşleşen feed kartlarını gizler.
+- Feed gizleme, Feysbuk'ta eşleşen feed kartlarını gizler.
 
-### 5.5 `Instagram` — Instagram içeriğini engelle
+### 5.5 `fotoğraf ağı` — fotoğraf ağı içeriğini engelle
 
 - İçerik türleri: Makaralar, videolar, gönderiler.
-- Yazarlar: Instagram tanıtıcıları veya profil URL'leri.
+- Yazarlar: fotoğraf ağı tanıtıcıları veya profil URL'leri.
 - `/reel/`, `/p/`, `/tv/`, `/explore/` gibi ayrılmış yollar yazar olarak değerlendirilmez.
-- Feed gizleme, Instagram'da eşleşen kartları gizler.
+- Feed gizleme, fotoğraf ağı'da eşleşen kartları gizler.
 
-### 5.6 `Twitch` — Twitch içeriğini engelle
+### 5.6 `Tiviç` — Tiviç içeriğini engelle
 
 - İçerik türleri: klipler, akışlar/VOD'lar, kanal sayfaları.
 - Yazarlar: kanal adları veya kanal URL'leri.
 - `/directory`, `/videos`, `/settings` vb. gibi ayrılmış yollar kanal adı olarak değerlendirilmez.
-- Besleme gizleme, Twitch'te eşleşen kartları gizler.
+- Besleme gizleme, Tiviç'te eşleşen kartları gizler.
 
-### 5.7 `Reddit` — Reddit'i veya belirli alt dizileri engelleyin
+### 5.7 `Redit` — Redit'i veya belirli alt dizileri engelleyin
 
-- **Alt dizinler**: satır başına bir alt dizin. Boş liste, grubun tüm Reddit'e geçerli olduğu anlamına gelir. Hem `productivity` hem de `r/productivity` kabul edilir.
+- **Alt dizinler**: satır başına bir alt dizin. Boş liste, grubun tüm Redit'e geçerli olduğu anlamına gelir. Hem `productivity` hem de `r/productivity` kabul edilir.
 
-### 5.8 `Custom` — olaya dayalı JavaScript tarafından engellenir
+### 5.8 `Custom` — olaya dayalı betik dili tarafından engellenir
 
-Sayfa açma, URL değişikliği, sayfa kalp atışı, zamanlayıcı sonu ve kendi özel etkinlikleriniz gibi olaylar için **işleyicileri kaydeden** bir JavaScript işlevi yazarsınız. İşlev, Çalıştır tıklaması başına bir kez çalışır; kayıtlı işleyiciler, siz tekrar Çalıştır'a basana, grubu devre dışı bırakana veya silene kadar tüm gezinmelerde etkin kalır.
+Sayfa açma, URL değişikliği, sayfa kalp atışı, zamanlayıcı sonu ve kendi özel etkinlikleriniz gibi olaylar için **işleyicileri kaydeden** bir betik dili işlevi yazarsınız. İşlev, Çalıştır tıklaması başına bir kez çalışır; kayıtlı işleyiciler, siz tekrar Çalıştır'a basana, grubu devre dışı bırakana veya silene kadar tüm gezinmelerde etkin kalır.
 
 `Custom` grupları şunları göstermez: engelleme davranışı, engellenen siteler, izin verilen dakikalar, sıfırlama aralığı, planlama günleri veya zaman pencereleri. **Engelleme Kuralları** düzenleyicisinin yanı sıra standart dondurma/erteleme kontrollerini de korurlar. Ayrıca, parametrelendirilmiş başlangıç ​​kurallarıyla önceden ayarlanmış bir tarayıcıyı açan bir **Şablonlar** düğmesi de vardır; bir ön ayarın uygulanması, onaylandıktan sonra geçerli kuralın yerine geçer.
 
@@ -161,7 +161,7 @@ Sayfa açma, URL değişikliği, sayfa kalp atışı, zamanlayıcı sonu ve kend
 
 Kural, grup açık olduğunda, zamanlama buna izin verdiğinde ve (platform grupları için) sayfa eşleştiğinde etkin olur.
 
-`Default` grupları için bu, Chrome'un yerel engellemesini kullanır. Platform grupları için sayfa içi yer paylaşımı/çıkış mantığını kullanır.
+`Default` grupları için bu, Krom tarayıcısı'un yerel engellemesini kullanır. Platform grupları için sayfa içi yer paylaşımı/çıkış mantığını kullanır.
 
 ### 6.2 Birkaç dakika sonra bloke edin
 
@@ -328,7 +328,7 @@ Olay türü başına şeker (yerleşik tür başına bir yöntem kümesi):
 | `timerEnded` | Grup tarafından yönetilen bir zamanlayıcı `currentMs === 0`'ya ulaşıyor. Sadece sahibi gruba teslim edilir. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | Kullanıcı bu **özel** grubun açılır penceresinde **Ertelemeyi Başlat** seçeneğine bastı. Saf bildirim olayı — işleyici isteğe bağlı kod çalıştırabilir (günlüğe kaydetme, yönlendirme, diğer olayları tetikleme) ancak özel kurallarda **programatik erteleme API'si yoktur**. Burada üretilen kütükler aktif sekmede kızarmış ekmekler olarak görünür. Sadece preslenen gruba teslim edilir. | `{ triggeredAt }` |
 
-`ev.url`'daki ve etkinlik verilerindeki URL'ler etkinlikler için **normalleştirilmiştir**: Chrome'un Yeni Sekme Sayfası (Google'ın "Google'da Ara veya URL'yi yaz" yüzeyini oluşturur), `about:blank` ve eşdeğer yeni sekme şemaları, boş `""` dizesi olarak gösterilir. Dolayısıyla `ev.url === ""` kapsamına alınan bir zamanlayıcı yalnızca siz yeni sekme sayfasındayken çalışır. Normal `google.com` URL'leri değişmedi.
+`ev.url`'daki ve etkinlik verilerindeki URL'ler etkinlikler için **normalleştirilmiştir**: Krom tarayıcısı'un Yeni Sekme Sayfası (Google'ın "Google'da Ara veya URL'yi yaz" yüzeyini oluşturur), `about:blank` ve eşdeğer yeni sekme şemaları, boş `""` dizesi olarak gösterilir. Dolayısıyla `ev.url === ""` kapsamına alınan bir zamanlayıcı yalnızca siz yeni sekme sayfasındayken çalışır. Normal `google.com` URL'leri değişmedi.
 
 ### 11.2.3 Olay nesnesi (`ev`)
 
@@ -439,13 +439,13 @@ URL filtreleme ve bölüm yardımcıları:
 - `matchesAny(url, patterns)` — `patterns` bir normal ifade, bir dize normal ifadesi veya bunların bir dizisi olabilir.
 - `pathStartsWith(url, path)` — sınıra duyarlı (`pathStartsWith("/r/", "/r")` doğrudur; `"/results/"` değildir).
 - `queryHas(url, key, value?)`, `queryGet(url, key)` — sorgu dizisi denetimi.
-- `isSearchPage(url)` — Google / Bing / DuckDuckGo / YouTube sonuçları / Reddit / Twitter / X aramalarını tanır.
-- `isInfiniteFeedUrl(url)` — YouTube, TikTok, Instagram, Facebook, Reddit, X'in algoritmik besleme yüzeylerini tanır.
+- `isSearchPage(url)` — Google / Bing / DuckDuckGo / Yutub sonuçları / Redit / Tvitter / X aramalarını tanır.
+- `isInfiniteFeedUrl(url)` — Yutub, kısa video ağı, fotoğraf ağı, Feysbuk, Redit, X'in algoritmik besleme yüzeylerini tanır.
 - `sameSection(a, b)` — aynı ana bilgisayar adı VE aynı ilk yol bölümü.
 
 #### 11.3.6 `getPlatformHelper()`
 
-Platform başına DOM amaçları ve alt bölüm zamanlayıcılarının yanı sıra inceleme. Her `helpers.getPlatformHelper().<platform>()`, yöntem seti **platform tarafından kontrol edilen** bir nesneyi döndürür; belirli bir platformda anlamlı olmayan yöntemler basitçe mevcut değildir; dolayısıyla bunların çağrılması, sessizce işlem yapılmaması yerine `TypeError: ... is not a function`'nun fırlatılmasına neden olur. Örneğin, `twitch().hidePosts` mevcut değil (Twitch'te gönderi yok) ve `tiktok().hideShortButton` mevcut değil (TikTok'un tüm deneyimi zaten kısa biçimli videodur). Çalışma zamanında iç gözlem yapmak için `helpers.getPlatformHelper().hasMethod(platform, name)` veya `.listMethods(platform)` kullanın.
+Platform başına DOM amaçları ve alt bölüm zamanlayıcılarının yanı sıra inceleme. Her `helpers.getPlatformHelper().<platform>()`, yöntem seti **platform tarafından kontrol edilen** bir nesneyi döndürür; belirli bir platformda anlamlı olmayan yöntemler basitçe mevcut değildir; dolayısıyla bunların çağrılması, sessizce işlem yapılmaması yerine `TypeError: ... is not a function`'nun fırlatılmasına neden olur. Örneğin, `twitch().hidePosts` mevcut değil (Tiviç'te gönderi yok) ve `tiktok().hideShortButton` mevcut değil (kısa video ağı'un tüm deneyimi zaten kısa biçimli videodur). Çalışma zamanında iç gözlem yapmak için `helpers.getPlatformHelper().hasMethod(platform, name)` veya `.listMethods(platform)` kullanın.
 
 Platform başına yöntem matrisi:
 
@@ -487,7 +487,7 @@ Yüklem yöntemleri için yüklem, normalleştirilmiş bir `item`: `{ url, name,
 
 ### 11.4 Örnekler
 
-**Kolay** — Hafta içi sabahları YouTube Shorts sayfalarını engelleyin:
+**Kolay** — Hafta içi sabahları Yutub Shorts sayfalarını engelleyin:
 
 ```js
 (event, helpers) => {
@@ -508,7 +508,7 @@ Yüklem yöntemleri için yüklem, normalleştirilmiş bir `item`: `{ url, name,
 }
 ```
 
-**Orta** — YouTube Shorts için 30 dakikalık günlük bütçe. Zamanlayıcı, bir Shorts URL'si görünürken `pageHeartbeatEvent`'larda otomatik olarak çalışır; zamanlayıcı sıfıra ulaştığında ayrı bir işleyici bloğu uygular.
+**Orta** — Yutub Shorts için 30 dakikalık günlük bütçe. Zamanlayıcı, bir Shorts URL'si görünürken `pageHeartbeatEvent`'larda otomatik olarak çalışır; zamanlayıcı sıfıra ulaştığında ayrı bir işleyici bloğu uygular.
 
 ```js
 (event, helpers) => {
@@ -542,7 +542,7 @@ Yüklem yöntemleri için yüklem, normalleştirilmiş bir `item`: `{ url, name,
 }
 ```
 
-**Daha zor** — Yazar adı çok uzun olan tek tek YouTube Kısa Videolarını gizleyin ve "bu Kısa Video gizlidir" CSS'sini ekleyin:
+**Daha zor** — Yazar adı çok uzun olan tek tek Yutub Kısa Videolarını gizleyin ve "bu Kısa Video gizlidir" CSS'sini ekleyin:
 
 ```js
 (event, helpers) => {
@@ -588,17 +588,17 @@ Her Özel grupta aranabilir bir ön ayarlı tarayıcı açan bir **Şablonlar** 
 
 | Kategori | Örnekler |
 |---|---|
-| **Zamanlayıcılar** | Site süresi bütçesi (geri sayım + blok), site süresi izleyici (geri sayım), YouTube Shorts sınırı, TikTok yayın sınırı, Instagram Reels sınırı, Facebook Reels sınırı, Twitch Clips sınırı, Evrensel dikkat dağıtma bütçesi, Günlük derin çalışma izleyicisi |
+| **Zamanlayıcılar** | Site süresi bütçesi (geri sayım + blok), site süresi izleyici (geri sayım), Yutub Shorts sınırı, kısa video ağı yayın sınırı, fotoğraf ağı Reels sınırı, Feysbuk Reels sınırı, Tiviç Clips sınırı, Evrensel dikkat dağıtma bütçesi, Günlük derin çalışma izleyicisi |
 | **Program** | Hafta içi çalışma saatleri bloğu, yalnızca hafta sonu siteleri, yatmadan önce kapatma, yalnızca bir saate izin verilen, yalnızca öğle yemeğine ilişkin haberler, Pazartesi günü yeni başlangıç, her saatin ilk N dakikasına izin verilen, derin çalışma katı bloğu |
-| **Yayın Akışı / Kısa Videolar** | YouTube Shorts URL'lerini engelleyin, Shorts kartlarını gizleyin, Shorts'ları anahtar kelimeye göre gizleyin, YouTube ana sayfa özet akışını / yorumları / trendleri gizleyin, TikTok FYP'yi engelleyin, TikTok kısa videolarını gizleyin, Instagram Reels URL'lerini engelleyin, Instagram Reels özet akışını gizleyin, Facebook özet akışını / Makaraları gizleyin, Reddit / Twitter / LinkedIn ana sayfasını gizleyin |
+| **Yayın Akışı / Kısa Videolar** | Yutub Shorts URL'lerini engelleyin, Shorts kartlarını gizleyin, Shorts'ları anahtar kelimeye göre gizleyin, Yutub ana sayfa özet akışını / yorumları / trendleri gizleyin, kısa video ağı FYP'yi engelleyin, kısa video ağı kısa videolarını gizleyin, fotoğraf ağı Reels URL'lerini engelleyin, fotoğraf ağı Reels özet akışını gizleyin, Feysbuk özet akışını / Makaraları gizleyin, Redit / Tvitter / LinkedIn ana sayfasını gizleyin |
 | **Yönlendir** | Dikkat dağıtıcı → odak sayfası, Kısalar → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, yeni sekme → görev listesi |
 | **Odaklanma** | Yalnızca izin verilenler listesine odaklanan oturum, Pomodoro 25/5, toplantı sırasında bloke, bugün N ziyaretten sonra bloke, seri kaybının bloke edilmesi |
 | **dürt** | Dikkat dağıtıcı her ziyareti kaydedin, her Shorts ziyaretinde uyarıda bulunun, bir siteye yapılan günlük ziyaretleri sayın |
-| **İstikrar** | Aylık ziyaret sınırı, haftalık yasaklama geçişi, ziyaret edilen Discord kanallarını takip etme |
-| **DOM düzenlemeleri** | YouTube otomatik oynatma geçişini gizle, Twitter / X'i gizle "Neler oluyor", genel "sitedeki seçicileri gizle" |
+| **İstikrar** | Aylık ziyaret sınırı, haftalık yasaklama geçişi, ziyaret edilen Diskord kanallarını takip etme |
+| **DOM düzenlemeleri** | Yutub otomatik oynatma geçişini gizle, Tvitter / X'i gizle "Neler oluyor", genel "sitedeki seçicileri gizle" |
 | **Hata ayıklama** | Demo geri sayımı (3 sn), her özel etkinliği günlüğe kaydedin |
 
-Seçicinin üst kısmındaki filtre çipleri, listeyi kategoriye (`Timer`, `Schedule`, `Feed`, …) ve platforma (`YouTube`, `TikTok`, `Instagram`, …) göre daraltır. Bir şablon seçme:
+Seçicinin üst kısmındaki filtre çipleri, listeyi kategoriye (`Timer`, `Schedule`, `Feed`, …) ve platforma (`Yutub`, `kısa video ağı`, `fotoğraf ağı`, …) göre daraltır. Bir şablon seçme:
 
 1. Parametre girişlerini (URL, dakika, saat aralıkları vb.) küçük bir forma yükler.
 2. **Ön ayarı uygula**, oluşturulan kaynağın önizlemesini görüntüler.
@@ -674,7 +674,7 @@ Format gereksinimleri olan giriş alanları için mesaj, ilgili düğmenin yanı
 ## 19. Sorun Giderme- **Eklediğim bir grup hiçbir şey yapmıyor.** Grubun etkinleştirildiğinden, programın artık buna izin verdiğinden, herhangi bir ertelemenin etkin olmadığından ve (platform grupları için) sayfanın seçilen içerik türü ve yazar filtresiyle gerçekten eşleştiğinden emin olun.
 - **Zamanlayıcı bir sekmede takılı kalmış veya yanlış.** Geçiş yapın ve geri dönün veya sekmeye odaklanın; bu, paylaşılan zamanlayıcının zorunlu olarak yenilenmesini tetikler.
 - **Yayın kartları, gizlenmeleri gerektiğini düşündüğümde yeniden görünüyor.** Özet akışı gizleme yalnızca kural aktif olarak engelleme yaptığında çalışır. Bir `after-minutes` kuralınız varsa, süreniz sıfıra ulaştığında feed gizleme devreye girer.
-- **Gizlenmesini beklediğim bir YouTube gezinme düğmesi hâlâ orada.** Gezinmeyi gizlemek için kuralın "yazara göre filtreleme" olarak ayarlanması ve içerik türünün Kısa Videolar veya YouTube gönderileri olması gerekir. Yazar filtrelerinde gizleme yalnızca kart başına yapılır.
+- **Gizlenmesini beklediğim bir Yutub gezinme düğmesi hâlâ orada.** Gezinmeyi gizlemek için kuralın "yazara göre filtreleme" olarak ayarlanması ve içerik türünün Kısa Videolar veya Yutub gönderileri olması gerekir. Yazar filtrelerinde gizleme yalnızca kart başına yapılır.
 - **Özel kural hiçbir şey yapmadı veya sessizce atıldı.** Ayarlar'ı açın → **Hata ayıklama modunu** etkinleştirin, ardından tekrar **Çalıştır**'ı tıklayın ve Günlük panelini izleyin. `[trace]` ön ekine sahip satırlar her gönderimi ve işleyiciyi gösterir. Kendi izleme noktalarınızı eklemek için `helpers.getLogHelper().log(...)` kullanın. Yanlış çalışan bir kural sürekli olarak otomatik karantinaya alınıyorsa kaynağı düzeltin ve Çalıştır'a tıklayın; Çalıştır, iptal nedenini temizler.
 - **Yeni Özel kuralım zaten açık olan sekmeleri etkilemiyor.** Bunları yeniden yükleyin. *Gelecekteki* sayfa etkinliklerine özel kurallar eklenir; açılır pencerede her Çalıştırmadan sonra yeniden yükleme yapılması için bir hatırlatıcı gösterilir.
 - **Geri sayım zamanlayıcım ilerlemiyor.** Özel kural zamanlayıcıları yalnızca `pageHeartbeatEvent` aracılığıyla **aktif görünür** sekmesini işaretler. Arka plan sekmeleri, simge durumuna küçültülmüş pencereler ve kilitli ekranlar, bunları tasarım gereği duraklatır; varsayılan blok grubu geri sayımıyla aynı davranış.
@@ -704,8 +704,13 @@ Format gereksinimleri olan giriş alanları için mesaj, ilgili düğmenin yanı
 ---
 
 ## 21. Sınırlamalar- Feed'in gizlenmesi her platformun mevcut DOM'sine bağlıdır. Platformun düzeni değişirse gizleme seçicilerinin güncellenmesi gerekebilir.
-- YouTube dışı siteler için platform bağlamı tespiti çoğunlukla URL tabanlı olduğundan, en güvenilir olanı standart içerik URL'leridir.
+- Yutub dışı siteler için platform bağlamı tespiti çoğunlukla URL tabanlı olduğundan, en güvenilir olanı standart içerik URL'leridir.
 - Özel kurallı zamanlayıcılar kalp atışı çözünürlüğünde (~250 ms) çalışır. Saniyeden kısa zamanlama için onlara güvenmeyin.
 - `hideShorts` / `hideVideos` / `hidePosts`'ya iletilen tahminler, besleme kartı başına eşzamanlı olarak değerlendirilir. Bir yüklemdeki ağır mantık, feed kaydırmayı yavaşlatabilir; onları ucuz tut.
 - Grup başına aynı zamanlayıcıyı düzenleyen iki sekme aynı anda "son yazma kazanır" stratejisini kullanır. Tipik kullanım için bu iyidir; Kesin hesaplamaya bağlıysanız, ara sıra küçük sapmalar bekleyin.
 - Tarayıcı, boştayken arka plan hizmet çalışanını askıya alabilir. Uzantı, bir sayfa veya alarma ihtiyaç duyduğu anda onu devam ettirir; site/zamanlı kullanım bütçeleri kalp atışı tekrarı aracılığıyla sayılmaya devam eder.
+
+## v1.2 notu
+
+Özel kural düzenleyici artık betik dili sözdizimini renklendirir; şablon tarayıcısı kod önizlemelerinde aynı renkleri kullanır. Toplu grup eylemi **Temizle** olarak adlandırılır.
+

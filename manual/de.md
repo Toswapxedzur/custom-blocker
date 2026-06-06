@@ -12,16 +12,16 @@ Mit dem benutzerdefinierten Web-Blocker können Sie Websites und Online-Ablenkun
 
 - Blockieren Sie Websites sofort mit der nativen Netzwerkblockierung des Browsers (dieselbe Art von Blockierung, die `ERR_BLOCKED_BY_CLIENT` erzeugt).
 - Gönnen Sie sich eine bestimmte Anzahl von Minuten pro Tag auf einer Website und blockieren Sie diese dann, sobald Sie dieses Limit überschreiten.
-- Blockieren Sie bestimmte Arten von Inhalten auf YouTube, TikTok, Facebook, Instagram, Twitch und Reddit (nicht die gesamte Website).
+- Blockieren Sie bestimmte Arten von Inhalten auf Jutjub, Kurzvideoportal, Gesichtsbuch, Bildernetz, Live-Portal und Gemeinschaftsforum (nicht die gesamte Website).
 - Verstecken Sie blockierte Inhalte aus Feeds auf unterstützten Plattformen, anstatt nur einzelne Seiten zu blockieren.
 - Planen Sie, wann eine Regel nach Wochentag und `HHMM-HHMM` Zeitfenstern aktiv ist.
 - Frieren Sie eine Regel ein, damit Sie sie nicht einfach ändern können. Strict Freeze sperrt es für eine bestimmte Anzahl von Stunden und erfordert zum Rückgängigmachen ein 20-stufiges Bestätigungsritual.
 - Eine Regel vorübergehend deaktivieren, jedoch erst, nachdem eine ausreichend lange Begründung verfasst wurde.
-- Schreiben Sie **ereignisgesteuerte** benutzerdefinierte Regeln in JavaScript mit Hilfsprogrammen für Vorwärts-/Rückwärts-Timer, persistenten Speicher pro Gruppe, plattformspezifische DOM-Absichten (Navigationsschaltflächen ausblenden, Feedkarten nach Prädikat ausblenden, Timer pro Unterabschnitt festlegen), URL-Dienstprogramme und strukturierte Protokollierung.
+- Schreiben Sie **ereignisgesteuerte** benutzerdefinierte Regeln in Skriptsprache mit Hilfsprogrammen für Vorwärts-/Rückwärts-Timer, persistenten Speicher pro Gruppe, plattformspezifische DOM-Absichten (Navigationsschaltflächen ausblenden, Feedkarten nach Prädikat ausblenden, Timer pro Unterabschnitt festlegen), URL-Dienstprogramme und strukturierte Protokollierung.
 - Wählen Sie aus einer integrierten Bibliothek mit über 50 vorgefertigten Vorlagen (Timer, Zeitpläne, Feed-Ausblenden, Fokussitzungen, Weiterleitungen, Nudges, Persistenz, DOM-Optimierungen, Debug-Helfer).
 - Verwenden Sie die Erweiterung in über 20 Sprachen.
 
-Die Erweiterung ist eine Chrome Manifest V3-Erweiterung mit einer Editorseite (dem Popup), einem Hintergrunddienstmitarbeiter, einer Offscreen-Sandbox, die benutzerdefinierten Regelcode hostet, und einem Inhaltsskript, das auf jeder Seite ausgeführt wird. Benutzerdefinierte Regeln leben in der Offscreen-Sandbox; Sie werden einmal pro Ausführen-Klick geladen und bleiben registriert, bis die Regel deaktiviert oder gelöscht wird.
+Die Erweiterung ist eine Chrom-Browser Manifest V3-Erweiterung mit einer Editorseite (dem Popup), einem Hintergrunddienstmitarbeiter, einer Offscreen-Sandbox, die benutzerdefinierten Regelcode hostet, und einem Inhaltsskript, das auf jeder Seite ausgeführt wird. Benutzerdefinierte Regeln leben in der Offscreen-Sandbox; Sie werden einmal pro Ausführen-Klick geladen und bleiben registriert, bis die Regel deaktiviert oder gelöscht wird.
 
 ---
 
@@ -50,7 +50,7 @@ Wenn Sie auf das Symbol der Erweiterung klicken, wird der Editor als vollständi
 
 ## 3. Schnellstart1. Klicken Sie auf das Erweiterungssymbol. Der Editor wird als ganze Seite geöffnet.
 2. Wählen Sie im Bereich **Blockgruppen** einen Gruppentyp aus der Dropdown-Liste aus:
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit` oder `Custom`.
+   - `Default`, `Jutjub`, `Kurzvideoportal`, `Gesichtsbuch`, `Bildernetz`, `Live-Portal`, `Gemeinschaftsforum` oder `Custom`.
 3. Klicken Sie auf **Hinzufügen**. Eine neue Gruppe erscheint und der Editor öffnet sie.
 4. Geben Sie ihm einen Namen.
 5. Füllen Sie die typspezifischen Felder aus (für `Default` bedeutet das die Liste **Blockierte Websites**).
@@ -70,7 +70,7 @@ Alles in dieser Erweiterung ist als **Blockgruppen** organisiert. Eine Blockgrup
 - Es hat einen Namen, einen Typ und einen aktivierten/deaktivierten Status.
 - Es verfügt über ein Blockierungsverhalten (sofort, nach einigen Minuten oder fester Countdown).
 - Es verfügt über einen optionalen Zeitplan (Tage + Zeitfenster) und optionale Einfrier-/Schlummerfunktionen.
-– Je nach Typ verfügt es über zusätzliche Felder wie eine Liste von Websites, YouTube-Erstellerfilter, Subreddit-Namen oder eine ereignisgesteuerte JavaScript-Regel.
+– Je nach Typ verfügt es über zusätzliche Felder wie eine Liste von Websites, Jutjub-Erstellerfilter, Subreddit-Namen oder eine ereignisgesteuerte Skriptsprache-Regel.
 
 Sie können beliebig viele Gruppen haben. Für dieselbe Seite können sich mehrere Gruppen bewerben. in diesem Fall gewinnt die **strengste** Regel:
 
@@ -91,61 +91,61 @@ Zum Blockieren bestimmter Domänen (der typische Anwendungsfall).
 
 - **Blockierte Websites**: eine Website pro Zeile. Sowohl `facebook.com` als auch `https://www.facebook.com/somepage` funktionieren; Die Erweiterung extrahiert und normalisiert den Hostnamen.
 – Eine Site-Regel gilt für diesen Hostnamen und alle seine Subdomains.
-– Dieser Gruppentyp verwendet die native Netzwerkblockierung von Chrome, ähnlich wie `ERR_BLOCKED_BY_CLIENT`. Das bedeutet, dass die Navigation zu einer blockierten URL gestoppt wird, bevor die Seite überhaupt geladen wird.
+– Dieser Gruppentyp verwendet die native Netzwerkblockierung von Chrom-Browser, ähnlich wie `ERR_BLOCKED_BY_CLIENT`. Das bedeutet, dass die Navigation zu einer blockierten URL gestoppt wird, bevor die Seite überhaupt geladen wird.
 
-### 5.2 `YouTube` – YouTube und ähnliche Videoseiten blockieren
+### 5.2 `Jutjub` – Jutjub und ähnliche Videoseiten blockieren
 
 Fügt dem Editor einen Abschnitt **Filter** hinzu:
 
 - **Inhaltstyp**:
-  - `Apply to all YouTube pages` – jede YouTube-Seite zählt.
+  - `Apply to all Jutjub pages` – jede Jutjub-Seite zählt.
   - `Apply to Shorts` – es zählen nur Shorts-Seiten.
   - `Apply to long videos` – nur `/watch`, `/live/`, `/embed/` usw.
-  - `Apply to YouTube posts` – Community-Beiträge (`/post/...`, Registerkarten „Kanal-Community/Beiträge“).
+  - `Apply to Jutjub posts` – Community-Beiträge (`/post/...`, Registerkarten „Kanal-Community/Beiträge“).
 - **Autorenfilter**:
   - `Do not filter by author` – Die Identität des Autors spielt keine Rolle.
   - `Apply to certain authors` – nur aufgeführte Autoren lösen diese Gruppe aus.
   - `Apply to all except certain authors` – aufgeführte Autoren sind ausgenommen.
 - **Autoren**: ein Autor pro Zeile. Akzeptiert `@handle`, vollständige URLs, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Blockierte Einträge im YouTube-Feed ausblenden**: Während diese Gruppe aktiv blockiert, werden passende Karten in YouTube-Feeds ausgeblendet. Wenn der Block inaktiv wird, werden sie bei der nächsten Aktualisierung wieder angezeigt.
+- **Blockierte Einträge im Jutjub-Feed ausblenden**: Während diese Gruppe aktiv blockiert, werden passende Karten in Jutjub-Feeds ausgeblendet. Wenn der Block inaktiv wird, werden sie bei der nächsten Aktualisierung wieder angezeigt.
 
-Wenn für die Inhaltstypen „Shorts“ und „Beiträge“ kein Autorenfilter festgelegt ist und die Gruppe derzeit blockiert, blendet die Erweiterung auch relevante Navigationseinträge (Eintrag in der Seitenleiste „Shorts“, Kanalregisterkarten „Community/Beiträge“) und die entsprechenden Regale wie „Neueste YouTube-Beiträge“ aus.
+Wenn für die Inhaltstypen „Shorts“ und „Beiträge“ kein Autorenfilter festgelegt ist und die Gruppe derzeit blockiert, blendet die Erweiterung auch relevante Navigationseinträge (Eintrag in der Seitenleiste „Shorts“, Kanalregisterkarten „Community/Beiträge“) und die entsprechenden Regale wie „Neueste Jutjub-Beiträge“ aus.
 
-Die Kurz-gegen-Lang-Erkennung erstreckt sich auf andere Videoseiten wie TikTok, Vimeo, Twitch-Clips/VODs und Dailymotion, wenn deren Seitenform erkannt werden kann.
+Die Kurz-gegen-Lang-Erkennung erstreckt sich auf andere Videoseiten wie Kurzvideoportal, Vimeo, Live-Portal-Clips/VODs und Dailymotion, wenn deren Seitenform erkannt werden kann.
 
-### 5.3 `TikTok` – TikTok-Inhalte blockieren
+### 5.3 `Kurzvideoportal` – Kurzvideoportal-Inhalte blockieren
 
-Dieselbe Editor-Karte wie der Plattform-Video-Editor, jedoch mit TikTok-spezifischen Beschriftungen:- Inhaltstypen: Kurzvideos, Videos, Profilseiten.
-- Autoren: TikTok-Handles (`@handle`) oder Profil-URLs.
-- Beim Ausblenden von Feeds werden passende Karten auf TikTok-Seiten ausgeblendet, während die Gruppe aktiv ist.
+Dieselbe Editor-Karte wie der Plattform-Video-Editor, jedoch mit Kurzvideoportal-spezifischen Beschriftungen:- Inhaltstypen: Kurzvideos, Videos, Profilseiten.
+- Autoren: Kurzvideoportal-Handles (`@handle`) oder Profil-URLs.
+- Beim Ausblenden von Feeds werden passende Karten auf Kurzvideoportal-Seiten ausgeblendet, während die Gruppe aktiv ist.
 
-### 5.4 `Facebook` – Facebook-Inhalte blockieren
+### 5.4 `Gesichtsbuch` – Gesichtsbuch-Inhalte blockieren
 
 - Inhaltstypen: Reels, Videos, Beiträge.
 - Autoren: Seitenname (`page.name`), Profil-URL oder `profile.php?id=...`-Formular (die numerische ID bleibt als `id:<number>` erhalten).
-- Beim Ausblenden von Feeds werden passende Feedkarten auf Facebook ausgeblendet.
+- Beim Ausblenden von Feeds werden passende Feedkarten auf Gesichtsbuch ausgeblendet.
 
-### 5.5 `Instagram` – Instagram-Inhalte blockieren
+### 5.5 `Bildernetz` – Bildernetz-Inhalte blockieren
 
 - Inhaltstypen: Reels, Videos, Beiträge.
-- Autoren: Instagram-Handles oder Profil-URLs.
+- Autoren: Bildernetz-Handles oder Profil-URLs.
 - Reservierte Pfade wie `/reel/`, `/p/`, `/tv/`, `/explore/` werden nicht als Autoren behandelt.
-- Beim Ausblenden von Feeds werden passende Karten auf Instagram ausgeblendet.
+- Beim Ausblenden von Feeds werden passende Karten auf Bildernetz ausgeblendet.
 
-### 5.6 `Twitch` – Twitch-Inhalte blockieren
+### 5.6 `Live-Portal` – Live-Portal-Inhalte blockieren
 
 - Inhaltstypen: Clips, Streams/VODs, Kanalseiten.
 - Autoren: Kanalnamen oder Kanal-URLs.
 - Reservierte Pfade wie `/directory`, `/videos`, `/settings` usw. werden nicht als Kanalnamen behandelt.
-- Durch das Ausblenden von Feeds werden passende Karten auf Twitch ausgeblendet.
+- Durch das Ausblenden von Feeds werden passende Karten auf Live-Portal ausgeblendet.
 
-### 5.7 `Reddit` – Reddit oder bestimmte Subreddits blockieren
+### 5.7 `Gemeinschaftsforum` – Gemeinschaftsforum oder bestimmte Subreddits blockieren
 
-- **Subreddits**: ein Subreddit pro Zeile. Eine leere Liste bedeutet, dass die Gruppe für ganz Reddit gilt. Es werden sowohl `productivity` als auch `r/productivity` akzeptiert.
+- **Subreddits**: ein Subreddit pro Zeile. Eine leere Liste bedeutet, dass die Gruppe für ganz Gemeinschaftsforum gilt. Es werden sowohl `productivity` als auch `r/productivity` akzeptiert.
 
-### 5.8 `Custom` – Blockierung durch ereignisgesteuertes JavaScript
+### 5.8 `Custom` – Blockierung durch ereignisgesteuertes Skriptsprache
 
-Sie schreiben eine JavaScript-Funktion, die Handler für Ereignisse wie Seitenöffnung, URL-Änderung, Seiten-Heartbeat, Timer-Ende und Ihre eigenen benutzerdefinierten Ereignisse registriert. Die Funktion wird einmal pro Ausführen-Klick ausgeführt; Die registrierten Handler bleiben in allen Navigationen aktiv, bis Sie erneut auf „Ausführen“ klicken, die Gruppe deaktivieren oder löschen.
+Sie schreiben eine Skriptsprache-Funktion, die Handler für Ereignisse wie Seitenöffnung, URL-Änderung, Seiten-Heartbeat, Timer-Ende und Ihre eigenen benutzerdefinierten Ereignisse registriert. Die Funktion wird einmal pro Ausführen-Klick ausgeführt; Die registrierten Handler bleiben in allen Navigationen aktiv, bis Sie erneut auf „Ausführen“ klicken, die Gruppe deaktivieren oder löschen.
 
 `Custom`-Gruppen zeigen nicht: Blockierungsverhalten, blockierte Websites, zulässige Minuten, Rücksetzintervall, geplante Tage oder Zeitfenster. Sie behalten den Editor für **Blockierungsregeln** sowie die standardmäßigen Freeze/Snooze-Steuerelemente bei. Es gibt auch eine Schaltfläche **Vorlagen**, die einen voreingestellten Browser mit parametrisierten Startregeln öffnet; Das Anwenden einer Voreinstellung ersetzt nach Bestätigung die aktuelle Regel.
 
@@ -161,7 +161,7 @@ Für die meisten Gruppentypen wählen Sie einen von drei Modi.
 
 Die Regel ist immer dann aktiv, wenn die Gruppe aktiv ist, der Zeitplan dies zulässt und (bei Plattformgruppen) die Seite übereinstimmt.
 
-Für `Default`-Gruppen wird die native Blockierung von Chrome verwendet. Für Plattformgruppen wird die In-Page-Overlay-/Exit-Logik verwendet.
+Für `Default`-Gruppen wird die native Blockierung von Chrom-Browser verwendet. Für Plattformgruppen wird die In-Page-Overlay-/Exit-Logik verwendet.
 
 ### 6.2 Sperre nach einigen Minuten
 
@@ -328,7 +328,7 @@ Zucker pro Ereignistyp (ein Methodensatz pro integriertem Typ):
 | `timerEnded` | Ein von der Gruppe verwalteter Timer erreicht `currentMs === 0`. Wird nur an die Eigentümergruppe geliefert. | `{ timerId, displayName, direction, currentMs }` |
 | `snoozePress` | Der Benutzer hat im Popup für diese **benutzerdefinierte** Gruppe **Start Snooze** gedrückt. Reines Benachrichtigungsereignis – der Handler kann beliebigen Code ausführen (protokollieren, umleiten, andere Ereignisse auslösen), aber benutzerdefinierte Regeln verfügen über **keine programmatische Snooze-API**. Hier erstellte Protokolle werden als Toasts auf der aktiven Registerkarte angezeigt. Wird nur an die gepresste Gruppe geliefert. | `{ triggeredAt }` |
 
-URLs in `ev.url` und in Ereignisdaten werden für Ereignisse **normalisiert**: Die Seite „Neuer Tab“ von Chrome (die die Google-Oberfläche „Google durchsuchen oder URL eingeben“ darstellt), `about:blank` und entsprechende Newtab-Schemata werden als leere Zeichenfolge `""` angezeigt. Ein auf `ev.url === ""` beschränkter Timer tickt also nur, während Sie sich auf der Seite „Neuer Tab“ befinden. Reguläre `google.com`-URLs bleiben unverändert.
+URLs in `ev.url` und in Ereignisdaten werden für Ereignisse **normalisiert**: Die Seite „Neuer Tab“ von Chrom-Browser (die die Google-Oberfläche „Google durchsuchen oder URL eingeben“ darstellt), `about:blank` und entsprechende Newtab-Schemata werden als leere Zeichenfolge `""` angezeigt. Ein auf `ev.url === ""` beschränkter Timer tickt also nur, während Sie sich auf der Seite „Neuer Tab“ befinden. Reguläre `google.com`-URLs bleiben unverändert.
 
 ### 11.2.3 Das Ereignisobjekt (`ev`)
 
@@ -430,7 +430,7 @@ Wie die anderen Nebenwirkungen benutzerdefinierter Regeln wird dieser Status von
 URL-Inspektionshilfen. Es gibt kein `normalize()`, da eingehende URLs bereits Newtab-normalisiert sind.
 
 Kern:- `hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
-- `isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
+- `isYouTubeHost`, `isKurzvideoportalHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
 - `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()` – jeweils gibt `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }` zurück.
 
 URL-Filterung und Abschnittshilfen:
@@ -439,17 +439,17 @@ URL-Filterung und Abschnittshilfen:
 - `matchesAny(url, patterns)` – `patterns` kann ein regulärer Ausdruck, ein regulärer String-Ausdruck oder ein Array von beidem sein.
 - `pathStartsWith(url, path)` – grenzenbewusst (`pathStartsWith("/r/", "/r")` ist wahr; `"/results/"` ist nicht wahr).
 - `queryHas(url, key, value?)`, `queryGet(url, key)` – Überprüfung der Abfragezeichenfolge.
-- `isSearchPage(url)` – erkennt Google-/Bing-/DuckDuckGo-/YouTube-Ergebnisse/Reddit-/Twitter-/X-Suchen.
-- `isInfiniteFeedUrl(url)` – erkennt die algorithmischen Feed-Oberflächen von YouTube, TikTok, Instagram, Facebook, Reddit, X.
+- `isSearchPage(url)` – erkennt Google-/Bing-/DuckDuckGo-/Jutjub-Ergebnisse/Gemeinschaftsforum-/Zwitscher-/X-Suchen.
+- `isInfiniteFeedUrl(url)` – erkennt die algorithmischen Feed-Oberflächen von Jutjub, Kurzvideoportal, Bildernetz, Gesichtsbuch, Gemeinschaftsforum, X.
 - `sameSection(a, b)` – gleicher Hostname UND gleiches erstes Pfadsegment.
 
 #### 11.3.6 `getPlatformHelper()`
 
-Plattformspezifische DOM-Absichten und Unterabschnitts-Timer sowie Inspektion. Jeder `helpers.getPlatformHelper().<platform>()` gibt ein Objekt zurück, dessen Methodensatz **durch die Plattform geschützt** ist – Methoden, die auf einer bestimmten Plattform keinen Sinn ergeben, fehlen einfach, sodass der Aufruf von ihnen `TypeError: ... is not a function` auslöst, anstatt stillschweigend keine Operationen durchzuführen. Zum Beispiel existiert `twitch().hidePosts` nicht (Twitch hat keine Beiträge) und `tiktok().hideShortButton` existiert nicht (TikToks gesamte Erfahrung ist bereits ein Kurzvideo). Verwenden Sie `helpers.getPlatformHelper().hasMethod(platform, name)` oder `.listMethods(platform)` zur Selbstprüfung zur Laufzeit.
+Plattformspezifische DOM-Absichten und Unterabschnitts-Timer sowie Inspektion. Jeder `helpers.getPlatformHelper().<platform>()` gibt ein Objekt zurück, dessen Methodensatz **durch die Plattform geschützt** ist – Methoden, die auf einer bestimmten Plattform keinen Sinn ergeben, fehlen einfach, sodass der Aufruf von ihnen `TypeError: ... is not a function` auslöst, anstatt stillschweigend keine Operationen durchzuführen. Zum Beispiel existiert `twitch().hidePosts` nicht (Live-Portal hat keine Beiträge) und `tiktok().hideShortButton` existiert nicht (Kurzvideoportals gesamte Erfahrung ist bereits ein Kurzvideo). Verwenden Sie `helpers.getPlatformHelper().hasMethod(platform, name)` oder `.listMethods(platform)` zur Selbstprüfung zur Laufzeit.
 
 Methodenmatrix pro Plattform:
 
-| Methode | youtube | Tiktok | Instagram | Facebook | zucken |
+| Methode | youtube | Tiktok | Bildernetz | Gesichtsbuch | zucken |
 |---|:---:|:---:|:---:|:---:|:---:|
 | `hideShorts` / `showShorts` | ✓ |  |  |  |  |
 | `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
@@ -487,7 +487,7 @@ Bei Prädikatmethoden wird das Prädikat pro passender Karte mit einem normalisi
 
 ### 11.4 Beispiele
 
-**Einfach** – YouTube-Shorts-Seiten an Wochentagen vormittags blockieren:
+**Einfach** – Jutjub-Shorts-Seiten an Wochentagen vormittags blockieren:
 
 ```js
 (event, helpers) => {
@@ -508,7 +508,7 @@ Bei Prädikatmethoden wird das Prädikat pro passender Karte mit einem normalisi
 }
 ```
 
-**Mittel** – 30-Minuten-Tagesbudget für YouTube-Shorts. Der Timer tickt automatisch bei `pageHeartbeatEvent`s, während eine Shorts-URL sichtbar ist; Ein separater Handler erzwingt die Blockierung, wenn der Timer Null erreicht.
+**Mittel** – 30-Minuten-Tagesbudget für Jutjub-Shorts. Der Timer tickt automatisch bei `pageHeartbeatEvent`s, während eine Shorts-URL sichtbar ist; Ein separater Handler erzwingt die Blockierung, wenn der Timer Null erreicht.
 
 ```js
 (event, helpers) => {
@@ -542,7 +542,7 @@ Bei Prädikatmethoden wird das Prädikat pro passender Karte mit einem normalisi
 }
 ```
 
-**Schwieriger** – Blenden Sie einzelne YouTube-Shorts aus, deren Autoren-Handle zu lang ist, und fügen Sie ein „Dieser Short ist ausgeblendet“-CSS ein:
+**Schwieriger** – Blenden Sie einzelne Jutjub-Shorts aus, deren Autoren-Handle zu lang ist, und fügen Sie ein „Dieser Short ist ausgeblendet“-CSS ein:
 
 ```js
 (event, helpers) => {
@@ -588,17 +588,17 @@ Jede benutzerdefinierte Gruppe verfügt über eine **Vorlagen**-Auswahl, die ein
 
 | Kategorie | Beispiele |
 |---|---|
-| **Timer** | Site-Zeitbudget (Countdown + Block), Site-Zeit-Tracker (Aufwärtszählen), YouTube Shorts-Obergrenze, TikTok-Feed-Obergrenze, Instagram Reels-Obergrenze, Facebook Reels-Obergrenze, Twitch Clips-Obergrenze, Universelles Ablenkungsbudget, Täglicher Deep-Work-Tracker |
+| **Timer** | Site-Zeitbudget (Countdown + Block), Site-Zeit-Tracker (Aufwärtszählen), Jutjub Shorts-Obergrenze, Kurzvideoportal-Feed-Obergrenze, Bildernetz Reels-Obergrenze, Gesichtsbuch Reels-Obergrenze, Live-Portal Clips-Obergrenze, Universelles Ablenkungsbudget, Täglicher Deep-Work-Tracker |
 | **Zeitplan** | Blockierung der Arbeitszeiten an Wochentagen, Standorte nur am Wochenende, Abschaltung vor dem Schlafengehen, nur eine Stunde erlauben, Nachrichten nur zum Mittagessen, Neuanfang am Montag, strikte Blockierung von intensiver Arbeit |
-| **Feed / Shorts** | YouTube-Shorts-URLs blockieren, Shorts-Karten ausblenden, Shorts nach Stichwort ausblenden, YouTube-Startseite-Feed/Kommentare/Trends ausblenden, TikTok FYP blockieren, TikTok-Shorts ausblenden, Instagram-Reels-URLs blockieren, Instagram-Reels-Feed ausblenden, Facebook-Feed/Reels ausblenden, Reddit/Twitter/LinkedIn-Startseite ausblenden |
+| **Feed / Shorts** | Jutjub-Shorts-URLs blockieren, Shorts-Karten ausblenden, Shorts nach Stichwort ausblenden, Jutjub-Startseite-Feed/Kommentare/Trends ausblenden, Kurzvideoportal FYP blockieren, Kurzvideoportal-Shorts ausblenden, Bildernetz-Reels-URLs blockieren, Bildernetz-Reels-Feed ausblenden, Gesichtsbuch-Feed/Reels ausblenden, Gemeinschaftsforum/Zwitscher/LinkedIn-Startseite ausblenden |
 | **Weiterleiten** | Ablenkungen → Fokusseite, Shorts → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, neuer Tab → Aufgabenliste |
 | **Fokus** | Fokussitzung nur auf Zulassungsliste, Pomodoro 25/5, Blockierung während der Besprechung, Blockierung nach N Besuchen heute, Blockierung bei Streak-Verlust |
 | **Stups** | Protokollieren Sie jeden Ablenkungsbesuch, warnen Sie bei jedem Shorts-Besuch und zählen Sie die täglichen Besuche auf einer Website |
-| **Beharrlichkeit** | Monatliche Besuchsobergrenze, wöchentliche Sperrung umschalten, besuchte Discord-Kanäle verfolgen |
-| **DOM-Optimierungen** | YouTube-Autoplay ausblenden, umschalten, Twitter / X „Was passiert“ ausblenden, generisch „Selektoren auf einer Website ausblenden“ |
+| **Beharrlichkeit** | Monatliche Besuchsobergrenze, wöchentliche Sperrung umschalten, besuchte Chatdienst-Kanäle verfolgen |
+| **DOM-Optimierungen** | Jutjub-Autoplay ausblenden, umschalten, Zwitscher / X „Was passiert“ ausblenden, generisch „Selektoren auf einer Website ausblenden“ |
 | **Debug** | Demo-Countdown (3 s), jedes benutzerdefinierte Ereignis protokollieren |
 
-Filterchips oben in der Auswahl grenzen die Liste nach Kategorie (`Timer`, `Schedule`, `Feed`, …) und Plattform (`YouTube`, `TikTok`, `Instagram`, …) ein. Auswahl einer Vorlage:
+Filterchips oben in der Auswahl grenzen die Liste nach Kategorie (`Timer`, `Schedule`, `Feed`, …) und Plattform (`Jutjub`, `Kurzvideoportal`, `Bildernetz`, …) ein. Auswahl einer Vorlage:
 
 1. Lädt seine Parametereingaben (URL, Minuten, Stundenbereiche usw.) in eine kleine Form.
 2. **Voreinstellung anwenden** zeigt eine Vorschau der generierten Quelle an.
@@ -674,7 +674,7 @@ Bei Eingabefeldern mit Formatvorgaben erscheint die Meldung auch neben der entsp
 ## 19. Fehlerbehebung- **Eine von mir hinzugefügte Gruppe bewirkt nichts.** Stellen Sie sicher, dass die Gruppe aktiviert ist, der Zeitplan dies jetzt zulässt, keine Snooze aktiv ist und (bei Plattformgruppen) die Seite tatsächlich dem ausgewählten Inhaltstyp und Autorenfilter entspricht.
 - **Ein Timer hängt oder ist auf einem Tab falsch.** Wechseln Sie weg und zurück oder fokussieren Sie den Tab – das löst eine erzwungene Aktualisierung des gemeinsamen Timers aus.
 - **Feed-Karten erscheinen wieder, nachdem ich denke, dass sie ausgeblendet werden sollten.** Das Ausblenden von Feeds wird nur ausgeführt, während die Regel aktiv blockiert. Wenn Sie über eine `after-minutes`-Regel verfügen, wird das Ausblenden von Feeds aktiviert, sobald Ihre Zeit Null erreicht.
-- **Eine YouTube-Navigationsschaltfläche, von der ich erwartet hatte, dass sie ausgeblendet wird, ist immer noch vorhanden.** Das Ausblenden der Navigation erfordert, dass die Regel auf „Nicht nach Autor filtern“ eingestellt ist und der Inhaltstyp „Shorts“ oder „YouTube-Beiträge“ ist. Bei Autorenfiltern erfolgt das Ausblenden nur pro Karte.
+- **Eine Jutjub-Navigationsschaltfläche, von der ich erwartet hatte, dass sie ausgeblendet wird, ist immer noch vorhanden.** Das Ausblenden der Navigation erfordert, dass die Regel auf „Nicht nach Autor filtern“ eingestellt ist und der Inhaltstyp „Shorts“ oder „Jutjub-Beiträge“ ist. Bei Autorenfiltern erfolgt das Ausblenden nur pro Karte.
 - **Benutzerdefinierte Regel hat nichts getan oder wurde stillschweigend ausgelöst.** Öffnen Sie Einstellungen → aktivieren Sie den **Debug-Modus**, klicken Sie dann erneut auf **Ausführen** und sehen Sie sich das Protokollfenster an. Zeilen mit dem Präfix `[trace]` zeigen alle Dispatcher und Handler an. Verwenden Sie `helpers.getLogHelper().log(...)`, um Ihre eigenen Trace-Punkte hinzuzufügen. Wenn eine fehlerhafte Regel immer wieder automatisch unter Quarantäne gestellt wird, beheben Sie die Ursache und klicken Sie auf „Ausführen“ – „Ausführen“ löscht den Abbruchgrund.
 - **Meine neue benutzerdefinierte Regel wirkt sich nicht auf bereits geöffnete Tabs aus.** Laden Sie sie neu. Benutzerdefinierte Regeln werden an *zukünftige* Seitenereignisse angehängt; Das Popup zeigt eine Erinnerung zum Neuladen nach jedem Lauf an.
 - **Mein Countdown-Timer läuft nicht weiter.** Timer mit benutzerdefinierten Regeln ticken nur auf der Registerkarte **aktiv sichtbar** über `pageHeartbeatEvent`. Hintergrundregisterkarten, minimierte Fenster und gesperrte Bildschirme pausieren sie absichtlich – dasselbe Verhalten wie beim standardmäßigen Blockgruppen-Countdown.
@@ -704,8 +704,13 @@ Bei Eingabefeldern mit Formatvorgaben erscheint die Meldung auch neben der entsp
 ---
 
 ## 21. Einschränkungen- Das Ausblenden von Feeds hängt vom aktuellen DOM der jeweiligen Plattform ab. Wenn die Plattform ihr Layout ändert, müssen möglicherweise die Ausblendungsselektoren aktualisiert werden.
-– Die Plattformkontexterkennung für Nicht-YouTube-Websites erfolgt größtenteils URL-basiert und ist daher bei kanonischen Inhalts-URLs am zuverlässigsten.
+– Die Plattformkontexterkennung für Nicht-Jutjub-Websites erfolgt größtenteils URL-basiert und ist daher bei kanonischen Inhalts-URLs am zuverlässigsten.
 – Benutzerdefinierte Regel-Timer ticken mit Heartbeat-Auflösung (~250 ms). Verlassen Sie sich nicht auf sie, wenn es um das Timing unter einer Sekunde geht.
 - Prädikate, die an `hideShorts` / `hideVideos` / `hidePosts` übergeben werden, werden pro Feed-Karte synchron ausgewertet. Schwere Logik in einem Prädikat kann das Scrollen im Feed verlangsamen; Halten Sie sie günstig.
 - Zwei Registerkarten, die gleichzeitig denselben Timer pro Gruppe bearbeiten, verwenden die Strategie „Letzter Schreibvorgang gewinnt“. Für den typischen Gebrauch ist das in Ordnung; Wenn Sie auf eine genaue Abrechnung angewiesen sind, müssen Sie mit gelegentlichen kleinen Abweichungen rechnen.
 – Der Browser unterbricht möglicherweise den Hintergrunddienstmitarbeiter, wenn er inaktiv ist. Die Erweiterung setzt sie fort, sobald eine Seite oder ein Alarm sie benötigt; Website-/zeitgesteuerte Nutzungsbudgets zählen weiterhin über die Heartbeat-Wiedergabe.
+
+## Hinweis zu v1.2
+
+Der Editor für benutzerdefinierte Regeln färbt jetzt Skriptsprache-Syntax ein, und der Vorlagenbrowser nutzt dieselben Farben für Codevorschauen. Die Sammelaktion für Gruppen heißt **Leeren**.
+

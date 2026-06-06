@@ -12,7 +12,7 @@
       <header class="hero">
         <div class="hero-topbar">
           <div>
-            <h1>Custom Website Blocker</h1>
+            <h1 data-i18n="app.shortTitle">Custom Website Blocker</h1>
           </div>
           <div class="hero-actions">
             <button id="settingsButton" type="button" class="secondary" data-i18n="settings.button">
@@ -212,18 +212,23 @@
           <section id="customSettingsCard" class="section-card hidden">
             <div class="section-header">
               <div>
-                <h3>Blocking Rules</h3>
+                <h3 data-i18n="custom.title">Blocking Rules</h3>
               </div>
             </div>
 
-            <textarea
-              id="blockingRules"
-              rows="8"
-              aria-label="Custom Rules"
-              data-i18n-aria-label="custom.rules"
-              placeholder="(event, helpers) => {&#10;  // Register handlers here.&#10;}"
-              spellcheck="false"
-            ></textarea>
+            <div id="blockingRulesEditor" class="code-editor">
+              <pre id="blockingRulesHighlight" class="code-editor-highlight" aria-hidden="true"></pre>
+              <textarea
+                id="blockingRules"
+                rows="8"
+                aria-label="Custom Rules"
+                data-i18n-aria-label="custom.rules"
+                placeholder="(event, helpers) => {&#10;  // Register handlers here.&#10;}"
+                data-i18n-placeholder="custom.rulesPlaceholder"
+                spellcheck="false"
+              ></textarea>
+            </div>
+            <p id="blockingRulesLint" class="code-editor-lint" aria-live="polite"></p>
             <div class="field-actions">
               <button id="openRuleTemplatesButton" type="button" class="secondary weird" data-i18n="custom.templates">
                 Templates
@@ -744,6 +749,7 @@
       </div>
     </div>
 
+    <script src="browser-compat.js"></script>
     <script src="translations.js"></script>
     <script src="popup-markdown.js"></script>
     <!--
