@@ -1945,6 +1945,110 @@
     };
   }
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Window helper — unified API for reading/managing tabs and a dynamic
+  // site blocklist. On the extension side, "windows" are browser tabs.
+  // ────────────────────────────────────────────────────────────────────────
+
+  const windowBlocklist = new Map(); // pattern -> true (shared across groups, session lifetime)
+
+  function createWindowHelper(accumulatorRef, dispatchContextRef) {
+    function snapshot() {
+      const ctx = typeof dispatchContextRef === "function" ? dispatchContextRef() : (dispatchContextRef || {});
+      return Array.isArray(ctx.tabsSnapshot) ? ctx.tabsSnapshot : [];
+    }
+
+    function pushIntent(intent) {
+      const acc = ensureAccumulatorShape(accumulatorRef.get());
+      checkHandlerDeadline(acc);
+      if (acc.intents.length >= HELPERS_MAX_INTENTS_PER_DISPATCH) return;
+      acc.intents.push(intent);
+    }
+
+    function normalizePattern(p) {
+      let s = String(p || "").trim().toLowerCase();
+      if (s.startsWith("http://")) s = s.slice(7);
+      if (s.startsWith("https://")) s = s.slice(8);
+      if (s.startsWith("www.")) s = s.slice(4);
+      const slashIdx = s.indexOf("/");
+      if (slashIdx > 0) s = s.slice(0, slashIdx);
+      return s;
+    }
+
+    function hostnameMatchesPattern(hostname, pattern) {
+      if (!hostname || !pattern) return false;
+      const h = hostname.toLowerCase();
+      if (h === pattern) return true;
+      const suffix = "." + pattern;
+      return h.length > pattern.length && h.endsWith(suffix);
+    }
+
+    return {
+      current() {
+        const active = snapshot().find((t) => t && t.active);
+        if (!active) return { id: null, url: "", hostname: "", title: "", isBrowser: true };
+        const host = getHostname(active.url) || "";
+        return {
+          id: active.id,
+          url: active.url || "",
+          hostname: host,
+          title: active.title || "",
+          isBrowser: true
+        };
+      },
+
+      all() {
+        return snapshot().map((t) => ({
+          id: t.id,
+          url: t.url || "",
+          hostname: getHostname(t.url) || "",
+          title: t.title || "",
+          active: Boolean(t.active)
+        }));
+      },
+
+      close(tabIdOrUrl) {
+        if (typeof tabIdOrUrl === "number") {
+          pushIntent({ kind: "window", action: "closeTab", tabId: tabIdOrUrl });
+        } else if (typeof tabIdOrUrl === "string" && tabIdOrUrl) {
+          pushIntent({ kind: "window", action: "closeTabByUrl", url: tabIdOrUrl });
+        } else {
+          pushIntent({ kind: "window", action: "closeActiveTab" });
+        }
+      },
+
+      closeTab() {
+        pushIntent({ kind: "window", action: "closeActiveTab" });
+      },
+
+      block(pattern) {
+        const p = normalizePattern(pattern);
+        if (!p) return;
+        windowBlocklist.set(p, true);
+        pushIntent({ kind: "window", action: "blockSite", pattern: p });
+      },
+
+      unblock(pattern) {
+        const p = normalizePattern(pattern);
+        windowBlocklist.delete(p);
+        pushIntent({ kind: "window", action: "unblockSite", pattern: p });
+      },
+
+      isBlocked(urlOrHostname) {
+        const hostname = getHostname(urlOrHostname) || normalizePattern(urlOrHostname);
+        if (!hostname) return false;
+        for (const [pattern] of windowBlocklist) {
+          if (hostnameMatchesPattern(hostname, pattern)) return true;
+        }
+        return false;
+      },
+
+      getBlocked() {
+        return Array.from(windowBlocklist.keys());
+      }
+    };
+  }
+
   function createEventLogHelper(groupId, accumulatorRef) {
     // Returns false when the dispatch's log buffer is full so the caller
     // can also skip the corresponding console.* call. Without that gate,
@@ -2397,6 +2501,7 @@
     const storage = createStorageHelper(persistenceBucket || {}, accumulatorRef);
     const localFolder = createLocalFolderHelper(groupId, accumulatorRef);
     const tabs = createTabHelper(accumulatorRef, dispatchContextRef);
+    const win = createWindowHelper(accumulatorRef, dispatchContextRef);
     const platform = createEventPlatformHelper(
       accumulatorRef,
       dispatchContextRef,
@@ -2438,6 +2543,7 @@
       getStorageHelper: () => storage,
       getLocalFolderHelper: () => localFolder,
       getTabHelper: () => tabs,
+      getWindowHelper: () => win,
       getPlatformHelper: () => platform
     };
   }

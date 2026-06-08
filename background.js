@@ -2918,6 +2918,13 @@ async function applySandboxResultToTab(tabId, result, descriptor) {
       typeof result.result !== "string") {
     return;
   }
+  // Process window-level intents in the background (they require chrome.tabs).
+  const windowIntents = intents.filter((i) => i && i.kind === "window");
+  const contentIntents = intents.filter((i) => !i || i.kind !== "window");
+  if (windowIntents.length > 0) {
+    processWindowIntents(windowIntents, tabId).catch(() => {});
+  }
+
   const message = {
     type: "event-sandbox-apply",
     descriptor,
@@ -2925,7 +2932,7 @@ async function applySandboxResultToTab(tabId, result, descriptor) {
     result: result.result ?? null,
     redirectUrl: result.redirectUrl || "",
     domOps,
-    intents,
+    intents: contentIntents,
     panelSnapshots: panelPayload.panels,
     panelGroups: panelPayload.groups,
     logs
@@ -2938,6 +2945,90 @@ async function applySandboxResultToTab(tabId, result, descriptor) {
     // flush on the next "content-ready" handshake from this tab.
     enqueueApply(tabId, message);
   }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Window helper: dynamic site blocklist + tab management
+// ────────────────────────────────────────────────────────────────────────
+
+const __windowBlockedSites = new Set();
+
+function windowBlocklistNormalize(pattern) {
+  let p = String(pattern || "").trim().toLowerCase();
+  if (p.startsWith("http://")) p = p.slice(7);
+  if (p.startsWith("https://")) p = p.slice(8);
+  if (p.startsWith("www.")) p = p.slice(4);
+  const slashIdx = p.indexOf("/");
+  if (slashIdx > 0) p = p.slice(0, slashIdx);
+  return p;
+}
+
+function windowBlocklistMatches(url) {
+  if (__windowBlockedSites.size === 0) return false;
+  try {
+    let hostname = new URL(url).hostname.toLowerCase();
+    if (hostname.startsWith("www.")) hostname = hostname.slice(4);
+    for (const pattern of __windowBlockedSites) {
+      if (hostname === pattern || hostname.endsWith("." + pattern)) return true;
+    }
+  } catch {}
+  return false;
+}
+
+async function processWindowIntents(intents, originTabId) {
+  for (const intent of intents) {
+    if (!intent) continue;
+    switch (intent.action) {
+      case "closeActiveTab":
+        if (typeof originTabId === "number") {
+          try { await chrome.tabs.remove(originTabId); } catch {}
+        }
+        break;
+      case "closeTab":
+        if (typeof intent.tabId === "number") {
+          try { await chrome.tabs.remove(intent.tabId); } catch {}
+        }
+        break;
+      case "closeTabByUrl": {
+        const url = String(intent.url || "");
+        if (!url) break;
+        try {
+          const tabs = await chrome.tabs.query({});
+          for (const tab of tabs) {
+            if (tab.url && tab.url.includes(url)) {
+              await chrome.tabs.remove(tab.id);
+            }
+          }
+        } catch {}
+        break;
+      }
+      case "blockSite": {
+        const p = windowBlocklistNormalize(intent.pattern);
+        if (p) {
+          __windowBlockedSites.add(p);
+          closeTabsMatchingBlocklist();
+        }
+        break;
+      }
+      case "unblockSite": {
+        const p = windowBlocklistNormalize(intent.pattern);
+        __windowBlockedSites.delete(p);
+        break;
+      }
+    }
+  }
+}
+
+async function closeTabsMatchingBlocklist() {
+  if (__windowBlockedSites.size === 0) return;
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (tab.url && windowBlocklistMatches(tab.url)) {
+        try { await chrome.tabs.remove(tab.id); } catch {}
+      }
+    }
+  } catch {}
 }
 
 async function dispatchEventToTab(type, tabInfo, extras = {}) {
@@ -3015,6 +3106,12 @@ async function handleCommittedWebNavigation(details) {
   if (!details || details.frameId !== 0) return;
   const tabId = details.tabId;
   if (typeof tabId !== "number" || tabId < 0) return;
+
+  // Chokepoint: close tab immediately if navigating to a dynamically blocked site.
+  if (details.url && windowBlocklistMatches(details.url)) {
+    try { await chrome.tabs.remove(tabId); } catch {}
+    return;
+  }
   const previous = previousTabUrls.get(tabId);
   const previousUrl = previous?.url || null;
   const previousHost = previous?.hostname || "";
