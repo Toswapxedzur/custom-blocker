@@ -623,6 +623,41 @@ function buildEventObject(descriptor, recipientGroupId, accumulator) {
     },
     getRedirectLink() {
       return accumulator.redirectUrl ?? "";
+    },
+
+    close(id) {
+      accumulator.intents = accumulator.intents || [];
+      if (typeof id === "string" && id) {
+        accumulator.intents.push({ kind: "window", action: "closeTabByUrl", url: id });
+      } else if (typeof id === "number") {
+        accumulator.intents.push({ kind: "window", action: "closeTab", tabId: id });
+      } else {
+        accumulator.intents.push({ kind: "window", action: "closeActiveTab" });
+      }
+    },
+
+    block(id) {
+      accumulator.intents = accumulator.intents || [];
+      const pattern = typeof id === "string" && id
+        ? id
+        : (typeof descriptor.hostname === "string" && descriptor.hostname ? descriptor.hostname : "");
+      if (pattern) {
+        accumulator.intents.push({ kind: "window", action: "blockSite", pattern });
+      }
+    },
+
+    unblock(id) {
+      accumulator.intents = accumulator.intents || [];
+      const pattern = typeof id === "string" && id
+        ? id
+        : (typeof descriptor.hostname === "string" && descriptor.hostname ? descriptor.hostname : "");
+      if (pattern) {
+        accumulator.intents.push({ kind: "window", action: "unblockSite", pattern });
+      }
+    },
+
+    open() {
+      // No-op in browser extensions — cannot launch apps.
     }
   };
 
