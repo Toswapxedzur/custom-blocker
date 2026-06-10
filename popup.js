@@ -3350,6 +3350,7 @@ function render(now = Date.now()) {
   renderEditor(now);
   renderUnfreezeModal(now);
   renderTemplateModal();
+  filterLogFeedByGroup();
 }
 
 function renderDynamicView() {
@@ -5443,8 +5444,16 @@ function renderLogFeedEntry(entry) {
   if (entry.id != null && logFeedSeenIds.has(entry.id)) return;
   if (entry.id != null) logFeedSeenIds.add(entry.id);
 
+  const gn = entry.groupName || entry.eventType || "";
+  const selectedGroup = getSelectedGroup();
+  const selectedName = selectedGroup ? selectedGroup.name : "";
+
   const row = document.createElement("div");
   row.className = "log-feed-entry " + (entry.level === "warn" ? "warn" : entry.level === "error" ? "error" : "");
+  if (gn) row.setAttribute("data-group-name", gn);
+  if (gn && selectedName && gn !== selectedName) {
+    row.style.display = "none";
+  }
   const meta = document.createElement("span");
   meta.className = "log-feed-meta";
   const parts = [];
@@ -5462,9 +5471,31 @@ function renderLogFeedEntry(entry) {
     logFeedList.removeChild(logFeedList.firstChild);
   }
   logFeedList.scrollTop = logFeedList.scrollHeight;
-  if (logFeedCount) {
-    logFeedCount.textContent = String(logFeedList.children.length);
+  updateLogFeedVisibleCount();
+}
+
+function updateLogFeedVisibleCount() {
+  if (!logFeedCount || !logFeedList) return;
+  let count = 0;
+  for (const child of logFeedList.children) {
+    if (child.style.display !== "none") count++;
   }
+  logFeedCount.textContent = String(count);
+}
+
+function filterLogFeedByGroup() {
+  if (!logFeedList) return;
+  const selectedGroup = getSelectedGroup();
+  const selectedName = selectedGroup ? selectedGroup.name : "";
+  for (const row of logFeedList.children) {
+    const gn = row.getAttribute("data-group-name") || "";
+    if (!gn || !selectedName || gn === selectedName) {
+      row.style.display = "";
+    } else {
+      row.style.display = "none";
+    }
+  }
+  updateLogFeedVisibleCount();
 }
 
 async function loadLogFeedSnapshot() {
