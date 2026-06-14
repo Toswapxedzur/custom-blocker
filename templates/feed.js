@@ -91,6 +91,32 @@
       }
     },
     {
+      id: "youtube-hide-home-feed-ads",
+      title: "Block YouTube Home Feed Ads",
+      description: "Remove sponsored tiles, in-feed ad slots, and the masthead promo banner from the YouTube home feed. Organic videos are untouched.",
+      tags: ["feed", "ads", "youtube"],
+      params: [],
+      buildCode() {
+        return `(event, helpers) => {
+  event.registerWebChangedEvent("hide-yt-feed-ads", (ev, h) => {
+    const d = h.getDomainHelper();
+    if (!d.isYouTubeHost(d.hostnameOf(ev.url))) return;
+    const dom = h.getDOMHelper();
+    // In-feed ad tiles — hide the grid-cell wrapper so no empty slot remains.
+    dom.hide("ytd-rich-item-renderer:has(ytd-ad-slot-renderer)");
+    dom.hide("ytd-rich-item-renderer:has(ytd-in-feed-ad-layout-renderer)");
+    dom.hide("ytd-ad-slot-renderer");
+    dom.hide("ytd-display-ad-renderer");
+    dom.hide("ytd-in-feed-ad-layout-renderer");
+    // Masthead / promo banners.
+    dom.hide("#masthead-ad");
+    dom.hide("ytd-banner-promo-renderer");
+    dom.hide("ytd-statement-banner-renderer");
+  });
+}`;
+      }
+    },
+    {
       id: "youtube-hide-comments",
       title: "Hide YouTube Comments",
       description: "Hide the comment section under videos so you can watch without the doomscrolling tail.",
