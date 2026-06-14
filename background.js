@@ -156,6 +156,8 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     freezeMode: "none",
     strictFreezeHours: DEFAULT_STRICT_FREEZE_HOURS,
     frozenAtMs: null,
+    parentalPasswordHash: null,
+    parentalPasswordSalt: null,
     sites: [],
     blockHomePage: false,
     fallbackUrl: "",
@@ -537,7 +539,9 @@ function sanitizeGroups(groups) {
             ? group.blockingRulesText.trim()
             : baseGroup.blockingRulesText,
         freezeMode:
-          group?.freezeMode === "strict" || group?.freezeMode === "frozen"
+          group?.freezeMode === "strict" ||
+          group?.freezeMode === "frozen" ||
+          group?.freezeMode === "parental"
             ? group.freezeMode
             : "none",
         strictFreezeHours:
@@ -545,6 +549,14 @@ function sanitizeGroups(groups) {
         frozenAtMs:
           Number.isFinite(Number(group?.frozenAtMs)) && Number(group.frozenAtMs) > 0
             ? Number(group.frozenAtMs)
+            : null,
+        parentalPasswordHash:
+          typeof group?.parentalPasswordHash === "string" && group.parentalPasswordHash
+            ? group.parentalPasswordHash
+            : null,
+        parentalPasswordSalt:
+          typeof group?.parentalPasswordSalt === "string" && group.parentalPasswordSalt
+            ? group.parentalPasswordSalt
             : null,
         sites: Array.isArray(group?.sites)
           ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
@@ -600,7 +612,9 @@ function sanitizeSnoozes(value, groups, now) {
     const confirmationCount = parseSnoozeConfirmations(snooze?.confirmationCount);
     const activeMsApplied = Boolean(snooze?.activeMsApplied);
     const refreezeMode =
-      snooze?.refreezeMode === "strict" || snooze?.refreezeMode === "frozen"
+      snooze?.refreezeMode === "strict" ||
+      snooze?.refreezeMode === "frozen" ||
+      snooze?.refreezeMode === "parental"
         ? snooze.refreezeMode
         : "frozen";
     if (
@@ -1339,7 +1353,10 @@ function applyRuntimeNormalizations(
       if (groupIndex >= 0 && nextGroups[groupIndex].freezeMode === "none") {
         nextGroups[groupIndex] = {
           ...nextGroups[groupIndex],
-          freezeMode: snooze.refreezeMode === "strict" ? "strict" : "frozen",
+          freezeMode:
+            snooze.refreezeMode === "strict" || snooze.refreezeMode === "parental"
+              ? snooze.refreezeMode
+              : "frozen",
           frozenAtMs: now
         };
       }
@@ -3478,4 +3495,226 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 ensureStartupGate().catch((error) => {
   console.error("[CustomBlocker] startup loader threw", error);
 });
+
+/* ------------------------------------------------------------------ *
+ * Web-app bridge — extension WebSocket client.
+ *
+ * The macOS app hosts the hub (a browser extension cannot listen on a
+ * socket). This client connects out to that hub, authenticates with the
+ * user-entered pairing code, and keeps a live status that the popup reads
+ * via the "connection-status" message (and live "connection-status-push"
+ * broadcasts while the popup is open).
+ *
+ * WebSocket activity keeps the MV3 service worker alive (Chrome 116+), so
+ * the connection survives popup open/close. We also send a periodic ping.
+ * ------------------------------------------------------------------ */
+const CB_CONNECTION_PROTOCOL_VERSION = 1;
+const CB_CONNECTION_PING_MS = 20_000;
+const CB_CONNECTION_RECONNECT_MS = 5_000;
+
+function cbDetectProgramId() {
+  let ua = "";
+  try {
+    ua = (self.navigator && self.navigator.userAgent) || "";
+  } catch (_) {}
+  if (/\bEdg\//.test(ua)) return "edge";
+  if (/\bFirefox\//.test(ua)) return "firefox";
+  if (/\bOPR\//.test(ua) || /\bOpera\//.test(ua)) return "opera";
+  if (/\bChrome\//.test(ua)) return "chrome";
+  if (/\bSafari\//.test(ua)) return "safari";
+  return "browser";
+}
+
+const cbConnection = {
+  ws: null,
+  pingTimer: null,
+  reconnectTimer: null,
+  desired: false,
+  address: "",
+  code: "",
+  status: { running: false, state: "off", address: "", pairingCode: "", peers: [], error: "" },
+
+  setStatus(patch) {
+    this.status = { ...this.status, ...patch };
+    this.broadcast();
+  },
+
+  broadcast() {
+    try {
+      chrome.runtime
+        .sendMessage({ type: "connection-status-push", status: this.status })
+        .catch(() => {});
+    } catch (_) {}
+  },
+
+  clearTimers() {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  },
+
+  closeSocket() {
+    if (this.ws) {
+      try {
+        this.ws.onopen = this.ws.onmessage = this.ws.onerror = this.ws.onclose = null;
+        this.ws.close();
+      } catch (_) {}
+      this.ws = null;
+    }
+  },
+
+  connect(address, code) {
+    this.desired = true;
+    this.address = String(address || "").trim();
+    this.code = String(code || "").trim();
+    this.clearTimers();
+    this.closeSocket();
+    if (!this.address) {
+      this.setStatus({ state: "error", error: "missing address", address: "" });
+      return;
+    }
+    this.setStatus({ state: "connecting", address: this.address, error: "" });
+    let socket;
+    try {
+      socket = new WebSocket(this.address);
+    } catch (error) {
+      this.setStatus({ state: "error", error: String(error && error.message ? error.message : error) });
+      this.scheduleReconnect();
+      return;
+    }
+    this.ws = socket;
+    socket.onopen = () => {
+      try {
+        socket.send(
+          JSON.stringify({
+            kind: "hello",
+            v: CB_CONNECTION_PROTOCOL_VERSION,
+            program: cbDetectProgramId(),
+            code: this.code
+          })
+        );
+      } catch (_) {}
+      this.pingTimer = setInterval(() => {
+        try {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ kind: "ping", t: Date.now() }));
+          }
+        } catch (_) {}
+      }, CB_CONNECTION_PING_MS);
+    };
+    socket.onmessage = (event) => {
+      this.handleMessage(event && event.data);
+    };
+    socket.onerror = () => {
+      this.setStatus({ state: "error", error: "socket error" });
+    };
+    socket.onclose = () => {
+      this.clearTimers();
+      this.ws = null;
+      if (this.desired) {
+        this.setStatus({ state: "connecting", peers: [] });
+        this.scheduleReconnect();
+      } else {
+        this.setStatus({ state: "off", peers: [] });
+      }
+    };
+  },
+
+  scheduleReconnect() {
+    if (!this.desired || this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.desired) this.connect(this.address, this.code);
+    }, CB_CONNECTION_RECONNECT_MS);
+  },
+
+  disconnect() {
+    this.desired = false;
+    this.clearTimers();
+    this.closeSocket();
+    this.setStatus({ state: "off", peers: [], error: "" });
+  },
+
+  handleMessage(raw) {
+    let msg = null;
+    try {
+      msg = typeof raw === "string" ? JSON.parse(raw) : raw;
+    } catch (_) {
+      return;
+    }
+    if (!msg || typeof msg !== "object") return;
+    switch (msg.kind) {
+      case "welcome":
+        this.setStatus({
+          state: "connected",
+          error: "",
+          peers: Array.isArray(msg.peers) ? msg.peers : this.status.peers
+        });
+        break;
+      case "rejected":
+        this.desired = false;
+        this.clearTimers();
+        this.closeSocket();
+        this.setStatus({ state: "error", error: msg.reason || "rejected", peers: [] });
+        break;
+      case "peers":
+        this.setStatus({ peers: Array.isArray(msg.peers) ? msg.peers : [] });
+        break;
+      case "pong":
+        break;
+      default:
+        // Cluster/sync messages handled in a later milestone.
+        break;
+    }
+  },
+
+  async applyFromSettings() {
+    let conn = null;
+    try {
+      const r = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
+      const s = r && r[CB_GLOBAL_SETTINGS_KEY];
+      conn = s && typeof s === "object" ? s.connection : null;
+    } catch (_) {}
+    if (conn && conn.clientEnabled && conn.clientAddress) {
+      this.connect(conn.clientAddress, conn.clientPairingCode || "");
+    } else {
+      this.disconnect();
+    }
+  }
+};
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || typeof message.type !== "string") return false;
+  switch (message.type) {
+    case "connection-connect":
+      cbConnection.connect(message.address, message.code);
+      sendResponse({ ok: true, status: cbConnection.status });
+      return false;
+    case "connection-disconnect":
+      cbConnection.disconnect();
+      sendResponse({ ok: true, status: cbConnection.status });
+      return false;
+    case "connection-status":
+      sendResponse({ ok: true, status: cbConnection.status });
+      return false;
+    default:
+      return false;
+  }
+});
+
+// Re-apply when the user toggles the client on/off or edits the address.
+if (chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[CB_GLOBAL_SETTINGS_KEY]) return;
+    cbConnection.applyFromSettings();
+  });
+}
+
+// Auto-connect on service-worker startup if the user left the client enabled.
+cbConnection.applyFromSettings();
 

@@ -1735,7 +1735,7 @@ function __cb_updatePanelTimerControls(panelEl, snapshot) {
 function __cb_shouldDeferInputValuePatch(input) {
   if (!input || document.activeElement !== input) return false;
   const type = input.getAttribute("data-cb-panel-control-type") || "";
-  return ["textInput", "textarea", "numberInput", "range", "select", "date", "time", "color"].includes(type);
+  return ["textInput", "textarea", "numberInput", "range", "select", "date", "time", "color", "pin"].includes(type);
 }
 
 function __cb_setInputValueIfSafe(input, value) {
@@ -2313,6 +2313,59 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
       radioGroup.appendChild(optionLabel);
     }
     wrap.appendChild(radioGroup);
+    body.appendChild(wrap);
+    return;
+  } else if (type === "pin") {
+    const pinLen = Math.max(3, Math.min(12, Math.floor(Number(control.length)) || 6));
+    const masked = control.masked !== false;
+    const pinWrap = document.createElement("div");
+    pinWrap.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;";
+    const hidden = document.createElement("input");
+    hidden.type = "text";
+    hidden.inputMode = "numeric";
+    hidden.autocomplete = "one-time-code";
+    hidden.setAttribute("maxlength", String(pinLen));
+    hidden.setAttribute("data-cb-panel-control-id", control.id || "");
+    hidden.setAttribute("data-cb-panel-control-type", "pin");
+    hidden.style.cssText = "position:absolute;opacity:0;width:1px;height:1px;border:0;padding:0;pointer-events:none;";
+    hidden.value = __cb_safePanelText(control.value, pinLen).replace(/\D/g, "").slice(0, pinLen);
+    hidden.disabled = control.disabled === true;
+    const boxes = [];
+    for (let i = 0; i < pinLen; i++) {
+      const boxEl = document.createElement("div");
+      boxEl.style.cssText = [
+        "width:30px", "height:38px", "border-radius:6px",
+        "background:rgba(148,163,184,0.25)",
+        "border:1px solid " + __cb_safeCssColor(theme.border, "rgba(148,163,184,0.55)"),
+        "display:flex", "align-items:center", "justify-content:center",
+        "font:600 18px ui-monospace,SFMono-Regular,Menlo,monospace",
+        "color:" + __cb_safeCssColor(theme.foreground, "#0f172a"),
+        "cursor:" + (control.disabled === true ? "default" : "text")
+      ].join(";");
+      boxes.push(boxEl);
+      pinWrap.appendChild(boxEl);
+    }
+    const renderBoxes = () => {
+      const v = hidden.value;
+      for (let i = 0; i < pinLen; i++) {
+        boxes[i].textContent = i < v.length ? (masked ? "\u2022" : v[i]) : "";
+      }
+    };
+    renderBoxes();
+    hidden.addEventListener("input", () => {
+      const digits = hidden.value.replace(/\D/g, "").slice(0, pinLen);
+      if (digits !== hidden.value) hidden.value = digits;
+      renderBoxes();
+      __cb_sendPanelEvent(panelEl, control, "change", digits);
+      if (control.autoSubmit === true && digits.length === pinLen) {
+        __cb_sendPanelEvent(panelEl, control, "submit", digits);
+      }
+    });
+    pinWrap.addEventListener("click", () => {
+      if (control.disabled !== true) hidden.focus();
+    });
+    wrap.appendChild(hidden);
+    wrap.appendChild(pinWrap);
     body.appendChild(wrap);
     return;
   } else if (type === "select") {
@@ -3012,15 +3065,43 @@ async function __cb_scanFeedPredicates() {
     bySlot[slot].push({ card, item });
   }
 
+  let hiddenThisPass = false;
   for (const slot of ["shorts", "videos", "posts"]) {
     const batch = bySlot[slot];
     if (batch.length === 0) continue;
     const results = await __cb_evaluateItems(platform, slot, batch.map((b) => b.item));
     if (!results) continue;
     for (let i = 0; i < batch.length; i++) {
-      if (results[i] && results[i].hide) __cb_predicateHide(batch[i].card);
+      if (results[i] && results[i].hide) {
+        __cb_predicateHide(batch[i].card);
+        hiddenThisPass = true;
+      }
     }
   }
+
+  // When the predicate trims cards out of the feed, the collapsed grid can
+  // stop the platform's own infinite-scroll observer from re-firing, leaving
+  // a short/stalled feed. Nudge the continuation sentinel so fresh items load
+  // to replenish what was hidden. The MutationObserver re-runs this scan when
+  // the new batch arrives, so it self-chains until enough cards remain visible.
+  if (hiddenThisPass) __cb_replenishFeed();
+}
+
+let __cb_replenishInFlight = false;
+
+function __cb_replenishFeed() {
+  if (__cb_replenishInFlight) return;
+  // YouTube's home/search feeds expose this continuation sentinel; on other
+  // platforms it won't exist, so this is effectively a no-op there.
+  const sentinel = document.querySelector("ytd-continuation-item-renderer");
+  if (!sentinel || typeof sentinel.scrollIntoView !== "function") return;
+  __cb_replenishInFlight = true;
+  try {
+    sentinel.scrollIntoView({ block: "end" });
+  } catch {}
+  // Debounce so a heavily-filtered feed can't fire rapid back-to-back
+  // continuation fetches (which risks platform rate-limiting).
+  window.setTimeout(() => { __cb_replenishInFlight = false; }, 500);
 }
 
 function __cb_schedulePredicateScan() {

@@ -678,7 +678,8 @@
     "radio",
     "date",
     "time",
-    "color"
+    "color",
+    "pin"
   ]);
   const PANEL_CONTROL_ACTIONS = new Set(["submit", "cancel", "close"]);
 
@@ -863,6 +864,10 @@
     if (type === "date") return sanitizePanelDateValue(value);
     if (type === "time") return sanitizePanelTimeValue(value);
     if (type === "color") return sanitizePanelInputColor(value);
+    if (type === "pin") {
+      const len = control?.length ? Math.max(3, Math.min(12, Math.floor(Number(control.length)) || 6)) : 6;
+      return String(value ?? "").replace(/\D/g, "").slice(0, len);
+    }
     if (type === "section" || type === "timer") return "";
     return truncateText(value, 512);
   }
@@ -942,6 +947,12 @@
     }
     if (type === "textInput" || type === "textarea") {
       out.placeholder = truncateText(control.placeholder ?? "", 500);
+    }
+    if (type === "pin") {
+      out.length = Math.max(3, Math.min(12, Math.floor(Number(control.length)) || 6));
+      out.masked = control.masked !== false;
+      out.value = sanitizePanelValue(type, value, out);
+      if (control.autoSubmit === true) out.autoSubmit = true;
     }
     if (type === "select" || type === "radio") {
       out.options = sanitizePanelOptions(control.options, value);
