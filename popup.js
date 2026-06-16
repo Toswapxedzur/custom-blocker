@@ -35,11 +35,8 @@ const CONNECTION_DEFAULT_ADDRESS = `ws://127.0.0.1:${CONNECTION_DEFAULT_PORT}`;
 const DEFAULT_CONNECTION_SETTINGS = {
   // macOS hub
   serverEnabled: false,
-  serverPort: CONNECTION_DEFAULT_PORT,
   // browser client
-  clientEnabled: false,
-  clientAddress: CONNECTION_DEFAULT_ADDRESS,
-  clientPairingCode: ""
+  clientEnabled: false
 };
 
 const DEFAULT_GLOBAL_SETTINGS = {
@@ -58,8 +55,6 @@ const DEFAULT_GLOBAL_SETTINGS = {
 const TICK_RATE_MIN_MS = 250;
 const TICK_RATE_MAX_MS = 60_000;
 const AUTOSAVE_DEBOUNCE_MAX_MS = 5_000;
-const CONNECTION_PORT_MIN = 1024;
-const CONNECTION_PORT_MAX = 65_535;
 
 // True when running inside the macOS app's WKWebView (the native chrome shim),
 // false in a real browser extension. Used to decide whether this endpoint is
@@ -190,6 +185,7 @@ const strictFreezeSettings = document.getElementById("strictFreezeSettings");
 const strictFreezeHoursField = document.getElementById("strictFreezeHours");
 const applyFreezeButton = document.getElementById("applyFreezeButton");
 const unfreezeButton = document.getElementById("unfreezeButton");
+const freezeBridgeNotice = document.getElementById("freezeBridgeNotice");
 const parentalSettingsButton = document.getElementById("parentalSettingsButton");
 const snoozeSummary = document.getElementById("snoozeSummary");
 const allowSnoozeField = document.getElementById("allowSnooze");
@@ -254,16 +250,20 @@ const connectionSection = document.getElementById("connectionSection");
 const connectionServerControls = document.getElementById("connectionServerControls");
 const connectionClientControls = document.getElementById("connectionClientControls");
 const connectionServerToggle = document.getElementById("connectionServerToggle");
-const connectionServerPortField = document.getElementById("connectionServerPort");
-const connectionClientAddressField = document.getElementById("connectionClientAddress");
-const connectionClientCodeField = document.getElementById("connectionClientCode");
 const connectionConnectButton = document.getElementById("connectionConnectButton");
 const connectionDisconnectButton = document.getElementById("connectionDisconnectButton");
 const connectionStatusDot = document.getElementById("connectionStatusDot");
 const connectionStatusText = document.getElementById("connectionStatusText");
 const connectionAddressReadout = document.getElementById("connectionAddressReadout");
-const connectionCodeReadout = document.getElementById("connectionCodeReadout");
 const connectionPeerList = document.getElementById("connectionPeerList");
+const connectionGroupSection = document.getElementById("connectionGroupSection");
+const connectionGroupHint = document.getElementById("connectionGroupHint");
+const connectionGroupDisconnected = document.getElementById("connectionGroupDisconnected");
+const connectionGroupConnected = document.getElementById("connectionGroupConnected");
+const connectionGroupProgram = document.getElementById("connectionGroupProgram");
+const connectionGroupConnectButton = document.getElementById("connectionGroupConnectButton");
+const connectionGroupDisconnectButton = document.getElementById("connectionGroupDisconnectButton");
+const connectionGroupMembers = document.getElementById("connectionGroupMembers");
 const dayCheckboxes = Array.from(daysGrid.querySelectorAll('input[type="checkbox"]'));
 
 const state = {
@@ -302,10 +302,28 @@ const state = {
     running: false,
     state: "off",
     address: "",
-    pairingCode: "",
     peers: [],
     error: ""
-  }
+  },
+  // Live web-app bridge clusters that involve this endpoint, supplied by the
+  // transport layer (hub is the single source of truth). Never persisted: a
+  // group is "connected" when a cluster lists {program: LOCAL_PROGRAM_ID,
+  // groupName: <this group's name>}. Each entry:
+  //   { id, groupName, groupType, members: [{ program, groupName }], shared }
+  clusters: [],
+  // Read-only mirror of the shared pools per clustered group:
+  //   { [groupId]: { sites: [...], apps: [...] } }
+  clusterMirror: {},
+  // Last contribution JSON we sent per group, so we don't echo applied state
+  // back to the hub (loop suppression mirrors the hub's broadcast-on-change).
+  clusterSyncSent: {},
+  // Logical edit timestamp per group, used for scalar last-writer-wins.
+  groupEditTs: {},
+  // Group ids whose next sync should win the merge (the initiator of a link).
+  pendingPriorityGroups: new Set(),
+  // Serialized last-applied cluster list, so repeated identical pushes (the Mac
+  // hub re-pushes every second) don't trigger needless re-renders.
+  clustersLastJSON: ""
 };
 
 function getAiPromptStorageKey(groupId) {
@@ -646,6 +664,8 @@ function connectionStatusLabel(status) {
       return status.error
         ? t("connection.statusError") + ": " + status.error
         : t("connection.statusError");
+    case "disconnected":
+      return t("connection.statusDisconnected");
     default:
       return t("connection.statusOff");
   }
@@ -665,10 +685,7 @@ function renderConnectionSettings() {
 
   if (IS_CONNECTION_HUB) {
     if (connectionServerToggle) connectionServerToggle.checked = Boolean(conn.serverEnabled);
-    if (connectionServerPortField) connectionServerPortField.value = String(conn.serverPort);
   } else {
-    if (connectionClientAddressField) connectionClientAddressField.value = conn.clientAddress;
-    if (connectionClientCodeField) connectionClientCodeField.value = conn.clientPairingCode;
     const connected = status.state === "connected" || status.state === "connecting";
     if (connectionConnectButton) connectionConnectButton.classList.toggle("hidden", connected);
     if (connectionDisconnectButton)
@@ -683,12 +700,7 @@ function renderConnectionSettings() {
     connectionStatusText.textContent = connectionStatusLabel(status);
   }
   if (connectionAddressReadout) {
-    const addr = status.address || (IS_CONNECTION_HUB ? "" : conn.clientAddress);
-    connectionAddressReadout.textContent = addr || "—";
-  }
-  if (connectionCodeReadout) {
-    connectionCodeReadout.textContent = IS_CONNECTION_HUB ? status.pairingCode || "—" : "";
-    connectionCodeReadout.classList.toggle("hidden", !IS_CONNECTION_HUB);
+    connectionAddressReadout.textContent = status.address || CONNECTION_DEFAULT_ADDRESS;
   }
 
   if (connectionPeerList) {
@@ -719,15 +731,21 @@ function renderConnectionSettings() {
 // macOS via window.__cbConnectionState, background worker in the browser).
 function applyConnectionStatus(raw) {
   const incoming = raw && typeof raw === "object" ? raw : {};
+  const wasOnline = bridgeIsOnline();
   state.connectionStatus = {
     running: Boolean(incoming.running),
     state: typeof incoming.state === "string" ? incoming.state : "off",
     address: typeof incoming.address === "string" ? incoming.address : "",
-    pairingCode: typeof incoming.pairingCode === "string" ? incoming.pairingCode : "",
     peers: Array.isArray(incoming.peers) ? incoming.peers : [],
     error: typeof incoming.error === "string" ? incoming.error : ""
   };
   if (state.isSettingsOpen) renderConnectionSettings();
+  // The per-group panel lives in the editor (always visible), so keep it fresh.
+  refreshConnectionGroupPanel();
+  if (!wasOnline && bridgeIsOnline()) {
+    announceGroups();
+    requestClusters();
+  }
 }
 
 window.__cbConnectionState = function (json) {
@@ -746,6 +764,564 @@ function requestConnectionStatus() {
       })
       .catch(() => {});
   } catch (_) {}
+}
+
+// ---------------------------------------------------------------------------
+// Per-group web-app bridge: link a Default/Custom group with the same-named
+// group on another connected program (a "cluster"). The hub is the single
+// source of truth for cluster membership; this layer only renders it and sends
+// connect/disconnect intents.
+// ---------------------------------------------------------------------------
+
+const CONNECTION_PROGRAM_LABELS = {
+  macapp: "Mac app",
+  chrome: "Chrome",
+  edge: "Edge",
+  firefox: "Firefox",
+  safari: "Safari",
+  opera: "Opera",
+  browser: "Browser"
+};
+
+function connectionProgramLabel(programId) {
+  return CONNECTION_PROGRAM_LABELS[programId] || programId || "?";
+}
+
+function bridgeIsOnline() {
+  const s = state.connectionStatus || {};
+  return s.state === "connected" || s.state === "running";
+}
+
+function isBridgeEligibleGroup(group) {
+  return Boolean(group) && (group.groupType === "site" || group.groupType === "custom");
+}
+
+// A cluster is "fully online" only when our own bridge link is live AND every
+// member program reports online in the hub snapshot. When any member is offline
+// the cluster's shared memory can't be reconciled, so we lock down actions that
+// must not diverge while disconnected (notably freeze state changes).
+function clusterAllOnline(cluster) {
+  if (!cluster) return false;
+  if (!bridgeIsOnline()) return false;
+  if (cluster.allOnline === false) return false;
+  const members = Array.isArray(cluster.members) ? cluster.members : [];
+  if (members.length === 0) return false;
+  return members.every((m) => m && m.online !== false);
+}
+
+// Offline member programs in this group's cluster (for the UI indicator).
+function clusterOfflineMembers(cluster) {
+  if (!cluster) return [];
+  const members = Array.isArray(cluster.members) ? cluster.members : [];
+  return members.filter((m) => {
+    if (!m) return false;
+    if (m.program === LOCAL_PROGRAM_ID) return false; // we are obviously here
+    return m.online === false || !bridgeIsOnline();
+  });
+}
+
+// The cluster (if any) this group currently belongs to, matched by this
+// endpoint's program id + the group's saved name.
+function groupConnectionCluster(group) {
+  if (!group) return null;
+  const clusters = Array.isArray(state.clusters) ? state.clusters : [];
+  return (
+    clusters.find((cluster) =>
+      Array.isArray(cluster.members) &&
+      cluster.members.some(
+        (m) => m && m.program === LOCAL_PROGRAM_ID && m.groupName === group.name
+      )
+    ) || null
+  );
+}
+
+// Programs the user can link to right now (other connected endpoints). A client
+// is always implicitly connected to the Mac hub; the hub sees its peers.
+function bridgeConnectablePrograms() {
+  if (!bridgeIsOnline()) return [];
+  const status = state.connectionStatus || {};
+  const peers = Array.isArray(status.peers) ? status.peers : [];
+  const programs = new Set();
+  for (const peer of peers) {
+    if (peer && peer.connected !== false && peer.program) programs.add(peer.program);
+  }
+  if (!IS_CONNECTION_HUB) programs.add("macapp");
+  programs.delete(LOCAL_PROGRAM_ID);
+  programs.delete("browser");
+  programs.delete("");
+  return Array.from(programs);
+}
+
+function renderConnectionGroupPanel(group, freezeStatus) {
+  if (!connectionGroupSection) return;
+  if (!isBridgeEligibleGroup(group)) {
+    connectionGroupSection.classList.add("hidden");
+    return;
+  }
+  connectionGroupSection.classList.remove("hidden");
+
+  const cluster = groupConnectionCluster(group);
+  connectionGroupSection.classList.toggle("bridge-linked", Boolean(cluster));
+
+  if (connectionGroupConnected) connectionGroupConnected.classList.toggle("hidden", !cluster);
+  if (connectionGroupDisconnected) connectionGroupDisconnected.classList.toggle("hidden", Boolean(cluster));
+
+  if (cluster) {
+    const allOnline = clusterAllOnline(cluster);
+    connectionGroupSection.classList.toggle("bridge-offline", !allOnline);
+    if (connectionGroupMembers) {
+      connectionGroupMembers.textContent = "";
+      const members = Array.isArray(cluster.members) ? cluster.members : [];
+      for (const member of members) {
+        const isSelf = member.program === LOCAL_PROGRAM_ID;
+        // We always know our own side is present; remote members are online
+        // only when the hub says so AND our link to the hub is live.
+        const memberOnline = isSelf
+          ? true
+          : member.online !== false && bridgeIsOnline();
+        const row = document.createElement("div");
+        row.className = "connection-peer" + (memberOnline ? "" : " offline");
+        const dot = document.createElement("span");
+        dot.className = "connection-dot " + (memberOnline ? "connected" : "error");
+        const label = document.createElement("span");
+        const self = isSelf ? " (this app)" : "";
+        const offlineTag = memberOnline ? "" : " — " + t("connectionGroup.memberOffline");
+        label.textContent =
+          connectionProgramLabel(member.program) + ": " + (member.groupName || group.name) + self + offlineTag;
+        row.appendChild(dot);
+        row.appendChild(label);
+        connectionGroupMembers.appendChild(row);
+      }
+    }
+    if (connectionGroupHint) {
+      connectionGroupHint.textContent = allOnline ? "" : t("connectionGroup.clusterOffline");
+    }
+    return;
+  }
+  connectionGroupSection.classList.remove("bridge-offline");
+
+  const online = bridgeIsOnline();
+  const frozen = Boolean(freezeStatus && freezeStatus.isFrozen);
+  const programs = bridgeConnectablePrograms();
+
+  if (connectionGroupProgram) {
+    const previous = connectionGroupProgram.value;
+    connectionGroupProgram.textContent = "";
+    for (const programId of programs) {
+      const option = document.createElement("option");
+      option.value = programId;
+      option.textContent = connectionProgramLabel(programId);
+      connectionGroupProgram.appendChild(option);
+    }
+    if (programs.includes(previous)) connectionGroupProgram.value = previous;
+  }
+
+  const disabled = !online || frozen || programs.length === 0;
+  if (connectionGroupConnectButton) connectionGroupConnectButton.disabled = disabled;
+  if (connectionGroupProgram) connectionGroupProgram.disabled = disabled;
+  if (connectionGroupHint) {
+    connectionGroupHint.textContent = !online
+      ? t("connectionGroup.offline")
+      : frozen
+        ? t("connectionGroup.frozen")
+        : programs.length === 0
+          ? t("connectionGroup.noPrograms")
+          : t("connectionGroup.ready");
+  }
+}
+
+// For a clustered Default (site) group, renders the blocked-list type this
+// endpoint does NOT own as a read-only, translucent mirror beside the editable
+// list. Browsers own websites and mirror the shared apps; the Mac owns apps and
+// mirrors the shared websites. Both platforms use the same chip styling so the
+// linked group looks identical on either side.
+function renderBridgeMirror(group) {
+  const section = document.getElementById("bridgeMirrorSection");
+  if (!section) return;
+  const cluster = group ? groupConnectionCluster(group) : null;
+  if (!group || group.groupType !== "site" || !cluster) {
+    section.classList.add("hidden");
+    return;
+  }
+  const shared = (cluster && cluster.shared) || state.clusterMirror[group.id] || {};
+  const showApps = !bridgeOwnsApps(); // we own sites here, so mirror apps
+  const items = showApps
+    ? (Array.isArray(shared.apps) ? shared.apps : [])
+    : (Array.isArray(shared.sites) ? shared.sites : []);
+
+  const labelEl = document.getElementById("bridgeMirrorLabel");
+  const hintEl = document.getElementById("bridgeMirrorHint");
+  if (labelEl) {
+    labelEl.textContent = showApps
+      ? t("connectionGroup.mirrorApps")
+      : t("connectionGroup.mirrorSites");
+  }
+  if (hintEl) {
+    hintEl.textContent = showApps
+      ? t("connectionGroup.mirrorAppsHint")
+      : t("connectionGroup.mirrorSitesHint");
+  }
+
+  section.classList.remove("hidden");
+  const list = document.getElementById("bridgeMirrorList");
+  if (!list) return;
+  list.innerHTML = "";
+  if (items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "bridge-mirror-empty";
+    empty.textContent = t("connectionGroup.mirrorEmpty");
+    list.appendChild(empty);
+    return;
+  }
+  for (const item of items) {
+    const isObj = item && typeof item === "object";
+    const name = typeof item === "string" ? item : (isObj && item.name) || "";
+    if (!name) continue;
+    const chip = document.createElement("div");
+    chip.className = "bridge-mirror-chip";
+    chip.setAttribute("role", "listitem");
+    chip.title = name;
+
+    // Icon: app mirrors carry a shared icon data URL from the owning Mac (fall
+    // back to a monogram); site mirrors resolve a favicon locally where a helper
+    // exists. Keeps the mirror visually consistent with the native lists.
+    let iconEl = null;
+    if (showApps) {
+      const iconUrl = isObj && typeof item.icon === "string" ? item.icon : "";
+      if (iconUrl) {
+        iconEl = document.createElement("img");
+        iconEl.className = "bridge-mirror-icon";
+        iconEl.src = iconUrl;
+        iconEl.alt = "";
+      } else {
+        iconEl = document.createElement("span");
+        iconEl.className = "bridge-mirror-icon bridge-mirror-monogram";
+        iconEl.textContent = name.charAt(0).toUpperCase();
+      }
+    } else if (typeof makeSiteIconElement === "function") {
+      iconEl = makeSiteIconElement(name);
+      iconEl.classList.add("bridge-mirror-icon");
+    }
+    if (iconEl) chip.appendChild(iconEl);
+
+    const label = document.createElement("span");
+    label.className = "bridge-mirror-name";
+    label.textContent = name;
+    chip.appendChild(label);
+
+    list.appendChild(chip);
+  }
+}
+
+function refreshConnectionGroupPanel() {
+  const group = getSelectedGroup();
+  const now = Date.now();
+  renderConnectionGroupPanel(group, group ? getFreezeStatus(group, now) : null);
+  renderBridgeMirror(group);
+}
+
+// Re-tag group cards with the bridge-linked cluster indicator without a full rebuild.
+function updateGroupCardBridgeBadges() {
+  const cards = groupList.querySelectorAll(".group-card");
+  cards.forEach((card) => {
+    const group = state.groups.find((g) => g.id === card.dataset.groupId);
+    card.classList.toggle("bridge-connected", Boolean(group && groupConnectionCluster(group)));
+  });
+}
+
+// One-shot bridge warnings: surface a notice the first time a condition occurs
+// (e.g. a linked member goes offline) and reset it once the condition clears, so
+// the user is warned once per episode instead of on every render tick.
+const bridgeWarned = new Set();
+function warnBridgeOnce(key, message) {
+  if (bridgeWarned.has(key)) return;
+  bridgeWarned.add(key);
+  setStatus(message, true);
+}
+function clearBridgeWarn(key) {
+  bridgeWarned.delete(key);
+}
+
+function applyClusters(list) {
+  const incoming = Array.isArray(list) ? list : Array.isArray(list?.clusters) ? list.clusters : [];
+  const incomingJSON = JSON.stringify(incoming);
+  if (incomingJSON === state.clustersLastJSON) return;
+  state.clustersLastJSON = incomingJSON;
+  state.clusters = incoming;
+  // Apply hub-authoritative shared settings to each of our member groups.
+  for (const cluster of state.clusters) {
+    if (!cluster || !Array.isArray(cluster.members)) continue;
+    if (!cluster.members.some((m) => m && m.program === LOCAL_PROGRAM_ID)) continue;
+    const group = state.groups.find((g) => g.name === cluster.groupName);
+    if (!group) continue;
+    if (cluster.shared) {
+      applyClusterShared(group, cluster.shared);
+    } else {
+      // Freshly-formed cluster: the hub's first snapshot carries no `shared`
+      // until each member has contributed its owned list. Force our owned-list
+      // contribution to be (re)sent so the peer's mirror fills on the FIRST
+      // connect instead of staying blank until a later edit.
+      delete state.clusterSyncSent[group.id];
+    }
+  }
+  // Drop mirrors for groups no longer clustered.
+  for (const groupId of Object.keys(state.clusterMirror)) {
+    const group = state.groups.find((g) => g.id === groupId);
+    if (!group || !groupConnectionCluster(group)) delete state.clusterMirror[groupId];
+  }
+  updateGroupCardBridgeBadges();
+  // Re-render the editor so synced scalar changes show, unless the user is
+  // actively typing in a field (don't clobber in-progress input).
+  const active = document.activeElement;
+  const editing =
+    active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT");
+  if (getSelectedGroup() && !editing) {
+    renderEditor();
+  } else {
+    refreshConnectionGroupPanel();
+  }
+  // Warn once per offline episode: if we're linked but a cluster member is
+  // offline (e.g. the Mac app isn't open), shared changes won't sync until it's
+  // back. The warning resets when every member is online again.
+  for (const cluster of state.clusters) {
+    if (!cluster || !Array.isArray(cluster.members)) continue;
+    if (!cluster.members.some((m) => m && m.program === LOCAL_PROGRAM_ID)) continue;
+    const key = "offline:" + cluster.groupName;
+    if (cluster.allOnline === false) {
+      warnBridgeOnce(key, t("connectionGroup.warnMemberOffline"));
+    } else {
+      clearBridgeWarn(key);
+    }
+  }
+  // Propagated freeze may have changed our frozen status; refresh the roster
+  // so future link validation sees it, then push our own contributions.
+  announceGroups();
+  syncAllClusters();
+}
+
+function applyGroupRejection(reason) {
+  if (connectionGroupHint) {
+    connectionGroupHint.textContent = t("connectionGroup.rejected") + (reason || "");
+  }
+}
+
+// Native (macOS) pushes cluster membership here; the browser uses the
+// "clusters-push" runtime message instead.
+window.__cbClustersState = function (json) {
+  try {
+    const incoming = typeof json === "string" ? JSON.parse(json) : json;
+    applyClusters(incoming);
+  } catch (_) {}
+};
+
+window.__cbGroupRejected = function (json) {
+  try {
+    const incoming = typeof json === "string" ? JSON.parse(json) : json;
+    applyGroupRejection(incoming && incoming.reason);
+  } catch (_) {}
+};
+
+function requestClusters() {
+  try {
+    chrome.runtime
+      .sendMessage({ type: "clusters-status" })
+      .then((res) => {
+        if (res && res.clusters) applyClusters(res.clusters);
+      })
+      .catch(() => {});
+  } catch (_) {}
+}
+
+// Tell the hub which Default/Custom groups exist here (by saved name + type +
+// freeze state) so it can validate connection requests against same-named
+// groups. Sent on load, after group edits, and when the bridge comes online.
+function announceGroups() {
+  const groups = (Array.isArray(state.groups) ? state.groups : [])
+    .filter(isBridgeEligibleGroup)
+    .map((g) => ({
+      name: g.name,
+      type: g.groupType,
+      frozen: getFreezeStatus(g, Date.now()).isFrozen
+    }));
+  try {
+    chrome.runtime.sendMessage({ type: "groups-announce", program: LOCAL_PROGRAM_ID, groups });
+  } catch (_) {}
+}
+
+// ---------------------------------------------------------------------------
+// Settings sync: clustered groups share a single set of settings. The hub is
+// the authority — scalars are last-writer-wins, blocked-domain / blocked-app
+// pools are a union of each owner's list (browsers own domains, the Mac owns
+// apps), and freeze state propagates as a scalar. The live elapsed usage
+// counter is also shared for Default groups: each side reports its absolute
+// local counter and the hub accumulates deltas into one shared budget that is
+// folded back into every member's local timer (see applyClusterShared).
+// ---------------------------------------------------------------------------
+
+const SYNC_SCALAR_FIELDS = [
+  "mode",
+  "allowedMinutes",
+  "resetIntervalHours",
+  "allowSnooze",
+  "snoozeMinutes",
+  "snoozeActivationDelayMinutes",
+  "snoozeCooldownMinutes",
+  "snoozeConfirmations",
+  "activeDays",
+  "timeWindowsText",
+  "freezeMode",
+  "freezeModeChoice",
+  "strictFreezeHours",
+  "frozenAtMs",
+  "blockHomePage",
+  "fallbackUrl",
+  "skipToNextOnBlock"
+];
+
+// This endpoint owns (can edit + contributes) one blocked-list type: the Mac
+// owns apps, browsers own domains. The other type is a read-only mirror.
+function bridgeOwnsApps() {
+  return IS_CONNECTION_HUB;
+}
+
+function buildSyncContribution(group) {
+  const scalars = {};
+  for (const field of SYNC_SCALAR_FIELDS) scalars[field] = group[field];
+  const contribution = { scalars };
+  if (group.groupType === "site") {
+    if (bridgeOwnsApps()) {
+      contribution.apps = Array.isArray(group.apps) ? group.apps : [];
+    } else {
+      contribution.sites = Array.isArray(group.sites) ? group.sites : [];
+    }
+    // NOTE: the live usage budget is reported as deltas by the accrual owner
+    // only — the browser's background heartbeat (cbReportClusterUsage) and the
+    // Mac's in-process frontmost-app sampler (reportLocalUsage). The popup is
+    // display-only for usage: it folds the hub's shared total back into the
+    // local counter (applyClusterShared) but never reports it, so the popup and
+    // background can't double-count the same accrual.
+  }
+  // Active snooze runtime is shared so a snooze started on any member applies to
+  // every linked member (newest start wins). The entry carries all of its own
+  // timing (start/until/cooldown), so each side enforces and expires it
+  // identically without needing to propagate the eventual clear.
+  const snoozeEntry = state.groupSnoozes[group.id];
+  if (snoozeEntry && Number.isFinite(Number(snoozeEntry.startsAtMs))) {
+    contribution.snooze = snoozeEntry;
+    contribution.snoozeTs = Number(snoozeEntry.startsAtMs) || 0;
+  }
+  return contribution;
+}
+
+// Validates a snooze record received from the hub for a specific group and
+// returns a sanitized entry, or null if invalid or already fully expired (we
+// never re-adopt a snooze whose cooldown has passed — that would fight local
+// expiry and flip-flop the state).
+function adoptSharedSnooze(group, raw, now = Date.now()) {
+  if (!group || !raw || typeof raw !== "object") return null;
+  const sanitized = sanitizeSnoozes({ [group.id]: raw }, [group]);
+  const entry = sanitized[group.id];
+  if (!entry) return null;
+  if (Number(entry.cooldownUntilMs) <= now) return null;
+  return entry;
+}
+
+// Writes the hub's shared settings onto a local member group (scalars + freeze)
+// and records the shared list pools as a read-only mirror. The owned list is
+// never overwritten (the user keeps editing their own type).
+function applyClusterShared(group, shared) {
+  if (!group || !shared || typeof shared !== "object") return;
+  const scalars = shared.scalars && typeof shared.scalars === "object" ? shared.scalars : {};
+  const idx = state.groups.findIndex((g) => g.id === group.id);
+  if (idx < 0) return;
+  const next = { ...state.groups[idx] };
+  let changed = false;
+  for (const field of SYNC_SCALAR_FIELDS) {
+    if (
+      Object.prototype.hasOwnProperty.call(scalars, field) &&
+      JSON.stringify(next[field]) !== JSON.stringify(scalars[field])
+    ) {
+      next[field] = scalars[field];
+      changed = true;
+    }
+  }
+  state.groups[idx] = next;
+  state.clusterMirror[group.id] = {
+    sites: Array.isArray(shared.sites) ? shared.sites : [],
+    apps: Array.isArray(shared.apps) ? shared.apps : []
+  };
+  if (Number.isFinite(shared.ts)) state.groupEditTs[group.id] = shared.ts;
+
+  // Fold the hub's shared usage budget into our local counter so the live
+  // elapsed timer (display + enforcement) reflects time spent on every member.
+  // We never overwrite our own future accrual — the background keeps adding to
+  // this value and reporting it back, and the hub measures only the new delta.
+  if (next.groupType === "site" && Number.isFinite(shared.usageMs)) {
+    const incomingUsage = Math.max(0, Number(shared.usageMs) || 0);
+    if ((Number(state.usageTimersMs[group.id]) || 0) !== incomingUsage) {
+      state.usageTimersMs[group.id] = incomingUsage;
+      chrome.storage.local.set({ [USAGE_TIMERS_KEY]: state.usageTimersMs }).catch(() => {});
+    }
+    if (
+      Number.isFinite(shared.usageResetAtMs) &&
+      shared.usageResetAtMs > 0 &&
+      (Number(state.usageResetAtMs[group.id]) || 0) !== Number(shared.usageResetAtMs)
+    ) {
+      state.usageResetAtMs[group.id] = Number(shared.usageResetAtMs);
+      chrome.storage.local.set({ [USAGE_RESET_AT_KEY]: state.usageResetAtMs }).catch(() => {});
+    }
+  }
+
+  // Adopt a newer shared snooze (newest start wins) so a snooze started on a
+  // linked member activates here too. Liveness is checked inside adoptSharedSnooze.
+  const sharedSnoozeTs = Number(shared.snoozeTs) || 0;
+  if (sharedSnoozeTs > 0 && shared.snooze && typeof shared.snooze === "object") {
+    const localEntry = state.groupSnoozes[group.id];
+    const localTs = localEntry ? Number(localEntry.startsAtMs) || 0 : 0;
+    if (sharedSnoozeTs > localTs) {
+      const adopted = adoptSharedSnooze(next, shared.snooze);
+      if (adopted) {
+        state.groupSnoozes[group.id] = adopted;
+        chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: state.groupSnoozes }).catch(() => {});
+      }
+    }
+  }
+
+  // Mark our contribution as up to date so we don't echo it back to the hub.
+  state.clusterSyncSent[group.id] = JSON.stringify(buildSyncContribution(next));
+  if (changed) {
+    chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: state.groups }).catch(() => {});
+  }
+}
+
+function syncClusterForGroup(group) {
+  if (!group || !isBridgeEligibleGroup(group)) return;
+  if (!groupConnectionCluster(group)) {
+    delete state.clusterSyncSent[group.id];
+    return;
+  }
+  const contribution = buildSyncContribution(group);
+  const json = JSON.stringify(contribution);
+  const priority = state.pendingPriorityGroups.has(group.id);
+  if (json === state.clusterSyncSent[group.id] && !priority) return;
+  state.clusterSyncSent[group.id] = json;
+  state.pendingPriorityGroups.delete(group.id);
+  state.groupEditTs[group.id] = Date.now();
+  try {
+    chrome.runtime.sendMessage({
+      type: "group-sync",
+      program: LOCAL_PROGRAM_ID,
+      groupName: group.name,
+      groupType: group.groupType,
+      ts: state.groupEditTs[group.id],
+      priority,
+      ...contribution
+    });
+  } catch (_) {}
+}
+
+function syncAllClusters() {
+  for (const group of state.groups) syncClusterForGroup(group);
 }
 
 function syncSettingsFormFromState() {
@@ -1257,26 +1833,9 @@ function clampNumber(value, min, max, fallback) {
 
 function sanitizeConnectionSettings(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
-  const serverPort = Math.round(
-    clampNumber(
-      src.serverPort,
-      CONNECTION_PORT_MIN,
-      CONNECTION_PORT_MAX,
-      DEFAULT_CONNECTION_SETTINGS.serverPort
-    )
-  );
-  const clientAddress =
-    typeof src.clientAddress === "string" && src.clientAddress.trim()
-      ? src.clientAddress.trim()
-      : DEFAULT_CONNECTION_SETTINGS.clientAddress;
-  const clientPairingCode =
-    typeof src.clientPairingCode === "string" ? src.clientPairingCode.trim().slice(0, 32) : "";
   return {
     serverEnabled: src.serverEnabled === true,
-    serverPort,
-    clientEnabled: src.clientEnabled === true,
-    clientAddress,
-    clientPairingCode
+    clientEnabled: src.clientEnabled === true
   };
 }
 
@@ -2672,12 +3231,30 @@ function normalizeFreezeModeChoice(group) {
   return "frozen";
 }
 
+// Group names must be unique per endpoint so the web-app bridge can link
+// groups by name. On load we repair any pre-existing duplicates by suffixing
+// " (2)", " (3)", … to all but the first occurrence (case-insensitive).
+function dedupeGroupNames(groups) {
+  const seen = new Set();
+  return groups.map((group) => {
+    const base = (group.name || "").trim() || group.name || "";
+    let candidate = base;
+    let counter = 2;
+    while (seen.has(candidate.toLowerCase())) {
+      candidate = `${base} (${counter})`;
+      counter += 1;
+    }
+    seen.add(candidate.toLowerCase());
+    return candidate === group.name ? group : { ...group, name: candidate };
+  });
+}
+
 function sanitizeGroups(groups) {
   if (!Array.isArray(groups)) {
     return [];
   }
 
-  return groups.map((group) => {
+  const sanitized = groups.map((group) => {
     const baseGroup = createDefaultGroup(normalizeGroupType(group?.groupType));
     const normalizedGroupType = normalizeGroupType(group?.groupType);
     const rawTimeWindowsText =
@@ -2784,6 +3361,8 @@ function sanitizeGroups(groups) {
       skipToNextOnBlock: Boolean(group?.skipToNextOnBlock)
     };
   });
+
+  return dedupeGroupNames(sanitized);
 }
 
 function sanitizeUsageTimers(value, groups) {
@@ -3617,6 +4196,14 @@ function renderGroupList(now = Date.now()) {
       card.classList.add("dragging");
     }
 
+    if (groupConnectionCluster(group)) {
+      card.classList.add("bridge-connected");
+    }
+
+    if (group.groupType === "custom") {
+      card.classList.add("custom-card");
+    }
+
     const header = document.createElement("div");
     header.className = "group-card-header";
 
@@ -3723,6 +4310,27 @@ function updateFreezeUI(group, now = Date.now()) {
 
   const freezeStatus = getFreezeStatus(group, now);
   const strictDraftHours = parseStrictFreezeHours(strictFreezeHoursField.value);
+
+  // When a group is linked into a cluster but any member is offline, freeze
+  // state must NOT change (it can't be reconciled safely while disconnected).
+  // Lock the whole freeze control set and explain why.
+  const freezeCluster = groupConnectionCluster(group);
+  const freezeBridgeLocked = Boolean(freezeCluster) && !clusterAllOnline(freezeCluster);
+  if (freezeBridgeNotice) freezeBridgeNotice.classList.toggle("hidden", !freezeBridgeLocked);
+  if (freezeBridgeLocked) {
+    freezeSummary.textContent = freezeStatus.isFrozen
+      ? t("freeze.summary.frozen")
+      : t("freeze.summary.notFrozen");
+    freezeSetup.classList.add("hidden");
+    strictFreezeSettings.classList.add("hidden");
+    if (parentalSettingsButton) parentalSettingsButton.classList.add("hidden");
+    applyFreezeButton.disabled = true;
+    unfreezeButton.classList.toggle("hidden", !freezeStatus.isFrozen);
+    unfreezeButton.disabled = true;
+    freezeModeField.disabled = true;
+    return;
+  }
+  freezeModeField.disabled = false;
 
   if (!freezeStatus.isFrozen) {
     const draftMode = freezeModeField.value;
@@ -3937,6 +4545,7 @@ function renderEditor(now = Date.now()) {
     setSnoozeWarning("");
     updateBlockingRulesEditor();
     renderBlockedSites();
+    if (connectionGroupSection) connectionGroupSection.classList.add("hidden");
     return;
   }
 
@@ -4049,7 +4658,13 @@ function renderEditor(now = Date.now()) {
   snoozeCooldownField.disabled = !editable || !allowSnoozeField.checked || freezeStatus.isFrozen;
   snoozeConfirmationsField.disabled = !editable || !allowSnoozeField.checked;
   scheduleWindowsField.disabled = !editable || isCustomGroup;
-  blockedSitesField.disabled = !editable || isPlatformVideoGroup || isRedditGroup || isCustomGroup;
+  // When a Default group is clustered, only the domain-owner (browsers) may edit
+  // the blocked-domain list; the Mac (app-owner) sees domains as a read-only
+  // mirror in the connection panel.
+  const domainsMirrored =
+    group.groupType === "site" && bridgeOwnsApps() && Boolean(groupConnectionCluster(group));
+  blockedSitesField.disabled =
+    !editable || isPlatformVideoGroup || isRedditGroup || isCustomGroup || domainsMirrored;
   blockingRulesField.disabled = !editable || !isCustomGroup;
   platformAuthorsField.disabled =
     !editable || !isPlatformVideoGroup || platformAuthorModeField.value === "none";
@@ -4061,7 +4676,7 @@ function renderEditor(now = Date.now()) {
   discordModeField.disabled = !editable || !isDiscordGroup;
   discordTargetsField.disabled = !editable || !isDiscordGroup || discordModeField.value === "all";
   clearSitesButton.disabled =
-    !editable || isPlatformVideoGroup || isRedditGroup || isDiscordGroup || isCustomGroup;
+    !editable || isPlatformVideoGroup || isRedditGroup || isDiscordGroup || isCustomGroup || domainsMirrored;
   renderBlockedSites();
   deleteGroupButton.disabled = !editable;
   exportGroupButton.disabled = false;
@@ -4106,6 +4721,8 @@ function renderEditor(now = Date.now()) {
   updateUsageSummary(group, draft, now);
   updateFreezeUI(group, now);
   updateSnoozeUI(group, now);
+  renderConnectionGroupPanel(group, freezeStatus);
+  renderBridgeMirror(group);
   updateBlockingRulesEditor();
 }
 
@@ -4133,6 +4750,9 @@ function renderDynamicView() {
   updateFreezeUI(group, now);
   updateSnoozeUI(group, now);
   renderUnfreezeModal(now);
+  // Push the latest local usage to the hub so clustered Default groups keep a
+  // shared live counter. syncClusterForGroup only sends when something changed.
+  syncAllClusters();
 }
 
 // Mutate the existing group cards in place instead of tearing them down and
@@ -4350,6 +4970,11 @@ async function persistState(message) {
   if (message) {
     setStatus(message);
   }
+
+  // Keep the hub's roster current so name-based linking validates correctly,
+  // and push any settings changes to clustered peers.
+  announceGroups();
+  syncAllClusters();
 }
 
 async function loadGroups() {
@@ -4565,6 +5190,15 @@ function buildUpdatedGroupFromDraft(group, draft) {
 
   if (!name) {
     throw new Error(t("status.invalidName"));
+  }
+
+  // Names must be unique per endpoint (the web-app bridge links groups by name).
+  const nameClash = state.groups.some(
+    (other) =>
+      other.id !== group.id && (other.name || "").trim().toLowerCase() === name.toLowerCase()
+  );
+  if (nameClash) {
+    throw new Error(t("status.duplicateName"));
   }
 
   const mode = normalizeBlockingMode(draft.mode);
@@ -6289,16 +6923,11 @@ if (settingsSaveButton) {
 if (connectionServerToggle) {
   connectionServerToggle.addEventListener("change", () => {
     const enabled = connectionServerToggle.checked;
-    const port = Number.parseInt(connectionServerPortField?.value ?? "", 10);
-    updateConnectionSettings({
-      serverEnabled: enabled,
-      serverPort: Number.isFinite(port) ? port : DEFAULT_CONNECTION_SETTINGS.serverPort
-    })
-      .then((conn) => {
+    updateConnectionSettings({ serverEnabled: enabled })
+      .then(() => {
         try {
           chrome.runtime.sendMessage({
-            type: enabled ? "connection-server-start" : "connection-server-stop",
-            port: conn.serverPort
+            type: enabled ? "connection-server-start" : "connection-server-stop"
           });
         } catch (_) {}
       })
@@ -6306,23 +6935,12 @@ if (connectionServerToggle) {
   });
 }
 
-if (connectionServerPortField) {
-  connectionServerPortField.addEventListener("change", () => {
-    const port = Number.parseInt(connectionServerPortField.value, 10);
-    updateConnectionSettings({
-      serverPort: Number.isFinite(port) ? port : DEFAULT_CONNECTION_SETTINGS.serverPort
-    }).catch(() => {});
-  });
-}
-
 if (connectionConnectButton) {
   connectionConnectButton.addEventListener("click", () => {
-    const address = connectionClientAddressField?.value?.trim() || CONNECTION_DEFAULT_ADDRESS;
-    const code = connectionClientCodeField?.value?.trim() || "";
-    updateConnectionSettings({ clientEnabled: true, clientAddress: address, clientPairingCode: code })
+    updateConnectionSettings({ clientEnabled: true })
       .then(() => {
         try {
-          chrome.runtime.sendMessage({ type: "connection-connect", address, code });
+          chrome.runtime.sendMessage({ type: "connection-connect" });
         } catch (_) {}
         applyConnectionStatus({ ...state.connectionStatus, state: "connecting" });
       })
@@ -6340,6 +6958,43 @@ if (connectionDisconnectButton) {
         applyConnectionStatus({ state: "off" });
       })
       .catch(() => {});
+  });
+}
+
+if (connectionGroupConnectButton) {
+  connectionGroupConnectButton.addEventListener("click", () => {
+    const group = getSelectedGroup();
+    if (!group || !isBridgeEligibleGroup(group)) return;
+    const toProgram = connectionGroupProgram?.value || "";
+    if (!toProgram) return;
+    // The initiator's settings win the first merge for this group.
+    state.pendingPriorityGroups.add(group.id);
+    try {
+      chrome.runtime.sendMessage({
+        type: "group-connect",
+        groupName: group.name,
+        groupType: group.groupType,
+        fromProgram: LOCAL_PROGRAM_ID,
+        toProgram
+      });
+    } catch (_) {}
+    if (connectionGroupHint) connectionGroupHint.textContent = t("connectionGroup.connecting");
+  });
+}
+
+if (connectionGroupDisconnectButton) {
+  connectionGroupDisconnectButton.addEventListener("click", () => {
+    const group = getSelectedGroup();
+    const cluster = group ? groupConnectionCluster(group) : null;
+    if (!cluster) return;
+    try {
+      chrome.runtime.sendMessage({
+        type: "group-disconnect",
+        clusterId: cluster.id,
+        groupName: group.name,
+        program: LOCAL_PROGRAM_ID
+      });
+    } catch (_) {}
   });
 }
 
@@ -6669,6 +7324,14 @@ if (chrome.runtime && chrome.runtime.onMessage) {
     }
     if (message.type === "connection-status-push") {
       applyConnectionStatus(message.status);
+      return;
+    }
+    if (message.type === "clusters-push") {
+      applyClusters(message.clusters);
+      return;
+    }
+    if (message.type === "group-rejected") {
+      applyGroupRejection(message.reason);
     }
   });
 }
@@ -6780,6 +7443,12 @@ async function initializePopupApp() {
   state.tickIntervalId = window.setInterval(() => {
     renderDynamicView();
   }, 1000);
+
+  // Bring up the per-group web-app bridge panel state: current transport
+  // status, current clusters, and announce our groups to the hub.
+  requestConnectionStatus();
+  requestClusters();
+  announceGroups();
 }
 
 initializePopupApp().catch((error) => {
