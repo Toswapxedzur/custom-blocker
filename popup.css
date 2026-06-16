@@ -7,12 +7,14 @@
   --navy-100: #eef2ff;
   --navy-ring: rgba(30, 58, 138, 0.18);
 
-  /* Gold / yellow accent for custom/AI/experimental surfaces. */
-  --gold-700: #a16207;
+  /* Gold / yellow accent for custom/AI/experimental surfaces. A true golden
+     amber rather than the old olive-brown, for better synergy with the cream
+     gold-50/100/200 tints. */
+  --gold-700: #ca8a04;
   --gold-200: #fde68a;
   --gold-100: #fef3c7;
   --gold-50: #fffbeb;
-  --gold-text: #854d0e;
+  --gold-text: #a16207;
 
   /* Pink accent for Snooze. */
   --pink-700: #be185d;
@@ -458,6 +460,166 @@ textarea:focus {
   font-size: 12px;
 }
 
+.connection-peer.offline {
+  opacity: 0.6;
+}
+
+.bridge-offline-notice {
+  color: #b45309;
+  font-weight: 600;
+}
+
+/* Golden accent for the whole web-app bridge UI (settings section + per-group
+   connection panel), independent of whether a group is currently linked. Uses
+   the same gold palette as the custom-rule card so bridge + custom share one
+   visual language. */
+#connectionSection,
+#connectionGroupSection {
+  background: var(--gold-50);
+}
+
+#connectionSection::before,
+#connectionGroupSection::before {
+  background: linear-gradient(180deg, #fbbf24 0%, var(--gold-700) 100%);
+}
+
+#connectionSection .section-header h3,
+#connectionGroupSection .section-header h3 {
+  color: color-mix(in srgb, var(--gold-text) 36%, #334155);
+}
+
+/* Golden treatment for groups linked into a web-app bridge cluster. */
+.connection-group-section.bridge-linked {
+  background: var(--gold-50);
+  box-shadow: inset 4px 0 0 var(--gold-700);
+}
+
+.connection-group-section.bridge-linked h3 {
+  color: var(--gold-text);
+}
+
+/* Bridge-linked and custom-rule group cards both read as fully golden: tint the
+   whole card body (not just the rim + star) so the badge matches the gold panel
+   styling. The .active override below keeps the selected state golden too. */
+.group-card.bridge-connected,
+.group-card.custom-card {
+  background: var(--gold-50);
+}
+
+.group-card.bridge-connected {
+  box-shadow: inset 3px 0 0 var(--gold-700);
+}
+
+.group-card.bridge-connected.active,
+.group-card.custom-card.active {
+  background: var(--gold-100);
+  box-shadow: inset 3px 0 0 var(--gold-700), 0 8px 18px rgba(202, 138, 4, 0.18);
+}
+
+.group-card.bridge-connected:hover,
+.group-card.custom-card:hover {
+  background: var(--gold-100);
+}
+
+.group-card.bridge-connected .group-name::after {
+  content: "★";
+  margin-left: 6px;
+  color: var(--gold-700);
+}
+
+/* Gold checkboxes anywhere inside a bridge-linked panel or the custom-rule card,
+   so linked / custom groups read as fully golden (incl. the snooze toggle). */
+.connection-group-section.bridge-linked .checkbox-row input[type="checkbox"],
+#customSettingsCard .checkbox-row input[type="checkbox"] {
+  accent-color: var(--gold-700);
+}
+
+.connection-pool {
+  margin-top: 8px;
+}
+
+.connection-pool-items {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--gold-50);
+  color: var(--gold-text);
+  word-break: break-word;
+}
+
+/* Read-only mirror of the blocked-list type owned by the linked app. Rendered
+   translucent + non-interactive so it is visibly "view only" on this side, and
+   styled identically on every platform so a linked Default group looks the
+   same in the browser and the Mac app. */
+.bridge-mirror-section {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--gold-50);
+  box-shadow: inset 3px 0 0 var(--gold-700);
+  opacity: 0.62;
+  pointer-events: none;
+  filter: saturate(0.85);
+}
+
+.bridge-mirror-section .label {
+  margin-bottom: 2px;
+}
+
+.bridge-mirror-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.bridge-mirror-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(161, 98, 7, 0.35);
+  color: var(--gold-text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bridge-mirror-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.bridge-mirror-monogram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gold-200);
+  color: var(--gold-text);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.bridge-mirror-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bridge-mirror-empty {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--gold-text);
+}
+
 .ai-prompt-panel {
   margin-top: 10px;
   padding: 10px;
@@ -513,7 +675,10 @@ textarea:focus {
   min-height: 300px;
   border-radius: 10px;
   background: #0f172a;
-  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.18);
+  box-shadow:
+    inset 0 0 0 1px rgba(251, 191, 36, 0.5),
+    0 0 0 1px rgba(161, 98, 7, 0.18),
+    0 8px 22px rgba(161, 98, 7, 0.12);
   overflow: hidden;
 }
 

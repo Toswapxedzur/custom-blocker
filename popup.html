@@ -191,6 +191,20 @@
                 Clear Sites
               </button>
             </div>
+
+            <!-- Read-only mirror of the blocked-list type owned by the linked
+                 app (apps here on the browser). Shown only for clustered
+                 Default groups; styled translucent because it is not editable
+                 from this side. -->
+            <div id="bridgeMirrorSection" class="bridge-mirror-section hidden">
+              <label class="label" id="bridgeMirrorLabel" data-i18n="connectionGroup.mirrorApps">
+                Blocked applications
+              </label>
+              <p class="field-help" id="bridgeMirrorHint" data-i18n="connectionGroup.mirrorAppsHint">
+                Managed on the linked app. Shown here read-only.
+              </p>
+              <div id="bridgeMirrorList" class="bridge-mirror-list" role="list"></div>
+            </div>
           </section>
 
           <div id="timedSettings" class="timed-settings">
@@ -463,6 +477,10 @@
               </button>
             </div>
 
+            <p id="freezeBridgeNotice" class="field-help bridge-offline-notice hidden" data-i18n="freeze.bridgeOffline">
+              Freeze can't be changed while a linked program is offline.
+            </p>
+
             <div id="freezeSetup" class="freeze-setup">
               <div class="settings-grid">
                 <div>
@@ -579,6 +597,39 @@
               <button id="startSnoozeButton" type="button" data-i18n="snooze.startButton">Start Snooze</button>
             </div>
             <p id="snoozeWarning" class="inline-warning"></p>
+          </section>
+
+          <section id="connectionGroupSection" class="section-card connection-group-section hidden">
+            <div class="section-header">
+              <div>
+                <h3 data-i18n="connectionGroup.title">Web-app Bridge</h3>
+                <p class="section-copy" data-i18n="connectionGroup.copy">
+                  Link this group with a same-named group on another connected program. Linked groups form one shared cluster.
+                </p>
+              </div>
+            </div>
+
+            <p id="connectionGroupHint" class="field-help"></p>
+
+            <div id="connectionGroupDisconnected" class="connection-group-connect hidden">
+              <div class="settings-grid">
+                <div>
+                  <label class="label" for="connectionGroupProgram" data-i18n="connectionGroup.programLabel">Designated program</label>
+                  <select id="connectionGroupProgram"></select>
+                </div>
+              </div>
+              <div class="actions">
+                <button id="connectionGroupConnectButton" type="button" data-i18n="connectionGroup.connect">Connect group</button>
+              </div>
+            </div>
+
+            <div id="connectionGroupConnected" class="connection-group-cluster hidden">
+              <p class="field-help" data-i18n="connectionGroup.membersLabel">Connected cluster</p>
+              <div id="connectionGroupMembers" class="connection-peer-list"></div>
+              <div class="actions">
+                <button id="connectionGroupDisconnectButton" type="button" class="secondary" data-i18n="connectionGroup.disconnect">Disconnect</button>
+              </div>
+            </div>
           </section>
         </section>
       </section>
@@ -742,39 +793,15 @@
               <span data-i18n="connection.serverToggle">Run local server (hub)</span>
             </label>
             <p class="field-help" data-i18n="connection.serverToggleHelp">
-              Other apps on this Mac can connect to this hub. A pairing code is required to authorize each connection.
-            </p>
-            <label class="label" for="connectionServerPort" data-i18n="connection.portLabel">Port</label>
-            <input
-              id="connectionServerPort"
-              type="number"
-              min="1024"
-              max="65535"
-              step="1"
-              inputmode="numeric"
-              placeholder="8787"
-            />
-            <p class="field-help">
-              <span data-i18n="connection.pairingCodeLabel">Pairing code</span>:
-              <code id="connectionCodeReadout">—</code>
+              Other apps on this Mac can connect to this hub over a fixed local address.
             </p>
             <div id="connectionPeerList" class="connection-peer-list"></div>
           </div>
 
           <div id="connectionClientControls" class="hidden">
-            <label class="label" for="connectionClientAddress" data-i18n="connection.addressLabel">Address</label>
-            <input
-              id="connectionClientAddress"
-              type="text"
-              placeholder="ws://127.0.0.1:8787"
-            />
-            <label class="label" for="connectionClientCode" data-i18n="connection.pairingCodeLabel">Pairing code</label>
-            <input
-              id="connectionClientCode"
-              type="text"
-              inputmode="numeric"
-              placeholder="000000"
-            />
+            <p class="field-help" data-i18n="connection.clientHelp">
+              Connect this browser to the macOS app over the fixed local address.
+            </p>
             <div class="field-actions">
               <button id="connectionConnectButton" type="button" class="secondary" data-i18n="connection.connect">
                 Connect
