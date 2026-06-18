@@ -611,12 +611,13 @@ function sanitizeSnoozes(value, groups, now) {
     const cooldownUntilMs = Number.parseInt(snooze?.cooldownUntilMs, 10);
     const confirmationCount = parseSnoozeConfirmations(snooze?.confirmationCount);
     const activeMsApplied = Boolean(snooze?.activeMsApplied);
+    // "none" means the group was unfrozen when snoozed and must stay unfrozen.
     const refreezeMode =
       snooze?.refreezeMode === "strict" ||
       snooze?.refreezeMode === "frozen" ||
       snooze?.refreezeMode === "parental"
         ? snooze.refreezeMode
-        : "frozen";
+        : "none";
     if (
       Number.isFinite(startsAtMs) &&
       Number.isFinite(untilMs) &&
@@ -1350,13 +1351,17 @@ function applyRuntimeNormalizations(
         Math.max(0, snooze.untilMs - snooze.startsAtMs);
       nextSnoozes[groupId] = { ...snooze, activeMsApplied: true };
       const groupIndex = nextGroups.findIndex((group) => group.id === groupId);
-      if (groupIndex >= 0 && nextGroups[groupIndex].freezeMode === "none") {
+      // Only refreeze if the group was actually frozen when it was snoozed.
+      if (
+        groupIndex >= 0 &&
+        nextGroups[groupIndex].freezeMode === "none" &&
+        (snooze.refreezeMode === "strict" ||
+          snooze.refreezeMode === "parental" ||
+          snooze.refreezeMode === "frozen")
+      ) {
         nextGroups[groupIndex] = {
           ...nextGroups[groupIndex],
-          freezeMode:
-            snooze.refreezeMode === "strict" || snooze.refreezeMode === "parental"
-              ? snooze.refreezeMode
-              : "frozen",
+          freezeMode: snooze.refreezeMode,
           frozenAtMs: now
         };
       }
@@ -4064,7 +4069,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // snooze never reaches the hub and a snooze started on one member never
         // propagates to its linked peers.
         snooze: message.snooze,
-        snoozeTs: message.snoozeTs
+        snoozeTs: message.snoozeTs,
+        // Cumulative snooze total so the hub can share the cluster-wide max.
+        snoozeTotalMs: message.snoozeTotalMs
       });
       sendResponse({ ok: true });
       return false;

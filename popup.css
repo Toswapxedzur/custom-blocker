@@ -232,7 +232,7 @@ button,
   width: calc(100% - 12px);
   border: none;
   border-radius: 12px;
-  background: #ffffff;
+  background: color-mix(in srgb, var(--navy-100) 45%, #ffffff);
   padding: 10px 9px;
   cursor: pointer;
   color: #1f2937;
@@ -498,33 +498,16 @@ textarea:focus {
   color: var(--gold-text);
 }
 
-/* Bridge-linked and custom-rule group cards both read as fully golden: tint the
-   whole card body (not just the rim + star) so the badge matches the gold panel
-   styling. The .active override below keeps the selected state golden too. */
-.group-card.bridge-connected,
-.group-card.custom-card {
-  background: var(--gold-50);
-}
-
+/* Cluster ("web-app bridge") group cards read gold: a faint gold by default,
+   deepening to the Web-app bridge panel color (--gold-50) when selected. No
+   star, no rim. */
 .group-card.bridge-connected {
-  box-shadow: inset 3px 0 0 var(--gold-700);
+  background: color-mix(in srgb, var(--gold-50) 50%, #ffffff);
 }
 
-.group-card.bridge-connected.active,
-.group-card.custom-card.active {
-  background: var(--gold-100);
-  box-shadow: inset 3px 0 0 var(--gold-700), 0 8px 18px rgba(202, 138, 4, 0.18);
-}
-
-.group-card.bridge-connected:hover,
-.group-card.custom-card:hover {
-  background: var(--gold-100);
-}
-
-.group-card.bridge-connected .group-name::after {
-  content: "★";
-  margin-left: 6px;
-  color: var(--gold-700);
+.group-card.bridge-connected.active {
+  background: var(--gold-50);
+  box-shadow: 0 8px 18px rgba(202, 138, 4, 0.14);
 }
 
 /* Gold checkboxes anywhere inside a bridge-linked panel or the custom-rule card,
