@@ -76,6 +76,7 @@
                 <option value="twitch" data-i18n="groupType.twitch">Twitch</option>
                 <option value="reddit" data-i18n="groupType.reddit">Reddit</option>
                 <option value="discord" data-i18n="groupType.discord">Discord</option>
+                <option value="twitter" data-i18n="groupType.twitter">Twitter / X</option>
                 <option value="custom" data-i18n="groupType.custom">Custom</option>
               </select>
               <div class="add-group-buttons">
@@ -307,129 +308,130 @@
             </details>
           </section>
 
-          <section id="platformVideoCard" class="section-card hidden">
+          <!-- Unified, data-driven platform-rules card. Which sub-blocks show
+               (creator/account list, subreddit list, server list, hide-element
+               toggles) is decided per platform by popup.js from the registry. -->
+          <section id="platformRulesCard" class="section-card hidden">
             <div class="section-header">
               <div>
-                <h3 id="platformVideoTitle"></h3>
-                <p id="platformVideoCopy" class="section-copy"></p>
+                <h3 id="platformRulesTitle"></h3>
+                <p id="platformRulesCopy" class="section-copy"></p>
               </div>
             </div>
 
-            <label id="platformVideoModeLabel" class="label" for="platformVideoMode"></label>
-            <select id="platformVideoMode">
-              <option value="all"></option>
-              <option value="short"></option>
-              <option value="long"></option>
-              <option value="post"></option>
-            </select>
+            <!-- Creator / account fields (video platforms + Twitter/X) -->
+            <div id="platformVideoFields" class="platform-fields hidden">
+              <div id="platformVideoModeRow">
+                <label id="platformVideoModeLabel" class="label" for="platformVideoMode"></label>
+                <select id="platformVideoMode">
+                  <option value="all"></option>
+                  <option value="short"></option>
+                  <option value="long"></option>
+                  <option value="post"></option>
+                </select>
+              </div>
 
-            <label id="platformAuthorModeLabel" class="label" for="platformAuthorMode"></label>
-            <select id="platformAuthorMode">
-              <option value="none"></option>
-              <option value="include"></option>
-              <option value="exclude"></option>
-            </select>
+              <label id="platformAuthorModeLabel" class="label" for="platformAuthorMode"></label>
+              <select id="platformAuthorMode">
+                <option value="none"></option>
+                <option value="include"></option>
+                <option value="exclude"></option>
+              </select>
 
-            <label id="platformAuthorsLabel" class="label" for="platformAuthors"></label>
-            <textarea
-              id="platformAuthors"
-              rows="5"
-              placeholder="@creatorhandle&#10;https://www.youtube.com/@anothercreator&#10;channel/UC..."
-              data-i18n-placeholder="filter.platformAuthorsPlaceholder"
-              spellcheck="false"
-            ></textarea>
-            <p id="platformVideoHelp" class="field-help"></p>
+              <label id="platformAuthorsLabel" class="label" for="platformAuthors"></label>
+              <textarea
+                id="platformAuthors"
+                rows="5"
+                placeholder="@creatorhandle&#10;https://www.youtube.com/@anothercreator&#10;channel/UC..."
+                data-i18n-placeholder="filter.platformAuthorsPlaceholder"
+                spellcheck="false"
+              ></textarea>
+              <p id="platformVideoHelp" class="field-help"></p>
 
-            <label class="checkbox-row compact" for="platformBlockHomePage">
-              <input id="platformBlockHomePage" type="checkbox" />
-              <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
-            </label>
-
-            <div id="skipToNextOnBlockRow">
-              <label class="checkbox-row compact" for="skipToNextOnBlock">
-                <input id="skipToNextOnBlock" type="checkbox" />
-                <span data-i18n="filter.skipToNextOnBlock">Skip to next video when blocked</span>
+              <label class="checkbox-row compact" for="platformBlockHomePage">
+                <input id="platformBlockHomePage" type="checkbox" />
+                <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
               </label>
-              <p class="field-help" data-i18n="filter.skipToNextOnBlockHelp">
-                For scroll-based feeds (Shorts, TikTok, Reels), skip to the next video instead of redirecting when blocked.
+
+              <div id="skipToNextOnBlockRow">
+                <label class="checkbox-row compact" for="skipToNextOnBlock">
+                  <input id="skipToNextOnBlock" type="checkbox" />
+                  <span data-i18n="filter.skipToNextOnBlock">Skip to next video when blocked</span>
+                </label>
+                <p class="field-help" data-i18n="filter.skipToNextOnBlockHelp">
+                  For scroll-based feeds (Shorts, TikTok, Reels), skip to the next video instead of redirecting when blocked.
+                </p>
+              </div>
+            </div>
+
+            <!-- Reddit (subreddit) fields -->
+            <div id="redditFields" class="platform-fields hidden">
+              <label class="label" for="redditMode" data-i18n="reddit.mode">Subreddit filter</label>
+              <select id="redditMode">
+                <option value="all" data-i18n="reddit.modeAll">Apply to all Reddit pages</option>
+                <option value="include" data-i18n="reddit.modeInclude">Apply to certain subreddits</option>
+                <option value="exclude" data-i18n="reddit.modeExclude">Apply to all except certain subreddits</option>
+              </select>
+
+              <label class="label" for="redditSubreddits" data-i18n="reddit.subreddits">Subreddits</label>
+              <textarea
+                id="redditSubreddits"
+                rows="6"
+                placeholder="productivity&#10;programming&#10;r/focus"
+                data-i18n-placeholder="reddit.subredditsPlaceholder"
+                spellcheck="false"
+              ></textarea>
+              <p class="field-help" data-i18n="reddit.help">
+                Use one subreddit per line. Plain names like `productivity` and paths like `r/productivity` are both accepted.
+              </p>
+
+              <label class="checkbox-row compact" for="redditBlockHomePage">
+                <input id="redditBlockHomePage" type="checkbox" />
+                <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
+              </label>
+              <p class="field-help" data-i18n="filter.blockHomePageRedditHelp">
+                Blocks the Reddit home feed, r/popular, and r/all when enabled.
               </p>
             </div>
-          </section>
 
-          <section id="redditSettingsCard" class="section-card hidden">
-            <div class="section-header">
-              <div>
-                <h3 data-i18n="reddit.title">Reddit Filters</h3>
-                <p class="section-copy" data-i18n="reddit.copy">
-                  Apply this group to all of Reddit, only certain subreddits, or all subreddits except certain ones.
-                </p>
-              </div>
+            <!-- Discord (server/channel) fields -->
+            <div id="discordFields" class="platform-fields hidden">
+              <label class="label" for="discordMode" data-i18n="discord.mode">Target filter</label>
+              <select id="discordMode">
+                <option value="all" data-i18n="discord.modeAll">Apply to all Discord pages</option>
+                <option value="include" data-i18n="discord.modeInclude">Apply to certain servers/channels</option>
+                <option value="exclude" data-i18n="discord.modeExclude">Apply to all except certain servers/channels</option>
+              </select>
+
+              <label id="discordTargetsLabel" class="label" for="discordTargets" data-i18n="discord.targets">Servers &amp; channels</label>
+              <textarea
+                id="discordTargets"
+                rows="6"
+                placeholder="123456789012345678&#10;https://discord.com/channels/123456789012345678/&#10;https://discord.com/channels/123456789012345678/234567890123456789"
+                data-i18n-placeholder="discord.targetsPlaceholder"
+                spellcheck="false"
+              ></textarea>
+              <p id="discordTargetsHelp" class="field-help" data-i18n="discord.targetsHelp">
+                Use one Discord server ID or channel ID per line. Both kinds may be mixed in the same list. Plain snowflake IDs and links of the form <code>discord.com/channels/&lt;serverId&gt;</code> or <code>discord.com/channels/&lt;serverId&gt;/&lt;channelId&gt;</code> are accepted; channel links keep the channel ID as the entry.
+              </p>
+
+              <label class="checkbox-row compact" for="discordBlockHomePage">
+                <input id="discordBlockHomePage" type="checkbox" />
+                <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
+              </label>
+              <p class="field-help" data-i18n="filter.blockHomePageDiscordHelp">
+                Blocks the Discord DMs home screen (/channels/@me) when enabled.
+              </p>
             </div>
 
-            <label class="label" for="redditMode" data-i18n="reddit.mode">Subreddit filter</label>
-            <select id="redditMode">
-              <option value="all" data-i18n="reddit.modeAll">Apply to all Reddit pages</option>
-              <option value="include" data-i18n="reddit.modeInclude">Apply to certain subreddits</option>
-              <option value="exclude" data-i18n="reddit.modeExclude">Apply to all except certain subreddits</option>
-            </select>
-
-            <label class="label" for="redditSubreddits" data-i18n="reddit.subreddits">Subreddits</label>
-            <textarea
-              id="redditSubreddits"
-              rows="6"
-              placeholder="productivity&#10;programming&#10;r/focus"
-              data-i18n-placeholder="reddit.subredditsPlaceholder"
-              spellcheck="false"
-            ></textarea>
-            <p class="field-help" data-i18n="reddit.help">
-              Use one subreddit per line. Plain names like `productivity` and paths like `r/productivity` are both accepted.
-            </p>
-
-            <label class="checkbox-row compact" for="redditBlockHomePage">
-              <input id="redditBlockHomePage" type="checkbox" />
-              <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
-            </label>
-            <p class="field-help" data-i18n="filter.blockHomePageRedditHelp">
-              Blocks the Reddit home feed, r/popular, and r/all when enabled.
-            </p>
-          </section>
-
-          <section id="discordSettingsCard" class="section-card hidden">
-            <div class="section-header">
-              <div>
-                <h3 data-i18n="discord.title">Discord Filters</h3>
-                <p class="section-copy" data-i18n="discord.copy">
-                  Apply this group to all of Discord, or to a custom mix of servers and channels — entries can be either, in any combination.
-                </p>
-              </div>
+            <!-- Hide elements (surface hides): chrome + content-type toggles -->
+            <div id="surfaceHidesSection" class="platform-fields hidden">
+              <label class="label" data-i18n="surfaceHide.title">Hide elements</label>
+              <p class="field-help" data-i18n="surfaceHide.help">
+                Hide specific buttons or content surfaces on this platform, independent of blocking.
+              </p>
+              <div id="surfaceHidesList" class="surface-hides-list"></div>
             </div>
-
-            <label class="label" for="discordMode" data-i18n="discord.mode">Target filter</label>
-            <select id="discordMode">
-              <option value="all" data-i18n="discord.modeAll">Apply to all Discord pages</option>
-              <option value="include" data-i18n="discord.modeInclude">Apply to certain servers/channels</option>
-              <option value="exclude" data-i18n="discord.modeExclude">Apply to all except certain servers/channels</option>
-            </select>
-
-            <label id="discordTargetsLabel" class="label" for="discordTargets" data-i18n="discord.targets">Servers &amp; channels</label>
-            <textarea
-              id="discordTargets"
-              rows="6"
-              placeholder="123456789012345678&#10;https://discord.com/channels/123456789012345678/&#10;https://discord.com/channels/123456789012345678/234567890123456789"
-              data-i18n-placeholder="discord.targetsPlaceholder"
-              spellcheck="false"
-            ></textarea>
-            <p id="discordTargetsHelp" class="field-help" data-i18n="discord.targetsHelp">
-              Use one Discord server ID or channel ID per line. Both kinds may be mixed in the same list. Plain snowflake IDs and links of the form <code>discord.com/channels/&lt;serverId&gt;</code> or <code>discord.com/channels/&lt;serverId&gt;/&lt;channelId&gt;</code> are accepted; channel links keep the channel ID as the entry.
-            </p>
-
-            <label class="checkbox-row compact" for="discordBlockHomePage">
-              <input id="discordBlockHomePage" type="checkbox" />
-              <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
-            </label>
-            <p class="field-help" data-i18n="filter.blockHomePageDiscordHelp">
-              Blocks the Discord DMs home screen (/channels/@me) when enabled.
-            </p>
           </section>
 
           <section id="scheduleSection" class="section-card">
@@ -871,6 +873,7 @@
     </div>
 
     <script src="browser-compat.js"></script>
+    <script src="platform-profiles.js"></script>
     <script src="translations.js"></script>
     <script src="popup-markdown.js"></script>
     <!--

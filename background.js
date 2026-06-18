@@ -23,6 +23,11 @@
 // manifest.background.scripts, so it is already loaded by this point.
 if (typeof importScripts === "function") {
   try {
+    importScripts("platform-profiles.js");
+  } catch (error) {
+    console.error("[CustomBlocker] importScripts(platform-profiles.js) failed", error);
+  }
+  try {
     importScripts("helpers.js");
   } catch (error) {
     console.error("[CustomBlocker] importScripts(helpers.js) failed", error);
@@ -116,23 +121,8 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     id: createGroupId(),
     groupType: normalizedGroupType,
     name:
-      normalizedGroupType === "youtube"
-        ? "YouTube Block"
-        : normalizedGroupType === "tiktok"
-          ? "TikTok Block"
-        : normalizedGroupType === "facebook"
-          ? "Facebook Block"
-        : normalizedGroupType === "instagram"
-          ? "Instagram Block"
-        : normalizedGroupType === "twitch"
-          ? "Twitch Block"
-        : normalizedGroupType === "reddit"
-          ? "Reddit Block"
-        : normalizedGroupType === "discord"
-          ? "Discord Block"
-        : normalizedGroupType === "custom"
-          ? "Custom Block"
-          : "Block Group",
+      PLATFORM_PROFILES[normalizedGroupType]?.defaultName ??
+      (normalizedGroupType === "custom" ? "Custom Block" : "Block Group"),
     enabled: true,
     mode: "instant",
     allowedMinutes: DEFAULT_ALLOWED_MINUTES,
@@ -151,6 +141,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     redditSubreddits: [],
     discordMode: "all",
     discordTargets: [],
+    surfaceHides: [],
     blockingRulesText:
       "(month, dayOfMonth, dayName, hour, minute, url, helpers) => false",
     freezeMode: "none",
@@ -180,199 +171,13 @@ function normalizeSiteInput(value) {
   }
 }
 
-function normalizeYouTubeCreatorInput(value) {
-  let trimmed = String(value ?? "").trim().toLowerCase();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      trimmed = new URL(trimmed).pathname.trim().toLowerCase();
-    } catch {
-      return null;
-    }
-  }
-  if (trimmed.startsWith("/@")) return trimmed.slice(2).split("/")[0] || null;
-  if (trimmed.startsWith("@")) return trimmed.slice(1) || null;
-  const pathLike = trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
-  const channelMatch = pathLike.match(/^channel\/([^/?#]+)/);
-  const customMatch = pathLike.match(/^c\/([^/?#]+)/);
-  const userMatch = pathLike.match(/^user\/([^/?#]+)/);
-  if (channelMatch) return `channel:${channelMatch[1]}`;
-  if (customMatch) return `c:${customMatch[1]}`;
-  if (userMatch) return `user:${userMatch[1]}`;
-  if (/^(channel|c|user):[a-z0-9._-]+$/i.test(pathLike)) return pathLike;
-  return /^[a-z0-9._-]+$/i.test(pathLike) ? pathLike : null;
-}
-
-function normalizePlatformAuthorMode(value) {
-  return value === "include" || value === "exclude" ? value : "none";
-}
-
-function normalizeRedditMode(value, fallbackList) {
-  if (value === "all" || value === "include" || value === "exclude") return value;
-  const list = Array.isArray(fallbackList) ? fallbackList : [];
-  return list.length > 0 ? "include" : "all";
-}
-
-function normalizeDiscordMode(value, fallbackList) {
-  if (value === "all" || value === "include" || value === "exclude") return value;
-  const list = Array.isArray(fallbackList) ? fallbackList : [];
-  return list.length > 0 ? "include" : "all";
-}
-
-// Discord targets are a flat list of numeric IDs that may be EITHER
-// server IDs OR channel IDs in the same list. Snowflake IDs are unique
-// across types, so we match a page if its server-id OR channel-id appears
-// anywhere in the list. The legacy `discordTargetType` field on saved
-// groups is intentionally ignored — older data continues to work because
-// the same IDs are still in `discordTargets`.
-
-function isPlatformVideoGroupType(groupType) {
-  const normalized = normalizeGroupType(groupType);
-  return (
-    normalized === "youtube" ||
-    normalized === "tiktok" ||
-    normalized === "facebook" ||
-    normalized === "instagram" ||
-    normalized === "twitch"
-  );
-}
-
-function normalizePlatformAuthorInput(value, groupType) {
-  const normalizedGroupType = normalizeGroupType(groupType);
-
-  if (normalizedGroupType === "youtube") {
-    return normalizeYouTubeCreatorInput(value);
-  }
-
-  let trimmed = String(value ?? "").trim().toLowerCase();
-  const extractFromPath = (pathLike) => {
-    const path = String(pathLike || "").replace(/^\/+|\/+$/g, "");
-    const first = path.split("/")[0] || "";
-
-    if (normalizedGroupType === "tiktok") {
-      return first.startsWith("@")
-        ? first.slice(1) || null
-        : /^[a-z0-9._-]+$/i.test(first)
-          ? first
-          : null;
-    }
-
-    if (normalizedGroupType === "instagram") {
-      const reserved = new Set(["reel", "p", "tv", "explore", "accounts", "about"]);
-      return !reserved.has(first) && /^[a-z0-9._]+$/i.test(first) ? first : null;
-    }
-
-    if (normalizedGroupType === "facebook") {
-      if (path.startsWith("profile.php")) return null;
-      const reserved = new Set(["watch", "reel", "groups", "marketplace", "gaming", "video", "videos"]);
-      return !reserved.has(first) && /^[a-z0-9.]+$/i.test(first) ? first : null;
-    }
-
-    if (normalizedGroupType === "twitch") {
-      const reserved = new Set([
-        "directory",
-        "videos",
-        "settings",
-        "downloads",
-        "subscriptions",
-        "search",
-        "jobs",
-        "drops",
-        "inventory"
-      ]);
-      return !reserved.has(first) && /^[a-z0-9_]+$/i.test(first) ? first : null;
-    }
-
-    return null;
-  };
-
-  if (!trimmed) return null;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      const parsed = new URL(trimmed);
-      const path = parsed.pathname.replace(/^\/+|\/+$/g, "");
-      if (normalizedGroupType === "facebook" && path.startsWith("profile.php")) {
-        const id = parsed.searchParams.get("id");
-        return id ? `id:${id}` : null;
-      }
-      const extracted = extractFromPath(path);
-      if (extracted) return extracted;
-      trimmed = path;
-    } catch {
-      return null;
-    }
-  }
-
-  if (trimmed.startsWith("/")) return extractFromPath(trimmed);
-
-  trimmed = trimmed.replace(/^@/, "").replace(/^\/+|\/+$/g, "");
-
-  if (normalizedGroupType === "facebook" && trimmed.startsWith("id:")) return trimmed;
-
-  return /^[a-z0-9._-]+$/i.test(trimmed) ? trimmed : null;
-}
-
-function normalizeVideoMode(value) {
-  return value === "short" || value === "long" || value === "post" ? value : "all";
-}
-
-function normalizeRedditSubredditInput(value) {
-  let trimmed = String(value ?? "").trim().toLowerCase();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      trimmed = new URL(trimmed).pathname.trim().toLowerCase();
-    } catch {
-      return null;
-    }
-  }
-  trimmed = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
-  if (trimmed.startsWith("r/")) trimmed = trimmed.slice(2);
-  return /^[a-z0-9_]+$/i.test(trimmed) ? trimmed : null;
-}
-
-// Accept either a bare snowflake (server ID or channel ID — both are
-// numeric and globally unique) or a discord URL of the form
-// /channels/<server>/<channel>. For URLs that include a channel segment
-// we keep the more specific channel ID; URLs with only a server segment
-// keep the server ID. The output is a single numeric string and the
-// caller does NOT need to know whether it is a server or a channel —
-// matching simply checks the page's server-id and channel-id against the
-// flat list of saved targets.
-function normalizeDiscordTargetInput(value) {
-  let trimmed = String(value ?? "").trim().toLowerCase();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      trimmed = new URL(trimmed).pathname.trim().toLowerCase();
-    } catch {
-      return null;
-    }
-  }
-  trimmed = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
-  const channelsMatch = trimmed.match(/^channels\/([^/?#]+)(?:\/([^/?#]+))?/);
-  if (channelsMatch) {
-    // Prefer the channel ID when the URL has one; fall back to the
-    // server ID. Both are valid targets — the caller's match logic
-    // handles either kind.
-    trimmed = channelsMatch[2] || channelsMatch[1] || "";
-  }
-  if (trimmed === "@me") return null;
-  return /^[0-9]{6,24}$/.test(trimmed) ? trimmed : null;
-}
-
-function normalizeGroupType(value) {
-  return value === "youtube" ||
-    value === "tiktok" ||
-    value === "facebook" ||
-    value === "instagram" ||
-    value === "twitch" ||
-    value === "reddit" ||
-    value === "discord" ||
-    value === "custom"
-    ? value
-    : "site";
-}
+// Platform group-type vocabulary + entity/mode normalisation now lives in
+// platform-profiles.js (the single site-profile registry), loaded above via
+// importScripts. normalizeGroupType, isPlatformVideoGroupType,
+// normalizeYouTubeCreatorInput, normalizePlatformAuthorInput,
+// normalizePlatformAuthorMode, normalizeVideoMode, normalizeRedditMode,
+// normalizeRedditSubredditInput, normalizeDiscordMode and
+// normalizeDiscordTargetInput are provided as globals from there.
 
 function normalizeBlockingMode(value) {
   if (value === "after-minutes" || value === "timer") return value;
@@ -534,6 +339,7 @@ function sanitizeGroups(groups) {
           )
         ],
         discordMode: normalizeDiscordMode(group?.discordMode, rawDiscordTargets),
+        surfaceHides: normalizeSurfaceHides(group?.surfaceHides, normalizedGroupType),
         blockingRulesText:
           typeof group?.blockingRulesText === "string" && group.blockingRulesText.trim()
             ? group.blockingRulesText.trim()
@@ -654,205 +460,12 @@ function hostnameMatchesSite(hostname, site) {
   return hostname === site || hostname.endsWith(`.${site}`);
 }
 
-function isYouTubeHost(hostname) {
-  return Boolean(
-    hostname &&
-      (hostname === "youtube.com" || hostname.endsWith(".youtube.com") || hostname === "youtu.be")
-  );
-}
-
-function isRedditHost(hostname) {
-  return Boolean(hostname && (hostname === "reddit.com" || hostname.endsWith(".reddit.com")));
-}
-
-function isDiscordHost(hostname) {
-  return Boolean(
-    hostname &&
-      (hostname === "discord.com" ||
-        hostname.endsWith(".discord.com") ||
-        hostname === "discordapp.com" ||
-        hostname.endsWith(".discordapp.com"))
-  );
-}
-
-function parseRedditSubredditFromPath(pathname) {
-  const match = String(pathname ?? "").toLowerCase().match(/^\/r\/([^/?#]+)/);
-  return match ? normalizeRedditSubredditInput(match[1]) : null;
-}
-
-function parseDiscordServerIdFromPath(pathname) {
-  const match = String(pathname ?? "").toLowerCase().match(/^\/channels\/([^/?#]+)/);
-  if (!match || match[1] === "@me") return null;
-  return normalizeDiscordTargetInput(match[1]);
-}
-
-function parseDiscordChannelIdFromPath(pathname) {
-  const match = String(pathname ?? "").toLowerCase().match(/^\/channels\/([^/?#]+)\/([^/?#]+)/);
-  if (!match || match[1] === "@me") return null;
-  return normalizeDiscordTargetInput(match[2]);
-}
-
-function detectVideoSiteContext(hostname, pathname) {
-  const safePathname = String(pathname ?? "/");
-
-  if (isYouTubeHost(hostname)) {
-    if (safePathname.startsWith("/shorts/")) return { site: "youtube", form: "short" };
-    if (
-      safePathname.startsWith("/post/") ||
-      /^\/(channel|c|user)\/[^/]+\/(community|posts)/.test(safePathname) ||
-      /^\/@[^/]+\/(community|posts)/.test(safePathname)
-    ) {
-      return { site: "youtube", form: "post" };
-    }
-    if (
-      hostname === "youtu.be" ||
-      safePathname.startsWith("/watch") ||
-      safePathname.startsWith("/live/") ||
-      safePathname.startsWith("/embed/")
-    ) {
-      return { site: "youtube", form: "long" };
-    }
-    return { site: "youtube", form: "unknown" };
-  }
-
-  if (hostname === "tiktok.com" || hostname?.endsWith(".tiktok.com")) {
-    if (safePathname.includes("/video/")) return { site: "tiktok", form: "short" };
-    return { site: "tiktok", form: "unknown" };
-  }
-
-  if (hostname === "instagram.com" || hostname?.endsWith(".instagram.com")) {
-    if (safePathname.startsWith("/reel/")) return { site: "instagram", form: "short" };
-    if (safePathname.startsWith("/p/")) return { site: "instagram", form: "post" };
-    if (safePathname.startsWith("/tv/")) return { site: "instagram", form: "long" };
-    return { site: "instagram", form: "unknown" };
-  }
-
-  if (hostname === "facebook.com" || hostname?.endsWith(".facebook.com")) {
-    if (safePathname.startsWith("/reel/") || safePathname.startsWith("/watch/reel/")) {
-      return { site: "facebook", form: "short" };
-    }
-    if (safePathname.startsWith("/watch")) return { site: "facebook", form: "long" };
-    if (safePathname.includes("/posts/") || safePathname.includes("/permalink/")) {
-      return { site: "facebook", form: "post" };
-    }
-    return { site: "facebook", form: "unknown" };
-  }
-
-  if (hostname === "vimeo.com" || hostname?.endsWith(".vimeo.com")) {
-    return /^\/\d+/.test(safePathname)
-      ? { site: "vimeo", form: "long" }
-      : { site: "vimeo", form: "unknown" };
-  }
-
-  if (hostname === "dailymotion.com" || hostname?.endsWith(".dailymotion.com") || hostname === "dai.ly") {
-    return safePathname.includes("/video/") || hostname === "dai.ly"
-      ? { site: "dailymotion", form: "long" }
-      : { site: "dailymotion", form: "unknown" };
-  }
-
-  if (hostname === "clips.twitch.tv" || safePathname.includes("/clip/")) {
-    return { site: "twitch", form: "short" };
-  }
-
-  if (hostname === "twitch.tv" || hostname?.endsWith(".twitch.tv")) {
-    // /videos/<id> is the archived-VOD URL — the "streams/VODs" form.
-    if (safePathname.startsWith("/videos/")) return { site: "twitch", form: "long" };
-    // The streamer's channel page (twitch.tv/<streamer> and its sub-tabs
-    // like /about, /schedule, /clips, /videos) is what the UI calls
-    // "channel pages". The platform-video group model represents that
-    // bucket as `form: "post"` (see `platform.post.twitch` translation
-    // string: "channel pages"). Without this branch, a Twitch group
-    // configured with `platformVideoMode === "post"` would never match
-    // any URL.
-    const firstSegment = safePathname.replace(/^\/+/, "").split("/")[0] || "";
-    const reserved = new Set([
-      "directory", "videos", "settings", "downloads", "subscriptions",
-      "search", "jobs", "drops", "inventory",
-      "popout", "moderator", "p", "prime", "turbo", "wallet",
-      "friends", "messages", "store", "login", "signup", "signout"
-    ]);
-    if (
-      firstSegment &&
-      !reserved.has(firstSegment.toLowerCase()) &&
-      /^[a-z0-9_]+$/i.test(firstSegment)
-    ) {
-      return { site: "twitch", form: "post" };
-    }
-    return { site: "twitch", form: "unknown" };
-  }
-
-  return { site: null, form: "unknown" };
-}
-
-function extractPrimaryAuthorFromPath(groupType, pathname, url) {
-  const safePathname = String(pathname ?? "/");
-
-  if (groupType === "youtube") return normalizeYouTubeCreatorInput(safePathname);
-
-  if (groupType === "tiktok") {
-    const match = safePathname.match(/^\/@([^/?#]+)/i);
-    return match ? normalizePlatformAuthorInput(match[1], groupType) : null;
-  }
-
-  if (groupType === "instagram") {
-    const match = safePathname.match(/^\/([^/?#]+)/i);
-    if (!match) return null;
-    const reserved = new Set(["reel", "p", "tv", "explore", "accounts", "about"]);
-    return reserved.has(match[1].toLowerCase())
-      ? null
-      : normalizePlatformAuthorInput(match[1], groupType);
-  }
-
-  if (groupType === "facebook") {
-    try {
-      const parsed = url ? new URL(url) : null;
-      const id = parsed?.searchParams?.get("id");
-      if (id) return normalizePlatformAuthorInput(`id:${id}`, groupType);
-    } catch {}
-    const match = safePathname.match(/^\/([^/?#]+)/i);
-    if (!match) return null;
-    const reserved = new Set(["watch", "reel", "groups", "marketplace", "gaming", "video", "videos"]);
-    return reserved.has(match[1].toLowerCase())
-      ? null
-      : normalizePlatformAuthorInput(match[1], groupType);
-  }
-
-  if (groupType === "twitch") {
-    const match = safePathname.match(/^\/([^/?#]+)/i);
-    if (!match) return null;
-    const reserved = new Set([
-      "directory",
-      "videos",
-      "settings",
-      "downloads",
-      "subscriptions",
-      "search",
-      "jobs",
-      "drops",
-      "inventory"
-    ]);
-    return reserved.has(match[1].toLowerCase())
-      ? null
-      : normalizePlatformAuthorInput(match[1], groupType);
-  }
-
-  return null;
-}
-
-function normalizePlatformAuthorsMap(inputMap, pathname, url) {
-  const map = {};
-  const groupTypes = ["youtube", "tiktok", "facebook", "instagram", "twitch"];
-  for (const groupType of groupTypes) {
-    const raw = Array.isArray(inputMap?.[groupType]) ? inputMap[groupType] : [];
-    const normalized = [
-      ...new Set(raw.map((author) => normalizePlatformAuthorInput(author, groupType)).filter(Boolean))
-    ];
-    const fromPath = extractPrimaryAuthorFromPath(groupType, pathname, url);
-    if (fromPath && !normalized.includes(fromPath)) normalized.push(fromPath);
-    map[groupType] = normalized;
-  }
-  return map;
-}
+// Host predicates (isYouTubeHost / isRedditHost / isDiscordHost /
+// isTwitterHost / isPlatformHost), path parsers
+// (parseRedditSubredditFromPath / parseDiscordServerIdFromPath /
+// parseDiscordChannelIdFromPath), detectVideoSiteContext,
+// extractPrimaryAuthorFromPath and normalizePlatformAuthorsMap now live in
+// platform-profiles.js and are provided as globals.
 
 function normalizePageContext(input) {
   if (typeof input === "string") {
@@ -870,6 +483,7 @@ function normalizePageContext(input) {
       isDiscordPage: isDiscordHost(hostname),
       discordServerId: null,
       discordChannelId: null,
+      isTwitterPage: isTwitterHost(hostname),
       videoSite: videoContext.site,
       videoForm: videoContext.form
     };
@@ -913,6 +527,7 @@ function normalizePageContext(input) {
     isDiscordPage: Boolean(input?.isDiscordPage) || isDiscordHost(normalizedHostname),
     discordServerId,
     discordChannelId,
+    isTwitterPage: Boolean(input?.isTwitterPage) || isTwitterHost(normalizedHostname),
     videoSite: typeof input?.videoSite === "string" ? input.videoSite : videoContext.site,
     videoForm:
       input?.videoForm === "short" ||
@@ -1004,152 +619,10 @@ function reversed(list) {
   return [...list].reverse();
 }
 
-function matchesVideoMode(group, pageContext) {
-  const videoMode = normalizeVideoMode(group.platformVideoMode);
-  if (videoMode === "all") return true;
-  return pageContext.videoForm === videoMode;
-}
-
-function isHomeFeedPage(groupType, hostname, pathname) {
-  const p = String(pathname ?? "/");
-  switch (groupType) {
-    case "youtube":
-      return p === "/" || p.startsWith("/feed/");
-    case "tiktok":
-      return (
-        p === "/" ||
-        p === "/following" || p.startsWith("/following/") ||
-        p === "/explore" || p.startsWith("/explore/") ||
-        p === "/foryou" || p.startsWith("/foryou/")
-      );
-    case "facebook":
-      return p === "/" || p === "/watch" || p.startsWith("/watch/");
-    case "instagram":
-      return (
-        p === "/" ||
-        p === "/explore" || p.startsWith("/explore/") ||
-        p === "/reels" || p.startsWith("/reels/")
-      );
-    case "twitch":
-      return p === "/" || p === "/directory" || p.startsWith("/directory/");
-    case "reddit":
-      return (
-        p === "/" ||
-        p === "/r/popular" || p.startsWith("/r/popular/") ||
-        p === "/r/all" || p.startsWith("/r/all/")
-      );
-    case "discord":
-      return p === "/channels/@me" || p.startsWith("/channels/@me/");
-    default:
-      return false;
-  }
-}
-
-function isPlatformHost(groupType, hostname) {
-  if (!hostname) return false;
-  switch (groupType) {
-    case "youtube": return isYouTubeHost(hostname);
-    case "tiktok": return hostname === "tiktok.com" || hostname.endsWith(".tiktok.com");
-    case "facebook": return hostname === "facebook.com" || hostname.endsWith(".facebook.com");
-    case "instagram": return hostname === "instagram.com" || hostname.endsWith(".instagram.com");
-    case "twitch":
-      return hostname === "twitch.tv" || hostname.endsWith(".twitch.tv") || hostname === "clips.twitch.tv";
-    case "reddit": return isRedditHost(hostname);
-    case "discord": return isDiscordHost(hostname);
-    default: return false;
-  }
-}
-
-function matchesPlatformVideoGroup(group, pageContext) {
-  const isYouTubeGroup = group.groupType === "youtube";
-
-  if (isYouTubeGroup) {
-    if (!pageContext.isYouTubePage) {
-      const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
-      const videoMode = normalizeVideoMode(group.platformVideoMode);
-      return (
-        authorMode === "none" &&
-        videoMode !== "all" &&
-        Boolean(pageContext.videoSite) &&
-        matchesVideoMode(group, pageContext)
-      );
-    }
-    if (group.blockHomePage && isHomeFeedPage("youtube", pageContext.hostname, pageContext.pathname)) {
-      return true;
-    }
-  } else {
-    if (
-      group.blockHomePage &&
-      isPlatformHost(group.groupType, pageContext.hostname) &&
-      isHomeFeedPage(group.groupType, pageContext.hostname, pageContext.pathname)
-    ) {
-      return true;
-    }
-    if (pageContext.videoSite !== group.groupType) return false;
-  }
-
-  if (!matchesVideoMode(group, pageContext)) return false;
-
-  const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
-  if (authorMode === "none") return true;
-
-  if (!Array.isArray(group.platformAuthors) || group.platformAuthors.length === 0) return false;
-
-  const platformKey = isYouTubeGroup ? "youtube" : group.groupType;
-  const pageAuthors = Array.isArray(pageContext.platformAuthors?.[platformKey])
-    ? pageContext.platformAuthors[platformKey]
-    : [];
-
-  if (pageAuthors.length === 0) return false;
-
-  const hasAuthorMatch = group.platformAuthors.some((author) => pageAuthors.includes(author));
-  return authorMode === "include" ? hasAuthorMatch : !hasAuthorMatch;
-}
-
-function matchesRedditGroup(group, pageContext) {
-  if (!pageContext.isRedditPage) return false;
-  if (group.blockHomePage && isHomeFeedPage("reddit", pageContext.hostname, pageContext.pathname)) {
-    return true;
-  }
-
-  const subreddits = Array.isArray(group.redditSubreddits) ? group.redditSubreddits : [];
-  const mode = normalizeRedditMode(group.redditMode, subreddits);
-
-  if (mode === "all") return true;
-
-  if (mode === "include") {
-    if (subreddits.length === 0 || !pageContext.redditSubreddit) return false;
-    return subreddits.includes(pageContext.redditSubreddit);
-  }
-
-  if (!pageContext.redditSubreddit) return false;
-  return !subreddits.includes(pageContext.redditSubreddit);
-}
-
-function matchesDiscordGroup(group, pageContext) {
-  if (!pageContext.isDiscordPage) return false;
-  if (group.blockHomePage && isHomeFeedPage("discord", pageContext.hostname, pageContext.pathname)) {
-    return true;
-  }
-
-  const targets = Array.isArray(group.discordTargets) ? group.discordTargets : [];
-  const mode = normalizeDiscordMode(group.discordMode, targets);
-
-  if (mode === "all") return true;
-
-  // A page is "listed" if its server-id OR its channel-id appears in the
-  // flat targets list. This lets the user mix entries (e.g. blacklist a
-  // whole server plus a single channel from a different server in the
-  // same list, or whitelist a server plus an extra channel elsewhere).
-  const serverId = pageContext.discordServerId;
-  const channelId = pageContext.discordChannelId;
-  if (!serverId && !channelId) return false;
-
-  const isListed =
-    (serverId && targets.includes(serverId)) ||
-    (channelId && targets.includes(channelId));
-  return mode === "include" ? Boolean(isListed) : !isListed;
-}
+// matchesVideoMode, isHomeFeedPage, isPlatformHost and the per-platform
+// matchers (matchesPlatformVideoGroup / matchesRedditGroup /
+// matchesDiscordGroup / matchesTwitterGroup) plus the matchesProfileGroup
+// dispatcher all live in platform-profiles.js and are provided as globals.
 
 function matchesSiteGroup(group, hostname) {
   return hostname && group.sites.some((site) => hostnameMatchesSite(hostname, site));
@@ -1161,9 +634,7 @@ function getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now) {
     if (!group.enabled || !isGroupActiveNow(group, now) || getActiveSnooze(group.id, groupSnoozes, now)) {
       return false;
     }
-    if (isPlatformVideoGroupType(group.groupType)) return matchesPlatformVideoGroup(group, pageContext);
-    if (group.groupType === "reddit") return matchesRedditGroup(group, pageContext);
-    if (group.groupType === "discord") return matchesDiscordGroup(group, pageContext);
+    if (isPlatformProfileGroupType(group.groupType)) return matchesProfileGroup(group, pageContext);
     return matchesSiteGroup(group, pageContext.hostname);
   });
 }
@@ -1508,7 +979,56 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
     }
   }
 
+  if (pageContext.isTwitterPage) {
+    for (const group of orderedGroups) {
+      if (
+        group.groupType !== "twitter" ||
+        !group.enabled ||
+        !isGroupActiveNow(group, now) ||
+        getActiveSnooze(group.id, groupSnoozes, now)
+      ) {
+        continue;
+      }
+      if (
+        group.mode !== "instant" &&
+        (!isBlockingTimedMode(group.mode) || (usageTimersMs[group.id] ?? 0) < getAllowedMs(group))
+      ) {
+        continue;
+      }
+      const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
+      // mode "none" blocks the whole page (handled by the matcher), so it
+      // needs no per-card feed filtering. Only include/exclude trim the feed.
+      if (authorMode === "none") continue;
+      filters.push({
+        id: group.id,
+        site: "twitter",
+        authorMode,
+        authors: [...group.platformAuthors]
+      });
+    }
+  }
+
   return filters;
+}
+
+// Collects the "hide elements" (surface-hide) CSS selectors contributed by
+// every active platform group whose type matches the current host. These are
+// independent of the coarse blocking predicate — a group can hide the Shorts
+// button or promoted posts without blocking the page.
+function buildSurfaceHideSelectors(pageContext, groups, groupSnoozes, now) {
+  const selectors = new Set();
+  for (const group of groups) {
+    if (!isPlatformProfileGroupType(group.groupType)) continue;
+    if (!Array.isArray(group.surfaceHides) || group.surfaceHides.length === 0) continue;
+    if (!group.enabled || !isGroupActiveNow(group, now) || getActiveSnooze(group.id, groupSnoozes, now)) {
+      continue;
+    }
+    if (!isPlatformHost(group.groupType, pageContext.hostname)) continue;
+    for (const sel of getSurfaceHideSelectors(group.groupType, group.surfaceHides)) {
+      selectors.add(sel);
+    }
+  }
+  return [...selectors];
 }
 
 function buildPageSession(
@@ -1528,6 +1048,7 @@ function buildPageSession(
     groupSnoozes,
     now
   );
+  const surfaceHides = buildSurfaceHideSelectors(pageContext, groups, groupSnoozes, now);
   const currentBlockedHostnames = getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now);
   const blockedByHostname = currentBlockedHostnames.some((hostname) =>
     pageContext.hostname && hostnameMatchesSite(pageContext.hostname, hostname)
@@ -1557,6 +1078,7 @@ function buildPageSession(
     shouldExitPage: blockedNow,
     items: timedItems,
     feedFilters,
+    surfaceHides,
     fallbackUrl,
     skipToNextOnBlock,
     now
