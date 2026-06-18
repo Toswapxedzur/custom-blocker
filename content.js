@@ -64,234 +64,14 @@ function normalizeHostname(hostname) {
   return trimmed.startsWith("www.") ? trimmed.slice(4) : trimmed;
 }
 
-function normalizeYouTubeCreatorInput(value) {
-  let trimmed = String(value ?? "").trim().toLowerCase();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      trimmed = new URL(trimmed).pathname.trim().toLowerCase();
-    } catch {
-      return null;
-    }
-  }
-  if (trimmed.startsWith("/@")) return trimmed.slice(2).split("/")[0] || null;
-  if (trimmed.startsWith("@")) return trimmed.slice(1) || null;
-  const pathLike = trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
-  const channelMatch = pathLike.match(/^channel\/([^/?#]+)/);
-  const customMatch = pathLike.match(/^c\/([^/?#]+)/);
-  const userMatch = pathLike.match(/^user\/([^/?#]+)/);
-  if (channelMatch) return `channel:${channelMatch[1]}`;
-  if (customMatch) return `c:${customMatch[1]}`;
-  if (userMatch) return `user:${userMatch[1]}`;
-  if (/^(channel|c|user):[a-z0-9._-]+$/i.test(pathLike)) return pathLike;
-  return /^[a-z0-9._-]+$/i.test(pathLike) ? pathLike : null;
-}
-
-function normalizePlatformAuthorInput(value, groupType) {
-  if (groupType === "youtube") return normalizeYouTubeCreatorInput(value);
-
-  let trimmed = String(value ?? "").trim().toLowerCase();
-  const extractFromPath = (pathLike) => {
-    const path = String(pathLike || "").replace(/^\/+|\/+$/g, "");
-    const first = path.split("/")[0] || "";
-
-    if (groupType === "tiktok") {
-      return first.startsWith("@")
-        ? first.slice(1) || null
-        : /^[a-z0-9._-]+$/i.test(first)
-          ? first
-          : null;
-    }
-    if (groupType === "instagram") {
-      const reserved = new Set(["reel", "p", "tv", "explore", "accounts", "about"]);
-      return !reserved.has(first) && /^[a-z0-9._]+$/i.test(first) ? first : null;
-    }
-    if (groupType === "facebook") {
-      if (path.startsWith("profile.php")) return null;
-      const reserved = new Set(["watch", "reel", "groups", "marketplace", "gaming", "video", "videos"]);
-      return !reserved.has(first) && /^[a-z0-9.]+$/i.test(first) ? first : null;
-    }
-    if (groupType === "twitch") {
-      const reserved = new Set([
-        "directory", "videos", "settings", "downloads", "subscriptions",
-        "search", "jobs", "drops", "inventory"
-      ]);
-      return !reserved.has(first) && /^[a-z0-9_]+$/i.test(first) ? first : null;
-    }
-    return null;
-  };
-
-  if (!trimmed) return null;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      const parsed = new URL(trimmed);
-      const path = parsed.pathname.replace(/^\/+|\/+$/g, "");
-      if (groupType === "facebook" && path.startsWith("profile.php")) {
-        const id = parsed.searchParams.get("id");
-        return id ? `id:${id}` : null;
-      }
-      return extractFromPath(path);
-    } catch {
-      return null;
-    }
-  }
-  if (trimmed.startsWith("/")) return extractFromPath(trimmed);
-  trimmed = trimmed.replace(/^@/, "").replace(/^\/+|\/+$/g, "");
-  if (groupType === "facebook" && trimmed.startsWith("id:")) return trimmed;
-  return /^[a-z0-9._-]+$/i.test(trimmed) ? trimmed : null;
-}
-
-function normalizeRedditSubredditInput(value) {
-  let trimmed = String(value ?? "").trim().toLowerCase();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      trimmed = new URL(trimmed).pathname.trim().toLowerCase();
-    } catch {
-      return null;
-    }
-  }
-  trimmed = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
-  if (trimmed.startsWith("r/")) trimmed = trimmed.slice(2);
-  return /^[a-z0-9_]+$/i.test(trimmed) ? trimmed : null;
-}
-
-function normalizeDiscordTargetInput(value, targetType = "server") {
-  const normalizedTargetType = targetType === "channel" ? "channel" : "server";
-  let trimmed = String(value ?? "").trim().toLowerCase();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      trimmed = new URL(trimmed).pathname.trim().toLowerCase();
-    } catch {
-      return null;
-    }
-  }
-  trimmed = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
-  const channelsMatch = trimmed.match(/^channels\/([^/?#]+)(?:\/([^/?#]+))?/);
-  if (channelsMatch) {
-    trimmed = normalizedTargetType === "channel" ? channelsMatch[2] ?? "" : channelsMatch[1];
-  }
-  if (trimmed === "@me") return null;
-  return /^[0-9]{6,24}$/.test(trimmed) ? trimmed : null;
-}
-
-function isYouTubeHost(hostname) {
-  return Boolean(
-    hostname && (hostname === "youtube.com" || hostname.endsWith(".youtube.com") || hostname === "youtu.be")
-  );
-}
-
-function isRedditHost(hostname) {
-  return Boolean(hostname && (hostname === "reddit.com" || hostname.endsWith(".reddit.com")));
-}
-
-function isDiscordHost(hostname) {
-  return Boolean(
-    hostname &&
-      (hostname === "discord.com" ||
-        hostname.endsWith(".discord.com") ||
-        hostname === "discordapp.com" ||
-        hostname.endsWith(".discordapp.com"))
-  );
-}
-
-function parseRedditSubredditFromPath(pathname) {
-  const match = String(pathname ?? "").toLowerCase().match(/^\/r\/([^/?#]+)/);
-  return match ? normalizeRedditSubredditInput(match[1]) : null;
-}
-
-function parseDiscordServerIdFromPath(pathname) {
-  const match = String(pathname ?? "").toLowerCase().match(/^\/channels\/([^/?#]+)/);
-  if (!match || match[1] === "@me") return null;
-  return normalizeDiscordTargetInput(match[1], "server");
-}
-
-function parseDiscordChannelIdFromPath(pathname) {
-  const match = String(pathname ?? "").toLowerCase().match(/^\/channels\/([^/?#]+)\/([^/?#]+)/);
-  if (!match || match[1] === "@me") return null;
-  return normalizeDiscordTargetInput(match[2], "channel");
-}
-
-function detectVideoSiteContext(hostname, pathname) {
-  const safePathname = String(pathname ?? "/");
-
-  if (isYouTubeHost(hostname)) {
-    if (safePathname.startsWith("/shorts/")) return { site: "youtube", form: "short" };
-    if (
-      safePathname.startsWith("/post/") ||
-      /^\/(channel|c|user)\/[^/]+\/(community|posts)/.test(safePathname) ||
-      /^\/@[^/]+\/(community|posts)/.test(safePathname)
-    ) {
-      return { site: "youtube", form: "post" };
-    }
-    if (
-      hostname === "youtu.be" ||
-      safePathname.startsWith("/watch") ||
-      safePathname.startsWith("/live/") ||
-      safePathname.startsWith("/embed/")
-    ) {
-      return { site: "youtube", form: "long" };
-    }
-    return { site: "youtube", form: "unknown" };
-  }
-  if (hostname === "tiktok.com" || hostname?.endsWith(".tiktok.com")) {
-    if (safePathname.includes("/video/")) return { site: "tiktok", form: "short" };
-    return { site: "tiktok", form: "unknown" };
-  }
-  if (hostname === "instagram.com" || hostname?.endsWith(".instagram.com")) {
-    if (safePathname.startsWith("/reel/")) return { site: "instagram", form: "short" };
-    if (safePathname.startsWith("/p/")) return { site: "instagram", form: "post" };
-    if (safePathname.startsWith("/tv/")) return { site: "instagram", form: "long" };
-    return { site: "instagram", form: "unknown" };
-  }
-  if (hostname === "facebook.com" || hostname?.endsWith(".facebook.com")) {
-    if (safePathname.startsWith("/reel/") || safePathname.startsWith("/watch/reel/")) {
-      return { site: "facebook", form: "short" };
-    }
-    if (safePathname.startsWith("/watch")) return { site: "facebook", form: "long" };
-    if (safePathname.includes("/posts/") || safePathname.includes("/permalink/")) {
-      return { site: "facebook", form: "post" };
-    }
-    return { site: "facebook", form: "unknown" };
-  }
-  if (hostname === "vimeo.com" || hostname?.endsWith(".vimeo.com")) {
-    return /^\/\d+/.test(safePathname)
-      ? { site: "vimeo", form: "long" }
-      : { site: "vimeo", form: "unknown" };
-  }
-  if (hostname === "dailymotion.com" || hostname?.endsWith(".dailymotion.com") || hostname === "dai.ly") {
-    return safePathname.includes("/video/") || hostname === "dai.ly"
-      ? { site: "dailymotion", form: "long" }
-      : { site: "dailymotion", form: "unknown" };
-  }
-  if (hostname === "clips.twitch.tv" || safePathname.includes("/clip/")) {
-    return { site: "twitch", form: "short" };
-  }
-  if (hostname === "twitch.tv" || hostname?.endsWith(".twitch.tv")) {
-    if (safePathname.startsWith("/videos/")) return { site: "twitch", form: "long" };
-    // Twitch channel pages (twitch.tv/<streamer> and its sub-tabs) are
-    // represented as `form: "post"` — see platform.post.twitch =
-    // "channel pages" in the translation strings. Without this, the
-    // "Apply to channel pages" video mode never matches any URL.
-    const firstSegment = safePathname.replace(/^\/+/, "").split("/")[0] || "";
-    const reserved = new Set([
-      "directory", "videos", "settings", "downloads", "subscriptions",
-      "search", "jobs", "drops", "inventory",
-      "popout", "moderator", "p", "prime", "turbo", "wallet",
-      "friends", "messages", "store", "login", "signup", "signout"
-    ]);
-    if (
-      firstSegment &&
-      !reserved.has(firstSegment.toLowerCase()) &&
-      /^[a-z0-9_]+$/i.test(firstSegment)
-    ) {
-      return { site: "twitch", form: "post" };
-    }
-    return { site: "twitch", form: "unknown" };
-  }
-  return { site: null, form: "unknown" };
-}
+// Entity/mode normalisation, host predicates, path parsers and
+// detectVideoSiteContext now live in platform-profiles.js (loaded as the
+// first content script) and are available here as globals:
+//   normalizeYouTubeCreatorInput, normalizePlatformAuthorInput,
+//   normalizeRedditSubredditInput, normalizeDiscordTargetInput,
+//   isYouTubeHost, isRedditHost, isDiscordHost, isTwitterHost,
+//   parseRedditSubredditFromPath, parseDiscordServerIdFromPath,
+//   parseDiscordChannelIdFromPath, detectVideoSiteContext.
 
 function formatOverlayDurationMs(totalMs) {
   const totalSeconds = Math.max(0, Math.ceil(totalMs / 1000));
@@ -354,6 +134,7 @@ let refreshDebounceTimeoutId = null;
 let feedObserver = null;
 let feedApplyRafId = null;
 let latestFeedFilters = [];
+let latestSurfaceHides = [];
 let extensionContextInvalid = false;
 let sessionFallbackUrl = "";
 let sessionSkipToNext = false;
@@ -463,6 +244,14 @@ function getFeedCardElements(site) {
       let nodes = [];
       try { nodes = document.querySelectorAll(selector); } catch { continue; }
       for (const node of nodes) containers.add(node.closest?.("article") ?? node);
+    }
+    return [...containers];
+  }
+
+  if (site === "twitter") {
+    const containers = new Set();
+    for (const tweet of document.querySelectorAll('article[data-testid="tweet"]')) {
+      containers.add(tweet.closest('[data-testid="cellInnerDiv"]') ?? tweet);
     }
     return [...containers];
   }
@@ -666,6 +455,7 @@ function getCurrentFeedSite() {
   const videoCtx = detectVideoSiteContext(hostname, location.pathname);
   if (videoCtx.site) return videoCtx.site;
   if (isRedditHost(hostname)) return "reddit";
+  if (isTwitterHost(hostname)) return "twitter";
   return null;
 }
 
@@ -673,6 +463,16 @@ function getFeedCardData(card) {
   const currentSite = getCurrentFeedSite();
   if (currentSite === "reddit") {
     return { redditSubreddit: extractRedditSubredditFromCard(card) };
+  }
+  if (currentSite === "twitter") {
+    const creators = [
+      ...new Set(
+        [...card.querySelectorAll('a[role="link"][href^="/"], a[href^="/"]')]
+          .map((anchor) => normalizeTwitterHandleInput(anchor.getAttribute("href")))
+          .filter(Boolean)
+      )
+    ];
+    return { videoForm: "post", creators };
   }
   if (currentSite !== "youtube") {
     const href = getFeedCardHref(card, currentSite);
@@ -809,16 +609,19 @@ function collectFormShelvesToHide(filter) {
 function applyFeedFilters() {
   feedApplyRafId = null;
   restoreHiddenFeedCards();
+  applySurfaceHides();
 
   const currentSite = getCurrentFeedSite();
   const activeFilters = latestFeedFilters.filter((filter) => filter?.site === currentSite);
 
+  let hiddenAnyCard = false;
   if (currentSite && activeFilters.length > 0) {
     for (const card of getFeedCardElements(currentSite)) {
       const cardData = getFeedCardData(card);
       if (!cardData) continue;
       if (!activeFilters.some((filter) => matchesFeedFilter(cardData, filter))) continue;
       hideElement(card);
+      hiddenAnyCard = true;
     }
 
     if (currentSite === "youtube") {
@@ -829,6 +632,10 @@ function applyFeedFilters() {
     }
   }
 
+  // Backfill the feed after trimming entries, so a filtered feed doesn't
+  // stall short. The MutationObserver re-runs this pass when fresh cards
+  // arrive, self-chaining until the burst cap is hit.
+  if (hiddenAnyCard) __cb_replenishFeed(currentSite);
 }
 
 function scheduleApplyFeedFilters() {
@@ -838,19 +645,61 @@ function scheduleApplyFeedFilters() {
 
 function updateFeedFilters(filters) {
   latestFeedFilters = Array.isArray(filters) ? filters : [];
-  if (latestFeedFilters.length === 0) {
+  reconcilePageMutations();
+}
+
+// Surface hides ("hide elements" toggles) are plain CSS-selector hides driven
+// by the active platform groups. They share the page MutationObserver with
+// the feed filters but use a separate hidden marker so each can restore
+// independently.
+function updateSurfaceHides(selectors) {
+  latestSurfaceHides = Array.isArray(selectors) ? selectors.filter(Boolean) : [];
+  reconcilePageMutations();
+}
+
+function reconcilePageMutations() {
+  if (latestFeedFilters.length === 0 && latestSurfaceHides.length === 0) {
     stopFeedObserver();
     restoreHiddenFeedCards();
+    restoreSurfaceHidden();
     return;
   }
   ensureFeedObserver();
   scheduleApplyFeedFilters();
 }
 
+function applySurfaceHides() {
+  restoreSurfaceHidden();
+  if (latestSurfaceHides.length === 0) return;
+  let nodes = [];
+  try { nodes = document.querySelectorAll(latestSurfaceHides.join(", ")); } catch { return; }
+  for (const el of nodes) hideSurfaceElement(el);
+}
+
+function hideSurfaceElement(el) {
+  if (!el || el.dataset.cbSurfaceHidden === "1") return;
+  el.dataset.cbSurfaceHidden = "1";
+  el.dataset.cbSurfacePrevDisplay = el.style.display || "";
+  el.style.display = "none";
+}
+
+function restoreSurfaceHidden() {
+  for (const el of document.querySelectorAll('[data-cb-surface-hidden="1"]')) {
+    if (el.dataset.cbSurfacePrevDisplay !== undefined) {
+      el.style.display = el.dataset.cbSurfacePrevDisplay;
+      delete el.dataset.cbSurfacePrevDisplay;
+    } else {
+      el.style.removeProperty("display");
+    }
+    el.removeAttribute("data-cb-surface-hidden");
+  }
+}
+
 function ensureFeedObserver() {
-  if (latestFeedFilters.length === 0) {
+  if (latestFeedFilters.length === 0 && latestSurfaceHides.length === 0) {
     stopFeedObserver();
     restoreHiddenFeedCards();
+    restoreSurfaceHidden();
     return;
   }
   if (feedObserver) return;
@@ -904,53 +753,14 @@ function collectYouTubeCreatorIdentifiers() {
   return [...identifiers];
 }
 
-function extractPrimaryAuthorFromPath(groupType, pathname) {
-  const safePathname = String(pathname ?? "/");
-  if (groupType === "youtube") return normalizeYouTubeCreatorInput(safePathname);
-  if (groupType === "tiktok") {
-    const match = safePathname.match(/^\/@([^/?#]+)/i);
-    return match ? normalizePlatformAuthorInput(match[1], groupType) : null;
-  }
-  if (groupType === "instagram") {
-    const match = safePathname.match(/^\/([^/?#]+)/i);
-    if (!match) return null;
-    const reserved = new Set(["reel", "p", "tv", "explore", "accounts", "about"]);
-    return reserved.has(match[1].toLowerCase())
-      ? null
-      : normalizePlatformAuthorInput(match[1], groupType);
-  }
-  if (groupType === "facebook") {
-    try {
-      const parsed = new URL(location.href);
-      const id = parsed.searchParams.get("id");
-      if (id) return normalizePlatformAuthorInput(`id:${id}`, groupType);
-    } catch {}
-    const match = safePathname.match(/^\/([^/?#]+)/i);
-    if (!match) return null;
-    const reserved = new Set(["watch", "reel", "groups", "marketplace", "gaming", "video", "videos"]);
-    return reserved.has(match[1].toLowerCase())
-      ? null
-      : normalizePlatformAuthorInput(match[1], groupType);
-  }
-  if (groupType === "twitch") {
-    const match = safePathname.match(/^\/([^/?#]+)/i);
-    if (!match) return null;
-    const reserved = new Set([
-      "directory", "videos", "settings", "downloads", "subscriptions",
-      "search", "jobs", "drops", "inventory"
-    ]);
-    return reserved.has(match[1].toLowerCase())
-      ? null
-      : normalizePlatformAuthorInput(match[1], groupType);
-  }
-  return null;
-}
+// extractPrimaryAuthorFromPath now lives in platform-profiles.js (it takes a
+// 3rd `url` arg for Facebook profile.php id extraction).
 
 function collectPlatformAuthors(pathname, isYouTubePage) {
-  const map = { youtube: [], tiktok: [], facebook: [], instagram: [], twitch: [] };
+  const map = { youtube: [], tiktok: [], facebook: [], instagram: [], twitch: [], twitter: [] };
   if (isYouTubePage) map.youtube = collectYouTubeCreatorIdentifiers();
-  for (const groupType of ["youtube", "tiktok", "facebook", "instagram", "twitch"]) {
-    const fromPath = extractPrimaryAuthorFromPath(groupType, pathname);
+  for (const groupType of ["youtube", "tiktok", "facebook", "instagram", "twitch", "twitter"]) {
+    const fromPath = extractPrimaryAuthorFromPath(groupType, pathname, location.href);
     if (fromPath && !map[groupType].includes(fromPath)) map[groupType].push(fromPath);
   }
   return map;
@@ -962,6 +772,7 @@ function buildPageContext() {
   const videoContext = detectVideoSiteContext(hostname, location.pathname);
   const isRedditPage = isRedditHost(hostname);
   const isDiscordPage = isDiscordHost(hostname);
+  const isTwitterPage = isTwitterHost(hostname);
   const platformAuthors = collectPlatformAuthors(location.pathname, isYouTubePage);
 
   return {
@@ -976,6 +787,7 @@ function buildPageContext() {
     isDiscordPage,
     discordServerId: isDiscordPage ? parseDiscordServerIdFromPath(location.pathname) : null,
     discordChannelId: isDiscordPage ? parseDiscordChannelIdFromPath(location.pathname) : null,
+    isTwitterPage,
     videoSite: videoContext.site,
     videoForm: videoContext.form
   };
@@ -1177,6 +989,7 @@ function handleSession(session) {
 
   updateOverlay(items, !shouldExitPage && (session.showTimer || items.length > 0));
   updateFeedFilters(session.feedFilters);
+  updateSurfaceHides(session.surfaceHides);
 
   sessionFallbackUrl =
     typeof session.fallbackUrl === "string" ? session.fallbackUrl.trim() : "";
@@ -3084,24 +2897,66 @@ async function __cb_scanFeedPredicates() {
   // a short/stalled feed. Nudge the continuation sentinel so fresh items load
   // to replenish what was hidden. The MutationObserver re-runs this scan when
   // the new batch arrives, so it self-chains until enough cards remain visible.
-  if (hiddenThisPass) __cb_replenishFeed();
+  if (hiddenThisPass) __cb_replenishFeed(platform);
 }
 
-let __cb_replenishInFlight = false;
+// ────────────────────────────────────────────────────────────────────────
+// Feed replenishment (generalised across every platform with a feed)
+//
+// When the platform feed filter OR a custom predicate hides cards, the
+// collapsed grid can stall the platform's own infinite-scroll observer,
+// leaving a short feed. We nudge the feed to load more — via the registry's
+// per-platform replenish recipe (a continuation sentinel, or a generic
+// scroll for feeds without one). A burst cap stops a heavily-filtered feed
+// from firing unbounded back-to-back continuation fetches.
+// ────────────────────────────────────────────────────────────────────────
 
-function __cb_replenishFeed() {
+let __cb_replenishInFlight = false;
+let __cb_replenishBurstCount = 0;
+let __cb_replenishBurstResetTimer = null;
+const __CB_REPLENISH_BURST_MAX = 6;
+
+function __cb_replenishFeed(site) {
   if (__cb_replenishInFlight) return;
-  // YouTube's home/search feeds expose this continuation sentinel; on other
-  // platforms it won't exist, so this is effectively a no-op there.
-  const sentinel = document.querySelector("ytd-continuation-item-renderer");
-  if (!sentinel || typeof sentinel.scrollIntoView !== "function") return;
+  if (__cb_replenishBurstCount >= __CB_REPLENISH_BURST_MAX) return;
+
+  const resolvedSite = site || getCurrentFeedSite();
+  const profile =
+    typeof PLATFORM_PROFILES !== "undefined" ? PLATFORM_PROFILES[resolvedSite] : null;
+  const recipe = profile?.feed?.replenish;
+  if (!recipe) return;
+
+  let nudged = false;
+  if (recipe.sentinel) {
+    const sentinel = document.querySelector(recipe.sentinel);
+    if (sentinel && typeof sentinel.scrollIntoView === "function") {
+      try { sentinel.scrollIntoView({ block: "end" }); nudged = true; } catch {}
+    }
+  }
+  if (!nudged && recipe.scroll) {
+    // No continuation sentinel — scroll the last feed card into view to
+    // trip the platform's lazy loader without jumping the page far.
+    try {
+      const cards = getFeedCardElements(resolvedSite);
+      const last = cards[cards.length - 1];
+      if (last && typeof last.scrollIntoView === "function") {
+        last.scrollIntoView({ block: "end" });
+        nudged = true;
+      } else {
+        const doc = document.scrollingElement || document.documentElement;
+        if (doc) { window.scrollTo({ top: doc.scrollHeight, behavior: "auto" }); nudged = true; }
+      }
+    } catch {}
+  }
+  if (!nudged) return;
+
   __cb_replenishInFlight = true;
-  try {
-    sentinel.scrollIntoView({ block: "end" });
-  } catch {}
-  // Debounce so a heavily-filtered feed can't fire rapid back-to-back
-  // continuation fetches (which risks platform rate-limiting).
+  __cb_replenishBurstCount += 1;
   window.setTimeout(() => { __cb_replenishInFlight = false; }, 500);
+  // After the feed settles, clear the burst counter so later hides can
+  // refill again.
+  if (__cb_replenishBurstResetTimer !== null) window.clearTimeout(__cb_replenishBurstResetTimer);
+  __cb_replenishBurstResetTimer = window.setTimeout(() => { __cb_replenishBurstCount = 0; }, 4000);
 }
 
 function __cb_schedulePredicateScan() {

@@ -148,9 +148,11 @@ const blockingRulesHighlight = document.getElementById("blockingRulesHighlight")
 const blockingRulesField = document.getElementById("blockingRules");
 const blockingRulesLint = document.getElementById("blockingRulesLint");
 const openRuleTemplatesButton = document.getElementById("openRuleTemplatesButton");
-const platformVideoCard = document.getElementById("platformVideoCard");
-const platformVideoTitle = document.getElementById("platformVideoTitle");
-const platformVideoCopy = document.getElementById("platformVideoCopy");
+const platformRulesCard = document.getElementById("platformRulesCard");
+const platformVideoCard = document.getElementById("platformVideoFields");
+const platformVideoTitle = document.getElementById("platformRulesTitle");
+const platformVideoCopy = document.getElementById("platformRulesCopy");
+const platformVideoModeRow = document.getElementById("platformVideoModeRow");
 const platformVideoModeLabel = document.getElementById("platformVideoModeLabel");
 const platformVideoModeField = document.getElementById("platformVideoMode");
 const platformVideoModeAllOption = platformVideoModeField.querySelector('option[value="all"]');
@@ -168,14 +170,16 @@ const platformVideoHelp = document.getElementById("platformVideoHelp");
 const platformBlockHomePageField = document.getElementById("platformBlockHomePage");
 const skipToNextOnBlockRow = document.getElementById("skipToNextOnBlockRow");
 const skipToNextOnBlockField = document.getElementById("skipToNextOnBlock");
-const redditSettingsCard = document.getElementById("redditSettingsCard");
+const redditSettingsCard = document.getElementById("redditFields");
 const redditModeField = document.getElementById("redditMode");
 const redditSubredditsField = document.getElementById("redditSubreddits");
 const redditBlockHomePageField = document.getElementById("redditBlockHomePage");
-const discordSettingsCard = document.getElementById("discordSettingsCard");
+const discordSettingsCard = document.getElementById("discordFields");
 const discordModeField = document.getElementById("discordMode");
 const discordTargetsField = document.getElementById("discordTargets");
 const discordBlockHomePageField = document.getElementById("discordBlockHomePage");
+const surfaceHidesSection = document.getElementById("surfaceHidesSection");
+const surfaceHidesList = document.getElementById("surfaceHidesList");
 const fallbackUrlSection = document.getElementById("fallbackUrlSection");
 const fallbackUrlField = document.getElementById("fallbackUrl");
 const freezeSummary = document.getElementById("freezeSummary");
@@ -1558,53 +1562,7 @@ function normalizeSiteInput(value) {
   }
 }
 
-function normalizeYouTubeCreatorInput(value) {
-  let trimmed = String(value ?? "").trim().toLowerCase();
-
-  if (!trimmed) {
-    return null;
-  }
-
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      const parsed = new URL(trimmed);
-      trimmed = parsed.pathname.trim().toLowerCase();
-    } catch {
-      return null;
-    }
-  }
-
-  if (trimmed.startsWith("/@")) {
-    return trimmed.slice(2).split("/")[0] || null;
-  }
-
-  if (trimmed.startsWith("@")) {
-    return trimmed.slice(1) || null;
-  }
-
-  const pathLike = trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
-  const channelMatch = pathLike.match(/^channel\/([^/?#]+)/);
-  const customMatch = pathLike.match(/^c\/([^/?#]+)/);
-  const userMatch = pathLike.match(/^user\/([^/?#]+)/);
-
-  if (channelMatch) {
-    return `channel:${channelMatch[1]}`;
-  }
-
-  if (customMatch) {
-    return `c:${customMatch[1]}`;
-  }
-
-  if (userMatch) {
-    return `user:${userMatch[1]}`;
-  }
-
-  if (/^(channel|c|user):[a-z0-9._-]+$/i.test(pathLike)) {
-    return pathLike;
-  }
-
-  return /^[a-z0-9._-]+$/i.test(pathLike) ? pathLike : null;
-}
+// normalizeYouTubeCreatorInput now comes from platform-profiles.js.
 
 function parseSiteTextareaValue(value) {
   const validSites = [];
@@ -1968,18 +1926,7 @@ function createDefaultDays() {
   return [...DAY_NAMES];
 }
 
-function normalizeGroupType(value) {
-  return value === "youtube" ||
-    value === "tiktok" ||
-    value === "facebook" ||
-    value === "instagram" ||
-    value === "twitch" ||
-    value === "reddit" ||
-    value === "discord" ||
-    value === "custom"
-    ? value
-    : "site";
-}
+// normalizeGroupType now comes from platform-profiles.js.
 
 function normalizeBlockingMode(value) {
   if (value === "after-minutes" || value === "timer") {
@@ -2021,6 +1968,10 @@ function getGroupTypeLabel(groupType) {
     return t("groupType.discord");
   }
 
+  if (groupType === "twitter") {
+    return t("groupType.twitter");
+  }
+
   if (groupType === "custom") {
     return t("groupType.custom");
   }
@@ -2057,6 +2008,10 @@ function getEditorTypeSummary(groupType) {
     return t("editor.typeSummaryDiscord");
   }
 
+  if (groupType === "twitter") {
+    return t("editor.typeSummaryTwitter");
+  }
+
   if (groupType === "custom") {
     return t("editor.typeSummaryCustom");
   }
@@ -2079,6 +2034,9 @@ function getPlatformDisplayName(groupType) {
   }
   if (groupType === "twitch") {
     return t("groupType.twitch");
+  }
+  if (groupType === "twitter") {
+    return t("groupType.twitter");
   }
   return t("groupType.youtube");
 }
@@ -2148,19 +2106,22 @@ function getPlatformAuthorsPlaceholder(groupType) {
 }
 
 function applyPlatformVideoUi(groupType) {
-  const platform = getPlatformDisplayName(groupType);
-  const shortLabel = getPlatformTypeLabel(groupType, "short");
-  const longLabel = getPlatformTypeLabel(groupType, "long");
-  const postLabel = getPlatformTypeLabel(groupType, "post");
-  const isYouTube = groupType === "youtube";
+  const type = normalizeGroupType(groupType);
+  const platform = getPlatformDisplayName(type);
+  const shortLabel = getPlatformTypeLabel(type, "short");
+  const longLabel = getPlatformTypeLabel(type, "long");
+  const postLabel = getPlatformTypeLabel(type, "post");
+  const isYouTube = type === "youtube";
+  const isTwitter = type === "twitter";
+
+  // Twitter/X has no video-form axis — hide the content-type selector and
+  // present account (handle) controls only.
+  platformVideoModeRow.classList.toggle("hidden", isTwitter);
 
   platformVideoTitle.textContent = t("platform.filtersTitle", { platform });
-  platformVideoCopy.textContent = t("platform.copy", {
-    platform,
-    shortLabel,
-    longLabel,
-    postLabel
-  });
+  platformVideoCopy.textContent = isTwitter
+    ? t("platform.copy.twitter", { platform })
+    : t("platform.copy", { platform, shortLabel, longLabel, postLabel });
   platformVideoModeLabel.textContent = t("platform.videoMode");
   platformVideoModeAllOption.textContent = t("platform.videoModeAll", { platform });
   platformVideoModeShortOption.textContent = t("platform.videoModeShort", { content: shortLabel });
@@ -2170,192 +2131,87 @@ function applyPlatformVideoUi(groupType) {
   platformAuthorModeNoneOption.textContent = t("platform.authorModeNone");
   platformAuthorModeIncludeOption.textContent = t("platform.authorModeInclude");
   platformAuthorModeExcludeOption.textContent = t("platform.authorModeExclude");
-  platformAuthorsLabel.textContent = t("platform.authors");
-  platformAuthorsField.setAttribute("placeholder", getPlatformAuthorsPlaceholder(groupType));
+  platformAuthorsLabel.textContent = isTwitter ? t("platform.accounts") : t("platform.authors");
+  platformAuthorsField.setAttribute("placeholder", getPlatformAuthorsPlaceholder(type));
   platformVideoHelp.textContent = isYouTube
     ? t("platform.help.youtube", { platform })
-    : t("platform.help.generic", { platform, shortLabel, longLabel, postLabel });
+    : isTwitter
+      ? t("platform.help.twitter", { platform })
+      : t("platform.help.generic", { platform, shortLabel, longLabel, postLabel });
 }
 
-function normalizePlatformAuthorMode(value) {
-  return value === "include" || value === "exclude" ? value : "none";
+function getProfileSurfaceHideEntries(groupType) {
+  const profile =
+    typeof PLATFORM_PROFILES !== "undefined" ? PLATFORM_PROFILES[normalizeGroupType(groupType)] : null;
+  return Array.isArray(profile?.surfaceHides) ? profile.surfaceHides : [];
 }
 
-function normalizeRedditMode(value, fallbackList) {
-  if (value === "all" || value === "include" || value === "exclude") {
-    return value;
+function getDraftSurfaceHides(group, draft) {
+  if (draft && Array.isArray(draft.surfaceHides)) {
+    return draft.surfaceHides;
   }
-
-  const list = Array.isArray(fallbackList) ? fallbackList : [];
-  return list.length > 0 ? "include" : "all";
+  return Array.isArray(group?.surfaceHides) ? group.surfaceHides : [];
 }
 
-function normalizeDiscordMode(value, fallbackList) {
-  if (value === "all" || value === "include" || value === "exclude") {
-    return value;
-  }
-
-  const list = Array.isArray(fallbackList) ? fallbackList : [];
-  return list.length > 0 ? "include" : "all";
+function readSurfaceHidesFromForm() {
+  return [...surfaceHidesList.querySelectorAll('input[type="checkbox"]')]
+    .filter((input) => input.checked)
+    .map((input) => input.value);
 }
 
-function isPlatformVideoGroupType(groupType) {
-  const normalized = normalizeGroupType(groupType);
-  return normalized === "youtube" ||
-    normalized === "tiktok" ||
-    normalized === "facebook" ||
-    normalized === "instagram" ||
-    normalized === "twitch";
+// Render the opt-in "Hide elements" checklist for the selected platform group.
+// Each entry maps to a registry surfaceHides id; toggling persists into the
+// group's draft (same auto-save path as the other platform fields).
+function renderSurfaceHides(group, draft, editable) {
+  if (!surfaceHidesSection || !surfaceHidesList) {
+    return;
+  }
+
+  const entries = getProfileSurfaceHideEntries(group.groupType);
+  surfaceHidesList.innerHTML = "";
+
+  if (entries.length === 0) {
+    surfaceHidesSection.classList.add("hidden");
+    return;
+  }
+
+  surfaceHidesSection.classList.remove("hidden");
+  const enabled = new Set(getDraftSurfaceHides(group, draft));
+
+  for (const entry of entries) {
+    const row = document.createElement("label");
+    row.className = "surface-hide-row";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = entry.id;
+    input.checked = enabled.has(entry.id);
+    input.disabled = !editable;
+    input.addEventListener("change", () => handleSurfaceHideChange(group.id));
+
+    const text = document.createElement("span");
+    text.textContent = t(entry.labelKey);
+
+    row.appendChild(input);
+    row.appendChild(text);
+    surfaceHidesList.appendChild(row);
+  }
 }
 
-function normalizePlatformAuthorInput(value, groupType) {
-  const normalizedGroupType = normalizeGroupType(groupType);
-
-  if (normalizedGroupType === "youtube") {
-    return normalizeYouTubeCreatorInput(value);
+function handleSurfaceHideChange(groupId) {
+  const group = state.groups.find((item) => item.id === groupId);
+  if (!group || !isGroupEditable(group)) {
+    render();
+    return;
   }
-
-  let trimmed = String(value ?? "").trim().toLowerCase();
-  const extractFromPath = (pathLike) => {
-    const path = String(pathLike || "").replace(/^\/+|\/+$/g, "");
-    const first = path.split("/")[0] || "";
-
-    if (normalizedGroupType === "tiktok") {
-      return first.startsWith("@")
-        ? first.slice(1) || null
-        : /^[a-z0-9._-]+$/i.test(first)
-          ? first
-          : null;
-    }
-
-    if (normalizedGroupType === "instagram") {
-      const reserved = new Set(["reel", "p", "tv", "explore", "accounts", "about"]);
-      return !reserved.has(first) && /^[a-z0-9._]+$/i.test(first) ? first : null;
-    }
-
-    if (normalizedGroupType === "facebook") {
-      if (path.startsWith("profile.php")) {
-        return null;
-      }
-      const reserved = new Set(["watch", "reel", "groups", "marketplace", "gaming", "video", "videos"]);
-      return !reserved.has(first) && /^[a-z0-9.]+$/i.test(first) ? first : null;
-    }
-
-    if (normalizedGroupType === "twitch") {
-      const reserved = new Set([
-        "directory",
-        "videos",
-        "settings",
-        "downloads",
-        "subscriptions",
-        "search",
-        "jobs",
-        "drops",
-        "inventory"
-      ]);
-      return !reserved.has(first) && /^[a-z0-9_]+$/i.test(first) ? first : null;
-    }
-
-    return null;
-  };
-
-  if (!trimmed) {
-    return null;
-  }
-
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      const parsed = new URL(trimmed);
-      const path = parsed.pathname.replace(/^\/+|\/+$/g, "");
-
-      if (normalizedGroupType === "facebook") {
-        if (path.startsWith("profile.php")) {
-          const id = parsed.searchParams.get("id");
-          return id ? `id:${id}` : null;
-        }
-      }
-      const extracted = extractFromPath(path);
-      if (extracted) {
-        return extracted;
-      }
-      trimmed = path;
-    } catch {
-      return null;
-    }
-  }
-
-  if (trimmed.startsWith("/")) {
-    return extractFromPath(trimmed);
-  }
-
-  trimmed = trimmed.replace(/^@/, "").replace(/^\/+|\/+$/g, "");
-
-  if (normalizedGroupType === "facebook" && trimmed.startsWith("id:")) {
-    return trimmed;
-  }
-
-  return /^[a-z0-9._-]+$/i.test(trimmed) ? trimmed : null;
+  stashCurrentDraft();
+  scheduleAutosave();
 }
 
-function normalizeVideoMode(value) {
-  return value === "short" || value === "long" || value === "post" ? value : "all";
-}
-
-function normalizeRedditSubredditInput(value) {
-  let trimmed = String(value ?? "").trim().toLowerCase();
-
-  if (!trimmed) {
-    return null;
-  }
-
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      trimmed = new URL(trimmed).pathname.trim().toLowerCase();
-    } catch {
-      return null;
-    }
-  }
-
-  trimmed = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
-
-  if (trimmed.startsWith("r/")) {
-    trimmed = trimmed.slice(2);
-  }
-
-  return /^[a-z0-9_]+$/i.test(trimmed) ? trimmed : null;
-}
-
-// Accepts a bare snowflake or a /channels/<server>[/<channel>] URL.
-// Returns a single numeric ID (channel preferred over server when both
-// are present). Match logic later compares this against the page's
-// server-id and channel-id, so callers don't need to know which it is.
-function normalizeDiscordTargetInput(value) {
-  let trimmed = String(value ?? "").trim().toLowerCase();
-
-  if (!trimmed) {
-    return null;
-  }
-
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      trimmed = new URL(trimmed).pathname.trim().toLowerCase();
-    } catch {
-      return null;
-    }
-  }
-
-  trimmed = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
-  const channelsMatch = trimmed.match(/^channels\/([^/?#]+)(?:\/([^/?#]+))?/);
-  if (channelsMatch) {
-    trimmed = channelsMatch[2] || channelsMatch[1] || "";
-  }
-
-  if (trimmed === "@me") {
-    return null;
-  }
-
-  return /^[0-9]{6,24}$/.test(trimmed) ? trimmed : null;
-}
+// normalizePlatformAuthorMode, normalizeRedditMode, normalizeDiscordMode,
+// isPlatformVideoGroupType, normalizePlatformAuthorInput, normalizeVideoMode,
+// normalizeRedditSubredditInput and normalizeDiscordTargetInput now come from
+// platform-profiles.js (loaded before this script).
 
 function parseRedditSubredditsTextarea(value) {
   const validSubreddits = [];
@@ -2438,6 +2294,19 @@ function describePlatformVideoScope(groupLike) {
     twitch: "meta.allTwitch"
   };
   return t(metaKeyByGroupType[groupType] ?? "meta.allYouTube");
+}
+
+function describeTwitterScope(groupLike) {
+  const accounts = Array.isArray(groupLike.platformAuthors) ? groupLike.platformAuthors : [];
+  const mode = normalizePlatformAuthorMode(groupLike.platformAuthorMode);
+
+  if (mode === "include") {
+    return `${accounts.length} ${t("meta.creators")}`;
+  }
+  if (mode === "exclude") {
+    return t("meta.allExceptCreators", { count: accounts.length });
+  }
+  return t("meta.allTwitter");
 }
 
 function describeRedditScope(groupLike) {
@@ -3177,6 +3046,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
   const twitchCount = state.groups.filter((group) => group.groupType === "twitch").length + 1;
   const redditCount = state.groups.filter((group) => group.groupType === "reddit").length + 1;
   const discordCount = state.groups.filter((group) => group.groupType === "discord").length + 1;
+  const twitterCount = state.groups.filter((group) => group.groupType === "twitter").length + 1;
   const customCount = state.groups.filter((group) => group.groupType === "custom").length + 1;
   const siteCount = state.groups.filter((group) => group.groupType === "site").length + 1;
   const normalizedGroupType = normalizeGroupType(groupType);
@@ -3199,6 +3069,8 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
           ? t("groupName.redditPattern", { number: redditCount })
         : normalizedGroupType === "discord"
           ? t("groupName.discordPattern", { number: discordCount })
+        : normalizedGroupType === "twitter"
+          ? t("groupName.twitterPattern", { number: twitterCount })
         : normalizedGroupType === "custom"
           ? t("groupName.customPattern", { number: customCount })
         : t("groupName.sitePattern", { number: siteCount }),
@@ -3223,6 +3095,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     redditSubreddits: [],
     discordMode: "all",
     discordTargets: [],
+    surfaceHides: [],
     blockingRulesText: t("custom.defaultRule"),
     activeEventSource: "",
     freezeMode: "none",
@@ -3344,6 +3217,7 @@ function sanitizeGroups(groups) {
         )
       ],
       discordMode: normalizeDiscordMode(group?.discordMode, rawDiscordTargets),
+      surfaceHides: normalizeSurfaceHides(group?.surfaceHides, normalizedGroupType),
       blockingRulesText:
         typeof group?.blockingRulesText === "string" && group.blockingRulesText.trim()
           ? group.blockingRulesText.trim()
@@ -3604,6 +3478,7 @@ function groupToDraft(group) {
     redditSubredditsText: group.redditSubreddits.join("\n"),
     discordMode: normalizeDiscordMode(group.discordMode, group.discordTargets),
     discordTargetsText: group.discordTargets.join("\n"),
+    surfaceHides: normalizeSurfaceHides(group.surfaceHides, group.groupType),
     blockingRulesText: group.blockingRulesText,
     blockHomePage: Boolean(group.blockHomePage),
     fallbackUrl: group.fallbackUrl ?? "",
@@ -4115,6 +3990,17 @@ function getGroupMetaText(group, draft, now = Date.now()) {
         discordTargets: draftTargets.length > 0 ? draftTargets : group.discordTargets
       })
     );
+  } else if (group.groupType === "twitter") {
+    const draftAccounts = parsePlatformAuthorsTextarea(
+      group.groupType,
+      draft?.platformAuthorsText ?? ""
+    ).validAuthors;
+    pieces.push(
+      describeTwitterScope({
+        platformAuthorMode: draft?.platformAuthorMode ?? group.platformAuthorMode,
+        platformAuthors: draftAccounts.length > 0 ? draftAccounts : group.platformAuthors
+      })
+    );
   } else if (group.groupType === "custom") {
     pieces.push(t("meta.customRules"));
   } else {
@@ -4508,9 +4394,11 @@ function renderEditor(now = Date.now()) {
     blockModeSection.classList.remove("hidden");
     timedSettings.classList.add("hidden");
     customSettingsCard.classList.add("hidden");
+    if (platformRulesCard) platformRulesCard.classList.add("hidden");
     platformVideoCard.classList.add("hidden");
     redditSettingsCard.classList.add("hidden");
     discordSettingsCard.classList.add("hidden");
+    if (surfaceHidesSection) surfaceHidesSection.classList.add("hidden");
     scheduleSection.classList.remove("hidden");
     siteSettingsSection.classList.remove("hidden");
     dayCheckboxes.forEach((checkbox) => {
@@ -4578,9 +4466,13 @@ function renderEditor(now = Date.now()) {
   const selectedMode = normalizeBlockingMode(draft?.mode ?? group.mode);
   const isTimedMode = isTimedBlockingMode(selectedMode);
   const isPlatformVideoGroup = isPlatformVideoGroupType(group.groupType);
+  const isTwitterGroup = normalizeGroupType(group.groupType) === "twitter";
+  // Twitter/X reuses the account (author) controls, minus the video-form axis.
+  const usesAuthorAxis = isPlatformVideoGroup || isTwitterGroup;
   const isRedditGroup = group.groupType === "reddit";
   const isDiscordGroup = group.groupType === "discord";
   const isCustomGroup = group.groupType === "custom";
+  const isPlatformProfileGroup = isPlatformProfileGroupType(group.groupType);
 
   if (aiPromptInput) {
     if (isCustomGroup) {
@@ -4594,7 +4486,7 @@ function renderEditor(now = Date.now()) {
     }
   }
 
-  if (isPlatformVideoGroup) {
+  if (usesAuthorAxis) {
     applyPlatformVideoUi(group.groupType);
   }
 
@@ -4659,16 +4551,20 @@ function renderEditor(now = Date.now()) {
   allowedMinutesRow.classList.toggle("hidden", selectedMode === "timer");
   strictFreezeSettings.classList.toggle("hidden", freezeModeField.value !== "strict");
   customSettingsCard.classList.toggle("hidden", !isCustomGroup);
-  platformVideoCard.classList.toggle("hidden", !isPlatformVideoGroup);
+  if (platformRulesCard) {
+    platformRulesCard.classList.toggle("hidden", !isPlatformProfileGroup);
+  }
+  platformVideoCard.classList.toggle("hidden", !usesAuthorAxis);
   redditSettingsCard.classList.toggle("hidden", !isRedditGroup);
   discordSettingsCard.classList.toggle("hidden", !isDiscordGroup);
+  renderSurfaceHides(group, draft, editable);
   if (fallbackUrlSection) {
     fallbackUrlSection.classList.toggle("hidden", isCustomGroup);
   }
   scheduleSection.classList.toggle("hidden", isCustomGroup);
   siteSettingsSection.classList.toggle(
     "hidden",
-    isPlatformVideoGroup || isRedditGroup || isDiscordGroup || isCustomGroup
+    isPlatformProfileGroup || isCustomGroup
   );
 
   groupNameField.disabled = !editable;
@@ -4687,24 +4583,24 @@ function renderEditor(now = Date.now()) {
   const domainsMirrored =
     group.groupType === "site" && bridgeOwnsApps() && Boolean(groupConnectionCluster(group));
   blockedSitesField.disabled =
-    !editable || isPlatformVideoGroup || isRedditGroup || isCustomGroup || domainsMirrored;
+    !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
   blockingRulesField.disabled = !editable || !isCustomGroup;
   platformAuthorsField.disabled =
-    !editable || !isPlatformVideoGroup || platformAuthorModeField.value === "none";
+    !editable || !usesAuthorAxis || platformAuthorModeField.value === "none";
   platformVideoModeField.disabled = !editable || !isPlatformVideoGroup;
-  platformAuthorModeField.disabled = !editable || !isPlatformVideoGroup;
+  platformAuthorModeField.disabled = !editable || !usesAuthorAxis;
   redditModeField.disabled = !editable || !isRedditGroup;
   redditSubredditsField.disabled =
     !editable || !isRedditGroup || redditModeField.value === "all";
   discordModeField.disabled = !editable || !isDiscordGroup;
   discordTargetsField.disabled = !editable || !isDiscordGroup || discordModeField.value === "all";
   clearSitesButton.disabled =
-    !editable || isPlatformVideoGroup || isRedditGroup || isDiscordGroup || isCustomGroup || domainsMirrored;
+    !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
   renderBlockedSites();
   deleteGroupButton.disabled = !editable;
   exportGroupButton.disabled = false;
   importGroupButton.disabled = !editable;
-  platformBlockHomePageField.disabled = !editable || !isPlatformVideoGroup;
+  platformBlockHomePageField.disabled = !editable || !usesAuthorAxis;
   redditBlockHomePageField.disabled = !editable || !isRedditGroup;
   discordBlockHomePageField.disabled = !editable || !isDiscordGroup;
   fallbackUrlField.disabled = !editable;
@@ -4850,6 +4746,8 @@ function stashCurrentDraft() {
   }
 
   const isPlatformVideoGroup = isPlatformVideoGroupType(group.groupType);
+  const isTwitterGroup = normalizeGroupType(group.groupType) === "twitter";
+  const usesAuthorAxis = isPlatformVideoGroup || isTwitterGroup;
   const isRedditGroup = group.groupType === "reddit";
   const isDiscordGroup = group.groupType === "discord";
 
@@ -4875,13 +4773,14 @@ function stashCurrentDraft() {
     redditSubredditsText: redditSubredditsField.value,
     discordMode: discordModeField.value,
     discordTargetsText: discordTargetsField.value,
-    blockHomePage: isPlatformVideoGroup
+    blockHomePage: usesAuthorAxis
       ? platformBlockHomePageField.checked
       : isRedditGroup
         ? redditBlockHomePageField.checked
         : isDiscordGroup
           ? discordBlockHomePageField.checked
           : false,
+    surfaceHides: readSurfaceHidesFromForm(),
     fallbackUrl: fallbackUrlField.value,
     skipToNextOnBlock: skipToNextOnBlockField.checked
   };
@@ -5278,7 +5177,10 @@ function buildUpdatedGroupFromDraft(group, draft) {
     throw new Error(t("status.invalidSites", { list: siteResults.invalidSites.join(", ") }));
   }
 
-  if (isPlatformVideoGroupType(group.groupType) && authorResults.invalidAuthors.length > 0) {
+  const usesAuthorAxis =
+    isPlatformVideoGroupType(group.groupType) || normalizeGroupType(group.groupType) === "twitter";
+
+  if (usesAuthorAxis && authorResults.invalidAuthors.length > 0) {
     throw new Error(t("status.invalidCreators", { list: authorResults.invalidAuthors.join(", ") }));
   }
 
@@ -5321,8 +5223,11 @@ function buildUpdatedGroupFromDraft(group, draft) {
       timeWindowsText: isCustomGroup ? group.timeWindowsText : timeWindows.normalizedLines.join("\n"),
       platformVideoMode: normalizeVideoMode(draft.platformVideoMode),
       platformAuthorMode: authorMode,
-      platformAuthors:
-        isPlatformVideoGroupType(group.groupType) ? authorResults.validAuthors : group.platformAuthors,
+      platformAuthors: usesAuthorAxis ? authorResults.validAuthors : group.platformAuthors,
+      surfaceHides: normalizeSurfaceHides(
+        Array.isArray(draft.surfaceHides) ? draft.surfaceHides : group.surfaceHides,
+        group.groupType
+      ),
       redditSubreddits:
         group.groupType === "reddit" ? redditResults.validSubreddits : group.redditSubreddits,
       redditMode: group.groupType === "reddit" ? redditMode : group.redditMode,

@@ -779,30 +779,20 @@ textarea:focus {
   color: #e2e8f0;
 }
 
-#platformVideoCard,
-#redditSettingsCard,
-#discordSettingsCard {
+#platformRulesCard {
   background: var(--cyan-50);
 }
 
-#platformVideoCard::before,
-#redditSettingsCard::before,
-#discordSettingsCard::before {
+#platformRulesCard::before {
   background: var(--cyan-700);
 }
 
-#platformVideoCard h3,
-#redditSettingsCard h3,
-#discordSettingsCard h3 {
+#platformRulesCard h3 {
   color: color-mix(in srgb, var(--cyan-text) 34%, #334155);
 }
 
-#platformVideoCard select:focus,
-#platformVideoCard textarea:focus,
-#redditSettingsCard select:focus,
-#redditSettingsCard textarea:focus,
-#discordSettingsCard select:focus,
-#discordSettingsCard textarea:focus {
+#platformRulesCard select:focus,
+#platformRulesCard textarea:focus {
   outline: none;
   box-shadow:
     inset 0 0 0 1px var(--cyan-700),
@@ -889,10 +879,28 @@ textarea:focus {
   color: color-mix(in srgb, var(--gold-text) 36%, #334155);
 }
 
-#platformVideoCard :where(h3, .label, .section-copy, .field-help, .checkbox-row),
-#redditSettingsCard :where(h3, .label, .section-copy, .field-help, .checkbox-row),
-#discordSettingsCard :where(h3, .label, .section-copy, .field-help, .checkbox-row) {
+#platformRulesCard :where(h3, .label, .section-copy, .field-help, .checkbox-row) {
   color: color-mix(in srgb, var(--cyan-text) 34%, #334155);
+}
+
+.surface-hides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.surface-hide-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.surface-hide-row input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
 }
 
 .section-card.freeze-section :where(h3, .label, .section-copy, .field-help, .checkbox-row) {
