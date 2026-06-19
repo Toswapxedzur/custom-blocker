@@ -409,6 +409,101 @@ textarea:focus {
   color: #64748b;
 }
 
+/* Entry chip inputs: small removable tokens replacing one-big-list textareas. */
+.entry-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 44px;
+  padding: 7px 8px;
+  margin-bottom: 12px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.45);
+}
+
+.entry-chip-list:focus-within {
+  box-shadow:
+    inset 0 0 0 1px var(--navy-700),
+    0 0 0 3px var(--navy-ring);
+}
+
+.entry-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 6px 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #1e293b;
+  background: #eef2f7;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.5);
+}
+
+.entry-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-chip-invalid {
+  color: #b42318;
+  background: #fef3f2;
+  box-shadow: inset 0 0 0 1px rgba(217, 45, 32, 0.55);
+}
+
+.entry-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+}
+
+.entry-chip-remove:hover {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+.entry-chip-input {
+  flex: 1 1 120px;
+  min-width: 120px;
+  width: auto;
+  margin: 0;
+  padding: 4px 4px;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.entry-chip-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.entry-chip-input:disabled {
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.entry-chip-list-disabled {
+  opacity: 0.6;
+}
+
 .field-actions {
   display: flex;
   gap: 8px;
@@ -901,6 +996,13 @@ textarea:focus {
   width: 13px;
   height: 13px;
   margin: 0;
+}
+
+.surface-hide-hint {
+  margin-left: 4px;
+  font-weight: 500;
+  font-size: 11px;
+  color: #64748b;
 }
 
 .section-card.freeze-section :where(h3, .label, .section-copy, .field-help, .checkbox-row) {

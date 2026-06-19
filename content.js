@@ -512,7 +512,9 @@ function matchesFeedFilter(cardData, filter) {
   if (filter.videoMode === "short" || filter.videoMode === "long" || filter.videoMode === "post") {
     if (cardData.videoForm !== filter.videoMode) return false;
   }
-  if (filter.authorMode === "none") return true;
+  if (filter.authorMode === "all") return true;
+  // "nobody" / tag stubs never trim by author (and aren't emitted as filters).
+  if (filter.authorMode !== "include" && filter.authorMode !== "exclude") return false;
   const authors = Array.isArray(filter.authors) ? filter.authors : [];
   if (authors.length === 0) return false;
   const hasAuthorMatch = authors.some((author) => cardData.creators.includes(author));
@@ -541,7 +543,7 @@ function hideElement(element) {
 }
 
 function collectNavElementsToHide(filter) {
-  if (!filter || filter.authorMode !== "none") return [];
+  if (!filter || filter.authorMode !== "all") return [];
   const containers = new Set();
   let anchorSelectors = [];
   const containerSelectors = [
@@ -573,7 +575,7 @@ function collectNavElementsToHide(filter) {
 }
 
 function collectFormShelvesToHide(filter) {
-  if (!filter || filter.authorMode !== "none") return [];
+  if (!filter || filter.authorMode !== "all") return [];
   let shelfSelectors = [];
   if (filter.videoMode === "short") {
     shelfSelectors = [

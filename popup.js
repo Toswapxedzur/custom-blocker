@@ -153,6 +153,7 @@ const platformVideoCard = document.getElementById("platformVideoFields");
 const platformVideoTitle = document.getElementById("platformRulesTitle");
 const platformVideoCopy = document.getElementById("platformRulesCopy");
 const platformVideoModeRow = document.getElementById("platformVideoModeRow");
+const platformVideoModeHelp = document.getElementById("platformVideoModeHelp");
 const platformVideoModeLabel = document.getElementById("platformVideoModeLabel");
 const platformVideoModeField = document.getElementById("platformVideoMode");
 const platformVideoModeAllOption = platformVideoModeField.querySelector('option[value="all"]');
@@ -161,12 +162,15 @@ const platformVideoModeLongOption = platformVideoModeField.querySelector('option
 const platformVideoModePostOption = platformVideoModeField.querySelector('option[value="post"]');
 const platformAuthorModeLabel = document.getElementById("platformAuthorModeLabel");
 const platformAuthorModeField = document.getElementById("platformAuthorMode");
-const platformAuthorModeNoneOption = platformAuthorModeField.querySelector('option[value="none"]');
-const platformAuthorModeIncludeOption = platformAuthorModeField.querySelector('option[value="include"]');
-const platformAuthorModeExcludeOption = platformAuthorModeField.querySelector('option[value="exclude"]');
+const platformAuthorModeHelp = document.getElementById("platformAuthorModeHelp");
+const platformAuthorsBlock = document.getElementById("platformAuthorsBlock");
 const platformAuthorsLabel = document.getElementById("platformAuthorsLabel");
 const platformAuthorsField = document.getElementById("platformAuthors");
 const platformVideoHelp = document.getElementById("platformVideoHelp");
+const platformAuthorTagsBlock = document.getElementById("platformAuthorTagsBlock");
+const platformAuthorTagsLabel = document.getElementById("platformAuthorTagsLabel");
+const platformAuthorTagsField = document.getElementById("platformAuthorTags");
+const platformAuthorTagsHelp = document.getElementById("platformAuthorTagsHelp");
 const platformBlockHomePageField = document.getElementById("platformBlockHomePage");
 const skipToNextOnBlockRow = document.getElementById("skipToNextOnBlockRow");
 const skipToNextOnBlockField = document.getElementById("skipToNextOnBlock");
@@ -1738,6 +1742,136 @@ function confirmSiteAdd() {
   closeSiteAddPanel();
 }
 
+// ── Entry chip inputs ──────────────────────────────────────────────────────
+// Turns a backing <textarea> (one entry per line) into a row of small, removable
+// chips with an inline add box. Each chip is validated with the field's
+// normalizer; invalid entries get a red style so typos are obvious immediately.
+// The hidden textarea stays the source of truth, so the existing draft / autosave
+// pipeline (which reads `.value`) keeps working unchanged.
+const chipInputRegistry = [];
+
+// The group type currently shown in the editor — drives the author chip
+// normalizer (YouTube vs TikTok vs Twitter handles differ).
+let chipsGroupType = "youtube";
+
+function getChipFieldEntries(field) {
+  return String(field.value ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function setChipFieldEntries(field, entries) {
+  const deduped = [];
+  for (const entry of entries) {
+    const trimmed = String(entry ?? "").trim();
+    if (trimmed && !deduped.includes(trimmed)) deduped.push(trimmed);
+  }
+  field.value = deduped.join("\n");
+  // Drive the same stash + autosave path the raw textarea input used to.
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function setupChipField(field, options) {
+  if (!field || field.__cbChip) return;
+  const normalize = options?.normalize || ((value) => (String(value ?? "").trim() ? value : null));
+
+  const list = document.createElement("div");
+  list.className = "entry-chip-list";
+  const addInput = document.createElement("input");
+  addInput.type = "text";
+  addInput.className = "entry-chip-input";
+  addInput.spellcheck = false;
+
+  field.classList.add("hidden");
+  field.setAttribute("aria-hidden", "true");
+  field.insertAdjacentElement("afterend", list);
+
+  const commitAdd = () => {
+    const parts = addInput.value
+      .split(/[\n,]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    addInput.value = "";
+    if (parts.length === 0) return;
+    setChipFieldEntries(field, [...getChipFieldEntries(field), ...parts]);
+    renderChips();
+  };
+
+  addInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
+      commitAdd();
+    } else if (event.key === "Backspace" && addInput.value === "") {
+      const entries = getChipFieldEntries(field);
+      if (entries.length > 0) {
+        entries.pop();
+        setChipFieldEntries(field, entries);
+        renderChips();
+      }
+    }
+  });
+  addInput.addEventListener("blur", commitAdd);
+
+  function renderChips() {
+    const editable = !field.disabled;
+    list.classList.toggle("entry-chip-list-disabled", !editable);
+    list.innerHTML = "";
+    for (const entry of getChipFieldEntries(field)) {
+      const valid = normalize(entry) !== null;
+      const chip = document.createElement("span");
+      chip.className = "entry-chip" + (valid ? "" : " entry-chip-invalid");
+      chip.title = valid ? entry : t("chip.invalid");
+
+      const label = document.createElement("span");
+      label.className = "entry-chip-label";
+      label.textContent = entry;
+      chip.appendChild(label);
+
+      if (editable) {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "entry-chip-remove";
+        remove.setAttribute("aria-label", t("chip.removeAria", { name: entry }));
+        remove.textContent = "\u00d7";
+        remove.addEventListener("click", () => {
+          setChipFieldEntries(field, getChipFieldEntries(field).filter((item) => item !== entry));
+          renderChips();
+        });
+        chip.appendChild(remove);
+      }
+      list.appendChild(chip);
+    }
+
+    addInput.disabled = !editable;
+    addInput.placeholder = t("chip.addPlaceholder");
+    list.appendChild(addInput);
+  }
+
+  field.__cbChip = { render: renderChips };
+  chipInputRegistry.push(field);
+  renderChips();
+}
+
+function refreshChipField(field) {
+  if (field && field.__cbChip) field.__cbChip.render();
+}
+
+function setupPlatformChipInputs() {
+  setupChipField(platformAuthorsField, {
+    normalize: (value) => normalizePlatformAuthorInput(value, chipsGroupType)
+  });
+  setupChipField(platformAuthorTagsField, {
+    normalize: (value) => (String(value ?? "").trim() ? value : null)
+  });
+  setupChipField(redditSubredditsField, {
+    normalize: (value) => normalizeRedditSubredditInput(value)
+  });
+  setupChipField(discordTargetsField, {
+    normalize: (value) => normalizeDiscordTargetInput(value)
+  });
+}
+
 function parsePlatformAuthorsTextarea(groupType, value) {
   const validAuthors = [];
   const invalidAuthors = [];
@@ -2038,6 +2172,12 @@ function getPlatformDisplayName(groupType) {
   if (groupType === "twitter") {
     return t("groupType.twitter");
   }
+  if (groupType === "reddit") {
+    return t("groupType.reddit");
+  }
+  if (groupType === "discord") {
+    return t("groupType.discord");
+  }
   return t("groupType.youtube");
 }
 
@@ -2105,6 +2245,37 @@ function getPlatformAuthorsPlaceholder(groupType) {
   return t(`platform.placeholder.${normalizeGroupType(groupType)}`);
 }
 
+// Sets the unified "Platform rules" card header (title + one-line copy). Runs
+// for every platform-profile type, including Reddit/Discord which used to carry
+// their own section headings before the cards were merged.
+function applyPlatformRulesHeader(groupType) {
+  const type = normalizeGroupType(groupType);
+  const platform = getPlatformDisplayName(type);
+  if (platformVideoTitle) platformVideoTitle.textContent = t("platform.rulesTitle", { platform });
+  if (platformVideoCopy) platformVideoCopy.textContent = t("platform.rulesCopy", { platform });
+}
+
+// Builds the author/account mode dropdown for the current platform. Video
+// platforms + Twitter share these modes; YouTube additionally offers the
+// (visual-only) tag modes.
+function rebuildAuthorModeOptions(type) {
+  const isTwitter = type === "twitter";
+  const isYouTube = type === "youtube";
+  const noun = isTwitter ? t("platform.nounAccounts") : t("platform.nounAuthors");
+  const modes = ["all", "include", "exclude", "nobody"];
+  if (isYouTube) modes.push("tagInclude", "tagExclude");
+
+  const previous = platformAuthorModeField.value;
+  platformAuthorModeField.innerHTML = "";
+  for (const mode of modes) {
+    const option = document.createElement("option");
+    option.value = mode;
+    option.textContent = t(`platform.authorMode.${mode}`, { noun });
+    platformAuthorModeField.appendChild(option);
+  }
+  if (modes.includes(previous)) platformAuthorModeField.value = previous;
+}
+
 function applyPlatformVideoUi(groupType) {
   const type = normalizeGroupType(groupType);
   const platform = getPlatformDisplayName(type);
@@ -2118,19 +2289,19 @@ function applyPlatformVideoUi(groupType) {
   // present account (handle) controls only.
   platformVideoModeRow.classList.toggle("hidden", isTwitter);
 
-  platformVideoTitle.textContent = t("platform.filtersTitle", { platform });
-  platformVideoCopy.textContent = isTwitter
-    ? t("platform.copy.twitter", { platform })
-    : t("platform.copy", { platform, shortLabel, longLabel, postLabel });
   platformVideoModeLabel.textContent = t("platform.videoMode");
+  if (platformVideoModeHelp) platformVideoModeHelp.textContent = t("platform.videoModeHelp");
   platformVideoModeAllOption.textContent = t("platform.videoModeAll", { platform });
   platformVideoModeShortOption.textContent = t("platform.videoModeShort", { content: shortLabel });
   platformVideoModeLongOption.textContent = t("platform.videoModeLong", { content: longLabel });
   platformVideoModePostOption.textContent = t("platform.videoModePost", { content: postLabel });
-  platformAuthorModeLabel.textContent = t("platform.authorMode");
-  platformAuthorModeNoneOption.textContent = t("platform.authorModeNone");
-  platformAuthorModeIncludeOption.textContent = t("platform.authorModeInclude");
-  platformAuthorModeExcludeOption.textContent = t("platform.authorModeExclude");
+
+  platformAuthorModeLabel.textContent = isTwitter ? t("platform.accountMode") : t("platform.authorMode");
+  rebuildAuthorModeOptions(type);
+  platformAuthorModeHelp.textContent = isTwitter
+    ? t("platform.accountModeHelp")
+    : t("platform.authorModeHelp");
+
   platformAuthorsLabel.textContent = isTwitter ? t("platform.accounts") : t("platform.authors");
   platformAuthorsField.setAttribute("placeholder", getPlatformAuthorsPlaceholder(type));
   platformVideoHelp.textContent = isYouTube
@@ -2138,6 +2309,11 @@ function applyPlatformVideoUi(groupType) {
     : isTwitter
       ? t("platform.help.twitter", { platform })
       : t("platform.help.generic", { platform, shortLabel, longLabel, postLabel });
+
+  // YouTube-only tag stubs.
+  platformAuthorTagsLabel.textContent = t("platform.authorTags");
+  platformAuthorTagsField.setAttribute("placeholder", t("platform.authorTagsPlaceholder"));
+  platformAuthorTagsHelp.textContent = t("platform.authorTagsHelp");
 }
 
 function getProfileSurfaceHideEntries(groupType) {
@@ -2191,6 +2367,16 @@ function renderSurfaceHides(group, draft, editable) {
 
     const text = document.createElement("span");
     text.textContent = t(entry.labelKey);
+
+    // Entry-scoped hides (e.g. YouTube comments) only apply on pages matching
+    // the group's author scope — flag that inline so it isn't mistaken for a
+    // site-wide toggle.
+    if (surfaceHideEntryScope(entry) === "entry") {
+      const hint = document.createElement("span");
+      hint.className = "surface-hide-hint";
+      hint.textContent = t("surfaceHide.scopeEntry");
+      text.appendChild(hint);
+    }
 
     row.appendChild(input);
     row.appendChild(text);
@@ -2280,6 +2466,12 @@ function describePlatformVideoScope(groupLike) {
     scopes.push(`${authors.length} ${t("meta.creators")}`);
   } else if (authorMode === "exclude") {
     scopes.push(t("meta.allExceptCreators", { count: authors.length }));
+  } else if (authorMode === "nobody") {
+    scopes.push(t("meta.noAuthors"));
+  } else if (authorMode === "tagInclude") {
+    scopes.push(t("meta.tagAuthors"));
+  } else if (authorMode === "tagExclude") {
+    scopes.push(t("meta.tagAuthorsExcept"));
   }
 
   if (scopes.length > 0) {
@@ -2305,6 +2497,9 @@ function describeTwitterScope(groupLike) {
   }
   if (mode === "exclude") {
     return t("meta.allExceptCreators", { count: accounts.length });
+  }
+  if (mode === "nobody") {
+    return t("meta.noAuthors");
   }
   return t("meta.allTwitter");
 }
@@ -3089,8 +3284,9 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     activeDays: createDefaultDays(),
     timeWindowsText: "",
     platformVideoMode: "all",
-    platformAuthorMode: "none",
+    platformAuthorMode: "all",
     platformAuthors: [],
+    platformAuthorTags: [],
     redditMode: "all",
     redditSubreddits: [],
     discordMode: "all",
@@ -3165,6 +3361,7 @@ function sanitizeGroups(groups) {
       .map((day) => String(day).trim().toLowerCase())
       .filter((day, index, array) => DAY_NAMES.includes(day) && array.indexOf(day) === index);
     const rawAuthors = Array.isArray(group?.platformAuthors) ? group.platformAuthors : [];
+    const rawAuthorTags = Array.isArray(group?.platformAuthorTags) ? group.platformAuthorTags : [];
     const rawRedditSubreddits = Array.isArray(group?.redditSubreddits) ? group.redditSubreddits : [];
     const rawDiscordTargets = Array.isArray(group?.discordTargets) ? group.discordTargets : [];
 
@@ -3204,6 +3401,10 @@ function sanitizeGroups(groups) {
             .map((author) => normalizePlatformAuthorInput(author, normalizedGroupType))
             .filter(Boolean)
         )
+      ],
+      // Visual-only stub: free-form tags for the YouTube tag author modes.
+      platformAuthorTags: [
+        ...new Set(rawAuthorTags.map((tag) => String(tag ?? "").trim()).filter(Boolean))
       ],
       redditSubreddits: [
         ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
@@ -3354,10 +3555,12 @@ function getSerializableGroupSnapshot(group) {
     platformVideoMode: group.platformVideoMode,
     platformAuthorMode: group.platformAuthorMode,
     platformAuthors: [...group.platformAuthors],
+    platformAuthorTags: [...(group.platformAuthorTags ?? [])],
     redditMode: group.redditMode,
     redditSubreddits: [...group.redditSubreddits],
     discordMode: group.discordMode,
     discordTargets: [...group.discordTargets],
+    surfaceHides: [...(group.surfaceHides ?? [])],
     blockingRulesText: group.blockingRulesText,
     freezeMode: group.freezeMode,
     freezeModeChoice: normalizeFreezeModeChoice(group),
@@ -3474,6 +3677,7 @@ function groupToDraft(group) {
     platformVideoMode: normalizeVideoMode(group.platformVideoMode),
     platformAuthorMode: normalizePlatformAuthorMode(group.platformAuthorMode),
     platformAuthorsText: group.platformAuthors.join("\n"),
+    platformAuthorTagsText: (group.platformAuthorTags ?? []).join("\n"),
     redditMode: normalizeRedditMode(group.redditMode, group.redditSubreddits),
     redditSubredditsText: group.redditSubreddits.join("\n"),
     discordMode: normalizeDiscordMode(group.discordMode, group.discordTargets),
@@ -4486,9 +4690,13 @@ function renderEditor(now = Date.now()) {
     }
   }
 
+  if (isPlatformProfileGroup) {
+    applyPlatformRulesHeader(group.groupType);
+  }
   if (usesAuthorAxis) {
     applyPlatformVideoUi(group.groupType);
   }
+  chipsGroupType = normalizeGroupType(group.groupType);
 
   editorTitle.textContent = draft?.name?.trim() || group.name;
   editorCopy.textContent = isCustomGroup ? t("custom.editorCopy") : t("editor.copy");
@@ -4513,8 +4721,12 @@ function renderEditor(now = Date.now()) {
   blockedSitesField.value = draft?.sitesText ?? group.sites.join("\n");
   blockingRulesField.value = draft?.blockingRulesText ?? group.blockingRulesText;
   platformAuthorsField.value = draft?.platformAuthorsText ?? group.platformAuthors.join("\n");
+  platformAuthorTagsField.value =
+    draft?.platformAuthorTagsText ?? (group.platformAuthorTags ?? []).join("\n");
   platformVideoModeField.value = draft?.platformVideoMode ?? group.platformVideoMode;
-  platformAuthorModeField.value = draft?.platformAuthorMode ?? group.platformAuthorMode;
+  platformAuthorModeField.value = normalizePlatformAuthorMode(
+    draft?.platformAuthorMode ?? group.platformAuthorMode
+  );
   redditSubredditsField.value = draft?.redditSubredditsText ?? group.redditSubreddits.join("\n");
   redditModeField.value = normalizeRedditMode(
     draft?.redditMode ?? group.redditMode,
@@ -4585,8 +4797,15 @@ function renderEditor(now = Date.now()) {
   blockedSitesField.disabled =
     !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
   blockingRulesField.disabled = !editable || !isCustomGroup;
-  platformAuthorsField.disabled =
-    !editable || !usesAuthorAxis || platformAuthorModeField.value === "none";
+  const currentAuthorMode = normalizePlatformAuthorMode(platformAuthorModeField.value);
+  const authorModeUsesList = platformAuthorModeUsesList(currentAuthorMode); // include/exclude
+  const authorModeUsesTags = isPlatformAuthorTagMode(currentAuthorMode); // youtube tag stubs
+  // Show the author list only for include/exclude; show the tag box only for the
+  // YouTube tag modes; show neither for "all"/"no authors".
+  platformAuthorsBlock.classList.toggle("hidden", !usesAuthorAxis || !authorModeUsesList);
+  platformAuthorTagsBlock.classList.toggle("hidden", !usesAuthorAxis || !authorModeUsesTags);
+  platformAuthorsField.disabled = !editable || !usesAuthorAxis || !authorModeUsesList;
+  platformAuthorTagsField.disabled = !editable || !usesAuthorAxis || !authorModeUsesTags;
   platformVideoModeField.disabled = !editable || !isPlatformVideoGroup;
   platformAuthorModeField.disabled = !editable || !usesAuthorAxis;
   redditModeField.disabled = !editable || !isRedditGroup;
@@ -4597,6 +4816,10 @@ function renderEditor(now = Date.now()) {
   clearSitesButton.disabled =
     !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
   renderBlockedSites();
+  refreshChipField(platformAuthorsField);
+  refreshChipField(platformAuthorTagsField);
+  refreshChipField(redditSubredditsField);
+  refreshChipField(discordTargetsField);
   deleteGroupButton.disabled = !editable;
   exportGroupButton.disabled = false;
   importGroupButton.disabled = !editable;
@@ -4769,6 +4992,7 @@ function stashCurrentDraft() {
     platformVideoMode: platformVideoModeField.value,
     platformAuthorMode: platformAuthorModeField.value,
     platformAuthorsText: platformAuthorsField.value,
+    platformAuthorTagsText: platformAuthorTagsField.value,
     redditMode: redditModeField.value,
     redditSubredditsText: redditSubredditsField.value,
     discordMode: discordModeField.value,
@@ -5135,6 +5359,15 @@ function buildUpdatedGroupFromDraft(group, draft) {
   const siteResults = parseSiteTextareaValue(draft.sitesText);
   const authorResults = parsePlatformAuthorsTextarea(group.groupType, draft.platformAuthorsText);
   const authorMode = normalizePlatformAuthorMode(draft.platformAuthorMode);
+  // Visual-only stub: tags are free-form, so every non-empty entry is kept.
+  const authorTags = [
+    ...new Set(
+      String(draft.platformAuthorTagsText ?? "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+    )
+  ];
   const redditResults = parseRedditSubredditsTextarea(draft.redditSubredditsText);
   const redditMode = normalizeRedditMode(draft.redditMode, redditResults.validSubreddits);
   const discordResults = parseDiscordTargetsTextarea(draft.discordTargetsText);
@@ -5180,21 +5413,9 @@ function buildUpdatedGroupFromDraft(group, draft) {
   const usesAuthorAxis =
     isPlatformVideoGroupType(group.groupType) || normalizeGroupType(group.groupType) === "twitter";
 
-  if (usesAuthorAxis && authorResults.invalidAuthors.length > 0) {
-    throw new Error(t("status.invalidCreators", { list: authorResults.invalidAuthors.join(", ") }));
-  }
-
-  if (group.groupType === "reddit" && redditResults.invalidSubreddits.length > 0) {
-    throw new Error(
-      t("status.invalidSubreddits", { list: redditResults.invalidSubreddits.join(", ") })
-    );
-  }
-
-  if (group.groupType === "discord" && discordResults.invalidTargets.length > 0) {
-    throw new Error(
-      t("status.invalidDiscordTargets", { list: discordResults.invalidTargets.join(", ") })
-    );
-  }
+  // Invalid platform entries are surfaced inline as red chips in the editor, so
+  // we no longer abort the save — valid entries persist and the bad chips stay
+  // visible (in the draft text) until the user fixes or removes them.
 
   // Custom rule source is not validated here — autosave fires mid-edit
   // and would always look broken. Real validation happens at Run time.
@@ -5224,6 +5445,7 @@ function buildUpdatedGroupFromDraft(group, draft) {
       platformVideoMode: normalizeVideoMode(draft.platformVideoMode),
       platformAuthorMode: authorMode,
       platformAuthors: usesAuthorAxis ? authorResults.validAuthors : group.platformAuthors,
+      platformAuthorTags: usesAuthorAxis ? authorTags : (group.platformAuthorTags ?? []),
       surfaceHides: normalizeSurfaceHides(
         Array.isArray(draft.surfaceHides) ? draft.surfaceHides : group.surfaceHides,
         group.groupType
@@ -6728,7 +6950,15 @@ if (templateGrid) {
   });
 }
 
+setupPlatformChipInputs();
+
 platformAuthorsField.addEventListener("input", () => {
+  stashCurrentDraft();
+  renderGroupList();
+  scheduleAutosave();
+});
+
+platformAuthorTagsField.addEventListener("input", () => {
   stashCurrentDraft();
   renderGroupList();
   scheduleAutosave();
