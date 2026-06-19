@@ -940,11 +940,16 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
       ) {
         continue;
       }
+      const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
+      // "nobody" and the YouTube tag stubs don't trim the feed by author.
+      if (authorMode !== "all" && authorMode !== "include" && authorMode !== "exclude") {
+        continue;
+      }
       filters.push({
         id: group.id,
         site: group.groupType,
         videoMode: normalizeVideoMode(group.platformVideoMode),
-        authorMode: normalizePlatformAuthorMode(group.platformAuthorMode),
+        authorMode,
         authors: [...group.platformAuthors]
       });
     }
@@ -996,9 +1001,9 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
         continue;
       }
       const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
-      // mode "none" blocks the whole page (handled by the matcher), so it
-      // needs no per-card feed filtering. Only include/exclude trim the feed.
-      if (authorMode === "none") continue;
+      // mode "all" blocks the whole page (handled by the matcher); "nobody"
+      // blocks nothing. Only include/exclude trim the feed per-account.
+      if (authorMode !== "include" && authorMode !== "exclude") continue;
       filters.push({
         id: group.id,
         site: "twitter",
@@ -1024,8 +1029,18 @@ function buildSurfaceHideSelectors(pageContext, groups, groupSnoozes, now) {
       continue;
     }
     if (!isPlatformHost(group.groupType, pageContext.hostname)) continue;
-    for (const sel of getSurfaceHideSelectors(group.groupType, group.surfaceHides)) {
+
+    // App-scoped hides (site chrome / content types) apply whenever the group
+    // is active on the host.
+    for (const sel of getSurfaceHideSelectors(group.groupType, group.surfaceHides, "app")) {
       selectors.add(sel);
+    }
+
+    // Entry-scoped hides (e.g. YouTube comments) are tied to a targeted entry,
+    // so only emit them when the current page matches the group's author scope.
+    const entrySelectors = getSurfaceHideSelectors(group.groupType, group.surfaceHides, "entry");
+    if (entrySelectors.length > 0 && platformGroupAuthorAxisMatchesPage(group, pageContext)) {
+      for (const sel of entrySelectors) selectors.add(sel);
     }
   }
   return [...selectors];

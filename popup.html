@@ -329,24 +329,35 @@
                   <option value="long"></option>
                   <option value="post"></option>
                 </select>
+                <p id="platformVideoModeHelp" class="field-help"></p>
               </div>
 
               <label id="platformAuthorModeLabel" class="label" for="platformAuthorMode"></label>
-              <select id="platformAuthorMode">
-                <option value="none"></option>
-                <option value="include"></option>
-                <option value="exclude"></option>
-              </select>
+              <select id="platformAuthorMode"></select>
+              <p id="platformAuthorModeHelp" class="field-help"></p>
 
-              <label id="platformAuthorsLabel" class="label" for="platformAuthors"></label>
-              <textarea
-                id="platformAuthors"
-                rows="5"
-                placeholder="@creatorhandle&#10;https://www.youtube.com/@anothercreator&#10;channel/UC..."
-                data-i18n-placeholder="filter.platformAuthorsPlaceholder"
-                spellcheck="false"
-              ></textarea>
-              <p id="platformVideoHelp" class="field-help"></p>
+              <div id="platformAuthorsBlock">
+                <label id="platformAuthorsLabel" class="label" for="platformAuthors"></label>
+                <textarea
+                  id="platformAuthors"
+                  rows="5"
+                  placeholder="@creatorhandle&#10;https://www.youtube.com/@anothercreator&#10;channel/UC..."
+                  data-i18n-placeholder="filter.platformAuthorsPlaceholder"
+                  spellcheck="false"
+                ></textarea>
+                <p id="platformVideoHelp" class="field-help"></p>
+              </div>
+
+              <!-- YouTube-only tag author modes (visual stub; no logic yet). -->
+              <div id="platformAuthorTagsBlock" class="hidden">
+                <label id="platformAuthorTagsLabel" class="label" for="platformAuthorTags"></label>
+                <textarea
+                  id="platformAuthorTags"
+                  rows="3"
+                  spellcheck="false"
+                ></textarea>
+                <p id="platformAuthorTagsHelp" class="field-help"></p>
+              </div>
 
               <label class="checkbox-row compact" for="platformBlockHomePage">
                 <input id="platformBlockHomePage" type="checkbox" />

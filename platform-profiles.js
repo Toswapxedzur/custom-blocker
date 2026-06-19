@@ -56,8 +56,30 @@ function isPlatformProfileGroupType(groupType) {
 // Mode / value normalisation
 // ────────────────────────────────────────────────────────────────────────
 
+// Author/account axis modes.
+//   all          → applies to every author (default; legacy "none" maps here)
+//   include      → applies only to the listed authors
+//   exclude      → applies to every author except the listed ones
+//   nobody       → applies to no author (author axis blocks nothing)
+//   tagInclude   → YouTube-only stub: authors carrying a tag (no logic yet)
+//   tagExclude   → YouTube-only stub: authors without a tag (no logic yet)
+const PLATFORM_AUTHOR_MODES = ["all", "include", "exclude", "nobody", "tagInclude", "tagExclude"];
+const PLATFORM_AUTHOR_TAG_MODES = ["tagInclude", "tagExclude"];
+
 function normalizePlatformAuthorMode(value) {
-  return value === "include" || value === "exclude" ? value : "none";
+  if (value === "none") return "all"; // legacy value meant "apply to all authors"
+  return PLATFORM_AUTHOR_MODES.includes(value) ? value : "all";
+}
+
+// True when the author mode keys off an explicit author list (include/exclude).
+function platformAuthorModeUsesList(mode) {
+  const m = normalizePlatformAuthorMode(mode);
+  return m === "include" || m === "exclude";
+}
+
+// True for the YouTube tag-based stubs (visual only for now).
+function isPlatformAuthorTagMode(mode) {
+  return PLATFORM_AUTHOR_TAG_MODES.includes(normalizePlatformAuthorMode(mode));
 }
 
 function normalizeVideoMode(value) {
@@ -535,12 +557,13 @@ function matchesVideoMode(group, pageContext) {
 function matchesPlatformVideoGroup(group, pageContext) {
   const isYouTubeGroup = group.groupType === "youtube";
 
+  const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
+
   if (isYouTubeGroup) {
     if (!pageContext.isYouTubePage) {
-      const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
       const videoMode = normalizeVideoMode(group.platformVideoMode);
       return (
-        authorMode === "none" &&
+        authorMode === "all" &&
         videoMode !== "all" &&
         Boolean(pageContext.videoSite) &&
         matchesVideoMode(group, pageContext)
@@ -562,8 +585,9 @@ function matchesPlatformVideoGroup(group, pageContext) {
 
   if (!matchesVideoMode(group, pageContext)) return false;
 
-  const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
-  if (authorMode === "none") return true;
+  if (authorMode === "all") return true;
+  // "nobody" and the YouTube tag stubs don't block via the author axis yet.
+  if (authorMode !== "include" && authorMode !== "exclude") return false;
 
   if (!Array.isArray(group.platformAuthors) || group.platformAuthors.length === 0) return false;
 
@@ -620,7 +644,7 @@ function matchesDiscordGroup(group, pageContext) {
 }
 
 // Twitter/X uses the account axis (platformAuthorMode/platformAuthors) but no
-// video-form axis. authorMode "none" means "block all of X" (coarse).
+// video-form axis. authorMode "all" means "block all of X" (coarse).
 function matchesTwitterGroup(group, pageContext) {
   if (!pageContext.isTwitterPage) return false;
   if (group.blockHomePage && isHomeFeedPage("twitter", pageContext.hostname, pageContext.pathname)) {
@@ -628,7 +652,9 @@ function matchesTwitterGroup(group, pageContext) {
   }
 
   const mode = normalizePlatformAuthorMode(group.platformAuthorMode);
-  if (mode === "none") return true;
+  if (mode === "all") return true;
+  // Twitter has no tag stubs; "nobody" blocks no account.
+  if (mode !== "include" && mode !== "exclude") return false;
 
   const accounts = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
   if (accounts.length === 0) return false;
@@ -655,12 +681,20 @@ function matchesProfileGroup(group, pageContext) {
 // ────────────────────────────────────────────────────────────────────────
 // Surface-hide ("hide elements") catalogue
 //
-// These hide UI chrome / content-type surfaces that are NOT tied to the
-// coarse blocking predicate (e.g. the Shorts button, X's Grok tab, promoted
-// posts). Each entry is a CSS-selector group applied by content.js whenever
-// the owning platform group is active on the host. group.surfaceHides holds
-// the enabled entry ids.
+// Each entry is a CSS-selector group applied by content.js whenever the owning
+// platform group is active on the host. group.surfaceHides holds the enabled
+// entry ids. An entry's `scope` decides how widely it applies:
+//   "app"   (default) → site-wide chrome/content-type (Shorts button, Grok
+//                        tab, promoted posts) — hidden whenever the group is
+//                        active on the host, independent of the author list.
+//   "entry" → tied to a single targeted entry (e.g. a video's author), so it
+//             is only hidden on pages matching the group's author scope
+//             (handled by background.js gating the selector emission).
 // ────────────────────────────────────────────────────────────────────────
+
+function surfaceHideEntryScope(entry) {
+  return entry && entry.scope === "entry" ? "entry" : "app";
+}
 
 function normalizeSurfaceHides(value, groupType) {
   const profile = PLATFORM_PROFILES[normalizeGroupType(groupType)];
@@ -669,16 +703,41 @@ function normalizeSurfaceHides(value, groupType) {
   return [...new Set(raw.filter((id) => allowed.has(id)))];
 }
 
-function getSurfaceHideSelectors(groupType, enabledIds) {
+// scope: "app" | "entry" | undefined (all). Returns the CSS selectors for the
+// enabled entries whose scope matches.
+function getSurfaceHideSelectors(groupType, enabledIds, scope) {
   const profile = PLATFORM_PROFILES[normalizeGroupType(groupType)];
   if (!profile || !Array.isArray(profile.surfaceHides)) return [];
   const enabled = new Set(Array.isArray(enabledIds) ? enabledIds : []);
   const selectors = [];
   for (const entry of profile.surfaceHides) {
     if (!enabled.has(entry.id)) continue;
+    if (scope && surfaceHideEntryScope(entry) !== scope) continue;
     for (const sel of entry.selectors) selectors.push(sel);
   }
   return selectors;
+}
+
+// Does a platform group's author/account axis apply to the current page?
+// Used to gate entry-scoped surface hides (e.g. hide comments only on videos
+// by the group's targeted authors). Ignores the content-type/home axes.
+function platformGroupAuthorAxisMatchesPage(group, pageContext) {
+  const t = normalizeGroupType(group.groupType);
+  const mode = normalizePlatformAuthorMode(group.platformAuthorMode);
+  if (mode === "all") return true;
+  if (mode !== "include" && mode !== "exclude") return false; // nobody / tag stubs
+
+  const list = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
+  if (list.length === 0) return false;
+
+  const key = t === "twitter" ? "twitter" : t;
+  const pageAuthors = Array.isArray(pageContext.platformAuthors?.[key])
+    ? pageContext.platformAuthors[key]
+    : [];
+  if (pageAuthors.length === 0) return false;
+
+  const hasMatch = list.some((author) => pageAuthors.includes(author));
+  return mode === "include" ? hasMatch : !hasMatch;
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -742,6 +801,9 @@ const PLATFORM_PROFILES = {
       {
         id: "comments",
         labelKey: "surfaceHide.youtube.comments",
+        // Tied to the watched video's author, not the whole site: only hidden
+        // on videos whose channel matches this group's author scope.
+        scope: "entry",
         selectors: ["ytd-comments#comments", "#comments"]
       }
     ]
@@ -986,7 +1048,13 @@ const __cbPlatformRegistry = {
   matchesTwitterGroup,
   matchesProfileGroup,
   normalizeSurfaceHides,
-  getSurfaceHideSelectors
+  getSurfaceHideSelectors,
+  surfaceHideEntryScope,
+  platformGroupAuthorAxisMatchesPage,
+  platformAuthorModeUsesList,
+  isPlatformAuthorTagMode,
+  PLATFORM_AUTHOR_MODES,
+  PLATFORM_AUTHOR_TAG_MODES
 };
 
 if (typeof module !== "undefined" && module.exports) {
