@@ -186,6 +186,8 @@ const surfaceHidesSection = document.getElementById("surfaceHidesSection");
 const surfaceHidesList = document.getElementById("surfaceHidesList");
 const fallbackUrlSection = document.getElementById("fallbackUrlSection");
 const fallbackUrlField = document.getElementById("fallbackUrl");
+const groupEffectSection = document.getElementById("groupEffectSection");
+const groupEffectField = document.getElementById("groupEffect");
 const freezeSummary = document.getElementById("freezeSummary");
 const freezeSetup = document.getElementById("freezeSetup");
 const freezeModeField = document.getElementById("freezeMode");
@@ -2363,7 +2365,19 @@ function renderSurfaceHides(group, draft, editable) {
     input.value = entry.id;
     input.checked = enabled.has(entry.id);
     input.disabled = !editable;
-    input.addEventListener("change", () => handleSurfaceHideChange(group.id));
+    input.addEventListener("change", () => {
+      // Some hides (e.g. hiding ads) can violate platform Terms of Service and
+      // risk the account — warn and require confirmation every time they're
+      // turned on. Cancelling reverts the checkbox without saving.
+      if (input.checked && entry.warnOnEnableKey) {
+        const accepted = window.confirm(t(entry.warnOnEnableKey));
+        if (!accepted) {
+          input.checked = false;
+          return;
+        }
+      }
+      handleSurfaceHideChange(group.id);
+    });
 
     const text = document.createElement("span");
     text.textContent = t(entry.labelKey);
@@ -3302,6 +3316,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     parentalPasswordSalt: null,
     sites: [],
     blockHomePage: false,
+    effect: "block",
     fallbackUrl: state.globalSettings?.defaultFallbackUrl ?? "",
     skipToNextOnBlock: false
   };
@@ -3454,6 +3469,7 @@ function sanitizeGroups(groups) {
         ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
         : [],
       blockHomePage: Boolean(group?.blockHomePage),
+      effect: group?.effect === "allow" ? "allow" : "block",
       fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
       skipToNextOnBlock: Boolean(group?.skipToNextOnBlock)
     };
@@ -3570,6 +3586,7 @@ function getSerializableGroupSnapshot(group) {
     parentalPasswordSalt: group.parentalPasswordSalt ?? null,
     sites: [...group.sites],
     blockHomePage: Boolean(group.blockHomePage),
+    effect: group.effect === "allow" ? "allow" : "block",
     fallbackUrl: group.fallbackUrl ?? "",
     skipToNextOnBlock: Boolean(group.skipToNextOnBlock)
   };
@@ -3685,6 +3702,7 @@ function groupToDraft(group) {
     surfaceHides: normalizeSurfaceHides(group.surfaceHides, group.groupType),
     blockingRulesText: group.blockingRulesText,
     blockHomePage: Boolean(group.blockHomePage),
+    effect: group.effect === "allow" ? "allow" : "block",
     fallbackUrl: group.fallbackUrl ?? "",
     skipToNextOnBlock: Boolean(group.skipToNextOnBlock),
     freezeModeChoice: normalizeFreezeModeChoice(group)
@@ -4228,9 +4246,9 @@ function getGroupMetaText(group, draft, now = Date.now()) {
   } else if (effectiveGroup.mode === "instant") {
     pieces.push(t("meta.instantBlock"));
   } else if (effectiveGroup.mode === "timer") {
+    // Count-up stopwatch: show elapsed time, not a countdown.
     const usageState = getDisplayUsageState(effectiveGroup, now);
-    const remainingMs = Math.max(effectiveGroup.resetIntervalHours * MS_PER_HOUR - usageState.usedMs, 0);
-    pieces.push(`${formatDurationMs(remainingMs)} ${t("meta.left")}`);
+    pieces.push(`${formatDurationMs(usageState.usedMs)} ${t("meta.elapsed")}`);
   } else {
     const remainingMs = Math.max(
       effectiveGroup.allowedMinutes * MS_PER_MINUTE - getDisplayUsageState(effectiveGroup, now).usedMs,
@@ -4392,9 +4410,9 @@ function updateUsageSummary(group, draft, now = Date.now()) {
   const displayGroup = getEffectiveGroup(group, draft);
   const usageState = getDisplayUsageState(displayGroup, now);
   if (mode === "timer") {
-    const remainingMs = Math.max(displayGroup.resetIntervalHours * MS_PER_HOUR - usageState.usedMs, 0);
+    // Count-up stopwatch: show elapsed time used this window.
     usageSummary.textContent = t("timed.summaryTimer", {
-      time: formatDurationMs(remainingMs),
+      time: formatDurationMs(usageState.usedMs),
       hours: formatHours(displayGroup.resetIntervalHours),
       suffix: displayGroup.resetIntervalHours === 1 ? "" : "s"
     });
@@ -4593,6 +4611,8 @@ function renderEditor(now = Date.now()) {
     redditBlockHomePageField.checked = false;
     discordBlockHomePageField.checked = false;
     fallbackUrlField.value = "";
+    if (groupEffectField) groupEffectField.value = "block";
+    if (groupEffectSection) groupEffectSection.classList.add("hidden");
     skipToNextOnBlockField.checked = false;
     skipToNextOnBlockRow.classList.add("hidden");
     blockModeSection.classList.remove("hidden");
@@ -4745,6 +4765,15 @@ function renderEditor(now = Date.now()) {
 
   fallbackUrlField.value = draft?.fallbackUrl ?? group.fallbackUrl ?? "";
 
+  // Cascade effect (block vs allow/exception) only changes feed-card outcomes,
+  // so it's shown for the rule kinds that participate in the feed cascade:
+  // platform-profile groups and custom groups.
+  const participatesInCascade = isPlatformProfileGroup || isCustomGroup;
+  if (groupEffectSection) {
+    groupEffectSection.classList.toggle("hidden", !participatesInCascade);
+  }
+  groupEffectField.value = (draft?.effect ?? group.effect) === "allow" ? "allow" : "block";
+
   const isScrollPlatform = ["youtube", "tiktok", "instagram"].includes(group.groupType);
   skipToNextOnBlockRow.classList.toggle("hidden", !isPlatformVideoGroup || !isScrollPlatform);
   skipToNextOnBlockField.checked = Boolean(draft?.skipToNextOnBlock ?? group.skipToNextOnBlock);
@@ -4827,6 +4856,7 @@ function renderEditor(now = Date.now()) {
   redditBlockHomePageField.disabled = !editable || !isRedditGroup;
   discordBlockHomePageField.disabled = !editable || !isDiscordGroup;
   fallbackUrlField.disabled = !editable;
+  if (groupEffectField) groupEffectField.disabled = !editable;
   skipToNextOnBlockField.disabled = !editable || !isPlatformVideoGroup || !isScrollPlatform;
   if (openRuleTemplatesButton) {
     openRuleTemplatesButton.disabled = !editable || !isCustomGroup;
@@ -5005,6 +5035,7 @@ function stashCurrentDraft() {
           ? discordBlockHomePageField.checked
           : false,
     surfaceHides: readSurfaceHidesFromForm(),
+    effect: groupEffectField.value === "allow" ? "allow" : "block",
     fallbackUrl: fallbackUrlField.value,
     skipToNextOnBlock: skipToNextOnBlockField.checked
   };
@@ -5459,6 +5490,7 @@ function buildUpdatedGroupFromDraft(group, draft) {
       blockingRulesText: isCustomGroup ? blockingRulesText : group.blockingRulesText,
       sites: group.groupType === "site" ? siteResults.validSites : [],
       blockHomePage: Boolean(draft.blockHomePage),
+      effect: draft.effect === "allow" ? "allow" : "block",
       // Custom groups redirect via setRedirectLink() inside the rule;
       // strip any legacy fallbackUrl on save.
       fallbackUrl: isCustomGroup
@@ -7015,6 +7047,15 @@ discordModeField.addEventListener("change", () => {
 for (const field of [platformBlockHomePageField, redditBlockHomePageField, discordBlockHomePageField, skipToNextOnBlockField]) {
   field.addEventListener("change", () => {
     stashCurrentDraft();
+    renderGroupList();
+    scheduleAutosave();
+  });
+}
+
+if (groupEffectField) {
+  groupEffectField.addEventListener("change", () => {
+    stashCurrentDraft();
+    render();
     renderGroupList();
     scheduleAutosave();
   });

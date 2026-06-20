@@ -1205,24 +1205,29 @@ window.addEventListener("message", (msg) => {
     const platform = String(payload.platform || "");
     const slot = String(payload.slot || "");
     const items = Array.isArray(payload.items) ? payload.items : [];
-    const results = items.map(() => ({ hide: false, blockPageOnVisit: false }));
-    // Each group owns at most ONE predicate per (platform, slot). We OR
-    // across groups so independent rules can each contribute their own
-    // hide condition; within a single group, the latest call to
-    // hideVideos/hideShorts/hidePosts/filterComments/filterLive wins.
-    for (const [, bucket] of groupPlatformPredicates.entries()) {
+    const results = items.map(() => ({ hide: false, blockPageOnVisit: false, matchedGroups: [] }));
+    // Each group owns at most ONE predicate per (platform, slot). We report
+    // each group's match separately (`matchedGroups`) so the content-side
+    // cascade can place every custom group at its own ordered priority, while
+    // `hide` keeps the OR'd result for any legacy consumer. `evaluatedGroups`
+    // lists the groups whose predicate ran so the content side can clear stale
+    // verdicts for exactly those groups.
+    const evaluatedGroups = [];
+    for (const [groupId, bucket] of groupPlatformPredicates.entries()) {
       const entry = bucket && bucket[platform] && bucket[platform][slot];
       if (!entry || typeof entry.predicate !== "function") continue;
+      evaluatedGroups.push(groupId);
       for (let i = 0; i < items.length; i++) {
         let matched = false;
         try { matched = Boolean(entry.predicate(items[i])); } catch { matched = false; }
         if (matched) {
           results[i].hide = true;
+          results[i].matchedGroups.push(groupId);
           if (entry.blockPageOnVisit) results[i].blockPageOnVisit = true;
         }
       }
     }
-    reply(msg.source, id, { ok: true, results });
+    reply(msg.source, id, { ok: true, results, evaluatedGroups });
     return;
   }
 

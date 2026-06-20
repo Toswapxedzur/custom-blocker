@@ -135,6 +135,9 @@ let feedObserver = null;
 let feedApplyRafId = null;
 let latestFeedFilters = [];
 let latestSurfaceHides = [];
+// Group ids whose platform filter currently matches content on this page.
+// Reported with the heartbeat so the usage timer only accrues on exposure.
+let latestExposedGroupIds = [];
 let extensionContextInvalid = false;
 let sessionFallbackUrl = "";
 let sessionSkipToNext = false;
@@ -542,6 +545,142 @@ function hideElement(element) {
   element.setAttribute("aria-hidden", "true");
 }
 
+// Idempotent inverse of hideElement for a single card (used by the cascade
+// applier, which decides each card independently rather than restoring the
+// whole feed every pass).
+function showElement(element) {
+  if (!element || element.dataset.customBlockerFeedHidden !== "true") return;
+  if (element.dataset.customBlockerFeedPrevDisplay !== undefined) {
+    element.style.display = element.dataset.customBlockerFeedPrevDisplay;
+    delete element.dataset.customBlockerFeedPrevDisplay;
+  } else {
+    element.style.removeProperty("display");
+  }
+  element.removeAttribute("data-custom-blocker-feed-hidden");
+  element.removeAttribute("aria-hidden");
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Shared cascade engine (default / platform rules AND custom rules)
+//
+// Both rule kinds are just per-group verdicts over the same card. Every group
+// records its own verdict into a per-card ledger; the resolver then picks the
+// winner deterministically by group order (NOT by which result — sync platform
+// or async custom — arrived first). This is what makes the outcome independent
+// of the sync/async timing race.
+//
+//   • Order comes from the background ("feedOrder"): list position, index 0 =
+//     top of the list = highest priority. The TOP-most group that has an
+//     opinion about a card wins; groups below it are overridden.
+//   • A group's effect ("block" | "allow") maps a match to a "hide" or "allow"
+//     verdict, so a higher allow group can rescue what a lower block group hid.
+//   • Application is idempotent per card (hide/show only on change), so an
+//     in-flight async custom result and a fresh platform pass never fight over
+//     a global restore.
+// ────────────────────────────────────────────────────────────────────────
+
+// card -> Map<groupId, { v: "hide"|"allow", src: "platform"|"custom" }>
+const cbVerdictLedger = new WeakMap();
+// Strong set of cards that currently carry any verdict, so we can do bulk
+// "clear this source" sweeps (a WeakMap isn't iterable). Detached nodes are
+// pruned on each sweep to avoid leaks.
+const cbTrackedCards = new Set();
+let cbGroupIndex = new Map(); // groupId -> order index (0 = highest priority)
+let cbGroupEffect = new Map(); // groupId -> "block" | "allow"
+
+let cbGroupOrderKey = "";
+
+function cbSetGroupOrder(order) {
+  const key = Array.isArray(order)
+    ? order.map((g) => `${g && g.id}:${g && g.effect === "allow" ? "a" : "b"}`).join("|")
+    : "";
+  const changed = key !== cbGroupOrderKey;
+  cbGroupOrderKey = key;
+  cbGroupIndex = new Map();
+  cbGroupEffect = new Map();
+  if (Array.isArray(order)) {
+    order.forEach((group, index) => {
+      if (!group || typeof group.id !== "string") return;
+      cbGroupIndex.set(group.id, index);
+      cbGroupEffect.set(group.id, group.effect === "allow" ? "allow" : "block");
+    });
+  }
+  // Custom verdicts bake in priority/effect at evaluation time and are skipped
+  // by the signature cache; if order/effect changed, force a re-evaluation so
+  // those groups pick up the new priorities. (Platform verdicts re-derive every
+  // pass, so they need nothing here.)
+  if (changed) {
+    cbResetCustomSigCache();
+    if (
+      typeof __cb_activePredicateSlots !== "undefined" &&
+      __cb_activePredicateSlots.size > 0 &&
+      typeof __cb_schedulePredicateScan === "function"
+    ) {
+      __cb_schedulePredicateScan();
+    }
+  }
+}
+
+function cbEffectVerdict(groupId) {
+  return cbGroupEffect.get(groupId) === "allow" ? "allow" : "hide";
+}
+
+// Record (verdict) or clear (null) one group's opinion of a card.
+function cbSetCardVerdict(card, groupId, verdict, source) {
+  if (!card || !groupId) return;
+  let entry = cbVerdictLedger.get(card);
+  if (verdict) {
+    if (!entry) { entry = new Map(); cbVerdictLedger.set(card, entry); }
+    entry.set(groupId, { v: verdict, src: source || "platform" });
+    cbTrackedCards.add(card);
+  } else if (entry) {
+    entry.delete(groupId);
+  }
+}
+
+// Drop every verdict contributed by one source for a card.
+function cbClearSource(card, source) {
+  const entry = cbVerdictLedger.get(card);
+  if (!entry) return;
+  for (const [groupId, value] of entry) {
+    if (value.src === source) entry.delete(groupId);
+  }
+}
+
+// Bulk-clear a source across all tracked cards (e.g. when a custom rule stops
+// applying) and re-resolve them. Also prunes detached cards.
+function cbClearSourceEverywhere(source) {
+  for (const card of [...cbTrackedCards]) {
+    if (!card.isConnected) { cbTrackedCards.delete(card); continue; }
+    cbClearSource(card, source);
+    cbApplyCard(card);
+  }
+}
+
+// Resolve the final state from the ordered ledger: the lowest-index (top-most)
+// group with an opinion decides. Returns true if the card should be hidden.
+function cbResolveCardHidden(card) {
+  const entry = cbVerdictLedger.get(card);
+  if (!entry || entry.size === 0) return false;
+  let bestIndex = Infinity;
+  let bestVerdict = null;
+  for (const [groupId, value] of entry) {
+    const index = cbGroupIndex.has(groupId)
+      ? cbGroupIndex.get(groupId)
+      : Number.MAX_SAFE_INTEGER;
+    if (index < bestIndex) {
+      bestIndex = index;
+      bestVerdict = value.v;
+    }
+  }
+  return bestVerdict === "hide";
+}
+
+function cbApplyCard(card) {
+  if (cbResolveCardHidden(card)) hideElement(card);
+  else showElement(card);
+}
+
 function collectNavElementsToHide(filter) {
   if (!filter || filter.authorMode !== "all") return [];
   const containers = new Set();
@@ -608,36 +747,75 @@ function collectFormShelvesToHide(filter) {
   return shelves;
 }
 
+// The platform/default half of the shared cascade. It records each active
+// filter's verdict (block→"hide", allow→"allow") into the ledger as the
+// "platform" source, then re-resolves each card. It never restores the whole
+// feed — that would clobber the "custom" verdicts an in-flight async scan is
+// about to apply (the sync/async race). Nav/shelf chrome is hidden through the
+// surface-hide marker so it stays out of the per-card cascade.
 function applyFeedFilters() {
   feedApplyRafId = null;
-  restoreHiddenFeedCards();
   applySurfaceHides();
+  applyNavShelfHides();
 
   const currentSite = getCurrentFeedSite();
-  const activeFilters = latestFeedFilters.filter((filter) => filter?.site === currentSite);
+  const activeFilters = currentSite
+    ? latestFeedFilters.filter((filter) => filter?.site === currentSite)
+    : [];
 
-  let hiddenAnyCard = false;
-  if (currentSite && activeFilters.length > 0) {
-    for (const card of getFeedCardElements(currentSite)) {
-      const cardData = getFeedCardData(card);
-      if (!cardData) continue;
-      if (!activeFilters.some((filter) => matchesFeedFilter(cardData, filter))) continue;
-      hideElement(card);
-      hiddenAnyCard = true;
-    }
-
-    if (currentSite === "youtube") {
-      for (const filter of activeFilters) {
-        for (const navElement of collectNavElementsToHide(filter)) hideElement(navElement);
-        for (const shelfElement of collectFormShelvesToHide(filter)) hideElement(shelfElement);
-      }
-    }
+  // Candidates = live feed cards plus anything we previously hid, so cards stop
+  // being hidden when their filter is removed even if they aren't re-listed.
+  const candidates = new Set();
+  if (currentSite) for (const card of getFeedCardElements(currentSite)) candidates.add(card);
+  for (const card of document.querySelectorAll('[data-custom-blocker-feed-hidden="true"]')) {
+    candidates.add(card);
   }
 
-  // Backfill the feed after trimming entries, so a filtered feed doesn't
-  // stall short. The MutationObserver re-runs this pass when fresh cards
-  // arrive, self-chaining until the burst cap is hit.
-  if (hiddenAnyCard) __cb_replenishFeed(currentSite);
+  const exposed = new Set();
+  for (const card of candidates) {
+    // Re-derive this card's platform verdicts from scratch; custom verdicts on
+    // the same card are left untouched.
+    cbClearSource(card, "platform");
+    if (activeFilters.length > 0) {
+      const cardData = getFeedCardData(card);
+      if (cardData) {
+        for (const filter of activeFilters) {
+          if (!matchesFeedFilter(cardData, filter)) continue;
+          // Exposure: a match means the group's usage timer should accrue,
+          // regardless of whether we hide the card right now.
+          exposed.add(filter.id);
+          const verdict = cbEffectVerdict(filter.id);
+          // Allow filters always rescue; block filters only hide while
+          // enforcing (instant, or a count-down past its allowance).
+          if (verdict === "allow" || filter.enforce !== false) {
+            cbSetCardVerdict(card, filter.id, verdict, "platform");
+          }
+        }
+      }
+    }
+    cbApplyCard(card);
+  }
+
+  latestExposedGroupIds = [...exposed];
+
+  // Refill what enforcement removed (only when the feed is too short to scroll).
+  __cb_maybeReplenishFeed(currentSite);
+}
+
+// Nav buttons / shelves (e.g. the Shorts shelf) are page chrome, not feed
+// cards, so they're hidden via the surface-hide marker (restored each pass by
+// applySurfaceHides) rather than entering the per-card cascade. Allow-effect
+// filters are exceptions and never hide chrome.
+function applyNavShelfHides() {
+  const currentSite = getCurrentFeedSite();
+  if (currentSite !== "youtube") return;
+  for (const filter of latestFeedFilters) {
+    if (filter?.site !== "youtube") continue;
+    if (filter.enforce === false) continue;
+    if (cbEffectVerdict(filter.id) === "allow") continue;
+    for (const navElement of collectNavElementsToHide(filter)) hideSurfaceElement(navElement);
+    for (const shelfElement of collectFormShelvesToHide(filter)) hideSurfaceElement(shelfElement);
+  }
 }
 
 function scheduleApplyFeedFilters() {
@@ -662,7 +840,9 @@ function updateSurfaceHides(selectors) {
 function reconcilePageMutations() {
   if (latestFeedFilters.length === 0 && latestSurfaceHides.length === 0) {
     stopFeedObserver();
-    restoreHiddenFeedCards();
+    // Only drop platform verdicts; a custom rule may still be hiding cards
+    // through the shared cascade and runs on its own observer.
+    cbClearSourceEverywhere("platform");
     restoreSurfaceHidden();
     return;
   }
@@ -673,9 +853,14 @@ function reconcilePageMutations() {
 function applySurfaceHides() {
   restoreSurfaceHidden();
   if (latestSurfaceHides.length === 0) return;
-  let nodes = [];
-  try { nodes = document.querySelectorAll(latestSurfaceHides.join(", ")); } catch { return; }
-  for (const el of nodes) hideSurfaceElement(el);
+  // Query each selector independently so one unsupported/invalid selector (e.g.
+  // a `:has()` variant an older engine rejects) can't throw away every other
+  // hide — previously a single bad selector left ALL widgets visible.
+  for (const selector of latestSurfaceHides) {
+    let nodes = [];
+    try { nodes = document.querySelectorAll(selector); } catch { continue; }
+    for (const el of nodes) hideSurfaceElement(el);
+  }
 }
 
 function hideSurfaceElement(el) {
@@ -700,7 +885,7 @@ function restoreSurfaceHidden() {
 function ensureFeedObserver() {
   if (latestFeedFilters.length === 0 && latestSurfaceHides.length === 0) {
     stopFeedObserver();
-    restoreHiddenFeedCards();
+    cbClearSourceEverywhere("platform");
     restoreSurfaceHidden();
     return;
   }
@@ -732,16 +917,29 @@ function collectYouTubeCreatorIdentifiers() {
     ? [
         'ytd-reel-video-renderer[is-active] ytd-channel-name a[href]',
         'ytd-reel-video-renderer[is-active] a[href^="/@"]',
+        'ytd-reel-video-renderer[is-active] a[href^="/channel/"]',
         'ytd-reel-player-header-renderer ytd-channel-name a[href]',
         'ytd-reel-player-overlay-renderer ytd-channel-name a[href]',
         'ytd-reel-player-header-renderer a[href^="/@"]',
         'ytd-reel-player-overlay-renderer a[href^="/@"]'
       ]
     : [
+        // Primary uploader.
         'ytd-watch-metadata ytd-channel-name a[href]',
         '#upload-info a[href]',
         'ytd-watch-metadata a[href^="/@"]',
         'ytd-watch-flexy ytd-channel-name a[href]',
+        // Collaborators / additional creators credited in the owner byline.
+        // Scoped to the owner area (not #description or the #related sidebar)
+        // so every credited channel on a multi-creator video is captured.
+        'ytd-watch-metadata #owner a[href^="/@"]',
+        'ytd-watch-metadata #owner a[href^="/channel/"]',
+        'ytd-watch-metadata a[href^="/channel/"]',
+        '#owner ytd-channel-name a[href]',
+        'ytd-video-owner-renderer a[href^="/@"]',
+        'ytd-video-owner-renderer a[href^="/channel/"]',
+        'yt-video-attribute-view-model a[href^="/@"]',
+        'yt-video-attribute-view-model a[href^="/channel/"]',
         'link[rel="canonical"]'
       ];
 
@@ -969,7 +1167,8 @@ function ensureHeartbeat() {
       {
         type: "track-page-time",
         pageContext: buildPageContext(),
-        elapsedMs
+        elapsedMs,
+        exposedGroupIds: latestExposedGroupIds
       },
       (session) => handleSession(session)
     );
@@ -990,6 +1189,9 @@ function handleSession(session) {
   const shouldExitPage = Boolean(session.shouldExitPage);
 
   updateOverlay(items, !shouldExitPage && (session.showTimer || items.length > 0));
+  // Cascade order/effect must be set before applying filters so verdicts resolve
+  // against the right priorities.
+  cbSetGroupOrder(session.feedOrder);
   updateFeedFilters(session.feedFilters);
   updateSurfaceHides(session.surfaceHides);
 
@@ -999,7 +1201,11 @@ function handleSession(session) {
 
   if (!shouldExitPage) consecutiveSkipCount = 0;
 
-  if (!session.showTimer && items.length === 0) {
+  // Keep the heartbeat alive while platform feed filters are active even with no
+  // visible timer, so exposure-based usage timers keep accruing on the feed.
+  const hasActiveFeedFilters =
+    Array.isArray(session.feedFilters) && session.feedFilters.length > 0;
+  if (!session.showTimer && items.length === 0 && !hasActiveFeedFilters) {
     stopHeartbeat();
   } else {
     ensureHeartbeat();
@@ -2826,27 +3032,24 @@ function __cb_extractCardItem(card, platform) {
   };
 }
 
-function __cb_predicateHide(card) {
-  if (!card || card.dataset.cbPredicateHidden === "1") return;
-  card.dataset.cbPredicateHidden = "1";
-  card.dataset.cbPredicatePrevDisplay = card.style.display || "";
-  card.style.setProperty("display", "none", "important");
-  card.setAttribute("aria-hidden", "true");
+// Custom rules now hide through the shared cascade (the "custom" verdict
+// source) instead of their own marker, so a per-card signature cache avoids
+// re-sending unchanged cards to the sandbox on every mutation.
+let cbCustomSigCache = new WeakMap(); // card -> last evaluated signature
+
+// Invalidate the cache whenever the active predicate set changes, so newly
+// activated groups re-evaluate cards we'd otherwise skip as "unchanged".
+function cbResetCustomSigCache() {
+  cbCustomSigCache = new WeakMap();
 }
 
-function __cb_predicateRestoreAll() {
-  for (const card of document.querySelectorAll('[data-cb-predicate-hidden="1"]')) {
-    if ("cbPredicatePrevDisplay" in card.dataset) {
-      card.style.display = card.dataset.cbPredicatePrevDisplay;
-      delete card.dataset.cbPredicatePrevDisplay;
-    } else {
-      card.style.removeProperty("display");
-    }
-    delete card.dataset.cbPredicateHidden;
-    card.removeAttribute("aria-hidden");
-  }
+function cbCardSignature(item) {
+  return [item.url || "", item.title || "", item.videoForm || ""].join("\n");
 }
 
+// Returns the full sandbox reply { results, evaluatedGroups } (or null). The
+// results carry per-group matches so each custom group can take its own ordered
+// slot in the cascade.
 async function __cb_evaluateItems(platform, slot, items) {
   if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) return null;
   try {
@@ -2856,7 +3059,9 @@ async function __cb_evaluateItems(platform, slot, items) {
       slot,
       items
     });
-    if (r && r.ok && Array.isArray(r.results)) return r.results;
+    if (r && r.ok && Array.isArray(r.results)) {
+      return { results: r.results, evaluatedGroups: Array.isArray(r.evaluatedGroups) ? r.evaluatedGroups : [] };
+    }
   } catch {}
   return null;
 }
@@ -2870,55 +3075,131 @@ async function __cb_scanFeedPredicates() {
   const cards = getFeedCardElements(platform);
   if (cards.length === 0) return;
 
+  // Only send cards whose content changed since we last evaluated them; cards
+  // with an unchanged signature already have their custom verdict in the ledger.
   const bySlot = { shorts: [], videos: [], posts: [] };
   for (const card of cards) {
-    if (card.dataset.cbPredicateHidden === "1") continue;
     const item = __cb_extractCardItem(card, platform);
     const slot = __cb_videoFormToSlot(item.videoForm);
     if (!slot) continue;
     if (!__cb_activePredicateSlots.has(platform + ":" + slot)) continue;
-    bySlot[slot].push({ card, item });
+    const sig = cbCardSignature(item);
+    if (cbCustomSigCache.get(card) === sig) continue;
+    bySlot[slot].push({ card, item, sig });
   }
 
-  let hiddenThisPass = false;
   for (const slot of ["shorts", "videos", "posts"]) {
     const batch = bySlot[slot];
     if (batch.length === 0) continue;
-    const results = await __cb_evaluateItems(platform, slot, batch.map((b) => b.item));
-    if (!results) continue;
+    const reply = await __cb_evaluateItems(platform, slot, batch.map((b) => b.item));
+    if (!reply) continue;
+    const { results, evaluatedGroups } = reply;
     for (let i = 0; i < batch.length; i++) {
-      if (results[i] && results[i].hide) {
-        __cb_predicateHide(batch[i].card);
-        hiddenThisPass = true;
+      const card = batch[i].card;
+      // Re-derive this card's custom verdicts: clear the groups that ran, then
+      // set the matches. Platform verdicts on the card are left untouched.
+      for (const groupId of evaluatedGroups) cbSetCardVerdict(card, groupId, null, "custom");
+      const matched =
+        results[i] && Array.isArray(results[i].matchedGroups) ? results[i].matchedGroups : [];
+      for (const groupId of matched) {
+        cbSetCardVerdict(card, groupId, cbEffectVerdict(groupId), "custom");
       }
+      cbCustomSigCache.set(card, batch[i].sig);
+      cbApplyCard(card);
     }
   }
 
-  // When the predicate trims cards out of the feed, the collapsed grid can
-  // stop the platform's own infinite-scroll observer from re-firing, leaving
-  // a short/stalled feed. Nudge the continuation sentinel so fresh items load
-  // to replenish what was hidden. The MutationObserver re-runs this scan when
-  // the new batch arrives, so it self-chains until enough cards remain visible.
-  if (hiddenThisPass) __cb_replenishFeed(platform);
+  // Refill what the predicate removed (only when the feed is too short to scroll).
+  __cb_maybeReplenishFeed(platform);
 }
 
 // ────────────────────────────────────────────────────────────────────────
 // Feed replenishment (generalised across every platform with a feed)
 //
-// When the platform feed filter OR a custom predicate hides cards, the
-// collapsed grid can stall the platform's own infinite-scroll observer,
-// leaving a short feed. We nudge the feed to load more — via the registry's
-// per-platform replenish recipe (a continuation sentinel, or a generic
-// scroll for feeds without one). A burst cap stops a heavily-filtered feed
-// from firing unbounded back-to-back continuation fetches.
+// When the filter hides cards, the collapsed grid can stall the platform's own
+// infinite-scroll loader, leaving a short feed. The earlier "scroll then
+// restore" approach caused visible up/down flicker and over-stretched the feed.
+//
+// This version:
+//   • Only refills when the user is already near the bottom of the loaded feed,
+//     so we never nudge (or move the page) while they're reading mid-feed. The
+//     resulting scroll move is small and downward, with NO restore — so there is
+//     no up/down bounce/flicker.
+//   • Bounds refills per "bottom episode" to roughly the number of cards that
+//     are currently hidden, so the replacement feed is ~equal to what was
+//     blocked instead of growing without limit (which is what stretched a
+//     heavily-filtered feed very long).
 // ────────────────────────────────────────────────────────────────────────
 
 let __cb_replenishInFlight = false;
 let __cb_replenishBurstCount = 0;
 let __cb_replenishBurstResetTimer = null;
-const __CB_REPLENISH_BURST_MAX = 6;
+const __CB_REPLENISH_BURST_MAX = 4;
 
-function __cb_replenishFeed(site) {
+// Per "stall episode" state. An episode begins when the filtered feed becomes
+// too short to scroll (the platform's own infinite-scroll loader is stalled).
+let __cb_feedSite = null;
+let __cb_feedStalled = false;
+let __cb_episodeBaselineTotal = 0;
+let __cb_episodeCap = 0;
+
+// Count feed cards currently hidden. Both platform and custom rules now hide
+// through the shared cascade marker, so one check covers both.
+function __cb_countHiddenFeedCards(cards) {
+  let hidden = 0;
+  for (const card of cards) {
+    if (card?.dataset?.customBlockerFeedHidden === "true") hidden += 1;
+  }
+  return hidden;
+}
+
+// Decide whether to refill.
+//
+// We ONLY assist when the page is too short to scroll — i.e. filtering collapsed
+// the feed below ~half a screen of scroll room, which is exactly when the
+// platform's native infinite-scroll loader stalls. On a normal (long) feed we
+// do nothing at all: no nudge, no scroll, so browsing never bounces. Within a
+// stall episode we cap refills to ~the number of hidden cards so the
+// replacement feed stays roughly equal to what was blocked.
+function __cb_maybeReplenishFeed(site) {
+  const resolvedSite = site || getCurrentFeedSite();
+  if (!resolvedSite) return;
+  if (resolvedSite !== __cb_feedSite) {
+    __cb_feedSite = resolvedSite;
+    __cb_feedStalled = false;
+  }
+
+  const scroller = document.scrollingElement || document.documentElement;
+  if (!scroller) return;
+  const vh = window.innerHeight || scroller.clientHeight || 0;
+  const scrollable = scroller.scrollHeight - scroller.clientHeight;
+  const stalled = scrollable <= vh * 0.5;
+  if (!stalled) {
+    __cb_feedStalled = false;
+    return;
+  }
+
+  const cards = getFeedCardElements(resolvedSite) || [];
+  const total = cards.length;
+  const hiddenNow = __cb_countHiddenFeedCards(cards);
+
+  // Entering a fresh stall episode: snapshot how much we may refill — roughly
+  // the number of cards hidden, so the replacement count ≈ the blocked count
+  // rather than growing unbounded.
+  if (!__cb_feedStalled) {
+    __cb_feedStalled = true;
+    __cb_episodeBaselineTotal = total;
+    __cb_episodeCap = hiddenNow;
+  }
+
+  if (hiddenNow === 0 || __cb_episodeCap === 0) return;
+  const loadedThisEpisode = Math.max(0, total - __cb_episodeBaselineTotal);
+  if (loadedThisEpisode >= __cb_episodeCap) return;
+
+  __cb_nudgeFeedLoad(resolvedSite);
+}
+
+function __cb_nudgeFeedLoad(site) {
   if (__cb_replenishInFlight) return;
   if (__cb_replenishBurstCount >= __CB_REPLENISH_BURST_MAX) return;
 
@@ -2928,25 +3209,27 @@ function __cb_replenishFeed(site) {
   const recipe = profile?.feed?.replenish;
   if (!recipe) return;
 
+  // We only get here when the feed is too short to scroll, so these moves are
+  // tiny (and `block: "nearest"` moves the minimum needed to reveal the target).
+  // We deliberately do NOT restore the scroll position afterwards — restoring is
+  // what produced the up/down flicker.
   let nudged = false;
   if (recipe.sentinel) {
     const sentinel = document.querySelector(recipe.sentinel);
     if (sentinel && typeof sentinel.scrollIntoView === "function") {
-      try { sentinel.scrollIntoView({ block: "end" }); nudged = true; } catch {}
+      try { sentinel.scrollIntoView({ block: "nearest" }); nudged = true; } catch {}
     }
   }
-  if (!nudged && recipe.scroll) {
-    // No continuation sentinel — scroll the last feed card into view to
-    // trip the platform's lazy loader without jumping the page far.
+  if (!nudged) {
     try {
       const cards = getFeedCardElements(resolvedSite);
       const last = cards[cards.length - 1];
       if (last && typeof last.scrollIntoView === "function") {
-        last.scrollIntoView({ block: "end" });
+        last.scrollIntoView({ block: "nearest" });
         nudged = true;
       } else {
-        const doc = document.scrollingElement || document.documentElement;
-        if (doc) { window.scrollTo({ top: doc.scrollHeight, behavior: "auto" }); nudged = true; }
+        const scroller = document.scrollingElement || document.documentElement;
+        if (scroller) { scroller.scrollTop = scroller.scrollHeight; nudged = true; }
       }
     } catch {}
   }
@@ -2954,8 +3237,8 @@ function __cb_replenishFeed(site) {
 
   __cb_replenishInFlight = true;
   __cb_replenishBurstCount += 1;
-  window.setTimeout(() => { __cb_replenishInFlight = false; }, 500);
-  // After the feed settles, clear the burst counter so later hides can
+  window.setTimeout(() => { __cb_replenishInFlight = false; }, 700);
+  // After the feed settles, clear the burst counter so a later episode can
   // refill again.
   if (__cb_replenishBurstResetTimer !== null) window.clearTimeout(__cb_replenishBurstResetTimer);
   __cb_replenishBurstResetTimer = window.setTimeout(() => { __cb_replenishBurstCount = 0; }, 4000);
@@ -3026,8 +3309,8 @@ async function __cb_checkPagePredicate() {
     algorithmic: null,
     videoForm: ctx.form
   };
-  const results = await __cb_evaluateItems(platform, slot, [item]);
-  const r = results && results[0];
+  const reply = await __cb_evaluateItems(platform, slot, [item]);
+  const r = reply && reply.results && reply.results[0];
   if (r && r.hide && r.blockPageOnVisit) {
     if (typeof attemptExitPage === "function") {
       try { attemptExitPage(""); return; } catch {}
@@ -3075,12 +3358,17 @@ function __cb_applyEventIntent(intent) {
         else if (platformIntent.value === "show") __cb_clearPlatformStyle(platform + "-live");
       } else if (platformIntent.predicate === true && typeof platformIntent.slot === "string" && platform) {
         __cb_activePredicateSlots.add(platform + ":" + platformIntent.slot);
+        // A new group's predicate is now active; re-evaluate cached cards.
+        cbResetCustomSigCache();
         __cb_ensurePredicateObserver();
         __cb_schedulePredicateScan();
         __cb_checkPagePredicate();
       } else if (platformIntent.kind === "clearPredicates" && typeof platformIntent.slot === "string" && platform) {
         __cb_activePredicateSlots.delete(platform + ":" + platformIntent.slot);
-        __cb_predicateRestoreAll();
+        // Drop every custom verdict and re-resolve, so cards a predicate had
+        // hidden come back (unless a platform rule still hides them).
+        cbClearSourceEverywhere("custom");
+        cbResetCustomSigCache();
         if (__cb_activePredicateSlots.size > 0) __cb_schedulePredicateScan();
       }
     }

@@ -792,10 +792,57 @@ const PLATFORM_PROFILES = {
       {
         id: "shorts-button",
         labelKey: "surfaceHide.youtube.shorts",
+        // Covers every Shorts surface: the nav entries, the home/subscription/
+        // search shelves, AND individual Shorts cards that appear inline in the
+        // feed or search results across YouTube's various rollouts.
         selectors: [
+          // Nav buttons (desktop sidebar, mini sidebar, mobile pivot bar)
           "ytd-guide-entry-renderer:has(a[title=\"Shorts\"])",
           "ytd-mini-guide-entry-renderer[aria-label=\"Shorts\"]",
-          "ytd-pivot-bar-item-renderer:has(a[title=\"Shorts\"])"
+          "ytd-pivot-bar-item-renderer:has(a[title=\"Shorts\"])",
+          "ytd-guide-entry-renderer:has(a[href=\"/shorts\"])",
+          "ytd-mini-guide-entry-renderer:has(a[href=\"/shorts\"])",
+          // Shelves / sections (home, subscriptions, search, channel)
+          "ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts])",
+          "ytd-rich-shelf-renderer[is-shorts]",
+          "ytd-reel-shelf-renderer",
+          "grid-shelf-view-model",
+          "ytd-rich-section-renderer:has(ytm-shorts-lockup-view-model)",
+          "ytd-rich-section-renderer:has(grid-shelf-view-model)",
+          "ytd-rich-section-renderer:has(ytd-reel-shelf-renderer)",
+          "ytd-item-section-renderer:has(ytd-reel-shelf-renderer)",
+          // Catch-all: any shelf/section whose contents link to Shorts.
+          "ytd-rich-section-renderer:has(a[href^=\"/shorts\"])",
+          "ytd-shelf-renderer:has(a[href^=\"/shorts\"])",
+          "ytd-item-section-renderer:has(ytd-reel-item-renderer)",
+          // Individual Shorts cards inline in feeds / search / related
+          "ytd-rich-item-renderer:has(a[href^=\"/shorts/\"])",
+          "ytd-video-renderer:has(a[href^=\"/shorts/\"])",
+          "ytd-grid-video-renderer:has(a[href^=\"/shorts/\"])",
+          "ytd-compact-video-renderer:has(a[href^=\"/shorts/\"])",
+          "ytd-reel-item-renderer",
+          "ytm-shorts-lockup-view-model",
+          "ytm-shorts-lockup-view-model-v2",
+          "yt-shorts-lockup-view-model",
+          "yt-lockup-view-model:has(a[href^=\"/shorts/\"])"
+        ]
+      },
+      {
+        id: "home-feed-ads",
+        labelKey: "surfaceHide.youtube.homeAds",
+        // Hiding ads can violate the platform's Terms of Service and risk the
+        // account. Warn (and require confirmation) every time it's enabled.
+        warnOnEnableKey: "surfaceHide.adWarning",
+        // Site-wide: in-feed promoted cards + the home masthead/banner ad.
+        // Not tied to the author axis, so app-scoped.
+        selectors: [
+          "ytd-ad-slot-renderer",
+          "ytd-in-feed-ad-layout-renderer",
+          "ytd-rich-item-renderer:has(ytd-ad-slot-renderer)",
+          "ytd-rich-item-renderer:has(ytd-in-feed-ad-layout-renderer)",
+          "ytd-rich-section-renderer:has(ytd-statement-banner-renderer)",
+          "ytd-rich-section-renderer:has(ytd-ad-slot-renderer)",
+          "#masthead-ad"
         ]
       },
       {
@@ -856,7 +903,14 @@ const PLATFORM_PROFILES = {
       {
         id: "reels",
         labelKey: "surfaceHide.facebook.reels",
-        selectors: ['a[href^="/reel/"]', 'a[aria-label="Reels"]']
+        // Nav entries plus the in-feed Reels tray / individual reel cards.
+        selectors: [
+          'a[href^="/reel/"]',
+          'a[aria-label="Reels"]',
+          'div[aria-label="Reels"]',
+          'div[role="article"]:has(a[href^="/reel/"])',
+          'div[data-pagelet^="Reels"]'
+        ]
       }
     ]
   },
@@ -882,7 +936,13 @@ const PLATFORM_PROFILES = {
       {
         id: "reels",
         labelKey: "surfaceHide.instagram.reels",
-        selectors: ['a[href="/reels/"]', 'a[href^="/reels/"]']
+        // Nav entry plus the in-feed Reels tray and individual reel links.
+        selectors: [
+          'a[href="/reels/"]',
+          'a[href^="/reels/"]',
+          'svg[aria-label="Reels"]',
+          'div:has(> a[href^="/reels/"])'
+        ]
       },
       {
         id: "explore",
