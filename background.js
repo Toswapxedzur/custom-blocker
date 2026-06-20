@@ -151,7 +151,6 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     parentalPasswordSalt: null,
     sites: [],
     blockHomePage: false,
-    effect: "block",
     fallbackUrl: "",
     skipToNextOnBlock: false
   };
@@ -375,10 +374,6 @@ function sanitizeGroups(groups) {
           ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
           : [],
         blockHomePage: Boolean(group?.blockHomePage),
-        // Cascade effect: "allow" makes the group a whitelist/exception that
-        // rescues matched content from lower-priority block groups. Defaults to
-        // "block" so existing groups behave exactly as before.
-        effect: group?.effect === "allow" ? "allow" : "block",
         fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
         skipToNextOnBlock: Boolean(group?.skipToNextOnBlock),
         // Preserve custom-rule fields verbatim so that any path which
@@ -1149,23 +1144,10 @@ function buildPageSession(
     items: timedItems,
     feedFilters,
     surfaceHides,
-    feedOrder: buildFeedOrder(groups),
     fallbackUrl,
     skipToNextOnBlock,
     now
   };
-}
-
-// Group priority + effect for the content-side cascade. Order is the group's
-// list position (index 0 = top of the list = highest priority, "first wins").
-// effect "allow" turns a match into a whitelist/exception that can rescue what
-// a lower-priority block group hid; everything defaults to "block".
-function buildFeedOrder(groups) {
-  if (!Array.isArray(groups)) return [];
-  return groups.map((group) => ({
-    id: group.id,
-    effect: group && group.effect === "allow" ? "allow" : "block"
-  }));
 }
 
 async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now) {
