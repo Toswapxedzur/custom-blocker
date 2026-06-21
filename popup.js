@@ -186,6 +186,8 @@ const surfaceHidesSection = document.getElementById("surfaceHidesSection");
 const surfaceHidesList = document.getElementById("surfaceHidesList");
 const fallbackUrlSection = document.getElementById("fallbackUrlSection");
 const fallbackUrlField = document.getElementById("fallbackUrl");
+const groupEffectSection = document.getElementById("groupEffectSection");
+const groupEffectField = document.getElementById("groupEffect");
 const freezeSummary = document.getElementById("freezeSummary");
 const freezeSetup = document.getElementById("freezeSetup");
 const freezeModeField = document.getElementById("freezeMode");
@@ -3314,6 +3316,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     parentalPasswordSalt: null,
     sites: [],
     blockHomePage: false,
+    effect: "block",
     fallbackUrl: state.globalSettings?.defaultFallbackUrl ?? "",
     skipToNextOnBlock: false
   };
@@ -3466,6 +3469,7 @@ function sanitizeGroups(groups) {
         ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
         : [],
       blockHomePage: Boolean(group?.blockHomePage),
+      effect: group?.effect === "allow" ? "allow" : "block",
       fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
       skipToNextOnBlock: Boolean(group?.skipToNextOnBlock)
     };
@@ -3582,6 +3586,7 @@ function getSerializableGroupSnapshot(group) {
     parentalPasswordSalt: group.parentalPasswordSalt ?? null,
     sites: [...group.sites],
     blockHomePage: Boolean(group.blockHomePage),
+    effect: group.effect === "allow" ? "allow" : "block",
     fallbackUrl: group.fallbackUrl ?? "",
     skipToNextOnBlock: Boolean(group.skipToNextOnBlock)
   };
@@ -3697,6 +3702,7 @@ function groupToDraft(group) {
     surfaceHides: normalizeSurfaceHides(group.surfaceHides, group.groupType),
     blockingRulesText: group.blockingRulesText,
     blockHomePage: Boolean(group.blockHomePage),
+    effect: group.effect === "allow" ? "allow" : "block",
     fallbackUrl: group.fallbackUrl ?? "",
     skipToNextOnBlock: Boolean(group.skipToNextOnBlock),
     freezeModeChoice: normalizeFreezeModeChoice(group)
@@ -4605,6 +4611,8 @@ function renderEditor(now = Date.now()) {
     redditBlockHomePageField.checked = false;
     discordBlockHomePageField.checked = false;
     fallbackUrlField.value = "";
+    if (groupEffectField) groupEffectField.value = "block";
+    if (groupEffectSection) groupEffectSection.classList.add("hidden");
     skipToNextOnBlockField.checked = false;
     skipToNextOnBlockRow.classList.add("hidden");
     blockModeSection.classList.remove("hidden");
@@ -4757,6 +4765,14 @@ function renderEditor(now = Date.now()) {
 
   fallbackUrlField.value = draft?.fallbackUrl ?? group.fallbackUrl ?? "";
 
+  // Rule effect (block vs allow/exception) is a platform-profile-only feature:
+  // those groups are coarse and can't express exceptions in JS the way custom
+  // rules can.
+  if (groupEffectSection) {
+    groupEffectSection.classList.toggle("hidden", !isPlatformProfileGroup);
+  }
+  groupEffectField.value = (draft?.effect ?? group.effect) === "allow" ? "allow" : "block";
+
   const isScrollPlatform = ["youtube", "tiktok", "instagram"].includes(group.groupType);
   skipToNextOnBlockRow.classList.toggle("hidden", !isPlatformVideoGroup || !isScrollPlatform);
   skipToNextOnBlockField.checked = Boolean(draft?.skipToNextOnBlock ?? group.skipToNextOnBlock);
@@ -4839,6 +4855,7 @@ function renderEditor(now = Date.now()) {
   redditBlockHomePageField.disabled = !editable || !isRedditGroup;
   discordBlockHomePageField.disabled = !editable || !isDiscordGroup;
   fallbackUrlField.disabled = !editable;
+  if (groupEffectField) groupEffectField.disabled = !editable;
   skipToNextOnBlockField.disabled = !editable || !isPlatformVideoGroup || !isScrollPlatform;
   if (openRuleTemplatesButton) {
     openRuleTemplatesButton.disabled = !editable || !isCustomGroup;
@@ -5017,6 +5034,7 @@ function stashCurrentDraft() {
           ? discordBlockHomePageField.checked
           : false,
     surfaceHides: readSurfaceHidesFromForm(),
+    effect: groupEffectField.value === "allow" ? "allow" : "block",
     fallbackUrl: fallbackUrlField.value,
     skipToNextOnBlock: skipToNextOnBlockField.checked
   };
@@ -5471,6 +5489,12 @@ function buildUpdatedGroupFromDraft(group, draft) {
       blockingRulesText: isCustomGroup ? blockingRulesText : group.blockingRulesText,
       sites: group.groupType === "site" ? siteResults.validSites : [],
       blockHomePage: Boolean(draft.blockHomePage),
+      // Only platform-profile groups expose the effect toggle; force "block"
+      // for everything else so custom/default groups can't become exceptions.
+      effect:
+        isPlatformProfileGroupType(group.groupType) && draft.effect === "allow"
+          ? "allow"
+          : "block",
       // Custom groups redirect via setRedirectLink() inside the rule;
       // strip any legacy fallbackUrl on save.
       fallbackUrl: isCustomGroup
@@ -7027,6 +7051,15 @@ discordModeField.addEventListener("change", () => {
 for (const field of [platformBlockHomePageField, redditBlockHomePageField, discordBlockHomePageField, skipToNextOnBlockField]) {
   field.addEventListener("change", () => {
     stashCurrentDraft();
+    renderGroupList();
+    scheduleAutosave();
+  });
+}
+
+if (groupEffectField) {
+  groupEffectField.addEventListener("change", () => {
+    stashCurrentDraft();
+    render();
     renderGroupList();
     scheduleAutosave();
   });

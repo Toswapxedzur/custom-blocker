@@ -563,31 +563,74 @@ function showElement(element) {
 // ────────────────────────────────────────────────────────────────────────
 // Shared feed-hide engine (default / platform rules AND custom rules)
 //
-// Both rule kinds are just per-group "hide" verdicts over the same card,
-// recorded into one per-card ledger tagged by source ("platform" | "custom").
-// A card is hidden if ANY source currently wants it hidden. Keeping the two
-// sources separate is what makes the outcome independent of the sync-platform
-// vs async-custom timing race: a fresh platform pass re-derives only its own
-// verdicts and never clobbers an in-flight custom result (and vice-versa).
+// Both rule kinds are just per-group verdicts over the same card, recorded
+// into one per-card ledger tagged by source ("platform" | "custom"). The
+// resolver picks the winner by group list order — the TOP-most group that has
+// an opinion decides — so the outcome is independent of the sync-platform vs
+// async-custom timing race.
 //
-// Application is idempotent per card (hide/show only on change), so repeated
-// passes never churn the DOM.
+//   • Order/effect come from the background ("feedOrder"): list position
+//     (index 0 = top = highest priority) and a per-group effect.
+//   • effect "allow" turns a match into a rescue verdict that overrides a
+//     lower-priority block group; "block" hides. Only platform-profile groups
+//     can be "allow" (enforced in the background); custom/default are always
+//     "block".
+//   • Application is idempotent per card (hide/show only on change), so
+//     repeated passes never churn the DOM.
 // ────────────────────────────────────────────────────────────────────────
 
-// card -> Map<groupId, source>   (source: "platform" | "custom")
+// card -> Map<groupId, { v: "hide"|"allow", src: "platform"|"custom" }>
 const cbVerdictLedger = new WeakMap();
 // Strong set of cards that currently carry any verdict, so we can do bulk
 // "clear this source" sweeps (a WeakMap isn't iterable). Detached nodes are
 // pruned on each sweep to avoid leaks.
 const cbTrackedCards = new Set();
+let cbGroupIndex = new Map(); // groupId -> order index (0 = highest priority)
+let cbGroupEffect = new Map(); // groupId -> "block" | "allow"
+let cbGroupOrderKey = "";
 
-// Record (true) or clear (false) one group's hide verdict for a card.
-function cbSetCardVerdict(card, groupId, hidden, source) {
+function cbSetGroupOrder(order) {
+  const key = Array.isArray(order)
+    ? order.map((g) => `${g && g.id}:${g && g.effect === "allow" ? "a" : "b"}`).join("|")
+    : "";
+  const changed = key !== cbGroupOrderKey;
+  cbGroupOrderKey = key;
+  cbGroupIndex = new Map();
+  cbGroupEffect = new Map();
+  if (Array.isArray(order)) {
+    order.forEach((group, index) => {
+      if (!group || typeof group.id !== "string") return;
+      cbGroupIndex.set(group.id, index);
+      cbGroupEffect.set(group.id, group.effect === "allow" ? "allow" : "block");
+    });
+  }
+  // Custom verdicts bake in priority/effect at evaluation time and are skipped
+  // by the signature cache; if order/effect changed, force re-evaluation so
+  // they resolve against the new priorities. (Platform verdicts re-derive every
+  // pass, so they need nothing here.)
+  if (changed) {
+    cbResetCustomSigCache();
+    if (
+      typeof __cb_activePredicateSlots !== "undefined" &&
+      __cb_activePredicateSlots.size > 0 &&
+      typeof __cb_schedulePredicateScan === "function"
+    ) {
+      __cb_schedulePredicateScan();
+    }
+  }
+}
+
+function cbEffectVerdict(groupId) {
+  return cbGroupEffect.get(groupId) === "allow" ? "allow" : "hide";
+}
+
+// Record (verdict) or clear (null) one group's opinion of a card.
+function cbSetCardVerdict(card, groupId, verdict, source) {
   if (!card || !groupId) return;
   let entry = cbVerdictLedger.get(card);
-  if (hidden) {
+  if (verdict) {
     if (!entry) { entry = new Map(); cbVerdictLedger.set(card, entry); }
-    entry.set(groupId, source || "platform");
+    entry.set(groupId, { v: verdict, src: source || "platform" });
     cbTrackedCards.add(card);
   } else if (entry) {
     entry.delete(groupId);
@@ -598,8 +641,8 @@ function cbSetCardVerdict(card, groupId, hidden, source) {
 function cbClearSource(card, source) {
   const entry = cbVerdictLedger.get(card);
   if (!entry) return;
-  for (const [groupId, src] of entry) {
-    if (src === source) entry.delete(groupId);
+  for (const [groupId, value] of entry) {
+    if (value.src === source) entry.delete(groupId);
   }
 }
 
@@ -613,10 +656,23 @@ function cbClearSourceEverywhere(source) {
   }
 }
 
-// A card is hidden if any source still has a verdict on it.
+// Resolve from the ordered ledger: the lowest-index (top-most) group with an
+// opinion decides. Returns true if the card should be hidden.
 function cbResolveCardHidden(card) {
   const entry = cbVerdictLedger.get(card);
-  return Boolean(entry && entry.size > 0);
+  if (!entry || entry.size === 0) return false;
+  let bestIndex = Infinity;
+  let bestVerdict = null;
+  for (const [groupId, value] of entry) {
+    const index = cbGroupIndex.has(groupId)
+      ? cbGroupIndex.get(groupId)
+      : Number.MAX_SAFE_INTEGER;
+    if (index < bestIndex) {
+      bestIndex = index;
+      bestVerdict = value.v;
+    }
+  }
+  return bestVerdict === "hide";
 }
 
 function cbApplyCard(card) {
@@ -727,10 +783,11 @@ function applyFeedFilters() {
           // Exposure: a match means the group's usage timer should accrue,
           // regardless of whether we hide the card right now.
           exposed.add(filter.id);
-          // Only hide while enforcing (instant, or a count-down past its
-          // allowance); count-up/not-yet-expired groups only measure.
-          if (filter.enforce !== false) {
-            cbSetCardVerdict(card, filter.id, true, "platform");
+          const verdict = cbEffectVerdict(filter.id);
+          // Allow filters always rescue; block filters only hide while
+          // enforcing (instant, or a count-down past its allowance).
+          if (verdict === "allow" || filter.enforce !== false) {
+            cbSetCardVerdict(card, filter.id, verdict, "platform");
           }
         }
       }
@@ -746,13 +803,15 @@ function applyFeedFilters() {
 
 // Nav buttons / shelves (e.g. the Shorts shelf) are page chrome, not feed
 // cards, so they're hidden via the surface-hide marker (restored each pass by
-// applySurfaceHides) rather than entering the per-card cascade.
+// applySurfaceHides) rather than entering the per-card cascade. Allow-effect
+// filters are exceptions and never hide chrome.
 function applyNavShelfHides() {
   const currentSite = getCurrentFeedSite();
   if (currentSite !== "youtube") return;
   for (const filter of latestFeedFilters) {
     if (filter?.site !== "youtube") continue;
     if (filter.enforce === false) continue;
+    if (cbEffectVerdict(filter.id) === "allow") continue;
     for (const navElement of collectNavElementsToHide(filter)) hideSurfaceElement(navElement);
     for (const shelfElement of collectFormShelvesToHide(filter)) hideSurfaceElement(shelfElement);
   }
@@ -1129,6 +1188,9 @@ function handleSession(session) {
   const shouldExitPage = Boolean(session.shouldExitPage);
 
   updateOverlay(items, !shouldExitPage && (session.showTimer || items.length > 0));
+  // Order/effect must be set before applying filters so verdicts resolve
+  // against the right priorities.
+  cbSetGroupOrder(session.feedOrder);
   updateFeedFilters(session.feedFilters);
   updateSurfaceHides(session.surfaceHides);
 
@@ -3035,11 +3097,11 @@ async function __cb_scanFeedPredicates() {
       const card = batch[i].card;
       // Re-derive this card's custom verdicts: clear the groups that ran, then
       // set the matches. Platform verdicts on the card are left untouched.
-      for (const groupId of evaluatedGroups) cbSetCardVerdict(card, groupId, false, "custom");
+      for (const groupId of evaluatedGroups) cbSetCardVerdict(card, groupId, null, "custom");
       const matched =
         results[i] && Array.isArray(results[i].matchedGroups) ? results[i].matchedGroups : [];
       for (const groupId of matched) {
-        cbSetCardVerdict(card, groupId, true, "custom");
+        cbSetCardVerdict(card, groupId, cbEffectVerdict(groupId), "custom");
       }
       cbCustomSigCache.set(card, batch[i].sig);
       cbApplyCard(card);
