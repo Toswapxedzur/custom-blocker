@@ -136,6 +136,17 @@
             <span data-i18n="editor.enableGroup">Enable this block group</span>
           </label>
 
+          <div id="groupEffectSection">
+            <label class="label" for="groupEffect" data-i18n="editor.effect">Rule effect</label>
+            <select id="groupEffect">
+              <option value="block" data-i18n="editor.effectBlock">Block matched content</option>
+              <option value="allow" data-i18n="editor.effectAllow">Allow matched content (exception)</option>
+            </select>
+            <p class="field-help" data-i18n="editor.effectHelp">
+              Groups are checked top to bottom — the first group with an opinion wins. Set a group to "Allow" and place it above a blocking group to rescue content that would otherwise be hidden (e.g. allow one creator while blocking the rest).
+            </p>
+          </div>
+
           <div id="blockModeSection">
             <label class="label" for="blockMode" data-i18n="editor.blockMode">Blocking behavior</label>
             <select id="blockMode">

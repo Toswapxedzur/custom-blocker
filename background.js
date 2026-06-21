@@ -151,6 +151,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     parentalPasswordSalt: null,
     sites: [],
     blockHomePage: false,
+    effect: "block",
     fallbackUrl: "",
     skipToNextOnBlock: false
   };
@@ -374,6 +375,10 @@ function sanitizeGroups(groups) {
           ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
           : [],
         blockHomePage: Boolean(group?.blockHomePage),
+        // Cascade effect for platform-profile groups: "allow" makes the group a
+        // whitelist/exception. Stored for all groups but only honored for
+        // platform groups (see buildFeedOrder); defaults to "block".
+        effect: group?.effect === "allow" ? "allow" : "block",
         fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
         skipToNextOnBlock: Boolean(group?.skipToNextOnBlock),
         // Preserve custom-rule fields verbatim so that any path which
@@ -1144,10 +1149,28 @@ function buildPageSession(
     items: timedItems,
     feedFilters,
     surfaceHides,
+    feedOrder: buildFeedOrder(groups),
     fallbackUrl,
     skipToNextOnBlock,
     now
   };
+}
+
+// Group priority + effect for the content-side cascade. Order is the group's
+// list position (index 0 = top of the list = highest priority, "first wins").
+// effect "allow" is a whitelist/exception that rescues matched content from
+// lower-priority block groups — but ONLY platform-profile groups may use it
+// (custom rules express exceptions in JS; default groups don't touch feeds).
+// Everything else is forced to "block".
+function buildFeedOrder(groups) {
+  if (!Array.isArray(groups)) return [];
+  return groups.map((group) => ({
+    id: group.id,
+    effect:
+      isPlatformProfileGroupType(group?.groupType) && group?.effect === "allow"
+        ? "allow"
+        : "block"
+  }));
 }
 
 async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now) {
