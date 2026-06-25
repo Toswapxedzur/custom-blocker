@@ -21,6 +21,11 @@
       "matches": ["<all_urls>"],
       "js": ["browser-compat.js", "helpers.js", "content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["browser-compat.js", "yt-collect.js", "yt-block.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {

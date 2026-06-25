@@ -965,6 +965,46 @@ function collectPlatformAuthors(pathname, isYouTubePage) {
   return map;
 }
 
+// Exact-case UC channel id of the page's primary channel (watch / channel
+// pages). Case matters: tag-cache keys are case-sensitive UC ids, so unlike
+// the author axis we must NOT lowercase. Best-effort, multiple DOM sources;
+// returns null when the channel can't be resolved (callers fail open).
+const CB_UC_RE = /(UC[0-9A-Za-z_-]{22})/;
+function collectPageChannelId() {
+  // Channel pages carry the exact id directly in the path.
+  let m = location.pathname.match(/\/channel\/(UC[0-9A-Za-z_-]{22})/);
+  if (m) return m[1];
+  // Preferred source: yt-block.js shares our isolated world and resolves the
+  // page's primary channel using ytInitialData / ytInitialPlayerResponse maps
+  // (handle→UC, videoId→UC) that aren't available from the DOM alone. It is the
+  // only reliable way to get a watch page's channel, since the owner byline is
+  // a /@handle link, not /channel/UC.
+  try {
+    const shared = window.__cbPageChannelId;
+    if (typeof shared === "string" && /^UC[0-9A-Za-z_-]{22}$/.test(shared)) return shared;
+  } catch (_) {}
+  const canonical = document.querySelector('link[rel="canonical"]');
+  if (canonical) {
+    m = (canonical.getAttribute("href") || "").match(/\/channel\/(UC[0-9A-Za-z_-]{22})/);
+    if (m) return m[1];
+  }
+  const meta = document.querySelector('meta[itemprop="channelId"]');
+  if (meta) {
+    m = (meta.getAttribute("content") || "").match(CB_UC_RE);
+    if (m) return m[1];
+  }
+  // Scoped to the owner byline only — never the #related sidebar — so we can't
+  // accidentally resolve to a recommended video's channel.
+  const owner = document.querySelector(
+    'ytd-watch-metadata #owner a[href*="/channel/UC"], ytd-video-owner-renderer a[href*="/channel/UC"]'
+  );
+  if (owner) {
+    m = (owner.getAttribute("href") || "").match(/\/channel\/(UC[0-9A-Za-z_-]{22})/);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 function buildPageContext() {
   const hostname = normalizeHostname(location.hostname);
   const isYouTubePage = isYouTubeHost(hostname);
@@ -988,7 +1028,8 @@ function buildPageContext() {
     discordChannelId: isDiscordPage ? parseDiscordChannelIdFromPath(location.pathname) : null,
     isTwitterPage,
     videoSite: videoContext.site,
-    videoForm: videoContext.form
+    videoForm: videoContext.form,
+    pageChannelId: isYouTubePage ? collectPageChannelId() : null
   };
 }
 
@@ -1223,6 +1264,34 @@ function scheduleRefreshSession(delayMs = 100) {
   }, delayMs);
 }
 
+// A watch/channel page's owner identity (owner byline for the author axis,
+// window.__cbPageChannelId + tag verdicts for the tag axis) lands a beat AFTER
+// the navigation event that triggers refreshSession(). Without re-evaluating,
+// author/tag groups hide the feed but never block the page, because the
+// one-shot session ran before the channel was known. These bounded retries
+// re-run the evaluation as the identity resolves. The cb-page-channel-resolved
+// event covers the tag axis precisely; the retries also cover the author
+// byline and the tag cache's stale-while-revalidate second pass. They use
+// independent timers (not the single debounced refresh) so several spaced
+// passes survive, and are cancelled/restarted on each navigation.
+let sessionResolveRetryTimers = [];
+function clearSessionResolveRetries() {
+  for (const id of sessionResolveRetryTimers) {
+    try { window.clearTimeout(id); } catch (_) {}
+  }
+  sessionResolveRetryTimers = [];
+}
+function scheduleSessionResolveRetries() {
+  clearSessionResolveRetries();
+  for (const delay of [400, 1200, 2500]) {
+    const id = window.setTimeout(() => {
+      if (exitAttempted || extensionContextInvalid) return;
+      refreshSession();
+    }, delay);
+    sessionResolveRetryTimers.push(id);
+  }
+}
+
 function hookHistoryNavigation() {
   const dispatch = () => {
     try { window.dispatchEvent(new Event("custom-blocker:locationchange")); } catch {}
@@ -1293,6 +1362,9 @@ function refreshPanels(extraPanelGroups = []) {
 
 if (/^https?:$/i.test(location.protocol)) {
   refreshSession();
+  // The page's channel identity resolves after initial load — re-evaluate so
+  // author/tag groups can block the page, not just hide the feed.
+  scheduleSessionResolveRetries();
 
   document.addEventListener("visibilitychange", () => {
     lastHeartbeatAt = Date.now();
@@ -1303,7 +1375,14 @@ if (/^https?:$/i.test(location.protocol)) {
   window.addEventListener("pageshow", () => scheduleRefreshSession(0));
   window.addEventListener("popstate", refreshSession);
   window.addEventListener("hashchange", refreshSession);
-  document.addEventListener("yt-navigate-finish", refreshSession);
+  // yt-block.js publishes the page's primary channel id a beat after the SPA
+  // settles; re-run the session the moment that resolves so the tag/author
+  // page block fires (the feed hider already reacts continuously).
+  window.addEventListener("cb-page-channel-resolved", () => scheduleRefreshSession(0));
+  document.addEventListener("yt-navigate-finish", () => {
+    refreshSession();
+    scheduleSessionResolveRetries();
+  });
 
   hookHistoryNavigation();
   // Re-evaluate page predicates whenever the SPA URL changes. Without

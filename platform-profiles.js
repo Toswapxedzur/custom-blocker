@@ -586,7 +586,22 @@ function matchesPlatformVideoGroup(group, pageContext) {
   if (!matchesVideoMode(group, pageContext)) return false;
 
   if (authorMode === "all") return true;
-  // "nobody" and the YouTube tag stubs don't block via the author axis yet.
+
+  // YouTube tag axis — shares this engine with the author axis so a tag block
+  // has the SAME repercussion as an author block (full page block, not just a
+  // feed hide). Fail-open: until we have a definitive tag verdict for the
+  // page's channel (channelTagsKnown), we never block.
+  if (authorMode === "tagInclude" || authorMode === "tagExclude") {
+    if (!isYouTubeGroup) return false;
+    const wantedTags = Array.isArray(group.platformAuthorTags) ? group.platformAuthorTags : [];
+    if (wantedTags.length === 0) return false;
+    if (!pageContext.channelTagsKnown) return false;
+    const channelTags = Array.isArray(pageContext.channelTags) ? pageContext.channelTags : [];
+    const hasTag = wantedTags.some((slug) => channelTags.includes(slug));
+    return authorMode === "tagInclude" ? hasTag : !hasTag;
+  }
+
+  // "nobody" doesn't block via the author axis.
   if (authorMode !== "include" && authorMode !== "exclude") return false;
 
   if (!Array.isArray(group.platformAuthors) || group.platformAuthors.length === 0) return false;
