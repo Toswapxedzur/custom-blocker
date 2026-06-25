@@ -50,6 +50,9 @@ const DEFAULT_GLOBAL_SETTINGS = {
   showOnPageLogToasts: true,
   defaultSnoozeMinutes: 30,
   defaultFallbackUrl: "about:blank",
+  // Opt-in: when on, the YouTube collector shares encountered channel ids
+  // (and nothing else) with the tag server to help classify creators.
+  contributeChannels: false,
   connection: { ...DEFAULT_CONNECTION_SETTINGS }
 };
 const TICK_RATE_MIN_MS = 250;
@@ -248,6 +251,24 @@ const settingsTickRateField = document.getElementById("settingsTickRate");
 const settingsAutosaveDebounceField = document.getElementById("settingsAutosaveDebounce");
 const settingsDebugModeField = document.getElementById("settingsDebugMode");
 const settingsShowOnPageLogToastsField = document.getElementById("settingsShowOnPageLogToasts");
+const settingsContributeChannelsField = document.getElementById("settingsContributeChannels");
+const platformAuthorTagsList = document.getElementById("platformAuthorTagsList");
+const tagPickerModal = document.getElementById("tagPickerModal");
+const tagPickerSearch = document.getElementById("tagPickerSearch");
+const tagPickerResults = document.getElementById("tagPickerResults");
+const tagPickerEmpty = document.getElementById("tagPickerEmpty");
+const tagPickerError = document.getElementById("tagPickerError");
+const tagPickerCloseButton = document.getElementById("tagPickerCloseButton");
+const ytCacheRefreshButton = document.getElementById("ytCacheRefresh");
+const ytCacheClearButton = document.getElementById("ytCacheClear");
+const ytCacheBoxPending = document.getElementById("ytCachePending");
+const ytCacheBoxProtected = document.getElementById("ytCacheProtected");
+const ytCacheBoxProbation = document.getElementById("ytCacheProbation");
+const ytTierCountPending = document.getElementById("ytTierPendingCount");
+const ytTierCountProtected = document.getElementById("ytTierProtectedCount");
+const ytTierCountProbation = document.getElementById("ytTierProbationCount");
+const ytCacheSearchInput = document.getElementById("ytCacheSearch");
+let ytCacheSearchTimer = null;
 const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
 const settingsDefaultFallbackUrlField = document.getElementById("settingsDefaultFallbackUrl");
 const localFolderChooseButton = document.getElementById("localFolderChooseButton");
@@ -834,7 +855,10 @@ function clusterOfflineMembers(cluster) {
 }
 
 // The cluster (if any) this group currently belongs to, matched by this
-// endpoint's program id + the group's saved name.
+// endpoint's program id + the member's pinned group id. Membership is pinned to
+// the specific group instance that was linked, so deleting a group and later
+// re-creating one with the same name does NOT re-adopt the old cluster. Falls
+// back to the saved name for pre-id-pinning hubs that don't send a groupId.
 function groupConnectionCluster(group) {
   if (!group) return null;
   const clusters = Array.isArray(state.clusters) ? state.clusters : [];
@@ -842,10 +866,26 @@ function groupConnectionCluster(group) {
     clusters.find((cluster) =>
       Array.isArray(cluster.members) &&
       cluster.members.some(
-        (m) => m && m.program === LOCAL_PROGRAM_ID && m.groupName === group.name
+        (m) =>
+          m &&
+          m.program === LOCAL_PROGRAM_ID &&
+          (m.groupId ? m.groupId === group.id : m.groupName === group.name)
       )
     ) || null
   );
+}
+
+// This endpoint's local group for a cluster, resolved via the member's pinned
+// group id (falling back to the saved name for pre-id-pinning hubs).
+function clusterLocalGroup(cluster) {
+  if (!cluster || !Array.isArray(cluster.members)) return null;
+  const self = cluster.members.find((m) => m && m.program === LOCAL_PROGRAM_ID);
+  if (!self) return null;
+  if (self.groupId) {
+    const byId = state.groups.find((g) => g.id === self.groupId);
+    if (byId) return byId;
+  }
+  return state.groups.find((g) => g.name === (self.groupName || cluster.groupName)) || null;
 }
 
 // Programs the user can link to right now (other connected endpoints). A client
@@ -1065,7 +1105,7 @@ function applyClusters(list) {
   for (const cluster of state.clusters) {
     if (!cluster || !Array.isArray(cluster.members)) continue;
     if (!cluster.members.some((m) => m && m.program === LOCAL_PROGRAM_ID)) continue;
-    const group = state.groups.find((g) => g.name === cluster.groupName);
+    const group = clusterLocalGroup(cluster);
     if (!group) continue;
     if (cluster.shared) {
       applyClusterShared(group, cluster.shared);
@@ -1156,6 +1196,9 @@ function announceGroups() {
   const groups = (Array.isArray(state.groups) ? state.groups : [])
     .filter(isBridgeEligibleGroup)
     .map((g) => ({
+      // The stable per-program group id pins cluster membership to this
+      // instance, so a same-named group created after a delete won't re-join.
+      id: g.id,
       name: g.name,
       type: g.groupType,
       frozen: getFreezeStatus(g, Date.now()).isFrozen
@@ -1359,13 +1402,479 @@ function syncSettingsFormFromState() {
   if (settingsAutosaveDebounceField) settingsAutosaveDebounceField.value = String(s.autosaveDebounceMs);
   if (settingsDebugModeField) settingsDebugModeField.checked = Boolean(s.debugMode);
   if (settingsShowOnPageLogToastsField) settingsShowOnPageLogToastsField.checked = s.showOnPageLogToasts !== false;
+  if (settingsContributeChannelsField) settingsContributeChannelsField.checked = s.contributeChannels === true;
+  renderYtCache();
   if (settingsDefaultSnoozeMinutesField) settingsDefaultSnoozeMinutesField.value = String(s.defaultSnoozeMinutes);
   if (settingsDefaultFallbackUrlField) settingsDefaultFallbackUrlField.value = s.defaultFallbackUrl ?? "";
   if (settingsStatus) settingsStatus.textContent = "";
 }
 
+// --- YouTube tag targeting picker (per group) --------------------------
+let ytBlockPickerWired = false;
+let tagPickerSearchTimer = null;
+let ytAllTags = null; // full validated tag list, fetched once: [{slug,name,dimension,color}]
+let ytAllTagsLoading = null;
+let ytTagBySlug = new Map(); // slug -> {slug,name,dimension,color} for chip labels
+const YT_BLOCK_MAX_RESULTS = 60;
+
+function ytBlockApiBase() {
+  const custom = state.globalSettings?.contributeApiBase;
+  if (typeof custom === "string" && /^https?:\/\//.test(custom.trim())) {
+    return custom.trim().replace(/\/$/, "");
+  }
+  return "http://127.0.0.1:8000";
+}
+
+// Fetch every tag once so the picker filters a known-valid list locally — the
+// user can only ever add a real tag (like the app's selection panel).
+function loadAllTags(force) {
+  if (ytAllTags && !force) return Promise.resolve(ytAllTags);
+  if (ytAllTagsLoading) return ytAllTagsLoading;
+  ytAllTagsLoading = (async () => {
+    try {
+      const resp = await fetch(`${ytBlockApiBase()}/api/tags/all`);
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const rows = await resp.json();
+      ytAllTags = (rows || [])
+        .filter((r) => r && r.slug)
+        .map((r) => ({
+          slug: r.slug,
+          name: r.name || r.literal_name || r.slug,
+          dimension: r.dimension || "",
+          color: r.color || ""
+        }));
+      ytTagBySlug = new Map(ytAllTags.map((t) => [t.slug, t]));
+      return ytAllTags;
+    } catch (_) {
+      ytAllTags = null; // allow a later retry
+      throw new Error("unreachable");
+    } finally {
+      ytAllTagsLoading = null;
+    }
+  })();
+  return ytAllTagsLoading;
+}
+
+// The per-group Tags field is backed by a hidden textarea of newline-separated
+// tag *slugs*; the chip list is the editable surface. This keeps the existing
+// draft / autosave / save pipeline (which reads platformAuthorTags.value)
+// working unchanged, while guaranteeing only server-validated slugs get in.
+function getPlatformTagSlugs() {
+  if (!platformAuthorTagsField) return [];
+  return [
+    ...new Set(
+      String(platformAuthorTagsField.value || "")
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    )
+  ];
+}
+
+function commitPlatformTagSlugs(slugs) {
+  if (!platformAuthorTagsField) return;
+  const unique = [...new Set(slugs.map((s) => s.trim()).filter(Boolean))];
+  platformAuthorTagsField.value = unique.join("\n");
+  renderPlatformTagChips();
+  // Tags ride the normal draft -> autosave pipeline (no special direct write).
+  // Because the picker is a click-then-close gesture, we flush *immediately and
+  // awaited* instead of via the debounced timer, so closing the popup right
+  // after a tag edit can't drop it. Non-strict autosave guarantees the tags
+  // commit even if a sibling field is mid-edit/invalid.
+  stashCurrentDraft();
+  renderGroupList();
+  if (state.autosaveTimeoutId !== null) {
+    window.clearTimeout(state.autosaveTimeoutId);
+    state.autosaveTimeoutId = null;
+  }
+  return autosaveSelectedGroup().catch((error) => {
+    console.error("Failed to save tag edit.", error);
+    setStatus(t("status.errorSaveGroup"), true);
+  });
+}
+
+function tagLabelForSlug(slug) {
+  const tag = ytTagBySlug.get(slug);
+  return tag ? tag.name : slug;
+}
+
+// Union of tag slugs across enabled groups targeting "creators with a certain
+// tag" — mirrors the logic the content blocker uses, for the cache inspector.
+function blockedTagSlugsFromGroups() {
+  const out = new Set();
+  for (const g of state.groups || []) {
+    if (!g || g.enabled !== true) continue;
+    if (normalizePlatformAuthorMode(g.platformAuthorMode) !== "tagInclude") continue;
+    for (const s of g.platformAuthorTags || []) {
+      if (typeof s === "string" && s.trim()) out.add(s.trim());
+    }
+  }
+  return out;
+}
+
+function filterLocalTags(term) {
+  const q = term.trim().toLowerCase();
+  if (!ytAllTags) return [];
+  if (!q) return ytAllTags;
+  return ytAllTags.filter(
+    (t) => t.name.toLowerCase().includes(q) || t.slug.toLowerCase().includes(q)
+  );
+}
+
+function renderPlatformTagChips() {
+  if (!platformAuthorTagsList) return;
+  const editable = !(platformAuthorTagsField && platformAuthorTagsField.disabled);
+  platformAuthorTagsList.classList.toggle("tag-chip-list-disabled", !editable);
+  platformAuthorTagsList.innerHTML = "";
+
+  for (const slug of getPlatformTagSlugs()) {
+    const tag = ytTagBySlug.get(slug);
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+    chip.setAttribute("role", "listitem");
+    chip.title = slug;
+
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    if (tag && tag.color) sw.style.background = tag.color;
+    chip.appendChild(sw);
+
+    const label = document.createElement("span");
+    label.textContent = tagLabelForSlug(slug);
+    chip.appendChild(label);
+
+    if (editable) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "tag-chip-remove";
+      remove.setAttribute("aria-label", t("tagPicker.removeAria", { name: tagLabelForSlug(slug) }));
+      remove.textContent = "\u00d7";
+      remove.addEventListener("click", () => {
+        commitPlatformTagSlugs(getPlatformTagSlugs().filter((s) => s !== slug));
+      });
+      chip.appendChild(remove);
+    }
+    platformAuthorTagsList.appendChild(chip);
+  }
+
+  // Trailing "+" tile opens the validated picker (like the app's app picker).
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "tag-chip-add";
+  add.setAttribute("aria-label", t("tagPicker.addAria"));
+  add.textContent = "+";
+  add.disabled = !editable;
+  add.addEventListener("click", () => openTagPicker());
+  platformAuthorTagsList.appendChild(add);
+
+  // Upgrade slug-only labels to names once the tag list finishes loading.
+  if (!ytAllTags && getPlatformTagSlugs().length) {
+    loadAllTags(false).then(() => renderPlatformTagChips()).catch(() => {});
+  }
+}
+
+function openTagPicker() {
+  if (!tagPickerModal || (platformAuthorTagsField && platformAuthorTagsField.disabled)) return;
+  if (tagPickerSearch) tagPickerSearch.value = "";
+  tagPickerModal.classList.remove("hidden");
+  renderTagPickerResults("");
+  if (tagPickerSearch) window.setTimeout(() => tagPickerSearch.focus(), 0);
+}
+
+function closeTagPicker() {
+  if (tagPickerModal) tagPickerModal.classList.add("hidden");
+}
+
+async function renderTagPickerResults(query) {
+  if (!tagPickerResults) return;
+  if (tagPickerError) tagPickerError.classList.add("hidden");
+
+  if (!ytAllTags) {
+    tagPickerResults.innerHTML = "";
+    if (tagPickerEmpty) {
+      tagPickerEmpty.classList.add("hidden");
+    }
+    try {
+      await loadAllTags(false);
+    } catch (_) {
+      tagPickerResults.innerHTML = "";
+      if (tagPickerError) tagPickerError.classList.remove("hidden");
+      return;
+    }
+  }
+
+  const have = new Set(getPlatformTagSlugs());
+  const matches = filterLocalTags(query || "").filter((tag) => !have.has(tag.slug));
+  tagPickerResults.innerHTML = "";
+
+  for (const tag of matches.slice(0, YT_BLOCK_MAX_RESULTS)) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "tag-picker-row";
+    row.setAttribute("role", "option");
+
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    if (tag.color) sw.style.background = tag.color;
+    row.appendChild(sw);
+
+    const text = document.createElement("span");
+    text.className = "tag-picker-row-text";
+    const name = document.createElement("span");
+    name.className = "tag-picker-row-name";
+    name.textContent = tag.name;
+    const slug = document.createElement("span");
+    slug.className = "tag-picker-row-slug";
+    slug.textContent = tag.slug;
+    text.appendChild(name);
+    text.appendChild(slug);
+    row.appendChild(text);
+
+    const dim = document.createElement("span");
+    dim.className = "tag-picker-row-dim";
+    dim.textContent = tag.dimension || "";
+    row.appendChild(dim);
+
+    row.addEventListener("click", () => {
+      commitPlatformTagSlugs([...getPlatformTagSlugs(), tag.slug]);
+      closeTagPicker();
+    });
+    tagPickerResults.appendChild(row);
+  }
+
+  if (matches.length > YT_BLOCK_MAX_RESULTS) {
+    const more = document.createElement("div");
+    more.className = "field-help";
+    more.style.padding = "6px 11px";
+    more.textContent = t("tagPicker.more", {
+      shown: YT_BLOCK_MAX_RESULTS,
+      total: matches.length
+    });
+    tagPickerResults.appendChild(more);
+  }
+
+  if (tagPickerEmpty) {
+    tagPickerEmpty.classList.toggle("hidden", matches.length > 0);
+  }
+}
+
+function ytAgeLabel(ms) {
+  if (!ms) return "never";
+  const d = Date.now() - ms;
+  if (d < 60000) return Math.round(d / 1000) + "s ago";
+  if (d < 3600000) return Math.round(d / 60000) + "m ago";
+  if (d < 86400000) return Math.round(d / 3600000) + "h ago";
+  return Math.round(d / 86400000) + "d ago";
+}
+
+function formatSubsShort(n) {
+  if (typeof n !== "number" || !isFinite(n)) return "?";
+  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(n);
+}
+
+// Render the extension's local YouTube tag state straight from storage, so the
+// user can see exactly what's cached and why a video is / isn't blocked.
+// A rounded tag pill (colored dot + literal name), mirroring the picker chip.
+function ytTagChipEl(slug, blocked) {
+  const tag = ytTagBySlug.get(slug);
+  const chip = document.createElement("span");
+  chip.className = "tag-chip" + (blocked && blocked.has(slug) ? " blocked" : "");
+  chip.title = slug;
+  const sw = document.createElement("span");
+  sw.className = "swatch";
+  if (tag && tag.color) sw.style.background = tag.color;
+  chip.appendChild(sw);
+  const label = document.createElement("span");
+  label.textContent = tagLabelForSlug(slug);
+  chip.appendChild(label);
+  return chip;
+}
+
+// A grey, display-only pill for non-topic states (e.g. "below floor").
+function ytDisplayChipEl(text) {
+  const chip = document.createElement("span");
+  chip.className = "tag-chip display";
+  const sw = document.createElement("span");
+  sw.className = "swatch";
+  chip.appendChild(sw);
+  const label = document.createElement("span");
+  label.textContent = text;
+  chip.appendChild(label);
+  return chip;
+}
+
+// One row: name + id/subs + activity meta, with tag pills stacked underneath.
+function ytCacheRowEl(cid, v, blocked) {
+  const slugs = Array.isArray(v.t) ? v.t : [];
+  const isBlocked = slugs.some((s) => blocked.has(s));
+  const row = document.createElement("div");
+  row.className = "yt-cache-row" + (isBlocked ? " blocked" : "");
+
+  const nameCol = document.createElement("span");
+  nameCol.className = "yt-cache-name";
+
+  const title = document.createElement("span");
+  title.className = "yt-cache-title";
+  title.textContent = v.n || cid;
+  nameCol.appendChild(title);
+
+  const sub = document.createElement("code");
+  sub.className = "yt-cache-id";
+  sub.textContent =
+    cid + (typeof v.subs === "number" ? ` · ${formatSubsShort(v.subs)} subs` : "");
+  nameCol.appendChild(sub);
+
+  const meta = document.createElement("span");
+  meta.className = "yt-cache-meta";
+  const bits = [];
+  bits.push(v.last ? "seen " + ytAgeLabel(v.last) : "not visited");
+  if (typeof v.score === "number" && v.score > 0) bits.push("freq " + v.score.toFixed(1));
+  if (v.seed) bits.push("from seed");
+  meta.textContent = bits.join(" · ");
+  nameCol.appendChild(meta);
+
+  row.appendChild(nameCol);
+
+  // Tags stacked under the name. below_floor renders as a grey display pill.
+  const tagsBox = document.createElement("span");
+  tagsBox.className = "yt-cache-tags";
+  if (slugs.length) {
+    for (const slug of slugs) tagsBox.appendChild(ytTagChipEl(slug, blocked));
+  } else if (v.s === "below_floor") {
+    tagsBox.appendChild(ytDisplayChipEl("below floor"));
+  }
+  if (tagsBox.childNodes.length) row.appendChild(tagsBox);
+
+  return row;
+}
+
+// Tier of an entry for the three-box view. Pending state wins over activity tier
+// (it's the most useful thing to watch); otherwise protected vs probation.
+function ytTierOf(v) {
+  if (v && v.s === "pending") return "pending";
+  return v && v.tier === "protected" ? "protected" : "probation";
+}
+
+function ytRenderTierBox(box, countEl, entries, blocked) {
+  if (countEl) countEl.textContent = String(entries.length);
+  if (!box) return;
+  box.textContent = "";
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "yt-cache-empty";
+    empty.textContent = "—";
+    box.appendChild(empty);
+    return;
+  }
+  const CAP = 200;
+  const shown = entries.slice(0, CAP);
+  for (const [cid, v] of shown) box.appendChild(ytCacheRowEl(cid, v, blocked));
+  if (entries.length > shown.length) {
+    const more = document.createElement("div");
+    more.className = "yt-cache-empty";
+    more.textContent = `…and ${entries.length - shown.length} more.`;
+    box.appendChild(more);
+  }
+}
+
+async function renderYtCache() {
+  if (!ytCacheBoxPending && !ytCacheBoxProtected && !ytCacheBoxProbation) return;
+  // Make sure tag names/colors are available so chips read nicely.
+  if (!ytAllTags) loadAllTags(false).then(() => renderYtCache()).catch(() => {});
+
+  let store = {};
+  try {
+    store = await chrome.storage.local.get(["ytVerdicts"]);
+  } catch (_) {}
+
+  const cache = store.ytVerdicts || { rev: null, seededAt: 0, items: {} };
+  const verdicts = cache.items || {};
+  const blocked = blockedTagSlugsFromGroups();
+
+  // Shared free-text filter (name, channel id, or tag slug) across all boxes.
+  const q = (ytCacheSearchInput ? ytCacheSearchInput.value : "").trim().toLowerCase();
+  const match = ([cid, v]) => {
+    if (!q) return true;
+    if (cid.toLowerCase().includes(q)) return true;
+    if (v.n && v.n.toLowerCase().includes(q)) return true;
+    return (Array.isArray(v.t) ? v.t : []).some((s) => s.toLowerCase().includes(q));
+  };
+
+  // Within each box, rank by activity: decayed frequency then recency.
+  const byActivity = (a, b) => {
+    const sa = a[1].score || 0;
+    const sb = b[1].score || 0;
+    if (sa !== sb) return sb - sa;
+    return (b[1].last || 0) - (a[1].last || 0);
+  };
+
+  const buckets = { pending: [], protected: [], probation: [] };
+  for (const entry of Object.entries(verdicts)) {
+    if (!entry[1] || !match(entry)) continue;
+    buckets[ytTierOf(entry[1])].push(entry);
+  }
+  buckets.pending.sort(byActivity);
+  buckets.protected.sort(byActivity);
+  buckets.probation.sort(byActivity);
+
+  ytRenderTierBox(ytCacheBoxPending, ytTierCountPending, buckets.pending, blocked);
+  ytRenderTierBox(ytCacheBoxProtected, ytTierCountProtected, buckets.protected, blocked);
+  ytRenderTierBox(ytCacheBoxProbation, ytTierCountProbation, buckets.probation, blocked);
+}
+
+function setupYtTagUi() {
+  if (ytBlockPickerWired) return;
+  ytBlockPickerWired = true;
+
+  // Tag picker modal (used by the per-group Tags field).
+  if (tagPickerSearch) {
+    tagPickerSearch.addEventListener("input", () => {
+      if (tagPickerSearchTimer) clearTimeout(tagPickerSearchTimer);
+      const q = tagPickerSearch.value;
+      tagPickerSearchTimer = setTimeout(() => renderTagPickerResults(q), 120);
+    });
+  }
+  if (tagPickerCloseButton) {
+    tagPickerCloseButton.addEventListener("click", () => closeTagPicker());
+  }
+  if (tagPickerModal) {
+    tagPickerModal.addEventListener("click", (event) => {
+      if (event.target === tagPickerModal) closeTagPicker();
+    });
+  }
+
+  // Local cache inspector (Settings → debug).
+  if (ytCacheRefreshButton) {
+    ytCacheRefreshButton.addEventListener("click", () => renderYtCache());
+  }
+  if (ytCacheSearchInput) {
+    ytCacheSearchInput.addEventListener("input", () => {
+      if (ytCacheSearchTimer) clearTimeout(ytCacheSearchTimer);
+      ytCacheSearchTimer = setTimeout(() => renderYtCache(), 120);
+    });
+  }
+  if (ytCacheClearButton) {
+    ytCacheClearButton.addEventListener("click", async () => {
+      // Full clean slate: cache + legacy bundle + contributed-id dedupe + stats.
+      try {
+        await chrome.storage.local.remove([
+          "ytBundle",
+          "ytVerdicts",
+          "ytSentIds",
+          "ytContribStats"
+        ]);
+      } catch (_) {}
+      renderYtCache();
+    });
+  }
+}
+
 function openSettings() {
   state.isSettingsOpen = true;
+  setupYtTagUi();
   syncSettingsFormFromState();
   requestConnectionStatus();
   settingsModal.classList.remove("hidden");
@@ -1386,6 +1895,9 @@ async function saveSettingsFromForm() {
     autosaveDebounceMs: settingsAutosaveDebounceField?.value,
     debugMode: settingsDebugModeField?.checked ?? false,
     showOnPageLogToasts: settingsShowOnPageLogToastsField?.checked ?? true,
+    contributeChannels: settingsContributeChannelsField?.checked ?? false,
+    contributeAsked: state.globalSettings?.contributeAsked,
+    contributeApiBase: state.globalSettings?.contributeApiBase,
     defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
     defaultFallbackUrl: settingsDefaultFallbackUrlField?.value
   };
@@ -1863,9 +2375,6 @@ function setupPlatformChipInputs() {
   setupChipField(platformAuthorsField, {
     normalize: (value) => normalizePlatformAuthorInput(value, chipsGroupType)
   });
-  setupChipField(platformAuthorTagsField, {
-    normalize: (value) => (String(value ?? "").trim() ? value : null)
-  });
   setupChipField(redditSubredditsField, {
     normalize: (value) => normalizeRedditSubredditInput(value)
   });
@@ -1977,15 +2486,23 @@ function sanitizeGlobalSettings(raw) {
     src.debugMode === true ||
     (src.debugMode === undefined && src.showDebugOverlay === true);
   const showOnPageLogToasts = src.showOnPageLogToasts !== false;
-  return {
+  const out = {
     tickRateMs,
     autosaveDebounceMs,
     debugMode,
     showOnPageLogToasts,
+    contributeChannels: src.contributeChannels === true,
     defaultSnoozeMinutes,
     defaultFallbackUrl,
     connection: sanitizeConnectionSettings(src.connection)
   };
+  // Pass through opt-in bookkeeping written by the first-run consent page so a
+  // later Settings save doesn't drop it.
+  if (src.contributeAsked === true) out.contributeAsked = true;
+  if (typeof src.contributeApiBase === "string" && src.contributeApiBase.trim()) {
+    out.contributeApiBase = src.contributeApiBase.trim();
+  }
+  return out;
 }
 
 function normalizeTimeWindowLine(line) {
@@ -4845,7 +5362,7 @@ function renderEditor(now = Date.now()) {
     !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
   renderBlockedSites();
   refreshChipField(platformAuthorsField);
-  refreshChipField(platformAuthorTagsField);
+  renderPlatformTagChips();
   refreshChipField(redditSubredditsField);
   refreshChipField(discordTargetsField);
   deleteGroupButton.disabled = !editable;
@@ -5064,14 +5581,16 @@ function flushAutosaveOnExit() {
   const draft = group ? getDraftForGroup(group.id) : null;
   if (group && draft && isGroupEditable(group)) {
     try {
-      const result = buildUpdatedGroupFromDraft(group, draft);
+      // Non-strict: commit every valid field (tags included) on teardown even
+      // if a sibling field is mid-edit/invalid.
+      const result = buildUpdatedGroupFromDraft(group, draft, { strict: false });
       if (result && result.updatedGroup) {
         state.groups = state.groups.map((item) =>
           item.id === group.id ? result.updatedGroup : item
         );
       }
     } catch (_) {
-      // Validation failed — persist current state.groups anyway.
+      // Unexpected error — persist current state.groups anyway.
     }
   }
 
@@ -5361,11 +5880,24 @@ async function importIntoSelectedGroup() {
   }
 }
 
-function buildUpdatedGroupFromDraft(group, draft) {
-  const name = draft.name.trim();
+function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
+  // Strict mode (export/transfer) throws on the first invalid field, as before.
+  // Non-strict mode (autosave / exit flush) never throws: invalid fields keep
+  // their last-valid value while every valid field — crucially the Tags field —
+  // still gets committed. The first error is returned so the UI can surface it.
+  // This is what makes tags as durable as the other fields: an unrelated
+  // mid-edit field (e.g. a blank name) can no longer discard the whole update.
+  let firstError = null;
+  const fail = (error) => {
+    if (strict) throw error;
+    if (!firstError) firstError = error;
+  };
+
+  let name = draft.name.trim();
 
   if (!name) {
-    throw new Error(t("status.invalidName"));
+    fail(new Error(t("status.invalidName")));
+    name = group.name;
   }
 
   // Names must be unique per endpoint (the web-app bridge links groups by name).
@@ -5374,7 +5906,8 @@ function buildUpdatedGroupFromDraft(group, draft) {
       other.id !== group.id && (other.name || "").trim().toLowerCase() === name.toLowerCase()
   );
   if (nameClash) {
-    throw new Error(t("status.duplicateName"));
+    fail(new Error(t("status.duplicateName")));
+    name = group.name;
   }
 
   const mode = normalizeBlockingMode(draft.mode);
@@ -5407,37 +5940,37 @@ function buildUpdatedGroupFromDraft(group, draft) {
   const nextMode = isCustomGroup ? "instant" : mode;
 
   if (nextMode === "after-minutes" && allowedMinutes === null) {
-    throw new Error(t("status.invalidAllowedMinutes"));
+    fail(new Error(t("status.invalidAllowedMinutes")));
   }
 
   if (isTimedBlockingMode(nextMode) && resetIntervalHours === null) {
-    throw new Error(t("status.invalidResetHours"));
+    fail(new Error(t("status.invalidResetHours")));
   }
 
   if (snoozeMinutes === null) {
-    throw new Error(t("status.invalidSnoozeMinutes"));
+    fail(new Error(t("status.invalidSnoozeMinutes")));
   }
 
   if (snoozeActivationDelayMinutes === null) {
-    throw new Error(t("status.invalidSnoozeActivationDelay"));
+    fail(new Error(t("status.invalidSnoozeActivationDelay")));
   }
 
   if (snoozeCooldownMinutes === null) {
-    throw new Error(
-      t("status.invalidSnoozeCooldown", { max: formatHours(MAX_SNOOZE_COOLDOWN_MINUTES) })
+    fail(
+      new Error(t("status.invalidSnoozeCooldown", { max: formatHours(MAX_SNOOZE_COOLDOWN_MINUTES) }))
     );
   }
 
   if (snoozeConfirmations === null) {
-    throw new Error(t("status.invalidSnoozeConfirmations"));
+    fail(new Error(t("status.invalidSnoozeConfirmations")));
   }
 
   if (timeWindows.invalidLines.length > 0) {
-    throw new Error(t("status.invalidTimeWindows", { list: timeWindows.invalidLines.join(", ") }));
+    fail(new Error(t("status.invalidTimeWindows", { list: timeWindows.invalidLines.join(", ") })));
   }
 
   if (group.groupType === "site" && siteResults.invalidSites.length > 0) {
-    throw new Error(t("status.invalidSites", { list: siteResults.invalidSites.join(", ") }));
+    fail(new Error(t("status.invalidSites", { list: siteResults.invalidSites.join(", ") })));
   }
 
   const usesAuthorAxis =
@@ -5471,7 +6004,11 @@ function buildUpdatedGroupFromDraft(group, draft) {
       activeDays: isCustomGroup
         ? group.activeDays
         : draft.activeDays.filter((day) => DAY_NAMES.includes(day)),
-      timeWindowsText: isCustomGroup ? group.timeWindowsText : timeWindows.normalizedLines.join("\n"),
+      timeWindowsText: isCustomGroup
+        ? group.timeWindowsText
+        : timeWindows.invalidLines.length > 0
+          ? group.timeWindowsText
+          : timeWindows.normalizedLines.join("\n"),
       platformVideoMode: normalizeVideoMode(draft.platformVideoMode),
       platformAuthorMode: authorMode,
       platformAuthors: usesAuthorAxis ? authorResults.validAuthors : group.platformAuthors,
@@ -5512,7 +6049,8 @@ function buildUpdatedGroupFromDraft(group, draft) {
     modeChanged: nextMode !== group.mode,
     resetIntervalChanged:
       isTimedBlockingMode(nextMode) &&
-      (resetIntervalHours ?? group.resetIntervalHours) !== group.resetIntervalHours
+      (resetIntervalHours ?? group.resetIntervalHours) !== group.resetIntervalHours,
+    validationError: firstError
   };
 }
 
@@ -5522,25 +6060,31 @@ async function autosaveSelectedGroup() {
   let validationError = null;
   let updatedGroup = null;
 
-  // Fold the draft into state.groups. We never bail on failure: optimistic
-  // edits to OTHER groups (e.g. sidebar toggles) still need to be persisted
-  // even when the currently-selected group's draft is invalid.
+  // Fold the draft into state.groups. Non-strict build never throws, so every
+  // valid field (including Tags) is committed even when an unrelated field is
+  // mid-edit/invalid. The draft is only re-normalized when the whole group is
+  // valid, so in-progress invalid text the user is still typing isn't reverted.
   if (group && draft && isGroupEditable(group)) {
     try {
-      const result = buildUpdatedGroupFromDraft(group, draft);
+      const result = buildUpdatedGroupFromDraft(group, draft, { strict: false });
       updatedGroup = result.updatedGroup;
 
       state.groups = state.groups.map((item) =>
         item.id === group.id ? result.updatedGroup : item
       );
-      state.drafts[group.id] = groupToDraft(result.updatedGroup);
 
-      if (
-        isTimedBlockingMode(result.updatedGroup.mode) &&
-        (result.modeChanged || result.resetIntervalChanged)
-      ) {
-        state.usageResetAtMs[group.id] = Date.now();
-        state.usageTimersMs[group.id] = 0;
+      if (result.validationError) {
+        validationError = result.validationError;
+      } else {
+        state.drafts[group.id] = groupToDraft(result.updatedGroup);
+
+        if (
+          isTimedBlockingMode(result.updatedGroup.mode) &&
+          (result.modeChanged || result.resetIntervalChanged)
+        ) {
+          state.usageResetAtMs[group.id] = Date.now();
+          state.usageTimersMs[group.id] = 0;
+        }
       }
     } catch (error) {
       validationError = error;
@@ -6987,6 +7531,8 @@ if (templateGrid) {
 }
 
 setupPlatformChipInputs();
+setupYtTagUi();
+loadAllTags(false).catch(() => {});
 
 platformAuthorsField.addEventListener("input", () => {
   stashCurrentDraft();

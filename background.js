@@ -137,6 +137,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     platformVideoMode: "all",
     platformAuthorMode: "none",
     platformAuthors: [],
+    platformAuthorTags: [],
     redditMode: "all",
     redditSubreddits: [],
     discordMode: "all",
@@ -331,6 +332,17 @@ function sanitizeGroups(groups) {
           ...new Set(
             rawAuthors
               .map((author) => normalizePlatformAuthorInput(author, normalizedGroupType))
+              .filter(Boolean)
+          )
+        ],
+        // Per-group YouTube tag slugs. MUST be preserved here: getState()
+        // rewrites sanitized groups to storage whenever applyRuntimeNormalizations
+        // reports a change (e.g. a timed-blocking reset elapses), so omitting
+        // this field silently wiped the user's tags "after a certain time".
+        platformAuthorTags: [
+          ...new Set(
+            (Array.isArray(group?.platformAuthorTags) ? group.platformAuthorTags : [])
+              .map((tag) => String(tag ?? "").trim())
               .filter(Boolean)
           )
         ],
@@ -545,8 +557,39 @@ function normalizePageContext(input) {
       input?.videoForm === "long" ||
       input?.videoForm === "post"
         ? input.videoForm
-        : videoContext.form
+        : videoContext.form,
+    // Exact-case UC id of the page's primary channel (YouTube watch/channel
+    // pages), used by the tag axis. Tags themselves are resolved server-side in
+    // attachChannelTags() just before the page predicate runs.
+    pageChannelId:
+      typeof input?.pageChannelId === "string" &&
+      /^UC[0-9A-Za-z_-]{22}$/.test(input.pageChannelId)
+        ? input.pageChannelId
+        : null,
+    channelTags: [],
+    channelTagsKnown: false
   };
+}
+
+// Resolve the page channel's tags (hybrid cache) onto the pageContext so the
+// tag axis in matchesPlatformVideoGroup can block. Fail-open: a miss/error
+// leaves channelTagsKnown=false so we never block on an unresolved channel.
+async function attachChannelTags(pageContext) {
+  if (!pageContext || !pageContext.isYouTubePage || !pageContext.pageChannelId) {
+    return pageContext;
+  }
+  try {
+    // The page's own channel is the strongest activity signal (you opened it).
+    const out = await cbYtResolve([pageContext.pageChannelId], CB_YT_ACT_WEIGHT_WATCH);
+    const tags = out && out.tags ? out.tags[pageContext.pageChannelId] : undefined;
+    if (Array.isArray(tags)) {
+      pageContext.channelTags = tags;
+      pageContext.channelTagsKnown = true;
+    }
+  } catch (_) {
+    // leave channelTagsKnown=false → fail-open
+  }
+  return pageContext;
 }
 
 function buildRules(hostnames) {
@@ -1274,6 +1317,8 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
 
   if (didApplyResets) await syncBlockingRules();
 
+  await attachChannelTags(pageContext);
+
   const relevantGroups = getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now);
   const relevantTimedGroups = relevantGroups.filter((group) => isTimedBlockingMode(group.mode));
   // Platform groups also accrue while the user is "exposed" to targeted feed
@@ -1367,6 +1412,8 @@ async function getPageSession(pageContextInput) {
   } = await getState();
 
   if (didApplyResets) await syncBlockingRules();
+
+  await attachChannelTags(pageContext);
 
   return buildPageSession(
     pageContext,
@@ -1515,12 +1562,16 @@ chrome.runtime.onInstalled.addListener((details) => {
     .catch((error) => {
       console.error("Failed to sync blocking rules on install.", error);
     });
+  // Warm the custom-rule sandbox up front so the first block decision
+  // doesn't pay the offscreen-creation + handshake cost inline.
+  prewarmEventSandbox();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   syncBlockingRules().catch((error) => {
     console.error("Failed to sync blocking rules on startup.", error);
   });
+  prewarmEventSandbox();
 });
 
 chrome.action.onClicked.addListener(() => {
@@ -2278,6 +2329,20 @@ function ensureStartupGate() {
   return startupGate;
 }
 
+// Cold-start mitigation. The first custom-rule block decision after a
+// service-worker spawn otherwise pays the full warm-up cost inline:
+// state hydration + offscreen-document creation + sandbox iframe handshake +
+// rule recompile. Kicking ensureStartupGate() off proactively (browser
+// launch, tab activation, navigation start) overlaps that cost with page
+// load so the first evaluate-platform-items request finds the sandbox warm.
+// It's memoized per SW lifetime and is a no-op when there are no custom
+// groups (no offscreen document is created), so calling it liberally is cheap.
+function prewarmEventSandbox() {
+  try {
+    ensureStartupGate().catch(() => {});
+  } catch (_) {}
+}
+
 let cachedHandlerCount = 0;
 async function refreshHandlerCount() {
   try {
@@ -2752,6 +2817,25 @@ if (chrome.tabs && chrome.tabs.onRemoved) {
       { tabId, url: previous?.url || "" },
       { data: { reason: "tabClosed", nextUrl: null } }
     );
+  });
+}
+
+// Pre-warm the sandbox the moment the user engages a tab. onActivated is the
+// key case: returning to an already-open platform tab after the SW was evicted
+// fires no navigation event, so without this the first scroll would cold-start
+// the sandbox inline. onUpdated (loading) overlaps warm-up with page load for
+// fresh navigations. Both are cheap — ensureStartupGate() is memoized.
+if (chrome.tabs && chrome.tabs.onActivated) {
+  chrome.tabs.onActivated.addListener(() => {
+    prewarmEventSandbox();
+  });
+}
+
+if (chrome.tabs && chrome.tabs.onUpdated) {
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+    if (changeInfo && changeInfo.status === "loading") {
+      prewarmEventSandbox();
+    }
   });
 }
 
@@ -3722,4 +3806,574 @@ if (chrome.storage && chrome.storage.onChanged) {
 
 // Auto-connect on service-worker startup if the user left the client enabled.
 cbConnection.applyFromSettings();
+
+// ===========================================================================
+//  YouTube creator contribution (opt-in)
+//
+//  The yt-collect.js content script forwards channel ids it sees on YouTube.
+//  When the user has opted in (globalSettings.contributeChannels), we dedupe
+//  against a local cache and batch-POST the ids — and nothing else — to the
+//  tag server's /api/yt/contribute endpoint, which hydrates sub counts and
+//  enqueues eligible channels for classification. Off by default; toggled in
+//  Settings or on the first-run consent page.
+// ===========================================================================
+const CB_YT_API_BASE = "http://127.0.0.1:8000";
+const CB_YT_SENT_KEY = "ytSentIds"; // local cache of ids already contributed
+const CB_YT_STATS_KEY = "ytContribStats";
+const CB_YT_SENT_CAP = 8000; // bound the cache so storage can't grow forever
+const CB_YT_BATCH_MAX = 50; // one YouTube Data API page == one quota unit
+const CB_YT_FLUSH_MS = 4000;
+
+const cbYtPending = new Set();
+let cbYtFlushTimer = null;
+
+async function cbYtConsentOn() {
+  try {
+    const r = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
+    const s = r && r[CB_GLOBAL_SETTINGS_KEY];
+    return !!(s && typeof s === "object" && s.contributeChannels === true);
+  } catch (_) {
+    return false;
+  }
+}
+
+async function cbYtGetApiBase() {
+  try {
+    const r = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
+    const s = r && r[CB_GLOBAL_SETTINGS_KEY];
+    const custom = s && typeof s === "object" ? s.contributeApiBase : "";
+    if (typeof custom === "string" && /^https?:\/\//.test(custom.trim())) {
+      return custom.trim().replace(/\/$/, "");
+    }
+  } catch (_) {}
+  return CB_YT_API_BASE;
+}
+
+async function cbYtLoadSent() {
+  try {
+    const r = await chrome.storage.local.get(CB_YT_SENT_KEY);
+    const arr = r && r[CB_YT_SENT_KEY];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+async function cbYtSaveSent(set) {
+  // Keep only the most-recent ids when over the cap (Set preserves order).
+  let arr = Array.from(set);
+  if (arr.length > CB_YT_SENT_CAP) arr = arr.slice(arr.length - CB_YT_SENT_CAP);
+  try {
+    await chrome.storage.local.set({ [CB_YT_SENT_KEY]: arr });
+  } catch (_) {}
+}
+
+async function cbYtBumpStats(delta) {
+  try {
+    const r = await chrome.storage.local.get(CB_YT_STATS_KEY);
+    const prev = (r && r[CB_YT_STATS_KEY]) || {};
+    const next = {
+      sent: (Number(prev.sent) || 0) + (Number(delta.sent) || 0),
+      queued: (Number(prev.queued) || 0) + (Number(delta.queued) || 0),
+      belowFloor: (Number(prev.belowFloor) || 0) + (Number(delta.belowFloor) || 0),
+      lastAt: Date.now()
+    };
+    await chrome.storage.local.set({ [CB_YT_STATS_KEY]: next });
+  } catch (_) {}
+}
+
+async function cbYtFlush() {
+  cbYtFlushTimer = null;
+  if (!cbYtPending.size) return;
+  if (!(await cbYtConsentOn())) {
+    cbYtPending.clear();
+    return;
+  }
+  const sent = await cbYtLoadSent();
+  const fresh = [];
+  for (const id of cbYtPending) {
+    if (!sent.has(id)) fresh.push(id);
+    if (fresh.length >= CB_YT_BATCH_MAX) break;
+  }
+  // Drop the ones we're about to send (and any already-sent dupes) from pending.
+  fresh.forEach((id) => cbYtPending.delete(id));
+  for (const id of Array.from(cbYtPending)) {
+    if (sent.has(id)) cbYtPending.delete(id);
+  }
+  if (!fresh.length) {
+    if (cbYtPending.size) cbYtScheduleFlush();
+    return;
+  }
+
+  const base = await cbYtGetApiBase();
+  try {
+    const resp = await fetch(`${base}/api/yt/contribute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel_ids: fresh })
+    });
+    if (resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      fresh.forEach((id) => sent.add(id));
+      await cbYtSaveSent(sent);
+      await cbYtBumpStats({
+        sent: fresh.length,
+        queued: Number(data.queued) || 0,
+        belowFloor: Number(data.below_floor) || 0
+      });
+      cbDebugLog(
+        "[CustomBlocker] yt-contribute sent", fresh.length,
+        "queued", data.queued, "below_floor", data.below_floor
+      );
+    } else {
+      cbDebugWarn("[CustomBlocker] yt-contribute HTTP", resp.status);
+    }
+  } catch (error) {
+    // Server down / offline — keep the ids pending for a later flush.
+    fresh.forEach((id) => cbYtPending.add(id));
+    cbDebugWarn("[CustomBlocker] yt-contribute failed", error);
+  }
+  if (cbYtPending.size) cbYtScheduleFlush();
+}
+
+function cbYtScheduleFlush() {
+  if (cbYtFlushTimer) return;
+  cbYtFlushTimer = setTimeout(() => {
+    cbYtFlush().catch((e) => cbDebugWarn("[CustomBlocker] yt flush error", e));
+  }, CB_YT_FLUSH_MS);
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.type !== "cb-yt-observe") return false;
+  const ids = Array.isArray(message.ids) ? message.ids : [];
+  // Cheap consent gate up front; cbYtFlush re-checks before any network call.
+  cbYtConsentOn().then((on) => {
+    if (!on) return;
+    for (const id of ids) {
+      if (typeof id === "string" && id.length === 24 && id.startsWith("UC")) {
+        cbYtPending.add(id);
+      }
+    }
+    if (cbYtPending.size) cbYtScheduleFlush();
+  });
+  return false;
+});
+
+// ===========================================================================
+//  YouTube tag READ path — ONE cache, retention by activity only.
+//
+//  This path has nothing to do with consent — it never sends browsing data.
+//  It only *reads* the public channel→tags map so the content script can hide
+//  videos whose channel carries a blocked tag.
+//
+//  There is a SINGLE pool (cbYtVerdicts.items). Entries get there two ways, but
+//  that origin does NOT change how they're retained:
+//    • Seed       — on (re)seed we fold in the server's full tagged set (with
+//                   name/handle/subs). This is just the initial/periodic FILL
+//                   that gives cold-start coverage; a `seed:1` flag is kept only
+//                   for display + reconciliation, never for eviction.
+//    • Lookup     — creators you actually encounter resolve via /api/yt/lookup.
+//  Every entry competes purely on YOUR activity (a segmented-LRU): repeated
+//  engagement promotes "probation" → "protected" (evicted last); unused entries
+//  (seeded or not) are evicted first under cap pressure. Sub count NEVER affects
+//  retention. Under the cap, the whole seeded set stays resident.
+//
+//  Resolution: read the single store (O(1)); on a genuine miss, POST
+//  /api/yt/lookup. Fail-open everywhere: if the server is unreachable, unknown
+//  channels resolve to "no tags" and are never hidden, and we back off so we
+//  don't hammer a down server.
+// ===========================================================================
+const CB_YT_VERDICT_KEY = "ytVerdicts";
+const CB_YT_LEGACY_BUNDLE_KEY = "ytBundle"; // removed structure — cleaned up on load
+const CB_YT_CACHE_VERSION = 2; // bump to force a one-time clean wipe of yt local memory
+const CB_YT_SEED_TTL_MS = 12 * 60 * 60 * 1000; // re-seed the dictionary twice a day
+const CB_YT_SEED_LIMIT = 200000; // upper bound on how many tagged creators we seed
+// Stale-while-revalidate freshness windows. A cached verdict is ALWAYS served
+// (it stays authoritative even when stale); once past its freshness window we
+// kick a background re-lookup and swap the value in when it arrives. Transient
+// states are about to change, so they revalidate fast; stable ones rarely do.
+const CB_YT_FRESH_TRANSIENT_MS = 10 * 1000; // unknown / pending
+const CB_YT_FRESH_STABLE_MS = 60 * 1000;    // tagged / below_floor
+const CB_YT_VERDICT_MAX_AGE_MS = 24 * 60 * 60 * 1000; // drop unused non-seed entries after 24h
+const CB_YT_VERDICT_CAP = 20000; // single-pool size cap (evict lowest-activity first)
+const CB_YT_LOOKUP_MAX = 50;
+const CB_YT_NET_COOLDOWN_MS = 60 * 1000; // back off this long after a network failure
+
+// Retention is decided ONLY by user activity (a segmented-LRU), NEVER by sub
+// count. A creator you engage with repeatedly is promoted to the "protected"
+// tier and evicted last; one-off / passively-scrolled channels stay in
+// "probation" and are evicted first. `score` is a decayed frequency (watching a
+// video weighs more than a feed impression). `subs` is display-only and is
+// never read by the eviction comparator.
+const CB_YT_ACT_HALFLIFE_MS = 3 * 24 * 60 * 60 * 1000; // frequency decay half-life
+const CB_YT_ACT_WEIGHT_WATCH = 3; // opening/watching a video (strong intent)
+const CB_YT_ACT_WEIGHT_FEED = 1;  // feed / channel-page impression
+const CB_YT_PROMOTE_SCORE = 2;    // probation → protected at/above this score
+
+// {rev, seededAt:ms, items:{id:{t:[slugs], s:state, n, h, subs, f:freshUntilMs,
+//   tier:"probation"|"protected", last:ms, score:number, seed?:1}}}
+// `seed` marks an entry that came from the server's tagged set (display +
+// reconciliation only); it does NOT exempt the entry from eviction.
+let cbYtVerdicts = null;
+let cbYtSeedLoading = null; // Promise — dedupe concurrent seed fetches
+let cbYtMigrated = false; // one-time version-gated wipe guard
+let cbYtVerdictSaveTimer = null;
+const cbYtLookupInFlight = new Map(); // id -> Promise<void> (dedupe concurrent lookups)
+let cbYtNetCooldownUntil = 0;
+
+// Map a server verdict state to its client-side freshness window.
+function cbYtFreshMs(state) {
+  return state === "tagged" || state === "below_floor"
+    ? CB_YT_FRESH_STABLE_MS
+    : CB_YT_FRESH_TRANSIENT_MS;
+}
+
+// One-time clean wipe when the cache format/version changes: drops the whole
+// local YouTube footprint (verdicts, legacy bundle, contributed-id dedupe cache,
+// contribution stats) so a new format starts from a clean slate.
+async function cbYtMigrate() {
+  if (cbYtMigrated) return;
+  cbYtMigrated = true;
+  try {
+    const r = await chrome.storage.local.get("ytCacheVer");
+    if (!r || r.ytCacheVer !== CB_YT_CACHE_VERSION) {
+      await chrome.storage.local.remove([
+        CB_YT_VERDICT_KEY,
+        CB_YT_LEGACY_BUNDLE_KEY,
+        CB_YT_SENT_KEY,
+        CB_YT_STATS_KEY
+      ]);
+      await chrome.storage.local.set({ ytCacheVer: CB_YT_CACHE_VERSION });
+      cbYtVerdicts = null; // force a fresh load below
+    }
+  } catch (_) {}
+}
+
+async function cbYtLoadVerdicts() {
+  await cbYtMigrate();
+  if (cbYtVerdicts) return cbYtVerdicts;
+  try {
+    const r = await chrome.storage.local.get(CB_YT_VERDICT_KEY);
+    cbYtVerdicts = (r && r[CB_YT_VERDICT_KEY]) || { rev: null, seededAt: 0, items: {} };
+  } catch (_) {
+    cbYtVerdicts = { rev: null, seededAt: 0, items: {} };
+  }
+  if (!cbYtVerdicts.items) cbYtVerdicts.items = {};
+  if (typeof cbYtVerdicts.seededAt !== "number") cbYtVerdicts.seededAt = 0;
+  return cbYtVerdicts;
+}
+
+// Fold the server's full tagged set into the single cache as PINNED entries
+// (the offline dictionary). Reconciles each refresh: upserts current tags,
+// pins them, and un-pins any entry the server no longer tags so it ages out.
+// We take the whole set untruncated, so there is no sub-count ranking.
+function cbYtApplySeed(data) {
+  cbYtInvalidateIfRev(data && data.taxonomy_rev); // may clear stale-taxonomy items
+  const now = Date.now();
+  const seedIds = new Set();
+  for (const row of (data && data.creators) || []) {
+    if (!row || !row.c) continue;
+    seedIds.add(row.c);
+    const tags = Array.isArray(row.t) ? row.t : [];
+    const name = typeof row.n === "string" ? row.n : null;
+    const handle = typeof row.h === "string" ? row.h : null;
+    const subs = typeof row.s === "number" ? row.s : null;
+    const v = cbYtVerdicts.items[row.c];
+    if (!v) {
+      cbYtVerdicts.items[row.c] = {
+        t: tags,
+        s: "tagged",
+        n: name,
+        h: handle,
+        subs,
+        seed: 1,
+        f: now + CB_YT_SEED_TTL_MS,
+        tier: "probation",
+        last: 0, // unvisited until you actually encounter it
+        score: 0
+      };
+    } else {
+      v.t = tags;
+      v.seed = 1;
+      if (name != null) v.n = name;
+      if (handle != null) v.h = handle;
+      if (subs != null) v.subs = subs;
+      if (!v.s || v.s === "unknown") v.s = "tagged";
+    }
+  }
+  // Creators that dropped out of the tagged set: clear the seed marker + tags so
+  // they no longer block; whatever activity they have lets them age out normally.
+  for (const id in cbYtVerdicts.items) {
+    const v = cbYtVerdicts.items[id];
+    if (v && v.seed && !seedIds.has(id)) {
+      delete v.seed;
+      v.t = [];
+      v.s = "unknown";
+    }
+  }
+  cbYtVerdicts.seededAt = now;
+  if (data && data.taxonomy_rev != null) cbYtVerdicts.rev = data.taxonomy_rev;
+}
+
+// Ensure the seeded dictionary is present and not stale. Lazy: called from
+// cbYtResolve, so the first resolve after install/refresh pulls the set. Keeps
+// the existing seed on network failure (resilience) and backs off.
+async function cbYtSeed(forceFresh) {
+  await cbYtLoadVerdicts();
+  const fresh =
+    !forceFresh && Date.now() - (cbYtVerdicts.seededAt || 0) < CB_YT_SEED_TTL_MS;
+  if (fresh) return;
+  if (cbYtSeedLoading) return cbYtSeedLoading;
+
+  cbYtSeedLoading = (async () => {
+    if (Date.now() < cbYtNetCooldownUntil) return; // backing off; keep current seed
+    const base = await cbYtGetApiBase();
+    try {
+      const resp = await fetch(`${base}/api/yt/bundle?limit=${CB_YT_SEED_LIMIT}`);
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      cbYtApplySeed(data);
+      cbYtScheduleVerdictSave();
+      cbDebugLog("[CustomBlocker] yt seed loaded:", data.count, "tagged creators");
+    } catch (error) {
+      cbYtNetCooldownUntil = Date.now() + CB_YT_NET_COOLDOWN_MS;
+      cbDebugWarn("[CustomBlocker] yt seed fetch failed", error);
+    }
+  })();
+  try {
+    return await cbYtSeedLoading;
+  } finally {
+    cbYtSeedLoading = null;
+  }
+}
+
+function cbYtScheduleVerdictSave() {
+  if (cbYtVerdictSaveTimer) return;
+  cbYtVerdictSaveTimer = setTimeout(async () => {
+    cbYtVerdictSaveTimer = null;
+    if (!cbYtVerdicts) return;
+    // ONE pool, retention by activity only (segmented-LRU). Keep seed entries
+    // (the dictionary fill) and anything you've used within the max-age window;
+    // an unused, non-seed entry past max-age is dropped. Then — only if over the
+    // cap — evict by tier + activity (probation before protected; within a tier
+    // the lowest decayed-frequency, then oldest access, goes first). Seed entries
+    // have no special protection here; under pressure, unused ones (score 0,
+    // last 0) sort to the front and go first. Sub count is NEVER consulted.
+    const now = Date.now();
+    let entries = Object.entries(cbYtVerdicts.items).filter(
+      ([, v]) => v && (v.seed || now - (v.last || 0) < CB_YT_VERDICT_MAX_AGE_MS)
+    );
+    if (entries.length > CB_YT_VERDICT_CAP) {
+      entries.sort((a, b) => {
+        const pa = a[1].tier === "protected" ? 1 : 0;
+        const pb = b[1].tier === "protected" ? 1 : 0;
+        if (pa !== pb) return pa - pb; // probation (evict first) before protected
+        const sa = a[1].score || 0;
+        const sb = b[1].score || 0;
+        if (sa !== sb) return sa - sb; // lower decayed-frequency first
+        return (a[1].last || 0) - (b[1].last || 0); // older access first
+      });
+      entries = entries.slice(entries.length - CB_YT_VERDICT_CAP); // keep top by activity
+    }
+    cbYtVerdicts.items = Object.fromEntries(entries);
+    try {
+      await chrome.storage.local.set({ [CB_YT_VERDICT_KEY]: cbYtVerdicts });
+    } catch (_) {}
+  }, 2000);
+}
+
+// If the server's taxonomy revision moved, our cached slugs may be stale —
+// clear the items so the next seed/lookup re-resolves against the new taxonomy.
+// (The caller re-seeds the tagged set immediately afterwards.)
+function cbYtInvalidateIfRev(rev) {
+  if (rev == null) return;
+  if (!cbYtVerdicts) return;
+  if (cbYtVerdicts.rev != null && cbYtVerdicts.rev !== rev) {
+    cbYtVerdicts.rev = rev;
+    cbYtVerdicts.seededAt = 0;
+    cbYtVerdicts.items = {};
+  } else if (cbYtVerdicts.rev == null) {
+    cbYtVerdicts.rev = rev;
+  }
+}
+
+// Record a user encounter for retention ranking. Updates recency + decayed
+// frequency and promotes to the protected tier once the score crosses the
+// threshold. Inputs are activity only — sub count is deliberately not touched.
+function cbYtBumpActivity(id, weight) {
+  if (!cbYtVerdicts) return;
+  const v = cbYtVerdicts.items[id];
+  if (!v) return;
+  const now = Date.now();
+  const dt = Math.max(0, now - (v.last || now));
+  const decay = Math.pow(0.5, dt / CB_YT_ACT_HALFLIFE_MS);
+  v.score = (typeof v.score === "number" ? v.score : 0) * decay +
+    (typeof weight === "number" ? weight : CB_YT_ACT_WEIGHT_FEED);
+  v.last = now;
+  if (v.score >= CB_YT_PROMOTE_SCORE) v.tier = "protected";
+  else if (!v.tier) v.tier = "probation";
+}
+
+// Fire-and-forget background re-lookup (dedup concurrent requests for the same
+// id). Used by SWR to refresh stale entries without blocking the response.
+function cbYtKickLookup(ids) {
+  const toFetch = ids.filter((id) => !cbYtLookupInFlight.has(id));
+  if (!toFetch.length) return;
+  const p = cbYtLookup(toFetch).finally(() => {
+    toFetch.forEach((id) => cbYtLookupInFlight.delete(id));
+  });
+  toFetch.forEach((id) => cbYtLookupInFlight.set(id, p));
+}
+
+async function cbYtLookup(ids) {
+  if (!ids.length || Date.now() < cbYtNetCooldownUntil) return;
+  await cbYtLoadVerdicts();
+  const base = await cbYtGetApiBase();
+  for (let i = 0; i < ids.length; i += CB_YT_LOOKUP_MAX) {
+    const slice = ids.slice(i, i + CB_YT_LOOKUP_MAX);
+    try {
+      const resp = await fetch(`${base}/api/yt/lookup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel_ids: slice })
+      });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      cbYtInvalidateIfRev(data.taxonomy_rev);
+      for (const res of data.results || []) {
+        if (!res || !res.channel_id) continue;
+        const slugs = (res.tags || []).map((t) => t.slug).filter(Boolean);
+        // Stale-while-revalidate: the value is always served (even when stale);
+        // `f` is just when we next revalidate. Transient states (unknown /
+        // pending) refresh in 10s so a creator flowing through the pipeline
+        // picks up its tags quickly; stable states (tagged / below_floor)
+        // refresh in 60s since they rarely change.
+        // Preserve activity fields (tier/last/score) across revalidation — a
+        // re-lookup updates the verdict, not how much you've used it.
+        const prev = cbYtVerdicts.items[res.channel_id] || {};
+        // Server is the source of truth for tags/state; preserve the seed marker
+        // and activity (tier/last/score) — a re-lookup updates the verdict, not
+        // how much you've used it.
+        const next = {
+          t: slugs,
+          s: res.state,
+          n: res.display_name || prev.n || null,
+          h: res.handle || prev.h || null,
+          subs: typeof res.subscriber_count === "number" ? res.subscriber_count : prev.subs ?? null,
+          f: Date.now() + cbYtFreshMs(res.state),
+          tier: prev.tier || "probation",
+          last: prev.last || Date.now(),
+          score: typeof prev.score === "number" ? prev.score : 0
+        };
+        if (prev.seed) next.seed = 1;
+        cbYtVerdicts.items[res.channel_id] = next;
+      }
+      cbYtScheduleVerdictSave();
+    } catch (error) {
+      cbYtNetCooldownUntil = Date.now() + CB_YT_NET_COOLDOWN_MS;
+      cbDebugWarn("[CustomBlocker] yt lookup failed", error);
+      return; // fail-open: leave the rest unresolved (won't be blocked)
+    }
+  }
+}
+
+// Resolve a set of ids to {id: [slugs]} from the SINGLE cache,
+// stale-while-revalidate:
+//   * entry present    → serve it ALWAYS. Non-seed entries past their freshness
+//                        window kick a background re-lookup; a (legacy) seed
+//                        entry lacking a display name kicks a one-off enrich
+//                        lookup. Neither blocks the response.
+//   * no cached value  → genuine miss: fetch and wait, so the first resolution
+//                        isn't perpetually empty.
+async function cbYtResolve(ids, weight) {
+  const w = typeof weight === "number" ? weight : CB_YT_ACT_WEIGHT_FEED;
+  await cbYtSeed(false); // loads verdicts + (lazily) refreshes the seeded dictionary
+  const known = Object.create(null);
+  const misses = [];
+  const stale = [];
+  const now = Date.now();
+  for (const id of ids) {
+    const v = cbYtVerdicts.items[id];
+    if (v) {
+      known[id] = v.t || [];
+      cbYtBumpActivity(id, w);
+      const needEnrich = v.seed && v.n == null; // legacy seed entry lacking a name
+      const needRefresh = !v.seed && (v.f || 0) <= now;
+      if (needEnrich || needRefresh) stale.push(id); // serve stale, revalidate below
+    } else {
+      misses.push(id);
+    }
+  }
+
+  // Revalidate stale entries in the background — never block the response.
+  if (stale.length) cbYtKickLookup(stale);
+
+  if (misses.length) {
+    // Dedupe concurrent lookups for the same id across messages.
+    const toFetch = misses.filter((id) => !cbYtLookupInFlight.has(id));
+    if (toFetch.length) {
+      const p = cbYtLookup(toFetch).finally(() => {
+        toFetch.forEach((id) => cbYtLookupInFlight.delete(id));
+      });
+      toFetch.forEach((id) => cbYtLookupInFlight.set(id, p));
+    }
+    // Wait for whatever lookups cover our misses, then re-read the cache.
+    const waits = misses
+      .map((id) => cbYtLookupInFlight.get(id))
+      .filter(Boolean);
+    if (waits.length) {
+      try {
+        await Promise.all(waits);
+      } catch (_) {}
+      for (const id of misses) {
+        const v = cbYtVerdicts.items[id];
+        if (v) {
+          known[id] = v.t || [];
+          cbYtBumpActivity(id, w);
+        }
+      }
+    }
+  }
+  // Persist the activity bumps / bundle-seen records (debounced; also runs
+  // eviction). Cheap because saves are coalesced on a timer.
+  cbYtScheduleVerdictSave();
+  return { tags: known, rev: cbYtVerdicts ? cbYtVerdicts.rev : null };
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.type !== "cb-yt-tags") return false;
+  const ids = (Array.isArray(message.ids) ? message.ids : []).filter(
+    (id) => typeof id === "string" && id.length === 24 && id.startsWith("UC")
+  );
+  if (!ids.length) {
+    sendResponse({ tags: {}, rev: null });
+    return false;
+  }
+  // Feed/related items count as impressions; the watch page's own channel is
+  // weighted higher and resolved separately (attachChannelTags).
+  const weight = message.ctx === "watch" ? CB_YT_ACT_WEIGHT_WATCH : CB_YT_ACT_WEIGHT_FEED;
+  cbYtResolve(ids, weight)
+    .then((out) => sendResponse(out))
+    .catch((error) => {
+      cbDebugWarn("[CustomBlocker] yt resolve error", error);
+      sendResponse({ tags: {}, rev: null }); // fail-open
+    });
+  return true; // async response
+});
+
+// Open the one-time consent page right after the extension is installed, so
+// the user is told about (and can opt into) channel-id sharing up front.
+chrome.runtime.onInstalled.addListener((details) => {
+  if (!details || details.reason !== "install") return;
+  (async () => {
+    try {
+      const r = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
+      const s = (r && r[CB_GLOBAL_SETTINGS_KEY]) || {};
+      if (s.contributeAsked === true) return; // already decided
+      await chrome.tabs.create({ url: chrome.runtime.getURL("yt-consent.html") });
+    } catch (error) {
+      cbDebugWarn("[CustomBlocker] failed to open consent page", error);
+    }
+  })();
+});
 
