@@ -22,6 +22,141 @@ function cbDebugLog(...args) { if (cbDebugMode) { try { console.log(...args); } 
 function cbDebugWarn(...args) { if (cbDebugMode) { try { console.warn(...args); } catch (_) {} } }
 function cbDebugError(...args) { if (cbDebugMode) { try { console.error(...args); } catch (_) {} } }
 
+// In-app dialog — replaces window.alert / confirm / prompt so we never raise a
+// blunt OS script dialog (which, in the native hosts, surfaces as an NSAlert /
+// MessageBox). Renders a small overlay inside the editor instead. Promise-based
+// so callers can `await` the result; destructive confirms pass { danger: true }
+// to get a red confirm button. Styles are injected once — no popup.css needed.
+const cbDialog = (function () {
+  let styleInjected = false;
+  function injectStyle() {
+    if (styleInjected) return;
+    styleInjected = true;
+    const style = document.createElement("style");
+    style.textContent = [
+      ".cbdlg-overlay{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;",
+      "justify-content:center;padding:20px;background:rgba(15,23,42,0.32);opacity:0;",
+      "transition:opacity .15s ease;}",
+      ".cbdlg-overlay.cbdlg-show{opacity:1;}",
+      ".cbdlg-card{background:#fff;color:#0f172a;max-width:380px;width:100%;border-radius:14px;",
+      "padding:18px 18px 14px;box-shadow:0 18px 48px rgba(15,23,42,.32);",
+      "transform:translateY(8px) scale(.98);transition:transform .18s ease;font-family:inherit;}",
+      ".cbdlg-overlay.cbdlg-show .cbdlg-card{transform:none;}",
+      ".cbdlg-msg{margin:0 0 14px;font-size:13.5px;line-height:1.5;white-space:pre-wrap;}",
+      ".cbdlg-input{width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;",
+      "border:1px solid #cbd5e1;border-radius:8px;margin:0 0 14px;font-family:inherit;}",
+      ".cbdlg-actions{display:flex;justify-content:flex-end;gap:8px;}",
+      ".cbdlg-btn{border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:12.5px;",
+      "cursor:pointer;font-family:inherit;}",
+      ".cbdlg-cancel{background:#e2e8f0;color:#0f172a;}",
+      ".cbdlg-ok{background:#1e293b;color:#fff;}",
+      ".cbdlg-ok.cbdlg-danger{background:#dc2626;color:#fff;}",
+      ".cbdlg-btn:hover{filter:brightness(.95);}",
+      "@media (prefers-color-scheme:dark){",
+      ".cbdlg-card{background:#1e293b;color:#e2e8f0;}",
+      ".cbdlg-input{background:#0f172a;color:#e2e8f0;border-color:#334155;}",
+      ".cbdlg-cancel{background:#334155;color:#e2e8f0;}",
+      ".cbdlg-ok{background:#475569;}}"
+    ].join("");
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function open(opts) {
+    injectStyle();
+    return new Promise(function (resolve) {
+      const overlay = document.createElement("div");
+      overlay.className = "cbdlg-overlay";
+      const card = document.createElement("div");
+      card.className = "cbdlg-card";
+      card.setAttribute("role", opts.kind === "alert" ? "alertdialog" : "dialog");
+      card.setAttribute("aria-modal", "true");
+
+      const msg = document.createElement("p");
+      msg.className = "cbdlg-msg";
+      msg.textContent = opts.message || "";
+      card.appendChild(msg);
+
+      let input = null;
+      if (opts.kind === "prompt") {
+        input = document.createElement("input");
+        input.className = "cbdlg-input";
+        input.type = "text";
+        input.value = opts.defaultValue != null ? String(opts.defaultValue) : "";
+        card.appendChild(input);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "cbdlg-actions";
+
+      let cancelBtn = null;
+      if (opts.kind !== "alert") {
+        cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "cbdlg-btn cbdlg-cancel";
+        cancelBtn.textContent = opts.cancelText || "Cancel";
+        actions.appendChild(cancelBtn);
+      }
+
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.className = "cbdlg-btn cbdlg-ok" + (opts.danger ? " cbdlg-danger" : "");
+      okBtn.textContent = opts.confirmText || "OK";
+      actions.appendChild(okBtn);
+
+      card.appendChild(actions);
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+      requestAnimationFrame(function () { overlay.classList.add("cbdlg-show"); });
+
+      function cleanup() {
+        document.removeEventListener("keydown", onKey, true);
+        overlay.classList.remove("cbdlg-show");
+        setTimeout(function () { overlay.remove(); }, 180);
+      }
+      function done(result) { cleanup(); resolve(result); }
+      function onOk() {
+        if (opts.kind === "prompt") done(input ? input.value : "");
+        else if (opts.kind === "alert") done(undefined);
+        else done(true);
+      }
+      function onCancel() { done(opts.kind === "prompt" ? null : false); }
+      function onKey(e) {
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onCancel(); }
+        else if (e.key === "Enter") { e.preventDefault(); onOk(); }
+      }
+
+      okBtn.addEventListener("click", onOk);
+      if (cancelBtn) cancelBtn.addEventListener("click", onCancel);
+      overlay.addEventListener("click", function (e) { if (e.target === overlay) onCancel(); });
+      document.addEventListener("keydown", onKey, true);
+
+      (input || okBtn).focus();
+      if (input) input.select();
+    });
+  }
+
+  return {
+    alert: function (message, o) {
+      o = o || {};
+      return open({ kind: "alert", message: message, confirmText: o.confirmText || "OK" });
+    },
+    confirm: function (message, o) {
+      o = o || {};
+      return open({
+        kind: "confirm", message: message, danger: !!o.danger,
+        confirmText: o.confirmText || "OK", cancelText: o.cancelText || "Cancel"
+      });
+    },
+    prompt: function (message, defaultValue, o) {
+      o = o || {};
+      return open({
+        kind: "prompt", message: message, defaultValue: defaultValue,
+        confirmText: o.confirmText || "OK", cancelText: o.cancelText || "Cancel"
+      });
+    }
+  };
+})();
+
 // Extension-wide preferences. Keep these defaults in sync with the
 // placeholder text in popup.html's Settings modal.
 // Web-app bridge (connection) defaults. The macOS app is the only endpoint
@@ -1432,7 +1567,13 @@ function loadAllTags(force) {
   if (ytAllTagsLoading) return ytAllTagsLoading;
   ytAllTagsLoading = (async () => {
     try {
-      const resp = await fetch(`${ytBlockApiBase()}/api/tags/all`);
+      // Localize the picker: the API LEFT JOINs tag_names and falls back to the
+      // canonical literal_name, so an untranslated locale is safe.
+      let locale = "en";
+      try { locale = loadLanguage() || "en"; } catch (_) {}
+      const resp = await fetch(
+        `${ytBlockApiBase()}/api/tags/all?locale=${encodeURIComponent(locale)}`
+      );
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const rows = await resp.json();
       ytAllTags = (rows || [])
@@ -2882,12 +3023,16 @@ function renderSurfaceHides(group, draft, editable) {
     input.value = entry.id;
     input.checked = enabled.has(entry.id);
     input.disabled = !editable;
-    input.addEventListener("change", () => {
+    input.addEventListener("change", async () => {
       // Some hides (e.g. hiding ads) can violate platform Terms of Service and
       // risk the account — warn and require confirmation every time they're
       // turned on. Cancelling reverts the checkbox without saving.
       if (input.checked && entry.warnOnEnableKey) {
-        const accepted = window.confirm(t(entry.warnOnEnableKey));
+        const accepted = await cbDialog.confirm(t(entry.warnOnEnableKey), {
+          danger: true,
+          confirmText: t("modal.confirm"),
+          cancelText: t("modal.cancel")
+        });
         if (!accepted) {
           input.checked = false;
           return;
@@ -3359,7 +3504,13 @@ async function applyTemplatePreset() {
 
   const nextCode = template.buildCode(getTemplateDraft(template.id));
   const currentCode = String(blockingRulesField.value ?? "").trim();
-  const shouldReplace = !currentCode || window.confirm(t("custom.confirmReplaceTemplate"));
+  const shouldReplace =
+    !currentCode ||
+    (await cbDialog.confirm(t("custom.confirmReplaceTemplate"), {
+      danger: true,
+      confirmText: t("modal.confirm"),
+      cancelText: t("modal.cancel")
+    }));
   if (!shouldReplace) {
     return;
   }
@@ -5744,8 +5895,9 @@ async function deleteAllGroups() {
     return;
   }
 
-  const confirmed = window.confirm(
-    hasFrozenGroups() ? t("groups.deleteAllConfirmFrozen") : t("groups.deleteAllConfirm")
+  const confirmed = await cbDialog.confirm(
+    hasFrozenGroups() ? t("groups.deleteAllConfirmFrozen") : t("groups.deleteAllConfirm"),
+    { danger: true, confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
   );
 
   if (!confirmed) {
@@ -5807,9 +5959,10 @@ async function exportSelectedGroup() {
       console.warn("Failed to copy block group export string.", error);
     }
 
-    window.prompt(
+    await cbDialog.prompt(
       t(copiedToClipboard ? "editor.exportGroupPromptCopied" : "editor.exportGroupPrompt"),
-      exportString
+      exportString,
+      { confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
     );
     setStatus(
       t(copiedToClipboard ? "status.exportedGroupCopied" : "status.exportedGroup", {
@@ -5840,15 +5993,20 @@ async function importIntoSelectedGroup() {
       clipboardText = await navigator.clipboard.readText();
     } catch (error) {
       console.warn("Failed to read block group import string from clipboard.", error);
-      clipboardText = window.prompt(t("editor.importGroupPrompt"), "") ?? "";
+      clipboardText =
+        (await cbDialog.prompt(t("editor.importGroupPrompt"), "", {
+          confirmText: t("modal.confirm"),
+          cancelText: t("modal.cancel")
+        })) ?? "";
     }
 
     const importedGroup = decodeGroupTransferString(clipboardText);
-    const confirmed = window.confirm(
+    const confirmed = await cbDialog.confirm(
       t("editor.importGroupConfirm", {
         current: group.name,
         imported: importedGroup.name
-      })
+      }),
+      { danger: true, confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
     );
 
     if (!confirmed) {
@@ -6561,13 +6719,14 @@ function maybeRefreezeGroupAfterSnooze(groupId, snooze, now = Date.now()) {
 
 function showSnoozeNotice(group, snoozeEntry, totalBeforeMs) {
   const activationDelayMs = Math.max(0, snoozeEntry.startsAtMs - Date.now());
-  window.alert(
+  cbDialog.alert(
     t("snooze.noticePopup", {
       name: group.name,
       total: formatDurationMs(totalBeforeMs),
       upcoming: formatDurationMs(snoozeEntry.untilMs - snoozeEntry.startsAtMs),
       delay: formatDurationMs(activationDelayMs)
-    })
+    }),
+    { confirmText: t("modal.confirm") }
   );
 }
 
