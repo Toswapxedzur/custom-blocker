@@ -59,6 +59,17 @@ body {
   margin: 0;
   width: 100vw;
   height: 100vh;
+  /* Base typography lives here so content rendered OUTSIDE `.popup` (the
+     modals/manual are direct children of <body>) inherits Arial instead of
+     WebKit's default serif (`-webkit-standard`), which is what made the manual
+     text render in the wrong font. The explicit base `font-size` is critical:
+     WebKit otherwise defaults <body> to 16px, so any element without its own
+     size (empty state, code-editor highlight layer, manual body) rendered too
+     big. Pinning 12px here makes all unsized content match the rest of the UI. */
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-text-size-adjust: 100%;
   /* Prevent the page itself from scrolling. Each panel inside .popup is the
      scroll container, so any body-level scroll would just create a duplicate
      scrollbar and expose the white body background past the popup gradient. */
