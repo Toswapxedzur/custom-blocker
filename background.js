@@ -3148,11 +3148,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "evaluate-platform-items") {
     (async () => {
       await ensureStartupGate();
+      const items = Array.isArray(message.items) ? message.items : [];
+      // Attach per-card creator info (subscriber count, tags, name, handle)
+      // resolved from the YouTube verdict cache, so custom predicates can read
+      // video.creator.subCount etc. Best-effort + fail-open; no-op off YouTube.
+      await cbEnrichItemsWithCreator(message.platform, items);
       const r = await sendToEventSandbox({
         kind: "evaluate-platform-items",
         platform: message.platform,
         slot: message.slot,
-        items: Array.isArray(message.items) ? message.items : []
+        items
       });
       sendResponse({
         ok: Boolean(r && r.ok),
@@ -4338,6 +4343,51 @@ async function cbYtResolve(ids, weight) {
   // eviction). Cheap because saves are coalesced on a timer.
   cbYtScheduleVerdictSave();
   return { tags: known, rev: cbYtVerdicts ? cbYtVerdicts.rev : null };
+}
+
+// Build the `creator` object exposed to custom feed predicates from the YouTube
+// verdict cache. Always returns an object when a channel id is present (so
+// `video.creator` exists for the predicate); fields are null/empty when the
+// channel hasn't resolved yet — predicates must null-check and fail open.
+function cbCreatorFromCache(channelId) {
+  if (!channelId) return null;
+  const v = cbYtVerdicts && cbYtVerdicts.items ? cbYtVerdicts.items[channelId] : null;
+  return {
+    id: channelId,
+    subCount: v && typeof v.subs === "number" ? v.subs : null,
+    tags: v && Array.isArray(v.t) ? v.t.slice() : [],
+    name: v && typeof v.n === "string" ? v.n : "",
+    handle: v && typeof v.h === "string" ? v.h : ""
+  };
+}
+
+// Enrich evaluate-platform-items batches in place with `item.creator`. Resolves
+// any cache misses through cbYtResolve (same path yt-block.js uses: serve
+// cached, SWR-revalidate stale, fetch-and-wait genuine misses), so the first
+// pass where a card's channel is known already carries its subscriber count.
+async function cbEnrichItemsWithCreator(platform, items) {
+  if (platform !== "youtube" || !Array.isArray(items) || items.length === 0) return items;
+  const ids = [];
+  for (const it of items) {
+    const cid = it && typeof it.channelId === "string" ? it.channelId : null;
+    if (cid && /^UC[0-9A-Za-z_-]{22}$/.test(cid)) ids.push(cid);
+  }
+  if (ids.length) {
+    try {
+      await cbYtResolve(Array.from(new Set(ids)), CB_YT_ACT_WEIGHT_FEED);
+    } catch (_) {
+      // fail open: leave creators with whatever (if anything) is cached
+    }
+  }
+  for (const it of items) {
+    if (!it) continue;
+    const cid =
+      typeof it.channelId === "string" && /^UC[0-9A-Za-z_-]{22}$/.test(it.channelId)
+        ? it.channelId
+        : null;
+    it.creator = cbCreatorFromCache(cid);
+  }
+  return items;
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

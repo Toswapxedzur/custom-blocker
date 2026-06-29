@@ -3032,6 +3032,33 @@ function __cb_videoFormToSlot(form) {
   return null;
 }
 
+// Best-effort UC channel id for a feed card (YouTube only). yt-block.js already
+// resolves every on-screen card to its channel and stamps `data-cb-channel`, so
+// we reuse that single resolver instead of duplicating its handle->UC maps; a
+// direct /channel/UC link in the card is the fallback. Returns null when the
+// channel can't be resolved yet (fail open: the card just carries no creator
+// info this pass and re-resolves once yt-block.js stamps it).
+const CB_CARD_UC_RE = /^UC[0-9A-Za-z_-]{22}$/;
+function __cb_resolveCardChannelId(card, platform) {
+  if (platform !== "youtube" || !card) return null;
+  try {
+    let stamped = null;
+    if (card.matches && card.matches("[data-cb-channel]")) stamped = card;
+    else if (card.closest) stamped = card.closest("[data-cb-channel]");
+    if (!stamped && card.querySelector) stamped = card.querySelector("[data-cb-channel]");
+    if (stamped) {
+      const v = stamped.getAttribute("data-cb-channel");
+      if (v && CB_CARD_UC_RE.test(v)) return v;
+    }
+    const a = card.querySelector && card.querySelector('a[href*="/channel/UC"]');
+    if (a) {
+      const m = (a.getAttribute("href") || "").match(/(UC[0-9A-Za-z_-]{22})/);
+      if (m) return m[1];
+    }
+  } catch (_) {}
+  return null;
+}
+
 function __cb_extractCardItem(card, platform) {
   let videoForm = null;
   let creators = [];
@@ -3099,6 +3126,7 @@ function __cb_extractCardItem(card, platform) {
     name,
     title: name,
     author: creators[0] || null,
+    channelId: __cb_resolveCardChannelId(card, platform),
     length: null,
     views: null,
     publishedAt: null,
@@ -3122,7 +3150,10 @@ function cbResetCustomSigCache() {
 }
 
 function cbCardSignature(item) {
-  return [item.url || "", item.title || "", item.videoForm || ""].join("\n");
+  // channelId is part of the signature so a card re-evaluates once yt-block.js
+  // resolves its channel (null -> UC), letting creator-based predicates
+  // (e.g. subscriber-count filters) run on the next pass.
+  return [item.url || "", item.title || "", item.videoForm || "", item.channelId || ""].join("\n");
 }
 
 // Returns the full sandbox reply { results, evaluatedGroups } (or null). The

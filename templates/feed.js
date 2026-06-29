@@ -75,6 +75,32 @@
       }
     },
     {
+      id: "youtube-hide-small-channels",
+      title: "Hide YouTube Videos From Small Channels",
+      description: "Hide videos and Shorts from channels at or below a subscriber threshold. Subscriber counts come from the creator database, so a channel that hasn't resolved yet is left visible (fail-open) until its info loads.",
+      tags: ["feed", "youtube", "creator"],
+      params: [
+        { id: "maxSubs", label: "Max subscribers (block at or below)", type: "number", min: 0, step: 1000, defaultValue: 100000 }
+      ],
+      buildCode(values) {
+        const raw = Number(values.maxSubs);
+        const threshold = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 100000;
+        return `(event, helpers) => {
+  const MAX_SUBS = ${threshold};
+  event.registerWebChangedEvent("hide-small-yt-channels", (ev, h) => {
+    const yt = h.getPlatformHelper().youtube();
+    const block = (video) =>
+      !!video.creator &&
+      typeof video.creator.subCount === "number" &&
+      video.creator.subCount <= MAX_SUBS;
+    yt.hideVideos(block);
+    yt.hideShorts(block);
+    yt.hidePosts(block);
+  });
+}`;
+      }
+    },
+    {
       id: "youtube-hide-home-feed",
       title: "Hide YouTube Home Feed",
       description: "Strip the recommendations grid from the YouTube home page. You can still search and visit channels — only the feed is gone.",
