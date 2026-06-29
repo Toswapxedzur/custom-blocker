@@ -171,7 +171,16 @@
           </div>
 
           <section id="siteSettingsSection">
-            <label class="label" data-i18n="sites.label">Blocked websites</label>
+            <label class="label" id="siteSettingsLabel" data-i18n="sites.label">Blocked websites</label>
+
+            <label class="checkbox-row compact" for="siteAllowlist">
+              <input id="siteAllowlist" type="checkbox" />
+              <span data-i18n="sites.allowlistLabel">Block everything except these sites</span>
+            </label>
+            <p class="field-help" data-i18n="sites.allowlistHelp">
+              When on, this group blocks the entire web except the sites listed below
+              (an allowlist). When off, it blocks only the listed sites.
+            </p>
 
             <!-- Hidden backing store: newline-separated hostnames. The chip list
                  below is the editable surface; this field keeps the existing

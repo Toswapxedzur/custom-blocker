@@ -347,6 +347,8 @@ const endSnoozeButton = document.getElementById("endSnoozeButton");
 const snoozeNumericFields = document.getElementById("snoozeNumericFields");
 const snoozeCustomCopy = document.getElementById("snoozeCustomCopy");
 const siteSettingsSection = document.getElementById("siteSettingsSection");
+const siteSettingsLabel = document.getElementById("siteSettingsLabel");
+const siteAllowlistField = document.getElementById("siteAllowlist");
 const blockedSitesField = document.getElementById("blockedSites");
 const blockedSitesList = document.getElementById("blockedSitesList");
 const siteAddPanel = document.getElementById("siteAddPanel");
@@ -1369,6 +1371,7 @@ const SYNC_SCALAR_FIELDS = [
   "strictFreezeHours",
   "frozenAtMs",
   "blockHomePage",
+  "allowlist",
   "fallbackUrl",
   "skipToNextOnBlock"
 ];
@@ -3983,6 +3986,9 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     parentalPasswordHash: null,
     parentalPasswordSalt: null,
     sites: [],
+    // false → `sites` is a blocklist; true → `sites` is an allowlist
+    // ("block everything except these"). Honored for site + custom groups.
+    allowlist: false,
     blockHomePage: false,
     effect: "block",
     fallbackUrl: state.globalSettings?.defaultFallbackUrl ?? "",
@@ -4136,6 +4142,7 @@ function sanitizeGroups(groups) {
       sites: Array.isArray(group?.sites)
         ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
         : [],
+      allowlist: Boolean(group?.allowlist),
       blockHomePage: Boolean(group?.blockHomePage),
       effect: group?.effect === "allow" ? "allow" : "block",
       fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
@@ -4253,6 +4260,7 @@ function getSerializableGroupSnapshot(group) {
     parentalPasswordHash: group.parentalPasswordHash ?? null,
     parentalPasswordSalt: group.parentalPasswordSalt ?? null,
     sites: [...group.sites],
+    allowlist: Boolean(group.allowlist),
     blockHomePage: Boolean(group.blockHomePage),
     effect: group.effect === "allow" ? "allow" : "block",
     fallbackUrl: group.fallbackUrl ?? "",
@@ -4370,6 +4378,7 @@ function groupToDraft(group) {
     surfaceHides: normalizeSurfaceHides(group.surfaceHides, group.groupType),
     blockingRulesText: group.blockingRulesText,
     blockHomePage: Boolean(group.blockHomePage),
+    allowlist: Boolean(group.allowlist),
     effect: group.effect === "allow" ? "allow" : "block",
     fallbackUrl: group.fallbackUrl ?? "",
     skipToNextOnBlock: Boolean(group.skipToNextOnBlock),
@@ -5263,6 +5272,8 @@ function renderEditor(now = Date.now()) {
     snoozeConfirmationsField.value = "";
     scheduleWindowsField.value = "";
     blockedSitesField.value = "";
+    if (siteAllowlistField) siteAllowlistField.checked = false;
+    if (siteSettingsLabel) siteSettingsLabel.textContent = t("sites.label");
     blockingRulesField.value = "";
     platformAuthorsField.value = "";
     platformVideoModeField.value = "all";
@@ -5470,10 +5481,16 @@ function renderEditor(now = Date.now()) {
     fallbackUrlSection.classList.toggle("hidden", isCustomGroup);
   }
   scheduleSection.classList.toggle("hidden", isCustomGroup);
-  siteSettingsSection.classList.toggle(
-    "hidden",
-    isPlatformProfileGroup || isCustomGroup
-  );
+  // The domain list (and its allowlist toggle) is offered to site groups and
+  // custom groups (custom groups can carry a declarative block / allowlist list
+  // in addition to their JS rules). Platform-profile groups never use it.
+  siteSettingsSection.classList.toggle("hidden", isPlatformProfileGroup);
+
+  const allowlistOn = Boolean(draft?.allowlist ?? group.allowlist);
+  if (siteAllowlistField) siteAllowlistField.checked = allowlistOn;
+  if (siteSettingsLabel) {
+    siteSettingsLabel.textContent = allowlistOn ? t("sites.allowlistedLabel") : t("sites.label");
+  }
 
   groupNameField.disabled = !editable;
   groupEnabledField.disabled = !editable;
@@ -5491,7 +5508,10 @@ function renderEditor(now = Date.now()) {
   const domainsMirrored =
     group.groupType === "site" && bridgeOwnsApps() && Boolean(groupConnectionCluster(group));
   blockedSitesField.disabled =
-    !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
+    !editable || isPlatformProfileGroup || domainsMirrored;
+  if (siteAllowlistField) {
+    siteAllowlistField.disabled = !editable || isPlatformProfileGroup || domainsMirrored;
+  }
   blockingRulesField.disabled = !editable || !isCustomGroup;
   const currentAuthorMode = normalizePlatformAuthorMode(platformAuthorModeField.value);
   const authorModeUsesList = platformAuthorModeUsesList(currentAuthorMode); // include/exclude
@@ -5685,6 +5705,7 @@ function stashCurrentDraft() {
     activeDays: collectSelectedDays(),
     timeWindowsText: scheduleWindowsField.value,
     sitesText: blockedSitesField.value,
+    allowlist: siteAllowlistField.checked,
     blockingRulesText: blockingRulesField.value,
     platformVideoMode: platformVideoModeField.value,
     platformAuthorMode: platformAuthorModeField.value,
@@ -6127,7 +6148,10 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
     fail(new Error(t("status.invalidTimeWindows", { list: timeWindows.invalidLines.join(", ") })));
   }
 
-  if (group.groupType === "site" && siteResults.invalidSites.length > 0) {
+  // Site groups and custom groups both own a domain list.
+  const usesSiteList = group.groupType === "site" || isCustomGroup;
+
+  if (usesSiteList && siteResults.invalidSites.length > 0) {
     fail(new Error(t("status.invalidSites", { list: siteResults.invalidSites.join(", ") })));
   }
 
@@ -6182,7 +6206,10 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
         group.groupType === "discord" ? discordResults.validTargets : group.discordTargets,
       discordMode: group.groupType === "discord" ? discordMode : group.discordMode,
       blockingRulesText: isCustomGroup ? blockingRulesText : group.blockingRulesText,
-      sites: group.groupType === "site" ? siteResults.validSites : [],
+      sites: usesSiteList ? siteResults.validSites : [],
+      // Blocklist (false) vs "block all except" (true). Only meaningful for the
+      // groups that own a domain list; everything else stays a plain blocklist.
+      allowlist: usesSiteList ? Boolean(draft.allowlist) : false,
       blockHomePage: Boolean(draft.blockHomePage),
       // Only platform-profile groups expose the effect toggle; force "block"
       // for everything else so custom/default groups can't become exceptions.
@@ -7764,6 +7791,16 @@ for (const field of [platformBlockHomePageField, redditBlockHomePageField, disco
 if (groupEffectField) {
   groupEffectField.addEventListener("change", () => {
     stashCurrentDraft();
+    render();
+    renderGroupList();
+    scheduleAutosave();
+  });
+}
+
+if (siteAllowlistField) {
+  siteAllowlistField.addEventListener("change", () => {
+    stashCurrentDraft();
+    // re-render so the "Blocked websites" / "Allowed websites" label flips.
     render();
     renderGroupList();
     scheduleAutosave();
