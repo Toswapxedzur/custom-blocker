@@ -151,6 +151,11 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     parentalPasswordHash: null,
     parentalPasswordSalt: null,
     sites: [],
+    // allowlist=false → the `sites` list is a blocklist (block those domains,
+    // pass everything else). allowlist=true → the `sites` list is an allowlist
+    // (block the whole web EXCEPT those domains). Honored for "site" and
+    // "custom" groups; the feed-level `effect` flag below is unrelated.
+    allowlist: false,
     blockHomePage: false,
     effect: "block",
     fallbackUrl: "",
@@ -386,6 +391,8 @@ function sanitizeGroups(groups) {
         sites: Array.isArray(group?.sites)
           ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
           : [],
+        // See defaultGroup(): blocklist (false) vs "block all except" (true).
+        allowlist: Boolean(group?.allowlist),
         blockHomePage: Boolean(group?.blockHomePage),
         // Cascade effect for platform-profile groups: "allow" makes the group a
         // whitelist/exception. Stored for all groups but only honored for
@@ -678,15 +685,41 @@ function reversed(list) {
 // matchesDiscordGroup / matchesTwitterGroup) plus the matchesProfileGroup
 // dispatcher all live in platform-profiles.js and are provided as globals.
 
+// Does this group's domain list block `hostname` right now? (Mode/active/snooze
+// are handled by callers; this is the pure domain-set verdict.)
+//   blocklist (allowlist=false): block iff hostname is in the list.
+//   allowlist (allowlist=true):  block iff hostname is NOT in the list
+//                                (i.e. "block everything except these").
+// Used for "site" and "custom" groups. An allowlist group with an empty list
+// blocks the entire web — that is a valid (if drastic) lockdown config.
+function siteListBlocks(group, hostname) {
+  if (!hostname) return false;
+  const inList = group.sites.some((site) => hostnameMatchesSite(hostname, site));
+  return group.allowlist ? !inList : inList;
+}
+
+// True when a group carries a meaningful domain configuration (so an unconfigured
+// custom group — empty blocklist — never accidentally participates in page
+// blocking, while an allowlist group always does, even with an empty list).
+function groupUsesSiteList(group) {
+  return Boolean(group.allowlist) || (Array.isArray(group.sites) && group.sites.length > 0);
+}
+
 function matchesSiteGroup(group, hostname) {
-  return hostname && group.sites.some((site) => hostnameMatchesSite(hostname, site));
+  return siteListBlocks(group, hostname);
 }
 
 function getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now) {
   return reversed(groups).filter((group) => {
-    if (group.groupType === "custom") return false; // custom groups run in content
     if (!group.enabled || !isGroupActiveNow(group, now) || getActiveSnooze(group.id, groupSnoozes, now)) {
       return false;
+    }
+    if (group.groupType === "custom") {
+      // Custom groups still run their JS in content.js, but they may ALSO carry
+      // a declarative domain list (block / "block all except"). Only let a
+      // custom group affect the page-block decision when it is actually
+      // configured, so unconfigured custom groups behave exactly as before.
+      return groupUsesSiteList(group) && siteListBlocks(group, pageContext.hostname);
     }
     if (isPlatformProfileGroupType(group.groupType)) return matchesProfileGroup(group, pageContext);
     return matchesSiteGroup(group, pageContext.hostname);
@@ -3268,6 +3301,7 @@ const CB_SYNC_SCALAR_FIELDS = [
   "strictFreezeHours",
   "frozenAtMs",
   "blockHomePage",
+  "allowlist",
   "fallbackUrl",
   "skipToNextOnBlock"
 ];
