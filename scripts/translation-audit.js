@@ -88,8 +88,13 @@ function staticHtmlTextWithoutKey(file) {
   if (!file.endsWith(".html")) return [];
   const source = fs.readFileSync(path.join(workspace, file), "utf8");
   const output = [];
+  const notranslateSelectRanges = [...source.matchAll(/<select\b[^>]*\btranslate=["']no["'][^>]*>[\s\S]*?<\/select>/gi)]
+    .map((match) => [match.index, match.index + match[0].length]);
   const pattern = /<(button|label|p|h[1-6]|span|option|summary)([^>]*)>([^<]+)<\/\1>/g;
   for (const match of source.matchAll(pattern)) {
+    if (match[1] === "option" && notranslateSelectRanges.some(([start, end]) => match.index >= start && match.index < end)) {
+      continue;
+    }
     const attributes = match[2];
     const text = match[3].trim();
     if (text && /[A-Za-z]/.test(text) && !/\bdata-i18n(?:-|=)/.test(attributes) && !/aria-hidden/.test(attributes)) {

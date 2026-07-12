@@ -32,13 +32,13 @@ Your configuration lives in the browser profile. The extension does not need an 
 
 | Toestemming | Huidig ​​doel |
 | --- | --- |
-| @@@HOUD0000@@@ | Bewaar groepen, instellingen en lokale editorstatus. |
-| @@@HOUD0000@@@ | Plan antecedentenonderzoeken en op tijd gebaseerde groepsupdates. |
-| @@@HOUD0000@@@ | Voer de gecontroleerde aangepaste regelruntime uit waarbij Chromium een ​​document buiten het scherm vereist. |
-| @@@HOUD0000@@@ | Lees de actieve tabbladcontext die nodig is om een ​​groep toe te passen en de status weer te geven. |
-| @@@HOUD0000@@@ | Evalueer de toepasselijke groepen opnieuw na navigatie. |
-| @@@HOUD0000@@@ | Geef websitepictogrammen weer in de editor, indien beschikbaar. |
-| @@@HOUD0000@@@ | Pas door de gebruiker gemaakte website- en platformregels toe op pagina's die de gebruiker zelf wil beheren. |
+| `storage` | Bewaar groepen, instellingen en lokale editorstatus. |
+| `alarms` | Plan antecedentenonderzoeken en op tijd gebaseerde groepsupdates. |
+| `offscreen` | Voer de gecontroleerde aangepaste regelruntime uit waarbij Chromium een ​​document buiten het scherm vereist. |
+| `tabs` | Lees de actieve tabbladcontext die nodig is om een ​​groep toe te passen en de status weer te geven. |
+| `webNavigation` | Evalueer de toepasselijke groepen opnieuw na navigatie. |
+| `favicon` | Geef websitepictogrammen weer in de editor, indien beschikbaar. |
+| `<all_urls>` | Pas door de gebruiker gemaakte website- en platformregels toe op pagina's die de gebruiker zelf wil beheren. |
 
 ## Vrijgavecontroles
 
