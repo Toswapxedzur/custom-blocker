@@ -1,829 +1,884 @@
-# Custom Web Blocker — Instruction Manual
+# Vault extension functional reference
 
-This is the full reference manual for the extension. It starts with the easiest, most common workflows and gradually moves to advanced topics such as custom event-driven blocking rules and the helper API.
+## Purpose and status
 
-If you are brand new, just read **Quick start** and **Block groups overview**. Everything below those sections is optional, depending on what you want to do.
+This is the authoritative functional specification for the Vault browser extension. It documents the product contract: the data that a user can configure, the exact behaviours that configuration produces, the public Custom-rule language, and the limits that apply to it.
 
----
+It is deliberately not a quick-start guide. The website tutorial is the learning path. This document is for people who need to configure, test, maintain, audit, or reproduce Vault's user-visible behaviour.
 
-## 1. What this extension does
+The code is the canonical truth when this document and the product disagree. Names in this document use the product's stored/public vocabulary where practical. A word such as "returns" means the return value made available to a Custom rule; it does not promise a browser-level result if the browser or page refuses the requested action.
 
-Custom Web Blocker lets you block websites and online distractions according to rules you define yourself. You can:
+## 1. Product boundary
 
-- Block sites immediately with the browser's native network blocking (the same kind of block that produces `ERR_BLOCKED_BY_CLIENT`).
-- Allow yourself a certain number of minutes per day on a site, then block it once you go over that limit.
-- Block specific kinds of content on YouTube, TikTok, Facebook, Instagram, Twitch, and Reddit (not the whole site).
-- Hide blocked content from feeds on supported platforms instead of only blocking single pages.
-- Schedule when a rule is active by day of the week and by `HHMM-HHMM` time windows.
-- Freeze a rule so you cannot easily change it. Strict freeze locks it for a specified number of hours and requires a 20-step confirmation ritual to undo.
-- Snooze a rule temporarily, but only after writing a long enough justification.
-- Write **event-driven** custom rules in JavaScript with helpers for forward / backward timers, per-group persistent storage, per-platform DOM intents (hide nav buttons, hide feed cards by predicate, set per-subsection timers), URL utilities, and structured logging.
-- Pick from a built-in library of 50+ ready-made templates (timers, schedules, feed hiding, focus sessions, redirects, nudges, persistence, DOM tweaks, debug helpers).
-- Use the extension in 20+ languages.
+Vault is a focus-control WebExtension. Its unit of configuration is a **block group**. A group can:
 
-The extension is a Chrome Manifest V3 extension with one editor page (the popup), one background service worker, one offscreen sandbox that hosts custom-rule code, and one content script that runs in every page. Custom rules live in the offscreen sandbox; they are loaded once per Run click and stay registered until the rule is disabled or deleted.
+- decide that a top-level website, platform page, creator, community, server, channel, or account should be blocked;
+- hide configured platform surfaces or matching feed cards;
+- measure time spent in a matching scope;
+- apply a schedule, freeze protection, or temporary snooze where that group type supports it;
+- run a Custom JavaScript rule with an event API;
+- show an on-page timer, panel, message, or page log;
+- redirect, navigate, close a browser tab, or maintain a session-only rule-created site blocklist;
+- optionally participate in a locally connected Vault bridge cluster.
 
----
+Vault acts only inside the browser profile where it is installed and only where the browser permits its content script to run. It does not:
 
-## 2. UI tour
+- install a native application or browser extension;
+- block operating-system applications;
+- bypass browser permission prompts, private-browsing restrictions, or a website's own security model;
+- guarantee selector-based hiding when a third-party platform changes its DOM;
+- make Custom-rule state portable across profiles unless the user exports/configures it separately;
+- provide a network firewall, a proxy, account control, or a parental-monitoring service.
 
-When you click the extension's icon, the editor opens as a full web page (not a tiny popup). The page has these areas:
+The following terminology is used throughout:
 
-- **Top bar**
-  - **Instruction Manual** button (this document)
-  - **Language** picker
-  - **Settings** gear (advanced toggles, including **Debug mode**)
-- **Left panel — Block Groups**
-  - List of your block groups. Each card shows the group name, a short summary line, and an enable/disable checkbox.
-  - **Add** button creates a new group. The dropdown next to it picks the type.
-  - **Clear** removes every group, with extra confirmations if any group is frozen.
-  - You can drag the `::` handle on a card up or down to reorder groups.
-  - You can drag the vertical splitter to resize this panel.
-- **Right panel — Editor**
-  - Edits the currently selected group: name, blocking behavior, blocklists, type-specific filters, schedule, freeze, snooze.
-  - All changes save automatically a fraction of a second after you stop typing or interacting.
-  - For **Custom** groups, the editor also shows the **Templates** browser, the **Run** button, and the **Log** panel (renamed from *Activity log* in v1.1).
-- **Toast** (centered popup that fades) — shows status messages such as "Saved changes." or input errors.
-- **In-page overlay** — while a tab has any active timer or block, an overlay appears in its top-left corner showing every constraint affecting it in `hh:mm:ss` (or `mm:ss`) format. Multiple constraints stack on multiple lines. Default block-group countdowns and Custom-rule timers share this overlay.
+| Term | Meaning |
+| --- | --- |
+| Group | One independently named configuration object. Names must be unique within the extension, ignoring case. |
+| Site group | A normal group whose domain list is its main matching condition. |
+| Platform group | A normal group specialized for YouTube, TikTok, Facebook, Instagram, Twitch, Reddit, Discord, or Twitter/X. |
+| Custom group | A group that owns a JavaScript rule and its event registrations. Its rule decides its behaviour. |
+| Match | The page, feed item, or platform surface satisfies a group's configured conditions. |
+| Active | The group is enabled, eligible for its schedule, and not currently snoozed. Custom groups are not governed by the normal schedule UI. |
+| Block | Prevent the current top-level page from remaining usable, normally by redirecting to its fallback target. |
+| Hide | Remove or conceal an element/card in the currently rendered page. Hiding is not a network block. |
+| Fallback URL | A group-specific redirect target. If blank, the global fallback is used. |
+| Allow/exception effect | A platform-card verdict that rescues matching content from lower-priority hide rules. It is not a general website allowlist. |
 
----
+## 2. Group model and common lifecycle
 
-## 3. Quick start
+Every stored group has a stable id, a name, a type, an enabled flag, and common policy fields. A new normal group is enabled by default. A group can be selected, saved by the editor's autosave behaviour, reordered, exported, imported, frozen, unfrozen, snoozed, disabled, or deleted.
 
-1. Click the extension icon. The editor opens as a full page.
-2. In the **Block Groups** panel, choose a group type from the dropdown:
-   - `Default`, `YouTube`, `TikTok`, `Facebook`, `Instagram`, `Twitch`, `Reddit`, or `Custom`.
-3. Click **Add**. A new group appears, and the editor opens it.
-4. Give it a name.
-5. Fill in the type-specific fields (for `Default`, that means the **Blocked websites** list).
-6. Make sure the group's checkbox in the left panel is on.
-7. Visit one of the listed sites. The block should take effect immediately.
+### 2.1 Ordering and overlap
 
-That is the entire happy path. The rest of this manual is just options on top of this.
+More than one group can match the same page. Vault evaluates stored groups from the end of the displayed list toward the beginning. Treat lower items in the list as later/higher-precedence matches when designing overlapping rules.
 
-> When you press **Run** on a Custom group, the new rule attaches to **future** page events. Already-open tabs keep running the previous rule until you reload them. The popup shows a reminder to that effect after every successful Run.
+For ordinary top-level site blocking, any applicable blocking group can make the page unavailable. For feed-card filtering, the platform cascade uses each matching group's order and effect: a later matching allow/exception can rescue an item from lower-priority blocking predicates. This exception behaviour is limited to the platform-card filtering surface; it does not undo a normal whole-page site block.
 
----
+### 2.2 Enabled state
 
-## 4. Block groups overview
+Disabled groups are retained but do not participate in normal matching, timers, schedules, or ordinary snooze operations. Disabling a Custom group also unloads its active registrations. Re-enabling does not turn unsaved text into an active Custom rule; run the rule to load the saved source.
 
-Everything in this extension is organized as **block groups**. A block group is one rule set:
+### 2.3 Common fields
 
-- It has a name, a type, and an enabled/disabled state.
-- It has a blocking behavior (immediate, after a number of minutes, or fixed countdown).
-- It has an optional schedule (days + time windows) and optional freeze/snooze controls.
-- Depending on the type, it has additional fields like a list of websites, YouTube creator filters, subreddit names, or an event-driven JavaScript rule.
+| Field | Meaning and constraints |
+| --- | --- |
+| Name | Non-empty, trimmed, and unique case-insensitively within this endpoint. The bridge also identifies linkable groups by name and type, so stable names matter. |
+| Enabled | Enables or disables normal matching. |
+| Behaviour | Instant block, block after an allowance, or timer/count-up. Custom groups use their own rule rather than this normal behaviour selector. |
+| Allowed minutes | Positive number used by the block-after-allowance behaviour. New groups default to 15 minutes. |
+| Reset interval hours | Positive number used by timed normal groups. New groups default to 24 hours. |
+| Active days | Monday through Sunday. A normal group is inactive when the current local weekday is not selected. |
+| Time windows | Zero or more local-time windows, one per line, written as HHMM-HHMM. |
+| Freeze mode | None, Frozen, Strict frozen, or Parental frozen. |
+| Snooze policy | Whether the group allows snooze, with duration/delay/cooldown/confirmation controls for normal groups. |
+| Fallback URL | Destination used if the group blocks a page. |
+| Skip to next | When provided in the editor, asks the normal blocking flow to move past the blocked target rather than remain on it. |
 
-You can have any number of groups. Multiple groups may apply to the same page; in that case the **strictest** rule wins:
+### 2.4 Normal group behaviours
 
-- "Block immediately" beats "block after some time".
-- A group with less time remaining beats a group with more time remaining.
+The normal editor offers three behaviours:
 
-So adding more groups can only make a page block sooner, never later.
+| Behaviour | Functional result |
+| --- | --- |
+| Block immediately | Once the group is active and matches, the normal page-block decision is immediate. |
+| Block after a number of minutes | Matching visible-page time accrues toward the configured allowance. When the allowance is exhausted, the normal group blocks until its usage period is reset or the group is otherwise inactive/snoozed. |
+| Timer (count up, no block) | Matching visible-page time is recorded and can be displayed. This mode never blocks merely because its timer reaches a value. |
 
-**Evaluation order is bottom-to-top.** When the extension iterates your block groups, it starts with the group at the bottom of the list and works its way up. The group at the top of the list is evaluated last and gets the "last word" — for example, if a bottom group calls `helpers.getPlatformHelper().youtube().hideShortButton()` and a top group calls `showShortButton()`, the button stays visible. Drag the `::` handle on a card to change this order.
+Timed usage is based on visible-page time. It is not intended to charge time while a page is hidden in a background tab. The reset interval is a rolling policy interval for the normal timed group. Normal timers are independent by group.
 
----
+### 2.5 Schedules
 
-## 5. Group types
+Schedules apply to normal groups. A Custom group has no normal schedule UI and is considered active for purposes of its JavaScript; the rule must impose any desired time condition itself.
 
-### 5.1 `Default` — block ordinary websites
+The active-day policy is evaluated using local time:
 
-For blocking specific domains (the typical use case).
+1. If the current weekday is not selected, the normal group is inactive.
+2. If no valid time windows are supplied, an active day means the full day.
+3. If valid windows are supplied, the current local time must be in at least one window.
 
-- **Blocked websites**: one site per line. Both `facebook.com` and `https://www.facebook.com/somepage` work; the extension extracts and normalizes the hostname.
-- A site rule applies to that hostname and all its subdomains.
-- This group type uses Chrome's native network blocking, similar to `ERR_BLOCKED_BY_CLIENT`. That means navigation to a blocked URL is stopped before the page even loads.
+Each window has the exact form HHMM-HHMM, for example 0900-1200. Hours must be 00 through 23, minutes 00 through 59, and the start must be before the end on the same day. A window includes its start and excludes its end. Cross-midnight windows, such as 2300-0100, are not valid. Empty lines are ignored and duplicate windows are collapsed.
 
-### 5.2 `YouTube` — block YouTube and similar video sites
+### 2.6 Snooze
 
-Adds a **Filters** section to the editor:
+For a normal group, snooze is a temporary inactive state with up to three phases:
 
-- **Content type**:
-  - `Apply to all YouTube pages` — every YouTube page counts.
-  - `Apply to Shorts` — only Shorts pages count.
-  - `Apply to long videos` — only `/watch`, `/live/`, `/embed/`, etc.
-  - `Apply to YouTube posts` — community posts (`/post/...`, channel community/posts tabs).
-- **Author filter**:
-  - `Do not filter by author` — author identity does not matter.
-  - `Apply to certain authors` — only listed authors trigger this group.
-  - `Apply to all except certain authors` — listed authors are exempt.
-- **Authors**: one author per line. Accepts `@handle`, full URLs, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Hide blocked entries in the YouTube feed**: while this group is actively blocking, matching cards in YouTube feeds are hidden. When the block becomes inactive, they come back on the next refresh.
+| Phase | Result |
+| --- | --- |
+| Pending | The requested snooze exists but has not started because of its activation delay. The group is still active. |
+| Active | The group is temporarily inactive for its snooze duration. |
+| Cooldown | The snooze has ended, the group is active again, and another snooze cannot start until the cooldown expires. |
 
-For Shorts and Posts content types, when no author filter is set and the group is currently blocking, the extension also hides relevant nav entries (Shorts sidebar entry, Community/Posts channel tabs) and the matching shelves like "Latest YouTube posts".
+Normal-group configuration fields are:
 
-The short-vs-long detection extends to other video sites such as TikTok, Vimeo, Twitch clips/VODs, and Dailymotion when their page form can be detected.
+| Field | Rule |
+| --- | --- |
+| Allow snooze | If off, normal snooze cannot be started. |
+| Snooze duration | Positive minutes. A new normal group takes the global default, initially 30. |
+| Activation delay | Zero or more minutes. Blank means zero. |
+| Cooldown | Zero through five minutes. Blank means zero. |
+| Confirmations | A non-negative whole number. The product requires that many confirmation interactions before granting the request. |
 
-### 5.3 `TikTok` — block TikTok content
+A Custom group treats the Snooze button as an input event only. Vault emits the Custom event named snoozePress for that group; it does not apply the normal duration/delay/cooldown fallback on the rule's behalf. A Custom rule can use the event, its own persistence, a panel, a timer, or no action at all.
 
-Same editor card as the platform-video editor, but with TikTok-specific labels:
+### 2.7 Freeze
 
-- Content types: short videos, videos, profile pages.
-- Authors: TikTok handles (`@handle`) or profile URLs.
-- Feed hiding hides matching cards on TikTok pages while the group is active.
+Freezing protects a group from ordinary configuration changes and from normal snooze changes. Choosing a freeze mode in the selector does not freeze the group by itself; the freeze action applies the chosen mode.
 
-### 5.4 `Facebook` — block Facebook content
+| Mode | Functional contract |
+| --- | --- |
+| Frozen | The group is locked until the product's normal unfreeze confirmation flow completes. |
+| Strict frozen | The group cannot be unfrozen until its strict-freeze duration has elapsed. The duration must be greater than zero and no more than 72 hours; a new group defaults to 24 hours. |
+| Parental frozen | A guardian password is required for freeze/unfreeze management. The configuration dialog uses a six-digit password. |
 
-- Content types: Reels, videos, posts.
-- Authors: page name (`page.name`), profile URL, or `profile.php?id=...` form (the numeric id is preserved as `id:<number>`).
-- Feed hiding hides matching feed cards on Facebook.
+Frozen groups cannot be edited through ordinary fields. A bridge-linked cluster with an offline member may also lock freeze controls because Vault cannot safely coordinate the frozen state across the cluster. Freeze is protection against normal UI operations; it does not turn a browser profile into an immutable security boundary.
 
-### 5.5 `Instagram` — block Instagram content
+### 2.8 Import, export, clear, and reset
 
-- Content types: Reels, videos, posts.
-- Authors: Instagram handles or profile URLs.
-- Reserved paths like `/reel/`, `/p/`, `/tv/`, `/explore/` are not treated as authors.
-- Feed hiding hides matching cards on Instagram.
+Export produces a compatible representation of the selected group. Import validates and normalizes compatible group data before adding it. Imported group names must still be unique. Delete group removes that group and its normal usage/snooze state. Clear removes all groups after confirmation.
 
-### 5.6 `Twitch` — block Twitch content
+Reset to defaults is a **global settings** operation. It discards extension-wide preferences; it is not an import/export substitute and should be treated as destructive.
 
-- Content types: clips, streams/VODs, channel pages.
-- Authors: channel names or channel URLs.
-- Reserved paths like `/directory`, `/videos`, `/settings`, etc. are not treated as channel names.
-- Feed hiding hides matching cards on Twitch.
+## 3. Group types and matching contract
 
-### 5.7 `Reddit` — block Reddit or specific subreddits
+### 3.1 Default website group
 
-- **Subreddits**: one subreddit per line. Empty list means the group applies to all of Reddit. Both `productivity` and `r/productivity` are accepted.
+A Site group owns a line-separated website list. Entries are normalized into host/domain form. A host entry matches that host and all of its subdomains.
 
-### 5.8 `Custom` — block by event-driven JavaScript
+| Setting | Result |
+| --- | --- |
+| Block everything except these sites off | The list is a blocklist. A matching host is blocked. |
+| Block everything except these sites on | The list is an allowlist. Every host not in the list is blocked. An empty allowlist is therefore an intentional full-web lockdown. |
+| Block home page | Applies the group's policy to the configured browser start/home surface where that control is available. |
+| Fallback URL | Redirect destination for a block. A blank group value falls back to the global default. |
 
-You write a JavaScript function that **registers handlers** for events such as page open, URL change, page heartbeat, timer end, and your own custom events. The function runs once per Run click; the registered handlers stay active across navigations until you hit Run again, disable the group, or delete it.
+The normal Site-group domain list is the only declarative whole-site list exposed by the editor. Platform groups match their own platform and configured platform conditions instead.
 
-`Custom` groups don't show: blocking behavior, blocked sites, allowed minutes, reset interval, schedule days, or time windows. They keep the **Blocking Rules** editor plus standard freeze/snooze controls. There is also a **Templates** button that opens a preset browser with parameterized starter rules; applying a preset replaces the current rule after confirmation.
+### 3.2 Video-platform groups
 
-See **Section 11** for the full custom-rules reference and helpers API.
+YouTube, TikTok, Facebook, Instagram, and Twitch are video-platform groups. Each is limited to its own platform host. A group can target content form, author/account scope, the platform's home feed, and optional hide-element controls.
 
----
+The general author modes are:
 
-## 6. Blocking behavior
+| Mode | Result |
+| --- | --- |
+| All | Do not restrict by author; other configured axes decide the match. |
+| Include | Match only the listed normalized creators/accounts. |
+| Exclude | Match all detected creators/accounts except the listed entries. |
+| Nobody | Match no author. This is a deliberate no-match author axis. |
+| Tag include | Match creators with any listed tag when Vault can classify them. Unknown/unclassified creators fail open. |
+| Tag exclude | Match creators without the configured tag(s) when Vault can classify them. Unknown/unclassified creators fail open. |
 
-For most group types you choose one of three modes.
+The content-form choices are platform-specific:
 
-### 6.1 Block immediately
+| Platform | Content forms |
+| --- | --- |
+| YouTube | All pages, Shorts, long videos, posts. |
+| TikTok | All pages, short videos. |
+| Facebook | All pages, Reels, videos, posts. |
+| Instagram | All pages, Reels, videos, posts. |
+| Twitch | All pages, clips, streams/VODs, channel pages. |
 
-The rule is active whenever the group is on, the schedule allows it, and (for platform groups) the page matches.
+Vault normalizes author input. The editor accepts the platform's ordinary handle/channel/page form and supported profile URLs. It may reject malformed entries or show them as invalid rather than silently turning them into a different target.
 
-For `Default` groups this uses Chrome's native blocking. For platform groups it uses the in-page overlay/exit logic.
+Surface-hide choices are independent of top-level blocking. They affect only the current platform UI and can stop working when the platform changes its markup.
 
-### 6.2 Block after a number of minutes
+| Platform | Shipped hide-element choices |
+| --- | --- |
+| YouTube | Shorts navigation/shelves/cards, home-feed promoted/ad surfaces, and comments. The ad-related option presents a warning because hiding ads may conflict with a platform's terms. |
+| TikTok | Explore navigation. |
+| Facebook | Reels navigation and reel surfaces. |
+| Instagram | Reels and Explore navigation/surfaces. |
+| Twitch | Browse navigation. |
 
-This is a usage budget.
+YouTube creator-tag matching uses local/available channel classifications. A missing classification does not become a block merely because a tag mode was selected.
 
-- **Allowed minutes before block** (decimal): how many minutes you allow yourself per period. Example: `15`, `0.5`, `90`.
-- **Timer reset interval (hours)** (decimal): how often the budget resets. Example: `24` for daily, `1` for hourly, `0.25` for every 15 minutes.
+### 3.3 Reddit
 
-While you have time left, the page works normally and shows the timer overlay. When the budget hits zero, the page is blocked for the rest of the period and the overlay shows `0:00`, then the tab attempts to exit.
+A Reddit group applies only on Reddit. Its entity is a subreddit. Subreddit input accepts the ordinary community form and normalizes it before matching.
 
-The extension is per-group, per-period:
+The subreddit modes are:
 
-- Each group has its own budget.
-- Time spent on any page that matches the group counts toward that group's budget.
-- Multiple tabs in the same group share the budget. Their timers stay synchronized; switching to another tab also forces a refresh so it shows the current shared time immediately.
+| Mode | Result |
+| --- | --- |
+| All | Apply to Reddit without a subreddit-list restriction. |
+| Include | Apply to listed subreddits. |
+| Exclude | Apply to all except listed subreddits. |
+| Nobody | Apply to no subreddit. |
 
-If multiple time-limited groups apply to the same page, the strictest one wins.
+The shipped surface-hide option hides Popular/All navigation. Feed-card behaviour is dependent on Reddit's currently detectable card structure.
 
-### 6.3 Timer (count down, then block)
+### 3.4 Discord
 
-This mode shows a countdown timer and blocks once it reaches `0:00`.
+A Discord group applies only on Discord/Discordapp pages. Its target is a server id or a server/channel pair. The target editor accepts normalized Discord channel-path values.
 
-- **Timer reset interval (hours)** (decimal): both the timer length and the reset frequency. Example: `24` for daily, `1` for hourly, `0.25` for every 15 minutes.
+| Mode | Result |
+| --- | --- |
+| All | Apply to Discord with no target-list restriction. |
+| Include | Apply only to listed server or server/channel targets. |
+| Exclude | Apply to all except listed targets. |
+| Nobody | Apply to no target. |
 
-Unlike **Block after a number of minutes**, this mode does **not** have a separate "Allowed minutes before block" field. The timer simply starts at the reset interval, counts down while matching pages are open, then blocks until the next reset.
+Discord currently has no shipped hide-element choice in the normal platform profile.
 
-Default-group countdowns and Custom-group timers (see **Section 11.3.1**) both **only advance while the tab is visible**. Switching tabs, minimising the window, or locking the screen pauses the countdown automatically.
+### 3.5 Twitter / X
 
----
+A Twitter/X group applies on X/Twitter. It can apply to all accounts or use the general account modes described for video platforms, with normalized handle/profile-link input.
 
-## 7. Schedule
+The shipped hide-element choices are Explore, Messages, Grok, Trends, and promoted feed items. As with all selector-based surface controls, an X markup change can affect their operation.
 
-In the **Schedule** card you can restrict when a group is active:
+### 3.6 Custom group declarative fields
 
-- **Days to block**: pick the days the group applies. Unchecked days mean the group is inactive that day.
-- **Time windows**: free-form list, one window per line in `HHMM-HHMM` format, for example:
+A Custom group primarily runs its JavaScript source. It does not use the normal behaviour selector or normal schedule UI. It can nevertheless carry a domain list when imported or configured through compatible data:
 
-  ```
-  0900-1000
-  1200-1300
-  ```
+- a non-empty Custom blocklist can participate in the ordinary whole-page site decision;
+- a Custom allowlist can participate even when empty, producing a full-web declarative lockdown;
+- an unconfigured Custom group does not accidentally block pages merely because it has a rule;
+- Custom timers never block by themselves; a rule explicitly decides whether to block when a timer expires.
 
-  The group is active only inside those windows. Empty list means all-day.
+## 4. Global settings
 
-This applies to all group types except `Custom`. (Custom rules can implement their own schedule using `ev.time.dayName` / `ev.time.hour`; see **Section 11.4**.)
+Global settings apply to the extension rather than one group.
 
----
+| Setting | Default | Behaviour |
+| --- | --- | --- |
+| Tick rate | 1000 ms | Frequency of the shared Custom tickEvent. Valid range is 250 through 60,000 ms. Lower values can make event-driven rules more responsive but use more CPU. |
+| Autosave debounce | 400 ms | Delay after the last editor change before normal settings persist. Maximum is 5,000 ms. |
+| Debug mode | Off | Enables verbose Custom-rule trace output and the on-page debug log overlay. It does not control whether a rule's ordinary log calls reach the popup log. |
+| Show custom-rule logs on web pages | On | Controls ordinary page log toasts. Rule authors can still request screen-only or popup-only output explicitly. |
+| Default snooze duration | 30 minutes | Seed used when creating new normal groups. Existing groups retain their own duration. |
+| Default fallback URL | about:blank | Used when a blocking group has no group-specific fallback URL. |
+| Help classify creators | Off | Explicit opt-in. It sends encountered YouTube channel ids only to the configured classification service; it does not send titles or watch history. |
+| Local File Folder | None | Optional folder capability for Custom rules. See section 9. |
+| Web-app bridge | Off | Optional connection to a compatible local Vault hub. See section 11. |
 
-## 8. Freeze (anti-tampering)
+### 4.1 Editor interface and feedback surfaces
 
-Freezing makes a group hard to disable on impulse.
+The extension editor has a persistent group list and a selected-group editor. The group list supplies the group-type picker, Add, Clear, selection, enable toggle, and drag ordering. Its divider is resizable. The selected-group editor supplies group-specific fields and the group Export/Import actions.
 
-In the **Freeze** card you choose:
+The editor autosaves ordinary field changes after the global debounce period. Validation errors are reported as status/toast feedback; invalid normal values are not silently converted into unrelated settings. A frozen group disables its ordinary editing controls.
 
-- **Frozen** — you cannot edit or delete the group, and you cannot uncheck its enable toggle. To change anything you must run the unfreeze ritual (see below).
-- **Strict frozen** — same as Frozen, but it stays locked for a number of hours you choose (decimal, up to 72). Until that timer expires, even the unfreeze ritual is unavailable.
+The extension also has these user-visible feedback surfaces:
 
-When a frozen group is unlockable, the **Unfreeze** button appears. Clicking it starts the **20-step ritual**:
+| Surface | Functional purpose |
+| --- | --- |
+| Instruction Manual | Opens this reference in the extension. |
+| Language picker | Chooses the extension-interface language. |
+| Settings | Opens the global settings described above. |
+| Status/toast feedback | Reports save, import, validation, and action results. |
+| On-page timer overlay | Shows active normal timer/countdown items and Custom timers that are in their display scope. Multiple items can coexist. |
+| On-page log surface | Receives Custom log, warn, and error calls when permitted by global settings. |
+| Custom Log | A live activity log for rule-created popup-visible entries. It can be cleared and downloaded. |
 
-- The modal shows a self-discipline message.
-- You must click `Confirm` 20 times.
-- There is a forced 5-second wait between clicks.
-- If you cancel at any point, you must restart from step 1.
-- The 20 messages rotate so you actually read them.
+For Custom groups, the Rules field stores source text. Run first performs the rule syntax preflight and only loads the source when that succeeds. The editor also performs local source linting as text changes. The visible **Let AI Code** control opens a prompt field and copies a code-generation bundle containing the user's request, current rule, and a generated reference to the current Custom-rule API. It does not contact an AI service or automatically change the rule.
 
-If the group is also marked "no snooze" (see next section), you cannot snooze it either while frozen.
+The Templates control opens the template browser. A template, when one is shipped, has a title, description, tags, parameters, and generated preview. Applying it replaces the current Rules text after confirmation. The currently shipped template catalog is empty; the browser remains available for future curated templates and must not be treated as a source of active rules.
 
-The freeze status is shown in the meta line of the group card, including the time remaining for strict freeze.
+## 5. Custom-rule language
 
----
+### 5.1 Rule source forms
 
-## 9. Snooze (temporary disable)
+A Custom group's source is JavaScript. On **Run**, Vault removes the group's prior registrations and state created by the previous active source, then loads the new source.
 
-Snooze temporarily disables a group without unfreezing it. It supports delayed activation, post-snooze cooldown, confirmation steps, and a running total of snoozed time.
+The source may be either:
 
-In the **Snooze** card:
-
-- **Allow snooze for this group** — if off, this group cannot be snoozed at all (including while frozen).
-- **Snooze for (minutes)** — decimal, how long the snooze lasts.
-- **Activation delay (minutes)** — decimal `>= 0`. After you confirm the snooze, the group keeps blocking until this delay has passed; only then does the snooze become active.
-- **Cooldown after snooze (minutes)** — decimal from `0` to `5`. After the snooze finishes, you cannot start another snooze for this group until the cooldown ends.
-- **Times of confirmation** — integer `>= 0`. If this is `0`, snooze is scheduled immediately. Otherwise, starting snooze launches a confirmation ritual with exactly that many steps.
-
-Each snooze confirmation step has a forced **5-second wait** before the next click is allowed. The modal tells you this explicitly and shows the live countdown on the button.
-
-If the group is frozen, the snooze settings are locked at the values chosen before the freeze. You can still snooze it, as long as snooze is allowed, but you must use the saved delay / cooldown / confirmation settings.
-
-The Snooze card also shows **Total snoozed time** for that group. This total counts the full active snooze duration even if the site becomes reachable for some other reason during that window.
-
-When a snooze finishes, the rule comes back immediately. If the group was not already frozen, the extension automatically freezes it again at snooze end.
-
-A status message confirms the snooze. When the snooze ends, the group automatically returns to normal.
-
-You can also end a snooze early with the **End Snooze** button.
-
-For Custom groups, pressing **Start Snooze** also dispatches a `snoozePress` event into the rule (see the events table in **Section 11**), so a custom rule can record the press, log a justification, or fire follow-up events. The rule has **no programmatic snooze API** — it can react to the press, but cannot cancel or extend it.
-
----
-
-## 10. Bulk actions
-
-- **Clear** removes every group.
-  - It always asks for confirmation.
-  - If at least one group is frozen, it requires the same 20-step ritual as unfreezing.
-  - If any group is strict-frozen and still locked, **Clear** is disabled.
-
----
-
-## 11. Custom groups — event-driven reference (v1.1+)
-
-Starting with v1.1, custom rules are **event-driven**. Your rule is no longer a per-heartbeat function whose return value blocks the page. Instead, the rule body is a script that **registers handlers** for specific events (page open, URL change, page heartbeat, custom events, …). The handlers stay registered across page navigations and tab switches and live inside a long-lived **offscreen sandbox**.
-
-The rule body executes **once per Run click** (or once when the group is enabled and an active source already exists). To re-load handlers, click **Run** in the editor. The popup shows a reminder asking you to reload any already-open page so the new rule applies there too.
-
-### 11.1 Rule signature
+1. a function expression accepting events and helpers; or
+2. bare statements that use the supplied events (or legacy event) and helpers variables.
 
 ```js
-(event, helpers) => {
-  // Register handlers here. This function is called exactly once
-  // per Run click (or when the group is enabled).
-}
-```
-
-Two arguments:
-
-- `event` — the **events registry** for this group. Use it to register, override, list, count, or unregister handlers, and to `post(...)` custom events.
-- `helpers` — the helper bundle (see **11.3**).
-
-The function is **not** expected to return a value. The decision to block or allow is made later, when an event fires and one of your registered handlers calls `ev.preventDefault()` and/or `ev.setResult(...)`.
-
-### 11.2 Lifecycle
-
-- **Run** (per-group button in the editor): the engine first wipes every handler that was previously tagged with this group, then re-runs the rule body in the offscreen sandbox. This is the only way to re-register after editing the source.
-- **Disable group**: every handler tagged with this group is wiped. The group source is kept in storage but stops responding to events.
-- **Re-enable group**: the engine automatically re-runs the active source for this group.
-- **Delete group**: same as disable; all handlers tagged with the group are wiped.
-- **Re-registering with the same `(eventType, id)`**: silently overrides the previous registration.
-
-The offscreen sandbox is shared by **all** custom groups. Handlers from different groups co-exist there, each tagged internally with their owning group id so that "Run", disable, or delete only touches the right group.
-
-If a custom rule misbehaves (synchronous infinite loop, runaway log spam, etc.) the sandbox quarantines it: the group is auto-disabled and the failure is recorded so you can see it in the Log panel. To re-enable a quarantined rule, fix the source and click **Run** — the engine clears the abort reason and reloads the rule.
-
-### 11.2.1 The events registry (`event`)
-
-Generic methods:
-
-- `event.register(type, id, handler, options?)` — register a handler for an arbitrary event type. `id` is your own choice. `options.priority` (default `0`) — higher runs first. `options.intervalMs` — for `tickEvent` only; throttle this specific handler relative to the global tick. Re-registering with the same `(type, id)` overrides.
-- `event.unregister(type, id)`, `event.unregisterAll(type)`.
-- `event.post(type, data?, { scope })` — fire a custom event. `scope: "global"` reaches every group; default `scope: "group"` only reaches handlers in the **same** group.
-
-Per-event-type sugar (one set of methods per built-in type):
-
-- `event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
-- `event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
-- Same shape for `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`, `panelEvent`, `localFileEvent`.
-
-### 11.2.2 Built-in event types
-
-| Type | When it fires | `ev.data` payload |
-|---|---|---|
-| `tickEvent` | 1-second tick for each open tab. Fires regardless of tab visibility, with at most one tick per tab per second. Use this for clock-style logic that must keep running even when no tab is focused. | `{ intervalMs: 1000 }` |
-| `pageHeartbeatEvent` | ~250 ms heartbeat from the **active**, **visible** tab. Drives all tab-visibility-aware logic, including the auto-tick built into `getOrCreateTimer({ scope })`. Does **not** fire from background tabs or while the screen is locked. | `{ elapsedMs }` |
-| `openWebEvent` | A new tab is created. Does not fire when an existing new-tab/search page navigates to a website, and does not re-fire for already-open tabs after a Run click. | `{ previousUrl, isNewTab }` |
-| `closeWebEvent` | A tab is closed. | `{ reason, nextUrl }` |
-| `switchWebEvent` | URL **changes** on a committed top-level navigation inside the same tab — back/forward or a navigation that lands on a different URL than before. Does **not** fire on a plain reload (same URL). | `{ previousUrl, previousHostname, sameDomain }` |
-| `switchDomainEvent` | URL change crosses a hostname boundary (e.g. `youtube.com` → `wikipedia.org`). Fires alongside `switchWebEvent`. | `{ previousUrl, previousHostname }` |
-| `webChangedEvent` | A committed top-level page navigation happens: open, switch, cross-domain switch, back/forward, or a plain reload that keeps the same URL. This is the reliable "the page changed, re-evaluate everything" hook. It is emitted once from the same committed navigation record that may also produce `openWebEvent` / `switchWebEvent` / `switchDomainEvent`, and is the only one that fires for same-URL reloads. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` where `transition` is `"commit"` |
-| `timerEnded` | A timer managed by the group reaches `currentMs === 0`. Only delivered to the owning group. | `{ timerId, displayName, direction, currentMs }` |
-| `snoozePress` | The user pressed **Start Snooze** in the popup for this **custom** group. Pure notification event — the handler can run arbitrary code (log, redirect, fire other events) but custom rules have **no programmatic snooze API**. Logs produced here surface as toasts on the active tab. Only delivered to the pressed group. | `{ triggeredAt }` |
-| `panelEvent` | A page panel control rendered by `helpers.getPanelHelper()` was used. Delivered to the owning group, and also available through `event.registerPanelEvent(...)` for group-level handling. | `{ panelId, controlId, eventName, value, values }`; shortcuts also exist as `ev.panelId`, `ev.controlId`, `ev.eventName`, `ev.value`, `ev.values` |
-| `localFileEvent` | A `helpers.getLocalFolderHelper()` request finished. Delivered to the owning group. | `{ eventName, action, path, directoryPath, requestId, ok, text, value, entries, exists, bytes, error }`; shortcuts exist on `ev` with the same names |
-
-URLs in `ev.url` and in event data are **normalized** for events: Chrome's New Tab Page (which renders Google's "Search Google or type URL" surface), `about:blank`, and equivalent newtab schemes are exposed as the empty string `""`. So a timer scoped to `ev.url === ""` only ticks while you are on the new-tab page. Regular `google.com` URLs are unchanged.
-
-### 11.2.3 The event object (`ev`)
-
-Every handler is invoked as `(ev, helpers) => void`. `ev` carries:
-
-- `ev.type` — the dispatched event type.
-- `ev.groupId` — the receiving group's id.
-- `ev.tabId`, `ev.pageId`, `ev.url`, `ev.hostname` — context for the event.
-- `ev.time` — `{ now, month, dayOfMonth, dayName, hour, minute }` snapshot at dispatch. `dayName` is `"Sunday"`..`"Saturday"`.
-- `ev.data` — event-specific payload (see table above).
-
-Methods:
-
-- `ev.preventDefault()` — mark the dispatch as "blocked". The host content script will exit the page (or follow `setRedirectLink`) unless a higher-priority handler later sets `setResult(1)`.
-- `ev.stopPropagation()` — halt this dispatch immediately. **No further handlers across any group** are invoked for this event.
-- `ev.setResult(value)` — set the dispatch result. `value` may be a **number** in `[-255, 255]` (`-1` block, `0` neutral, `1` allow; other integers are preserved for your own debug logic), or a **string** (interpreted as a redirect URL). The last `setResult` call across all handlers wins. A numeric `1` overrides any earlier `preventDefault`.
-- `ev.setRedirectLink(url)` / `ev.getRedirectLink()` — the URL the host should navigate to when the dispatch ends as blocked. This is the **only** way to redirect from custom rules; the editor no longer exposes the "Redirect URL when blocked" field for Custom groups.
-- `ev.post(type, data, { scope })` — fire a follow-up event from inside a handler.
-
-In addition, `ev` is a Proxy: any field you set on it (e.g. `ev.foo = 42`) is stored in a `custom` map and can be read back from the same handler or from later handlers in the same dispatch.
-
-### 11.3 The `helpers` object
-
-Every handler call gets a fresh `helpers` bundle scoped to the receiving group and the event's URL. Constant fields:
-
-- `helpers.now` — epoch milliseconds at dispatch.
-- `helpers.currentUrl` — the event URL, after newtab/blank normalization.
-- `helpers.groupId` — receiving group id.
-
-Convenience shortcuts (route to the same accumulator-aware functions used by the helpers below, so the output still lands in the Log panel):
-
-- `helpers.log(...)`, `helpers.warn(...)`, `helpers.error(...)`.
-- `helpers.logScreen(...)`, `helpers.warnScreen(...)`, `helpers.errorScreen(...)`.
-- `helpers.logPopup(...)`, `helpers.warnPopup(...)`, `helpers.errorPopup(...)`.
-
-Accessor methods:
-
-- `helpers.getLogHelper()` — `log` / `warn` / `error`, plus `logScreen` / `warnScreen` / `errorScreen` and `logPopup` / `warnPopup` / `errorPopup`. Output is rate-limited and capped per dispatch to prevent runaway rules from freezing the popup.
-- `helpers.getDomainHelper()` (alias `helpers.getDomainUtility()`) — URL inspection (see **11.3.6**).
-- `helpers.getTimerHelper()` — group-scoped timers (countdown / count-up); state persists across browser restarts.
-- `helpers.getPanelHelper()` — fixed-layout on-page panels with configurable content, colors, position, and event handlers.
-- `helpers.getPersistenceHelper()` — JSON key/value store scoped to the group.
-- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (and `set` / `get` aliases) plus `createMessageUrl(message)` which returns a `chrome-extension://...` URL that displays the given message.
-- `helpers.getPlatformHelper()` — per-platform DOM intents (see **11.3.8**).
-- `helpers.getDOMHelper()` — generic DOM intents: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. Operations are batched and applied after the handler returns.
-- `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Effects are applied to the tab the event came from.
-- `helpers.getStorageHelper()` — superset of `getPersistenceHelper` plus async `requestAsyncGet(key)` / `requestAsyncSet(key, value)` hooks for cross-extension storage (results arrive as a follow-up custom event).
-- `helpers.getLocalFolderHelper()` — async access to a user-granted local folder. Supports `.txt`, `.csv`, and `.json` files inside that folder only; results arrive as `localFileEvent`.
-- `helpers.getTabHelper()` — `list()`, `getActiveTab()`, `getById(id)`, `countOpen()` against a snapshot bundled with the event.
-
-All helper methods are safe: bad parameters return `null`, `false`, or an empty value instead of throwing.
-
-#### 11.3.1 `getTimerHelper()`
-
-Per-group timers. Each timer is identified by a string `id` you choose; identity is scoped to the group, so two groups can both use the id `"yt-shorts"` without colliding. State persists across browser restarts.
-
-A timer's persisted state is exactly: `id`, `displayName`, `direction` (`"forward"` or `"backward"`), `isPaused`, and `currentMs`. There is no stored "initial duration" — `isExpired` is just `currentMs === 0`. Forward timers tick up forever and never expire on their own. Backward timers stop ticking at `0` (no negative values).
-
-There are two construction methods. Pick the one whose semantics match what you want:
-
-- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **always (re)creates** the timer with the supplied init values, overwriting any existing state including `currentMs`. Use this when you mean "start fresh", e.g. inside a one-shot reset branch.
-- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **idempotent**. If a timer with that `id` already exists, it is returned unchanged; init fields such as `displayName`, `direction`, and `currentMs` apply only when the timer is first created. Use explicit setters such as `setDirection`, `setCurrentMs`, `addMs`, or `setDisplayName` when you want to mutate an existing timer.
-
-When a timer is created, both methods accept two predicate functions that the engine remembers for the lifetime of the rule (they survive across heartbeats and across `webChangedEvent` re-evaluations, but they are **never persisted** to storage). Existing `getOrCreateTimer()` calls reuse the remembered predicates instead of replacing them:
-
-- `scope: (url) => boolean` — when `true` for the current visible URL on each `pageHeartbeatEvent`, the timer auto-ticks by the heartbeat interval (~250 ms). The helper itself never blocks; it only updates `currentMs`. At most one auto-tick per heartbeat per timer.
-- `domain: (url) => boolean` — when `true` for the current visible URL, the timer is rendered in the in-page overlay (top-left). When `domain` is omitted, the engine falls back to `scope` for display, so a "tick on /shorts/ pages" timer also shows up there with no extra wiring. Provide `domain` explicitly if you want a different display gate (e.g. tick only on `/shorts/`, but show the remaining time across all of `youtube.com`).
-
-> **Important — a timer never blocks on its own.** When a backward timer hits zero it just stops at zero and fires `timerEnded` once. Whether to actually block the page is up to a separate `openWebEvent` / `switchWebEvent` handler that calls `ev.preventDefault()` after checking `helpers.getTimerHelper().isExpired(id)`. This separation lets you build "warning only" timers, count-up trackers, soft nudges, or hard blocks — same primitive, your choice.
-
-Other methods:
-
-- `delete(id)`, `pause(id)`, `resume(id)` — standard lifecycle. Pause freezes `currentMs`.
-- `setDirection(id, "forward" | "backward")`, `setCurrentMs(id, ms)`, `addMs(id, deltaMs)` — direct mutators (most rules don't need these — let the heartbeat tick the timer for you).
-- `setDisplayName(id, name)` — relabel.
-- `getCurrentMs(id)`, `getDirection(id)`, `getDisplayName(id)`, `isPaused(id)`, `exists(id)`.
-- `isExpired(id)` — `true` iff `currentMs === 0`.
-- `getState(id)` — `{ id, displayName, direction, isPaused, currentMs, isExpired }` or `null`.
-- `list()` — every timer this group owns, as an array of state objects.
-
-#### 11.3.2 `getPanelHelper()`
-
-Group-scoped on-page panels. A panel is defined by a safe schema; the extension owns exact positioning, while the rule controls content, preset layout, priority, alignment, colors, text sizes, accessibility labels, and handlers.
-
-Construction:
-
-- `create({ id, title?, description?, position?, align?, layout?, priority?, width?, textSize?, theme?, ariaLabel?, role?, autoFocus?, scope?, domain?, controls?, onEvent?, onChange?, onClick?, onInput?, onFocus?, onBlur?, onSubmit?, onClose?, onMount?, onUnmount?, onKey? })` — creates or replaces the panel and resets its stored control values.
-- `getOrCreatePanel(config)` — creates the panel only if missing. If the `id` already exists, it returns the existing panel unchanged.
-- `update(id, patch)`, `delete(id)`, `show(id)`, `hide(id)`.
-- Preset builders: `notice(config)`, `confirm(config)`, `checklist(config)`, and `form(config)` create common panel shapes on top of the same schema.
-
-Display:
-
-- `scope(url)` / `domain(url)` decide where the panel appears, like timer display predicates. If neither is provided, the panel can appear on every page where the custom rule is active.
-- `position` is one of `"top-left"`, `"top-right"`, `"bottom-left"`, `"bottom-right"`, or `"center"`.
-- `align` is `"left"`, `"center"`, or `"right"`.
-- `layout` is a safe preset: `"vertical"`, `"compact"`, `"comfortable"`, `"spacious"`, `"inline"`, `"row"`, `"wrap"`, `"twoColumn"`, `"grid"`, `"split"`, `"form"`, `"toolbar"`, or `"stack"`.
-- `priority` controls stacking/layout order. Higher priority panels are placed closer to the selected corner; higher priority controls/sections are laid out earlier within their container.
-- If panel `width` is omitted, the outer panel auto-fits its content as tightly as possible. Set panel `width` only when you want a fixed container width.
-- `theme` accepts color tokens such as `background`, `foreground`, `accent`, `border`, and `muted`, plus `fontSize` / `titleSize`. Use safe color strings such as hex, `rgb(...)`, `rgba(...)`, `hsl(...)`, or named colors.
-- `ariaLabel`, `role`, and `autoFocus` improve keyboard/screen-reader behavior.
-
-Controls:
-
-- Supported control types: `"text"`, `"checkbox"`, `"select"`, `"textInput"`, `"textarea"`, `"button"`, `"section"`, `"timer"`, `"numberInput"`, `"range"`, `"toggle"`, `"radio"`, `"date"`, `"time"`, and `"color"`.
-- `section` is a real element/group with its own `{ id, type:"section", label?, text?, layout?, priority?, width?, height?, align?, ariaLabel?, role?, controls? }`.
-- `timer` is a display element. Use `{ id, type:"timer", timerId, format?, showExpired? }` to hydrate from the group timer bucket, or `{ timer: helpers.getTimerHelper().getState(id) }` to pass a timer object snapshot.
-- Control schema: `{ id, type, label?, text?, placeholder?, value?, options?, min?, max?, step?, timerId?, timer?, format?, showExpired?, action?, layout?, priority?, width?, height?, rows?, disabled?, ariaLabel?, autoFocus?, onEvent?, onChange?, onClick?, onInput?, onFocus?, onBlur?, onSubmit?, onClose?, onMount?, onUnmount?, onKey? }`.
-- `width` accepts pixel numbers/strings, percentages, `"full"`, or `"auto"`; `height` accepts pixel numbers/strings or `"auto"`; `rows` controls textarea row count. These scale the control itself while the extension still controls ordering and position.
-- `numberInput` and `range` support `min`, `max`, and `step`; `toggle` is a switch-style boolean; `radio` uses the same `options` shape as `select`; `date`, `time`, and `color` use native browser input values.
-- `setValue(panelId, controlId, value)`, `updateControl(panelId, controlId, patch)`, `enable(panelId, controlId)`, `disable(panelId, controlId)`, `setOptions(panelId, controlId, options)`, `setText(panelId, controlId, text)`, `setTheme(panelId, theme)`, `setTitle(panelId, title)`, `setDescription(panelId, text)`, `getValue(panelId, controlId)`, `getValues(panelId)`, `getState(id)`, and `list()` read/mutate panel state.
-
-Events:
-
-- Inline handlers can live on the panel or individual controls/sections. Supported inline handlers include `onEvent`, `onChange`, `onClick`, `onInput`, `onFocus`, `onBlur`, `onSubmit`, `onClose`, `onMount`, `onUnmount`, and `onKey`.
-- `event.registerPanelEvent(id, handler, opts)` registers a group-level handler that can detect every panel event for the group.
-- Checkbox/select changes fire immediately. Text inputs fire change on Enter or blur. Textareas fire change on blur or Cmd/Ctrl+Enter. Inputs also emit `input`, `focus`, `blur`, and `key`; key events include `ev.key`, `ev.code`, and `ev.keyInfo` with modifier flags. Buttons fire `click`, or `submit` / `cancel` / `close` when `action` is set.
-- Panel handlers receive the normal `(ev, helpers)` object and can block/redirect with `ev.preventDefault()`, `ev.setResult(...)`, and `ev.setRedirectLink(...)`.
-
-#### 11.3.3 `getPersistenceHelper()`
-
-Map-like storage scoped to your group. Values must be JSON-serializable.
-
-- `set(key, value)`, `get(key, defaultValue?)`, `has(key)`, `delete(key)`, `keys()`, `entries()`, `clear()`, `size()`.
-
-Soft limits: about 200 keys per group, 16 KB per value.
-
-#### 11.3.4 `getLocalFolderHelper()`
-
-`getLocalFolderHelper()` lets custom rules request reads and writes in a folder the user explicitly chooses in **Settings → Local File Folder**. Browser security still applies: the rule never receives unrestricted filesystem access, and all paths are constrained to the granted folder.
-
-Safety rules:
-
-- Supported file extensions are `.txt`, `.csv`, and `.json`.
-- Paths must be relative, for example `notes/focus.txt` or `data/today.csv`.
-- Absolute paths, URL-like paths, `..` traversal, and hidden files/folders such as `.env` are rejected.
-- Files over 1 MB are rejected.
-- Operations are asynchronous. Request methods return a `requestId`; handle the result in `event.registerLocalFileEvent(...)`.
-
-Methods:
-
-- `requestRead(path)` — reads a text file. Result: `ev.eventName === "read"`, `ev.text`, `ev.bytes`.
-- `requestWrite(path, text)` — writes/replaces a text file. Result: `ev.eventName === "write"`, `ev.bytes`.
-- `requestAppend(path, text)` — appends by reading the current file and writing the combined text. Result: `ev.eventName === "append"`.
-- `requestList(directoryPath?)` — lists supported files and subfolders. Result: `ev.eventName === "list"`, `ev.entries`.
-- `requestExists(path)` — checks for a supported file. Result: `ev.eventName === "exists"`, `ev.exists`.
-- `requestReadJson(path)` — reads and parses a `.json` file. Result: `ev.eventName === "read"`, `ev.text`, `ev.value`.
-- `requestWriteJson(path, value)` — JSON-serializes and writes a `.json` file. Result: `ev.eventName === "write"`.
-
-Example:
-
-```js
-(event, helpers) => {
-  const files = helpers.getLocalFolderHelper();
-
-  event.registerOpenWebEvent("load-config", (ev, h) => {
-    h.getLocalFolderHelper().requestReadJson("config/focus.json");
-  });
-
-  event.registerLocalFileEvent("use-config", (ev, h) => {
-    if (ev.eventName === "error") {
-      h.warn("Local file error", ev.path, ev.error);
-      return;
-    }
-    if (ev.path === "config/focus.json" && ev.value && ev.value.redirectUrl) {
-      h.getPersistenceHelper().set("redirectUrl", ev.value.redirectUrl);
-    }
+// Function-expression form
+(events, helpers) => {
+  events.on("openWebEvent", "welcome", (event, h) => {
+    h.log("Opened", event.url);
   });
 }
 ```
 
-#### 11.3.5 `getLogHelper()`
+```js
+// Bare-statement form
+events.on("openWebEvent", "welcome", (event, h) => {
+  h.log("Opened", event.url);
+});
+```
 
-- `log(...args)`, `warn(...args)`, `error(...args)` — write to the **Log** panel in the popup. They also show on-page toasts when **Settings → Show custom rule logs on web pages** is enabled.
-- `logScreen(...args)`, `warnScreen(...args)`, `errorScreen(...args)` — show an on-page toast only. These do not write to the popup Log panel.
-- `logPopup(...args)`, `warnPopup(...args)`, `errorPopup(...args)` — write to the popup only and never show an on-page toast.
-- The helper has hard caps: roughly **200 log entries per dispatch** and a maximum string length per entry. Excess entries are dropped and counted in `accumulator.logsDropped`. This is what protects the popup from a `for (let i = 0; i < 100000; i++) helpers.log(i)` runaway.
-- When **Debug mode** is off (default), trace-level entries the engine itself emits (dispatch start / handler timing) are suppressed everywhere — they don't show in the Log panel and don't print to the console. Your own `log` / `warn` / `error` calls always go through.
+Run performs the JavaScript syntax/preflight check and, only when it succeeds, makes the current source active. Saving text and running text are intentionally different: a rule can be saved without becoming the active event source.
 
-#### 11.3.6 `getRedirectionHelper()`
+The active source is unloaded when the Custom group is rerun, disabled, deleted, or explicitly stopped. Rerunning clears the rule's handlers, timers, panels, persistence bucket, and rule-created platform predicates before registration begins. A sandbox recovery can reload active source; rule authors must therefore make registration idempotent.
 
-Inspect / override the redirect URL the content script will use if the current page ends up blocked.
+### 5.2 Execution model and safe assumptions
 
-- `get()` — returns the current effective redirect URL for this dispatch. Initially this is the built-in group's configured fallback URL (if any), otherwise `""`.
-- `set(url)` — overrides that redirect URL for this dispatch. Returns `true` on success, `false` for non-string input. Passing `""` clears the redirect override and falls back to the normal default exit behavior.
-- `createMessageUrl(message)` — returns a `chrome-extension://<id>/message-page.html?msg=...` URL that, when navigated to, displays the message centred on a clean page. Useful for redirecting users to a "Go Work" / "Take a break" screen after a timer ends. Example: `ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`.
+Custom rules are event registrations, not a continuous script loop. Register handlers during rule initialization, then respond to events.
 
-Like the other custom-rule side effects, this state is shared across all rules in the current dispatch. Because rules run bottom-to-top, the top-most rule to call `set(...)` wins.
-
-#### 11.3.7 `getDomainHelper()` (alias `getDomainUtility()`)
-
-URL inspection helpers. There is no `normalize()` because incoming URLs are already newtab-normalized.
-
-Core:
-
-- `hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
-- `isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
-- `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()` — each returns `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`.
-
-URL filtering and section helpers:
-
-- `isEmptyStartPage(url)` — `true` for the new-tab page and equivalents (the URLs that show up as `""` to handlers).
-- `matchesAny(url, patterns)` — `patterns` may be a regex, a string regex, or an array of either.
-- `pathStartsWith(url, path)` — boundary-aware (`pathStartsWith("/r/", "/r")` is true; `"/results/"` is not).
-- `queryHas(url, key, value?)`, `queryGet(url, key)` — query-string inspection.
-- `isSearchPage(url)` — recognizes Google / Bing / DuckDuckGo / YouTube results / Reddit / Twitter / X searches.
-- `isInfiniteFeedUrl(url)` — recognizes the algorithmic-feed surfaces of YouTube, TikTok, Instagram, Facebook, Reddit, X.
-- `sameSection(a, b)` — same hostname AND same first path segment.
-
-#### 11.3.8 `getPlatformHelper()`
-
-Per-platform DOM intents and sub-section timers, plus inspection. Each `helpers.getPlatformHelper().<platform>()` returns an object whose method set is **gated by the platform** — methods that don't make sense on a given platform are simply absent, so calling them throws `TypeError: ... is not a function` rather than silently no-op'ing. For example, `twitch().hidePosts` does not exist (Twitch has no posts), and `tiktok().hideShortButton` does not exist (TikTok's whole experience already _is_ short-form video). Use `helpers.getPlatformHelper().hasMethod(platform, name)` or `.listMethods(platform)` to introspect at runtime.
-
-Per-platform method matrix:
-
-| method | youtube | tiktok | instagram | facebook | twitch |
-|---|:---:|:---:|:---:|:---:|:---:|
-| `hideShorts` / `showShorts` | ✓ |  |  |  |  |
-| `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
-| `hideClips` / `showClips` |  |  |  |  | ✓ |
-| `hideStreams` / `showStreams` |  |  |  |  | ✓ |
-| `hideVideos` / `showVideos` | ✓ | ✓ |  | ✓ | ✓ (VODs) |
-| `hidePosts` / `showPosts` | ✓ |  | ✓ | ✓ |  |
-| `hideShortButton` / `showShortButton` | ✓ |  |  |  |  |
-| `hideHomePage` / `showHomePage` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓ (chat) |
-| `filterComments` | ✓ | ✓ | ✓ | ✓ |  |
-| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |  | ✓ | ✓ |
-| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |  |  |  | ✓ |
-| `isCurrentChannelVerified` | ✓ |  |  |  |  |
-| `isLiveNow` | ✓ | ✓ |  | ✓ | ✓ |
-| `isItemLive` | ✓ | ✓ |  | ✓ | ✓ |
-| `isAlgorithmicRecommendation` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `isSponsored` | ✓ | ✓ | ✓ | ✓ |  |
-| `setShortsTimer` | ✓ |  |  |  |  |
-| `setReelsTimer` |  |  | ✓ | ✓ |  |
-| `setClipsTimer` |  |  |  |  | ✓ |
-| `setStreamsTimer` |  |  |  |  | ✓ |
-| `setVideosTimer` | ✓ | ✓ |  | ✓ | ✓ |
-| `setPostsTimer` | ✓ |  | ✓ | ✓ |  |
-
-The platform-native names (`hideReels`, `hideClips`, `hideStreams`) are NOT separate buckets from `hideShorts` / `hideVideos` — the storage slot is the same; only the user-visible name follows each platform's terminology.
-
-> **Predicate lifetime & single-slot rule.** Each of `hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` owns **one** persistent predicate per `(group, platform, slot)`. The predicate is **not** scoped to the current event — once you set it, it stays active across every page load and every dispatch until either the matching `show*()` is called or the group is unloaded. Calling the same method again with a new function **replaces** the previous one — the engine never OR-merges multiple predicates within a single group. To combine conditions, write one predicate that does the combining yourself, e.g. `yt.hideVideos(item => isShort(item) || hasKeyword(item))`. Across **different** groups, each group contributes its own predicate and an item is hidden if any group's predicate matches.
-
-Inspection methods take their value at dispatch time from a snapshot bundled with the event; their availability is gated by the matrix above.
-
-URL classifiers are always re-exposed regardless of platform: `isPlatformUrl`, `isShortUrl`, `isVideoUrl`, `isPostUrl`, `isHomePage`, `extractAuthor`, `extractVideoId`.
-
-Sub-section timers register the timer in the persistent group bucket and, when scoped, only tick on URLs that match that subsection. The timer methods accept `{ id, direction, currentMs, displayName }` and follow the same per-platform gating.
-
-For predicate methods, the predicate is called per matching card with a normalized `item`: `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`. Any field can be `null`; "innocent until proven guilty" — return `false` when the field you need is missing.
-
-### 11.4 Examples
-
-**Easy** — block YouTube Shorts pages on weekday mornings:
+Each handler receives:
 
 ```js
 (event, helpers) => {
-  const yt = helpers.getDomainHelper().youtube();
-
-  function maybeBlock(ev) {
-    if (!yt.isShortUrl(ev.url)) return;
-    const { dayName, hour } = ev.time;
-    const weekday = !["Saturday", "Sunday"].includes(dayName);
-    if (weekday && hour >= 9 && hour < 12) {
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-
-  event.registerOpenWebEvent("morning-block", maybeBlock);
-  event.registerSwitchWebEvent("morning-block", maybeBlock);
+  // event: the currently dispatched event object
+  // helpers: the public Vault Custom-rule API
 }
 ```
 
-**Medium** — 30-minute daily budget for YouTube Shorts. The timer auto-ticks on `pageHeartbeatEvent`s while a Shorts URL is visible; a separate handler enforces the block when the timer hits zero.
+Handlers for an event run by descending numeric priority; equal priority uses registration order. A handler can be replaced by registering the same event type and id again. There is a maximum of 1,000 registered handlers for one Custom group.
+
+Vault bounds one handler's active work to about one second. Three deadline overruns for the same group within one minute quarantine the rule: Vault disables it rather than repeatedly running a problematic handler. Do not use busy waits, unbounded loops, synchronous polling, or a huge number of mutations/logs per event.
+
+Per dispatch, Vault accepts at most:
+
+| Item | Maximum |
+| --- | --- |
+| Rule log entries | 200 |
+| Posted events | 64 |
+| DOM operations | 256 |
+| Action/intents | 256 |
+| Panels per group | 24 |
+| Controls in one panel | 32 |
+| Options in select/radio control | 64 |
+
+Excess log, posted-event, DOM-operation, and intent entries may be dropped. A Custom rule must not depend on excess entries being delivered.
+
+### 5.3 Built-in event types
+
+The following event-type strings are built in. A rule may also use its own non-empty type string, as long as it does not start with an underscore.
+
+| Event type | When it is sent | Important data |
+| --- | --- | --- |
+| tickEvent | Shared periodic tick at the global tick-rate setting. | Current page/tab context where available. Use intervalMs registration option to rate-limit an individual handler. |
+| openWebEvent | A top-level page becomes available to the rule. | URL, hostname, tab/page ids, time. |
+| closeWebEvent | A top-level page/tab closes. | URL/hostname context where available. |
+| webChangedEvent | A committed top-level navigation, including same-URL reloads. | data carries prior URL/hostname and navigation flags such as isFirstLoad, isReload, and sameDomain. |
+| timerEnded | A Custom timer changes into its expired state. | data: timerId, displayName, direction, currentMs. It is delivered only to the timer's owning group. |
+| snoozePress | The user presses Start Snooze for this Custom group. | The rule owns the response; no normal snooze fallback is performed. |
+| panelEvent | A rendered Custom panel has an interaction. | data and convenience fields include panel/control/event/value information. |
+| localFileEvent | A requested local-file action completes. | data and convenience fields include requestId, path, result, bytes, entries, and error. |
+| pageHeartbeatEvent | A visible-page heartbeat, approximately every 250 ms while the tab is visible. | elapsedMs is visible-page elapsed time. Scoped Custom timers automatically use it even without a registered handler. |
+
+### 5.4 Events registry API
+
+The first argument to a function-style source is the Events registry. In bare-statement source, both events and event refer to this registry.
+
+| Method | Contract |
+| --- | --- |
+| events.on(type, id, handler, options) | Register a handler. Returns true when accepted, false for invalid/capped registrations. |
+| events.register(type, id, handler, options) | Alias of on. |
+| events.off(type, id) | Unregister a handler. Returns whether something was removed. |
+| events.unregister(type, id) | Alias of off. |
+| events.unregisterAll(type) | Remove all handlers owned by this group for that event type. Returns the number removed. |
+| events.getEvent(type, id) | Return the registered function for this group/id, or null. |
+| events.getEvents(type) | Return an object mapping this group's handler ids to functions. |
+| events.countRegistered(type) | Return this group's number of registrations for type. |
+| events.emit(type, data, options) | Queue a synthetic event. |
+| events.post(type, data, options) | Alias of emit. |
+
+The optional handler options object supports:
+
+| Option | Meaning |
+| --- | --- |
+| priority | Numeric order. Higher values run before lower values. Default 0. |
+| intervalMs | Positive number. For tickEvent only, suppresses calls until this much time has elapsed since the handler's previous call. |
+
+Synthetic events default to group scope: only handlers belonging to the emitting group receive them. Use { scope: "global" } to send the event to every rule that registered the same type. Do not use a leading underscore in an event name; it is reserved.
+
+### 5.5 Event object
+
+Every handler receives a mutable event object with common fields:
+
+| Field/method | Contract |
+| --- | --- |
+| type | Event type string. |
+| groupId | Recipient Custom-group id. |
+| tabId, pageId | Browser identifiers when available; otherwise null. |
+| url, hostname | Current top-level URL and hostname, or empty strings. |
+| time | Copy of the dispatch time object, or null. |
+| data | Event-specific payload, or null. |
+| preventDefault() | Marks the dispatch as a page-block action. The page is redirected to the current redirect link/result if one exists; otherwise Vault uses the normal exit/fallback path. |
+| stopPropagation() | Stops later handlers for the current event dispatch. |
+| setResult(value) | Stores a number or string result. A non-empty string is treated as a redirect target; result 1 suppresses an otherwise accumulated preventDefault result. |
+| getResult() | Returns the result set by this event object, or null. |
+| post(type, data, options) | Queue a synthetic event, with the same scope rules as Events.post. |
+| setRedirectLink(url) | Set the redirect URL for this dispatch. Returns false only for a non-string input. |
+| getRedirectLink() | Read this dispatch's redirect URL, or an empty string. |
+| close(id) | Request closing a tab. A number is a tab id, a string identifies a URL, and an omitted value targets the active tab. |
+| block(id) | Add a session-only dynamic site-block pattern. With no string id, use the event hostname. |
+| unblock(id) | Remove a session-only dynamic site-block pattern. With no string id, use the event hostname. |
+| open() | No-op in the browser extension. It cannot launch applications. |
+
+A handler can attach arbitrary extra properties to event. Read them through event.custom or directly by the assigned name while that event object is alive. They are not persistent state and are not cross-event storage.
+
+For panelEvent, these convenience fields are added: panelId, controlId, eventName, value, values, key, code, and keyInfo.
+
+For localFileEvent, these convenience fields are added: eventName, action, path, directoryPath, requestId, ok, text, value, entries, exists, bytes, and error.
+
+### 5.6 Helper entry points
+
+The helpers object has these direct properties:
+
+| Entry point | Meaning |
+| --- | --- |
+| helpers.now | Current dispatch timestamp in milliseconds. |
+| helpers.currentUrl | Current unmodified URL string for this dispatch. |
+| helpers.groupId | Owning Custom-group id. |
+| helpers.log / warn / error | Direct aliases for the log helper. |
+| helpers.logScreen / warnScreen / errorScreen | Direct aliases for screen-only logs. |
+| helpers.logPopup / warnPopup / errorPopup | Direct aliases for popup-only logs. |
+| helpers.getLogHelper() | Returns the log helper. |
+| helpers.getDomainHelper(), getDomainUtility() | Return the domain helper. |
+| helpers.getTimerHelper() | Returns the timer helper. |
+| helpers.getPanelHelper() | Returns the panel helper. |
+| helpers.getPersistenceHelper() | Returns the persistence helper. |
+| helpers.getRedirectionHelper() | Returns the redirect helper. |
+| helpers.getDOMHelper() | Returns the DOM helper. |
+| helpers.getNavigationHelper() | Returns the navigation helper. |
+| helpers.getStorageHelper() | Returns the persistence plus asynchronous storage helper. |
+| helpers.getLocalFolderHelper() | Returns the optional local-folder helper. |
+| helpers.getTabHelper() | Returns the tab-snapshot helper. |
+| helpers.getWindowHelper() | Returns the browser-tab/window helper. |
+| helpers.getPlatformHelper() | Returns the platform-helper collection. |
+| helpers.platform() | Returns the platform-helper collection. |
+| helpers.platform(name) | Returns the named raw platform API. Valid names: youtube, tiktok, facebook, instagram, twitch. |
+
+## 6. Custom helper reference
+
+### 6.1 Domain helper
+
+Get it with helpers.getDomainHelper(). It is also available as helpers.getDomainUtility().
+
+| Method | Return and behaviour |
+| --- | --- |
+| hostnameOf(url) | Normalized lower-case host without a leading www., or null for an invalid URL. |
+| pathnameOf(url) | URL pathname, or / when the URL cannot be parsed. |
+| matches(hostname, site) | True when hostname equals site or is its subdomain. |
+| getPlatform(url) | youtube, tiktok, instagram, facebook, twitch, or null. |
+| isYouTubeHost(host), isTikTokHost(host), isInstagramHost(host), isFacebookHost(host), isTwitchHost(host), isRedditHost(host), isDiscordHost(host) | Host classifiers. |
+| youtube(), tiktok(), instagram(), facebook(), twitch() | Return that platform's URL-classifier object. |
+| isEmptyStartPage(url) | True for the browser's supported blank/new-tab/start-page URLs. |
+| matchesAny(url, patterns) | Match a URL against one RegExp, a RegExp array, or strings compiled as regular expressions. Invalid string patterns are ignored. |
+| pathStartsWith(url, path) | True for an exact path or a descendant of path. A missing leading slash is supplied. |
+| queryHas(url, key, value) | True if a query key exists; when value is supplied it must also equal the string value. |
+| queryGet(url, key) | Query value or null. |
+| isSearchPage(url) | Detects supported Google, Bing, DuckDuckGo, YouTube, Reddit, and X/Twitter search URLs. |
+| isInfiniteFeedUrl(url) | Detects supported infinite-feed surfaces. |
+| sameSection(a, b) | True only when both URLs share a host and the first pathname segment. |
+
+Each platform URL-classifier object exposes isPlatformUrl(url), isShortUrl(url), isVideoUrl(url), isPostUrl(url), isHomePage(url), extractAuthor(url), and extractVideoId(url). A method can return false/null when the URL is valid but does not identify that kind of content.
+
+### 6.2 Timer helper
+
+Get it with helpers.getTimerHelper(). Timers are rule-owned counters. They may be displayed in Vault's page overlay, but they never block on their own.
+
+Create/get options:
+
+| Option | Meaning |
+| --- | --- |
+| id | Required non-empty timer id. |
+| displayName | Human-readable overlay label. |
+| direction | forward for count-up; any other value becomes backward/countdown. |
+| currentMs | Initial milliseconds, floored at zero and bounded if bounds exist. |
+| minMs, maxMs | Optional positive minimum/maximum bounds. |
+| stepMs | Optional positive quantization step for elapsed ticks. |
+| overlayStyle | Optional strings for color, background, fontSize, fontWeight, border, borderRadius, padding, opacity, and icon. Unsupported/invalid parts are dropped. |
+| scope(url) | Predicate that decides where visible-page time accrues. |
+| domain(url) | Predicate that decides where the timer appears in the overlay; defaults to scope. |
+| accrueWhen(url) | Optional extra predicate. Time accrues only when both scope and accrueWhen are true. |
+
+| Method | Behaviour |
+| --- | --- |
+| create(options) | Create/replaces a timer and resets its state. Returns id or null. |
+| getOrCreateTimer(options) | Create only if absent. Existing state remains unchanged. Returns id or null. |
+| delete(id) | Remove timer and its scope/display predicates. |
+| pause(id), resume(id) | Change paused state. Return true only when a state change is possible. |
+| setDirection(id, direction) | Set forward or backward. |
+| setCurrentMs(id, ms) | Set absolute count, enforcing bounds. |
+| addMs(id, deltaMs), subMs(id, deltaMs) | Adjust count, enforcing bounds. |
+| setBounds(id, minMs, maxMs) | Set positive bounds; pass null for a bound to remove it. |
+| setStep(id, stepMs) | Set a positive tick quantization. Pass null or zero to clear it. |
+| setOverlayStyle(id, style) | Replace/clear allowed overlay styles. |
+| setDisplayName(id, name) | Set overlay label. |
+| getCurrentMs(id) | Number, zero for an absent timer. |
+| isExpired(id) | True only when a timer exists and currentMs is zero. |
+| isPaused(id) | Boolean. |
+| getDirection(id), getDisplayName(id) | Direction/name or null. |
+| exists(id) | Boolean. |
+| getState(id) | Serializable timer snapshot or null. |
+| list() | Serializable array of timer snapshots. |
+
+Scope predicates are remembered while the Custom source remains loaded. Vault advances matching timers during visible pageHeartbeatEvent cycles, one tick per timer per dispatch. A backward timer stops at zero and emits timerEnded on the transition to zero. It remains zero until the rule changes/resets it. Use a timer-ended handler to decide whether an expired timer should call preventDefault, set a redirect, or perform another action.
+
+### 6.3 Persistent and asynchronous storage
+
+Get the synchronous persistence helper with helpers.getPersistenceHelper(). Values must be JSON-serializable. A group can store at most 200 keys and each serialized value is limited to 16 KiB.
+
+| Method | Behaviour |
+| --- | --- |
+| get(key, defaultValue) | Read a cloned value or defaultValue. |
+| set(key, value) | Store a JSON-safe clone. Returns false for invalid key/value or key-cap exhaustion. |
+| delete(key) | Delete existing key; returns whether it existed. |
+| has(key) | Boolean. |
+| keys() | Array of keys. |
+| entries() | Array of cloned [key, value] pairs. |
+| clear() | Delete all rule persistence for this group. |
+| size() | Number of keys. |
+
+helpers.getStorageHelper() exposes all the preceding methods and two asynchronous request methods:
+
+| Method | Behaviour |
+| --- | --- |
+| requestAsyncGet(key) | Request an asynchronous storage read. Returns true when queued. Use a later event/your own state flow to respond; it is not a synchronous getter. |
+| requestAsyncSet(key, value) | Request an asynchronous JSON-safe store. Returns true when queued. |
+
+Rule persistence is cleared on Run because a new active source starts with a clean Custom-rule state.
+
+### 6.4 Logging helper
+
+Get it with helpers.getLogHelper(). Every method accepts any number of values.
+
+| Method | Destination |
+| --- | --- |
+| log, warn, error | Popup activity log; page toast when global page-log toasts are enabled. |
+| logScreen, warnScreen, errorScreen | Page toast/debug surface only; excluded from popup log. |
+| logPopup, warnPopup, errorPopup | Popup activity log only; excluded from page toast. |
+
+Logs also attempt to reach the browser console with a CustomBlocker group prefix. This is diagnostic output, not a persistence API. Use the persistence helper for state.
+
+### 6.5 Redirect helper
+
+Get it with helpers.getRedirectionHelper().
+
+| Method | Behaviour |
+| --- | --- |
+| get(), getRedirectLink() | Return the current dispatch redirect URL or an empty string. |
+| set(url), setRedirectLink(url) | Set the redirect URL for the current dispatch. |
+| createMessageUrl(message) | Create an extension-local message page URL that displays the supplied message. |
+
+Setting a redirect alone does not force navigation. Pair it with event.preventDefault(), or set a non-empty string through event.setResult(), according to the desired rule flow.
+
+### 6.6 DOM helper
+
+Get it with helpers.getDOMHelper(). These actions are queued and applied to the current page. Selectors must be valid for the page browser; malformed selectors or elements that do not exist can produce no visible result.
+
+| Method | Requested action |
+| --- | --- |
+| hide(selector), show(selector) | Hide/show matching elements. |
+| addClass(selector, className), removeClass(selector, className) | Mutate CSS class. |
+| setText(selector, text) | Replace text content. |
+| click(selector) | Click the matched element. |
+| injectCss(css, id) | Add an identified CSS block. |
+| removeInjectedCss(id) | Remove a previously identified injected CSS block. |
+| scrollTo(selector) | Scroll a matched element into view. |
+
+DOM actions do not provide unrestricted page scripting. They are a bounded action surface and should be idempotent when used from heartbeat/tick handlers.
+
+### 6.7 Navigation, tabs, and browser-window helper
+
+Get navigation with helpers.getNavigationHelper().
+
+| Method | Requested action |
+| --- | --- |
+| back() | Navigate current tab back. |
+| forward() | Navigate current tab forward. |
+| reload() | Reload current tab. |
+| goTo(url) | Navigate current tab to URL. |
+| closeTab() | Close current tab. |
+
+Get a snapshot helper with helpers.getTabHelper().
+
+| Method | Return/action |
+| --- | --- |
+| list() | Copy of the current tab snapshot. |
+| getActiveTab() | Active tab snapshot or null. |
+| getById(id) | Matching tab snapshot or null. |
+| countOpen() | Number of tabs in the snapshot. |
+| requestRefresh() | Request a new tab snapshot for later rule work. |
+
+Get the browser-tab/window helper with helpers.getWindowHelper(). In the extension, a "window" is represented by browser tabs.
+
+| Method | Behaviour |
+| --- | --- |
+| current() | Current active tab object: id, url, hostname, title, isBrowser. |
+| all() | Array of tab objects with id, url, hostname, title, active. |
+| close(idOrUrl) | Close by numeric tab id, exact URL string, or active tab when omitted. |
+| closeTab() | Close active tab. |
+| block(pattern) | Add a normalized session-only domain block and apply it. |
+| unblock(pattern) | Remove a normalized session-only domain block. |
+| isBlocked(urlOrHostname) | Query the rule-created session blocklist. |
+| getBlocked() | List current session-created patterns. |
+
+Rule-created block patterns normalize http/https, leading www., and paths into a host pattern. They match the exact host and subdomains. This dynamic blocklist is session memory, not a saved normal Site group.
+
+### 6.8 Local File Folder helper
+
+Get it with helpers.getLocalFolderHelper(). It only operates after the user has selected a folder in Global Settings and granted browser permission. It is asynchronous: every request returns a request id; completion arrives as localFileEvent.
+
+| Method | Behaviour |
+| --- | --- |
+| isAvailable() | Reports that the API surface exists; it does not prove a folder is currently authorized. |
+| requestRead(path) | Request text read. |
+| requestWrite(path, text) | Request text write. |
+| requestAppend(path, text) | Request text append. |
+| requestList(path = "") | Request a directory listing. |
+| requestExists(path) | Request existence test. |
+| requestReadJson(path) | Request JSON read; path must end in .json. |
+| requestWriteJson(path, value) | Request JSON write; path must end in .json and value must be JSON-safe. |
+
+Paths are always relative to the selected root. They cannot be absolute, drive-qualified, dot-prefixed, or contain . or .. segments. Only .txt, .csv, and .json files are accepted for file operations. Folder selection can be revoked at any time; a failed request reports ok false and an error string in localFileEvent.
+
+### 6.9 Platform helper
+
+Get the collection with helpers.getPlatformHelper() or helpers.platform(). Get one raw platform API with helpers.platform("youtube"), for example.
+
+All raw platform APIs expose:
+
+| Method | Behaviour |
+| --- | --- |
+| hide(predicate, options) | Set the same per-item predicate for every feed-card slot on that platform. |
+| hide(slot, predicate, options) | Set one per-item predicate. The predicate receives the platform item/snapshot supplied by that platform. |
+| allow(predicate, options), allow(slot, predicate, options) | Same as hide but creates an allow/exception verdict. |
+| show(), show(slot) | Clear all or one installed predicate slot. |
+| surface(name, "hide" or "show") | Hide/show a whole platform region. home is the public name for homePage. |
+| timer(slot, options) | Configure a platform subsection timer. Returns options.id when supplied, otherwise null. |
+| rescan() | Reevaluate already scanned feed cards after external rule state changes. |
+| snapshot() | Return the current platform snapshot or null. |
+| slots(), surfaces(), timerSlots() | Return the supported names for this platform. |
+| isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId | URL helpers for that platform. |
+
+A slot owns one predicate for one group/platform. A later hide/allow call for the same slot replaces the earlier predicate; it is not an implicit OR. The optional options object recognizes:
+
+| Option | Effect |
+| --- | --- |
+| blockPageOnVisit | When a matching card/page is visited, request a page block rather than only hiding the card. |
+| effect | block (default) or allow. The allow helper sets allow automatically. |
+
+Call rescan whenever a predicate depends on state that changed after cards were first evaluated, such as a panel checkbox, a quota, or a time threshold.
+
+Raw platform support matrix:
+
+| Platform | Predicate slots | Surface names | Timer slots |
+| --- | --- | --- | --- |
+| YouTube | shorts, videos, posts, comments, live | home, shortButton, comments, live | shorts, videos, posts |
+| TikTok | videos, comments, live | home, comments, live | videos |
+| Instagram | shorts, posts, comments | home, comments | shorts, posts |
+| Facebook | shorts, videos, posts, comments, live | home, comments, live | shorts, videos, posts |
+| Twitch | shorts, streams, videos, live | home, comments, live | shorts, streams, videos |
+
+The raw Custom platform helper does not expose Reddit, Discord, or Twitter/X. Use general URL, DOM, timer, panel, and navigation capabilities for custom work on those sites.
+
+## 7. Custom panels
+
+The panel helper creates safe, declarative on-page panels. Get it with helpers.getPanelHelper(). A panel can be scoped to URLs, react to interactions, display timer state, and retain its user-entered values for the active rule lifetime.
+
+### 7.1 Panel API
+
+| Method | Behaviour |
+| --- | --- |
+| create(config) | Create or replace a panel. Returns normalized panel id or null. |
+| getOrCreatePanel(config) | Create only when absent; returns id or null. |
+| update(id, patch) | Replace specified panel fields after validation. |
+| delete(id) | Remove a panel and its registered inline handlers. |
+| show(id), hide(id) | Change visibility. |
+| setValue(panelId, controlId, value) | Set a writable control value after validation. |
+| updateControl(panelId, controlId, patch) | Replace a control's allowed fields. |
+| disable(panelId, controlId), enable(panelId, controlId) | Toggle control availability. |
+| setOptions(panelId, controlId, options) | Replace select/radio choices. |
+| setText(panelId, controlId, text) | Update a button label, text/section text, or another control label. |
+| setTheme(panelId, theme) | Replace panel theme. |
+| setTitle(panelId, title), setDescription(panelId, description) | Update text. |
+| getValue(panelId, controlId) | Return a cloned value or undefined. |
+| getValues(panelId) | Return all writable values keyed by control id. |
+| getState(id) | Return a serializable panel snapshot or null. |
+| list() | Return serializable snapshots of all panels. |
+| notice(config) | Create a compact bottom-right status panel with optional message/text. |
+| confirm(config) | Create a centered dialog with generated confirm and cancel buttons. |
+| checklist(config) | Create a panel of checkbox items. |
+| form(config) | Create a form-layout panel from fields. |
+
+### 7.2 Panel configuration
+
+| Field | Accepted values/behaviour |
+| --- | --- |
+| id | Required. Normalized to letters, digits, underscore, hyphen; maximum 80 characters. |
+| title | Panel title, maximum 240 characters. |
+| description or body | Description, maximum 1,000 characters. |
+| position | top-left, top-right, bottom-left, bottom-right, or center. Default bottom-right. |
+| align | left, center, or right. Default left. |
+| layout | vertical, compact, comfortable, spacious, inline, row, wrap, twoColumn, grid, split, form, toolbar, or stack. Default vertical. |
+| priority | Numeric display order, clamped to -1000 through 1000. Higher panels display first. |
+| width | small, medium, large, or 180 through 520 px. |
+| textSize/fontSize | 10 through 32 px, or 0.65 through 2 rem/em. |
+| ariaLabel/a11yLabel | Accessible label. |
+| role | region, dialog, alert, status, form, or group. |
+| autoFocus | Boolean. |
+| theme/colors | background, foreground, accent, border, muted, fontSize/textSize, titleSize. |
+| controls | Array of up to 32 controls, with section nesting up to three levels. |
+| visible | False hides the panel. |
+| scope(url), domain(url) | Functions controlling availability/display. domain takes precedence; without domain, scope controls display. |
+
+Panel inline handler fields can appear on the panel or individual control: onEvent, onChange, onClick, onInput, onFocus, onBlur, onSubmit, onClose, onMount, onUnmount, onKey, and onKeyDown. Each receives the normal (event, helpers) parameters. An inline handler is replaced when that panel is recreated/updated with control definitions.
+
+### 7.3 Controls
+
+The available control types are text, checkbox, select, textInput, textarea, button, section, timer, numberInput, range, toggle, radio, date, time, color, pin, and html. Aliases input, dropdown, group, number, slider, switch, raw, and markup normalize to their corresponding type.
+
+All controls accept id, type, label, value, disabled, priority, and where relevant layout, align, ariaLabel/a11yLabel, autoFocus, width, height, and rows.
+
+| Type | Important fields and value contract |
+| --- | --- |
+| text | text (or label) rendered as non-input text. |
+| checkbox, toggle | Boolean value. |
+| select, radio | options as strings or { value, label } objects; maximum 64. Value is a short string. |
+| textInput, textarea | String value, maximum 2,000 characters; optional placeholder. |
+| button | label/text; optional action submit, cancel, or close. |
+| section | text/description, role, and nested controls. |
+| timer | timerId or timer snapshot; format ms, ss, mm:ss, or hh:mm:ss; showExpired defaults true. |
+| numberInput, range | Numeric value clamped to supplied min/max; optional positive step. |
+| date | YYYY-MM-DD value only. |
+| time | HH:MM or HH:MM:SS value only. |
+| color | Six-digit #RRGGBB input value. |
+| pin | Digits only, length 3 through 12, masked by default, optional autoSubmit. |
+| html | Sanitized markup. Script blocks, inline event attributes, and javascript: URLs are removed. |
+
+Each rendered interaction generates panelEvent. The event's values object contains the panel's writable controls, excluding buttons, text, and timer controls. A close action hides the panel before handlers observe the event.
+
+## 8. Custom-rule action recipes
+
+The following examples are specifications of public composition, not a tutorial.
+
+### 8.1 Redirect an opening page
 
 ```js
-(event, helpers) => {
-  const TIMER_ID = "yt-shorts-budget";
-  const yt = helpers.getDomainHelper().youtube();
-  const onShorts = (url) => yt.isShortUrl(url);
+(events, helpers) => {
+  events.on("openWebEvent", "redirect-distracting-search", (event, h) => {
+    const domain = h.getDomainHelper();
+    if (!domain.isSearchPage(event.url)) return;
+    event.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Return to your planned task."));
+    event.preventDefault();
+  });
+}
+```
 
-  helpers.getTimerHelper().getOrCreateTimer({
-    id: TIMER_ID,
+### 8.2 Visible-time countdown with explicit block
+
+```js
+(events, helpers) => {
+  const timer = helpers.getTimerHelper();
+  timer.create({
+    id: "reading-budget",
+    displayName: "Reading budget",
     direction: "backward",
-    currentMs: 30 * 60 * 1000,
-    displayName: "YT Shorts",
-    scope: onShorts,
-    domain: onShorts
+    currentMs: 10 * 60 * 1000,
+    scope: (url) => url.includes("example.com")
   });
 
-  function maybeBlock(ev, h) {
-    if (!yt.isShortUrl(ev.url)) return;
-    if (h.getTimerHelper().isExpired(TIMER_ID)) {
-      ev.setRedirectLink("https://example.com/focus");
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-  event.registerOpenWebEvent("budget-block", maybeBlock);
-  event.registerSwitchWebEvent("budget-block", maybeBlock);
-
-  event.registerTimerEndedEvent("budget-warn", (_ev, h) => {
-    h.getLogHelper().log("Budget hit zero.");
+  events.on("timerEnded", "stop-at-zero", (event) => {
+    if (event.data?.timerId !== "reading-budget") return;
+    event.setRedirectLink("about:blank");
+    event.preventDefault();
   });
 }
 ```
 
-**Harder** — hide individual YouTube Shorts whose author handle is too long, and inject a "this Short is hidden" CSS:
+### 8.3 Change a feed predicate from a panel
 
 ```js
-(event, helpers) => {
-  const MAX_AUTHOR_LEN = 16;
+(events, helpers) => {
+  const panel = helpers.getPanelHelper();
+  const youtube = helpers.platform("youtube");
 
-  function configure(_ev, h) {
-    const yt = h.getPlatformHelper().youtube();
-    yt.hideShorts(
-      (item) => item.author && item.author.length > MAX_AUTHOR_LEN,
-      { blockPageOnVisit: true }
-    );
-    h.getDOMHelper().injectCss(
-      "ytd-rich-grid-media[data-cb-hidden] { opacity: 0.2 !important; }",
-      "long-author-label"
-    );
-  }
+  panel.create({
+    id: "feed-filter",
+    title: "Feed filter",
+    controls: [{
+      id: "hide-sponsored",
+      type: "toggle",
+      label: "Hide sponsored items",
+      value: true,
+      onChange: (event, h) => {
+        const api = h.platform("youtube");
+        if (event.value) {
+          api.hide("videos", (item) => item?.sponsored === true);
+        } else {
+          api.show("videos");
+        }
+        api.rescan();
+      }
+    }]
+  });
 
-  event.registerOpenWebEvent("hide-long-shorts", configure);
-  event.registerSwitchWebEvent("hide-long-shorts", configure);
-  event.registerWebChangedEvent("hide-long-shorts", configure);
+  youtube.hide("shorts", () => true);
 }
 ```
 
-**Hardest** — broadcast a custom event from one handler to others:
+Predicates must be written for the platform snapshot/item values supplied by the active platform surface. If a platform cannot identify a field reliably, the predicate should fail open rather than assume a value is true.
 
-```js
-(event, helpers) => {
-  event.registerSwitchDomainEvent("track-domain", (ev) => {
-    ev.post("domainChange", { from: ev.data.previousHostname, to: ev.hostname });
-  });
+## 9. Local-folder request protocol
 
-  event.register("domainChange", "log-it", (ev, h) => {
-    h.getLogHelper().log("crossed", ev.data.from, "→", ev.data.to);
-  });
-}
-```
+Local Folder operations are not immediate file I/O. The complete functional sequence is:
 
----
+1. The user selects a folder in Global Settings.
+2. The rule queues a request and receives a request id.
+3. Vault asks the authorized folder capability to perform the operation.
+4. Vault sends localFileEvent to the same Custom group.
+5. The handler correlates event.requestId with the original request id.
 
-## 12. Templates
+Successful read completes with text for text files or value for JSON. List returns entries. Exists returns exists. Write/append provides bytes where applicable. Failure provides ok false and error. Rules must never assume that a selected folder remains authorized after a reload, browser restart, or permission revocation.
 
-Each Custom group has a **Templates** picker that opens a searchable preset browser. The library now ships **50+ templates** organized into nine categories so you can browse instead of writing rules from scratch:
+## 10. Custom-rule safety and failure semantics
 
-| Category | Examples |
-|---|---|
-| **Timers** | Site time budget (countdown + block), site time tracker (count up), YouTube Shorts cap, TikTok feed cap, Instagram Reels cap, Facebook Reels cap, Twitch Clips cap, Universal distraction budget, Daily deep-work tracker |
-| **Schedule** | Weekday working-hours block, weekend-only sites, pre-bedtime shutoff, allow-only-one-hour, lunch-only news, Monday fresh start, allow-first-N-minutes-of-each-hour, deep-work strict block |
-| **Feed / Shorts** | Block YouTube Shorts URLs, hide Shorts cards, hide Shorts by keyword, hide YouTube home feed / comments / trending, block TikTok FYP, hide TikTok shorts, block Instagram Reels URLs, hide Instagram Reels feed, hide Facebook feed / Reels, hide Reddit / Twitter / LinkedIn home |
-| **Redirect** | Distractions → focus page, Shorts → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, new tab → task list |
-| **Focus** | Allowlist-only focus session, Pomodoro 25/5, block during meeting, block after N visits today, block on streak loss |
-| **Nudge** | Log every distraction visit, warn on each Shorts visit, count daily visits to a site |
-| **Persistence** | Monthly visit cap, weekly ban toggle, track Discord channels visited |
-| **DOM tweaks** | Hide YouTube autoplay toggle, hide Twitter / X "What's happening", generic "hide selectors on a site" |
-| **Debug** | Demo countdown (3 s), log every custom event |
+### 10.1 Compile and run errors
 
-Filter chips at the top of the picker narrow the list by category (`Timer`, `Schedule`, `Feed`, …) and platform (`YouTube`, `TikTok`, `Instagram`, …). Selecting a template:
+Check syntax reports compilation failure. Run can also report a runtime error during registration. If a function-like source has a syntax error, Vault does not silently fall back to treating it as harmless bare statements.
 
-1. Loads its parameter inputs (URL, minutes, hour ranges, etc.) into a small form.
-2. **Apply preset** previews the generated source.
-3. After confirming **Replace the current custom rule with this preset?**, the source is written into the editor.
-4. You then click **Run** to register the rule's handlers in the offscreen sandbox.
+An empty source has zero handlers. It is valid as an inactive Custom rule, but it performs no configured Custom action.
 
-Templates are defined under `templates/*.js` (`timers.js`, `schedule.js`, `feed.js`, …). Each file calls `CB_REGISTER_TEMPLATES([...])` at load time, and the popup consumes the merged list. Adding a new template means writing one entry into the appropriate file — no other plumbing.
+### 10.2 Handler errors
 
----
+An exception from one handler is isolated from the overall event dispatch. It is diagnostic output; it does not make later handlers magically succeed. Use narrow handlers and log actionable errors.
 
-## 13. Multi-page behavior
+### 10.3 Quarantine
 
-- All open tabs in the same group share the same timer.
-- When you switch to a tab in the same group, its overlay refreshes immediately to show the current shared time.
-- Custom-rule timers tick only on the **active visible** tab — driven by `pageHeartbeatEvent`. Background tabs and minimised windows do not advance them. This matches the default block-group countdown.
-- When a new rule is added, every open page detects the change and re-evaluates within a fraction of a second; **but** newly registered handlers do not retroactively "open" already-open tabs. The popup shows a reload reminder after each Run for that reason.
-- When a rule expires, hidden feed cards and nav buttons are restored on the next refresh.
+Vault can quarantine a Custom group after repeated deadline overruns or an overrun during registration. Quarantine disables the group and records its abort reason. Correct the source, save it, and explicitly run it again to restore active registrations.
 
----
+### 10.4 Browser/page limits
 
-## 14. Settings
+No Custom rule receives unrestricted extension APIs. In particular:
 
-Open the **Settings** dialog via the gear icon in the top bar.
+- a DOM selector can find nothing on a platform that changed;
+- navigation, tab close, and screen actions remain subject to browser capabilities;
+- an extension cannot open native applications;
+- local-folder operations require a user-granted folder and the supported file types;
+- an event handler cannot rely on an invisible page continuing to produce visible-time heartbeats;
+- a page can reload, navigate, be discarded, or invalidate a content script independently of the rule;
+- rule-created dynamic site blocks are session-state actions, not permanent Site-group edits.
 
-- **Heartbeat interval** — how often the content script reports tab time and drives `pageHeartbeatEvent`. Default 250 ms. Lower values are more responsive but use more CPU.
-- **Tick interval** — how often the global `tickEvent` fires. Default 1000 ms.
-- **Debug mode** — *off* by default. When *on*, the engine emits `[CustomBlocker:trace]` lines to the browser console. The popup Log panel stays reserved for rule-created helper logs. Leave debug mode off in everyday use; turn it on while diagnosing a misbehaving rule. `pageHeartbeatEvent` is excluded from trace logging even when debug mode is on, because it fires four times per second and would drown out the rest.
-- **Show custom rule logs on web pages** — when on, normal `helpers.log()`, `helpers.warn()`, and `helpers.error()` calls appear as page toasts as well as popup Log entries. When off, normal logs are popup-only; rules can still write screen-only toasts with `helpers.logScreen()` or force popup-only with `helpers.logPopup()`.
+## 11. Web-app bridge
 
----
+The bridge is optional. It connects a browser extension client to a compatible local Vault hub. The browser extension is a client; a native Vault app provides the hub. The fixed local endpoint is ws://127.0.0.1:8787 and protocol compatibility is required.
 
-## 15. Internationalization
+Connection states are Off, Connecting, Disconnected, Connected, and Error. With the client enabled, Vault first probes rapidly and then continues slower reconnect attempts until it connects or the user turns it off. Connection does not by itself merge all groups.
 
-The whole UI is translated. Use the **Language** picker in the top right.
+### 11.1 Linking groups
 
-Supported languages include English, Chinese (Simplified), Spanish, Japanese, Korean, plus partial coverage for Hindi, Arabic, Bengali, Portuguese, Russian, Punjabi, German, French, Turkish, Vietnamese, Italian, Thai, Dutch, Polish, Indonesian, Urdu, and Persian. Languages with partial coverage fall back to English for missing strings.
+Groups are linkable only when their name and type match and they are eligible for linking. The user explicitly selects/links the participating programs. A linked group forms a cluster. Disconnecting leaves local group data intact; it stops live synchronization.
 
-The instruction manual itself loads the markdown file matching your selected language, with English as a fallback.
+The bridge synchronizes shared scalar policy for supported linked groups, including normal blocking mode, allowance/reset values, snooze settings, active days/windows, freeze state/choice/duration, homepage policy, allowlist setting, fallback URL, and skip-to-next policy. It also coordinates usage and snooze state for cluster members.
 
----
+The bridge does not promise that every product-specific field, platform selector, Custom source text, or browser-specific capability is transferable to a different program. A group can remain local and unlinked even while the bridge is connected.
 
-## 16. Status messages
+Frozen bridge clusters require all relevant members to be online for freeze-state actions that need coordinated mutation. A connection is local transport, not a cloud backup or remote-control channel.
 
-Status messages appear as a centered toast that fades out after about two seconds:
+## 12. Verification checklist for maintainers
 
-- "Saved changes."
-- "Created \"Group name\"."
-- Validation errors like "Allowed minutes must be a number greater than 0."
-- "Snooze minutes must be a number greater than 0."
-- "Frozen groups cannot be changed."
+Use this checklist when auditing a release or reproducing behaviour:
 
-For input fields with format requirements, the message also appears next to the relevant button (for snooze).
+1. Confirm the group has a non-empty unique name, correct type, enabled state, and intended list/order.
+2. For normal groups, confirm active weekday, valid local time window, no active snooze, and non-frozen editing state.
+3. For a Site group, test exact host, subdomain, and (for allowlist) a host outside the list.
+4. For a platform group, separately test page-level matching, targeted item/card matching, author mode, content-form mode, and each enabled surface hide.
+5. For timed normal groups, verify visible-page accrual, allowance expiry or count-up non-blocking behaviour, and reset interval.
+6. For Custom rules, run syntax check, Run, inspect handler count/logs, test every registered built-in event, then test a reload/navigation.
+7. Test each Custom timer at scope boundaries and at zero; verify that any block is explicit in the rule.
+8. Test panels with each control value, disabled state, submit/cancel/close action, and panelEvent handler.
+9. Test local-folder failure before success: no selected folder, revoked permission, invalid path, unsupported extension, then authorized read/write.
+10. Test bridge connection-off, connection-on, linked/unlinked group, and an offline cluster member before relying on synchronization or freeze coordination.
 
----
+## 13. Versioning rule
 
-## 17. Privacy and storage
-
-- Everything is stored locally in `chrome.storage.local`. No data is sent anywhere.
-- Stored items include: your groups, usage timers, last reset times, snooze records, custom timers, and custom persistent values.
-- The extension does not read page content beyond what is needed to detect the page type (path / hostname / known DOM markers for video sites) and to evaluate user-written predicates. It does not read your messages, posts, comments, or private content.
-
----
-
-## 18. Permissions
-
-- `storage` — for the data above.
-- `declarativeNetRequest` — for native blocking of `Default` groups.
-- `alarms` — to schedule rule transitions efficiently.
-- `tabs`, `webNavigation` — to detect tab creation, URL changes, and page heartbeats so events can be dispatched.
-- `offscreen` — to host the long-lived custom-rule sandbox.
-- `host_permissions: <all_urls>` — so the content script can show the timer overlay and detect platform context on any page.
-
----
-
-## 19. Troubleshooting
-
-- **A group I added does nothing.** Make sure the group is enabled, the schedule allows it now, no snooze is active, and (for platform groups) the page actually matches the chosen content type and author filter.
-- **A timer is stuck or wrong on one tab.** Switch away and back, or focus the tab — that triggers a forced refresh from the shared timer.
-- **Feed cards reappear after I think they should be hidden.** Feed hiding only runs while the rule is actively blocking. If you have an `after-minutes` rule, feed hiding kicks in once your time hits zero.
-- **A YouTube nav button I expected to be hidden is still there.** Nav hiding requires the rule to be set to "do not filter by author" and the content type to be Shorts or YouTube posts. With author filters, hiding is per-card only.
-- **Custom rule did nothing or threw silently.** Open Settings → enable **Debug mode**, then click **Run** again and watch the browser console for `[CustomBlocker:trace]` lines. Use `helpers.getLogHelper().log(...)` to add your own trace points in the popup Log panel. If a misbehaving rule kept getting auto-quarantined, fix the source and click Run — Run clears the abort reason.
-- **My new Custom rule does not affect already-open tabs.** Reload them. Custom rules attach to *future* page events; the popup shows a reminder to reload after every Run.
-- **My countdown timer is not advancing.** Custom-rule timers only tick on the **active visible** tab via `pageHeartbeatEvent`. Background tabs, minimised windows, and locked screens pause them by design — same behavior as the default block-group countdown.
-- **I cannot delete a group.** It is probably frozen. Strict-frozen groups cannot be deleted at all until their lock expires; non-strict frozen groups can be deleted via the unfreeze ritual.
-- **The popup shows "Running…" forever.** A custom rule probably got into a tight loop. The engine kills it after a hard timeout and quarantines the rule. Open the Log panel for the abort reason; fix the rule and click Run.
-
----
-
-## 20. Glossary
-
-- **Block group** — one rule set with its own type, behavior, schedule, and freeze/snooze.
-- **Instant block** — the rule blocks immediately whenever it is active.
-- **After-minutes block** — the rule starts blocking only after the time budget for the period is exhausted.
-- **Reset interval** — how often the after-minutes budget resets.
-- **Schedule** — days + time windows during which a group is active.
-- **Freeze / Strict freeze** — anti-tampering states.
-- **Snooze** — temporary disable with a configurable confirmation ritual.
-- **Author filter** — for platform groups, restricts the rule to certain content creators.
-- **Content type** — for platform groups, restricts the rule to certain forms of content (short, long, post).
-- **Helpers** — utilities passed to a custom rule's handler.
-- **Platform** — one of `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`. Each has its own group type and feed-hiding logic.
-- **Heartbeat** — the ~250 ms `pageHeartbeatEvent` dispatched from the active visible tab.
-- **Tick** — the 1 s globally shared `tickEvent` (visibility-independent).
-- **Debug mode** — a setting that surfaces internal trace logging in the Log panel and the browser console.
-- **Quarantine** — automatic disable of a custom rule that exceeded a runtime safety cap (deadline, log spam, …). Cleared on the next Run.
-
----
-
-## 21. Limitations
-
-- Feed hiding depends on each platform's current DOM. If the platform changes its layout, the hiding selectors may need to be updated.
-- Platform context detection for non-YouTube sites is mostly URL-based, so it is most reliable on canonical content URLs.
-- Custom-rule timers tick at heartbeat resolution (~250 ms). Don't rely on them for sub-second timing.
-- Predicates passed to `hideShorts` / `hideVideos` / `hidePosts` are evaluated synchronously per feed card. Heavy logic in a predicate can slow down feed scrolling; keep them cheap.
-- Two tabs editing the same per-group timer concurrently use a "last write wins" strategy. For typical use this is fine; if you depend on exact accounting, expect occasional small drift.
-- The browser may suspend the background service worker when idle. The extension resumes it as soon as a page or alarm needs it; site / timed usage budgets keep counting via heartbeat replay.
-
-## v1.2 note
-
-The custom-rule editor now colors JavaScript syntax, and the template browser uses the same colors for code previews. The bulk group action is called **Clear**.
-
+This English file is the maintained source manual. Localized manuals are translations of it and may require regeneration after a functional documentation update. Product source remains the canonical truth for implementation-level ambiguity.

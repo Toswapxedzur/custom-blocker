@@ -4,23 +4,29 @@
   "version": "2.0.1",
   "description": "__MSG_appDescription__",
   "default_locale": "en",
-  "permissions": ["storage", "declarativeNetRequest", "alarms", "tabs", "webNavigation", "nativeMessaging"],
+  "permissions": ["storage", "alarms", "tabs", "webNavigation", "nativeMessaging"],
   "host_permissions": ["<all_urls>"],
   "icons": {
-    "16": "icons/icon-16.png",
-    "32": "icons/icon-32.png",
-    "48": "icons/icon-48.png",
-    "128": "icons/icon-128.png"
+    "16": "icons/adamancia-vault-lock-v3-16.png",
+    "32": "icons/adamancia-vault-lock-v3-32.png",
+    "48": "icons/adamancia-vault-lock-v3-48.png",
+    "128": "icons/adamancia-vault-lock-v3-128.png"
   },
   "background": {
-    "scripts": ["browser-compat.js", "sandbox-transport.js", "helpers.js", "background.js"],
+    "scripts": ["browser-compat.js", "sandbox-transport.js", "platform-profiles.js", "helpers.js", "background.js"],
     "persistent": false
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["browser-compat.js", "helpers.js", "content.js"],
+      "js": ["browser-compat.js", "platform-profiles.js", "helpers.js", "content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["yt-harvest-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     },
     {
       "matches": ["*://*.youtube.com/*"],
@@ -31,9 +37,9 @@
   "action": {
     "default_title": "__MSG_appName__",
     "default_icon": {
-      "16": "icons/icon-16.png",
-      "32": "icons/icon-32.png",
-      "48": "icons/icon-48.png"
+      "16": "icons/adamancia-vault-lock-v3-16.png",
+      "32": "icons/adamancia-vault-lock-v3-32.png",
+      "48": "icons/adamancia-vault-lock-v3-48.png"
     }
   },
   "web_accessible_resources": [
@@ -42,10 +48,10 @@
         "message-page.html",
         "message-page.js",
         "message-page.css",
-        "icons/icon-16.png",
-        "icons/icon-32.png",
-        "icons/icon-48.png",
-        "icons/icon-128.png"
+        "icons/adamancia-vault-lock-v3-16.png",
+        "icons/adamancia-vault-lock-v3-32.png",
+        "icons/adamancia-vault-lock-v3-48.png",
+        "icons/adamancia-vault-lock-v3-128.png"
       ],
       "matches": ["<all_urls>"]
     }

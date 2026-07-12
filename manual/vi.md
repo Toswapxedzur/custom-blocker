@@ -1,716 +1,884 @@
-# Trình chặn web tùy chỉnh - Hướng dẫn sử dụng
+# Tham khảo chức năng mở rộng Vault
 
-Đây là tài liệu tham khảo đầy đủ cho phần mở rộng. Nó bắt đầu với các quy trình công việc dễ dàng nhất, phổ biến nhất và dần dần chuyển sang các chủ đề nâng cao như quy tắc chặn theo sự kiện tùy chỉnh và API trợ giúp.
+## Mục đích và trạng thái
 
-Nếu bạn là người mới, chỉ cần đọc **Bắt đầu nhanh** và **Tổng quan về chặn nhóm**. Mọi thứ bên dưới các phần đó đều là tùy chọn, tùy thuộc vào những gì bạn muốn làm.
+Đây là đặc tả chức năng có thẩm quyền dành cho tiện ích mở rộng trình duyệt Vault. Nó ghi lại hợp đồng sản phẩm: dữ liệu mà người dùng có thể đặt cấu hình, hành vi chính xác mà cấu hình tạo ra, ngôn ngữ Quy tắc tùy chỉnh công khai và các giới hạn áp dụng cho cấu hình đó.
 
----
+Nó cố tình không phải là một hướng dẫn bắt đầu nhanh. Hướng dẫn trên trang web là con đường học tập. Tài liệu này dành cho những người cần định cấu hình, kiểm tra, bảo trì, kiểm tra hoặc tái tạo hành vi mà người dùng của Vault có thể nhìn thấy.
 
-## 1. Tiện ích mở rộng này làm gì
+Mã là sự thật kinh điển khi tài liệu này và sản phẩm không đồng ý. Các tên trong tài liệu này sử dụng từ vựng được lưu trữ/công khai của sản phẩm khi thực tế. Một từ như "trả về" có nghĩa là giá trị trả về được cung cấp cho Quy tắc tùy chỉnh; nó không hứa hẹn một kết quả cấp trình duyệt nếu trình duyệt hoặc trang từ chối hành động được yêu cầu.
 
-Trình chặn web tùy chỉnh cho phép bạn chặn các trang web và các phiền nhiễu trực tuyến theo các quy tắc bạn tự xác định. Bạn có thể:
+##1. Ranh giới sản phẩm
 
-- Chặn các trang web ngay lập tức bằng tính năng chặn mạng gốc của trình duyệt (cùng loại khối tạo ra `ERR_BLOCKED_BY_CLIENT`).
-- Cho phép bản thân dành một số phút nhất định mỗi ngày trên một trang web, sau đó chặn nó khi bạn vượt quá giới hạn đó.
-- Chặn các loại nội dung cụ thể trên Du-túp, Tích Tốc, Phây-búc, In-xta-gam, Tuých và Rét-đít (không phải toàn bộ trang web).
-- Ẩn nội dung bị chặn khỏi nguồn cấp dữ liệu trên các nền tảng được hỗ trợ thay vì chỉ chặn các trang đơn lẻ.
-- Lên lịch khi quy tắc được kích hoạt theo ngày trong tuần và theo khung thời gian `HHMM-HHMM`.
-- Đóng băng một quy tắc để bạn không thể dễ dàng thay đổi nó. Tính năng đóng băng nghiêm ngặt sẽ khóa nó trong một số giờ nhất định và yêu cầu quy trình xác nhận 20 bước để hoàn tác.
-- Tạm thời tạm dừng một quy tắc, nhưng chỉ sau khi viết một lời giải thích đủ dài.
-- Viết các quy tắc tùy chỉnh **theo hướng sự kiện** trong ngôn ngữ kịch bản với các công cụ trợ giúp cho bộ hẹn giờ tiến/lùi, bộ nhớ liên tục cho mỗi nhóm, ý định DOM trên mỗi nền tảng (ẩn nút điều hướng, ẩn thẻ nguồn cấp dữ liệu theo vị từ, đặt bộ hẹn giờ cho mỗi tiểu mục), tiện ích URL và ghi nhật ký có cấu trúc.
-- Chọn từ thư viện tích hợp gồm hơn 50 mẫu tạo sẵn (bộ hẹn giờ, lịch biểu, ẩn nguồn cấp dữ liệu, phiên tập trung, chuyển hướng, nhắc nhở, kiên trì, chỉnh sửa DOM, trợ giúp gỡ lỗi).
-- Sử dụng tiện ích mở rộng bằng hơn 20 ngôn ngữ.
+Vault là một WebExtension có khả năng kiểm soát tiêu điểm. Đơn vị cấu hình của nó là **nhóm khối**. Một nhóm có thể:
 
-Tiện ích mở rộng này là tiện ích mở rộng trình duyệt Cờ-rôm Manifest V3 với một trang soạn thảo (cửa sổ bật lên), một nhân viên dịch vụ nền, một hộp cát ngoài màn hình lưu trữ mã quy tắc tùy chỉnh và một tập lệnh nội dung chạy trên mỗi trang. Quy tắc tùy chỉnh tồn tại trong hộp cát ngoài màn hình; chúng được tải một lần cho mỗi lần nhấp Chạy và duy trì đăng ký cho đến khi quy tắc bị vô hiệu hóa hoặc bị xóa.
+- quyết định chặn trang web, trang nền tảng, người sáng tạo, cộng đồng, máy chủ, kênh hoặc tài khoản cấp cao nhất;
+- ẩn bề mặt nền tảng được định cấu hình hoặc thẻ nguồn cấp dữ liệu phù hợp;
+- đo thời gian dành cho phạm vi phù hợp;
+- áp dụng lịch trình, bảo vệ đóng băng hoặc báo lại tạm thời khi loại nhóm đó hỗ trợ;
+- chạy quy tắc JavaScript tùy chỉnh với API sự kiện;
+- hiển thị đồng hồ hẹn giờ, bảng điều khiển, thông báo hoặc nhật ký trang trên trang;
+- chuyển hướng, điều hướng, đóng tab trình duyệt hoặc duy trì danh sách chặn trang web được tạo theo quy tắc chỉ theo phiên;
+- tùy chọn tham gia vào cụm cầu Vault được kết nối cục bộ.
 
----
+Vault chỉ hoạt động bên trong hồ sơ trình duyệt nơi nó được cài đặt và chỉ khi trình duyệt cho phép chạy tập lệnh nội dung của nó. Nó không:
 
-## 2. Tham quan giao diện người dùng
+- cài đặt ứng dụng gốc hoặc tiện ích mở rộng trình duyệt;
+- chặn các ứng dụng hệ điều hành;
+- bỏ qua lời nhắc cấp phép của trình duyệt, hạn chế duyệt web ở chế độ riêng tư hoặc mô hình bảo mật của chính trang web;
+- đảm bảo ẩn dựa trên bộ chọn khi nền tảng bên thứ ba thay đổi DOM của nó;
+- làm cho trạng thái quy tắc tùy chỉnh có thể di chuyển được trên các cấu hình trừ khi người dùng xuất/định cấu hình nó một cách riêng biệt;
+- cung cấp tường lửa mạng, proxy, kiểm soát tài khoản hoặc dịch vụ giám sát phụ huynh.
 
-Khi bạn nhấp vào biểu tượng của tiện ích mở rộng, trình chỉnh sửa sẽ mở ra dưới dạng một trang web đầy đủ (không phải một cửa sổ bật lên nhỏ). Trang này có các khu vực sau:
+Các thuật ngữ sau đây được sử dụng xuyên suốt:
 
-- **Thanh trên cùng**
-  - Nút **Hướng dẫn sử dụng** (tài liệu này)
-  - Bộ chọn **Ngôn ngữ**
-  - Thiết bị **Cài đặt** (các nút chuyển đổi nâng cao, bao gồm **Chế độ gỡ lỗi**)
-- **Bảng bên trái — Nhóm khối**
-  - Danh sách các nhóm khối của bạn. Mỗi thẻ hiển thị tên nhóm, một dòng tóm tắt ngắn và hộp kiểm bật/tắt.
-  - Nút **Thêm** tạo một nhóm mới. Trình đơn thả xuống bên cạnh sẽ chọn loại.
-  - **Xóa tất cả** xóa mọi nhóm, kèm theo xác nhận bổ sung nếu bất kỳ nhóm nào bị đóng băng.
-  - Bạn có thể kéo tay cầm `::` trên thẻ lên hoặc xuống để sắp xếp lại các nhóm.
-  - Bạn có thể kéo bộ chia dọc để thay đổi kích thước bảng này.
-- **Bảng bên phải — Biên tập**
-  - Chỉnh sửa nhóm hiện được chọn: tên, hành vi chặn, danh sách chặn, bộ lọc theo loại cụ thể, lịch trình, đóng băng, báo lại.
-  - Tất cả các thay đổi sẽ tự động lưu trong một phần giây sau khi bạn ngừng nhập hoặc tương tác.
-  - Đối với các nhóm **Tùy chỉnh**, trình chỉnh sửa cũng hiển thị trình duyệt **Mẫu**, nút **Chạy** và bảng **Nhật ký** (được đổi tên từ *Nhật ký hoạt động* trong v1.1).
-- **Bánh mì nướng** (cửa sổ bật lên ở giữa mờ dần) — hiển thị các thông báo trạng thái như "Các thay đổi đã lưu". hoặc lỗi đầu vào.
-- **Lớp phủ trong trang** — trong khi một tab có bất kỳ bộ đếm thời gian hoặc khối hoạt động nào, lớp phủ sẽ xuất hiện ở góc trên cùng bên trái của nó hiển thị mọi ràng buộc ảnh hưởng đến nó ở định dạng `hh:mm:ss` (hoặc `mm:ss`). Nhiều ràng buộc xếp chồng lên nhau trên nhiều dòng. Bộ đếm ngược nhóm khối mặc định và bộ tính giờ quy tắc tùy chỉnh chia sẻ lớp phủ này.
+| Kỳ hạn | Ý nghĩa |
+| --- | --- |
+| Nhóm | Một đối tượng cấu hình được đặt tên độc lập. Tên phải là duy nhất trong phần mở rộng, bỏ qua chữ hoa chữ thường. |
+| Nhóm trang web | Một nhóm bình thường có danh sách miền là điều kiện khớp chính của nó. |
+| Nhóm nền tảng | Một nhóm bình thường chuyên về YouTube, TikTok, Facebook, Instagram, Twitch, Reddit, Discord hoặc Twitter/X. |
+| Nhóm tùy chỉnh | Một nhóm sở hữu quy tắc JavaScript và đăng ký sự kiện của nó. Quy tắc của nó quyết định hành vi của nó. |
+| Trận đấu | Trang, mục nguồn cấp dữ liệu hoặc bề mặt nền tảng đáp ứng các điều kiện được định cấu hình của nhóm. |
+| Đang hoạt động | Nhóm đã được bật, đủ điều kiện cho lịch biểu của mình và hiện không bị tạm ẩn. Các nhóm tùy chỉnh không bị chi phối bởi giao diện người dùng lịch trình thông thường. |
+| Chặn | Ngăn chặn trang cấp cao nhất hiện tại vẫn có thể sử dụng được, thông thường bằng cách chuyển hướng đến mục tiêu dự phòng của nó. |
+| Ẩn | Xóa hoặc ẩn một phần tử/thẻ trong trang hiện được hiển thị. Ẩn không phải là chặn mạng. |
+| URL dự phòng | Mục tiêu chuyển hướng dành riêng cho nhóm. Nếu để trống, dự phòng chung sẽ được sử dụng. |
+| Hiệu ứng cho phép/ngoại lệ | Phán quyết thẻ nền tảng giúp giải cứu nội dung phù hợp khỏi các quy tắc ẩn có mức độ ưu tiên thấp hơn. Đây không phải là danh sách cho phép chung của trang web. |
 
----
+## 2. Mô hình nhóm và vòng đời chung
 
-## 3. Bắt đầu nhanh1. Nhấp vào biểu tượng tiện ích mở rộng. Trình chỉnh sửa mở ra dưới dạng một trang đầy đủ.
-2. Trong bảng **Chặn nhóm**, chọn loại nhóm từ danh sách thả xuống:
-   - `Default`, `Du-túp`, `Tích Tốc`, `Phây-búc`, `In-xta-gam`, `Tuých`, `Rét-đít` hoặc `Custom`.
-3. Nhấp vào **Thêm**. Một nhóm mới xuất hiện và người soạn thảo sẽ mở nó.
-4. Đặt tên cho nó.
-5. Điền vào các trường dành riêng cho loại (đối với `Default`, nghĩa là danh sách **Trang web bị chặn**).
-6. Đảm bảo hộp kiểm của nhóm ở bảng bên trái được bật.
-7. Truy cập một trong những trang web được liệt kê. Việc chặn sẽ có hiệu lực ngay lập tức.
+Mỗi nhóm được lưu trữ đều có id ổn định, tên, loại, cờ được bật và các trường chính sách chung. Một nhóm bình thường mới được bật theo mặc định. Một nhóm có thể được chọn, lưu theo hành vi tự động lưu của người chỉnh sửa, sắp xếp lại, xuất, nhập, đông lạnh, không đông lạnh, báo lại, vô hiệu hóa hoặc xóa.
 
-Đó là toàn bộ con đường hạnh phúc. Phần còn lại của hướng dẫn này chỉ là các tùy chọn ở trên.
+### 2.1 Thứ tự và chồng chéo
 
-> Khi bạn nhấn **Chạy** trên nhóm Tùy chỉnh, quy tắc mới sẽ gắn vào các sự kiện trang **tương lai**. Các tab đã mở sẽ tiếp tục chạy quy tắc trước đó cho đến khi bạn tải lại chúng. Cửa sổ bật lên hiển thị lời nhắc về hiệu ứng đó sau mỗi lần Chạy thành công.
+Nhiều nhóm có thể phù hợp với cùng một trang. Vault đánh giá các nhóm được lưu trữ từ cuối danh sách được hiển thị về phía đầu. Hãy coi các mục thấp hơn trong danh sách là các mục phù hợp muộn hơn/có mức độ ưu tiên cao hơn khi thiết kế các quy tắc chồng chéo.
 
----
+Đối với việc chặn trang web cấp cao thông thường, bất kỳ nhóm chặn hiện hành nào cũng có thể khiến trang không khả dụng. Để lọc thẻ nguồn cấp dữ liệu, tầng nền tảng sử dụng thứ tự và hiệu ứng của từng nhóm phù hợp: cho phép/ngoại lệ đối sánh sau này có thể giải cứu một mục khỏi các vị từ chặn có mức độ ưu tiên thấp hơn. Hành vi ngoại lệ này được giới hạn ở bề mặt lọc thẻ nền tảng; nó không hoàn tác khối trang toàn trang thông thường.
 
-## 4. Tổng quan về nhóm khối
+### 2.2 Trạng thái kích hoạt
 
-Mọi thứ trong tiện ích mở rộng này được sắp xếp dưới dạng **nhóm khối**. Một nhóm khối là một bộ quy tắc:
+Các nhóm bị vô hiệu hóa được giữ lại nhưng không tham gia vào các hoạt động khớp, tính giờ, lịch trình hoặc hoạt động báo lại thông thường. Việc vô hiệu hóa một nhóm Tùy chỉnh cũng sẽ hủy bỏ các đăng ký đang hoạt động của nhóm đó. Việc bật lại không biến văn bản chưa được lưu thành quy tắc Tùy chỉnh hiện hoạt; chạy quy tắc để tải nguồn đã lưu.
 
-- Nó có tên, loại và trạng thái bật/tắt.
-- Nó có hành vi chặn (ngay lập tức, sau một vài phút hoặc đếm ngược cố định).
-- Nó có lịch trình tùy chọn (ngày + cửa sổ thời gian) và các điều khiển đóng băng/báo lại tùy chọn.
-- Tùy thuộc vào loại, nó có các trường bổ sung như danh sách trang web, bộ lọc người sáng tạo trên Du-túp, tên subreddit hoặc quy tắc ngôn ngữ kịch bản theo sự kiện.
+### 2.3 Các trường chung
 
-Bạn có thể có bất kỳ số lượng nhóm. Nhiều nhóm có thể áp dụng cho cùng một trang; trong trường hợp đó quy tắc **nghiêm ngặt nhất** sẽ thắng:
+| Lĩnh vực | Ý nghĩa và hạn chế |
+| --- | --- |
+| Tên | Không trống, được cắt bớt và không phân biệt chữ hoa chữ thường trong điểm cuối này. Cầu nối cũng xác định các nhóm có thể liên kết theo tên và loại, vì vậy tên ổn định rất quan trọng. |
+| Đã bật | Bật hoặc tắt kết hợp thông thường. |
+| Hành vi | Chặn ngay lập tức, chặn sau khi cho phép hoặc hẹn giờ/đếm ngược. Các nhóm tùy chỉnh sử dụng quy tắc riêng của họ thay vì bộ chọn hành vi thông thường này. |
+| Số phút cho phép | Số dương được sử dụng bởi hành vi chặn sau trợ cấp. Nhóm mới mặc định là 15 phút. |
+| Đặt lại khoảng thời gian | Số dương được sử dụng bởi các nhóm bình thường được tính thời gian. Nhóm mới mặc định là 24 giờ. |
+| Những ngày năng động | Thứ Hai đến Chủ nhật. Một nhóm bình thường không hoạt động khi ngày trong tuần ở địa phương hiện tại không được chọn. |
+| Cửa sổ thời gian | Không có hoặc nhiều cửa sổ theo giờ địa phương, mỗi cửa sổ một dòng, được viết là HHMM-HHMM. |
+| Chế độ đóng băng | Không có, Đông lạnh, Đông lạnh nghiêm ngặt, hoặc Đông lạnh từ cha mẹ. |
+| Chính sách báo lại | Liệu nhóm có cho phép báo lại hay không, với các điều khiển thời lượng/độ trễ/thời gian hồi chiêu/xác nhận cho các nhóm bình thường. |
+| URL dự phòng | Đích được sử dụng nếu nhóm chặn một trang. |
+| Chuyển sang phần tiếp theo | Khi được cung cấp trong trình chỉnh sửa, yêu cầu luồng chặn thông thường di chuyển qua mục tiêu bị chặn thay vì ở lại trên đó. |
 
-- "Chặn ngay" thay vì "chặn sau một thời gian".
-- Nhóm còn ít thời gian hơn sẽ đánh bại nhóm còn lại nhiều thời gian hơn.
+### 2.4 Hành vi nhóm bình thường
 
-Vì vậy, việc thêm nhiều nhóm hơn chỉ có thể tạo ra một khối trang sớm hơn chứ không bao giờ muộn hơn.
+Trình soạn thảo thông thường cung cấp ba hành vi:
 
-**Thứ tự đánh giá là từ dưới lên trên.** Khi tiện ích lặp lại các nhóm khối của bạn, nó sẽ bắt đầu với nhóm ở cuối danh sách và tiến dần lên. Nhóm ở đầu danh sách được đánh giá cuối cùng và nhận được "từ cuối cùng" — ví dụ: nếu nhóm dưới cùng gọi `helpers.getPlatformHelper().youtube().hideShortButton()` và nhóm trên cùng gọi `showShortButton()` thì nút này vẫn hiển thị. Kéo tay cầm `::` trên thẻ để thay đổi thứ tự này.
+| Hành vi | Kết quả chức năng |
+| --- | --- |
+| Chặn ngay lập tức | Sau khi nhóm hoạt động và phù hợp, quyết định chặn trang thông thường sẽ có hiệu lực ngay lập tức. |
+| Chặn sau vài phút | Thời gian hiển thị trang phù hợp sẽ tích lũy vào khoản phụ cấp được định cấu hình. Khi hết hạn mức, nhóm thông thường sẽ chặn cho đến khi thời gian sử dụng được đặt lại hoặc nhóm không hoạt động/bị tạm ẩn. |
+| Hẹn giờ (đếm ngược, không chặn) | Thời gian hiển thị trang phù hợp được ghi lại và có thể được hiển thị. Chế độ này không bao giờ chặn chỉ vì bộ đếm thời gian của nó đạt đến một giá trị. |
 
----
+Việc sử dụng theo thời gian dựa trên thời gian hiển thị trên trang. Nó không nhằm mục đích tính phí thời gian khi một trang bị ẩn trong tab nền. Khoảng thời gian đặt lại là khoảng thời gian chính sách luân phiên cho nhóm được tính thời gian thông thường. Bộ tính giờ thông thường độc lập theo nhóm.
 
-## 5. Các loại nhóm
+### 2.5 Lịch trình
 
-### 5.1 `Default` — chặn các trang web thông thường
+Lịch trình áp dụng cho nhóm bình thường. Nhóm Tùy chỉnh không có giao diện người dùng lịch trình thông thường và được coi là hoạt động vì mục đích JavaScript của nhóm đó; quy tắc phải áp đặt bất kỳ điều kiện thời gian mong muốn nào.
 
-Để chặn các tên miền cụ thể (trường hợp sử dụng điển hình).
+Chính sách ngày hoạt động được đánh giá bằng giờ địa phương:
 
-- **Các trang web bị chặn**: một trang trên mỗi dòng. Cả `facebook.com` và `https://www.facebook.com/somepage` đều hoạt động; phần mở rộng trích xuất và chuẩn hóa tên máy chủ.
-- Quy tắc trang web áp dụng cho tên máy chủ đó và tất cả các tên miền phụ của nó.
-- Loại nhóm này sử dụng tính năng chặn mạng gốc của trình duyệt Cờ-rôm, tương tự như `ERR_BLOCKED_BY_CLIENT`. Điều đó có nghĩa là việc điều hướng đến một URL bị chặn sẽ bị dừng trước khi trang tải.
+1. Nếu ngày trong tuần hiện tại không được chọn, nhóm bình thường sẽ không hoạt động.
+2. Nếu không cung cấp khoảng thời gian hợp lệ, ngày hoạt động có nghĩa là cả ngày.
+3. Nếu cung cấp các cửa sổ hợp lệ thì giờ địa phương hiện tại phải nằm trong ít nhất một cửa sổ.
 
-### 5.2 `Du-túp` — chặn Du-túp và các trang video tương tự
+Mỗi cửa sổ có dạng chính xác HHMM-HHMM, ví dụ 0900-1200. Giờ phải từ 00 đến 23, phút từ 00 đến 59 và thời gian bắt đầu phải trước khi kết thúc trong cùng một ngày. Một cửa sổ bao gồm phần bắt đầu và loại trừ phần kết thúc của nó. Cửa sổ nửa đêm, chẳng hạn như 2300-0100, không hợp lệ. Các dòng trống sẽ bị bỏ qua và các cửa sổ trùng lặp sẽ được thu gọn.
 
-Thêm phần **Bộ lọc** vào trình chỉnh sửa:
+### 2.6 Tạm ẩn
 
-- **Loại nội dung**:
-  - `Apply to all Du-túp pages` — mỗi trang Du-túp đều có giá trị.
-  - `Apply to Shorts` — chỉ tính trang Shorts.
-  - `Apply to long videos` — chỉ `/watch`, `/live/`, `/embed/`, v.v.
-  - `Apply to Du-túp posts` — bài đăng cộng đồng (`/post/...`, tab bài đăng/cộng đồng kênh).
-- **Bộ lọc tác giả**:
-  - `Do not filter by author` — danh tính tác giả không quan trọng.
-  - `Apply to certain authors` — chỉ các tác giả được liệt kê mới kích hoạt nhóm này.
-  - `Apply to all except certain authors` — các tác giả được liệt kê được miễn.
-- **Tác giả**: một tác giả trên mỗi dòng. Chấp nhận `@handle`, URL đầy đủ, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Ẩn các mục bị chặn trong nguồn cấp dữ liệu Du-túp**: trong khi nhóm này đang tích cực chặn, các thẻ phù hợp trong nguồn cấp dữ liệu Du-túp sẽ bị ẩn. Khi khối không hoạt động, chúng sẽ quay trở lại vào lần làm mới tiếp theo.
+Đối với một nhóm bình thường, báo lại là trạng thái không hoạt động tạm thời với tối đa ba giai đoạn:
 
-Đối với loại nội dung Video ngắn và Bài đăng, khi không đặt bộ lọc tác giả và nhóm hiện đang chặn, tiện ích này cũng ẩn các mục điều hướng có liên quan (mục nhập thanh bên Shorts, tab kênh Cộng đồng/Bài đăng) và các giá phù hợp như "Bài đăng mới nhất trên Du-túp".
+| Giai đoạn | Kết quả |
+| --- | --- |
+| Đang chờ xử lý | Thời gian báo lại được yêu cầu đã tồn tại nhưng chưa bắt đầu do bị trì hoãn kích hoạt. Nhóm vẫn đang hoạt động. |
+| Đang hoạt động | Nhóm tạm thời không hoạt động trong thời gian báo lại. |
+| Thời gian hồi chiêu | Thời gian báo lại đã kết thúc, nhóm hoạt động trở lại và thời gian báo lại khác không thể bắt đầu cho đến khi hết thời gian hồi chiêu. |
 
-Việc phát hiện ngắn và dài mở rộng sang các trang web video khác như Tích Tốc, Vimeo, Tuých clip/VOD và Dailymotion khi có thể phát hiện được hình thức trang của chúng.
+Các trường cấu hình nhóm bình thường là:
 
-### 5.3 `Tích Tốc` — chặn nội dung Tích Tốc
+| Lĩnh vực | Quy tắc |
+| --- | --- |
+| Cho phép báo lại | Nếu tắt, không thể bắt đầu báo lại bình thường. |
+| Thời lượng báo lại | Phút tích cực. Một nhóm bình thường mới lấy mặc định toàn cầu, ban đầu là 30. |
+| Độ trễ kích hoạt | Không hoặc nhiều phút hơn. Trống có nghĩa là không. |
+| Thời gian hồi chiêu | Không qua năm phút. Trống có nghĩa là không. |
+| Xác nhận | Một số nguyên không âm. Sản phẩm yêu cầu nhiều tương tác xác nhận trước khi đưa ra yêu cầu. |
 
-Thẻ trình chỉnh sửa tương tự như trình chỉnh sửa video trên nền tảng nhưng có nhãn dành riêng cho Tích Tốc:- Các loại nội dung: video ngắn, video, trang profile.
-- Tác giả: Tích Tốc xử lý (`@handle`) hoặc URL hồ sơ.
-- Ẩn nguồn cấp dữ liệu sẽ ẩn các thẻ phù hợp trên các trang Tích Tốc khi nhóm đang hoạt động.
+Nhóm Tùy chỉnh chỉ coi nút Báo lại là một sự kiện đầu vào. Vault phát ra sự kiện Tùy chỉnh có tên snoozePress cho nhóm đó; nó không áp dụng dự phòng thời lượng/độ trễ/thời gian hồi chiêu thông thường thay mặt cho quy tắc. Quy tắc tùy chỉnh có thể sử dụng sự kiện, sự kiên trì của chính nó, bảng điều khiển, bộ hẹn giờ hoặc không có hành động nào cả.
 
-### 5.4 `Phây-búc` — chặn nội dung Phây-búc
+### 2.7 Đóng băng
 
-- Các loại nội dung: Reels, video, post.
-- Tác giả: tên trang (`page.name`), URL hồ sơ hoặc dạng `profile.php?id=...` (id số được giữ nguyên là `id:<number>`).
-- Ẩn nguồn cấp dữ liệu ẩn các thẻ nguồn cấp dữ liệu phù hợp trên Phây-búc.
+Việc đóng băng bảo vệ một nhóm khỏi những thay đổi cấu hình thông thường và những thay đổi báo lại thông thường. Việc chọn chế độ đóng băng trong bộ chọn sẽ không tự đóng băng nhóm; hành động đóng băng áp dụng chế độ đã chọn.
 
-### 5.5 `In-xta-gam` — chặn nội dung In-xta-gam
+| Chế độ | Hợp đồng chức năng |
+| --- | --- |
+| đông lạnh | Nhóm này sẽ bị khóa cho đến khi quá trình xác nhận rã đông thông thường của sản phẩm hoàn tất. |
+| đông lạnh nghiêm ngặt | Nhóm không thể được đóng băng cho đến khi hết thời gian đóng băng nghiêm ngặt. Thời lượng phải lớn hơn 0 và không quá 72 giờ; một nhóm mới mặc định là 24 giờ. |
+| Cha mẹ đông lạnh | Cần có mật khẩu người giám hộ để quản lý đóng băng/hủy đóng băng. Hộp thoại cấu hình sử dụng mật khẩu gồm sáu chữ số. |
 
-- Các loại nội dung: Reels, video, post.
-- Tác giả: Tay cầm In-xta-gam hoặc URL hồ sơ.
-- Các đường dẫn dành riêng như `/reel/`, `/p/`, `/tv/`, `/explore/` không được coi là tác giả.
-- Ẩn nguồn cấp dữ liệu ẩn các thẻ phù hợp trên In-xta-gam.
+Không thể chỉnh sửa nhóm cố định thông qua các trường thông thường. Cụm được liên kết cầu nối với thành viên ngoại tuyến cũng có thể khóa các điều khiển đóng băng vì Vault không thể điều phối trạng thái đóng băng một cách an toàn trên toàn cụm. Đóng băng là biện pháp bảo vệ chống lại các hoạt động giao diện người dùng thông thường; nó không biến hồ sơ trình duyệt thành ranh giới bảo mật bất biến.
 
-### 5.6 `Tuých` — chặn nội dung Tuých
+### 2.8 Nhập, xuất, xóa và đặt lại
 
-- Loại nội dung: clip, luồng/VOD, trang kênh.
-- Tác giả: tên kênh hoặc URL kênh.
-- Các đường dẫn dành riêng như `/directory`, `/videos`, `/settings`, v.v. không được coi là tên kênh.
-- Ẩn nguồn cấp dữ liệu ẩn các thẻ phù hợp trên Tuých.
+Xuất tạo ra một đại diện tương thích của nhóm đã chọn. Nhập xác thực và chuẩn hóa dữ liệu nhóm tương thích trước khi thêm dữ liệu đó. Tên nhóm đã nhập vẫn phải là duy nhất. Xóa nhóm sẽ xóa nhóm đó và trạng thái sử dụng/tạm dừng thông thường của nhóm đó. Xóa xóa tất cả các nhóm sau khi xác nhận.
 
-### 5.7 `Rét-đít` — chặn Rét-đít hoặc các subreddits cụ thể
+Đặt lại về mặc định là thao tác **cài đặt chung**. Nó loại bỏ các tùy chọn mở rộng; nó không phải là sản phẩm thay thế xuất/nhập khẩu và phải được coi là có tính chất phá hoại.
 
-- **Subreddits**: một subreddit trên mỗi dòng. Danh sách trống có nghĩa là nhóm áp dụng cho tất cả Rét-đít. Cả `productivity` và `r/productivity` đều được chấp nhận.
+## 3. Các loại nhóm và hợp đồng phù hợp
 
-### 5.8 `Custom` — chặn bằng ngôn ngữ kịch bản hướng sự kiện
+### 3.1 Nhóm trang web mặc định
 
-Bạn viết một hàm ngôn ngữ kịch bản **đăng ký trình xử lý** cho các sự kiện như mở trang, thay đổi URL, nhịp độ trang, kết thúc bộ hẹn giờ và các sự kiện tùy chỉnh của riêng bạn. Hàm chạy một lần cho mỗi lần nhấp Chạy; các trình xử lý đã đăng ký vẫn hoạt động trên các điều hướng cho đến khi bạn nhấn Chạy lại, vô hiệu hóa nhóm hoặc xóa nhóm đó.
+Nhóm trang web sở hữu danh sách trang web được phân tách bằng dòng. Các mục được chuẩn hóa thành dạng máy chủ/tên miền. Mục nhập máy chủ khớp với máy chủ đó và tất cả các tên miền phụ của nó.
 
-Các nhóm `Custom` không hiển thị: hành vi chặn, trang web bị chặn, số phút được phép, khoảng thời gian đặt lại, ngày lên lịch hoặc khoảng thời gian. Họ giữ lại trình chỉnh sửa **Quy tắc chặn** cộng với các điều khiển đóng băng/tạm dừng tiêu chuẩn. Ngoài ra còn có nút **Mẫu** để mở trình duyệt cài sẵn với các quy tắc khởi động được tham số hóa; áp dụng giá trị đặt trước sẽ thay thế quy tắc hiện tại sau khi xác nhận.
+| Cài đặt | Kết quả |
+| --- | --- |
+| Chặn mọi thứ ngoại trừ những trang web này | Danh sách này là một danh sách chặn. Một máy chủ phù hợp đã bị chặn. |
+| Chặn mọi thứ ngoại trừ những trang web này trên | Danh sách này là danh sách cho phép. Mọi máy chủ không có trong danh sách đều bị chặn. Do đó, một danh sách cho phép trống là một hành động cố ý khóa toàn bộ web. |
+| Chặn trang chủ | Áp dụng chính sách của nhóm cho bề mặt bắt đầu/trang chủ của trình duyệt đã định cấu hình nơi có sẵn điều khiển đó. |
+| URL dự phòng | Chuyển hướng đích cho một khối. Giá trị nhóm trống sẽ trở về giá trị mặc định chung. |
 
-Xem **Phần 11** để biết đầy đủ thông tin tham khảo về quy tắc tùy chỉnh và API trợ giúp.
+Danh sách miền Nhóm trang thông thường là danh sách khai báo toàn bộ trang duy nhất được trình soạn thảo hiển thị. Thay vào đó, các nhóm nền tảng phù hợp với nền tảng của riêng họ và các điều kiện nền tảng được định cấu hình.
 
----
+### 3.2 Nhóm nền tảng video
 
-## 6. Hành vi chặn
+YouTube, TikTok, Facebook, Instagram và Twitch là các nhóm nền tảng video. Mỗi cái được giới hạn ở máy chủ nền tảng riêng của nó. Một nhóm có thể nhắm mục tiêu biểu mẫu nội dung, phạm vi tác giả/tài khoản, nguồn cấp dữ liệu trang chủ của nền tảng và các điều khiển phần tử ẩn tùy chọn.
 
-Đối với hầu hết các loại nhóm, bạn chọn một trong ba chế độ.
+Các chế độ tác giả chung là:
 
-### 6.1 Chặn ngay
+| Chế độ | Kết quả |
+| --- | --- |
+| Tất cả | Không hạn chế theo tác giả; các trục được cấu hình khác quyết định sự phù hợp. |
+| Bao gồm | Chỉ khớp những người sáng tạo/tài khoản được chuẩn hóa được liệt kê. |
+| Loại trừ | Khớp tất cả người sáng tạo/tài khoản được phát hiện ngoại trừ các mục được liệt kê. |
+| Không ai | Không trùng khớp với tác giả. Đây là trục tác giả không phù hợp có chủ ý. |
+| Thẻ bao gồm | Ghép người tạo với bất kỳ thẻ nào được liệt kê khi Vault có thể phân loại họ. Người sáng tạo không xác định/chưa được phân loại không mở được. |
+| Loại trừ thẻ | Ghép những người sáng tạo không có (các) thẻ được định cấu hình khi Vault có thể phân loại họ. Người sáng tạo không xác định/chưa được phân loại không mở được. |
 
-Quy tắc này sẽ hoạt động bất cứ khi nào nhóm được bật, lịch trình cho phép và (đối với các nhóm nền tảng) trang phù hợp.
+Các lựa chọn về hình thức nội dung dành riêng cho nền tảng:
 
-Đối với các nhóm `Default`, tính năng này sử dụng tính năng chặn gốc của trình duyệt Cờ-rôm. Đối với các nhóm nền tảng, nó sử dụng logic lớp phủ/thoát trong trang.
+| Nền tảng | Biểu mẫu nội dung |
+| --- | --- |
+| YouTube | Tất cả các trang, video ngắn, video dài, bài đăng. |
+| TikTok | Tất cả các trang, video ngắn. |
+| Facebook | Tất cả các trang, Câu chuyện, video, bài đăng. |
+| Instagram | Tất cả các trang, Câu chuyện, video, bài đăng. |
+| Co giật | Tất cả các trang, clip, luồng/VOD, trang kênh. |
 
-### 6.2 Chặn sau vài phút
+Vault bình thường hóa đầu vào của tác giả. Trình chỉnh sửa chấp nhận biểu mẫu tay cầm/kênh/trang thông thường của nền tảng và các URL hồ sơ được hỗ trợ. Nó có thể từ chối các mục nhập không đúng định dạng hoặc hiển thị chúng là không hợp lệ thay vì âm thầm biến chúng thành mục tiêu khác.
 
-Đây là ngân sách sử dụng.
+Các lựa chọn ẩn bề mặt không phụ thuộc vào việc chặn cấp cao nhất. Chúng chỉ ảnh hưởng đến giao diện người dùng nền tảng hiện tại và có thể ngừng hoạt động khi nền tảng thay đổi đánh dấu.
 
-- **Số phút được phép trước khối** (thập phân): số phút bạn cho phép trong mỗi tiết. Ví dụ: `15`, `0.5`, `90`.
-- **Khoảng thời gian đặt lại bộ hẹn giờ (giờ)** (thập phân): tần suất đặt lại ngân sách. Ví dụ: `24` hàng ngày, `1` hàng giờ, `0.25` cứ sau 15 phút.
+| Nền tảng | Lựa chọn phần tử ẩn được vận chuyển |
+| --- | --- |
+| YouTube | Điều hướng/kệ/thẻ ngắn, quảng cáo/bề mặt quảng cáo trên nguồn cấp dữ liệu gia đình và nhận xét. Tùy chọn liên quan đến quảng cáo đưa ra cảnh báo vì việc ẩn quảng cáo có thể xung đột với các điều khoản của nền tảng. |
+| TikTok | Khám phá điều hướng. |
+| Facebook | Điều hướng cuộn và bề mặt cuộn. |
+| Instagram | Cuộn phim và Khám phá điều hướng/bề mặt. |
+| Co giật | Duyệt điều hướng. |
 
-Khi bạn còn thời gian, trang sẽ hoạt động bình thường và hiển thị lớp phủ hẹn giờ. Khi ngân sách chạm đến 0, trang sẽ bị chặn trong thời gian còn lại và lớp phủ hiển thị `0:00`, sau đó tab sẽ cố gắng thoát.
+Tính năng so khớp thẻ người sáng tạo trên YouTube sử dụng cách phân loại kênh địa phương/có sẵn. Phân loại bị thiếu không trở thành khối chỉ vì chế độ thẻ đã được chọn.
 
-Phần mở rộng là cho mỗi nhóm, mỗi kỳ:
+### 3.3 Reddit
 
-- Mỗi nhóm có ngân sách riêng.
-- Thời gian dành cho bất kỳ trang nào phù hợp với nhóm sẽ được tính vào ngân sách của nhóm đó.
-- Nhiều tab trong cùng một nhóm chia sẻ ngân sách. Bộ tính giờ của họ luôn được đồng bộ hóa; chuyển sang tab khác cũng buộc phải làm mới để nó hiển thị ngay thời gian chia sẻ hiện tại.
+Nhóm Reddit chỉ áp dụng trên Reddit. Thực thể của nó là một subreddit. Đầu vào Subreddit chấp nhận hình thức cộng đồng thông thường và chuẩn hóa nó trước khi khớp.
 
-Nếu nhiều nhóm có giới hạn thời gian áp dụng cho cùng một trang, nhóm nào nghiêm ngặt nhất sẽ thắng.
+Các chế độ subreddit là:
 
-### 6.3 Hẹn giờ (đếm ngược, sau đó chặn)
+| Chế độ | Kết quả |
+| --- | --- |
+| Tất cả | Đăng ký Reddit mà không bị hạn chế danh sách subreddit. |
+| Bao gồm | Áp dụng cho các subreddits được liệt kê. |
+| Loại trừ | Áp dụng cho tất cả ngoại trừ các subreddits được liệt kê. |
+| Không ai | Áp dụng cho không có subreddit. |
 
-Chế độ này hiển thị đồng hồ đếm ngược và chặn khi đạt đến `0:00`.
+Tùy chọn ẩn bề mặt được vận chuyển sẽ ẩn điều hướng Phổ biến/Tất cả. Hoạt động của thẻ nguồn cấp dữ liệu phụ thuộc vào cấu trúc thẻ hiện có thể phát hiện được của Reddit.
 
-- **Khoảng thời gian đặt lại bộ hẹn giờ (giờ)** (thập phân): cả độ dài bộ hẹn giờ và tần số đặt lại. Ví dụ: `24` hàng ngày, `1` hàng giờ, `0.25` cứ sau 15 phút.
+### 3.4 Bất hòa
 
-Không giống như **Chặn sau một số phút**, chế độ này **không** có trường "Được phép trước khi chặn" riêng. Bộ hẹn giờ chỉ bắt đầu ở khoảng thời gian đặt lại, đếm ngược trong khi các trang phù hợp được mở, sau đó chặn cho đến lần đặt lại tiếp theo.Cả bộ đếm ngược của nhóm mặc định và bộ hẹn giờ của nhóm tùy chỉnh (xem **Phần 11.3.1**) đều **chỉ tăng lên khi tab hiển thị**. Chuyển đổi tab, thu nhỏ cửa sổ hoặc khóa màn hình sẽ tự động tạm dừng đếm ngược.
+Nhóm Discord chỉ áp dụng trên các trang Discord/Discordapp. Mục tiêu của nó là id máy chủ hoặc cặp máy chủ/kênh. Trình chỉnh sửa mục tiêu chấp nhận các giá trị đường dẫn kênh Discord được chuẩn hóa.
 
----
+| Chế độ | Kết quả |
+| --- | --- |
+| Tất cả | Áp dụng cho Discord mà không hạn chế danh sách mục tiêu. |
+| Bao gồm | Chỉ áp dụng cho các mục tiêu máy chủ hoặc máy chủ/kênh được liệt kê. |
+| Loại trừ | Áp dụng cho tất cả ngoại trừ các mục tiêu được liệt kê. |
+| Không ai | Áp dụng cho không có mục tiêu. |
 
-##7. Lịch trình
+Discord hiện không có lựa chọn phần tử ẩn nào được vận chuyển trong cấu hình nền tảng thông thường.
 
-Trong thẻ **Lịch trình**, bạn có thể hạn chế khi một nhóm hoạt động:
+### 3.5 Twitter / X
 
-- **Ngày chặn**: chọn ngày nhóm áp dụng. Những ngày không được kiểm tra có nghĩa là nhóm không hoạt động vào ngày hôm đó.
-- **Cửa sổ thời gian**: danh sách dạng tự do, một cửa sổ trên mỗi dòng ở định dạng `HHMM-HHMM`, ví dụ:
+Nhóm Twitter/X áp dụng trên X/Twitter. Nó có thể áp dụng cho tất cả các tài khoản hoặc sử dụng các chế độ tài khoản chung được mô tả cho nền tảng video, với đầu vào liên kết hồ sơ/điều khiển được chuẩn hóa.
 
-  ```
-  0900-1000
-  1200-1300
-  ```
+Các lựa chọn phần tử ẩn được vận chuyển là Khám phá, Tin nhắn, Grok, Xu hướng và các mục nguồn cấp dữ liệu được quảng cáo. Giống như tất cả các điều khiển bề mặt dựa trên bộ chọn, thay đổi đánh dấu X có thể ảnh hưởng đến hoạt động của chúng.
 
-  Nhóm chỉ hoạt động bên trong các cửa sổ đó. Danh sách trống có nghĩa là cả ngày.
+### 3.6 Các trường khai báo nhóm tùy chỉnh
 
-Điều này áp dụng cho tất cả các loại nhóm ngoại trừ `Custom`. (Quy tắc tùy chỉnh có thể triển khai lịch trình của riêng mình bằng cách sử dụng `ev.time.dayName` / `ev.time.hour`; xem **Mục 11.4**.)
+Nhóm Tùy chỉnh chủ yếu chạy nguồn JavaScript của nó. Nó không sử dụng bộ chọn hành vi thông thường hoặc giao diện người dùng lịch trình thông thường. Tuy nhiên, nó có thể mang danh sách miền khi được nhập hoặc định cấu hình thông qua dữ liệu tương thích:
 
----
+- danh sách chặn Tùy chỉnh không trống có thể tham gia vào quyết định trang web toàn trang thông thường;
+- Danh sách cho phép tùy chỉnh có thể tham gia ngay cả khi trống, tạo ra khóa khai báo toàn web;
+- nhóm Tùy chỉnh chưa được định cấu hình không vô tình chặn các trang chỉ vì nhóm đó có quy tắc;
+- Bộ hẹn giờ tùy chỉnh không bao giờ tự chặn; một quy tắc quyết định rõ ràng có nên chặn khi hết giờ hay không.
 
-##8. Đóng băng (chống giả mạo)
+## 4. Cài đặt chung
 
-Việc đóng băng khiến một nhóm khó có thể bị vô hiệu hóa nếu bị thôi thúc.
+Cài đặt chung áp dụng cho tiện ích mở rộng thay vì một nhóm.
 
-Tại thẻ **Freeze** bạn chọn:
+| Cài đặt | Mặc định | Hành vi |
+| --- | --- | --- |
+| Tỷ lệ đánh dấu | 1000 mili giây | Tần suất của sự kiện tùy chỉnh được chia sẻ. Phạm vi hợp lệ là 250 đến 60.000 ms. Giá trị thấp hơn có thể làm cho các quy tắc hướng sự kiện phản hồi nhanh hơn nhưng sử dụng nhiều CPU hơn. |
+| Tự động lưu lỗi | 400 mili giây | Trì hoãn sau lần thay đổi trình chỉnh sửa cuối cùng trước khi duy trì cài đặt bình thường. Tối đa là 5.000 mili giây. |
+| Chế độ gỡ lỗi | Tắt | Bật đầu ra theo dõi quy tắc tùy chỉnh chi tiết và lớp phủ nhật ký gỡ lỗi trên trang. Nó không kiểm soát liệu lệnh gọi nhật ký thông thường của quy tắc có đến được nhật ký bật lên hay không. |
+| Hiển thị nhật ký quy tắc tùy chỉnh trên các trang web | Trên | Kiểm soát việc nâng cấp nhật ký trang thông thường. Tác giả quy tắc vẫn có thể yêu cầu đầu ra chỉ hiển thị trên màn hình hoặc chỉ bật lên một cách rõ ràng. |
+| Thời lượng báo lại mặc định | 30 phút | Seed được sử dụng khi tạo các nhóm bình thường mới. Các nhóm hiện tại giữ lại thời hạn riêng của họ. |
+| URL dự phòng mặc định | về:trống | Được sử dụng khi nhóm chặn không có URL dự phòng dành riêng cho nhóm. |
+| Giúp phân loại người sáng tạo | Tắt | Chọn tham gia rõ ràng. Nó chỉ gửi các id kênh YouTube gặp phải đến dịch vụ phân loại đã định cấu hình; nó không gửi tiêu đề hoặc lịch sử xem. |
+| Thư mục tệp cục bộ | Không có | Khả năng thư mục tùy chọn cho các quy tắc Tùy chỉnh. Xem phần 9. |
+| Cầu ứng dụng web | Tắt | Kết nối tùy chọn với trung tâm Vault cục bộ tương thích. Xem phần 11. |
 
-- **Frozen** — bạn không thể chỉnh sửa hoặc xóa nhóm và bạn không thể bỏ chọn nút bật tắt của nhóm. Để thay đổi bất cứ điều gì, bạn phải chạy nghi thức giải phóng (xem bên dưới).
-- **Đóng băng nghiêm ngặt** — giống như Frozen, nhưng nó vẫn bị khóa trong số giờ bạn chọn (thập phân, tối đa 72). Cho đến khi hết giờ, ngay cả nghi thức giải phóng cũng không khả dụng.
+### 4.1 Giao diện soạn thảo và bề mặt phản hồi
 
-Khi có thể mở khóa một nhóm bị đóng băng, nút **Unfreeze** sẽ xuất hiện. Nhấp vào nó sẽ bắt đầu **nghi thức 20 bước**:
+Trình chỉnh sửa tiện ích mở rộng có danh sách nhóm liên tục và trình chỉnh sửa nhóm được chọn. Danh sách nhóm cung cấp bộ chọn loại nhóm, Thêm, Xóa, lựa chọn, bật chuyển đổi và sắp xếp kéo. Bộ chia của nó có thể thay đổi kích thước. Trình chỉnh sửa nhóm đã chọn cung cấp các trường dành riêng cho nhóm và các hành động Xuất/Nhập của nhóm.
 
-- Phương thức hiển thị thông báo kỷ luật tự giác.
-- Bạn phải nhấp vào `Confirm` 20 lần.
-- Bắt buộc phải chờ 5 giây giữa các lần nhấp.
-- Nếu hủy tại bất kỳ thời điểm nào, bạn phải thực hiện lại từ bước 1.
-- 20 tin nhắn xoay vòng để bạn thực sự đọc chúng.
+Trình chỉnh sửa tự động lưu các thay đổi của trường thông thường sau khoảng thời gian gỡ lỗi toàn cầu. Lỗi xác thực được báo cáo dưới dạng phản hồi trạng thái/bánh mì nướng; các giá trị bình thường không hợp lệ không được âm thầm chuyển đổi thành các cài đặt không liên quan. Một nhóm bị đóng băng sẽ vô hiệu hóa các điều khiển chỉnh sửa thông thường của nó.
 
-Nếu nhóm cũng được đánh dấu là "không báo lại" (xem phần tiếp theo), bạn cũng không thể báo lại nhóm khi bị treo.
+Tiện ích mở rộng cũng có các bề mặt phản hồi mà người dùng có thể nhìn thấy sau:
 
-Trạng thái đóng băng được hiển thị trong dòng meta của thẻ nhóm, bao gồm cả thời gian đóng băng nghiêm ngặt còn lại.
+| Bề mặt | Mục đích chức năng |
+| --- | --- |
+| Hướng dẫn sử dụng | Mở tham chiếu này trong phần mở rộng. |
+| Bộ chọn ngôn ngữ | Chọn ngôn ngữ giao diện mở rộng. |
+| Cài đặt | Mở cài đặt chung được mô tả ở trên. |
+| Trạng thái/phản hồi nâng cốc | Báo cáo lưu, nhập, xác thực và kết quả hành động. |
+| Lớp phủ hẹn giờ trên trang | Hiển thị các mục hẹn giờ/đếm ngược thông thường đang hoạt động và Bộ hẹn giờ tùy chỉnh nằm trong phạm vi hiển thị của chúng. Nhiều mặt hàng có thể cùng tồn tại. |
+| Bề mặt nhật ký trên trang | Nhận các cuộc gọi nhật ký, cảnh báo và lỗi tùy chỉnh khi được cài đặt chung cho phép. |
+| Nhật ký tùy chỉnh | Nhật ký hoạt động trực tiếp cho các mục hiển thị bật lên được tạo theo quy tắc. Nó có thể được xóa và tải xuống. |
 
----
+Đối với các nhóm Tùy chỉnh, trường Quy tắc lưu trữ văn bản nguồn. Lần chạy đầu tiên thực hiện preflight cú pháp quy tắc và chỉ tải nguồn khi thành công. Trình chỉnh sửa cũng thực hiện tìm lỗi mã nguồn cục bộ khi văn bản thay đổi. Kiểm soát **Let AI Code** hiển thị sẽ mở ra trường lời nhắc và sao chép gói tạo mã chứa yêu cầu của người dùng, quy tắc hiện tại và tham chiếu được tạo tới API quy tắc tùy chỉnh hiện tại. Nó không liên hệ với dịch vụ AI hoặc tự động thay đổi quy tắc.
 
-## 9. Snooze (tắt tạm thời)
+Điều khiển Mẫu sẽ mở trình duyệt mẫu. Một mẫu khi được vận chuyển sẽ có tiêu đề, mô tả, thẻ, thông số và bản xem trước được tạo. Áp dụng nó sẽ thay thế văn bản Quy tắc hiện tại sau khi xác nhận. Danh mục mẫu hiện đang được vận chuyển trống; trình duyệt vẫn có sẵn cho các mẫu được sắp xếp trong tương lai và không được coi là nguồn của các quy tắc hoạt động.
 
-Báo lại tạm thời vô hiệu hóa một nhóm mà không giải phóng nhóm đó. Nó hỗ trợ kích hoạt chậm, thời gian hồi chiêu sau khi báo lại, các bước xác nhận và tổng thời gian được báo lại.
+## 5. Ngôn ngữ quy tắc tùy chỉnh
 
-Trong thẻ **Báo lại**:
+### 5.1 Biểu mẫu nguồn quy tắc
 
-- **Cho phép tạm ẩn đối với nhóm này** — nếu tắt, nhóm này hoàn toàn không thể tạm ẩn (kể cả khi bị đóng băng).
-- **Báo lại trong (phút)** — số thập phân, thời gian báo lại kéo dài bao lâu.
-- **Độ trễ kích hoạt (phút)** — `>= 0` thập phân. Sau khi bạn xác nhận việc tạm dừng, nhóm sẽ tiếp tục chặn cho đến khi thời gian trễ này trôi qua; chỉ khi đó chế độ báo lại mới hoạt động.
-- **Thời gian hồi chiêu sau khi báo lại (phút)** — số thập phân từ `0` đến `5`. Sau khi thời gian tạm dừng kết thúc, bạn không thể bắt đầu thời gian tạm hoãn khác cho nhóm này cho đến khi thời gian hồi chiêu kết thúc.
-- **Số lần xác nhận** — số nguyên `>= 0`. Nếu đây là `0`, chế độ báo lại sẽ được lên lịch ngay lập tức. Nếu không, việc bắt đầu báo lại sẽ khởi chạy một nghi thức xác nhận với chính xác nhiều bước đó.
+Nguồn của Nhóm tùy chỉnh là JavaScript. Khi **Run**, Vault xóa các đăng ký trước của nhóm và trạng thái được tạo bởi nguồn hoạt động trước đó, sau đó tải nguồn mới.
 
-Mỗi bước xác nhận báo lại có thời gian chờ bắt buộc **5 giây** trước khi cho phép lần nhấp tiếp theo. Phương thức cho bạn biết điều này một cách rõ ràng và hiển thị đếm ngược trực tiếp trên nút.
+Nguồn có thể là:
 
-Nếu nhóm bị đóng băng, cài đặt báo lại sẽ bị khóa ở các giá trị được chọn trước khi đóng băng. Bạn vẫn có thể báo lại, miễn là cho phép báo lại, nhưng bạn phải sử dụng cài đặt độ trễ/thời gian hồi chiêu/xác nhận đã lưu.
-
-Thẻ Tạm ẩn cũng hiển thị **Tổng thời gian đã tạm ẩn** cho nhóm đó. Tổng số này tính toàn bộ thời lượng báo lại đang hoạt động ngay cả khi trang web có thể truy cập được vì một số lý do khác trong khoảng thời gian đó.
-
-Khi thời gian báo lại kết thúc, quy tắc sẽ quay trở lại ngay lập tức. Nếu nhóm chưa bị đóng băng thì tiện ích mở rộng sẽ tự động đóng băng lại khi kết thúc báo lại.
-
-Một thông báo trạng thái xác nhận việc báo lại. Khi thời gian báo lại kết thúc, nhóm sẽ tự động trở lại bình thường.
-
-Bạn cũng có thể kết thúc báo lại sớm bằng nút **Kết thúc báo lại**.
-
-Đối với các nhóm Tùy chỉnh, việc nhấn **Bắt đầu báo lại** cũng gửi sự kiện `snoozePress` vào quy tắc (xem bảng sự kiện trong **Phần 11**), do đó, quy tắc tùy chỉnh có thể ghi lại thao tác nhấn, ghi nhật ký biện minh hoặc kích hoạt các sự kiện tiếp theo. Quy tắc này **không có API báo lại theo chương trình** — nó có thể phản ứng với thao tác nhấn nhưng không thể hủy hoặc mở rộng thao tác nhấn.
-
----
-
-## 10. Hành động hàng loạt- **Xóa tất cả** xóa mọi nhóm.
-  - Nó luôn yêu cầu xác nhận.
-  - Nếu có ít nhất một nhóm bị đóng băng thì cần thực hiện nghi thức 20 bước tương tự như việc mở băng.
-  - Nếu bất kỳ nhóm nào bị đóng băng nghiêm ngặt và vẫn bị khóa, **Xóa tất cả** sẽ bị tắt.
-
----
-
-## 11. Nhóm tùy chỉnh — tham chiếu theo hướng sự kiện (v1.1+)
-
-Bắt đầu từ phiên bản 1.1, các quy tắc tùy chỉnh sẽ **theo sự kiện**. Quy tắc của bạn không còn là hàm theo nhịp tim có giá trị trả về chặn trang nữa. Thay vào đó, nội dung quy tắc là một tập lệnh **đăng ký trình xử lý** cho các sự kiện cụ thể (mở trang, thay đổi URL, nhịp độ trang, sự kiện tùy chỉnh, ...). Trình xử lý được đăng ký trên các điều hướng trang và chuyển đổi tab, đồng thời tồn tại bên trong **hộp cát ngoài màn hình** tồn tại lâu dài.
-
-Nội dung quy tắc thực thi **một lần cho mỗi lần nhấp Chạy** (hoặc một lần khi nhóm được bật và nguồn hoạt động đã tồn tại). Để tải lại trình xử lý, hãy nhấp vào **Chạy** trong trình chỉnh sửa. Cửa sổ bật lên hiển thị lời nhắc yêu cầu bạn tải lại bất kỳ trang nào đã mở để quy tắc mới cũng được áp dụng ở đó.
-
-### 11.1 Chữ ký quy tắc
+1. a function expression accepting events and helpers; or
+2. các câu lệnh trần sử dụng các sự kiện được cung cấp (hoặc sự kiện kế thừa) và các biến trợ giúp.
 
 ```js
-(event, helpers) => {
-  // Register handlers here. This function is called exactly once
-  // per Run click (or when the group is enabled).
+// Function-expression form
+(events, helpers) => {
+  events.on("openWebEvent", "welcome", (event, h) => {
+    h.log("Opened", event.url);
+  });
 }
 ```
 
-Hai đối số:
+```js
+// Bare-statement form
+events.on("openWebEvent", "welcome", (event, h) => {
+  h.log("Opened", event.url);
+});
+```
 
-- `event` — **đăng ký sự kiện** cho nhóm này. Sử dụng nó để đăng ký, ghi đè, liệt kê, đếm hoặc hủy đăng ký trình xử lý và các sự kiện tùy chỉnh `post(...)`.
-- `helpers` — gói trợ giúp (xem **11.3**).
+Chạy thực hiện cú pháp JavaScript/kiểm tra trước ánh sáng và chỉ khi thành công, nguồn hiện tại mới hoạt động. Việc lưu văn bản và việc chạy văn bản có chủ ý khác nhau: một quy tắc có thể được lưu mà không trở thành nguồn sự kiện hiện hoạt.
 
-Hàm **không** được mong đợi sẽ trả về một giá trị. Quyết định chặn hoặc cho phép được đưa ra sau đó, khi một sự kiện diễn ra và một trong những người xử lý đã đăng ký của bạn gọi `ev.preventDefault()` và/hoặc `ev.setResult(...)`.
+Nguồn hoạt động sẽ được dỡ bỏ khi nhóm Tùy chỉnh được chạy lại, bị vô hiệu hóa, bị xóa hoặc bị dừng một cách rõ ràng. Việc chạy lại sẽ xóa các trình xử lý, bộ hẹn giờ, bảng điều khiển, nhóm lưu giữ lâu dài và các biến vị ngữ nền tảng được tạo theo quy tắc trước khi bắt đầu đăng ký. Khôi phục hộp cát có thể tải lại nguồn hoạt động; do đó, tác giả quy tắc phải thực hiện đăng ký bình thường.
 
-### 11.2 Vòng đời
+### 5.2 Mô hình thực thi và các giả định an toàn
 
-- **Chạy** (nút mỗi nhóm trong trình chỉnh sửa): trước tiên, công cụ sẽ xóa mọi trình xử lý đã được gắn thẻ trước đó với nhóm này, sau đó chạy lại nội dung quy tắc trong hộp cát ngoài màn hình. Đây là cách duy nhất để đăng ký lại sau khi chỉnh sửa nguồn.
-- **Vô hiệu hóa nhóm**: mọi trình xử lý được gắn thẻ với nhóm này đều bị xóa. Nguồn nhóm được lưu trữ nhưng ngừng phản hồi các sự kiện.
-- **Kích hoạt lại nhóm**: engine tự động chạy lại nguồn đang hoạt động cho nhóm này.
-- **Xóa nhóm**: tương tự như tắt; tất cả các trình xử lý được gắn thẻ với nhóm đều bị xóa.
-- **Đăng ký lại với cùng một `(eventType, id)`**: âm thầm ghi đè đăng ký trước đó.
+Custom rules are event registrations, not a continuous script loop. Register handlers during rule initialization, then respond to events.
 
-Hộp cát ngoài màn hình được chia sẻ bởi **tất cả** nhóm tùy chỉnh. Các trình xử lý từ các nhóm khác nhau cùng tồn tại ở đó, mỗi trình xử lý được gắn thẻ nội bộ với id nhóm sở hữu của chúng để việc "Chạy", vô hiệu hóa hoặc xóa chỉ chạm vào đúng nhóm.
-
-Nếu một quy tắc tùy chỉnh hoạt động sai (vòng lặp vô hạn đồng bộ, spam nhật ký chạy trốn, v.v.), hộp cát sẽ cách ly quy tắc đó: nhóm sẽ tự động bị vô hiệu hóa và lỗi được ghi lại để bạn có thể nhìn thấy trong bảng Nhật ký. Để kích hoạt lại quy tắc đã cách ly, hãy sửa nguồn và nhấp vào **Chạy** — công cụ sẽ xóa lý do hủy bỏ và tải lại quy tắc.
-
-### 11.2.1 Sổ đăng ký sự kiện (`event`)
-
-Các phương pháp chung:
-
-- `event.register(type, id, handler, options?)` — đăng ký trình xử lý cho loại sự kiện tùy ý. `id` là sự lựa chọn của riêng bạn. `options.priority` (`0` mặc định) — cao hơn chạy trước. `options.intervalMs` — chỉ dành cho `tickEvent`; điều tiết trình xử lý cụ thể này liên quan đến dấu tích chung. Đăng ký lại với phần ghi đè `(type, id)` tương tự.
-- `event.unregister(type, id)`, `event.unregisterAll(type)`.
-- `event.post(type, data?, { scope })` — kích hoạt một sự kiện tùy chỉnh. `scope: "global"` tiếp cận mọi nhóm; `scope: "group"` mặc định chỉ tiếp cận các trình xử lý trong nhóm **cùng**.
-
-Đường theo loại sự kiện (một bộ phương thức cho mỗi loại tích hợp):
-
-- `event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
-- `event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
-- Hình dạng tương tự cho `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`.
-
-### 11.2.2 Các loại sự kiện tích hợp
-
-| Loại | Khi nó cháy | Tải trọng `ev.data` |
-|---|---|---|
-| `tickEvent` | Tích tắc 1 giây được chia sẻ toàn cầu trên toàn bộ trình duyệt. Kích hoạt bất kể chế độ hiển thị tab. Sử dụng tính năng này cho logic kiểu đồng hồ phải tiếp tục chạy ngay cả khi không có tab nào được tập trung. | `{ intervalMs: 1000 }` |
-| `pageHeartbeatEvent` | Nhịp tim ~250 ms từ tab **hoạt động**, **hiển thị**. Thúc đẩy tất cả logic nhận biết khả năng hiển thị tab, bao gồm cả đánh dấu tự động được tích hợp trong `getOrCreateTimer({ scope })`. **không** kích hoạt từ các tab nền hoặc khi màn hình bị khóa. | `{ elapsedMs }` |
-| `openWebEvent` | Một tab mới được tạo HOẶC một điều hướng mới xuất hiện trên một URL mà công cụ chưa thấy cho tab đó. **không** kích hoạt lại các tab đã mở sau khi nhấp vào Chạy. | `{ previousUrl, isNewTab }` |
-| `closeWebEvent` | Một tab đã được đóng lại. | `{ reason, nextUrl }` |
-| `switchWebEvent` | URL **thay đổi** bên trong cùng một tab - lùi/chuyển tiếp, thay đổi tuyến đường SPA hoặc điều hướng đến một URL khác với URL trước đó. **không** kích hoạt khi tải lại đơn giản (cùng một URL). | `{ previousUrl, previousHostname, sameDomain }` |
-| `switchDomainEvent` | Thay đổi URL vượt qua ranh giới tên máy chủ (ví dụ: `youtube.com` → `wikipedia.org`). Bắn cùng với `switchWebEvent`. | `{ previousUrl, previousHostname }` |
-| `webChangedEvent` | Trang (tải lại) theo bất kỳ cách nào: mở, chuyển đổi, cập nhật lịch sử SPA, **hoặc tải lại đơn giản nhưng vẫn giữ nguyên URL**. Đây là câu hook "trang đã thay đổi, đánh giá lại mọi thứ" đáng tin cậy. Kích hoạt cùng với `openWebEvent` / `switchWebEvent` / `switchDomainEvent` và là loại duy nhất kích hoạt khi tải lại cùng một URL. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` trong đó `transition` là `"tabCreated"`, `"commit"` hoặc `"history"` |
-| `timerEnded` | Bộ đếm thời gian do nhóm quản lý đạt `currentMs === 0`. Chỉ giao cho nhóm sở hữu. | `{ timerId, displayName, direction, currentMs }` |
-| `snoozePress` | Người dùng đã nhấn **Bắt đầu báo lại** trong cửa sổ bật lên cho nhóm **tùy chỉnh** này. Sự kiện thông báo thuần túy — trình xử lý có thể chạy mã tùy ý (ghi nhật ký, chuyển hướng, kích hoạt các sự kiện khác) nhưng quy tắc tùy chỉnh **không có API báo lại theo chương trình**. Nhật ký được tạo ở đây hiển thị dưới dạng nâng cao trên tab đang hoạt động. Chỉ giao cho nhóm ép. | `{ triggeredAt }` |
-
-Các URL trong `ev.url` và trong dữ liệu sự kiện được **chuẩn hóa** cho các sự kiện: Trang tab mới của trình duyệt Cờ-rôm (hiển thị bề mặt "Tìm kiếm trên Google hoặc nhập URL" của Google), `about:blank` và các sơ đồ tab mới tương đương được hiển thị dưới dạng chuỗi trống `""`. Vì vậy, đồng hồ hẹn giờ trong phạm vi `ev.url === ""` chỉ tích tắc khi bạn đang ở trang tab mới. URL `google.com` thông thường không thay đổi.
-
-### 11.2.3 Đối tượng sự kiện (`ev`)
-
-Mọi trình xử lý đều được gọi là `(ev, helpers) => void`. `ev` mang:
-
-- `ev.type` — loại sự kiện được gửi đi.
-- `ev.groupId` — id của nhóm nhận.
-- `ev.tabId`, `ev.pageId`, `ev.url`, `ev.hostname` — bối cảnh cho sự kiện.
-- `ev.time` — Ảnh chụp nhanh `{ now, month, dayOfMonth, dayName, hour, minute }` khi gửi đi. `dayName` là `"Sunday"`..`"Saturday"`.
-- `ev.data` — tải trọng dành riêng cho sự kiện (xem bảng ở trên).
-
-Phương pháp:
-
-- `ev.preventDefault()` — đánh dấu công văn là "bị chặn". Tập lệnh nội dung máy chủ sẽ thoát khỏi trang (hoặc đi theo `setRedirectLink`) trừ khi trình xử lý có mức độ ưu tiên cao hơn sau đó đặt `setResult(1)`.
-- `ev.stopPropagation()` — dừng việc gửi thư này ngay lập tức. **Không có trình xử lý nào khác trong bất kỳ nhóm nào** được gọi cho sự kiện này.
-- `ev.setResult(value)` — đặt kết quả gửi đi. `value` có thể là **số** trong `[-255, 255]` (khối `-1`, `0` trung tính, cho phép `1`; các số nguyên khác được giữ nguyên cho logic gỡ lỗi của riêng bạn) hoặc **chuỗi** (được hiểu là URL chuyển hướng). Cuộc gọi `setResult` cuối cùng trên tất cả các trình xử lý sẽ thắng. `1` dạng số sẽ ghi đè mọi `preventDefault` trước đó.
-- `ev.setRedirectLink(url)` / `ev.getRedirectLink()` — URL mà máy chủ sẽ điều hướng đến khi quá trình gửi kết thúc với tình trạng bị chặn. Đây là cách **duy nhất** để chuyển hướng từ các quy tắc tùy chỉnh; trình chỉnh sửa không còn hiển thị trường "URL chuyển hướng khi bị chặn" cho các nhóm Tùy chỉnh.
-- `ev.post(type, data, { scope })` — kích hoạt sự kiện tiếp theo từ bên trong trình xử lý.
-
-Ngoài ra, `ev` là Proxy: bất kỳ trường nào bạn đặt trên đó (ví dụ: `ev.foo = 42`) đều được lưu trữ trong bản đồ `custom` và có thể được đọc lại từ cùng một trình xử lý hoặc từ các trình xử lý sau này trong cùng một công văn.### 11.3 Đối tượng `helpers`
-
-Mỗi lệnh gọi trình xử lý sẽ nhận được gói `helpers` mới trong phạm vi nhóm nhận và URL của sự kiện. Các trường không đổi:
-
-- `helpers.now` — mili giây kỷ nguyên khi gửi đi.
-- `helpers.currentUrl` — URL sự kiện, sau khi chuẩn hóa tab mới/trống.
-- `helpers.groupId` — nhận id nhóm.
-
-Các phím tắt tiện lợi (định tuyến đến các chức năng nhận biết bộ tích lũy tương tự được sử dụng bởi những người trợ giúp bên dưới, do đó, đầu ra vẫn nằm trong bảng Nhật ký):
-
-- `helpers.log(...)`, `helpers.warn(...)`, `helpers.error(...)`.
-
-Các phương thức truy cập:
-
-- `helpers.getLogHelper()` — `log` / `warn` / `error`. Đầu ra bị giới hạn tốc độ và bị giới hạn cho mỗi lần gửi để ngăn các quy tắc chạy trốn đóng băng cửa sổ bật lên.
-- `helpers.getDomainHelper()` (bí danh `helpers.getDomainUtility()`) — Kiểm tra URL (xem **11.3.5**).
-- `helpers.getTimerHelper()` — bộ hẹn giờ trong phạm vi nhóm (đếm ngược/đếm ngược); trạng thái vẫn tồn tại khi khởi động lại trình duyệt.
-- `helpers.getPersistenceHelper()` — Kho lưu trữ khóa/giá trị JSON nằm trong phạm vi nhóm.
-- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (và các bí danh `set` / `get`) cộng với `createMessageUrl(message)` trả về URL `chrome-extension://...` hiển thị thông báo đã cho.
-- `helpers.getPlatformHelper()` — ý định DOM trên mỗi nền tảng (xem **11.3.6**).
-- `helpers.getDOMHelper()` — ý định DOM chung: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. Các hoạt động được thực hiện theo đợt và được áp dụng sau khi trình xử lý trả về.
-- `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Hiệu ứng được áp dụng cho tab mà sự kiện xuất phát.
-- `helpers.getStorageHelper()` — siêu tập hợp của `getPersistenceHelper` cộng với các móc nối `requestAsyncGet(key)` / `requestAsyncSet(key, value)` không đồng bộ để lưu trữ nhiều tiện ích mở rộng (kết quả sẽ đến dưới dạng sự kiện tùy chỉnh tiếp theo).
-- `helpers.getTabHelper()` — `list()`, `getActiveTab()`, `getById(id)`, `countOpen()` dựa trên ảnh chụp nhanh đi kèm với sự kiện.
-
-Tất cả các phương thức trợ giúp đều an toàn: tham số sai trả về `null`, `false` hoặc một giá trị trống thay vì ném.
-
-#### 11.3.1 `getTimerHelper()`
-
-Bộ đếm thời gian cho mỗi nhóm. Mỗi bộ hẹn giờ được xác định bằng chuỗi `id` bạn chọn; danh tính nằm trong phạm vi nhóm, vì vậy cả hai nhóm đều có thể sử dụng id `"yt-shorts"` mà không xung đột. Trạng thái vẫn tồn tại khi khởi động lại trình duyệt.
-
-Trạng thái liên tục của bộ hẹn giờ chính xác là: `id`, `displayName`, `direction` (`"forward"` hoặc `"backward"`), `isPaused` và `currentMs`. Không có "thời lượng ban đầu" được lưu trữ - `isExpired` chỉ là `currentMs === 0`. Bộ đếm thời gian chuyển tiếp tích tắc mãi mãi và không bao giờ tự hết hạn. Bộ hẹn giờ lùi dừng tích tắc ở `0` (không có giá trị âm).
-
-Có hai phương pháp xây dựng. Chọn một trong đó có ngữ nghĩa phù hợp với những gì bạn muốn:
-
-- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **luôn (tái)tạo** bộ hẹn giờ với các giá trị init được cung cấp, ghi đè mọi trạng thái hiện có bao gồm `currentMs`. Sử dụng điều này khi bạn muốn nói "bắt đầu mới", ví dụ: bên trong nhánh thiết lập lại một lần.
-- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **bình thường**. Nếu bộ hẹn giờ với `id` đó đã tồn tại thì `displayName` và `direction` của nó có thể được cập nhật nhưng `currentMs` vẫn được giữ nguyên. Nếu không thì nó được tạo bằng các giá trị init được cung cấp. Đây là những gì bạn muốn cho mẫu "đảm bảo bộ hẹn giờ của tôi tồn tại, sau đó để nó đánh dấu".
-
-Cả hai phương pháp đều chấp nhận hai hàm vị ngữ mà công cụ ghi nhớ trong suốt thời gian tồn tại của quy tắc (chúng tồn tại qua từng nhịp tim và qua các lần đánh giá lại `webChangedEvent`, nhưng chúng **không bao giờ được lưu giữ** trong bộ nhớ):- `scope: (url) => boolean` — khi `true` dành cho URL hiển thị hiện tại trên mỗi `pageHeartbeatEvent`, bộ hẹn giờ sẽ tự động đếm theo nhịp tim (~250 mili giây). Bản thân người trợ giúp không bao giờ chặn; nó chỉ cập nhật `currentMs`. Nhiều nhất một tích tắc tự động cho mỗi nhịp tim trong mỗi bộ hẹn giờ.
-- `domain: (url) => boolean` — khi `true` cho URL hiển thị hiện tại, bộ hẹn giờ được hiển thị trong lớp phủ trong trang (trên cùng bên trái). Khi `domain` bị bỏ qua, động cơ sẽ quay trở lại `scope` để hiển thị, do đó bộ đếm thời gian "tick on /shorts/ pages" cũng hiển thị ở đó mà không cần nối thêm dây. Cung cấp `domain` một cách rõ ràng nếu bạn muốn một cổng hiển thị khác (ví dụ: chỉ đánh dấu vào `/shorts/`, nhưng hiển thị thời gian còn lại trên tất cả `youtube.com`).
-
-> **Quan trọng — đồng hồ hẹn giờ không bao giờ tự chặn.** Khi đồng hồ hẹn giờ lùi về 0, nó chỉ dừng ở 0 và kích hoạt `timerEnded` một lần. Việc có thực sự chặn trang hay không tùy thuộc vào trình xử lý `openWebEvent` / `switchWebEvent` riêng biệt gọi `ev.preventDefault()` sau khi kiểm tra `helpers.getTimerHelper().isExpired(id)`. Sự tách biệt này cho phép bạn xây dựng bộ hẹn giờ "chỉ cảnh báo", trình theo dõi đếm ngược, nhắc nhở mềm hoặc khối cứng — cùng một kiểu nguyên thủy, tùy bạn lựa chọn.
-
-Các phương pháp khác:
-
-- `delete(id)`, `pause(id)`, `resume(id)` — vòng đời tiêu chuẩn. Tạm dừng đóng băng `currentMs`.
-- `setDirection(id, "forward" | "backward")`, `setCurrentMs(id, ms)`, `addMs(id, deltaMs)` — trình biến đổi trực tiếp (hầu hết các quy tắc không cần những quy tắc này — hãy để nhịp tim đánh dấu đồng hồ bấm giờ cho bạn).
-- `setDisplayName(id, name)` — dán nhãn lại.
-- `getCurrentMs(id)`, `getDirection(id)`, `getDisplayName(id)`, `isPaused(id)`, `exists(id)`.
-- `isExpired(id)` — `true` nếu `currentMs === 0`.
-- `getState(id)` — `{ id, displayName, direction, isPaused, currentMs, isExpired }` hoặc `null`.
-- `list()` — mọi bộ đếm thời gian mà nhóm này sở hữu, dưới dạng một mảng các đối tượng trạng thái.
-
-#### 11.3.2 `getPersistenceHelper()`
-
-Lưu trữ giống như bản đồ trong phạm vi nhóm của bạn. Các giá trị phải có thể tuần tự hóa JSON.
-
-- `set(key, value)`, `get(key, defaultValue?)`, `has(key)`, `delete(key)`, `keys()`, `entries()`, `clear()`, `size()`.
-
-Giới hạn mềm: khoảng 200 khóa mỗi nhóm, 16 KB mỗi giá trị.
-
-#### 11.3.3 `getLogHelper()`
-
-- `log(...args)`, `warn(...args)`, `error(...args)` — ghi vào bảng **Log** trong cửa sổ bật lên (gói trợ giúp vẫn định tuyến chúng qua cùng một bộ tích lũy bất kể công văn nào tạo ra chúng). Mỗi dòng có tiền tố `[CustomBlocker:groupId]`.
-- Trình trợ giúp có giới hạn cứng: khoảng **200 mục nhật ký cho mỗi lần gửi** và độ dài chuỗi tối đa cho mỗi mục nhập. Các mục thừa sẽ bị loại bỏ và tính vào `accumulator.logsDropped`. Đây là thứ bảo vệ cửa sổ bật lên khỏi hành vi chạy trốn của `for (let i = 0; i < 100000; i++) helpers.log(i)`.
-- Khi **Chế độ gỡ lỗi** tắt (mặc định), các mục nhập cấp độ theo dõi mà công cụ tự phát ra (thời gian bắt đầu gửi/xử lý) sẽ bị chặn ở mọi nơi — chúng không hiển thị trong bảng Nhật ký và không in ra bảng điều khiển. Các cuộc gọi `log` / `warn` / `error` của riêng bạn luôn được thực hiện.
-
-#### 11.3.4 `getRedirectionHelper()`
-
-Kiểm tra/ghi đè URL chuyển hướng mà tập lệnh nội dung sẽ sử dụng nếu trang hiện tại bị chặn.
-
-- `get()` — trả về URL chuyển hướng hiệu quả hiện tại cho công văn này. Ban đầu, đây là URL dự phòng được định cấu hình của nhóm tích hợp (nếu có), nếu không thì `""`.
-- `set(url)` — ghi đè URL chuyển hướng đó cho công văn này. Trả về `true` nếu thành công, `false` cho đầu vào không phải chuỗi. Việc chuyển `""` sẽ xóa ghi đè chuyển hướng và quay lại hành vi thoát mặc định thông thường.
-- `createMessageUrl(message)` — trả về URL `chrome-extension://<id>/message-page.html?msg=...` mà khi điều hướng đến sẽ hiển thị thông báo được căn giữa trên một trang sạch. Hữu ích khi chuyển hướng người dùng đến màn hình "Đi làm" / "Nghỉ ngơi" sau khi hết giờ. Ví dụ: `ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`.
-
-Giống như các tác dụng phụ khác của quy tắc tùy chỉnh, trạng thái này được chia sẻ trên tất cả các quy tắc trong công văn hiện tại. Vì các quy tắc chạy từ dưới lên trên nên quy tắc trên cùng gọi `set(...)` sẽ thắng.
-
-#### 11.3.5 `getDomainHelper()` (bí danh `getDomainUtility()`)
-
-Người trợ giúp kiểm tra URL. Không có `normalize()` vì các URL đến đã được chuẩn hóa theo tab mới.
-
-Cốt lõi:- `hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
-- `isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
-- `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()` — mỗi người trả về `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`.
-
-Lọc URL và trợ giúp phần:
-
-- `isEmptyStartPage(url)` — `true` dành cho trang tab mới và các trang tương đương (các URL hiển thị dưới dạng `""` đối với trình xử lý).
-- `matchesAny(url, patterns)` — `patterns` có thể là biểu thức chính quy, biểu thức chính quy chuỗi hoặc một mảng.
-- `pathStartsWith(url, path)` — nhận biết ranh giới (`pathStartsWith("/r/", "/r")` là đúng; `"/results/"` thì không).
-- `queryHas(url, key, value?)`, `queryGet(url, key)` — kiểm tra chuỗi truy vấn.
-- `isSearchPage(url)` — nhận dạng kết quả tìm kiếm trên Google / Bing / DuckDuckGo / Du-túp / Rét-đít / Tuýt-tơ / X.
-- `isInfiniteFeedUrl(url)` — nhận dạng các bề mặt nguồn cấp dữ liệu thuật toán của Du-túp, Tích Tốc, In-xta-gam, Phây-búc, Rét-đít, X.
-- `sameSection(a, b)` — cùng tên máy chủ VÀ cùng đoạn đường dẫn đầu tiên.
-
-#### 11.3.6 `getPlatformHelper()`
-
-Ý định DOM trên mỗi nền tảng và bộ tính giờ của phần phụ, cùng với việc kiểm tra. Mỗi `helpers.getPlatformHelper().<platform>()` trả về một đối tượng có bộ phương thức được **kiểm soát bởi nền tảng** — các phương thức không có ý nghĩa trên một nền tảng nhất định đơn giản là không có, vì vậy việc gọi chúng sẽ tạo ra `TypeError: ... is not a function` thay vì âm thầm không hoạt động. Ví dụ: `twitch().hidePosts` không tồn tại (Tuých không có bài đăng nào) và `tiktok().hideShortButton` không tồn tại (Toàn bộ trải nghiệm của Tích Tốc đã là _video dạng ngắn). Sử dụng `helpers.getPlatformHelper().hasMethod(platform, name)` hoặc `.listMethods(platform)` để xem xét nội tâm trong thời gian chạy.
-
-Ma trận phương pháp trên mỗi nền tảng:
-
-| phương pháp | youtube | tiktok | instagram | facebook | co giật |
-|---|:---:|:---:|:---:|:---:|:---:|
-| `hideShorts` / `showShorts` | ✓ |  |  |  |  |
-| `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
-| `hideClips` / `showClips` |  |  |  |  | ✓ |
-| `hideStreams` / `showStreams` |  |  |  |  | ✓ |
-| `hideVideos` / `showVideos` | ✓ | ✓ |  | ✓ | ✓ (VOD) |
-| `hidePosts` / `showPosts` | ✓ |  | ✓ | ✓ |  |
-| `hideShortButton` / `showShortButton` | ✓ |  |  |  |  |
-| `hideHomePage` / `showHomePage` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓ (trò chuyện) |
-| `filterComments` | ✓ | ✓ | ✓ | ✓ |  |
-| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |  | ✓ | ✓ |
-| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |  |  |  | ✓ |
-| `isCurrentChannelVerified` | ✓ |  |  |  |  |
-| `isLiveNow` | ✓ | ✓ |  | ✓ | ✓ |
-| `isItemLive` | ✓ | ✓ |  | ✓ | ✓ |
-| `isAlgorithmicRecommendation` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `isSponsored` | ✓ | ✓ | ✓ | ✓ |  |
-| `setShortsTimer` | ✓ |  |  |  |  |
-| `setReelsTimer` |  |  | ✓ | ✓ |  |
-| `setClipsTimer` |  |  |  |  | ✓ |
-| `setStreamsTimer` |  |  |  |  | ✓ |
-| `setVideosTimer` | ✓ | ✓ |  | ✓ | ✓ |
-| `setPostsTimer` | ✓ |  | ✓ | ✓ |  |
-
-Tên gốc của nền tảng (`hideReels`, `hideClips`, `hideStreams`) KHÔNG phải là các nhóm riêng biệt với `hideShorts` / `hideVideos` — khe lưu trữ giống nhau; chỉ có tên hiển thị cho người dùng tuân theo thuật ngữ của từng nền tảng.
-
-> **Quy tắc tồn tại vị ngữ và một vị trí.** Mỗi `hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` sở hữu **một** liên tục vị từ trên `(group, platform, slot)`. Vị từ **không** nằm trong phạm vi sự kiện hiện tại — sau khi bạn đặt nó, nó sẽ vẫn hoạt động trên mọi lần tải trang và mọi lần gửi đi cho đến khi `show*()` phù hợp được gọi hoặc nhóm được hủy tải. Gọi lại cùng một phương thức bằng một hàm mới **thay thế** hàm trước đó - công cụ không bao giờ HOẶC hợp nhất nhiều vị từ trong một nhóm. Để kết hợp các điều kiện, hãy viết một vị từ tự thực hiện việc kết hợp, ví dụ: `yt.hideVideos(item => isShort(item) || hasKeyword(item))`. Trong các nhóm **khác nhau**, mỗi nhóm đóng góp vị từ riêng của mình và một mục sẽ bị ẩn nếu vị từ của bất kỳ nhóm nào trùng khớp.
-
-Các phương pháp kiểm tra lấy giá trị tại thời điểm gửi đi từ ảnh chụp nhanh đi kèm với sự kiện; tính sẵn có của chúng được kiểm soát bởi ma trận ở trên.
-
-Trình phân loại URL luôn được hiển thị lại bất kể nền tảng: `isPlatformUrl`, `isShortUrl`, `isVideoUrl`, `isPostUrl`, `isHomePage`, `extractAuthor`, `extractVideoId`.Bộ hẹn giờ của phần phụ đăng ký bộ hẹn giờ trong nhóm nhóm liên tục và khi nằm trong phạm vi, chỉ đánh dấu vào các URL khớp với phần phụ đó. Các phương thức hẹn giờ chấp nhận `{ id, direction, currentMs, displayName }` và tuân theo cùng một cổng cho mỗi nền tảng.
-
-Đối với các phương thức vị ngữ, vị từ được gọi trên mỗi thẻ phù hợp với `item` được chuẩn hóa: `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`. Bất kỳ trường nào cũng có thể là `null`; "vô tội cho đến khi được chứng minh là có tội" — trả lại `false` khi thiếu trường bạn cần.
-
-### 11.4 Ví dụ
-
-**Dễ dàng** — chặn các trang Du-túp Shorts vào các buổi sáng các ngày trong tuần:
+Mỗi người xử lý nhận được:
 
 ```js
 (event, helpers) => {
-  const yt = helpers.getDomainHelper().youtube();
-
-  function maybeBlock(ev) {
-    if (!yt.isShortUrl(ev.url)) return;
-    const { dayName, hour } = ev.time;
-    const weekday = !["Saturday", "Sunday"].includes(dayName);
-    if (weekday && hour >= 9 && hour < 12) {
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-
-  event.registerOpenWebEvent("morning-block", maybeBlock);
-  event.registerSwitchWebEvent("morning-block", maybeBlock);
+  // event: the currently dispatched event object
+  // helpers: the public Vault Custom-rule API
 }
 ```
 
-**Trung bình** — Ngân sách 30 phút mỗi ngày dành cho Du-túp Shorts. Đồng hồ tính giờ tự động đánh dấu trên `pageHeartbeatEvent` khi URL Video ngắn hiển thị; một trình xử lý riêng sẽ thực thi khối khi bộ đếm thời gian chạm 0.
+Trình xử lý sự kiện được thực hiện theo mức độ ưu tiên số giảm dần; thứ tự đăng ký sử dụng ưu tiên như nhau. Một trình xử lý có thể được thay thế bằng cách đăng ký lại cùng loại sự kiện và id. Có tối đa 1.000 trình xử lý đã đăng ký cho một nhóm Tùy chỉnh.
+
+Vault giới hạn công việc đang hoạt động của một trình xử lý trong khoảng một giây. Ba lần vượt quá thời hạn cho cùng một nhóm trong vòng một phút sẽ cách ly quy tắc: Vault vô hiệu hóa quy tắc này thay vì liên tục chạy trình xử lý có vấn đề. Không sử dụng chế độ chờ bận, vòng lặp không giới hạn, bỏ phiếu đồng bộ hoặc số lượng lớn đột biến/nhật ký cho mỗi sự kiện.
+
+Mỗi lần gửi đi, Vault chấp nhận tối đa:
+
+| Mục | Tối đa |
+| --- | --- |
+| Mục nhật ký quy tắc | 200 |
+| Sự kiện đã đăng | 64 |
+| Hoạt động DOM | 256 |
+| Hành động/ý định | 256 |
+| Bảng mỗi nhóm | 24 |
+| Điều khiển trong một bảng | 32 |
+| Các tùy chọn trong điều khiển chọn/radio | 64 |
+
+Các mục nhập nhật ký, sự kiện đã đăng, hoạt động DOM và mục đích dư thừa có thể bị loại bỏ. Quy tắc tùy chỉnh không được phụ thuộc vào các mục nhập vượt quá được phân phối.
+
+### 5.3 Các loại sự kiện tích hợp
+
+Các chuỗi loại sự kiện sau đây đã được tích hợp sẵn. Một quy tắc cũng có thể sử dụng chuỗi loại không trống của chính nó, miễn là nó không bắt đầu bằng dấu gạch dưới.
+
+| Loại sự kiện | Khi nó được gửi | Dữ liệu quan trọng |
+| --- | --- | --- |
+| đánh dấu sự kiện | Đánh dấu định kỳ được chia sẻ ở cài đặt tỷ lệ đánh dấu toàn cầu. | Ngữ cảnh trang/tab hiện tại nếu có. Sử dụng tùy chọn đăng ký intervalMs để giới hạn tốc độ cho một trình xử lý riêng lẻ. |
+| openWebEvent | Một trang cấp cao nhất sẽ có sẵn cho quy tắc. | URL, tên máy chủ, id tab/trang, thời gian. |
+| closeWebEvent | Một trang/tab cấp cao nhất sẽ đóng lại. | Bối cảnh URL/tên máy chủ nếu có. |
+| webChangedEvent | Điều hướng cấp cao nhất đã được cam kết, bao gồm cả tải lại cùng một URL. | dữ liệu mang URL/tên máy chủ và các cờ điều hướng trước đó như isFirstLoad, isReload và SameDomain. |
+| hẹn giờĐã kết thúc | Bộ hẹn giờ tùy chỉnh chuyển sang trạng thái hết hạn. | dữ liệu: timeId, displayName, hướng, currentMs. Nó chỉ được gửi đến nhóm sở hữu bộ đếm thời gian. |
+| báo lạiPress | Người dùng nhấn Start Snooze cho nhóm Custom này. | Quy tắc sở hữu phản hồi; không có dự phòng báo lại bình thường nào được thực hiện. |
+| bảngSự kiện | Bảng tùy chỉnh được hiển thị có tương tác. | các trường dữ liệu và tiện ích bao gồm thông tin về bảng/điều khiển/sự kiện/giá trị. |
+| localFileEvent | Một hành động tệp cục bộ được yêu cầu hoàn tất. | các trường dữ liệu và tiện ích bao gồm requestId, đường dẫn, kết quả, byte, mục nhập và lỗi. |
+| trangHeartbeatSự kiện | Nhịp tim của trang hiển thị, khoảng 250 mili giây một lần khi tab hiển thị. | elapsedMs là thời gian trôi qua của trang hiển thị. Bộ hẹn giờ tùy chỉnh có phạm vi tự động sử dụng nó ngay cả khi không có trình xử lý đã đăng ký. |
+
+### 5.4 API đăng ký sự kiện
+
+Đối số đầu tiên cho nguồn kiểu hàm là sổ đăng ký Sự kiện. Trong nguồn câu lệnh trần, cả sự kiện và sự kiện đều đề cập đến sổ đăng ký này.
+
+| Phương pháp | Hợp đồng |
+| --- | --- |
+| events.on(type, id, handler, options) | Register a handler. Returns true when accepted, false for invalid/capped registrations. |
+| events.register(type, id, handler, options) | Alias of on. |
+| events.off(type, id) | Unregister a handler. Returns whether something was removed. |
+| events.unregister(type, id) | Alias of off. |
+| events.unregisterAll(type) | Remove all handlers owned by this group for that event type. Returns the number removed. |
+| events.getEvent(type, id) | Return the registered function for this group/id, or null. |
+| events.getEvents(type) | Return an object mapping this group's handler ids to functions. |
+| events.countRegistered(type) | Return this group's number of registrations for type. |
+| events.emit(type, data, options) | Queue a synthetic event. |
+| events.post(type, data, options) | Alias of emit. |
+
+Đối tượng tùy chọn xử lý tùy chọn hỗ trợ:
+
+| Tùy chọn | Ý nghĩa |
+| --- | --- |
+| ưu tiên | Thứ tự số. Giá trị cao hơn chạy trước giá trị thấp hơn. Mặc định 0. |
+| khoảngMs | Số dương. Chỉ dành cho tickEvent, chặn các cuộc gọi cho đến khi khoảng thời gian này trôi qua kể từ cuộc gọi trước đó của trình xử lý. |
+
+Các sự kiện tổng hợp được mặc định ở phạm vi nhóm: chỉ những trình xử lý thuộc nhóm phát ra mới nhận được chúng. Sử dụng { phạm vi: "global" } để gửi sự kiện tới mọi quy tắc đã đăng ký cùng loại. Không sử dụng dấu gạch dưới ở đầu tên sự kiện; nó được bảo lưu.
+
+### 5.5 Đối tượng sự kiện
+
+Mọi trình xử lý đều nhận được một đối tượng sự kiện có thể thay đổi với các trường chung:
+
+| Trường/phương pháp | Hợp đồng |
+| --- | --- |
+| gõ | Chuỗi loại sự kiện. |
+| nhómId | Id nhóm tùy chỉnh của người nhận. |
+| tabId, pageId | Số nhận dạng trình duyệt khi có sẵn; nếu không thì vô giá trị. |
+| url, tên máy chủ | URL và tên máy chủ cấp cao nhất hiện tại hoặc chuỗi trống. |
+| thời gian | Bản sao của đối tượng thời gian gửi đi hoặc không. |
+| dữ liệu | Tải trọng dành riêng cho sự kiện hoặc không. |
+| ngăn chặnDefault() | Đánh dấu công văn là một hành động chặn trang. Trang được chuyển hướng đến liên kết/kết quả chuyển hướng hiện tại nếu có; nếu không thì Vault sử dụng đường dẫn thoát/dự phòng thông thường. |
+| stopPropagation() | Dừng các trình xử lý sau này cho việc gửi sự kiện hiện tại. |
+| setResult(giá trị) | Lưu trữ một kết quả số hoặc chuỗi. Một chuỗi không trống được coi là mục tiêu chuyển hướng; kết quả 1 ngăn chặn một kết quả ngăn chặn được tích lũy khác. |
+| getResult() | Trả về kết quả do đối tượng sự kiện này đặt hoặc null. |
+| bài đăng (loại, dữ liệu, tùy chọn) | Xếp hàng một sự kiện tổng hợp, có cùng quy tắc phạm vi với Events.post. |
+| setRedirectLink(url) | Đặt URL chuyển hướng cho công văn này. Chỉ trả về sai cho đầu vào không phải chuỗi. |
+| getRedirectLink() | Đọc URL chuyển hướng của công văn này hoặc một chuỗi trống. |
+| đóng(id) | Yêu cầu đóng một tab. Một số là id tab, một chuỗi xác định một URL và một giá trị bị bỏ qua sẽ nhắm mục tiêu vào tab đang hoạt động. |
+| khối(id) | Thêm mẫu chặn trang web động chỉ theo phiên. Không có id chuỗi, hãy sử dụng tên máy chủ sự kiện. |
+| bỏ chặn(id) | Xóa mẫu chặn trang web động chỉ trong phiên. Không có id chuỗi, hãy sử dụng tên máy chủ sự kiện. |
+| mở() | Không hoạt động trong phần mở rộng của trình duyệt. Nó không thể khởi chạy ứng dụng. |
+
+Trình xử lý có thể đính kèm các thuộc tính bổ sung tùy ý vào sự kiện. Đọc chúng thông qua event.custom hoặc trực tiếp theo tên được chỉ định trong khi đối tượng sự kiện đó vẫn còn hoạt động. Chúng không phải là trạng thái liên tục và không phải là nơi lưu trữ nhiều sự kiện.
+
+Đối với panelEvent, các trường tiện lợi này được thêm vào: panelId, controlId, tên sự kiện, giá trị, giá trị, khóa, mã và keyInfo.
+
+Đối với localFileEvent, các trường tiện lợi này được thêm vào: tên sự kiện, hành động, đường dẫn, thư mụcPath, requestId, ok, văn bản, giá trị, mục nhập, tồn tại, byte và lỗi.
+
+### 5.6 Điểm vào của người trợ giúp
+
+Đối tượng trợ giúp có các thuộc tính trực tiếp sau:
+
+| Điểm vào | Ý nghĩa |
+| --- | --- |
+| helpers.now | Current dispatch timestamp in milliseconds. |
+| helpers.currentUrl | Current unmodified URL string for this dispatch. |
+| helpers.groupId | Owning Custom-group id. |
+| helpers.log / warn / error | Direct aliases for the log helper. |
+| helpers.logScreen / warnScreen / errorScreen | Direct aliases for screen-only logs. |
+| helpers.logPopup / warnPopup / errorPopup | Direct aliases for popup-only logs. |
+| helpers.getLogHelper() | Returns the log helper. |
+| helpers.getDomainHelper(), getDomainUtility() | Return the domain helper. |
+| helpers.getTimerHelper() | Returns the timer helper. |
+| helpers.getPanelHelper() | Returns the panel helper. |
+| helpers.getPersistenceHelper() | Returns the persistence helper. |
+| helpers.getRedirectionHelper() | Returns the redirect helper. |
+| helpers.getDOMHelper() | Returns the DOM helper. |
+| helpers.getNavigationHelper() | Returns the navigation helper. |
+| helpers.getStorageHelper() | Returns the persistence plus asynchronous storage helper. |
+| helpers.getLocalFolderHelper() | Returns the optional local-folder helper. |
+| helpers.getTabHelper() | Returns the tab-snapshot helper. |
+| helpers.getWindowHelper() | Returns the browser-tab/window helper. |
+| helpers.getPlatformHelper() | Returns the platform-helper collection. |
+| helpers.platform() | Returns the platform-helper collection. |
+| helpers.platform(name) | Returns the named raw platform API. Valid names: youtube, tiktok, facebook, instagram, twitch. |
+
+## 6. Tham khảo trợ giúp tùy chỉnh
+
+### 6.1 Trợ giúp tên miền
+
+Get it with helpers.getDomainHelper(). It is also available as helpers.getDomainUtility().
+
+| Phương pháp | Trở lại và hành vi |
+| --- | --- |
+| tên máy chủOf(url) | Máy chủ viết thường được chuẩn hóa mà không có www. ở đầu hoặc null đối với URL không hợp lệ. |
+| pathnameOf(url) | Tên đường dẫn URL hoặc / khi URL không thể phân tích được. |
+| trận đấu(tên máy chủ, trang web) | Đúng khi tên máy chủ bằng trang web hoặc là tên miền phụ của nó. |
+| getPlatform(url) | youtube, tiktok, instagram, facebook, Twitch hoặc null. |
+| isYouTubeHost(máy chủ), isTikTokHost(máy chủ), isInstagramHost(máy chủ), isFacebookHost(máy chủ), isTwitchHost(máy chủ), isRedditHost(máy chủ), isDiscordHost(máy chủ) | Máy chủ phân loại. |
+| youtube(), tiktok(), instagram(), facebook(), Twitch() | Trả về đối tượng phân loại URL của nền tảng đó. |
+| isEmptyStartPage(url) | Đúng đối với các URL trống/tab mới/trang bắt đầu được hỗ trợ của trình duyệt. |
+| matchAny(url, mẫu) | So khớp URL với một RegExp, mảng RegExp hoặc các chuỗi được biên dịch dưới dạng biểu thức thông thường. Các mẫu chuỗi không hợp lệ sẽ bị bỏ qua. |
+| pathStartsWith(url, path) | Đúng cho đường dẫn chính xác hoặc hậu duệ của đường dẫn. Một dấu gạch chéo hàng đầu bị thiếu được cung cấp. |
+| queryHas(url, key, value) | Đúng nếu khóa truy vấn tồn tại; khi giá trị được cung cấp, nó cũng phải bằng giá trị chuỗi. |
+| queryGet(url, key) | Giá trị truy vấn hoặc null. |
+| isSearchPage(url) | Phát hiện các URL tìm kiếm Google, Bing, DuckDuckGo, YouTube, Reddit và X/Twitter được hỗ trợ. |
+| isInfiniteFeedUrl(url) | Phát hiện các bề mặt nguồn cấp dữ liệu vô hạn được hỗ trợ. |
+| SameSection(a, b) | Chỉ đúng khi cả hai URL chia sẻ một máy chủ và phân đoạn tên đường dẫn đầu tiên. |
+
+Mỗi đối tượng phân loại URL nền tảng hiển thị isPlatformUrl(url), isShortUrl(url), isVideoUrl(url), isPostUrl(url), isHomePage(url), extractAuthor(url) và extractVideoId(url). Một phương thức có thể trả về false/null khi URL hợp lệ nhưng không xác định được loại nội dung đó.
+
+### 6.2 Trợ giúp hẹn giờ
+
+Get it with helpers.getTimerHelper(). Timers are rule-owned counters. They may be displayed in Vault's page overlay, but they never block on their own.
+
+Tạo/nhận tùy chọn:
+
+| Tùy chọn | Ý nghĩa |
+| --- | --- |
+| id | Bắt buộc phải có id bộ hẹn giờ không trống. |
+| tên hiển thị | Nhãn lớp phủ có thể đọc được. |
+| hướng | chuyển tiếp để đếm ngược; bất kỳ giá trị nào khác sẽ trở thành lùi/đếm ngược. |
+| hiện tạiMs | mili giây ban đầu, nổi ở mức 0 và giới hạn nếu tồn tại giới hạn. |
+| minMs, maxMs | Giới hạn dương tối thiểu/tối đa tùy chọn. |
+| bướcMs | Bước lượng tử hóa tích cực tùy chọn cho các dấu tích đã trôi qua. |
+| lớp phủStyle | Các chuỗi tùy chọn cho màu sắc, nền, kích thước phông chữ, trọng lượng phông chữ, đường viền, đường viền, phần đệm, độ mờ và biểu tượng. Các phần không được hỗ trợ/không hợp lệ sẽ bị loại bỏ. |
+| phạm vi (url) | Vị ngữ quyết định nơi tích lũy thời gian hiển thị trên trang. |
+| tên miền(url) | Vị ngữ quyết định vị trí bộ đếm thời gian xuất hiện trong lớp phủ; mặc định theo phạm vi. |
+| tích lũyKhi(url) | Vị ngữ bổ sung tùy chọn. Thời gian chỉ tích lũy khi cả phạm vi và tích lũyKhi nào đều đúng. |
+
+| Phương pháp | Hành vi |
+| --- | --- |
+| tạo (tùy chọn) | Tạo/thay thế bộ hẹn giờ và đặt lại trạng thái của nó. Trả về id hoặc null. |
+| getOrCreateTimer(tùy chọn) | Chỉ tạo nếu vắng mặt. Trạng thái hiện tại không thay đổi. Trả về id hoặc null. |
+| xóa(id) | Xóa bộ đếm thời gian và các vị từ phạm vi/hiển thị của nó. |
+| tạm dừng(id), tiếp tục(id) | Thay đổi trạng thái tạm dừng. Chỉ trả về true khi có thể thay đổi trạng thái. |
+| setDirection(id, Direction) | Đặt tiến hoặc lùi. |
+| setCurrentMs(id, ms) | Đặt số lượng tuyệt đối, thực thi giới hạn. |
+| addMs(id, deltaMs), subMs(id, deltaMs) | Điều chỉnh số lượng, thực thi giới hạn. |
+| setBounds(id, minMs, maxMs) | Đặt giới hạn tích cực; chuyển null cho giới hạn để loại bỏ nó. |
+| setStep(id, stepMs) | Đặt lượng tử hóa tích cực. Truyền null hoặc 0 để xóa nó. |
+| setOverlayStyle(id, style) | Thay thế/xóa các kiểu lớp phủ được phép. |
+| setDisplayName(id, name) | Đặt nhãn lớp phủ. |
+| getCurrentMs(id) | Số, số 0 cho bộ đếm thời gian vắng mặt. |
+| isExpired(id) | Chỉ đúng khi tồn tại bộ đếm thời gian và currentMs bằng 0. |
+| isPaused(id) | Boolean. |
+| getDirection(id), getDisplayName(id) | Hướng/tên hoặc null. |
+| tồn tại(id) | Boolean. |
+| getState(id) | Ảnh chụp nhanh bộ đếm thời gian có thể tuần tự hóa hoặc không. |
+| danh sách() | Mảng ảnh chụp nhanh hẹn giờ có thể tuần tự hóa. |
+
+Các vị từ phạm vi được ghi nhớ trong khi nguồn Tùy chỉnh vẫn được tải. Vault nâng cao bộ hẹn giờ khớp trong các chu kỳ Sự kiện Heartbeat của trang hiển thị, một tích tắc cho mỗi bộ hẹn giờ cho mỗi lần gửi. Bộ đếm thời gian lùi dừng ở mức 0 và phát ra bộ đếm thời gianKết thúc khi chuyển đổi về 0. Nó vẫn bằng 0 cho đến khi quy tắc thay đổi/đặt lại nó. Sử dụng trình xử lý kết thúc bộ hẹn giờ để quyết định xem bộ hẹn giờ đã hết hạn có nên gọi ngăn chặnDefault, đặt chuyển hướng hay thực hiện một hành động khác hay không.
+
+### 6.3 Lưu trữ liên tục và không đồng bộ
+
+Get the synchronous persistence helper with helpers.getPersistenceHelper(). Values must be JSON-serializable. A group can store at most 200 keys and each serialized value is limited to 16 KiB.
+
+| Phương pháp | Hành vi |
+| --- | --- |
+| get(key, defaultValue) | Đọc giá trị nhân bản hoặc giá trị mặc định. |
+| set(khóa, giá trị) | Lưu trữ bản sao an toàn JSON. Trả về sai khi khóa/giá trị không hợp lệ hoặc hết giới hạn khóa. |
+| xóa(khóa) | Xóa khóa hiện có; trả về liệu nó có tồn tại hay không. |
+| có (khóa) | Boolean. |
+| phím() | Mảng phím. |
+| mục() | Mảng các cặp [khóa, giá trị] được nhân bản. |
+| rõ ràng() | Xóa tất cả các quy tắc tồn tại cho nhóm này. |
+| kích thước() | Số lượng phím. |
+
+helpers.getStorageHelper() exposes all the preceding methods and two asynchronous request methods:
+
+| Phương pháp | Hành vi |
+| --- | --- |
+| requestAsyncGet(key) | Yêu cầu đọc bộ nhớ không đồng bộ. Trả về true khi được xếp hàng. Sử dụng sự kiện sau/luồng trạng thái của riêng bạn để phản hồi; nó không phải là một getter đồng bộ. |
+| requestAsyncSet(khóa, giá trị) | Yêu cầu một kho lưu trữ an toàn JSON không đồng bộ. Trả về true khi được xếp hàng. |
+
+Tính bền vững của quy tắc sẽ bị xóa khi Chạy vì nguồn hoạt động mới bắt đầu với trạng thái Quy tắc tùy chỉnh rõ ràng.
+
+### 6.4 Trợ giúp ghi nhật ký
+
+Get it with helpers.getLogHelper(). Every method accepts any number of values.
+
+| Phương pháp | Điểm đến |
+| --- | --- |
+| đăng nhập, cảnh báo, lỗi | Nhật ký hoạt động bật lên; báo cáo trang khi bật báo cáo nhật ký trang chung. |
+| logScreen, cảnh báoScreen, errorScreen | Chỉ bề mặt báo cáo/gỡ lỗi trang; bị loại khỏi nhật ký bật lên. |
+| logPopup, WarnPopup, errorPopup | Chỉ nhật ký hoạt động bật lên; bị loại trừ khỏi trang bánh mì nướng. |
+
+Nhật ký cũng cố gắng truy cập bảng điều khiển trình duyệt bằng tiền tố nhóm CustomBlocker. Đây là kết quả chẩn đoán, không phải API lưu trữ lâu dài. Sử dụng trình trợ giúp kiên trì cho trạng thái.
+
+### 6.5 Trợ giúp chuyển hướng
+
+Get it with helpers.getRedirectionHelper().
+
+| Phương pháp | Hành vi |
+| --- | --- |
+| get(), getRedirectLink() | Trả về URL chuyển hướng công văn hiện tại hoặc một chuỗi trống. |
+| set(url), setRedirectLink(url) | Đặt URL chuyển hướng cho công văn hiện tại. |
+| createMessageUrl(tin nhắn) | Tạo URL trang thông báo cục bộ mở rộng hiển thị thông báo được cung cấp. |
+
+Chỉ thiết lập chuyển hướng không bắt buộc phải điều hướng. Ghép nối nó với event.preventDefault() hoặc đặt một chuỗi không trống thông qua event.setResult(), theo luồng quy tắc mong muốn.
+
+### Trình trợ giúp DOM 6.6
+
+Get it with helpers.getDOMHelper(). These actions are queued and applied to the current page. Selectors must be valid for the page browser; malformed selectors or elements that do not exist can produce no visible result.
+
+| Phương pháp | Hành động được yêu cầu |
+| --- | --- |
+| ẩn(bộ chọn), hiển thị(bộ chọn) | Ẩn/hiện các phần tử phù hợp. |
+| addClass(selector, className), RemoveClass(selector, className) | Thay đổi lớp CSS. |
+| setText(bộ chọn, văn bản) | Thay thế nội dung văn bản. |
+| nhấp chuột(bộ chọn) | Nhấp vào phần tử phù hợp. |
+| tiêmCss(css, id) | Thêm một khối CSS được xác định. |
+| RemoveInjectedCss(id) | Xóa khối CSS được chèn đã được xác định trước đó. |
+| cuộnTo(bộ chọn) | Cuộn phần tử phù hợp vào chế độ xem. |
+
+Các hành động DOM không cung cấp tập lệnh trang không bị hạn chế. Chúng là một bề mặt hành động bị giới hạn và sẽ không có tác dụng khi được sử dụng từ trình xử lý nhịp tim/tích tắc.
+
+### 6.7 Trình trợ giúp điều hướng, tab và cửa sổ trình duyệt
+
+Get navigation with helpers.getNavigationHelper().
+
+| Phương pháp | Hành động được yêu cầu |
+| --- | --- |
+| quay lại() | Điều hướng trở lại tab hiện tại. |
+| chuyển tiếp() | Điều hướng tab hiện tại về phía trước. |
+| tải lại() | Tải lại tab hiện tại. |
+| goTo(url) | Điều hướng tab hiện tại tới URL. |
+| closeTab() | Đóng tab hiện tại. |
+
+Get a snapshot helper with helpers.getTabHelper().
+
+| Phương pháp | Trở lại/hành động |
+| --- | --- |
+| danh sách() | Bản sao của ảnh chụp nhanh tab hiện tại. |
+| getActiveTab() | Ảnh chụp nhanh tab đang hoạt động hoặc không. |
+| getById(id) | Ảnh chụp nhanh tab phù hợp hoặc không. |
+| đếmOpen() | Số lượng tab trong ảnh chụp nhanh. |
+| requestRefresh() | Yêu cầu ảnh chụp nhanh tab mới cho công việc quy tắc sau này. |
+
+Get the browser-tab/window helper with helpers.getWindowHelper(). In the extension, a "window" is represented by browser tabs.
+
+| Phương pháp | Hành vi |
+| --- | --- |
+| hiện tại() | Đối tượng tab đang hoạt động hiện tại: id, url, tên máy chủ, tiêu đề, isBrowser. |
+| tất cả() | Mảng các đối tượng tab có id, url, tên máy chủ, tiêu đề, hoạt động. |
+| đóng(idOrUrl) | Đóng theo id tab số, chuỗi URL chính xác hoặc tab hoạt động khi bị bỏ qua. |
+| closeTab() | Đóng tab đang hoạt động. |
+| khối(mẫu) | Thêm khối miền chỉ phiên bình thường hóa và áp dụng nó. |
+| bỏ chặn(mẫu) | Xóa khối miền chỉ phiên bình thường hóa. |
+| isBlocked(urlOrHostname) | Truy vấn danh sách chặn phiên do quy tắc tạo. |
+| getBlocked() | Liệt kê các mẫu do phiên tạo hiện tại. |
+
+Các mẫu khối được tạo theo quy tắc chuẩn hóa http/https, dẫn đầu www. và các đường dẫn vào mẫu máy chủ. Chúng khớp chính xác với máy chủ và tên miền phụ. Danh sách chặn động này là bộ nhớ phiên, không phải là nhóm Trang thông thường đã lưu.
+
+### 6.8 Trình trợ giúp thư mục tệp cục bộ
+
+Get it with helpers.getLocalFolderHelper(). It only operates after the user has selected a folder in Global Settings and granted browser permission. It is asynchronous: every request returns a request id; completion arrives as localFileEvent.
+
+| Phương pháp | Hành vi |
+| --- | --- |
+| isAvailable() | Báo cáo rằng bề mặt API tồn tại; nó không chứng minh được thư mục hiện đã được ủy quyền. |
+| requestRead(path) | Yêu cầu đọc văn bản. |
+| requestWrite(đường dẫn, văn bản) | Yêu cầu viết văn bản. |
+| requestAppend(path, text) | Yêu cầu thêm văn bản. |
+| requestList(path = "") | Yêu cầu danh sách thư mục. |
+| requestExists(path) | Yêu cầu kiểm tra sự tồn tại. |
+| requestReadJson(path) | Yêu cầu đọc JSON; đường dẫn phải kết thúc bằng .json. |
+| requestWriteJson(path, value) | Yêu cầu viết JSON; đường dẫn phải kết thúc bằng .json và giá trị phải an toàn JSON. |
+
+Đường dẫn luôn liên quan đến gốc đã chọn. Chúng không thể tuyệt đối, đủ điều kiện cho ổ đĩa, tiền tố dấu chấm hoặc chứa . hoặc .. phân đoạn. Chỉ các tệp .txt, .csv và .json mới được chấp nhận cho các thao tác với tệp. Lựa chọn thư mục có thể bị thu hồi bất cứ lúc nào; một yêu cầu không thành công báo cáo ok sai và một chuỗi lỗi trong localFileEvent.
+
+### Trình trợ giúp nền tảng 6.9
+
+Get the collection with helpers.getPlatformHelper() or helpers.platform(). Get one raw platform API with helpers.platform("youtube"), for example.
+
+Tất cả các API nền tảng thô đều hiển thị:
+
+| Phương pháp | Hành vi |
+| --- | --- |
+| ẩn(vị ngữ, tùy chọn) | Đặt cùng một thuộc tính cho mỗi mục cho mọi vị trí thẻ nguồn cấp dữ liệu trên nền tảng đó. |
+| ẩn (khe, vị ngữ, tùy chọn) | Đặt một vị từ cho mỗi mục. Vị từ nhận mục nền tảng/ảnh chụp nhanh do nền tảng đó cung cấp. |
+| allow(vị ngữ, tùy chọn), allow(khe, vị ngữ, tùy chọn) | Tương tự như ẩn nhưng tạo ra phán quyết cho phép/ngoại lệ. |
+| show(), show(khe) | Xóa tất cả hoặc một vị trí vị trí được cài đặt. |
+| bề mặt (tên, "ẩn" hoặc "hiển thị") | Ẩn/hiển thị toàn bộ khu vực nền tảng. home là tên công khai của homePage. |
+| hẹn giờ (khe, tùy chọn) | Định cấu hình bộ đếm thời gian cho phần phụ của nền tảng. Trả về options.id khi được cung cấp, nếu không thì trả về null. |
+| quét lại() | Đánh giá lại thẻ nguồn cấp dữ liệu đã được quét sau khi thay đổi trạng thái quy tắc bên ngoài. |
+| ảnh chụp nhanh() | Trả về ảnh chụp nhanh nền tảng hiện tại hoặc null. |
+| khe(), bề mặt(), bộ đếm thời gianSlots() | Trả lại tên được hỗ trợ cho nền tảng này. |
+| isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId | Trình trợ giúp URL cho nền tảng đó. |
+
+Một vị trí sở hữu một vị từ cho một nhóm/nền tảng. Lệnh gọi ẩn/cho phép sau này cho cùng một vị trí sẽ thay thế vị từ trước đó; nó không phải là một OR ẩn. Đối tượng tùy chọn tùy chọn nhận ra:
+
+| Tùy chọn | Hiệu ứng |
+| --- | --- |
+| blockPageOnVisit | Khi truy cập một thẻ/trang phù hợp, hãy yêu cầu chặn trang thay vì chỉ ẩn thẻ. |
+| hiệu ứng | chặn (mặc định) hoặc cho phép. Bộ trợ giúp cho phép tự động cho phép. |
+
+Quét lại cuộc gọi bất cứ khi nào một vị từ phụ thuộc vào trạng thái đã thay đổi sau khi thẻ được đánh giá lần đầu tiên, chẳng hạn như hộp kiểm bảng, hạn ngạch hoặc ngưỡng thời gian.
+
+Ma trận hỗ trợ nền tảng thô:
+
+| Nền tảng | Khe vị ngữ | Tên bề mặt | Khe hẹn giờ |
+| --- | --- | --- | --- |
+| YouTube | quần short, video, bài đăng, bình luận, trực tiếp | trang chủ, shortButton, bình luận, trực tiếp | quần short, video, bài viết |
+| TikTok | video, bình luận, trực tiếp | nhà, bình luận, trực tiếp | video |
+| Instagram | quần short, bài viết, bình luận | nhà, bình luận | quần short, bài viết |
+| Facebook | quần short, video, bài đăng, bình luận, trực tiếp | nhà, bình luận, trực tiếp | quần short, video, bài viết |
+| Co giật | quần short, luồng, video, trực tiếp | nhà, bình luận, trực tiếp | quần short, luồng, video |
+
+Trình trợ giúp nền tảng Tùy chỉnh thô không hiển thị Reddit, Discord hoặc Twitter/X. Sử dụng các khả năng URL, DOM, bộ hẹn giờ, bảng điều khiển và điều hướng chung cho công việc tùy chỉnh trên các trang web đó.
+
+## 7. Bảng tùy chỉnh
+
+The panel helper creates safe, declarative on-page panels. Get it with helpers.getPanelHelper(). A panel can be scoped to URLs, react to interactions, display timer state, and retain its user-entered values for the active rule lifetime.
+
+### API bảng điều khiển 7.1
+
+| Phương pháp | Hành vi |
+| --- | --- |
+| tạo (cấu hình) | Tạo hoặc thay thế một bảng điều khiển. Trả về id bảng điều khiển đã chuẩn hóa hoặc null. |
+| getOrCreatePanel(config) | Chỉ tạo khi vắng mặt; trả về id hoặc null. |
+| cập nhật(id, bản vá) | Thay thế các trường bảng được chỉ định sau khi xác thực. |
+| xóa(id) | Xóa bảng điều khiển và trình xử lý nội tuyến đã đăng ký của nó. |
+| hiển thị(id), ẩn(id) | Thay đổi khả năng hiển thị. |
+| setValue(panelId, controlId, value) | Đặt giá trị điều khiển có thể ghi sau khi xác thực. |
+| updateControl(panelId, controlId, patch) | Thay thế các trường được phép của điều khiển. |
+| vô hiệu hóa(panelId, controlId), kích hoạt(panelId, controlId) | Chuyển đổi kiểm soát tính khả dụng. |
+| setOptions(panelId, controlId, tùy chọn) | Thay thế các lựa chọn chọn/radio. |
+| setText(panelId, controlId, văn bản) | Cập nhật nhãn nút, văn bản/phần văn bản hoặc nhãn điều khiển khác. |
+| setTheme(panelId, theme) | Thay thế chủ đề bảng điều khiển. |
+| setTitle(panelId, title), setDescription(panelId, description) | Cập nhật văn bản. |
+| getValue(panelId, controlId) | Trả về một giá trị nhân bản hoặc không xác định. |
+| getValues(panelId) | Trả về tất cả các giá trị có thể ghi được khóa theo id điều khiển. |
+| getState(id) | Trả về ảnh chụp nhanh bảng tuần tự hóa hoặc null. |
+| danh sách() | Trả về ảnh chụp nhanh có thể tuần tự hóa của tất cả các bảng. |
+| thông báo(cấu hình) | Tạo bảng trạng thái nhỏ gọn ở góc dưới bên phải với tin nhắn/văn bản tùy chọn. |
+| xác nhận(cấu hình) | Tạo hộp thoại ở giữa với các nút xác nhận và hủy được tạo. |
+| danh sách kiểm tra (config) | Tạo một bảng gồm các mục hộp kiểm. |
+| biểu mẫu (cấu hình) | Tạo bảng bố cục biểu mẫu từ các trường. |
+
+### 7.2 Cấu hình bảng điều khiển
+
+| Lĩnh vực | Giá trị/hành vi được chấp nhận |
+| --- | --- |
+| id | Yêu cầu. Chuẩn hóa thành chữ cái, chữ số, dấu gạch dưới, dấu gạch nối; tối đa 80 ký tự. |
+| tiêu đề | Tiêu đề bảng điều khiển, tối đa 240 ký tự. |
+| mô tả hoặc nội dung | Mô tả, tối đa 1.000 ký tự. |
+| vị trí | trên cùng bên trái, trên cùng bên phải, dưới cùng bên trái, dưới cùng bên phải hoặc ở giữa. Mặc định ở dưới cùng bên phải. |
+| căn chỉnh | trái, giữa hoặc phải. Mặc định bên trái. |
+| bố cục | dọc, nhỏ gọn, thoải mái, rộng rãi, nội tuyến, hàng, ngắt dòng, hai cột, lưới, phân chia, biểu mẫu, thanh công cụ hoặc ngăn xếp. Dọc mặc định. |
+| ưu tiên | Thứ tự hiển thị bằng số, được kẹp từ -1000 đến 1000. Bảng cao hơn hiển thị trước. |
+| chiều rộng | nhỏ, vừa, lớn hoặc 180 đến 520 px. |
+| textSize/fontSize | 10 đến 32 px hoặc 0,65 đến 2 rem/em. |
+| ariaLabel/a11yLabel | Nhãn có thể truy cập được. |
+| vai trò | vùng, hộp thoại, cảnh báo, trạng thái, biểu mẫu hoặc nhóm. |
+| tự động lấy nét | Boolean. |
+| chủ đề/màu sắc | nền, tiền cảnh, dấu, đường viền, tắt tiếng, kích thước phông chữ/kích thước văn bản, kích thước tiêu đề. |
+| điều khiển | Mảng có tới 32 điều khiển, với phần lồng tối đa ba cấp độ. |
+| có thể nhìn thấy | Sai ẩn bảng điều khiển. |
+| phạm vi(url), tên miền(url) | Chức năng kiểm soát tính khả dụng/hiển thị. tên miền được ưu tiên; không có miền, điều khiển phạm vi sẽ hiển thị. |
+
+Các trường xử lý nội tuyến của bảng điều khiển có thể xuất hiện trên bảng điều khiển hoặc điều khiển riêng lẻ: onEvent, onChange, onClick, onInput, onFocus, onBlur, onSubmit, onClose, onMount, onUnmount, onKey và onKeyDown. Mỗi cái đều nhận được các tham số (sự kiện, trợ giúp) bình thường. Trình xử lý nội tuyến được thay thế khi bảng đó được tạo lại/cập nhật với các định nghĩa điều khiển.
+
+### 7.3 Điều khiển
+
+Các loại điều khiển có sẵn là văn bản, hộp kiểm, chọn, textInput, vùng văn bản, nút, phần, bộ đếm thời gian, numberInput, phạm vi, chuyển đổi, radio, ngày, giờ, màu sắc, mã pin và html. Đầu vào bí danh, thả xuống, nhóm, số, thanh trượt, chuyển đổi, thô và đánh dấu chuẩn hóa thành loại tương ứng của chúng.
+
+Tất cả các điều khiển đều chấp nhận id, loại, nhãn, giá trị, bị vô hiệu hóa, mức độ ưu tiên và khi bố cục có liên quan, căn chỉnh, ariaLabel/a11yLabel, tự động lấy nét, chiều rộng, chiều cao và hàng.
+
+| Loại | Các trường quan trọng và giá trị hợp đồng |
+| --- | --- |
+| văn bản | văn bản (hoặc nhãn) được hiển thị dưới dạng văn bản không nhập vào. |
+| hộp kiểm, chuyển đổi | Giá trị Boolean. |
+| chọn lọc, đài phát thanh | các tùy chọn dưới dạng chuỗi hoặc đối tượng { value, label }; tối đa 64. Giá trị là một chuỗi ngắn. |
+| textInput, vùng văn bản | Giá trị chuỗi, tối đa 2.000 ký tự; phần giữ chỗ tùy chọn. |
+| nút | nhãn/văn bản; hành động tùy chọn gửi, hủy hoặc đóng. |
+| phần | văn bản/mô tả, vai trò và các điều khiển lồng nhau. |
+| hẹn giờ | timeId hoặc ảnh chụp nhanh hẹn giờ; định dạng ms, ss, mm:ss hoặc hh:mm:ss; showExpired mặc định đúng. |
+| sốĐầu vào, phạm vi | Giá trị số được kẹp ở mức tối thiểu/tối đa được cung cấp; bước tích cực tùy chọn. |
+| ngày | Chỉ giá trị YYYY-MM-DD. |
+| thời gian | Chỉ có giá trị HH:MM hoặc HH:MM:SS. |
+| màu sắc | Giá trị đầu vào #RRGGBB gồm sáu chữ số. |
+| ghim | Chỉ các chữ số, độ dài từ 3 đến 12, được che theo mặc định, tự động gửi tùy chọn. |
+| html | Đánh dấu vệ sinh. Khối tập lệnh, thuộc tính sự kiện nội tuyến và javascript: URL sẽ bị xóa. |
+
+Mỗi tương tác được kết xuất sẽ tạo ra panelEvent. Đối tượng giá trị của sự kiện chứa các điều khiển có thể ghi của bảng điều khiển, ngoại trừ các nút, văn bản và điều khiển hẹn giờ. Một hành động đóng sẽ ẩn bảng điều khiển trước khi người xử lý quan sát sự kiện.
+
+## 8. Công thức hành động theo quy tắc tùy chỉnh
+
+Các ví dụ sau đây là thông số kỹ thuật về thành phần công khai, không phải là hướng dẫn.
+
+### 8.1 Chuyển hướng trang mở đầu
 
 ```js
-(event, helpers) => {
-  const TIMER_ID = "yt-shorts-budget";
-  const yt = helpers.getDomainHelper().youtube();
-  const onShorts = (url) => yt.isShortUrl(url);
+(events, helpers) => {
+  events.on("openWebEvent", "redirect-distracting-search", (event, h) => {
+    const domain = h.getDomainHelper();
+    if (!domain.isSearchPage(event.url)) return;
+    event.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Return to your planned task."));
+    event.preventDefault();
+  });
+}
+```
 
-  helpers.getTimerHelper().getOrCreateTimer({
-    id: TIMER_ID,
+### 8.2 Đếm ngược thời gian hiển thị với khối rõ ràng
+
+```js
+(events, helpers) => {
+  const timer = helpers.getTimerHelper();
+  timer.create({
+    id: "reading-budget",
+    displayName: "Reading budget",
     direction: "backward",
-    currentMs: 30 * 60 * 1000,
-    displayName: "YT Shorts",
-    scope: onShorts,
-    domain: onShorts
+    currentMs: 10 * 60 * 1000,
+    scope: (url) => url.includes("example.com")
   });
 
-  function maybeBlock(ev, h) {
-    if (!yt.isShortUrl(ev.url)) return;
-    if (h.getTimerHelper().isExpired(TIMER_ID)) {
-      ev.setRedirectLink("https://example.com/focus");
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-  event.registerOpenWebEvent("budget-block", maybeBlock);
-  event.registerSwitchWebEvent("budget-block", maybeBlock);
-
-  event.registerTimerEndedEvent("budget-warn", (_ev, h) => {
-    h.getLogHelper().log("Budget hit zero.");
+  events.on("timerEnded", "stop-at-zero", (event) => {
+    if (event.data?.timerId !== "reading-budget") return;
+    event.setRedirectLink("about:blank");
+    event.preventDefault();
   });
 }
 ```
 
-**Khó hơn** — ẩn từng video ngắn trên Du-túp có tên tác giả quá dài và chèn CSS "Phim ngắn này bị ẩn":
+### 8.3 Thay đổi vị từ nguồn cấp dữ liệu từ bảng điều khiển
 
 ```js
-(event, helpers) => {
-  const MAX_AUTHOR_LEN = 16;
+(events, helpers) => {
+  const panel = helpers.getPanelHelper();
+  const youtube = helpers.platform("youtube");
 
-  function configure(_ev, h) {
-    const yt = h.getPlatformHelper().youtube();
-    yt.hideShorts(
-      (item) => item.author && item.author.length > MAX_AUTHOR_LEN,
-      { blockPageOnVisit: true }
-    );
-    h.getDOMHelper().injectCss(
-      "ytd-rich-grid-media[data-cb-hidden] { opacity: 0.2 !important; }",
-      "long-author-label"
-    );
-  }
+  panel.create({
+    id: "feed-filter",
+    title: "Feed filter",
+    controls: [{
+      id: "hide-sponsored",
+      type: "toggle",
+      label: "Hide sponsored items",
+      value: true,
+      onChange: (event, h) => {
+        const api = h.platform("youtube");
+        if (event.value) {
+          api.hide("videos", (item) => item?.sponsored === true);
+        } else {
+          api.show("videos");
+        }
+        api.rescan();
+      }
+    }]
+  });
 
-  event.registerOpenWebEvent("hide-long-shorts", configure);
-  event.registerSwitchWebEvent("hide-long-shorts", configure);
-  event.registerWebChangedEvent("hide-long-shorts", configure);
+  youtube.hide("shorts", () => true);
 }
 ```
 
-**Khó nhất** — phát một sự kiện tùy chỉnh từ trình xử lý này sang trình xử lý khác:
+Các biến vị ngữ phải được viết cho các giá trị mục/ảnh chụp nhanh của nền tảng được cung cấp bởi bề mặt nền tảng đang hoạt động. Nếu một nền tảng không thể xác định một trường một cách đáng tin cậy thì vị từ sẽ không mở được thay vì giả sử một giá trị là đúng.
 
-```js
-(event, helpers) => {
-  event.registerSwitchDomainEvent("track-domain", (ev) => {
-    ev.post("domainChange", { from: ev.data.previousHostname, to: ev.hostname });
-  });
+## 9. Giao thức yêu cầu thư mục cục bộ
 
-  event.register("domainChange", "log-it", (ev, h) => {
-    h.getLogHelper().log("crossed", ev.data.from, "→", ev.data.to);
-  });
-}
-```
+Các hoạt động của Thư mục cục bộ không phải là I/O tệp ngay lập tức. Trình tự chức năng hoàn chỉnh là:
 
----
+1. Người dùng chọn một thư mục trong Cài đặt chung.
+2. Quy tắc xếp hàng yêu cầu và nhận id yêu cầu.
+3. Vault yêu cầu khả năng của thư mục được ủy quyền để thực hiện thao tác.
+4. Vault gửi localFileEvent đến cùng một nhóm Tùy chỉnh.
+5. Trình xử lý tương quan event.requestId với id yêu cầu ban đầu.
 
-## 12. Mẫu
+Quá trình đọc thành công hoàn tất với văn bản cho tệp văn bản hoặc giá trị cho JSON. Danh sách trả về các mục. Tồn tại trả về tồn tại. Viết/chắp thêm cung cấp byte nếu có. Thất bại cung cấp ok sai và lỗi. Các quy tắc không bao giờ được cho rằng thư mục đã chọn vẫn được ủy quyền sau khi tải lại, khởi động lại trình duyệt hoặc thu hồi quyền.
 
-Mỗi nhóm Tùy chỉnh có một bộ chọn **Mẫu** để mở trình duyệt cài sẵn có thể tìm kiếm. Thư viện hiện cung cấp **50+ mẫu** được sắp xếp thành chín danh mục để bạn có thể duyệt thay vì viết quy tắc từ đầu:
+## 10. Ngữ nghĩa về lỗi và an toàn của quy tắc tùy chỉnh
 
-| Danh mục | Ví dụ |
-|---|---|
-| **Bộ hẹn giờ** | Ngân sách thời gian của trang web (đếm ngược + khối), trình theo dõi thời gian của trang web (đếm ngược), giới hạn Du-túp Shorts, giới hạn nguồn cấp dữ liệu Tích Tốc, giới hạn Câu chuyện trên In-xta-gam, giới hạn Câu chuyện trên Phây-búc, giới hạn Tuých Clips, Ngân sách phân tâm phổ quát, Trình theo dõi công việc sâu hàng ngày |
-| **Lịch trình** | Khối giờ làm việc các ngày trong tuần, các trang web chỉ dành cho cuối tuần, tắt máy trước khi đi ngủ, chỉ cho phép một giờ, tin tức chỉ ăn trưa, khởi đầu mới vào thứ Hai, cho phép N phút đầu tiên mỗi giờ, khối nghiêm ngặt làm việc sâu |
-| **Nguồn cấp dữ liệu / Quần short** | Chặn URL Quần short trên Du-túp, ẩn thẻ Quần short, ẩn Quần short theo từ khóa, ẩn nguồn cấp dữ liệu / nhận xét / xu hướng trên trang chủ Du-túp, chặn Tích Tốc FYP, ẩn quần short Tích Tốc, chặn URL Câu chuyện trên In-xta-gam, ẩn nguồn cấp dữ liệu Câu chuyện trên In-xta-gam, ẩn nguồn cấp dữ liệu Phây-búc / Câu chuyện, ẩn trang chủ Rét-đít / Tuýt-tơ / LinkedIn |
-| **Chuyển hướng** | Sự phân tâm → trang tiêu điểm, Quần short → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, tab mới → danh sách nhiệm vụ |
-| **Tập trung** | Phiên tập trung chỉ dành cho danh sách cho phép, Pomodoro 25/5, chặn trong cuộc họp, chặn sau N lượt truy cập hôm nay, chặn khi mất chuỗi |
-| **Nhích** | Ghi lại mọi lượt truy cập gây mất tập trung, cảnh báo trên mỗi lượt truy cập Shorts, đếm số lượt truy cập hàng ngày vào một trang web |
-| **Kiên trì** | Giới hạn lượt truy cập hàng tháng, chuyển đổi lệnh cấm hàng tuần, theo dõi các kênh Đít-co đã truy cập |
-| **Chỉnh sửa DOM** | Ẩn chuyển đổi tự động phát Du-túp, ẩn Tuýt-tơ / X "Chuyện gì đang xảy ra", chung chung "ẩn bộ chọn trên một trang web" |
-| **Gỡ lỗi** | Đếm ngược demo (3 giây), ghi lại mọi sự kiện tùy chỉnh |
+### 10.1 Biên dịch và chạy lỗi
 
-Các chip lọc ở đầu bộ chọn thu hẹp danh sách theo danh mục (`Timer`, `Schedule`, `Feed`, …) và nền tảng (`Du-túp`, `Tích Tốc`, `In-xta-gam`, …). Lựa chọn một mẫu:
+Kiểm tra lỗi biên dịch báo cáo cú pháp. Run cũng có thể báo lỗi thời gian chạy trong quá trình đăng ký. Nếu một nguồn giống hàm có lỗi cú pháp, Vault sẽ không âm thầm xử lý nguồn đó như những câu lệnh đơn thuần vô hại.
 
-1. Tải thông số đầu vào của nó (URL, phút, phạm vi giờ, v.v.) vào một dạng nhỏ.
-2. **Áp dụng giá trị đặt trước** xem trước nguồn được tạo.
-3. Sau khi xác nhận **Thay thế quy tắc tùy chỉnh hiện tại bằng giá trị đặt trước này?**, nguồn sẽ được ghi vào trình chỉnh sửa.
-4. Sau đó, bạn nhấp vào **Chạy** để đăng ký trình xử lý quy tắc trong hộp cát ngoài màn hình.
+Một nguồn trống không có trình xử lý nào. Quy tắc này hợp lệ dưới dạng quy tắc Tùy chỉnh không hoạt động nhưng không thực hiện hành động Tùy chỉnh nào được định cấu hình.
 
-Các mẫu được xác định theo `templates/*.js` (`timers.js`, `schedule.js`, `feed.js`, …). Mỗi tệp gọi `CB_REGISTER_TEMPLATES([...])` khi tải và cửa sổ bật lên sẽ sử dụng danh sách đã hợp nhất. Thêm mẫu mới có nghĩa là viết một mục vào tệp thích hợp — không cần hệ thống ống nước nào khác.
+### 10.2 Lỗi xử lý
 
----
+Một ngoại lệ từ một trình xử lý được tách biệt khỏi quá trình gửi sự kiện tổng thể. Đó là đầu ra chẩn đoán; nó không làm cho những người xử lý sau này thành công một cách kỳ diệu. Sử dụng trình xử lý hẹp và ghi lại các lỗi có thể xử lý được.
 
-## 13. Hành vi nhiều trang- Tất cả các tab đang mở trong cùng một nhóm đều có chung bộ đếm thời gian.
-- Khi bạn chuyển sang một tab trong cùng một nhóm, lớp phủ của nó sẽ làm mới ngay lập tức để hiển thị thời gian chia sẻ hiện tại.
-- Bộ hẹn giờ quy tắc tùy chỉnh chỉ đánh dấu trên tab **hiển thị đang hoạt động** — do `pageHeartbeatEvent` điều khiển. Các tab nền và cửa sổ thu nhỏ không nâng cao chúng. Điều này phù hợp với việc đếm ngược nhóm khối mặc định.
-- Khi một quy tắc mới được thêm vào, mỗi trang mở sẽ phát hiện sự thay đổi và đánh giá lại trong chưa đầy một giây; **nhưng** trình xử lý mới được đăng ký không "mở" các tab đã mở trước đó. Cửa sổ bật lên hiển thị lời nhắc tải lại sau mỗi lần Chạy vì lý do đó.
-- Khi quy tắc hết hạn, thẻ nguồn cấp dữ liệu ẩn và nút điều hướng sẽ được khôi phục vào lần làm mới tiếp theo.
+### 10.3 Cách ly
 
----
+Vault có thể cách ly một nhóm Tùy chỉnh sau nhiều lần vượt quá thời hạn hoặc vượt quá thời hạn trong quá trình đăng ký. Việc cách ly sẽ vô hiệu hóa nhóm và ghi lại lý do hủy bỏ. Sửa nguồn, lưu và chạy lại một cách rõ ràng để khôi phục đăng ký hoạt động.
 
-## 14. Cài đặt
+### 10.4 Giới hạn trình duyệt/trang
 
-Mở hộp thoại **Cài đặt** thông qua biểu tượng bánh răng ở thanh trên cùng.
+Không có quy tắc tùy chỉnh nào nhận được API tiện ích mở rộng không hạn chế. Đặc biệt:
 
-- **Khoảng nhịp tim** — tần suất tập lệnh nội dung báo cáo thời gian tab và thúc đẩy `pageHeartbeatEvent`. Mặc định 250 mili giây. Giá trị thấp hơn sẽ phản hồi nhanh hơn nhưng sử dụng nhiều CPU hơn.
-- **Khoảng thời gian đánh dấu** — tần suất `tickEvent` toàn cầu kích hoạt. Mặc định 1000 ms.
-- **Chế độ gỡ lỗi** — *tắt* theo mặc định. Khi *bật*, công cụ sẽ phát ra các mục nhập cấp độ dấu vết vào bảng Nhật ký (`[trace] dispatchEvent`, `[trace] N handler(s)`) và các dòng `[CustomBlocker:trace]` tới bảng điều khiển trình duyệt. Bỏ nó đi trong sử dụng hàng ngày; bật nó lên trong khi chẩn đoán một quy tắc hoạt động sai. `pageHeartbeatEvent` bị loại khỏi quá trình ghi nhật ký theo dõi ngay cả khi chế độ gỡ lỗi được bật vì nó kích hoạt bốn lần mỗi giây và sẽ lấn át phần còn lại.
+- bộ chọn DOM không thể tìm thấy gì trên nền tảng đã thay đổi;
+- các thao tác điều hướng, đóng tab và trên màn hình vẫn tùy thuộc vào khả năng của trình duyệt;
+- tiện ích mở rộng không thể mở ứng dụng gốc;
+- hoạt động thư mục cục bộ yêu cầu thư mục do người dùng cấp và các loại tệp được hỗ trợ;
+- trình xử lý sự kiện không thể dựa vào một trang vô hình tiếp tục tạo ra nhịp tim theo thời gian hiển thị;
+- một trang có thể tải lại, điều hướng, loại bỏ hoặc vô hiệu hóa tập lệnh nội dung một cách độc lập với quy tắc;
+- khối trang web động được tạo theo quy tắc là các hành động ở trạng thái phiên, không phải là các chỉnh sửa Nhóm trang web vĩnh viễn.
 
----
+## 11. Cầu nối ứng dụng web
 
-##15. Quốc tế hóa
+Cây cầu là tùy chọn. Nó kết nối ứng dụng khách mở rộng trình duyệt với trung tâm Vault cục bộ tương thích. Phần mở rộng của trình duyệt là một ứng dụng khách; một ứng dụng Vault gốc cung cấp trung tâm. Điểm cuối cục bộ cố định là ws://127.0.0.1:8787 và cần có khả năng tương thích giao thức.
 
-Toàn bộ giao diện người dùng được dịch. Sử dụng bộ chọn **Ngôn ngữ** ở trên cùng bên phải.
+Các trạng thái kết nối là Tắt, Đang kết nối, Đã ngắt kết nối, Đã kết nối và Lỗi. Khi ứng dụng khách được bật, đầu tiên Vault sẽ thăm dò nhanh chóng, sau đó tiếp tục các nỗ lực kết nối lại chậm hơn cho đến khi kết nối hoặc người dùng tắt nó. Kết nối không tự nó hợp nhất tất cả các nhóm.
 
-Các ngôn ngữ được hỗ trợ bao gồm tiếng Anh, tiếng Trung (Giản thể), tiếng Tây Ban Nha, tiếng Nhật, tiếng Hàn, cùng với một phần ngôn ngữ bao gồm tiếng Hindi, tiếng Ả Rập, tiếng Bengali, tiếng Bồ Đào Nha, tiếng Nga, tiếng Punjabi, tiếng Đức, tiếng Pháp, tiếng Thổ Nhĩ Kỳ, tiếng Việt, tiếng Ý, tiếng Thái, tiếng Hà Lan, tiếng Ba Lan, tiếng Indonesia, tiếng Urdu và tiếng Ba Tư. Các ngôn ngữ có phạm vi bao phủ một phần sẽ quay lại tiếng Anh vì thiếu chuỗi.
+### 11.1 Liên kết các nhóm
 
-Bản thân hướng dẫn sử dụng sẽ tải tệp đánh dấu phù hợp với ngôn ngữ bạn đã chọn, với tiếng Anh làm dự phòng.
+Các nhóm chỉ có thể liên kết được khi tên và loại của chúng khớp nhau và chúng đủ điều kiện để liên kết. Người dùng lựa chọn/liên kết rõ ràng các chương trình tham gia. Một nhóm liên kết tạo thành một cụm. Việc ngắt kết nối vẫn giữ nguyên dữ liệu nhóm cục bộ; nó ngừng đồng bộ hóa trực tiếp.
 
----
+Cầu nối này đồng bộ hóa chính sách vô hướng được chia sẻ cho các nhóm liên kết được hỗ trợ, bao gồm chế độ chặn thông thường, giá trị cho phép/đặt lại, cài đặt báo lại, ngày/thời gian hoạt động, trạng thái/lựa chọn/thời lượng đóng băng, chính sách trang chủ, cài đặt danh sách cho phép, URL dự phòng và chính sách chuyển sang phần tiếp theo. Nó cũng điều phối việc sử dụng và trạng thái báo lại cho các thành viên cụm.
 
-## 16. Thông báo trạng thái
+Bridge không hứa hẹn rằng mọi trường dành riêng cho sản phẩm, bộ chọn nền tảng, văn bản nguồn tùy chỉnh hoặc khả năng dành riêng cho trình duyệt đều có thể chuyển sang một chương trình khác. Một nhóm có thể duy trì ở trạng thái cục bộ và không được liên kết ngay cả khi bridge được kết nối.
 
-Thông báo trạng thái xuất hiện dưới dạng bánh mì nướng ở giữa và mờ dần sau khoảng hai giây:
+Các cụm cầu cố định yêu cầu tất cả các thành viên có liên quan phải trực tuyến để thực hiện các hành động ở trạng thái đóng băng cần đột biến phối hợp. Kết nối là phương tiện truyền tải cục bộ, không phải là kênh sao lưu đám mây hoặc điều khiển từ xa.
 
-- "Đã lưu thay đổi."
-- "Đã tạo \"Tên nhóm\"."
-- "Đã tải quy tắc tùy chỉnh — N trình xử lý đang hoạt động. Để áp dụng quy tắc này trên các tab bạn đã mở, hãy tải lại chúng."
-- Lỗi xác thực như "Số phút cho phép phải lớn hơn 0."
-- "Số phút báo lại phải là số lớn hơn 0."
-- "Nhóm đông lạnh không thể thay đổi."
+## 12. Danh sách kiểm tra xác minh dành cho người bảo trì
 
-Đối với các trường nhập có yêu cầu về định dạng, thông báo cũng xuất hiện bên cạnh nút liên quan (để báo lại).
+Sử dụng danh sách kiểm tra này khi kiểm tra hành vi phát hành hoặc tái tạo:
 
----
+1. Xác nhận nhóm có tên duy nhất không trống, loại chính xác, trạng thái bật và danh sách/thứ tự dự định.
+2. Đối với các nhóm bình thường, hãy xác nhận ngày trong tuần đang hoạt động, cửa sổ giờ địa phương hợp lệ, không báo lại hoạt động và trạng thái chỉnh sửa không bị đóng băng.
+3. Đối với Nhóm trang web, hãy kiểm tra chính xác máy chủ, tên miền phụ và (đối với danh sách cho phép) máy chủ bên ngoài danh sách.
+4. Đối với một nhóm nền tảng, hãy kiểm tra riêng khả năng so khớp cấp trang, so khớp mục/thẻ được nhắm mục tiêu, chế độ tác giả, chế độ biểu mẫu nội dung và từng ẩn bề mặt được kích hoạt.
+5. Đối với các nhóm bình thường được tính thời gian, hãy xác minh tích lũy trang hiển thị, hết hạn cho phép hoặc hành vi không chặn đếm ngược và khoảng thời gian đặt lại.
+6. Đối với Quy tắc tùy chỉnh, hãy chạy kiểm tra cú pháp, Chạy, kiểm tra số lượng/nhật ký trình xử lý, kiểm tra mọi sự kiện tích hợp đã đăng ký, sau đó kiểm tra tải lại/điều hướng.
+7. Kiểm tra từng bộ đếm thời gian Tùy chỉnh ở ranh giới phạm vi và ở mức 0; xác minh rằng bất kỳ khối nào là rõ ràng trong quy tắc.
+8. Kiểm tra các bảng với từng giá trị điều khiển, trạng thái vô hiệu hóa, hành động gửi/hủy/đóng và trình xử lý panelEvent.
+9. Kiểm tra lỗi thư mục cục bộ trước khi thành công: không có thư mục nào được chọn, quyền bị thu hồi, đường dẫn không hợp lệ, tiện ích mở rộng không được hỗ trợ, sau đó được phép đọc/ghi.
+10. Kiểm tra việc tắt kết nối cầu nối, bật kết nối, nhóm được liên kết/không liên kết và thành viên cụm ngoại tuyến trước khi dựa vào sự phối hợp đồng bộ hóa hoặc đóng băng.
 
-## 17. Quyền riêng tư và lưu trữ
+## 13. Quy tắc lập phiên bản
 
-- Mọi thứ được lưu trữ cục bộ trong `chrome.storage.local`. Không có dữ liệu được gửi đi bất cứ đâu.
-- Các mục được lưu trữ bao gồm: nhóm của bạn, bộ hẹn giờ sử dụng, thời gian đặt lại lần cuối, bản ghi báo lại, bộ hẹn giờ tùy chỉnh và giá trị cố định tùy chỉnh.
-- Tiện ích mở rộng không đọc nội dung trang vượt quá những gì cần thiết để phát hiện loại trang (đường dẫn / tên máy chủ / dấu hiệu DOM đã biết cho các trang web video) và để đánh giá các vị từ do người dùng viết. Nó không đọc tin nhắn, bài đăng, bình luận hoặc nội dung riêng tư của bạn.
-
----
-
-## 18. Quyền
-
-- `storage` — cho dữ liệu trên.
-- `declarativeNetRequest` — để chặn riêng các nhóm `Default`.
-- `alarms` — để lên lịch chuyển đổi quy tắc một cách hiệu quả.
-- `tabs`, `webNavigation` — để phát hiện việc tạo tab, thay đổi URL và nhịp tim của trang để có thể gửi các sự kiện.
-- `offscreen` — để lưu trữ hộp cát quy tắc tùy chỉnh tồn tại lâu dài.
-- `host_permissions: <all_urls>` — để tập lệnh nội dung có thể hiển thị lớp phủ hẹn giờ và phát hiện bối cảnh nền tảng trên bất kỳ trang nào.
-
----
-
-## 19. Khắc phục sự cố- **Nhóm tôi đã thêm không làm gì cả.** Hãy đảm bảo rằng nhóm đã được bật, lịch trình cho phép ngay bây giờ, không có chế độ tạm ẩn nào đang hoạt động và (đối với các nhóm nền tảng) trang thực sự khớp với loại nội dung đã chọn và bộ lọc tác giả.
-- **Bộ hẹn giờ bị kẹt hoặc sai trên một tab.** Chuyển đi và quay lại hoặc tập trung vào tab — việc này sẽ kích hoạt buộc làm mới từ bộ hẹn giờ dùng chung.
-- **Thẻ nguồn cấp dữ liệu xuất hiện lại sau khi tôi cho rằng chúng nên bị ẩn.** Tính năng ẩn nguồn cấp dữ liệu chỉ chạy khi quy tắc đang tích cực chặn. Nếu bạn có quy tắc `after-minutes`, tính năng ẩn nguồn cấp dữ liệu sẽ bắt đầu hoạt động khi thời gian của bạn về 0.
-- **Nút điều hướng Du-túp mà tôi dự đoán sẽ bị ẩn vẫn còn đó.** Tính năng ẩn điều hướng yêu cầu phải đặt quy tắc thành "không lọc theo tác giả" và loại nội dung là Video ngắn hoặc bài đăng trên Du-túp. Với bộ lọc tác giả, việc ẩn chỉ được thực hiện trên mỗi thẻ.
-- **Quy tắc tùy chỉnh không làm gì hoặc bị ném một cách im lặng.** Mở Cài đặt → bật **Chế độ gỡ lỗi**, sau đó nhấp vào **Chạy** lần nữa và xem bảng Nhật ký. Các dòng có tiền tố `[trace]` hiển thị mọi công văn và trình xử lý. Sử dụng `helpers.getLogHelper().log(...)` để thêm các điểm theo dõi của riêng bạn. Nếu một quy tắc hoạt động sai liên tục bị cách ly tự động, hãy sửa nguồn và nhấp vào Chạy — Chạy sẽ xóa lý do hủy bỏ.
-- **Quy tắc tùy chỉnh mới của tôi không ảnh hưởng đến các tab đã mở.** Tải lại chúng. Quy tắc tùy chỉnh đính kèm với các sự kiện trang *tương lai*; cửa sổ bật lên hiển thị lời nhắc tải lại sau mỗi lần Chạy.
-- **Đồng hồ đếm ngược của tôi không tiến lên.** Bộ hẹn giờ quy tắc tùy chỉnh chỉ đánh dấu vào tab **hoạt động hiển thị** qua `pageHeartbeatEvent`. Các tab nền, cửa sổ thu nhỏ và màn hình khóa sẽ tạm dừng chúng theo thiết kế — hoạt động tương tự như đếm ngược nhóm khối mặc định.
-- **Tôi không thể xóa nhóm.** Có thể nhóm đó đã bị đóng băng. Các nhóm bị đóng băng nghiêm ngặt hoàn toàn không thể bị xóa cho đến khi khóa của chúng hết hạn; các nhóm bị đóng băng không nghiêm ngặt có thể bị xóa thông qua nghi thức giải phóng.
-- **Cửa sổ bật lên hiển thị "Đang chạy..." mãi mãi.** Quy tắc tùy chỉnh có thể đã bị lặp lại. Động cơ sẽ tắt nó sau một khoảng thời gian chờ cứng và cách ly quy tắc. Mở bảng Nhật ký vì lý do hủy bỏ; sửa quy tắc và nhấp vào Chạy.
-
----
-
-## 20. Bảng thuật ngữ
-
-- **Chặn nhóm** — một bộ quy tắc có loại, hành vi, lịch trình và trạng thái đóng băng/tạm ẩn riêng.
-- **Chặn tức thì** — quy tắc sẽ chặn ngay lập tức bất cứ khi nào nó được kích hoạt.
-- **Chặn sau phút** — quy tắc chỉ bắt đầu chặn sau khi hết ngân sách thời gian trong khoảng thời gian đó.
-- **Khoảng thời gian đặt lại** — tần suất đặt lại ngân sách sau vài phút.
-- **Lịch trình** — ngày + khoảng thời gian trong đó một nhóm hoạt động.
-- **Đóng băng / Đóng băng nghiêm ngặt** — trạng thái chống giả mạo.
-- **Báo lại** — vô hiệu hóa tạm thời bằng nghi thức xác nhận có thể định cấu hình.
-- **Bộ lọc tác giả** — đối với các nhóm nền tảng, giới hạn quy tắc đối với một số người tạo nội dung nhất định.
-- **Loại nội dung** — đối với các nhóm nền tảng, giới hạn quy tắc ở một số dạng nội dung nhất định (ngắn, dài, đăng).
-- **Người trợ giúp** — các tiện ích được chuyển tới trình xử lý của quy tắc tùy chỉnh.
-- **Nền tảng** — một trong các `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`. Mỗi nhóm có loại nhóm và logic ẩn nguồn cấp dữ liệu riêng.
-- **Heartbeat** — ~250 ms `pageHeartbeatEvent` được gửi từ tab hiển thị đang hoạt động.
-- **Tick** — số 1 `tickEvent` được chia sẻ trên toàn cầu (không phụ thuộc vào khả năng hiển thị).
-- **Chế độ gỡ lỗi** — một cài đặt hiển thị ghi nhật ký theo dõi nội bộ trong bảng Nhật ký và bảng điều khiển trình duyệt.
-- **Cách ly** — tự động vô hiệu hóa quy tắc tùy chỉnh vượt quá giới hạn an toàn thời gian chạy (thời hạn, spam nhật ký, ...). Đã xóa vào lần chạy tiếp theo.
-
----
-
-## 21. Hạn chế- Việc ẩn nguồn cấp dữ liệu phụ thuộc vào DOM hiện tại của mỗi nền tảng. Nếu nền tảng thay đổi bố cục, bộ chọn ẩn có thể cần được cập nhật.
-- Tính năng phát hiện ngữ cảnh nền tảng cho các trang web không phải Du-túp chủ yếu dựa trên URL, do đó, tính năng này đáng tin cậy nhất trên các URL nội dung chuẩn.
-- Bộ hẹn giờ quy tắc tùy chỉnh đánh dấu ở độ phân giải nhịp tim (~250 ms). Đừng dựa vào chúng để tính thời gian dưới giây.
-- Các vị từ được chuyển đến `hideShorts` / `hideVideos` / `hidePosts` được đánh giá đồng bộ trên mỗi thẻ nguồn cấp dữ liệu. Logic nặng trong một vị từ có thể làm chậm quá trình cuộn nguồn cấp dữ liệu; giữ chúng giá rẻ.
-- Hai tab chỉnh sửa cùng một bộ đếm thời gian cho mỗi nhóm đồng thời sử dụng chiến lược "viết lần cuối sẽ thắng". Đối với mục đích sử dụng thông thường thì điều này là ổn; nếu bạn phụ thuộc vào việc tính toán chính xác, thỉnh thoảng sẽ có sự chênh lệch nhỏ.
-- Trình duyệt có thể tạm dừng nhân viên dịch vụ nền khi không hoạt động. Tiện ích mở rộng sẽ tiếp tục lại ngay khi có trang hoặc báo thức cần; ngân sách sử dụng trang web/theo thời gian tiếp tục được tính thông qua tính năng phát lại nhịp tim.
-
-## Ghi chú v1.2
-
-Trình soạn quy tắc tùy chỉnh hiện tô màu cú pháp ngôn ngữ kịch bản, và trình duyệt mẫu dùng cùng màu cho phần xem trước mã. Tác vụ hàng loạt của nhóm được gọi là **Xóa sạch**.
-
+Tập tin tiếng Anh này là hướng dẫn sử dụng nguồn được duy trì. Hướng dẫn sử dụng được bản địa hóa là bản dịch của nó và có thể yêu cầu tạo lại sau khi cập nhật tài liệu chức năng. Nguồn sản phẩm vẫn là sự thật chính tắc đối với sự mơ hồ ở cấp độ triển khai.

@@ -5,13 +5,13 @@
   "description": "__MSG_appDescription__",
   "default_locale": "en",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "declarativeNetRequest", "alarms", "offscreen", "tabs", "webNavigation", "favicon"],
+  "permissions": ["storage", "alarms", "offscreen", "tabs", "webNavigation", "favicon"],
   "host_permissions": ["<all_urls>"],
   "icons": {
-    "16": "icons/icon-16.png",
-    "32": "icons/icon-32.png",
-    "48": "icons/icon-48.png",
-    "128": "icons/icon-128.png"
+    "16": "icons/adamancia-vault-lock-v3-16.png",
+    "32": "icons/adamancia-vault-lock-v3-32.png",
+    "48": "icons/adamancia-vault-lock-v3-48.png",
+    "128": "icons/adamancia-vault-lock-v3-128.png"
   },
   "background": {
     "service_worker": "background.js"
@@ -24,6 +24,12 @@
     },
     {
       "matches": ["*://*.youtube.com/*"],
+      "js": ["yt-harvest-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
       "js": ["yt-collect.js", "yt-block.js"],
       "run_at": "document_idle"
     }
@@ -31,9 +37,9 @@
   "action": {
     "default_title": "__MSG_appName__",
     "default_icon": {
-      "16": "icons/icon-16.png",
-      "32": "icons/icon-32.png",
-      "48": "icons/icon-48.png"
+      "16": "icons/adamancia-vault-lock-v3-16.png",
+      "32": "icons/adamancia-vault-lock-v3-32.png",
+      "48": "icons/adamancia-vault-lock-v3-48.png"
     }
   },
   "sandbox": {
@@ -47,10 +53,10 @@
         "message-page.html",
         "message-page.js",
         "message-page.css",
-        "icons/icon-16.png",
-        "icons/icon-32.png",
-        "icons/icon-48.png",
-        "icons/icon-128.png"
+        "icons/adamancia-vault-lock-v3-16.png",
+        "icons/adamancia-vault-lock-v3-32.png",
+        "icons/adamancia-vault-lock-v3-48.png",
+        "icons/adamancia-vault-lock-v3-128.png"
       ],
       "matches": ["<all_urls>"]
     }

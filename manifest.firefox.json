@@ -4,7 +4,7 @@
   "version": "2.0.1",
   "description": "__MSG_appDescription__",
   "default_locale": "en",
-  "permissions": ["storage", "declarativeNetRequest", "alarms", "tabs", "webNavigation"],
+  "permissions": ["storage", "alarms", "tabs", "webNavigation"],
   "host_permissions": ["<all_urls>"],
   "browser_specific_settings": {
     "gecko": {
@@ -13,19 +13,25 @@
     }
   },
   "icons": {
-    "16": "icons/icon-16.png",
-    "32": "icons/icon-32.png",
-    "48": "icons/icon-48.png",
-    "128": "icons/icon-128.png"
+    "16": "icons/adamancia-vault-lock-v3-16.png",
+    "32": "icons/adamancia-vault-lock-v3-32.png",
+    "48": "icons/adamancia-vault-lock-v3-48.png",
+    "128": "icons/adamancia-vault-lock-v3-128.png"
   },
   "background": {
-    "scripts": ["browser-compat.js", "helpers.js", "background.js"]
+    "scripts": ["browser-compat.js", "platform-profiles.js", "helpers.js", "background.js"]
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["browser-compat.js", "helpers.js", "content.js"],
+      "js": ["browser-compat.js", "platform-profiles.js", "helpers.js", "content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["yt-harvest-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     },
     {
       "matches": ["*://*.youtube.com/*"],
@@ -36,10 +42,27 @@
   "action": {
     "default_title": "__MSG_appName__",
     "default_icon": {
-      "16": "icons/icon-16.png",
-      "32": "icons/icon-32.png",
-      "48": "icons/icon-48.png"
-    }
+      "16": "icons/adamancia-vault-lock-v3-16.png",
+      "32": "icons/adamancia-vault-lock-v3-32.png",
+      "48": "icons/adamancia-vault-lock-v3-48.png"
+    },
+    "theme_icons": [
+      {
+        "light": "icons/adamancia-vault-lock-inverse-dark-16.png",
+        "dark": "icons/adamancia-vault-lock-v3-16.png",
+        "size": 16
+      },
+      {
+        "light": "icons/adamancia-vault-lock-inverse-dark-32.png",
+        "dark": "icons/adamancia-vault-lock-v3-32.png",
+        "size": 32
+      },
+      {
+        "light": "icons/adamancia-vault-lock-inverse-dark-48.png",
+        "dark": "icons/adamancia-vault-lock-v3-48.png",
+        "size": 48
+      }
+    ]
   },
   "web_accessible_resources": [
     {
@@ -49,10 +72,10 @@
         "message-page.html",
         "message-page.js",
         "message-page.css",
-        "icons/icon-16.png",
-        "icons/icon-32.png",
-        "icons/icon-48.png",
-        "icons/icon-128.png"
+        "icons/adamancia-vault-lock-v3-16.png",
+        "icons/adamancia-vault-lock-v3-32.png",
+        "icons/adamancia-vault-lock-v3-48.png",
+        "icons/adamancia-vault-lock-v3-128.png"
       ],
       "matches": ["<all_urls>"]
     }

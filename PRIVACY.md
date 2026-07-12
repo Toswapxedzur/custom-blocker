@@ -1,6 +1,6 @@
 # Privacy Policy — Custom Web Blocker
 
-_Last updated: 2026-05-11_
+_Last updated: 2026-06-30_
 
 This page explains exactly what data the **Custom Web Blocker** browser
 extension collects, where it goes, and why each browser permission is
@@ -73,6 +73,33 @@ If you write custom JavaScript rules, that code:
 
 Your custom rules are stored locally with the rest of your settings
 and are never transmitted off the device.
+
+## Website & creator-tag service statistics
+
+This section is about the **website and the optional creator-tag service**,
+which are separate from the extension itself. The extension still sends
+nothing, as described above. The website publishes a small **Statistics**
+panel, and to populate it the server keeps a few aggregate counts:
+
+- **Download counts** — how many times each product's download button was
+  clicked (macOS, Windows, browser extension, Safari).
+- **Creators classified** — how many YouTube creators have been tagged.
+- **Accounts** — how many accounts exist.
+- **Q&A activity** — the total number of forum posts and comments.
+
+Once an hour the server records the current value of each of these counts and
+nothing else. There are no per-event records, no clickstreams, and no session
+history.
+
+- **Fully anonymous / de-identified.** These are plain running totals. They
+  are **not** linked to your name, account, email, IP address, device, or any
+  other identifier — there is no way to attribute a count back to a person.
+- **Never commercial.** This data exists only to show the public Statistics
+  panel. It is **never sold, shared with third parties, used for advertising,
+  or used for any other commercial purpose.**
+- **Optional channel-id contributions.** If — and only if — you opt in, the
+  extension/website may share YouTube **channel ids** (never video titles,
+  watch history, or anything personal) to help classify creators for everyone.
 
 ## Children
 
