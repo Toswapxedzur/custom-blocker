@@ -13,6 +13,25 @@
 load("helpers.js");
 load("tests/log.js");
 
+// JavaScriptCore on macOS does not expose the browser URL constructor. The
+// helper bundle uses URL only for its pure URL-classifier helpers, so provide
+// the tiny subset those tests need without changing the browser runtime code.
+if (typeof URL === "undefined") {
+  globalThis.URL = function TestUrl(value) {
+    const match = String(value).match(/^https?:\/\/([^/?#]+)([^?#]*)?(\?[^#]*)?/i);
+    if (!match) throw new TypeError("Invalid URL");
+    this.hostname = match[1].toLowerCase();
+    this.pathname = match[2] || "/";
+    const query = new Map();
+    for (const pair of (match[3] || "").slice(1).split("&")) {
+      if (!pair) continue;
+      const parts = pair.split("=");
+      query.set(parts[0], parts.slice(1).join("="));
+    }
+    this.searchParams = { get: (key) => query.get(key) ?? null };
+  };
+}
+
 const H = globalThis.__customBlockerHelpers;
 const log = globalThis.__cbTestLog.makeLogger({ colour: true });
 
@@ -85,62 +104,44 @@ function intentsFor(accumulator, platform) {
 // Scenarios.
 // ────────────────────────────────────────────────────────────────────────
 
-log.section("S1: gating — methods absent on a platform throw TypeError");
+log.section("S1: raw slot gating — unknown slots throw TypeError");
 {
   const { platformHelpers } = makeFixture();
-  // YouTube has all three "hide*" content methods.
-  assert("youtube().hideShorts is a function",
-    typeof platformHelpers.youtube().hideShorts === "function");
-  assert("youtube().hidePosts is a function",
-    typeof platformHelpers.youtube().hidePosts === "function");
-
-  // TikTok: no "Posts", no "Shorts" surface, no "Shorts button" toggle.
-  const tiktok = platformHelpers.tiktok();
-  assert("tiktok().hidePosts is undefined", tiktok.hidePosts === undefined);
-  assert("tiktok().hideShorts is undefined", tiktok.hideShorts === undefined);
-  assert("tiktok().hideReels is undefined", tiktok.hideReels === undefined);
-  assert("tiktok().hideShortButton is undefined", tiktok.hideShortButton === undefined);
-  assertThrows("tiktok().hidePosts() throws TypeError",
-    () => platformHelpers.tiktok().hidePosts(() => true), TypeError);
-  assertThrows("tiktok().hideShortButton() throws TypeError",
-    () => platformHelpers.tiktok().hideShortButton(), TypeError);
-
-  // Instagram: uses "Reels", not "Shorts".
-  const ig = platformHelpers.instagram();
-  assert("instagram().hideReels is a function", typeof ig.hideReels === "function");
-  assert("instagram().hideShorts is undefined", ig.hideShorts === undefined);
-  assertThrows("instagram().hideShorts() throws TypeError",
-    () => platformHelpers.instagram().hideShorts(() => true), TypeError);
-
-  // Twitch: no posts. hideComments is exposed and maps to STREAM CHAT
-  // (Twitch's nearest analogue to comments) — see __cb_PLATFORM_CSS in
-  // content.js, which already targets the chat container under the
-  // "comments" intent. filterComments is intentionally NOT exposed
-  // because Twitch chat doesn't have a per-message scraper yet.
-  const tw = platformHelpers.twitch();
-  assert("twitch().hidePosts is undefined", tw.hidePosts === undefined);
-  assert("twitch().hideComments is a function (chat)",
-    typeof tw.hideComments === "function");
-  assert("twitch().showComments is a function",
-    typeof tw.showComments === "function");
-  assert("twitch().filterComments is undefined (no per-msg scraper)",
-    tw.filterComments === undefined);
-  assert("twitch().hideClips is a function", typeof tw.hideClips === "function");
-  assert("twitch().hideStreams is a function", typeof tw.hideStreams === "function");
-  assert("twitch().hideVideos is a function (VODs)", typeof tw.hideVideos === "function");
-  assertThrows("twitch().hidePosts() throws TypeError",
-    () => platformHelpers.twitch().hidePosts(() => true), TypeError);
+  // YouTube exposes shorts/videos/posts/comments/live as predicate slots.
+  assertEqual("youtube().slots()",
+    platformHelpers.youtube().slots().sort(),
+    ["comments", "live", "posts", "shorts", "videos"]);
+  // TikTok: no posts, no shorts surface — just videos/comments/live.
+  assertEqual("tiktok().slots()",
+    platformHelpers.tiktok().slots().sort(),
+    ["comments", "live", "videos"]);
+  assertThrows("tiktok().hide('posts', …) throws TypeError",
+    () => platformHelpers.tiktok().hide("posts", () => true), TypeError);
+  assertThrows("tiktok().hide('shorts', …) throws TypeError",
+    () => platformHelpers.tiktok().hide("shorts", () => true), TypeError);
+  // Instagram: shorts (Reels)/posts/comments, no videos.
+  assertEqual("instagram().slots()",
+    platformHelpers.instagram().slots().sort(),
+    ["comments", "posts", "shorts"]);
+  // Twitch: clips map to the 'shorts' slot, plus streams/videos/live. No
+  // comments predicate (no per-message scraper).
+  assertEqual("twitch().slots()",
+    platformHelpers.twitch().slots().sort(),
+    ["live", "shorts", "streams", "videos"]);
+  assertThrows("twitch().hide('posts', …) throws TypeError",
+    () => platformHelpers.twitch().hide("posts", () => true), TypeError);
+  assertThrows("twitch().hide('comments', …) throws TypeError",
+    () => platformHelpers.twitch().hide("comments", () => true), TypeError);
 }
 
-log.section("S2: aliases write to the same internal slot");
+log.section("S2: hide(slot, predicate, opts) records intent + bucket");
 {
   const { accumulator, persistentBucket, platformHelpers } = makeFixture();
-  platformHelpers.instagram().hideReels((it) => it.bad === true, { blockPageOnVisit: true });
-  platformHelpers.twitch().hideClips((it) => it.short === true);
-  platformHelpers.twitch().hideStreams((it) => it.live === true);
-  platformHelpers.facebook().hideReels((it) => true);
+  platformHelpers.instagram().hide("shorts", (it) => it.bad === true, { blockPageOnVisit: true });
+  platformHelpers.twitch().hide("shorts", (it) => it.short === true);
+  platformHelpers.twitch().hide("streams", (it) => it.live === true);
+  platformHelpers.facebook().hide("shorts", (it) => true);
 
-  // Verify intents recorded with the right slot names.
   assertEqual("instagram intent slot is 'shorts'",
     intentsFor(accumulator, "instagram").map((x) => x.slot), ["shorts"]);
   assertEqual("twitch intents slots are ['shorts','streams']",
@@ -148,61 +149,53 @@ log.section("S2: aliases write to the same internal slot");
   assertEqual("facebook intent slot is 'shorts'",
     intentsFor(accumulator, "facebook").map((x) => x.slot), ["shorts"]);
 
-  // Verify persistent bucket holds the predicates under the same slot.
   assert("persistentBucket.instagram.shorts has predicate",
     typeof persistentBucket.instagram?.shorts?.predicate === "function");
-  assert("persistentBucket.twitch.shorts has predicate",
-    typeof persistentBucket.twitch?.shorts?.predicate === "function");
   assert("persistentBucket.twitch.streams has predicate",
     typeof persistentBucket.twitch?.streams?.predicate === "function");
-  assert("persistentBucket.facebook.shorts has predicate",
-    typeof persistentBucket.facebook?.shorts?.predicate === "function");
 
-  // blockPageOnVisit option threads through to both intent and bucket.
+  // blockPageOnVisit + effect default thread through to intent and bucket.
   const igIntent = intentsFor(accumulator, "instagram")[0];
-  assertEqual("instagram intent.blockPageOnVisit === true",
-    igIntent.blockPageOnVisit, true);
+  assertEqual("instagram intent.blockPageOnVisit === true", igIntent.blockPageOnVisit, true);
+  assertEqual("instagram intent.effect defaults to 'block'", igIntent.effect, "block");
   assertEqual("instagram persistent.blockPageOnVisit === true",
     persistentBucket.instagram.shorts.blockPageOnVisit, true);
+  assertEqual("instagram persistent.effect === 'block'",
+    persistentBucket.instagram.shorts.effect, "block");
 }
 
-log.section("S3: single-slot semantics — last writer wins, show() clears");
+log.section("S3: single-slot semantics — last writer wins, show(slot) clears");
 {
   const { persistentBucket, platformHelpers } = makeFixture();
   const yt = platformHelpers.youtube();
   const p1 = (it) => it.tag === "first";
   const p2 = (it) => it.tag === "second";
-  yt.hideVideos(p1);
-  yt.hideVideos(p2);
-  assert("after two hideVideos calls, slot stores the LAST predicate",
+  yt.hide("videos", p1);
+  yt.hide("videos", p2);
+  assert("after two hide('videos') calls, slot stores the LAST predicate",
     persistentBucket.youtube.videos.predicate === p2);
-  assert("first predicate is no longer reachable",
-    persistentBucket.youtube.videos.predicate !== p1);
 
-  yt.showVideos();
-  assert("after showVideos(), persistent slot is null",
+  yt.show("videos");
+  assert("after show('videos'), persistent slot is null",
     persistentBucket.youtube.videos === null);
 }
 
 log.section("S4: cross-platform isolation");
 {
   const { persistentBucket, platformHelpers } = makeFixture();
-  platformHelpers.youtube().hideVideos((it) => true);
-  platformHelpers.facebook().hideVideos((it) => false);
+  platformHelpers.youtube().hide("videos", (it) => true);
+  platformHelpers.facebook().hide("videos", (it) => false);
   assert("youtube.videos predicate exists",
     typeof persistentBucket.youtube?.videos?.predicate === "function");
-  assert("facebook.videos predicate exists and is different",
-    persistentBucket.facebook.videos.predicate !==
-      persistentBucket.youtube.videos.predicate);
-  // Calling youtube.showVideos() does NOT clear facebook.
-  platformHelpers.youtube().showVideos();
-  assert("youtube cleared",
-    persistentBucket.youtube.videos === null);
+  assert("facebook.videos predicate is different",
+    persistentBucket.facebook.videos.predicate !== persistentBucket.youtube.videos.predicate);
+  platformHelpers.youtube().show("videos");
+  assert("youtube cleared", persistentBucket.youtube.videos === null);
   assert("facebook untouched",
     typeof persistentBucket.facebook.videos.predicate === "function");
 }
 
-log.section("S5: snapshot accessors gated per platform");
+log.section("S5: snapshot() returns the raw per-platform snapshot");
 {
   const snapshot = {
     youtube: { subscribed: true, verified: false, live: true, subscribedChannels: ["UC1", "UC2"] },
@@ -210,76 +203,54 @@ log.section("S5: snapshot accessors gated per platform");
     tiktok: { live: false }
   };
   const { platformHelpers } = makeFixture(snapshot);
-  assertEqual("youtube.isCurrentChannelSubscribed",
-    platformHelpers.youtube().isCurrentChannelSubscribed(), true);
-  assertEqual("youtube.isChannelSubscribed('UC1')",
-    platformHelpers.youtube().isChannelSubscribed("UC1"), true);
-  assertEqual("youtube.isChannelSubscribed('UC9')",
-    platformHelpers.youtube().isChannelSubscribed("UC9"), false);
-  assertEqual("youtube.isCurrentChannelVerified",
-    platformHelpers.youtube().isCurrentChannelVerified(), false);
-  assertEqual("youtube.isLiveNow", platformHelpers.youtube().isLiveNow(), true);
-
-  assertEqual("twitch.isCurrentChannelSubscribed",
-    platformHelpers.twitch().isCurrentChannelSubscribed(), false);
-  assertEqual("twitch.isChannelSubscribed('camman18')",
-    platformHelpers.twitch().isChannelSubscribed("camman18"), true);
-
-  // TikTok should NOT expose channel-membership.
-  assert("tiktok().isCurrentChannelSubscribed is undefined",
-    platformHelpers.tiktok().isCurrentChannelSubscribed === undefined);
-  assertThrows("tiktok().isCurrentChannelSubscribed() throws TypeError",
-    () => platformHelpers.tiktok().isCurrentChannelSubscribed(), TypeError);
-
-  // Instagram has no live → isLiveNow not exposed.
-  assert("instagram().isLiveNow is undefined",
-    platformHelpers.instagram().isLiveNow === undefined);
+  assertEqual("youtube().snapshot().subscribed",
+    platformHelpers.youtube().snapshot().subscribed, true);
+  assertEqual("youtube().snapshot().subscribedChannels",
+    platformHelpers.youtube().snapshot().subscribedChannels, ["UC1", "UC2"]);
+  assertEqual("twitch().snapshot().subscribed",
+    platformHelpers.twitch().snapshot().subscribed, false);
+  // Platforms with no snapshot return null rather than throwing.
+  assertEqual("instagram().snapshot() is null when absent",
+    platformHelpers.instagram().snapshot(), null);
 }
 
-log.section("S6: item-property predicates");
+log.section("S6: no-slot hide(predicate) targets every feed slot");
 {
-  const { platformHelpers } = makeFixture();
-  const yt = platformHelpers.youtube();
-  assertEqual("isItemLive({live:true})", yt.isItemLive({ live: true }), true);
-  assertEqual("isItemLive({live:false})", yt.isItemLive({ live: false }), false);
-  assertEqual("isItemLive(null)", yt.isItemLive(null), false);
-  assertEqual("isAlgorithmicRecommendation({algorithmic:true})",
-    yt.isAlgorithmicRecommendation({ algorithmic: true }), true);
-  assertEqual("isSponsored({sponsored:1}) (truthy non-true)",
-    yt.isSponsored({ sponsored: 1 }), false);
+  const { persistentBucket, platformHelpers } = makeFixture();
+  const pred = (it) => it.creator && it.creator.subCount < 1000;
+  platformHelpers.youtube().hide(pred, { blockPageOnVisit: false });
+  // YouTube feed slots are shorts/videos/posts (comments/live are excluded).
+  assert("youtube.shorts predicate set", persistentBucket.youtube.shorts.predicate === pred);
+  assert("youtube.videos predicate set", persistentBucket.youtube.videos.predicate === pred);
+  assert("youtube.posts predicate set", persistentBucket.youtube.posts.predicate === pred);
+  assert("youtube.comments NOT touched by no-slot hide",
+    !persistentBucket.youtube.comments);
+  // show() with no slot clears everything.
+  platformHelpers.youtube().show();
+  assert("show() clears shorts", persistentBucket.youtube.shorts === null);
+  assert("show() clears videos", persistentBucket.youtube.videos === null);
 }
 
-log.section("S7: subsection-timer gating + return value");
+log.section("S7: timer(slot, opts) gating + return value");
 {
   const { accumulator, platformHelpers } = makeFixture();
-  const id = platformHelpers.youtube().setShortsTimer({ id: "shorts-cap" });
-  assertEqual("setShortsTimer returns the id", id, "shorts-cap");
-  const igId = platformHelpers.instagram().setReelsTimer({ id: "reels-cap" });
-  assertEqual("setReelsTimer returns the id", igId, "reels-cap");
-  // Timers without an id return null (forces the user to pass one).
-  assertEqual("setShortsTimer with no id returns null",
-    platformHelpers.youtube().setShortsTimer({}), null);
+  assertEqual("youtube().timer('shorts', {id}) returns the id",
+    platformHelpers.youtube().timer("shorts", { id: "shorts-cap" }), "shorts-cap");
+  assertEqual("youtube().timer('shorts', {}) returns null without an id",
+    platformHelpers.youtube().timer("shorts", {}), null);
+  assertEqual("youtube().timerSlots()",
+    platformHelpers.youtube().timerSlots().sort(), ["posts", "shorts", "videos"]);
+  assertThrows("tiktok().timer('shorts', …) throws (no such slot)",
+    () => platformHelpers.tiktok().timer("shorts", { id: "x" }), TypeError);
+  assertEqual("twitch().timer('streams', {id})",
+    platformHelpers.twitch().timer("streams", { id: "s" }), "s");
 
-  // TikTok: no Shorts timer.
-  assert("tiktok().setShortsTimer is undefined",
-    platformHelpers.tiktok().setShortsTimer === undefined);
-  assertThrows("tiktok().setShortsTimer() throws",
-    () => platformHelpers.tiktok().setShortsTimer({ id: "x" }), TypeError);
-
-  // Twitch streams timer + clips timer.
-  const sId = platformHelpers.twitch().setStreamsTimer({ id: "s" });
-  const cId = platformHelpers.twitch().setClipsTimer({ id: "c" });
-  assertEqual("twitch.setStreamsTimer returns id", sId, "s");
-  assertEqual("twitch.setClipsTimer returns id", cId, "c");
-
-  // Verify the underlying intents were recorded against the right slot.
-  const ytIntents = intentsFor(accumulator, "youtube");
-  const ytSlots = ytIntents.filter((x) => x.kind === "subsectionTimer").map((x) => x.slot);
-  assertEqual("youtube subsection-timer intents map to slots",
-    ytSlots, ["shorts", "shorts"]);
+  const ytSlots = intentsFor(accumulator, "youtube")
+    .filter((x) => x.kind === "subsectionTimer").map((x) => x.slot);
+  assertEqual("youtube subsection-timer intents map to slot", ytSlots, ["shorts", "shorts"]);
 }
 
-log.section("S8: URL classifiers always present, regardless of schema");
+log.section("S8: URL classifiers always present");
 {
   const { platformHelpers } = makeFixture();
   for (const plat of H.PLATFORM_LIST) {
@@ -287,75 +258,65 @@ log.section("S8: URL classifiers always present, regardless of schema");
     for (const fn of ["isPlatformUrl", "isShortUrl", "isVideoUrl",
                       "isPostUrl", "isHomePage", "extractAuthor",
                       "extractVideoId"]) {
-      assert(plat + "()." + fn + " is a function",
-        typeof api[fn] === "function");
+      assert(plat + "()." + fn + " is a function", typeof api[fn] === "function");
     }
   }
 }
 
-log.section("S9: helpers.listMethods / hasMethod introspection");
+log.section("S8b: Facebook current video routes");
 {
   const { platformHelpers } = makeFixture();
-  const ig = platformHelpers.listMethods("instagram");
-  assert("listMethods('instagram') includes hideReels", ig.includes("hideReels"));
-  assert("listMethods('instagram') excludes hideShorts", !ig.includes("hideShorts"));
-  assert("listMethods('instagram') includes URL classifiers",
-    ig.includes("isPlatformUrl") && ig.includes("extractAuthor"));
-
-  assertEqual("hasMethod('twitch','hidePosts') === false",
-    platformHelpers.hasMethod("twitch", "hidePosts"), false);
-  assertEqual("hasMethod('twitch','hideClips') === true",
-    platformHelpers.hasMethod("twitch", "hideClips"), true);
-  assertEqual("hasMethod('youtube','hideShortButton') === true",
-    platformHelpers.hasMethod("youtube", "hideShortButton"), true);
-  assertEqual("hasMethod('tiktok','hideShortButton') === false",
-    platformHelpers.hasMethod("tiktok", "hideShortButton"), false);
+  const facebook = platformHelpers.facebook();
+  assert("facebook().isShortUrl recognises /share/r/",
+    facebook.isShortUrl("https://www.facebook.com/share/r/abc/"));
+  assert("facebook().isVideoUrl recognises /share/v/",
+    facebook.isVideoUrl("https://www.facebook.com/share/v/abc/"));
+  assert("facebook().isVideoUrl recognises /videos/",
+    facebook.isVideoUrl("https://www.facebook.com/videos/123/"));
+  assertEqual("facebook().extractVideoId reads /share/v/",
+    facebook.extractVideoId("https://www.facebook.com/share/v/abc/"), "abc");
+  assertEqual("facebook().extractAuthor rejects the /share route",
+    facebook.extractAuthor("https://www.facebook.com/share/v/abc/"), null);
 }
 
-log.section("S10: edge cases that previously could regress silently");
+log.section("S9: surface(name, action) toggles whole regions");
 {
   const { accumulator, persistentBucket, platformHelpers } = makeFixture();
   const yt = platformHelpers.youtube();
+  assertEqual("youtube().surfaces() lists home + region toggles",
+    yt.surfaces().sort(), ["comments", "home", "live", "shortButton"]);
 
-  // Calling hideVideos with a non-function silently no-ops (pre-existing
-  // contract) — verify it really does no-op rather than throwing.
-  yt.hideVideos("not a function");
-  assertEqual("hideVideos with non-function records no intent",
-    intentsFor(accumulator, "youtube").length, 0);
-  assert("hideVideos with non-function leaves persistent bucket empty",
-    !persistentBucket.youtube || !persistentBucket.youtube.videos);
+  yt.surface("home", "hide");
+  assertEqual("surface('home','hide') records {kind:'homePage',value:'hide'}",
+    intentsFor(accumulator, "youtube"), [{ kind: "homePage", value: "hide" }]);
 
-  // showVideos on an empty slot is harmless.
-  yt.showVideos();
-  assertEqual("showVideos on empty slot adds exactly one clearPredicates intent",
-    intentsFor(accumulator, "youtube").filter(x => x.kind === "clearPredicates").length, 1);
-
-  // showComments clears the comments predicate slot too.
-  yt.filterComments((c) => c.author === "spam");
-  assert("filterComments installed predicate",
-    typeof persistentBucket.youtube?.comments?.predicate === "function");
-  yt.showComments();
-  assert("showComments cleared the comments slot",
+  // Showing a region that also has a per-item filter clears its predicate.
+  yt.hide("comments", (c) => c.author === "spam");
+  assert("filter installed comments predicate",
+    typeof persistentBucket.youtube.comments.predicate === "function");
+  yt.surface("comments", "show");
+  assert("surface('comments','show') cleared the comments predicate",
     persistentBucket.youtube.comments === null);
 
-  // Twitch has filterLive but NOT filterComments. hideComments is
-  // present (chat) and threads through the standard "comments" intent
-  // — verify the recorded intent has the expected shape.
-  const tw = platformHelpers.twitch();
-  assert("twitch.filterLive is a function", typeof tw.filterLive === "function");
-  assert("twitch.filterComments is undefined", tw.filterComments === undefined);
-  assertThrows("twitch.filterComments() throws TypeError",
-    () => platformHelpers.twitch().filterComments(() => true), TypeError);
+  assertThrows("surface('nope', …) throws TypeError",
+    () => platformHelpers.youtube().surface("nope", "hide"), TypeError);
+}
 
-  const { accumulator: twAcc, platformHelpers: ph2 } = makeFixture();
-  ph2.twitch().hideComments();
-  const twIntents = intentsFor(twAcc, "twitch");
-  assertEqual("twitch.hideComments() records {kind:'comments',value:'hide'}",
-    twIntents, [{ kind: "comments", value: "hide" }]);
-  ph2.twitch().showComments();
-  const twIntents2 = intentsFor(twAcc, "twitch");
-  assertEqual("twitch.showComments() appends {kind:'comments',value:'show'}",
-    twIntents2[1], { kind: "comments", value: "show" });
+log.section("S10: allow(...) records effect:'allow' (rescue cascade)");
+{
+  const { accumulator, persistentBucket, platformHelpers } = makeFixture();
+  const yt = platformHelpers.youtube();
+  yt.allow("videos", (it) => it.creator && it.creator.tags.includes("education"));
+  assertEqual("allow intent carries effect:'allow'",
+    intentsFor(accumulator, "youtube")[0].effect, "allow");
+  assertEqual("allow persistent bucket carries effect:'allow'",
+    persistentBucket.youtube.videos.effect, "allow");
+
+  // hide with a non-function silently no-ops.
+  const { accumulator: acc2, platformHelpers: ph2 } = makeFixture();
+  ph2.youtube().hide("videos", "not a function");
+  assertEqual("hide with non-function records no intent",
+    intentsFor(acc2, "youtube").length, 0);
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -588,6 +549,62 @@ log.section("S12: timer helper auto-ticks per-dispatch");
   t4.getOrCreateTimer({ id: "p", direction: "backward", currentMs: 3000, scope: () => true });
   assertEqual("paused timer ignores elapsedMs",
     bucket4.p.currentMs, 3000);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// S12b: expanded timer capabilities — bounds, step, accrueWhen, subMs,
+// overlayStyle. All opt-in; verifies they clamp/gate as documented.
+// ────────────────────────────────────────────────────────────────────────
+log.section("S12b: timer bounds / step / accrueWhen / subMs / overlayStyle");
+{
+  // maxMs clamps a forward timer's accrual.
+  const dcA = { currentUrl: "https://x.test/", elapsedMs: 5000, tickedSet: new Set(), displayedSet: new Set() };
+  const bA = {};
+  const hA = H.createEventGroupHelpers({ groupId: "g12b-a", timersBucket: bA, persistenceBucket: {}, dispatchContextRef: () => dcA });
+  const tA = hA.getTimerHelper();
+  tA.create({ id: "cap", direction: "forward", currentMs: 0, maxMs: 3000, scope: () => true });
+  assertEqual("forward timer clamps to maxMs", bA.cap.currentMs, 3000);
+
+  // stepMs quantizes the tick (3400ms with step 1000 -> rounds to 3000).
+  const dcB = { currentUrl: "https://x.test/", elapsedMs: 3400, tickedSet: new Set(), displayedSet: new Set() };
+  const bB = {};
+  const hB = H.createEventGroupHelpers({ groupId: "g12b-b", timersBucket: bB, persistenceBucket: {}, dispatchContextRef: () => dcB });
+  const tB = hB.getTimerHelper();
+  tB.create({ id: "q", direction: "forward", currentMs: 0, stepMs: 1000, scope: () => true });
+  assertEqual("stepMs quantizes the tick", bB.q.currentMs, 3000);
+
+  // accrueWhen gates ticking even when scope matches.
+  const dcC = { currentUrl: "https://x.test/", elapsedMs: 1000, tickedSet: new Set(), displayedSet: new Set() };
+  const bC = {};
+  const pC = {};
+  const hC = H.createEventGroupHelpers({ groupId: "g12b-c", timersBucket: bC, timerPredicatesBucket: pC, persistenceBucket: {}, dispatchContextRef: () => dcC });
+  const tC = hC.getTimerHelper();
+  let playing = false;
+  tC.create({ id: "w", direction: "forward", currentMs: 0, scope: () => true, accrueWhen: () => playing });
+  assertEqual("accrueWhen=false blocks the tick", bC.w.currentMs, 0);
+  playing = true;
+  dcC.tickedSet = new Set();
+  tC.__cb_tickAllScopedTimers();
+  assertEqual("accrueWhen=true allows the tick", bC.w.currentMs, 1000);
+
+  // subMs and minMs floor.
+  const dcD = { currentUrl: "https://x.test/", elapsedMs: 0, tickedSet: new Set(), displayedSet: new Set() };
+  const bD = {};
+  const hD = H.createEventGroupHelpers({ groupId: "g12b-d", timersBucket: bD, persistenceBucket: {}, dispatchContextRef: () => dcD });
+  const tD = hD.getTimerHelper();
+  tD.create({ id: "b", direction: "backward", currentMs: 5000, minMs: 2000 });
+  tD.subMs("b", 4000);
+  assertEqual("subMs clamps to minMs", bD.b.currentMs, 2000);
+
+  // overlayStyle is sanitized and surfaced in getState.
+  const dcE = { currentUrl: "https://x.test/", elapsedMs: 0, tickedSet: new Set(), displayedSet: new Set() };
+  const bE = {};
+  const hE = H.createEventGroupHelpers({ groupId: "g12b-e", timersBucket: bE, persistenceBucket: {}, dispatchContextRef: () => dcE });
+  const tE = hE.getTimerHelper();
+  tE.create({ id: "s", direction: "forward", currentMs: 0, overlayStyle: { color: "#fff", evil: () => 1 } });
+  const st = tE.getState("s");
+  assertEqual("overlayStyle kept known field", st.overlayStyle && st.overlayStyle.color, "#fff");
+  assertEqual("overlayStyle dropped non-string field", st.overlayStyle && "evil" in st.overlayStyle, false);
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -999,6 +1016,41 @@ log.section("S15: expanded panel controls + timer element");
   assertEqual("S15: timer element reflects current timer bucket state",
     snap.controls[0].timer.currentMs,
     60000);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// S15b: raw "html" panel control — sanitized markup mount.
+// ────────────────────────────────────────────────────────────────────────
+log.section("S15b: panel raw html control sanitization");
+{
+  const dc = { currentUrl: "https://x.test/", elapsedMs: 0, tickedSet: new Set(), displayedSet: new Set() };
+  const helpers = H.createEventGroupHelpers({
+    groupId: "g15b",
+    timersBucket: {},
+    panelsBucket: {},
+    persistenceBucket: {},
+    dispatchContextRef: () => dc
+  });
+  const panel = helpers.getPanelHelper();
+  panel.create({
+    id: "raw",
+    title: "Raw",
+    controls: [
+      {
+        id: "markup",
+        type: "html",
+        html: "<b>Hi</b><script>steal()</script><img src=x onerror=\"hack()\"><a href=\"javascript:bad()\">x</a>"
+      }
+    ]
+  });
+  panel.__cb_refreshDisplayedPanels();
+  const snap = panel.__cb_getDisplayedPanelSnapshots()[0];
+  const ctrl = snap.controls[0];
+  assertEqual("S15b: html control type preserved", ctrl.type, "html");
+  assertEqual("S15b: <script> stripped", /script/i.test(ctrl.html), false);
+  assertEqual("S15b: on* handler stripped", /onerror/i.test(ctrl.html), false);
+  assertEqual("S15b: javascript: URL neutralized", /javascript:/i.test(ctrl.html), false);
+  assertEqual("S15b: safe markup kept", /<b>Hi<\/b>/.test(ctrl.html), true);
 }
 
 // ────────────────────────────────────────────────────────────────────────

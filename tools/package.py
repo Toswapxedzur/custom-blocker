@@ -49,6 +49,7 @@ DIST_DIR = REPO_ROOT / "dist"
 COMMON_TOP_LEVEL_FILES = [
     "background.js",
     "content.js",
+    "platform-profiles.js",
     "helpers.js",
     "browser-compat.js",
     "popup.html",
@@ -69,6 +70,17 @@ SANDBOX_FILES = [
     "offscreen.js",
 ]
 
+# YouTube creator-tag feature, shared by every target: the feed hider
+# (yt-block.js), the consent-gated channel-id collector (yt-collect.js), the
+# page-world continuation harvester (yt-harvest-main.js, a MAIN-world content
+# script that lets every scrolled-in card resolve its channel id). Consent is
+# part of the popup, so it has no standalone page to package.
+YOUTUBE_FILES = [
+    "yt-collect.js",
+    "yt-block.js",
+    "yt-harvest-main.js",
+]
+
 INCLUDE_DIRS = [
     "_locales",
     "icons",
@@ -77,7 +89,12 @@ INCLUDE_DIRS = [
     "manual",
 ]
 
-EXCLUDE_NAMES = {".DS_Store", "Thumbs.db", "icon-master.png"}
+EXCLUDE_NAMES = {
+    ".DS_Store",
+    "Thumbs.db",
+    "icon-master.png",
+    "icon-inverse-dark-master.png",
+}
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 
 ALL_TARGETS = ["chrome", "edge", "firefox", "safari"]
@@ -146,6 +163,9 @@ def build_target(target: str) -> Path:
     entries.append((REPO_ROOT / manifest_name, "manifest.json", None))
 
     for rel in COMMON_TOP_LEVEL_FILES:
+        entries.append((REPO_ROOT / rel, rel, None))
+
+    for rel in YOUTUBE_FILES:
         entries.append((REPO_ROOT / rel, rel, None))
 
     if target != "safari":

@@ -281,28 +281,26 @@ function getFeedCardElements(site) {
     ];
   }
 
-  const anchorSelectors =
-    site === "tiktok"
-      ? ['a[href*="/video/"]']
-      : site === "instagram"
-        ? ['a[href^="/reel/"]', 'a[href^="/p/"]', 'a[href^="/tv/"]']
-      : site === "facebook"
-        ? ['a[href*="/reel/"]', 'a[href*="/watch/"]', 'a[href*="/posts/"]', 'a[href*="/permalink/"]']
-      : site === "twitch"
-        ? ['a[href*="/clip/"]', 'a[href^="/videos/"]']
-      : [];
+  const feedProfile = PLATFORM_PROFILES?.[site]?.feed;
+  const anchorSelectors = Array.isArray(feedProfile?.anchorSelectors)
+    ? feedProfile.anchorSelectors
+    : [];
 
   if (anchorSelectors.length === 0) return [];
 
   const containers = new Set();
-  const containerSelector = [
-    "article",
-    '[role="article"]',
-    '[data-e2e*="item"]',
-    '[data-testid*="cell"]',
-    '[data-pagelet]',
-    "li"
-  ].join(", ");
+  const containerSelector = (
+    Array.isArray(feedProfile?.containerSelectors) && feedProfile.containerSelectors.length > 0
+      ? feedProfile.containerSelectors
+      : [
+          "article",
+          '[role="article"]',
+          '[data-e2e*="item"]',
+          '[data-testid*="cell"]',
+          '[data-pagelet]',
+          "li"
+        ]
+  ).join(", ");
 
   for (const anchor of document.querySelectorAll(anchorSelectors.join(", "))) {
     const container = anchor.closest(containerSelector);
@@ -317,16 +315,10 @@ function isPostCard(card) {
 
 function getFeedCardHref(card, site) {
   if (site !== "youtube") {
-    const preferredSelector =
-      site === "tiktok"
-        ? 'a[href*="/video/"]'
-        : site === "instagram"
-          ? 'a[href^="/reel/"], a[href^="/p/"], a[href^="/tv/"]'
-        : site === "facebook"
-          ? 'a[href*="/reel/"], a[href*="/watch/"], a[href*="/posts/"], a[href*="/permalink/"]'
-        : site === "twitch"
-          ? 'a[href*="/clip/"], a[href^="/videos/"]'
-          : "a[href]";
+    const profileSelectors = PLATFORM_PROFILES?.[site]?.feed?.hrefSelectors;
+    const preferredSelector = Array.isArray(profileSelectors) && profileSelectors.length > 0
+      ? profileSelectors.join(", ")
+      : "a[href]";
     const href = card.querySelector(preferredSelector)?.getAttribute("href") ??
       card.querySelector("a[href]")?.getAttribute("href");
     return href || null;
@@ -1042,12 +1034,50 @@ function updateOverlay(items, showTimer) {
     return;
   }
   const nextOverlay = ensureOverlay();
-  nextOverlay.container.textContent = visibleItems
-    .map((item) => {
-      const value = item.displayMs ?? item.remainingMs ?? item.currentMs ?? 0;
-      return `${item.name}: ${formatOverlayDurationMs(value)}`;
-    })
-    .join("\n");
+  const anyStyled = visibleItems.some((item) => item.overlayStyle && typeof item.overlayStyle === "object");
+  if (!anyStyled) {
+    // Fast path: no per-timer styling — keep the single-textContent box.
+    nextOverlay.container.textContent = visibleItems
+      .map((item) => {
+        const value = item.displayMs ?? item.remainingMs ?? item.currentMs ?? 0;
+        return `${item.name}: ${formatOverlayDurationMs(value)}`;
+      })
+      .join("\n");
+    return;
+  }
+  // At least one timer opted into overlayStyle: render each as its own
+  // line element so styles apply independently.
+  nextOverlay.container.textContent = "";
+  for (const item of visibleItems) {
+    const value = item.displayMs ?? item.remainingMs ?? item.currentMs ?? 0;
+    const line = document.createElement("div");
+    line.textContent = `${item.name}: ${formatOverlayDurationMs(value)}`;
+    applyOverlayLineStyle(line, item.overlayStyle);
+    nextOverlay.container.appendChild(line);
+  }
+}
+
+function applyOverlayLineStyle(el, style) {
+  if (!style || typeof style !== "object") return;
+  const map = {
+    color: "color",
+    background: "background",
+    fontSize: "fontSize",
+    fontWeight: "fontWeight",
+    border: "border",
+    borderRadius: "borderRadius",
+    padding: "padding",
+    opacity: "opacity"
+  };
+  for (const key of Object.keys(map)) {
+    const v = style[key];
+    if (typeof v === "string" && v) {
+      try { el.style[map[key]] = v; } catch {}
+    }
+  }
+  if (typeof style.icon === "string" && style.icon) {
+    el.textContent = `${style.icon} ${el.textContent}`;
+  }
 }
 
 function canScriptCloseWindow() {
@@ -1831,15 +1861,45 @@ function __cb_updatePanelTimerControls(panelEl, snapshot) {
   }
 }
 
+// True when focus currently sits on a control inside this panel (active drag /
+// typing). Resolves activeElement within the panel's own root, since the panel
+// lives in a shadow root where document.activeElement is only the host.
+function __cb_panelHasActiveControl(panelEl) {
+  if (!panelEl) return false;
+  const root = typeof panelEl.getRootNode === "function" ? panelEl.getRootNode() : document;
+  const active = (root && root.activeElement) || document.activeElement;
+  return Boolean(active) && active !== panelEl && panelEl.contains(active);
+}
+
+const __cb_VALUE_INPUT_TYPES = new Set(
+  ["textInput", "textarea", "numberInput", "range", "select", "date", "time", "color", "pin"]
+);
+
 function __cb_shouldDeferInputValuePatch(input) {
-  if (!input || document.activeElement !== input) return false;
+  // The panel lives in a shadow root, so document.activeElement is the panel
+  // HOST, never the inner <input>. Check the input's own root (shadow root or
+  // document) instead — otherwise this guard never fires and an async panel
+  // refresh overwrites the value mid-interaction (e.g. a range slider snaps
+  // back every drag tick, so it can never reach either end).
+  const root = typeof input?.getRootNode === "function" ? input.getRootNode() : document;
+  const active = (root && root.activeElement) || document.activeElement;
+  if (!input || active !== input) return false;
   const type = input.getAttribute("data-cb-panel-control-type") || "";
-  return ["textInput", "textarea", "numberInput", "range", "select", "date", "time", "color", "pin"].includes(type);
+  return __cb_VALUE_INPUT_TYPES.has(type);
 }
 
 function __cb_setInputValueIfSafe(input, value) {
   if (!input || __cb_shouldDeferInputValuePatch(input)) return;
   const next = String(value ?? "");
+  // Uncontrolled-input semantics: only overwrite the user's current value when
+  // the RULE's value actually changed since we last applied it. A panel is
+  // re-collected and re-sent on EVERY dispatch (heartbeat, panelEvent round-trip,
+  // …), so without this a control snaps back to the rule's stored value the
+  // instant the user lets go — e.g. a slider released at either end jumps back to
+  // its initial value, which reads as "can't reach / capped". The rule's last
+  // applied value is recorded in data-cb-panel-rule-value.
+  if (input.getAttribute("data-cb-panel-rule-value") === next) return;
+  input.setAttribute("data-cb-panel-rule-value", next);
   if (input.value !== next) input.value = next;
 }
 
@@ -1927,6 +1987,12 @@ function __cb_patchPanelControl(panelEl, control, theme) {
   if (type === "text") {
     const text = __cb_safePanelText(control.text || control.label || "", 1000);
     if (root.textContent !== text) root.textContent = text;
+    return true;
+  }
+
+  if (type === "html") {
+    const html = String(control.html || "");
+    if (root.innerHTML !== html) root.innerHTML = html;
     return true;
   }
 
@@ -2258,6 +2324,24 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     return;
   }
 
+  if (type === "html") {
+    const htmlBox = document.createElement("div");
+    __cb_markPanelControlRoot(htmlBox, control);
+    htmlBox.setAttribute("data-cb-panel-control-id", control.id || "");
+    htmlBox.setAttribute("data-cb-panel-control-type", "html");
+    htmlBox.style.cssText = "word-break:break-word;color:inherit;";
+    if (controlWidth && controlWidth !== "auto") {
+      htmlBox.style.width = controlWidth;
+      htmlBox.style.maxWidth = "100%";
+    }
+    if (controlHeight) htmlBox.style.height = controlHeight;
+    // control.html is pre-sanitized in helpers.sanitizePanelHtml (script
+    // blocks + on* handlers stripped). innerHTML is intentional here.
+    htmlBox.innerHTML = String(control.html || "");
+    body.appendChild(htmlBox);
+    return;
+  }
+
   if (type === "section") {
     const section = document.createElement("section");
     __cb_markPanelControlRoot(section, control);
@@ -2518,10 +2602,15 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     input.type = "button";
     input.textContent = label || "Button";
     input.addEventListener("click", () => {
+      const value = control.value ?? true;
+      // Every button press fires "click" so onClick always works. Action
+      // buttons ALSO fire their action ("submit"/"cancel"/"close") so onSubmit /
+      // onClose handlers keep working — both, not one or the other.
+      __cb_sendPanelEvent(panelEl, control, "click", value);
       const action = control.action === "submit" || control.action === "cancel" || control.action === "close"
         ? control.action
-        : "click";
-      __cb_sendPanelEvent(panelEl, control, action, control.value ?? true);
+        : null;
+      if (action) __cb_sendPanelEvent(panelEl, control, action, value);
     });
     input.addEventListener("pointerdown", (ev) => {
       ev.stopPropagation();
@@ -2544,6 +2633,12 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     input.disabled = control.disabled === true;
     input.setAttribute("data-cb-panel-control-id", control.id || "");
     input.setAttribute("data-cb-panel-control-type", type);
+    // Seed the "last rule value" so the first passive re-render after creation
+    // doesn't clobber a value the user already started editing (uncontrolled
+    // semantics — see __cb_setInputValueIfSafe).
+    if (__cb_VALUE_INPUT_TYPES.has(type)) {
+      input.setAttribute("data-cb-panel-rule-value", String(input.value ?? ""));
+    }
     if (control.ariaLabel) input.setAttribute("aria-label", __cb_safePanelText(control.ariaLabel, 240));
     if (control.autoFocus === true) input.setAttribute("data-cb-panel-autofocus", "1");
     __cb_attachPanelControlEvents(
@@ -2615,13 +2710,26 @@ function __cb_renderPanel(snapshot) {
     isNewPanel = true;
   }
   const snapshotKey = __cb_panelSnapshotKey(snapshot);
+  const alreadyMounted = panelEl.parentNode === stack;
   if (
-    panelEl.parentNode === stack &&
+    alreadyMounted &&
     panelEl.getAttribute("data-cb-panel-snapshot") === snapshotKey
   ) {
     if (__cb_patchPanelInPlace(panelEl, snapshot)) {
       return key;
     }
+  }
+  // If the user is actively interacting with a control in this panel (dragging a
+  // slider, typing, picking a date), a destructive full rebuild would reset the
+  // value and drop focus — e.g. making a range slider impossible to drag to the
+  // end when the rule re-renders the panel on each input. Prefer an in-place
+  // patch (which defers focused values); if the change is too structural for a
+  // patch, skip this render and let the next one rebuild once interaction ends.
+  if (alreadyMounted && __cb_panelHasActiveControl(panelEl)) {
+    if (__cb_patchPanelInPlace(panelEl, snapshot)) {
+      panelEl.setAttribute("data-cb-panel-snapshot", snapshotKey);
+    }
+    return key;
   }
   panelEl.setAttribute("data-cb-panel-group-id", groupId);
   panelEl.setAttribute("data-cb-panel-id", panelId);
@@ -2659,6 +2767,12 @@ function __cb_renderPanel(snapshot) {
     "width:" + width,
     "min-width:0",
     "max-width:calc(100vw - 16px)",
+    // Tall panels (long forms, html mounts, center dialogs) must stay within the
+    // viewport and scroll their own content — otherwise the bottom is clipped by
+    // the fixed stack and the wheel can't reach it.
+    "max-height:calc(100vh - 16px)",
+    "overflow-y:auto",
+    "overscroll-behavior:contain",
     "background:" + background,
     "color:" + foreground,
     "border:1px solid " + border,
@@ -2803,7 +2917,7 @@ let __cb_predicateScanTimer = null;
 let __cb_predicateObserver = null;
 
 // Page-level predicate (blockPageOnVisit) state. The predicate runs against
-// the current video's title, but openWebEvent / switchWebEvent typically
+// the current video's title, but openWebEvent / webChangedEvent typically
 // dispatch before the SPA has rendered the real title, so we keep a small
 // per-URL retry budget instead of evaluating with a bare platform name like
 // "YouTube" (which would false-match almost any substring predicate).
@@ -3025,13 +3139,6 @@ function __cb_currentPlatform() {
   return null;
 }
 
-function __cb_videoFormToSlot(form) {
-  if (form === "short") return "shorts";
-  if (form === "long") return "videos";
-  if (form === "post") return "posts";
-  return null;
-}
-
 // Best-effort UC channel id for a feed card (YouTube only). yt-block.js already
 // resolves every on-screen card to its channel and stamps `data-cb-channel`, so
 // we reuse that single resolver instead of duplicating its handle->UC maps; a
@@ -3057,6 +3164,24 @@ function __cb_resolveCardChannelId(card, platform) {
     }
   } catch (_) {}
   return null;
+}
+
+// The page's own channel identity when we're on a channel/author page, in the
+// same normalized shape getFeedCardCreators() produces (a bare handle, or a
+// channel:/c:/user: prefixed id). On a channel's OWN page the individual video
+// cards omit the per-card channel link, so per-card author extraction comes
+// back empty and author-based predicates fail open. Returns null off channel
+// pages or for non-YouTube platforms.
+function __cb_channelPageAuthor(platform) {
+  if (platform !== "youtube") return null;
+  const path = location.pathname || "";
+  const isChannelPage =
+    path.startsWith("/@") ||
+    path.startsWith("/channel/") ||
+    path.startsWith("/c/") ||
+    path.startsWith("/user/");
+  if (!isChannelPage) return null;
+  try { return normalizeYouTubeCreatorInput(path); } catch { return null; }
 }
 
 function __cb_extractCardItem(card, platform) {
@@ -3121,11 +3246,19 @@ function __cb_extractCardItem(card, platform) {
   const href = getFeedCardHref(card, platform);
   if (href) { try { url = new URL(href, location.origin).href; } catch {} }
 
+  // Prefer the per-card creator; fall back to the page's own channel when we're
+  // on that channel's page and the card carries no author link of its own.
+  let author = creators[0] || null;
+  if (!author) {
+    const fallback = __cb_channelPageAuthor(platform);
+    if (fallback) author = fallback;
+  }
+
   return {
     url,
     name,
     title: name,
-    author: creators[0] || null,
+    author,
     channelId: __cb_resolveCardChannelId(card, platform),
     length: null,
     views: null,
@@ -3189,7 +3322,7 @@ async function __cb_scanFeedPredicates() {
   const bySlot = { shorts: [], videos: [], posts: [] };
   for (const card of cards) {
     const item = __cb_extractCardItem(card, platform);
-    const slot = __cb_videoFormToSlot(item.videoForm);
+    const slot = platformVideoFormToSlot(platform, item.videoForm);
     if (!slot) continue;
     if (!__cb_activePredicateSlots.has(platform + ":" + slot)) continue;
     const sig = cbCardSignature(item);
@@ -3210,8 +3343,15 @@ async function __cb_scanFeedPredicates() {
       for (const groupId of evaluatedGroups) cbSetCardVerdict(card, groupId, null, "custom");
       const matched =
         results[i] && Array.isArray(results[i].matchedGroups) ? results[i].matchedGroups : [];
+      // Per-predicate effect: allow() records a rescue verdict, hide() a block
+      // verdict. Falls back to the group effect for older replies without an
+      // effects map.
+      const effects = (results[i] && results[i].effects) || {};
       for (const groupId of matched) {
-        cbSetCardVerdict(card, groupId, cbEffectVerdict(groupId), "custom");
+        const verdict = effects[groupId] === "allow"
+          ? "allow"
+          : (effects[groupId] === "block" ? "hide" : cbEffectVerdict(groupId));
+        cbSetCardVerdict(card, groupId, verdict, "custom");
       }
       cbCustomSigCache.set(card, batch[i].sig);
       cbApplyCard(card);
@@ -3376,7 +3516,7 @@ async function __cb_checkPagePredicate() {
   const platform = __cb_currentPlatform();
   if (!platform) return;
   const ctx = detectVideoSiteContext(normalizeHostname(location.hostname), location.pathname);
-  const slot = __cb_videoFormToSlot(ctx.form);
+  const slot = platformVideoFormToSlot(platform, ctx.form);
   if (!slot || !__cb_activePredicateSlots.has(platform + ":" + slot)) return;
 
   // Build the item from the actual video title rather than document.title.
@@ -3466,17 +3606,31 @@ function __cb_applyEventIntent(intent) {
         if (platformIntent.value === "hide") __cb_setPlatformStyle(platform + "-live", cssTable.live);
         else if (platformIntent.value === "show") __cb_clearPlatformStyle(platform + "-live");
       } else if (platformIntent.predicate === true && typeof platformIntent.slot === "string" && platform) {
-        __cb_activePredicateSlots.add(platform + ":" + platformIntent.slot);
-        // A new group's predicate is now active; re-evaluate cached cards.
-        cbResetCustomSigCache();
-        __cb_ensurePredicateObserver();
-        __cb_schedulePredicateScan();
-        __cb_checkPagePredicate();
+        const slotKey = platform + ":" + platformIntent.slot;
+        // Idempotent: the sandbox replays active-slot intents on every dispatch
+        // (so registration-time hide()/allow() and full page reloads re-activate
+        // the slot), so only do the expensive re-scan when the slot is NEWLY
+        // active — otherwise a heartbeat would force a full re-evaluation 4x/sec.
+        if (!__cb_activePredicateSlots.has(slotKey)) {
+          __cb_activePredicateSlots.add(slotKey);
+          cbResetCustomSigCache();
+          __cb_ensurePredicateObserver();
+          __cb_schedulePredicateScan();
+          __cb_checkPagePredicate();
+        }
       } else if (platformIntent.kind === "clearPredicates" && typeof platformIntent.slot === "string" && platform) {
         __cb_activePredicateSlots.delete(platform + ":" + platformIntent.slot);
         // Drop every custom verdict and re-resolve, so cards a predicate had
         // hidden come back (unless a platform rule still hides them).
         cbClearSourceEverywhere("custom");
+        cbResetCustomSigCache();
+        if (__cb_activePredicateSlots.size > 0) __cb_schedulePredicateScan();
+      } else if (platformIntent.kind === "rescan" && platform) {
+        // rescan(): a predicate's external inputs changed, so invalidate the
+        // per-card signature cache and re-run the scan. The scan clears and
+        // re-derives each evaluated group's custom verdict, so cards that no
+        // longer match come back and newly-matching cards get hidden — without
+        // dropping verdicts that a still-active predicate re-confirms.
         cbResetCustomSigCache();
         if (__cb_activePredicateSlots.size > 0) __cb_schedulePredicateScan();
       }
@@ -3563,4 +3717,3 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
     }
   });
 }
-
