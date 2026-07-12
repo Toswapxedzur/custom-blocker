@@ -1,654 +1,884 @@
-# Web Blocker personalizzato: manuale di istruzioni
+# Riferimento funzionale dell'estensione Vault
 
-Questo è il manuale di riferimento completo per l'estensione. Inizia con i flussi di lavoro più semplici e comuni e passa gradualmente ad argomenti avanzati come le regole di blocco personalizzate basate sugli eventi e l'API di supporto.
+## Scopo e status
 
-Se sei nuovo, leggi **Avvio rapido** e **Panoramica dei gruppi di blocco**. Tutto ciò che è al di sotto di queste sezioni è facoltativo, a seconda di cosa vuoi fare.
+Questa è la specifica funzionale autorevole per l'estensione del browser Vault. Documenta il contratto del prodotto: i dati che un utente può configurare, i comportamenti esatti prodotti dalla configurazione, il linguaggio pubblico delle regole personalizzate e i limiti ad esso applicabili.
 
----
+Volutamente non è una guida rapida. Il tutorial del sito web è il percorso di apprendimento. Questo documento è rivolto a chi ha bisogno di configurare, testare, mantenere, controllare o riprodurre il comportamento visibile all'utente di Vault.
 
-## 1. Cosa fa questa estensione
+Il codice è la verità canonica quando questo documento e il prodotto non sono d'accordo. I nomi presenti in questo documento utilizzano, ove possibile, il vocabolario archiviato/pubblico del prodotto. Una parola come "resi" indica il valore restituito reso disponibile per una regola personalizzata; non promette un risultato a livello di browser se il browser o la pagina rifiuta l'azione richiesta.
 
-Custom Web Blocker ti consente di bloccare siti Web e distrazioni online in base alle regole che definisci tu stesso. Puoi:
+## 1. Confine del prodotto
 
-- Blocca immediatamente i siti con il blocco di rete nativo del browser (lo stesso tipo di blocco che produce `ERR_BLOCKED_BY_CLIENT`).
-- Concediti un certo numero di minuti al giorno su un sito, quindi bloccalo una volta superato tale limite.
-- Blocca tipi specifici di contenuti su Iutub, Tic Toc, Feisbuc, rete fotografica, dirette video e Rèddit (non sull'intero sito).
-- Nascondi i contenuti bloccati dai feed sulle piattaforme supportate invece di bloccare solo singole pagine.
-- Pianifica quando una regola è attiva per giorno della settimana e per finestre temporali `HHMM-HHMM`.
-- Blocca una regola in modo da non poterla modificare facilmente. Il congelamento rigoroso lo blocca per un numero specificato di ore e richiede un rituale di conferma in 20 passaggi per essere annullato.
-- Posticipare temporaneamente una regola, ma solo dopo aver scritto una giustificazione sufficientemente lunga.
-- Scrivi regole personalizzate **guidate dagli eventi** in linguaggio di script con aiutanti per timer avanti/indietro, archiviazione persistente per gruppo, intenti DOM per piattaforma (nascondi pulsanti di navigazione, nascondi schede feed per predicato, imposta timer per sottosezione), utilità URL e registrazione strutturata.
-- Scegli da una libreria integrata di oltre 50 modelli già pronti (timer, pianificazioni, occultamento dei feed, sessioni di focus, reindirizzamenti, solleciti, persistenza, modifiche DOM, aiutanti per il debug).
-- Utilizza l'estensione in oltre 20 lingue.
+Vault è un'estensione Web per il controllo del focus. La sua unità di configurazione è un **gruppo di blocchi**. Un gruppo può:
 
-L'estensione è un'estensione browser Cromo Manifest V3 con una pagina dell'editor (il popup), un operatore del servizio in background, un sandbox fuori schermo che ospita il codice delle regole personalizzate e uno script di contenuto eseguito in ogni pagina. Le regole personalizzate vivono nella sandbox fuori schermo; vengono caricati una volta per ogni clic su Esegui e rimangono registrati finché la regola non viene disabilitata o eliminata.
+- decidere che un sito web, una pagina della piattaforma, un creatore, una comunità, un server, un canale o un account di primo livello debbano essere bloccati;
+- nascondere le superfici della piattaforma configurate o le schede feed corrispondenti;
+- misurare il tempo trascorso in un ambito corrispondente;
+- applicare una pianificazione, una protezione dal blocco o una posticipazione temporanea laddove il tipo di gruppo lo supporta;
+- eseguire una regola JavaScript personalizzata con un'API di eventi;
+- mostrare un timer, un pannello, un messaggio o un registro della pagina sulla pagina;
+- reindirizzare, navigare, chiudere una scheda del browser o mantenere una blocklist del sito creata da regole di sola sessione;
+- facoltativamente partecipare a un cluster Vault Bridge connesso localmente.
 
----
+Vault agisce solo all'interno del profilo del browser in cui è installato e solo dove il browser consente l'esecuzione dello script di contenuto. Non:
 
-## 2. Panoramica dell'interfaccia utente
+- installare un'applicazione nativa o un'estensione del browser;
+- bloccare le applicazioni del sistema operativo;
+- ignorare le richieste di autorizzazione del browser, le restrizioni di navigazione privata o il modello di sicurezza di un sito Web;
+- garantire l'occultamento basato sul selettore quando una piattaforma di terze parti cambia il suo DOM;
+- rendere lo stato della regola personalizzata trasferibile tra i profili a meno che l'utente non lo esporti/configuri separatamente;
+- fornire un firewall di rete, un proxy, un controllo dell'account o un servizio di monitoraggio parentale.
 
-Quando fai clic sull'icona dell'estensione, l'editor si apre come una pagina Web completa (non un piccolo popup). La pagina ha queste aree:
+La seguente terminologia viene utilizzata ovunque:
 
-- **Barra superiore**
-  - Pulsante **Manuale di istruzioni** (questo documento)
-  - Selettore **Lingua**
-  - Attrezzatura **Impostazioni** (interruttori avanzati, inclusa la **modalità Debug**)
-- **Pannello sinistro: gruppi di blocchi**
-  - Elenco dei tuoi gruppi di blocco. Ogni scheda mostra il nome del gruppo, una breve riga di riepilogo e una casella di controllo abilita/disabilita.
-  - Il pulsante **Aggiungi** crea un nuovo gruppo. Il menu a discesa accanto seleziona il tipo.
-  - **Elimina tutto** rimuove ogni gruppo, con conferme aggiuntive se qualche gruppo è bloccato.
-  - Puoi trascinare la maniglia `::` su una carta verso l'alto o verso il basso per riordinare i gruppi.
-  - Puoi trascinare il divisore verticale per ridimensionare questo pannello.
-- **Pannello destro: editor**
-  - Modifica il gruppo attualmente selezionato: nome, comportamento di blocco, liste di blocco, filtri specifici del tipo, pianificazione, blocco, posticipazione.
-  - Tutte le modifiche vengono salvate automaticamente una frazione di secondo dopo aver smesso di digitare o interagire.
-  - Per i gruppi **Personalizzati**, l'editor mostra anche il browser **Modelli**, il pulsante **Esegui** e il pannello **Registro** (rinominato da *Registro attività* nella versione 1.1).
-- **Toast** (popup centrato che svanisce): mostra messaggi di stato come "Modifiche salvate". o errori di input.
-- **Sovrapposizione in-page**: mentre una scheda ha un timer o un blocco attivo, nell'angolo in alto a sinistra viene visualizzata una sovrapposizione che mostra tutti i vincoli che la influenzano nel formato `hh:mm:ss` (o `mm:ss`). Più vincoli si sovrappongono su più righe. I conti alla rovescia dei gruppi di blocco predefiniti e i timer delle regole personalizzate condividono questa sovrapposizione.
+| Termine | Significato |
+| --- | --- |
+| Gruppo | Un oggetto di configurazione con nome indipendente. I nomi devono essere univoci all'interno dell'estensione, ignorando le maiuscole e minuscole. |
+| Gruppo del sito | Un gruppo normale la cui lista di domini è la sua principale condizione di corrispondenza. |
+| Gruppo piattaforma | Un normale gruppo specializzato per YouTube, TikTok, Facebook, Instagram, Twitch, Reddit, Discord o Twitter/X. |
+| Gruppo personalizzato | Un gruppo che possiede una regola JavaScript e le relative registrazioni di eventi. La sua regola ne decide il comportamento. |
+| Partita | La pagina, l'elemento del feed o la superficie della piattaforma soddisfa le condizioni configurate di un gruppo. |
+| Attivo | Il gruppo è abilitato, idoneo per la sua pianificazione e al momento non posticipato. I gruppi personalizzati non sono gestiti dalla normale interfaccia utente della pianificazione. |
+| Blocca | Impedisci che la pagina di livello superiore corrente rimanga utilizzabile, normalmente reindirizzando alla sua destinazione di fallback. |
+| Nascondi | Rimuovi o nascondi un elemento/carta nella pagina attualmente renderizzata. Nascondersi non è un blocco della rete. |
+| URL di riserva | Una destinazione di reindirizzamento specifica del gruppo. Se vuoto, viene utilizzato il fallback globale. |
+| Effetto autorizzazione/eccezione | Un verdetto della scheda piattaforma che salva il contenuto corrispondente dalle regole di nascondere con priorità inferiore. Non si tratta di una lista consentita generale di siti Web. |
 
----
+##2. Modello di gruppo e ciclo di vita comune
 
-## 3. Avvio rapido1. Fare clic sull'icona dell'estensione. L'editor si apre come una pagina intera.
-2. Nel pannello **Blocca gruppi**, scegli un tipo di gruppo dal menu a discesa:
-   - `Default`, `Iutub`, `Tic Toc`, `Feisbuc`, `rete fotografica`, `dirette video`, `Rèddit` o `Custom`.
-3. Fare clic su **Aggiungi**. Viene visualizzato un nuovo gruppo e l'editor lo apre.
-4. Dagli un nome.
-5. Compila i campi specifici del tipo (per `Default`, ciò significa l'elenco **Siti Web bloccati**).
-6. Assicurati che la casella di controllo del gruppo nel pannello di sinistra sia attiva.
-7. Visita uno dei siti elencati. Il blocco dovrebbe avere effetto immediato.
+Ogni gruppo memorizzato ha un ID stabile, un nome, un tipo, un flag abilitato e campi di policy comuni. Per impostazione predefinita è abilitato un nuovo gruppo normale. Un gruppo può essere selezionato, salvato tramite il comportamento di salvataggio automatico dell'editor, riordinato, esportato, importato, congelato, sbloccato, posticipato, disabilitato o eliminato.
 
-Questo è l’intero percorso felice. Il resto di questo manuale contiene solo opzioni aggiuntive.
+### 2.1 Ordinamento e sovrapposizione
 
-> Quando premi **Esegui** su un gruppo personalizzato, la nuova regola si collega agli eventi **futuri** della pagina. Le schede già aperte continuano a eseguire la regola precedente finché non le ricarichi. Il popup mostra un promemoria in tal senso dopo ogni esecuzione riuscita.
+Più di un gruppo può corrispondere alla stessa pagina. Vault valuta i gruppi archiviati dalla fine dell'elenco visualizzato verso l'inizio. Tratta gli elementi inferiori nell'elenco come corrispondenze successive/con precedenza superiore quando si progettano regole di sovrapposizione.
 
----
+Per il blocco ordinario del sito di livello superiore, qualsiasi gruppo di blocco applicabile può rendere la pagina non disponibile. Per il filtraggio delle schede feed, la cascata della piattaforma utilizza l'ordine e l'effetto di ciascun gruppo corrispondente: una successiva autorizzazione/eccezione corrispondente può salvare un elemento dai predicati di blocco con priorità inferiore. Questo comportamento di eccezione è limitato alla superficie di filtraggio della scheda della piattaforma; non annulla un normale blocco del sito dell'intera pagina.
 
-## 4. Panoramica dei gruppi di blocchi
+### 2.2 Stato abilitato
 
-Tutto in questa estensione è organizzato come **gruppi di blocchi**. Un gruppo di blocchi è un set di regole:
+I gruppi disabilitati vengono conservati ma non partecipano alla normale corrispondenza, ai timer, alle pianificazioni o alle normali operazioni di posticipazione. La disabilitazione di un gruppo personalizzato scarica anche le sue registrazioni attive. La riattivazione non trasforma il testo non salvato in una regola personalizzata attiva; eseguire la regola per caricare l'origine salvata.
 
-- Ha un nome, un tipo e uno stato abilitato/disabilitato.
-- Ha un comportamento di blocco (immediato, dopo un certo numero di minuti, o conto alla rovescia fisso).
-- Dispone di una pianificazione opzionale (giorni + finestre temporali) e controlli di blocco/posticipazione opzionali.
-- A seconda del tipo, dispone di campi aggiuntivi come un elenco di siti Web, filtri per creatori di Iutub, nomi di subreddit o una regola linguaggio di script basata sugli eventi.
+### 2.3 Campi comuni
 
-Puoi avere un numero qualsiasi di gruppi. Più gruppi possono candidarsi alla stessa pagina; in tal caso prevale la regola **più rigorosa**:
+| Campo | Significato e vincoli |
+| --- | --- |
+| Nome | Non vuoto, tagliato e univoco senza distinzione tra maiuscole e minuscole all'interno di questo endpoint. Il bridge identifica anche i gruppi collegabili per nome e tipo, quindi i nomi stabili sono importanti. |
+| Abilitato | Abilita o disabilita la corrispondenza normale. |
+| Comportamento | Blocco istantaneo, blocco dopo un permesso o timer/conteggio alla rovescia. I gruppi personalizzati utilizzano la propria regola anziché questo normale selettore di comportamento. |
+| Minuti consentiti | Numero positivo utilizzato dal comportamento blocco dopo tolleranza. I nuovi gruppi hanno una durata predefinita di 15 minuti. |
+| Reimposta ore intervallo | Numero positivo utilizzato dai gruppi normali cronometrati. Per impostazione predefinita, i nuovi gruppi hanno 24 ore. |
+| Giorni attivi | Dal lunedì alla domenica. Un gruppo normale è inattivo quando il giorno della settimana locale corrente non è selezionato. |
+| Finestre temporali | Zero o più finestre dell'ora locale, una per riga, scritte come HHMM-HHMM. |
+| Modalità congelamento | Nessuno, Bloccato, Bloccato rigorosamente o Bloccato dai genitori. |
+| Politica di posticipazione | Indica se il gruppo consente la posticipazione, con controlli di durata/ritardo/causa/conferma per i gruppi normali. |
+| URL di riserva | Destinazione utilizzata se il gruppo blocca una pagina. |
+| Passa al successivo | Quando previsto nell'editor, chiede al normale flusso di blocco di oltrepassare la destinazione bloccata anziché rimanervi. |
 
-- "Blocca immediatamente" è migliore di "blocca dopo un po' di tempo".
-- Un gruppo con meno tempo rimanente batte un gruppo con più tempo rimanente.
+### 2.4 Comportamenti normali di gruppo
 
-Quindi l'aggiunta di più gruppi può solo creare un blocco di pagina prima, mai dopo.
+L'editor normale offre tre comportamenti:
 
-**L'ordine di valutazione è dal basso verso l'alto.** Quando l'estensione esegue l'iterazione dei gruppi di blocchi, inizia con il gruppo in fondo all'elenco e procede verso l'alto. Il gruppo in cima all'elenco viene valutato per ultimo e ottiene l'"ultima parola": ad esempio, se un gruppo in basso chiama `helpers.getPlatformHelper().youtube().hideShortButton()` e un gruppo in alto chiama `showShortButton()`, il pulsante rimane visibile. Trascina la maniglia `::` su una carta per modificare questo ordine.
+| Comportamento | Risultato funzionale |
+| --- | --- |
+| Blocca immediatamente | Una volta che il gruppo è attivo e corrisponde, la normale decisione di bloccare la pagina è immediata. |
+| Blocca dopo un certo numero di minuti | Il tempo corrispondente alla pagina visibile viene incrementato rispetto al limite configurato. Quando la disponibilità è esaurita, il gruppo normale si blocca finché il suo periodo di utilizzo non viene reimpostato o il gruppo viene altrimenti inattivo/posticipato. |
+| Timer (conteggio progressivo, nessun blocco) | Il tempo corrispondente alla pagina visibile viene registrato e può essere visualizzato. Questa modalità non si blocca mai semplicemente perché il suo timer raggiunge un valore. |
 
----
+L'utilizzo temporizzato si basa sul tempo della pagina visibile. Non è previsto l'addebito del tempo mentre una pagina è nascosta in una scheda in background. L'intervallo di reimpostazione è un intervallo di criteri a rotazione per il gruppo a tempo normale. I timer normali sono indipendenti per gruppo.
 
-## 5. Tipi di gruppo
+### 2.5 Orari
 
-### 5.1 `Default`: blocca i siti Web ordinari
+Gli orari si applicano ai gruppi normali. Un gruppo personalizzato non ha un'interfaccia utente di pianificazione normale ed è considerato attivo ai fini del relativo JavaScript; la regola deve imporre essa stessa qualsiasi condizione temporale desiderata.
 
-Per bloccare domini specifici (il caso d'uso tipico).
+La politica dei giorni attivi viene valutata utilizzando l'ora locale:
 
-- **Siti Web bloccati**: un sito per riga. Funzionano sia `facebook.com` che `https://www.facebook.com/somepage`; l'estensione estrae e normalizza il nome host.
-- Una regola del sito si applica a quel nome host e a tutti i suoi sottodomini.
-- Questo tipo di gruppo utilizza il blocco di rete nativo di browser Cromo, simile a `ERR_BLOCKED_BY_CLIENT`. Ciò significa che la navigazione verso un URL bloccato viene interrotta prima ancora che la pagina venga caricata.
+1. Se il giorno della settimana corrente non è selezionato, il gruppo normale è inattivo.
+2. Se non vengono fornite finestre temporali valide, per giorno attivo si intende l'intera giornata.
+3. Se vengono fornite finestre valide, l'ora locale corrente deve essere presente in almeno una finestra.
 
-### 5.2 `Iutub`: blocca Iutub e siti di video simili
+Ogni finestra ha la forma esatta HHMM-HHMM, ad esempio 0900-1200. Le ore devono essere comprese tra 00 e 23, i minuti tra 00 e 59 e l'inizio deve essere prima della fine dello stesso giorno. Una finestra include il suo inizio ed esclude la sua fine. Le finestre oltre la mezzanotte, come 2300-0100, non sono valide. Le righe vuote vengono ignorate e le finestre duplicate vengono compresse.
 
-Aggiunge una sezione **Filtri** all'editor:
+### 2.6 Posticipa
 
-- **Tipo di contenuto**:
-  - `Apply to all Iutub pages`: ogni pagina Iutub conta.
-  - `Apply to Shorts`: contano solo le pagine di Short.
-  - `Apply to long videos` — solo `/watch`, `/live/`, `/embed/`, ecc.
-  - `Apply to Iutub posts`: post della community (`/post/...`, schede community/post del canale).
-- **Filtro autore**:
-  - `Do not filter by author`: l'identità dell'autore non ha importanza.
-  - `Apply to certain authors`: solo gli autori elencati attivano questo gruppo.
-  - `Apply to all except certain authors`: gli autori elencati sono esenti.
-- **Autori**: un autore per riga. Accetta `@handle`, URL completi, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Nascondi le voci bloccate nel feed di Iutub**: mentre questo gruppo blocca attivamente, le schede corrispondenti nei feed di Iutub vengono nascoste. Quando il blocco diventa inattivo, ritornano al successivo aggiornamento.
+Per un gruppo normale, la ripetizione è uno stato inattivo temporaneo con un massimo di tre fasi:
 
-Per i tipi di contenuto Short e Post, quando non è impostato alcun filtro autore e il gruppo è attualmente bloccato, l'estensione nasconde anche le voci di navigazione pertinenti (voce della barra laterale Short, schede canale Community/Post) e gli scaffali corrispondenti come "Ultimi post di Iutub".
+| Fase | Risultato |
+| --- | --- |
+| In attesa | La ripetizione richiesta esiste ma non è stata avviata a causa del ritardo di attivazione. Il gruppo è ancora attivo. |
+| Attivo | Il gruppo è temporaneamente inattivo per la durata della posticipazione. |
+| Raffreddamento | La posticipazione è terminata, il gruppo è di nuovo attivo e un'altra posticipazione non può iniziare finché non scade il tempo di recupero. |
 
-Il rilevamento breve/lungo si estende ad altri siti video come Tic Toc, Vimeo, clip/VOD dirette video e Dailymotion quando è possibile rilevare il modulo della pagina.
+I campi di configurazione del gruppo normale sono:
 
-### 5.3 `Tic Toc`: blocca i contenuti di Tic Toc
+| Campo | Regola |
+| --- | --- |
+| Consenti posticipazione | Se disattivato, non è possibile avviare la funzione snooze normale. |
+| Durata posticipo | Minuti positivi. Un nuovo gruppo normale assume il valore predefinito globale, inizialmente 30. |
+| Ritardo di attivazione | Zero o più minuti. Vuoto significa zero. |
+| Raffreddamento | Da zero a cinque minuti. Vuoto significa zero. |
+| Conferme | Un numero intero non negativo. Il prodotto richiede molte interazioni di conferma prima di soddisfare la richiesta. |
 
-Stessa scheda editor dell'editor video della piattaforma, ma con etichette specifiche per Tic Toc:- Tipi di contenuto: brevi video, video, pagine del profilo.
-- Autori: Tic Toc gestisce (`@handle`) o URL del profilo.
-- Il feed hidden nasconde le carte corrispondenti sulle pagine Tic Toc mentre il gruppo è attivo.
+Un gruppo personalizzato tratta il pulsante Posticipa solo come un evento di input. Vault emette l'evento personalizzato denominato snoozePress per quel gruppo; non applica il normale fallback di durata/ritardo/carico per conto della regola. Una regola personalizzata può utilizzare l'evento, la propria persistenza, un pannello, un timer o nessuna azione.
 
-### 5.4 `Feisbuc`: blocca i contenuti di Feisbuc
+### 2.7 Congelare
 
-- Tipi di contenuto: Reels, video, post.
-- Autori: nome della pagina (`page.name`), URL del profilo o modulo `profile.php?id=...` (l'ID numerico viene conservato come `id:<number>`).
-- Il feed hidden nasconde le schede feed corrispondenti su Feisbuc.
+Il congelamento protegge un gruppo dalle normali modifiche alla configurazione e dalle normali modifiche posticipate. La scelta di una modalità di congelamento nel selettore non blocca il gruppo da solo; l'azione di congelamento applica la modalità scelta.
 
-### 5.5 `rete fotografica`: blocca i contenuti di rete fotografica
+| Modalità | Contratto funzionale |
+| --- | --- |
+| Congelato | Il gruppo è bloccato fino al completamento del normale flusso di conferma dello scongelamento del prodotto. |
+| Rigorosamente congelato | Il gruppo non può essere sbloccato finché non è trascorso il periodo di congelamento rigoroso. La durata deve essere maggiore di zero e non superiore a 72 ore; un nuovo gruppo ha come impostazione predefinita 24 ore. |
+| Parentale congelato | Per la gestione del blocco/sblocco è richiesta una password di protezione. La finestra di dialogo di configurazione utilizza una password di sei cifre. |
 
-- Tipi di contenuto: Reels, video, post.
-- Autori: handle di rete fotografica o URL del profilo.
-- I percorsi riservati come `/reel/`, `/p/`, `/tv/`, `/explore/` non sono trattati come autori.
-- Il feed hidden nasconde le carte corrispondenti su rete fotografica.
+I gruppi congelati non possono essere modificati tramite campi ordinari. Un cluster collegato tramite bridge con un membro offline può anche bloccare i controlli di blocco perché Vault non è in grado di coordinare in modo sicuro lo stato di blocco nel cluster. Il blocco è la protezione contro le normali operazioni dell'interfaccia utente; non trasforma un profilo del browser in un limite di sicurezza immutabile.
 
-### 5.6 `dirette video`: blocca i contenuti di dirette video
+### 2.8 Importa, esporta, cancella e ripristina
 
-- Tipi di contenuti: clip, stream/VOD, pagine canale.
-- Autori: nomi di canali o URL di canali.
-- I percorsi riservati come `/directory`, `/videos`, `/settings`, ecc. non vengono trattati come nomi di canali.
-- Feed hidden nasconde le carte corrispondenti su dirette video.
+L'esportazione produce una rappresentazione compatibile del gruppo selezionato. L'importazione convalida e normalizza i dati del gruppo compatibile prima di aggiungerli. I nomi dei gruppi importati devono essere comunque univoci. Elimina gruppo rimuove il gruppo e il suo normale stato di utilizzo/posticipazione. Cancella rimuove tutti i gruppi dopo la conferma.
 
-### 5.7 `Rèddit`: blocca Rèddit o subreddit specifici
+Il ripristino delle impostazioni predefinite è un'operazione di **impostazioni globali**. Scarta le preferenze a livello di estensione; non è un sostituto dell’importazione/esportazione e dovrebbe essere trattato come distruttivo.
 
-- **Subreddit**: un subreddit per riga. L'elenco vuoto significa che il gruppo si applica a tutto Rèddit. Sono accettati sia `productivity` che `r/productivity`.
+## 3. Tipologie di gruppo e contratto di abbinamento
 
-### 5.8 `Custom`: blocco tramite linguaggio di script basato sugli eventi
+### 3.1 Gruppo di siti Web predefinito
 
-Scrivi una funzione linguaggio di script che **registra i gestori** per eventi quali apertura della pagina, modifica dell'URL, heartbeat della pagina, fine del timer ed eventi personalizzati. La funzione viene eseguita una volta per ogni clic su Esegui; i gestori registrati rimangono attivi durante le navigazioni finché non premi nuovamente Esegui, disabiliti il ​​gruppo o lo elimini.
+Un gruppo di siti possiede un elenco di siti Web separati da righe. Le voci sono normalizzate nel formato host/dominio. Una voce host corrisponde a quell'host e a tutti i suoi sottodomini.
 
-I gruppi `Custom` non mostrano: comportamento di blocco, siti bloccati, minuti consentiti, intervallo di reimpostazione, giorni di pianificazione o finestre temporali. Mantengono l'editor delle **Regole di blocco** oltre ai controlli di blocco/posticipazione standard. C'è anche un pulsante **Modelli** che apre un browser preimpostato con regole iniziali parametrizzate; l'applicazione di una preimpostazione sostituisce la regola corrente dopo la conferma.
+| Impostazione | Risultato |
+| --- | --- |
+| Blocca tutto tranne questi siti | L'elenco è una lista bloccata. Un host corrispondente è bloccato. |
+| Blocca tutto tranne questi siti su | L'elenco è una lista consentita. Tutti gli host non presenti nell'elenco vengono bloccati. Una lista consentita vuota è quindi un blocco intenzionale dell'intero Web. |
+| Blocca la home page | Applica i criteri del gruppo alla superficie iniziale/home del browser configurata dove il controllo è disponibile. |
+| URL di riserva | Reindirizzare la destinazione per un blocco. Un valore di gruppo vuoto torna al valore predefinito globale. |
 
-Consulta la **Sezione 11** per il riferimento completo alle regole personalizzate e all'API helper.
+Il normale elenco di domini del gruppo di siti è l'unico elenco dichiarativo dell'intero sito esposto dall'editor. I gruppi di piattaforme corrispondono invece alla propria piattaforma e alle condizioni della piattaforma configurata.
 
----
+### 3.2 Gruppi di piattaforme video
 
-## 6. Comportamento bloccante
+YouTube, TikTok, Facebook, Instagram e Twitch sono gruppi di piattaforme video. Ciascuno è limitato al proprio host di piattaforma. Un gruppo può scegliere come target il modulo del contenuto, l'ambito dell'autore/account, il feed home della piattaforma e i controlli opzionali per nascondere gli elementi.
 
-Per la maggior parte dei tipi di gruppo scegli una delle tre modalità.
+Le modalità generali dell'autore sono:
 
-### 6.1 Blocca immediatamente
+| Modalità | Risultato |
+| --- | --- |
+| Tutti | Non limitare per autore; altri assi configurati decidono la corrispondenza. |
+| Includi | Corrisponde solo ai creatori/account normalizzati elencati. |
+| Escludi | Corrisponde a tutti i creatori/account rilevati tranne le voci elencate. |
+| Nessuno | Non corrisponde a nessun autore. Questo è un asse dell'autore deliberatamente non corrispondente. |
+| Il tag include | Abbina i creatori a qualsiasi tag elencato quando Vault può classificarli. I creatori sconosciuti/non classificati non riescono ad aprire. |
+| Escludi tag | Abbina gli autori senza i tag configurati quando Vault può classificarli. I creatori sconosciuti/non classificati non riescono ad aprire. |
 
-La regola è attiva ogni volta che il gruppo è attivo, la pianificazione lo consente e (per i gruppi sulla piattaforma) la pagina corrisponde.
+Le scelte relative alla forma del contenuto sono specifiche della piattaforma:
 
-Per i gruppi `Default` viene utilizzato il blocco nativo di browser Cromo. Per i gruppi di piattaforme utilizza la logica di overlay/uscita in-page.
+| Piattaforma | Moduli di contenuto |
+| --- | --- |
+| YouTube | Tutte le pagine, cortometraggi, video lunghi, post. |
+| TikTok | Tutte le pagine, brevi video. |
+| Facebook | Tutte le pagine, i reel, i video, i post. |
+| Instagram | Tutte le pagine, i reel, i video, i post. |
+| Contrazione | Tutte le pagine, clip, stream/VOD, pagine canale. |
 
-### 6.2 Blocco dopo un certo numero di minuti
+Vault normalizza l'input dell'autore. L'editor accetta il normale modulo handle/canale/pagina della piattaforma e gli URL dei profili supportati. Potrebbe rifiutare voci dal formato errato o mostrarle come non valide anziché trasformarle silenziosamente in un obiettivo diverso.
 
-Questo è un budget di utilizzo.
+Le scelte di Nascondi superficie sono indipendenti dal blocco di livello superiore. Influiscono solo sull'interfaccia utente corrente della piattaforma e possono smettere di funzionare quando la piattaforma modifica il proprio markup.
 
-- **Minuti consentiti prima del blocco** (decimale): quanti minuti ti concedi per periodo. Esempio: `15`, `0.5`, `90`.
-- **Intervallo di reimpostazione del timer (ore)** (decimale): quanto spesso il budget si reimposta. Esempio: `24` per giornaliero, `1` per orario, `0.25` per ogni 15 minuti.
+| Piattaforma | Scelte di elementi nascosti spediti |
+| --- | --- |
+| YouTube | Navigazione/scaffali/schede di cortometraggi, feed home promossi/superfici pubblicitarie e commenti. L'opzione relativa agli annunci presenta un avviso perché nascondere gli annunci potrebbe entrare in conflitto con i termini di una piattaforma. |
+| TikTok | Esplora la navigazione. |
+| Facebook | Navigazione dei rulli e superfici dei rulli. |
+| Instagram | Navigazione/superfici su Bobine ed Esplora. |
+| Contrazione | Sfoglia la navigazione. |
 
-Finché hai tempo a disposizione, la pagina funziona normalmente e mostra la sovrapposizione del timer. Quando il budget raggiunge lo zero, la pagina viene bloccata per il resto del periodo e l'overlay mostra `0:00`, quindi la scheda tenta di uscire.
+La corrispondenza dei tag creatore di YouTube utilizza le classificazioni dei canali locali/disponibili. Una classificazione mancante non diventa un blocco semplicemente perché è stata selezionata una modalità tag.
 
-L'estensione è per gruppo, per periodo:
+### 3.3 Reddit
 
-- Ogni gruppo ha il proprio budget.
-- Il tempo trascorso su qualsiasi pagina che corrisponde al gruppo viene conteggiato nel budget di quel gruppo.
-- Più schede nello stesso gruppo condividono il budget. I loro timer rimangono sincronizzati; anche il passaggio a un'altra scheda forza un aggiornamento in modo da mostrare immediatamente l'ora condivisa corrente.
+Un gruppo Reddit si applica solo su Reddit. La sua entità è un subreddit. L'input del subreddit accetta il modulo ordinario della comunità e lo normalizza prima della corrispondenza.
 
-Se più gruppi a tempo limitato si applicano alla stessa pagina, vince quello più rigoroso.
+Le modalità subreddit sono:
 
-### 6.3 Timer (conto alla rovescia, quindi blocco)
+| Modalità | Risultato |
+| --- | --- |
+| Tutti | Applica a Reddit senza restrizioni nell'elenco subreddit. |
+| Includi | Applica ai subreddit elencati. |
+| Escludi | Applica a tutti tranne che ai subreddit elencati. |
+| Nessuno | Non applicare a nessun subreddit. |
 
-Questa modalità mostra un timer per il conto alla rovescia e si blocca una volta raggiunto `0:00`.
+L'opzione Nascondi superficie fornita nasconde la navigazione Popolari/Tutti. Il comportamento delle carte feed dipende dalla struttura delle carte attualmente rilevabile da Reddit.
 
-- **Intervallo di ripristino del timer (ore)** (decimale): sia la durata del timer che la frequenza di ripristino. Esempio: `24` per giornaliero, `1` per orario, `0.25` per ogni 15 minuti.
+### 3.4 Discordia
 
-A differenza del **Blocca dopo un certo numero di minuti**, questa modalità **non** ha un campo separato "Minuti consentiti prima del blocco". Il timer si avvia semplicemente all'intervallo di ripristino, esegue il conto alla rovescia mentre le pagine corrispondenti sono aperte, quindi si blocca fino al ripristino successivo.I conti alla rovescia del gruppo predefinito e i timer del gruppo personalizzato (vedere **Sezione 11.3.1**) entrambi **avanzano solo mentre la scheda è visibile**. Passando da una scheda all'altra, riducendo a icona la finestra o bloccando lo schermo, il conto alla rovescia viene messo automaticamente in pausa.
+Un gruppo Discord si applica solo alle pagine Discord/Discordapp. Il suo obiettivo è un ID server o una coppia server/canale. L'editor di destinazione accetta valori del percorso del canale Discord normalizzati.
 
----
+| Modalità | Risultato |
+| --- | --- |
+| Tutti | Applica a Discord senza restrizioni sull'elenco di destinazione. |
+| Includi | Si applica solo ai server elencati o alle destinazioni server/canale. |
+| Escludi | Si applica a tutti tranne i target elencati. |
+| Nessuno | Non applicare a nessun target. |
 
-## 7. Programma
+Discord attualmente non ha una scelta di elementi nascosti nel normale profilo della piattaforma.
 
-Nella scheda **Programma** puoi limitare il momento in cui un gruppo è attivo:
+### 3.5 Twitter/X
 
-- **Giorni da bloccare**: scegli i giorni a cui si applica il gruppo. I giorni non selezionati indicano che il gruppo è inattivo quel giorno.
-- **Finestre temporali**: elenco in formato libero, una finestra per riga in formato `HHMM-HHMM`, ad esempio:
+Un gruppo Twitter/X si applica su X/Twitter. Può applicarsi a tutti gli account o utilizzare le modalità account generali descritte per le piattaforme video, con input normalizzato per handle/collegamento al profilo.
 
-  ```
-  0900-1000
-  1200-1300
-  ```
+Le scelte degli elementi nascosti forniti sono Esplora, Messaggi, Grok, Tendenze e elementi del feed sponsorizzati. Come per tutti i controlli di superficie basati su selettore, una modifica del markup X può influenzarne il funzionamento.
 
-  Il gruppo è attivo solo all'interno di quelle finestre. L'elenco vuoto significa tutto il giorno.
+### 3.6 Campi dichiarativi di gruppo personalizzati
 
-Questo vale per tutti i tipi di gruppo tranne `Custom`. (Le regole personalizzate possono implementare la propria pianificazione utilizzando `ev.time.dayName` / `ev.time.hour`; vedere **Sezione 11.4**.)
+Un gruppo personalizzato esegue principalmente la propria origine JavaScript. Non utilizza il normale selettore del comportamento o la normale interfaccia utente della pianificazione. Può comunque contenere una lista di domini importati o configurati tramite dati compatibili:
 
----
+- una blocklist personalizzata non vuota può partecipare alla decisione ordinaria del sito a pagina intera;
+- una lista consentita personalizzata può partecipare anche se vuota, producendo un blocco dichiarativo dell'intero web;
+- un gruppo personalizzato non configurato non blocca accidentalmente le pagine semplicemente perché ha una regola;
+- I timer personalizzati non si bloccano mai da soli; una regola decide esplicitamente se bloccare allo scadere del timer.
 
-## 8. Blocco (anti-manomissione)
+## 4. Impostazioni globali
 
-Il congelamento rende difficile disattivare un gruppo d'impulso.
+Le impostazioni globali si applicano all'interno anziché a un gruppo.
 
-Nella scheda **Blocca** scegli:
+| Impostazione | Predefinito | Comportamento |
+| --- | --- | --- |
+| Tasso di spunta | 1000ms | Frequenza del tickEvent personalizzato condiviso. L'intervallo valido è compreso tra 250 e 60.000 ms. Valori più bassi possono rendere le regole basate sugli eventi più reattive ma utilizzare più CPU. |
+| Rimbalzo del salvataggio automatico | 400 ms | Ritardo dopo l'ultima modifica dell'editor prima che le impostazioni normali persistano. Il massimo è 5.000 ms. |
+| Modalità debug | Spento | Abilita l'output dettagliato della traccia delle regole personalizzate e la sovrapposizione del registro di debug sulla pagina. Non controlla se le chiamate di registro ordinarie di una regola raggiungono il registro popup. |
+| Mostra i log delle regole personalizzate sulle pagine web | Su | Controlla i normali toast del registro delle pagine. Gli autori delle regole possono comunque richiedere esplicitamente l'output solo su schermo o solo popup. |
+| Durata posticipazione predefinita | 30 minuti | Seme utilizzato durante la creazione di nuovi gruppi normali. I gruppi esistenti mantengono la propria durata. |
+| URL di riserva predefinito | informazioni su:vuoto | Utilizzato quando un gruppo di blocco non dispone di un URL di fallback specifico del gruppo. |
+| Aiuta a classificare i creatori | Spento | Accettazione esplicita. Invia gli ID dei canali YouTube rilevati solo al servizio di classificazione configurato; non invia titoli né cronologia visualizzazioni. |
+| Cartella file locale | Nessuno | Funzionalità di cartella opzionale per regole personalizzate. Vedere la sezione 9. |
+| Ponte dell'app Web | Spento | Connessione opzionale a un hub Vault locale compatibile. Vedere la sezione 11. |
 
-- **Frozen**: non puoi modificare o eliminare il gruppo e non puoi deselezionare la sua attivazione/disattivazione. Per modificare qualcosa è necessario eseguire il rituale di sblocco (vedi sotto).
-- **Rigorosamente congelato**: come Frozen, ma rimane bloccato per un numero di ore da te scelto (decimale, fino a 72). Fino alla scadenza del timer, anche il rituale di sblocco non sarà disponibile.
+### 4.1 Interfaccia dell'editor e superfici di feedback
 
-Quando un gruppo bloccato è sbloccabile, viene visualizzato il pulsante **Sblocca**. Cliccandolo si avvia il **rituale in 20 passaggi**:
+L'editor dell'estensione dispone di un elenco di gruppi persistenti e di un editor di gruppi selezionati. L'elenco dei gruppi fornisce il selettore del tipo di gruppo, Aggiungi, Cancella, selezione, attiva/disattiva e trascina l'ordine. Il suo divisore è ridimensionabile. L'editor del gruppo selezionato fornisce campi specifici del gruppo e le azioni di esportazione/importazione del gruppo.
 
-- La modale mostra un messaggio di autodisciplina.
-- È necessario fare clic su `Confirm` 20 volte.
-- Tra un clic e l'altro è prevista un'attesa forzata di 5 secondi.
-- Se annulli in qualsiasi momento, devi ricominciare dal passaggio 1.
-- I 20 messaggi ruotano in modo che tu possa effettivamente leggerli.
+L'editor salva automaticamente le modifiche ordinarie ai campi dopo il periodo di antirimbalzo globale. Gli errori di convalida vengono segnalati come feedback di stato/toast; i valori normali non validi non vengono convertiti automaticamente in impostazioni non correlate. Un gruppo congelato disabilita i normali controlli di modifica.
 
-Se il gruppo è contrassegnato anche come "no snooze" (vedere la sezione successiva), non è possibile posticiparlo neanche mentre è congelato.
+L'estensione dispone anche di queste superfici di feedback visibili all'utente:
 
-Lo stato di congelamento viene mostrato nella riga meta della scheda di gruppo, compreso il tempo rimanente per il congelamento rigoroso.
+| Superficie | Scopo funzionale |
+| --- | --- |
+| Manuale di istruzioni | Apre questo riferimento nell'estensione. |
+| Selettore lingua | Sceglie la lingua dell'interfaccia dell'estensione. |
+| Impostazioni | Apre le impostazioni globali sopra descritte. |
+| Feedback sullo stato/toast | I report salvano, importano, convalidano e mostrano i risultati delle azioni. |
+| Sovrapposizione del timer sulla pagina | Mostra gli elementi attivi del timer normale/conto alla rovescia e i timer personalizzati che si trovano nel loro ambito di visualizzazione. Possono coesistere più elementi. |
+| Superficie del registro sulla pagina | Riceve chiamate di registro, avviso e errore personalizzate quando consentito dalle impostazioni globali. |
+| Registro personalizzato | Un registro delle attività in tempo reale per le voci visibili tramite popup create da regole. Può essere cancellato e scaricato. |
 
----
+Per i gruppi personalizzati, il campo Regole memorizza il testo di origine. Esegui prima esegue il preflight della sintassi della regola e carica l'origine solo quando l'operazione ha esito positivo. L'editor esegue anche il linting della fonte locale quando il testo cambia. Il controllo visibile **Let AI Code** apre un campo di richiesta e copia un bundle di generazione del codice contenente la richiesta dell'utente, la regola corrente e un riferimento generato all'API della regola personalizzata corrente. Non contatta un servizio AI né modifica automaticamente la regola.
 
-## 9. Posticipa (disabilita temporaneamente)
+Il controllo Modelli apre il browser dei modelli. Un modello, quando viene spedito, ha un titolo, una descrizione, tag, parametri e un'anteprima generata. L'applicazione sostituisce il testo attuale delle Regole dopo la conferma. Il catalogo dei modelli attualmente spedito è vuoto; il browser rimane disponibile per futuri modelli curati e non deve essere trattato come una fonte di regole attive.
 
-La funzione Snooze disabilita temporaneamente un gruppo senza sbloccarlo. Supporta l'attivazione ritardata, il tempo di recupero post-snooze, i passaggi di conferma e un totale parziale del tempo posticipato.
+## 5. Linguaggio delle regole personalizzate
 
-Nella scheda **Posticipa**:
+### 5.1 Moduli sorgente delle regole
 
-- **Consenti posticipazione per questo gruppo**: se disattivato, questo gruppo non può essere posticipato affatto (anche se congelato).
-- **Posticipa per (minuti)**: decimale, quanto dura la posticipazione.
-- **Ritardo di attivazione (minuti)** — decimale `>= 0`. Dopo aver confermato la posticipazione, il gruppo continua a bloccarsi finché questo ritardo non è trascorso; solo allora lo snooze diventa attivo.
-- **Recupero dopo la posticipazione (minuti)**: decimale da `0` a `5`. Al termine della posticipazione, non puoi avviarne un'altra per questo gruppo fino al termine del tempo di recupero.
-- **Tempi di conferma** — intero `>= 0`. Se è `0`, la posticipazione viene programmata immediatamente. Altrimenti, l'avvio della funzione snooze avvia un rituale di conferma con esattamente lo stesso numero di passaggi.
+L'origine di un gruppo personalizzato è JavaScript. All'**Esegui**, Vault rimuove le registrazioni precedenti del gruppo e lo stato creato dalla precedente origine attiva, quindi carica la nuova origine.
 
-Ogni passaggio di conferma della posticipazione prevede un'attesa forzata di **5 secondi** prima che venga consentito il clic successivo. Il modale te lo dice esplicitamente e mostra il conto alla rovescia in tempo reale sul pulsante.
+La fonte può essere:
 
-Se il gruppo è congelato, le impostazioni di ripetizione sono bloccate sui valori scelti prima del blocco. Puoi comunque posticiparlo, purché sia ​​consentito, ma devi utilizzare le impostazioni di ritardo/ricarica/conferma salvate.
-
-La scheda Posticipa mostra anche il **Tempo totale posticipato** per quel gruppo. Questo totale conta l'intera durata della posticipazione attiva anche se il sito diventa raggiungibile per qualche altro motivo durante quella finestra.
-
-Al termine della ripetizione, la regola ritorna immediatamente. Se il gruppo non era già bloccato, l'interno lo congela nuovamente automaticamente al termine della ripetizione.
-
-Un messaggio di stato conferma la ripetizione. Al termine della ripetizione, il gruppo torna automaticamente alla normalità.
-
-Puoi anche terminare anticipatamente una posticipazione con il pulsante **Termina posticipazione**.
-
-Per i gruppi personalizzati, premendo **Avvia posticipo** si invia anche un evento `snoozePress` nella regola (vedere la tabella degli eventi nella **Sezione 11**), in modo che una regola personalizzata possa registrare la stampa, registrare una giustificazione o attivare eventi di follow-up. La regola **non ha API di posticipo programmatico**: può reagire alla stampa, ma non può annullarla o estenderla.
-
----
-
-## 10. Azioni collettive- **Elimina tutto** rimuove tutti i gruppi.
-  - Chiede sempre conferma.
-  - Se almeno un gruppo viene congelato, è necessario lo stesso rituale in 20 passaggi dello scongelamento.
-  - Se un gruppo è bloccato e ancora bloccato, **Elimina tutto** è disabilitato.
-
----
-
-## 11. Gruppi personalizzati: riferimento basato sugli eventi (v1.1+)
-
-A partire dalla versione 1.1, le regole personalizzate sono **guidate dagli eventi**. La tua regola non è più una funzione per heartbeat il cui valore restituito blocca la pagina. Invece, il corpo della regola è uno script che **registra i gestori** per eventi specifici (apertura della pagina, modifica dell'URL, heartbeat della pagina, eventi personalizzati,...). I gestori rimangono registrati durante la navigazione delle pagine e i cambi di scheda e vivono all'interno di una **sandbox offscreen** di lunga durata.
-
-Il corpo della regola viene eseguito **una volta per ogni clic su Esegui** (o una volta quando il gruppo è abilitato ed esiste già un'origine attiva). Per ricaricare i gestori, fai clic su **Esegui** nell'editor. Il popup mostra un promemoria che ti chiede di ricaricare qualsiasi pagina già aperta in modo che la nuova regola venga applicata anche lì.
-
-### 11.1 Firma delle regole
-
-ZXQCODICE1ZXQ
-
-Due argomenti:
-
-- `event`: il **registro eventi** per questo gruppo. Utilizzalo per registrare, sovrascrivere, elencare, contare o annullare la registrazione di gestori e per eventi personalizzati `post(...)`.
-- `helpers` — il bundle di supporto (vedere **11.3**).
-
-Si prevede che la funzione **non** restituisca un valore. La decisione di bloccare o consentire viene presa in seguito, quando si attiva un evento e uno dei gestori registrati chiama `ev.preventDefault()` e/o `ev.setResult(...)`.
-
-### 11.2 Ciclo di vita
-
-- **Esegui** (pulsante per gruppo nell'editor): il motore cancella prima ogni gestore precedentemente taggato con questo gruppo, quindi esegue nuovamente il corpo della regola nella sandbox fuori schermo. Questo è l'unico modo per registrarsi nuovamente dopo aver modificato la fonte.
-- **Disabilita gruppo**: ogni gestore taggato con questo gruppo viene cancellato. L'origine del gruppo viene mantenuta in archivio ma smette di rispondere agli eventi.
-- **Riattiva gruppo**: il motore riesegue automaticamente la sorgente attiva per questo gruppo.
-- **Elimina gruppo**: equivale a disabilitare; tutti i gestori taggati con il gruppo verranno cancellati.
-- **Nuova registrazione con lo stesso `(eventType, id)`**: sovrascrive silenziosamente la registrazione precedente.
-
-La sandbox fuori schermo è condivisa da **tutti** i gruppi personalizzati. Qui coesistono gestori di gruppi diversi, ciascuno taggato internamente con il proprio ID gruppo proprietario in modo che "Esegui", disabilita o elimina tocchi solo il gruppo giusto.
-
-Se una regola personalizzata si comporta in modo anomalo (loop infinito sincrono, spam di log fuori controllo, ecc.) la sandbox la mette in quarantena: il gruppo viene disabilitato automaticamente e l'errore viene registrato in modo da poterlo vedere nel pannello Log. Per riattivare una regola in quarantena, correggi l'origine e fai clic su **Esegui**: il motore cancella il motivo dell'interruzione e ricarica la regola.
-
-### 11.2.1 Il registro degli eventi (`event`)
-
-Metodi generici:
-
-- `event.register(type, id, handler, options?)`: registra un gestore per un tipo di evento arbitrario. `id` è la tua scelta. `options.priority` (predefinito `0`) — viene eseguito prima il valore più alto. `options.intervalMs` — solo per `tickEvent`; limitare questo gestore specifico rispetto al segno di spunta globale. La nuova registrazione con le stesse priorità `(type, id)`.
--`event.unregister(type, id)`, `event.unregisterAll(type)`.
-- `event.post(type, data?, { scope })`: attiva un evento personalizzato. `scope: "global"` raggiunge ogni gruppo; predefinito `scope: "group"` raggiunge solo i gestori nello **stesso** gruppo.
-
-Zucchero per tipo di evento (un set di metodi per tipo integrato):
-
--`event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
--`event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
-- Stessa forma per `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`.
-
-### 11.2.2 Tipi di eventi incorporati
-
-| Digitare | Quando spara | Carico utile `ev.data` |
-|---|---|---|
-| `tickEvent` | Tick ​​di 1 secondo condiviso a livello globale nell'intero browser. Si attiva indipendentemente dalla visibilità della scheda. Usalo per la logica in stile orologio che deve continuare a funzionare anche quando nessuna scheda è focalizzata. | `{ intervalMs: 1000 }` |
-| `pageHeartbeatEvent` | ~250 ms di battito cardiaco dalla scheda **attiva**, **visibile**. Gestisce tutta la logica sensibile alla visibilità delle schede, incluso il segno di spunta automatico integrato in `getOrCreateTimer({ scope })`. **Non** si attiva dalle schede in background o mentre lo schermo è bloccato. | `{ elapsedMs }` |
-| `openWebEvent` | Viene creata una nuova scheda OPPURE una nuova navigazione arriva a un URL che il motore non ha ancora visto per quella scheda. **Non** si riattiva per le schede già aperte dopo un clic su Esegui. | `{ previousUrl, isNewTab }` |
-| `closeWebEvent` | Una scheda è chiusa. | `{ reason, nextUrl }` |
-| `switchWebEvent` | L'URL **cambia** all'interno della stessa scheda: avanti/indietro, modifica del percorso SPA o navigazione che arriva a un URL diverso rispetto a prima. **Non** si attiva con una semplice ricarica (stesso URL). | `{ previousUrl, previousHostname, sameDomain }` |
-| `switchDomainEvent` | La modifica dell'URL supera il limite del nome host (ad esempio `youtube.com` → `wikipedia.org`). Spara insieme a `switchWebEvent`. | `{ previousUrl, previousHostname }` |
-| `webChangedEvent` | La pagina (ri)si carica in qualsiasi modo: apertura, cambio, aggiornamento della cronologia SPA, **o un semplice ricaricamento che mantiene lo stesso URL**. Questo è l'affidabile hook "la pagina è cambiata, rivaluta tutto". Si attiva insieme a `openWebEvent` / `switchWebEvent` / `switchDomainEvent` ed è l'unico che si attiva per ricaricamenti dello stesso URL. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` dove `transition` è `"tabCreated"`, `"commit"` o `"history"` |
-| `timerEnded` | Un timer gestito dal gruppo raggiunge `currentMs === 0`. Consegnato solo al gruppo proprietario. | `{ timerId, displayName, direction, currentMs }` |
-| `snoozePress` | L'utente ha premuto **Avvia posticipazione** nel popup per questo gruppo **personalizzato**. Evento di notifica puro: il gestore può eseguire codice arbitrario (registrazione, reindirizzamento, attivazione di altri eventi) ma le regole personalizzate **non hanno API di posticipazione programmatica**. I registri prodotti qui vengono visualizzati come toast nella scheda attiva. Consegnato solo al gruppo pressato. | `{ triggeredAt }` |
-
-Gli URL in `ev.url` e nei dati degli eventi sono **normalizzati** per gli eventi: la pagina Nuova scheda di browser Cromo (che esegue il rendering della superficie "Cerca in Google o digita URL") di Google), `about:blank` e gli schemi newtab equivalenti vengono esposti come stringa vuota `""`. Pertanto, un timer con ambito `ev.url === ""` funziona solo mentre ti trovi nella pagina nuova scheda. Gli URL `google.com` regolari rimangono invariati.
-
-### 11.2.3 L'oggetto evento (`ev`)
-
-Ogni gestore viene richiamato come `(ev, helpers) => void`. `ev` trasporta:
-
-- `ev.type`: il tipo di evento inviato.
-- `ev.groupId`: l'ID del gruppo ricevente.
-- `ev.tabId`, `ev.pageId`, `ev.url`, `ev.hostname`: contesto per l'evento.
-- `ev.time`: istantanea `{ now, month, dayOfMonth, dayName, hour, minute }` alla spedizione. `dayName` è `"Sunday"`..`"Saturday"`.
-- `ev.data`: carico utile specifico dell'evento (vedere la tabella sopra).
-
-Metodi:
-
-- `ev.preventDefault()`: contrassegna l'invio come "bloccato". Lo script del contenuto dell'host uscirà dalla pagina (o seguirà `setRedirectLink`) a meno che un gestore con priorità più alta non imposti successivamente `setResult(1)`.
-- `ev.stopPropagation()`: interrompi immediatamente l'invio. **Nessun ulteriore gestore in nessun gruppo** viene richiamato per questo evento.
-- `ev.setResult(value)`: imposta il risultato dell'invio. `value` può essere un **numero** in `[-255, 255]` (blocco `-1`, `0` neutro, `1` consentito; altri numeri interi vengono conservati per la propria logica di debug) o una **stringa** (interpretata come URL di reindirizzamento). Vince l'ultima chiamata `setResult` tra tutti i gestori. Uno `1` numerico sovrascrive qualsiasi `preventDefault` precedente.
-- `ev.setRedirectLink(url)` / `ev.getRedirectLink()`: l'URL a cui l'host deve accedere quando l'invio termina come bloccato. Questo è l'**unico** modo per reindirizzare dalle regole personalizzate; l'editor non espone più il campo "URL di reindirizzamento quando bloccato" per i gruppi personalizzati.
-- `ev.post(type, data, { scope })`: attiva un evento di follow-up dall'interno di un gestore.
-
-Inoltre, `ev` è un proxy: qualsiasi campo impostato su di esso (ad esempio `ev.foo = 42`) viene memorizzato in una mappa `custom` e può essere riletto dallo stesso gestore o da gestori successivi nello stesso invio.### 11.3 L'oggetto `helpers`
-
-Ogni chiamata del gestore riceve un nuovo bundle `helpers` con ambito al gruppo ricevente e all'URL dell'evento. Campi costanti:
-
-- `helpers.now`: millisecondi di epoca all'invio.
-- `helpers.currentUrl`: l'URL dell'evento, dopo la normalizzazione della nuova scheda/spazio vuoto.
-- `helpers.groupId`: ID gruppo ricevente.
-
-Scorciatoie di comodità (indirizza alle stesse funzioni compatibili con l'accumulatore utilizzate dagli aiutanti di seguito, in modo che l'output arrivi ancora nel pannello Log):
-
--`helpers.log(...)`, `helpers.warn(...)`, `helpers.error(...)`.
-
-Metodi di accesso:
-
--`helpers.getLogHelper()` — `log` / `warn` / `error`. L'output è limitato e limitato per invio per evitare che regole incontrollate blocchino il popup.
-- `helpers.getDomainHelper()` (alias `helpers.getDomainUtility()`) — Ispezione URL (vedere **11.3.5**).
-- `helpers.getTimerHelper()`: timer con ambito di gruppo (conto alla rovescia/conto alla rovescia); lo stato persiste dopo il riavvio del browser.
-- `helpers.getPersistenceHelper()`: archivio chiave/valore JSON con ambito gruppo.
-- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (e alias `set` / `get`) più `createMessageUrl(message)` che restituisce un URL `chrome-extension://...` che visualizza il messaggio specificato.
-- `helpers.getPlatformHelper()`: intenti DOM per piattaforma (vedere **11.3.6**).
-- `helpers.getDOMHelper()`: intenti DOM generici: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. Le operazioni vengono raggruppate e applicate dopo il ritorno del gestore.
--`helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Gli effetti vengono applicati alla scheda da cui proviene l'evento.
-- `helpers.getStorageHelper()`: superset di `getPersistenceHelper` più hook asincroni `requestAsyncGet(key)`/`requestAsyncSet(key, value)` per l'archiviazione tra interni (i risultati arrivano come evento personalizzato successivo).
-- `helpers.getTabHelper()` — `list()`, `getActiveTab()`, `getById(id)`, `countOpen()` rispetto a uno snapshot in bundle con l'evento.
-
-Tutti i metodi di supporto sono sicuri: i parametri errati restituiscono `null`, `false` o un valore vuoto invece di lanciare un'eccezione.
-
-#### 11.3.1 `getTimerHelper()`
-
-Temporizzatori per gruppo. Ogni timer è identificato da una stringa `id` a scelta; L'identità ha come ambito il gruppo, quindi due gruppi possono entrambi utilizzare l'ID `"yt-shorts"` senza entrare in collisione. Lo stato persiste dopo il riavvio del browser.
-
-Lo stato persistente di un timer è esattamente: `id`, `displayName`, `direction` (`"forward"` o `"backward"`), `isPaused` e `currentMs`. Non esiste una "durata iniziale" memorizzata: `isExpired` è solo `currentMs === 0`. I timer di avanzamento si attivano per sempre e non scadono mai da soli. I timer indietro smettono di ticchettare a `0` (nessun valore negativo).
-
-Esistono due metodi di costruzione. Scegli quello la cui semantica corrisponde a ciò che desideri:
-
-- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **(ri)crea sempre** il timer con i valori iniziali forniti, sovrascrivendo qualsiasi stato esistente incluso `currentMs`. Usalo quando intendi "ricominciare da zero", ad es. all'interno di un ramo di ripristino one-shot.
-- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **idempotente**. Se esiste già un timer con quello `id`, i relativi `displayName` e `direction` potrebbero essere aggiornati ma `currentMs` verrà preservato. Altrimenti viene creato con i valori iniziali forniti. Questo è ciò che desideri per il modello comune "assicurati che il mio timer esista, quindi lascialo ticchettare".
-
-Entrambi i metodi accettano due funzioni predicative che il motore ricorda per tutta la durata della regola (sopravvivono agli heartbeat e alle rivalutazioni `webChangedEvent`, ma **non vengono mai mantenute** nell'archiviazione):- `scope: (url) => boolean`: quando `true` per l'URL attualmente visibile su ciascun `pageHeartbeatEvent`, il timer esegue automaticamente il tick in base all'intervallo di battito cardiaco (~250 ms). L'aiutante stesso non si blocca mai; aggiorna solo `currentMs`. Al massimo un tick automatico per battito cardiaco per timer.
-- `domain: (url) => boolean`: quando `true` per l'URL visibile corrente, il timer viene visualizzato nell'overlay in-page (in alto a sinistra). Quando `domain` viene omesso, il motore torna a `scope` per la visualizzazione, quindi viene visualizzato anche un timer "spunta su /shorts/pagine" senza cavi aggiuntivi. Fornisci `domain` esplicitamente se desideri una porta di visualizzazione diversa (ad esempio, seleziona solo `/shorts/`, ma mostra il tempo rimanente su tutto `youtube.com`).
-
-> **Importante: un timer non si blocca mai da solo.** Quando un timer all'indietro raggiunge lo zero, si ferma semplicemente allo zero e attiva `timerEnded` una volta. Se bloccare effettivamente la pagina dipende da un gestore `openWebEvent` / `switchWebEvent` separato che chiama `ev.preventDefault()` dopo aver controllato `helpers.getTimerHelper().isExpired(id)`. Questa separazione ti consente di creare timer "solo avviso", contatori di conteggio, soft nudge o blocchi rigidi: stessa primitiva, a te la scelta.
-
-Altri metodi:
-
-- `delete(id)`, `pause(id)`, `resume(id)`: ciclo di vita standard. La pausa blocca `currentMs`.
-- `setDirection(id, "forward" | "backward")`, `setCurrentMs(id, ms)`, `addMs(id, deltaMs)` — mutatori diretti (la maggior parte delle regole non ne ha bisogno: lascia che sia il battito cardiaco a scandire il timer per te).
-- `setDisplayName(id, name)` — rietichettatura.
--`getCurrentMs(id)`, `getDirection(id)`, `getDisplayName(id)`, `isPaused(id)`, `exists(id)`.
-- `isExpired(id)` — `true` se e solo `currentMs === 0`.
-- `getState(id)` — `{ id, displayName, direction, isPaused, currentMs, isExpired }` o `null`.
-- `list()`: ogni timer di proprietà di questo gruppo, come array di oggetti di stato.
-
-#### 11.3.2 `getPersistenceHelper()`
-
-Archiviazione simile a una mappa con ambito al tuo gruppo. I valori devono essere serializzabili in formato JSON.
-
--`set(key, value)`, `get(key, defaultValue?)`, `has(key)`, `delete(key)`, `keys()`, `entries()`, `clear()`, `size()`.
-
-Limiti flessibili: circa 200 chiavi per gruppo, 16 KB per valore.
-
-#### 11.3.3 `getLogHelper()`
-
-- `log(...args)`, `warn(...args)`, `error(...args)` — scrivi nel pannello **Log** nel popup (il pacchetto helper li instrada comunque attraverso lo stesso accumulatore, indipendentemente dal dispatch che li ha prodotti). Ogni riga ha il prefisso `[CustomBlocker:groupId]`.
-- L'helper ha dei limiti rigidi: circa **200 voci di registro per invio** e una lunghezza massima della stringa per voce. Le voci in eccesso vengono eliminate e conteggiate in `accumulator.logsDropped`. Questo è ciò che protegge il popup da una fuga di `for (let i = 0; i < 100000; i++) helpers.log(i)`.
-- Quando la **modalità debug** è disattivata (impostazione predefinita), le voci a livello di traccia emesse dal motore stesso (avvio dell'invio/tempi del gestore) vengono soppresse ovunque: non vengono visualizzate nel pannello Log e non vengono stampate sulla console. Le tue chiamate `log` / `warn` / `error` vengono sempre effettuate.
-
-#### 11.3.4 `getRedirectionHelper()`
-
-Ispeziona/sostituisci l'URL di reindirizzamento che lo script del contenuto utilizzerà se la pagina corrente risulta bloccata.
-
-- `get()`: restituisce l'URL di reindirizzamento effettivo corrente per questo invio. Inizialmente questo è l'URL di fallback configurato del gruppo integrato (se presente), altrimenti `""`.
-- `set(url)`: sovrascrive l'URL di reindirizzamento per questa spedizione. Restituisce `true` in caso di successo, `false` per input non di tipo stringa. Il passaggio di `""` cancella l'override del reindirizzamento e torna al normale comportamento di uscita predefinito.
-- `createMessageUrl(message)`: restituisce un URL `chrome-extension://<id>/message-page.html?msg=...` che, quando si accede, visualizza il messaggio centrato su una pagina pulita. Utile per reindirizzare gli utenti alla schermata "Vai a lavorare"/"Fai una pausa" allo scadere del tempo. Esempio: `ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`.
-
-Come gli altri effetti collaterali delle regole personalizzate, questo stato è condiviso tra tutte le regole nell'invio corrente. Poiché le regole vengono eseguite dal basso verso l'alto, prevale la regola più in alto per chiamare `set(...)`.
-
-#### 11.3.5 `getDomainHelper()` (alias `getDomainUtility()`)
-
-Aiutanti per l'ispezione degli URL. Non esiste `normalize()` perché gli URL in entrata sono già normalizzati newtab.
-
-Nucleo:-`hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
--`isYouTubeHost`, `isTikTokHost`, `isrete fotograficaHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
-- `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()`: ciascuno restituisce `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`.
-
-Filtraggio URL e aiutanti di sezione:
-
-- `isEmptyStartPage(url)` — `true` per la pagina nuova scheda ed equivalenti (gli URL che vengono visualizzati come `""` ai gestori).
-- `matchesAny(url, patterns)` — `patterns` può essere una regex, una regex di stringa o un array di entrambe.
-- `pathStartsWith(url, path)`: riconoscimento dei confini (`pathStartsWith("/r/", "/r")` è vero; `"/results/"` non lo è).
-- `queryHas(url, key, value?)`, `queryGet(url, key)`: ispezione della stringa di query.
-- `isSearchPage(url)`: riconosce i risultati di Google / Bing / DuckDuckGo / Iutub / Rèddit / Tuitter / X.
-- `isInfiniteFeedUrl(url)`: riconosce le superfici di feed algoritmico di Iutub, Tic Toc, rete fotografica, Feisbuc, Rèddit, X.
-- `sameSection(a, b)`: stesso nome host E stesso primo segmento di percorso.
-
-#### 11.3.6 `getPlatformHelper()`
-
-Intenti DOM per piattaforma e timer di sottosezioni, oltre a ispezione. Ogni `helpers.getPlatformHelper().<platform>()` restituisce un oggetto il cui set di metodi è **controllato dalla piattaforma**: i metodi che non hanno senso su una determinata piattaforma sono semplicemente assenti, quindi chiamarli lancia `TypeError: ... is not a function` anziché silenziosamente no-op. Ad esempio, `twitch().hidePosts` non esiste (dirette video non ha post) e `tiktok().hideShortButton` non esiste (l'intera esperienza di Tic Toc è già un video in formato breve). Utilizza `helpers.getPlatformHelper().hasMethod(platform, name)` o `.listMethods(platform)` per eseguire l'introspezione in fase di esecuzione.
-
-Matrice del metodo per piattaforma:
-
-| metodo | youtube | tiktok | instagram | facebook | contrazione |
-|---|:---:|:---:|:---:|:---:|:---:|
-| `hideShorts` / `showShorts` | ✓ |  |  |  |  |
-| `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
-| `hideClips` / `showClips` |  |  |  |  | ✓ |
-| `hideStreams` / `showStreams` |  |  |  |  | ✓ |
-| `hideVideos` / `showVideos` | ✓ | ✓ |  | ✓ | ✓ (VOD) |
-| `hidePosts` / `showPosts` | ✓ |  | ✓ | ✓ |  |
-| `hideShortButton` / `showShortButton` | ✓ |  |  |  |  |
-| `hideHomePage` / `showHomePage` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓ (chiacchierare) |
-| `filterComments` | ✓ | ✓ | ✓ | ✓ |  |
-| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |  | ✓ | ✓ |
-| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |  |  |  | ✓ |
-| `isCurrentChannelVerified` | ✓ |  |  |  |  |
-| `isLiveNow` | ✓ | ✓ |  | ✓ | ✓ |
-| `isItemLive` | ✓ | ✓ |  | ✓ | ✓ |
-| `isAlgorithmicRecommendation` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `isSponsored` | ✓ | ✓ | ✓ | ✓ |  |
-| `setShortsTimer` | ✓ |  |  |  |  |
-| `setReelsTimer` |  |  | ✓ | ✓ |  |
-| `setClipsTimer` |  |  |  |  | ✓ |
-| `setStreamsTimer` |  |  |  |  | ✓ |
-| `setVideosTimer` | ✓ | ✓ |  | ✓ | ✓ |
-| `setPostsTimer` | ✓ |  | ✓ | ✓ |  |
-
-I nomi nativi della piattaforma (`hideReels`, `hideClips`, `hideStreams`) NON sono bucket separati da `hideShorts` / `hideVideos`: lo slot di archiviazione è lo stesso; solo il nome visibile all'utente segue la terminologia di ciascuna piattaforma.
-
-> **Durata del predicato e regola per slot singolo.** Ciascuno di `hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` possiede **uno** persistente predicato per `(group, platform, slot)`. Il predicato **non** ha come ambito l'evento corrente: una volta impostato, rimane attivo a ogni caricamento della pagina e a ogni invio finché non viene chiamato il `show*()` corrispondente o il gruppo non viene caricato. Richiamare nuovamente lo stesso metodo con una nuova funzione **sostituisce** quella precedente: il motore non unisce mai tramite OR più predicati all'interno di un singolo gruppo. Per combinare le condizioni, scrivi un predicato che esegua tu stesso la combinazione, ad es. `yt.hideVideos(item => isShort(item) || hasKeyword(item))`. Nei **diversi** gruppi, ogni gruppo contribuisce con il proprio predicato e un elemento viene nascosto se il predicato di qualsiasi gruppo corrisponde.
-
-I metodi di ispezione traggono valore al momento dell'invio da un'istantanea fornita in bundle con l'evento; la loro disponibilità è controllata dalla matrice sopra.
-
-I classificatori URL vengono sempre riesposti indipendentemente dalla piattaforma: `isPlatformUrl`, `isShortUrl`, `isVideoUrl`, `isPostUrl`, `isHomePage`, `extractAuthor`, `extractVideoId`.I timer delle sottosezioni registrano il timer nel bucket del gruppo persistente e, una volta limitato l'ambito, selezionano solo gli URL che corrispondono a quella sottosezione. I metodi timer accettano `{ id, direction, currentMs, displayName }` e seguono lo stesso gating per piattaforma.
-
-Per i metodi del predicato, il predicato viene chiamato per la carta corrispondente con un `item` normalizzato: `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`. Qualsiasi campo può essere `null`; "innocente fino a prova contraria": restituisce `false` quando manca il campo che ti serve.
-
-### 11.4 Esempi
-
-**Facile**: blocca le pagine di Iutub Shorts nelle mattine dei giorni feriali:
-
-ZXQCODICE2ZXQ
-
-**Medio**: budget giornaliero di 30 minuti per Iutub Shorts. Il timer attiva automaticamente gli `pageHeartbeatEvent` mentre è visibile l'URL di uno Short; un gestore separato impone il blocco quando il timer raggiunge lo zero.
-
-ZXQCODICE3ZXQ
-
-**Più difficile**: nascondi singoli Short di Iutub il cui nome dell'autore è troppo lungo e inserisci un CSS "questo Short è nascosto":
+1. a function expression accepting events and helpers; or
+2. semplici istruzioni che utilizzano gli eventi forniti (o eventi legacy) e le variabili helper.
 
 ```js
-(event, helpers) => {
-  const MAX_AUTHOR_LEN = 16;
-
-  function configure(_ev, h) {
-    const yt = h.getPlatformHelper().youtube();
-    yt.hideShorts(
-      (item) => item.author && item.author.length > MAX_AUTHOR_LEN,
-      { blockPageOnVisit: true }
-    );
-    h.getDOMHelper().injectCss(
-      "ytd-rich-grid-media[data-cb-hidden] { opacity: 0.2 !important; }",
-      "long-author-label"
-    );
-  }
-
-  event.registerOpenWebEvent("hide-long-shorts", configure);
-  event.registerSwitchWebEvent("hide-long-shorts", configure);
-  event.registerWebChangedEvent("hide-long-shorts", configure);
+// Function-expression form
+(events, helpers) => {
+  events.on("openWebEvent", "welcome", (event, h) => {
+    h.log("Opened", event.url);
+  });
 }
 ```
 
-**Più difficile**: trasmetti un evento personalizzato da un gestore ad altri:
+```js
+// Bare-statement form
+events.on("openWebEvent", "welcome", (event, h) => {
+  h.log("Opened", event.url);
+});
+```
 
-ZXQCODICE5ZXQ
+Esegui esegue il controllo preliminare/sintassi JavaScript e, solo quando ha esito positivo, rende attiva la sorgente corrente. Il salvataggio del testo e il testo in esecuzione sono intenzionalmente diversi: una regola può essere salvata senza diventare l'origine evento attiva.
 
----
+L'origine attiva viene scaricata quando il gruppo personalizzato viene eseguito nuovamente, disabilitato, eliminato o interrotto esplicitamente. La riesecuzione cancella i gestori, i timer, i pannelli, il bucket di persistenza e i predicati della piattaforma creati dalla regola prima dell'inizio della registrazione. Un ripristino sandbox può ricaricare la sorgente attiva; gli autori delle regole devono quindi rendere la registrazione idempotente.
 
-## 12. Modelli
+### 5.2 Modello di esecuzione e ipotesi sicure
 
-Ogni gruppo personalizzato dispone di un selettore **Modelli** che apre un browser preimpostato ricercabile. La libreria ora fornisce **oltre 50 modelli** organizzati in nove categorie in modo che tu possa sfogliarli invece di scrivere regole da zero:
+Custom rules are event registrations, not a continuous script loop. Register handlers during rule initialization, then respond to events.
 
-| Categoria | Esempi |
-|---|---|
-| **Timer** | Budget del tempo sul sito (conto alla rovescia + blocco), tracker del tempo del sito (conteggio alla rovescia), limite di Iutub Shorts, limite di feed Tic Toc, limite di rete fotografica Reels, limite di Feisbuc Reels, limite di dirette video Clips, budget di distrazione universale, tracker giornaliero del lavoro approfondito |
-| **Programma** | Blocco dell'orario di lavoro nei giorni feriali, siti solo nel fine settimana, chiusura prima di andare a dormire, consenti solo un'ora, notizie solo per il pranzo, nuovo inizio del lunedì, consenti i primi N minuti di ogni ora, blocco rigoroso del lavoro profondo |
-| **Feed / Pantaloncini** | Blocca gli URL degli shorts di Iutub, nascondi le schede degli shorts, nascondi gli shorts per parola chiave, nascondi il feed della home page di Iutub/commenti/trending, blocca il FYP di Tic Toc, nascondi gli shorts di Tic Toc, blocca gli URL dei reels di rete fotografica, nascondi il feed dei reels di rete fotografica, nascondi il feed/reels di Feisbuc, nascondi la home page di Rèddit/Tuitter/Linkedin |
-| **Reindirizzamento** | Distrazioni → pagina focus, Pantaloncini → /feed/subscriptions, reddit.com → old.reddit.com, twitter / x → Nitter, nuova scheda → elenco attività |
-| **Focus** | Sessione focus solo nella lista consentita, Pomodoro 25/5, blocco durante la riunione, blocco dopo N visite oggi, blocco in caso di perdita di serie |
-| **Spingi** | Registra ogni visita che distrae, avvisa per ogni visita a Shorts, conta le visite giornaliere a un sito |
-| **Persistenza** | Limite mensile delle visite, attivazione/disattivazione del divieto settimanale, traccia dei canali Discor visitati |
-| **Modifiche DOM** | Nascondi l'attivazione/disattivazione della riproduzione automatica di Iutub, nascondi Tuitter / X "Cosa sta succedendo", generico "nascondi selettori su un sito" |
-| **Debug** | Conto alla rovescia demo (3 s), registra ogni evento personalizzato |
+Ogni conduttore riceve:
 
-I chip filtro nella parte superiore del selettore restringono l'elenco per categoria (`Timer`, `Schedule`, `Feed`, …) e piattaforma (`Iutub`, `Tic Toc`, `rete fotografica`, …). Selezione di un modello:
+```js
+(event, helpers) => {
+  // event: the currently dispatched event object
+  // helpers: the public Vault Custom-rule API
+}
+```
 
-1. Carica i suoi input di parametri (URL, minuti, intervalli di ore, ecc.) in un piccolo modulo.
-2. **Applica preimpostazione** visualizza in anteprima la sorgente generata.
-3. Dopo aver confermato **Sostituire la regola personalizzata corrente con questa preimpostazione?**, la fonte viene scritta nell'editor.
-4. Quindi fare clic su **Esegui** per registrare i gestori della regola nella sandbox fuori schermo.
+Gestori per un evento eseguito con priorità numerica decrescente; la stessa priorità utilizza l'ordine di registrazione. Un gestore può essere sostituito registrando nuovamente lo stesso tipo di evento e lo stesso ID. È disponibile un massimo di 1.000 gestori registrati per un gruppo personalizzato.
 
-I modelli sono definiti in `templates/*.js` (`timers.js`, `schedule.js`, `feed.js`, …). Ogni file chiama `CB_REGISTER_TEMPLATES([...])` al momento del caricamento e il popup utilizza l'elenco unito. Aggiungere un nuovo modello significa scrivere una voce nel file appropriato, nessun altro impianto idraulico.
+Vault limita il lavoro attivo di un gestore a circa un secondo. Tre superamenti della scadenza per lo stesso gruppo entro un minuto mettono in quarantena la regola: Vault la disabilita anziché eseguire ripetutamente un gestore problematico. Non utilizzare attese occupate, cicli illimitati, polling sincrono o un numero elevato di mutazioni/log per evento.
 
----
+Per spedizione, Vault accetta al massimo:
 
-## 13. Comportamento multipagina- Tutte le schede aperte nello stesso gruppo condividono lo stesso timer.
-- Quando passi a una scheda nello stesso gruppo, la sua sovrapposizione si aggiorna immediatamente per mostrare l'orario condiviso corrente.
-- I timer con regole personalizzate spuntano solo nella scheda **attivo visibile**, gestito da `pageHeartbeatEvent`. Le schede in background e le finestre ridotte a icona non le fanno avanzare. Ciò corrisponde al conto alla rovescia predefinito del gruppo di blocco.
-- Quando viene aggiunta una nuova regola, ogni pagina aperta rileva la modifica e la rivaluta entro una frazione di secondo; **ma** i gestori appena registrati non "aprono" retroattivamente le schede già aperte. Per questo motivo, il popup mostra un promemoria di ricarica dopo ogni corsa.
-- Quando una regola scade, le schede dei feed nascosti e i pulsanti di navigazione vengono ripristinati al successivo aggiornamento.
+| Articolo | Massimo |
+| --- | --- |
+| Voci del registro delle regole | 200|
+| Eventi pubblicati | 64|
+| Operazioni DOM | 256|
+| Azione/intenti | 256|
+| Pannelli per gruppo | 24|
+| Controlli in un unico pannello | 32|
+| Opzioni nel selettore/radiocomando | 64|
 
----
+Le voci in eccesso relative a log, eventi pubblicati, operazioni DOM e intenti potrebbero essere eliminate. Una regola personalizzata non deve dipendere dalla consegna di voci in eccesso.
 
-## 14. Impostazioni
+### 5.3 Tipi di eventi incorporati
 
-Apri la finestra di dialogo **Impostazioni** tramite l'icona a forma di ingranaggio nella barra in alto.
+Sono integrate le seguenti stringhe di tipo evento. Una regola può anche utilizzare una propria stringa di tipo non vuota, purché non inizi con un carattere di sottolineatura.
 
-- **Intervallo di battito cardiaco**: la frequenza con cui lo script del contenuto segnala il tempo di tabulazione e guida `pageHeartbeatEvent`. Predefinito 250 ms. I valori più bassi sono più reattivi ma utilizzano più CPU.
-- **Intervallo di spunta**: la frequenza con cui si attiva lo `tickEvent` globale. Predefinito 1000 ms.
-- **Modalità debug**: *disattivata* per impostazione predefinita. Quando *on*, il motore emette voci a livello di traccia nel pannello Log (`[trace] dispatchEvent`, `[trace] N handler(s)`) e righe `[CustomBlocker:trace]` nella console del browser. Lascialo spento nell'uso quotidiano; accenderlo durante la diagnosi di una regola di comportamento anomalo. `pageHeartbeatEvent` è escluso dalla registrazione della traccia anche quando la modalità debug è attiva, perché si attiva quattro volte al secondo e coprirebbe il resto.
+| Tipo evento | Quando viene inviato | Dati importanti |
+| --- | --- | --- |
+| tickEvento | Tick ​​periodico condiviso con l'impostazione del tasso di tick globale. | Contesto della pagina/scheda corrente, ove disponibile. Utilizza l'opzione di registrazione intervalMs per limitare la velocità di un singolo gestore. |
+| openWebEvent | Una pagina di livello superiore diventa disponibile per la regola. | URL, nome host, ID scheda/pagina, ora. |
+| chiudiWebEvent | Una pagina/scheda di livello superiore si chiude. | Contesto URL/nome host, ove disponibile. |
+| evento webChanged | Una navigazione di primo livello impegnata, inclusi i ricaricamenti dello stesso URL. | i dati contengono URL/nome host precedenti e flag di navigazione come isFirstLoad, isReload e sameDomain. |
+| timerFine | Un timer personalizzato passa allo stato scaduto. | dati: timerId, displayName, direzione, currentMs. Viene consegnato solo al gruppo proprietario del timer. |
+| snoozePremere | L'utente preme Avvia posticipazione per questo gruppo personalizzato. | La regola possiede la risposta; non viene eseguito il normale fallback snooze. |
+| pannelloEvento | Un pannello personalizzato renderizzato presenta un'interazione. | i campi dati e comodità includono informazioni su pannello/controllo/evento/valore. |
+| eventoFilelocale | Viene completata un'azione richiesta sul file locale. | i campi dati e pratici includono requestId, percorso, risultato, byte, voci ed errore. |
+| paginaHeartbeatEvento | Un battito cardiaco della pagina visibile, circa ogni 250 ms mentre la scheda è visibile. | elapsedMs è il tempo trascorso della pagina visibile. I timer personalizzati con ambito lo utilizzano automaticamente anche senza un gestore registrato. |
 
----
+### 5.4 API del registro eventi
 
-##15. Internazionalizzazione
+Il primo argomento di un'origine in stile funzione è il registro degli eventi. Nell'origine bare-statement, sia gli eventi che gli eventi si riferiscono a questo registro.
 
-L'intera interfaccia utente è tradotta. Utilizza il selettore **Lingua** in alto a destra.
+| Metodo | Contratto |
+| --- | --- |
+| events.on(type, id, handler, options) | Register a handler. Returns true when accepted, false for invalid/capped registrations. |
+| events.register(type, id, handler, options) | Alias of on. |
+| events.off(type, id) | Unregister a handler. Returns whether something was removed. |
+| events.unregister(type, id) | Alias of off. |
+| events.unregisterAll(type) | Remove all handlers owned by this group for that event type. Returns the number removed. |
+| events.getEvent(type, id) | Return the registered function for this group/id, or null. |
+| events.getEvents(type) | Return an object mapping this group's handler ids to functions. |
+| events.countRegistered(type) | Return this group's number of registrations for type. |
+| events.emit(type, data, options) | Queue a synthetic event. |
+| events.post(type, data, options) | Alias of emit. |
 
-Le lingue supportate includono inglese, cinese (semplificato), spagnolo, giapponese, coreano, oltre a una copertura parziale per hindi, arabo, bengalese, portoghese, russo, punjabi, tedesco, francese, turco, vietnamita, italiano, tailandese, olandese, polacco, indonesiano, urdu e persiano. Le lingue con copertura parziale ricadono nell'inglese per le stringhe mancanti.
+L'oggetto opzioni del gestore facoltativo supporta:
 
-Il manuale di istruzioni stesso carica il file di markdown corrispondente alla lingua selezionata, con l'inglese come fallback.
+| Opzione | Significato |
+| --- | --- |
+| priorità | Ordine numerico. I valori più alti vengono eseguiti prima dei valori più bassi. Predefinito 0. |
+| intervalloMs | Numero positivo. Solo per tickEvent, sopprime le chiamate finché non è trascorso questo tempo dalla chiamata precedente del gestore. |
 
----
+Gli eventi sintetici hanno per impostazione predefinita l'ambito del gruppo: solo i gestori appartenenti al gruppo di emissione li ricevono. Utilizza { scope: "global" } per inviare l'evento a ogni regola che ha registrato lo stesso tipo. Non utilizzare un carattere di sottolineatura iniziale nel nome di un evento; è riservato.
 
-## 16. Messaggi di stato
+### 5.5 Oggetto evento
 
-I messaggi di stato vengono visualizzati come un toast centrato che svanisce dopo circa due secondi:
+Ogni gestore riceve un oggetto evento mutabile con campi comuni:
 
-- "Modifiche salvate".
-- "Creato \"Nome gruppo\"."
-- "Regola personalizzata caricata: N gestori attivi. Per applicare questa regola alle schede già aperte, ricaricale."
-- Errori di convalida come "I minuti consentiti devono essere un numero maggiore di 0."
-- "I minuti di posticipazione devono essere un numero maggiore di 0."
-- "I gruppi congelati non possono essere modificati."
+| Campo/metodo | Contratto |
+| --- | --- |
+| digitare | Stringa del tipo di evento. |
+| IDgruppo | ID gruppo personalizzato destinatario. |
+| tabId, pageId | Identificatori del browser quando disponibili; altrimenti nullo. |
+| URL, nome host | URL di primo livello e nome host correnti o stringhe vuote. |
+| tempo | Copia dell'oggetto ora di spedizione o null. |
+| dati | Payload specifico dell'evento o null. |
+| preventDefault() | Contrassegna l'invio come azione di blocco della pagina. La pagina viene reindirizzata al collegamento/risultato di reindirizzamento corrente, se ne esiste uno; in caso contrario Vault utilizza il normale percorso di uscita/fallback. |
+| stopPropagazione() | Arresta i gestori successivi per l'invio dell'evento corrente. |
+| setRisultato(valore) | Memorizza un numero o un risultato di stringa. Una stringa non vuota viene trattata come destinazione di reindirizzamento; Il risultato 1 sopprime un risultato preventDefault altrimenti accumulato. |
+| getRisultato() | Restituisce il risultato impostato da questo oggetto evento oppure null. |
+| post(tipo, dati, opzioni) | Accoda un evento sintetico, con le stesse regole di ambito di Events.post. |
+| setRedirectLink(url) | Imposta l'URL di reindirizzamento per questa spedizione. Restituisce false solo per un input non di tipo stringa. |
+| getRedirectLink() | Leggi l'URL di reindirizzamento di questo invio o una stringa vuota. |
+| chiudi(id) | Richiedi la chiusura di una scheda. Un numero è un ID di scheda, una stringa identifica un URL e un valore omesso indirizza la scheda attiva. |
+| blocco(id) | Aggiungi un pattern di blocco sito dinamico solo per la sessione. Senza ID stringa, utilizza il nome host dell'evento. |
+| sbloccare(id) | Rimuovi un pattern di blocco sito dinamico solo per la sessione. Senza ID stringa, utilizza il nome host dell'evento. |
+| aperto() | Nessuna operazione nell'estensione del browser. Non può avviare applicazioni. |
 
-Per i campi di input con requisiti di formato, il messaggio appare anche accanto al pulsante corrispondente (per snooze).
+Un gestore può allegare proprietà extra arbitrarie all'evento. Leggili tramite event.custom o direttamente tramite il nome assegnato mentre l'oggetto evento è vivo. Non sono uno stato persistente e non sono archivi di eventi incrociati.
 
----
+Per panelEvent, vengono aggiunti questi campi utili: panelId, controlId, eventName, valore, valori, chiave, codice e keyInfo.
 
-## 17. Privacy e archiviazione
+Per localFileEvent, vengono aggiunti questi campi utili: eventName, azione, percorso, directoryPath, requestId, ok, testo, valore, voci, esiste, byte ed errore.
 
-- Tutto è archiviato localmente in `chrome.storage.local`. Nessun dato viene inviato da nessuna parte.
-- Gli elementi memorizzati includono: gruppi, timer di utilizzo, orari dell'ultimo ripristino, record di posticipazione, timer personalizzati e valori persistenti personalizzati.
-- L'estensione non legge il contenuto della pagina oltre quanto necessario per rilevare il tipo di pagina (percorso/nome host/marcatori DOM conosciuti per siti di video) e per valutare i predicati scritti dall'utente. Non legge i tuoi messaggi, post, commenti o contenuti privati.
+### 5.6 Punti di ingresso dell'aiutante
 
----
+L'oggetto helper ha queste proprietà dirette:
 
-## 18. Autorizzazioni
+| Punto di ingresso | Significato |
+| --- | --- |
+| helpers.now | Current dispatch timestamp in milliseconds. |
+| helpers.currentUrl | Current unmodified URL string for this dispatch. |
+| helpers.groupId | Owning Custom-group id. |
+| helpers.log / warn / error | Direct aliases for the log helper. |
+| helpers.logScreen / warnScreen / errorScreen | Direct aliases for screen-only logs. |
+| helpers.logPopup / warnPopup / errorPopup | Direct aliases for popup-only logs. |
+| helpers.getLogHelper() | Returns the log helper. |
+| helpers.getDomainHelper(), getDomainUtility() | Return the domain helper. |
+| helpers.getTimerHelper() | Returns the timer helper. |
+| helpers.getPanelHelper() | Returns the panel helper. |
+| helpers.getPersistenceHelper() | Returns the persistence helper. |
+| helpers.getRedirectionHelper() | Returns the redirect helper. |
+| helpers.getDOMHelper() | Returns the DOM helper. |
+| helpers.getNavigationHelper() | Returns the navigation helper. |
+| helpers.getStorageHelper() | Returns the persistence plus asynchronous storage helper. |
+| helpers.getLocalFolderHelper() | Returns the optional local-folder helper. |
+| helpers.getTabHelper() | Returns the tab-snapshot helper. |
+| helpers.getWindowHelper() | Returns the browser-tab/window helper. |
+| helpers.getPlatformHelper() | Returns the platform-helper collection. |
+| helpers.platform() | Returns the platform-helper collection. |
+| helpers.platform(name) | Returns the named raw platform API. Valid names: youtube, tiktok, facebook, instagram, twitch. |
 
-- `storage` — per i dati sopra.
-- `declarativeNetRequest`: per il blocco nativo dei gruppi `Default`.
-- `alarms`: per pianificare le transizioni delle regole in modo efficiente.
-- `tabs`, `webNavigation`: per rilevare la creazione di schede, le modifiche agli URL e gli heartbeat delle pagine in modo che gli eventi possano essere inviati.
-- `offscreen`: per ospitare il sandbox con regole personalizzate di lunga durata.
-- `host_permissions: <all_urls>`: in modo che lo script del contenuto possa mostrare la sovrapposizione del timer e rilevare il contesto della piattaforma su qualsiasi pagina.
+## 6. Riferimento all'helper personalizzato
 
----
+### 6.1 Assistente dominio
 
-## 19. Risoluzione dei problemi- **Un gruppo che ho aggiunto non fa nulla.** Assicurati che il gruppo sia abilitato, che la pianificazione lo consenta adesso, che non sia attiva alcuna posticipazione e (per i gruppi di piattaforme) che la pagina corrisponda effettivamente al tipo di contenuto e al filtro dell'autore scelti.
-- **Un timer è bloccato o sbagliato su una scheda.** Passa indietro e indietro oppure focalizza la scheda: ciò attiva un aggiornamento forzato dal timer condiviso.
-- **Le carte feed riappaiono dopo che penso che dovrebbero essere nascoste.** L'occultamento del feed viene eseguito solo mentre la regola blocca attivamente. Se hai una regola `after-minutes`, alimenta il nascondiglio che entra in azione una volta che il tuo tempo raggiunge lo zero.
-- **Un pulsante di navigazione di Iutub che mi aspettavo fosse nascosto è ancora lì.** Per nascondere la navigazione è necessario che la regola sia impostata su "non filtrare per autore" e che il tipo di contenuto sia Short o post di Iutub. Con i filtri dell'autore, l'occultamento avviene solo per scheda.
-- **La regola personalizzata non ha fatto nulla o è stata lanciata in modo silenzioso.** Apri Impostazioni → attiva la **Modalità debug**, quindi fai di nuovo clic su **Esegui** e osserva il pannello Registro. Le righe con prefisso `[trace]` mostrano ogni spedizione e gestore. Utilizza `helpers.getLogHelper().log(...)` per aggiungere i tuoi punti di tracciamento. Se una regola dal comportamento anomalo continuava a essere messa in quarantena automatica, correggi l'origine e fai clic su Esegui: Esegui cancella il motivo dell'interruzione.
-- **La mia nuova regola personalizzata non influisce sulle schede già aperte.** Ricaricale. Le regole personalizzate si allegano agli eventi *futuri* della pagina; il popup mostra un promemoria per ricaricare dopo ogni corsa.
-- **Il mio timer per il conto alla rovescia non avanza.** I timer con regole personalizzate spuntano solo sulla scheda **visibile attivo** tramite `pageHeartbeatEvent`. Le schede in background, le finestre ridotte a icona e le schermate bloccate le mettono in pausa in base alla progettazione: lo stesso comportamento del conto alla rovescia predefinito del gruppo di blocco.
-- **Non riesco a eliminare un gruppo.** Probabilmente è bloccato. I gruppi bloccati in modo rigoroso non possono essere eliminati finché il loro blocco non scade; i gruppi congelati non rigidi possono essere eliminati tramite il rituale di sblocco.
-- **Il popup mostra "In esecuzione..." per sempre.** Una regola personalizzata probabilmente è entrata in un circolo vizioso. Il motore lo spegne dopo un duro timeout e mette in quarantena la regola. Aprire il pannello Log per il motivo dell'interruzione; correggere la regola e fare clic su Esegui.
+Get it with helpers.getDomainHelper(). It is also available as helpers.getDomainUtility().
 
----
+| Metodo | Ritorno e comportamento |
+| --- | --- |
+| nomehostDi(url) | Host in lettere minuscole normalizzate senza www. iniziale o null per un URL non valido. |
+| percorsoDi(url) | Nome del percorso dell'URL o / quando l'URL non può essere analizzato. |
+| corrispondenze(nome host, sito) | Vero quando il nome host è uguale a sito o è il suo sottodominio. |
+| getPiattaforma(url) | youtube, tiktok, instagram, facebook, twitch o null. |
+| isYouTubeHost(host), isTikTokHost(host), isInstagramHost(host), isFacebookHost(host), isTwitchHost(host), isRedditHost(host), isDiscordHost(host) | Classificatori di host. |
+| youtube(), tiktok(), instagram(), facebook(), twitch() | Restituisce l'oggetto classificatore URL di quella piattaforma. |
+| isEmptyStartPage(url) | Vero per gli URL vuoti/nuova scheda/pagina iniziale supportati dal browser. |
+| corrispondeAny(url, modelli) | Abbina un URL a una RegExp, a un array RegExp o a stringhe compilate come espressioni regolari. I modelli di stringa non validi vengono ignorati. |
+| percorsoIniziaCon(url, percorso) | Vero per un percorso esatto o un discendente di percorso. Viene fornita una barra iniziale mancante. |
+| queryHas(url, chiave, valore) | Vero se esiste una chiave di query; quando viene fornito valore, deve anche essere uguale al valore della stringa. |
+| queryGet(url, chiave) | Valore della query o null. |
+| isSearchPage(url) | Rileva gli URL di ricerca supportati di Google, Bing, DuckDuckGo, YouTube, Reddit e X/Twitter. |
+| isInfiniteFeedUrl(url) | Rileva le superfici ad alimentazione infinita supportate. |
+| stessaSezione(a, b) | Vero solo quando entrambi gli URL condividono un host e il primo segmento del nome percorso. |
 
-##20. Glossario
+Ogni oggetto classificatore URL della piattaforma espone isPlatformUrl(url), isShortUrl(url), isVideoUrl(url), isPostUrl(url), isHomePage(url), extractAuthor(url) ed extractVideoId(url). Un metodo può restituire false/null quando l'URL è valido ma non identifica quel tipo di contenuto.
 
-- **Gruppo di blocco**: un set di regole con tipo, comportamento, pianificazione e blocco/posticipazione specifici.
-- **Blocco istantaneo**: la regola si blocca immediatamente ogni volta che è attiva.
-- **Blocco dopo i minuti**: la regola inizia a bloccarsi solo dopo che il budget temporale per il periodo è esaurito.
-- **Intervallo di reimpostazione**: la frequenza con cui il budget dopo i minuti viene reimpostato.
-- **Pianificazione**: giorni + finestre temporali durante le quali un gruppo è attivo.
-- **Blocco/Blocco rigoroso**: stati anti-manomissione.
-- **Snooze**: disabilitazione temporanea con un rituale di conferma configurabile.
-- **Filtro autore**: per i gruppi di piattaforme, limita la regola a determinati creatori di contenuti.
-- **Tipo di contenuto**: per i gruppi di piattaforme, limita la regola a determinate forme di contenuto (breve, lungo, post).
-- **Aiutanti**: utilità passate al gestore di una regola personalizzata.
-- **Piattaforma**: una tra `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`. Ognuno ha il proprio tipo di gruppo e la propria logica per nascondere i feed.
-- **Battito cardiaco**: `pageHeartbeatEvent` da ~250 ms inviato dalla scheda visibile attiva.
-- **Tick**: 1 `tickEvent` condiviso a livello globale (indipendente dalla visibilità).
-- **Modalità debug**: un'impostazione che mostra la registrazione della traccia interna nel pannello Registro e nella console del browser.
-- **Quarantena**: disattivazione automatica di una regola personalizzata che ha superato un limite di sicurezza di runtime (scadenza, registro spam, ...). Cancellato alla corsa successiva.
+### 6.2 Assistente timer
 
----
+Get it with helpers.getTimerHelper(). Timers are rule-owned counters. They may be displayed in Vault's page overlay, but they never block on their own.
 
-## 21. Limitazioni- L'occultamento dei feed dipende dal DOM attuale di ciascuna piattaforma. Se la piattaforma cambia layout, potrebbe essere necessario aggiornare i selettori nascosti.
-- Il rilevamento del contesto della piattaforma per i siti non Iutub è per lo più basato su URL, quindi è più affidabile sugli URL di contenuti canonici.
-- I timer con regole personalizzate ticchettano alla risoluzione del battito cardiaco (~250 ms). Non fare affidamento su di loro per tempi inferiori al secondo.
-- I predicati passati a `hideShorts` / `hideVideos` / `hidePosts` vengono valutati in modo sincrono per scheda di alimentazione. La logica pesante in un predicato può rallentare lo scorrimento del feed; tenerli a buon mercato.
-- Due schede che modificano lo stesso timer per gruppo utilizzano contemporaneamente una strategia "l'ultima scrittura vince". Per l'uso tipico va bene; se dipendi da una contabilità esatta, aspettati piccole derive occasionali.
-- Il browser potrebbe sospendere l'operatore del servizio in background quando è inattivo. L'estensione lo riprende non appena una pagina o un allarme lo richiedono; i budget per l'utilizzo del sito/temporizzato continuano a essere conteggiati tramite la riproduzione dell'heartbeat.
+Crea/ottieni opzioni:
 
-## Nota v1.2
+| Opzione | Significato |
+| --- | --- |
+| id | ID timer non vuoto obbligatorio. |
+| displayNome | Etichetta sovrapposta leggibile dall'uomo. |
+| direzione | avanti per il conteggio; qualsiasi altro valore diventa indietro/conto alla rovescia. |
+| attualeMs | Millisecondi iniziali, fissati a zero e limitati se esistono limiti. |
+| minMs, maxMs | Limiti minimo/massimo positivi facoltativi. |
+| passi | Passaggio opzionale di quantizzazione positiva per i tick trascorsi. |
+| sovrapposizioneStile | Stringhe facoltative per colore, sfondo, fontSize, fontWeight, border, borderRadius, riempimento, opacità e icona. Le parti non supportate/non valide vengono eliminate. |
+| ambito(url) | Predicato che decide dove matura il tempo trascorso sulla pagina visibile. |
+| dominio(url) | Predicato che decide dove appare il timer nell'overlay; l'impostazione predefinita è l'ambito. |
+| accrueWhen(url) | Predicato aggiuntivo facoltativo. Il tempo matura solo quando sia scope che accrueWhen sono true. |
 
-L’editor delle regole personalizzate ora colora la sintassi linguaggio di script, e il browser dei modelli usa gli stessi colori per le anteprime del codice. L’azione di massa dei gruppi si chiama **Svuota**.
+| Metodo | Comportamento |
+| --- | --- |
+| crea(opzioni) | Crea/sostituisce un timer e ne reimposta lo stato. Restituisce id o null. |
+| getOrCreateTimer(opzioni) | Crea solo se assente. Lo stato attuale rimane invariato. Restituisce id o null. |
+| elimina(id) | Rimuovere il timer e i relativi predicati di ambito/visualizzazione. |
+| pausa(id), ripresa(id) | Modifica lo stato in pausa. Restituisce vero solo quando è possibile un cambiamento di stato. |
+| setDirection(id, direzione) | Imposta avanti o indietro. |
+| setCurrentMs(id, ms) | Imposta il conteggio assoluto, imponendo i limiti. |
+| addMs(id, deltaMs), subMs(id, deltaMs) | Regola il conteggio, applicando i limiti. |
+| setBounds(id, minMs, maxMs) | Impostare limiti positivi; passare null per un limite per rimuoverlo. |
+| setStep(id, stepMs) | Imposta una quantizzazione del tick positiva. Passa null o zero per cancellarlo. |
+| setOverlayStyle(id, stile) | Sostituisci/cancella gli stili di sovrapposizione consentiti. |
+| setDisplayName(id, nome) | Imposta l'etichetta sovrapposta. |
+| getCurrentMs(id) | Numero, zero per un timer assente. |
+| èScaduto(id) | Vero solo quando esiste un timer e currentMs è zero. |
+| isPaused(id) | Booleano. |
+| getDirection(id), getDisplayName(id) | Direzione/nome o null. |
+| esiste(id) | Booleano. |
+| getState(id) | Snapshot del timer serializzabile o null. |
+| lista() | Array serializzabile di istantanee timer. |
 
+I predicati dell'ambito vengono ricordati mentre l'origine personalizzata rimane caricata. Vault fa avanzare i timer di corrispondenza durante i cicli visibili di pageHeartbeatEvent, un segno di spunta per timer per invio. Un timer all'indietro si ferma a zero ed emette timerEnded durante la transizione a zero. Rimane zero finché la regola non la modifica/reimposta. Utilizza un gestore con timer terminato per decidere se un timer scaduto deve chiamare preventDefault, impostare un reindirizzamento o eseguire un'altra azione.
+
+### 6.3 Archiviazione persistente e asincrona
+
+Get the synchronous persistence helper with helpers.getPersistenceHelper(). Values must be JSON-serializable. A group can store at most 200 keys and each serialized value is limited to 16 KiB.
+
+| Metodo | Comportamento |
+| --- | --- |
+| get(chiave, valore predefinito) | Leggere un valore clonato o defaultValue. |
+| set(chiave, valore) | Archivia un clone sicuro per JSON. Restituisce false per chiave/valore non valido o esaurimento del keycap. |
+| cancella(tasto) | Elimina la chiave esistente; restituisce se esisteva. |
+| ha(chiave) | Booleano. |
+| chiavi() | Matrice di chiavi. |
+| voci() | Matrice di coppie [chiave, valore] clonate. |
+| chiaro() | Elimina tutta la persistenza delle regole per questo gruppo. |
+| dimensione() | Numero di chiavi. |
+
+helpers.getStorageHelper() exposes all the preceding methods and two asynchronous request methods:
+
+| Metodo | Comportamento |
+| --- | --- |
+| requestAsyncGet(chiave) | Richiedere una lettura dell'archiviazione asincrona. Restituisce vero quando in coda. Utilizzare un evento successivo/il flusso del proprio stato per rispondere; non è un getter sincrono. |
+| requestAsyncSet(chiave, valore) | Richiedi un archivio asincrono sicuro per JSON. Restituisce vero quando in coda. |
+
+La persistenza della regola viene cancellata durante l'esecuzione perché una nuova origine attiva viene avviata con uno stato di regola personalizzata pulito.
+
+### 6.4 Assistente per la registrazione
+
+Get it with helpers.getLogHelper(). Every method accepts any number of values.
+
+| Metodo | Destinazione |
+| --- | --- |
+| log, avviso, errore | Registro attività popup; toast della pagina quando i toast globali del registro delle pagine sono abilitati. |
+| logScreen, warnScreen, errorScreen | Solo superficie toast/debug della pagina; escluso dal registro popup. |
+| logPopup, warnPopup, errorPopup | Solo registro attività popup; escluso dal brindisi della pagina. |
+
+I log tentano anche di raggiungere la console del browser con un prefisso di gruppo CustomBlocker. Questo è un output diagnostico, non un'API di persistenza. Utilizza l'helper di persistenza per lo stato.
+
+### 6.5 Aiutante di reindirizzamento
+
+Get it with helpers.getRedirectionHelper().
+
+| Metodo | Comportamento |
+| --- | --- |
+| get(), getRedirectLink() | Restituisce l'URL di reindirizzamento dell'invio corrente o una stringa vuota. |
+| set(url), setRedirectLink(url) | Imposta l'URL di reindirizzamento per l'invio corrente. |
+| createMessageUrl(messaggio) | Crea un URL della pagina del messaggio locale dell'estensione che visualizzi il messaggio fornito. |
+
+La sola impostazione di un reindirizzamento non forza la navigazione. Abbinalo a event.preventDefault() o imposta una stringa non vuota tramite event.setResult(), in base al flusso di regole desiderato.
+
+### 6.6 Assistente DOM
+
+Get it with helpers.getDOMHelper(). These actions are queued and applied to the current page. Selectors must be valid for the page browser; malformed selectors or elements that do not exist can produce no visible result.
+
+| Metodo | Azione richiesta |
+| --- | --- |
+| nascondi(selettore), mostra(selettore) | Nascondi/mostra gli elementi corrispondenti. |
+| addClass(selettore, className), rimuoviClass(selettore, className) | Mutare la classe CSS. |
+| setText(selettore, testo) | Sostituisci il contenuto del testo. |
+| fare clic (selettore) | Fare clic sull'elemento corrispondente. |
+| injectCss(css, id) | Aggiungi un blocco CSS identificato. |
+| rimuoviInjectedCss(id) | Rimuovi un blocco CSS inserito precedentemente identificato. |
+| scrollTo(selettore) | Scorri un elemento corrispondente per visualizzarlo. |
+
+Le azioni DOM non forniscono script di pagina senza restrizioni. Sono una superficie d'azione delimitata e dovrebbero essere idempotenti se utilizzati da gestori di battito cardiaco/tick.
+
+### 6.7 Navigazione, schede e supporto per la finestra del browser
+
+Get navigation with helpers.getNavigationHelper().
+
+| Metodo | Azione richiesta |
+| --- | --- |
+| indietro() | Torna indietro nella scheda corrente. |
+| avanti() | Naviga in avanti nella scheda corrente. |
+| ricarica() | Ricarica la scheda corrente. |
+| vai a(url) | Naviga nella scheda corrente fino all'URL. |
+| chiudiTab() | Chiudi la scheda corrente. |
+
+Get a snapshot helper with helpers.getTabHelper().
+
+| Metodo | Ritorno/azione |
+| --- | --- |
+| lista() | Copia dell'istantanea della scheda corrente. |
+| getActiveTab() | Istantanea della scheda attiva o null. |
+| getById(id) | Istantanea della scheda corrispondente o null. |
+| conteggioAperto() | Numero di schede nell'istantanea. |
+| richiestaAggiorna() | Richiedi una nuova istantanea della scheda per un successivo lavoro sulle regole. |
+
+Get the browser-tab/window helper with helpers.getWindowHelper(). In the extension, a "window" is represented by browser tabs.
+
+| Metodo | Comportamento |
+| --- | --- |
+| corrente() | Oggetto scheda attiva corrente: ID, URL, nome host, titolo, isBrowser. |
+| tutto() | Matrice di oggetti scheda con ID, URL, nome host, titolo, attivo. |
+| chiudi(idOrUrl) | Chiudi tramite ID numerico della scheda, stringa URL esatta o scheda attiva quando omesso. |
+| chiudiTab() | Chiudi la scheda attiva. |
+| blocco(modello) | Aggiungi un blocco di dominio di sola sessione normalizzato e applicalo. |
+| sbloccare(modello) | Rimuovi un blocco di dominio di sola sessione normalizzato. |
+| isBlocked(urlOrHostname) | Interroga la blocklist della sessione creata dalla regola. |
+| getBlocked() | Elenca i pattern correnti creati dalla sessione. |
+
+I modelli di blocco creati da regole normalizzano http/https, www. e i percorsi iniziali in un modello host. Corrispondono esattamente all'host e ai sottodomini. Questa blocklist dinamica è la memoria della sessione, non un normale gruppo del sito salvato.
+
+### 6.8 Assistente per la cartella di file locale
+
+Get it with helpers.getLocalFolderHelper(). It only operates after the user has selected a folder in Global Settings and granted browser permission. It is asynchronous: every request returns a request id; completion arrives as localFileEvent.
+
+| Metodo | Comportamento |
+| --- | --- |
+| è disponibile() | Segnala che la superficie API esiste; non dimostra che una cartella sia attualmente autorizzata. |
+| richiestaLeggi(percorso) | Richiedi la lettura del testo. |
+| requestWrite(percorso, testo) | Richiedi la scrittura del testo. |
+| requestAppend(percorso, testo) | Richiedi l'aggiunta di testo. |
+| requestList(percorso = "") | Richiedi un elenco di directory. |
+| richiestaEsiste(percorso) | Richiedi test di esistenza. |
+| requestReadJson(percorso) | Richiedi lettura JSON; il percorso deve terminare con .json. |
+| requestWriteJson(percorso, valore) | Richiedi la scrittura JSON; il percorso deve terminare con .json e il valore deve essere sicuro per JSON. |
+
+I percorsi sono sempre relativi alla radice selezionata. Non possono essere assoluti, qualificati per l'unità, con prefisso punto o contenere . o .. segmenti. Per le operazioni sui file sono accettati solo file .txt, .csv e .json. La selezione della cartella può essere revocata in qualsiasi momento; una richiesta non riuscita riporta ok false e una stringa di errore in localFileEvent.
+
+### 6.9 Assistente della piattaforma
+
+Get the collection with helpers.getPlatformHelper() or helpers.platform(). Get one raw platform API with helpers.platform("youtube"), for example.
+
+Tutte le API della piattaforma raw espongono:
+
+| Metodo | Comportamento |
+| --- | --- |
+| nascondi(predicato, opzioni) | Imposta lo stesso predicato per articolo per ogni slot della scheda feed su quella piattaforma. |
+| hide(slot, predicato, opzioni) | Imposta un predicato per elemento. Il predicato riceve l'elemento/istantanea della piattaforma fornito da quella piattaforma. |
+| consenti(predicato, opzioni), consenti(slot, predicato, opzioni) | Uguale a hide ma crea un verdetto di autorizzazione/eccezione. |
+| mostra(), mostra(slot) | Cancella tutto o uno slot del predicato installato. |
+| superficie(nome, "nascondi" o "mostra") | Nascondi/mostra un'intera regione della piattaforma. home è il nome pubblico di homePage. |
+| timer(slot, opzioni) | Configura un timer per la sottosezione della piattaforma. Restituisce options.id quando fornito, altrimenti null. |
+| ripetere la scansione() | Rivalutare le schede feed già scansionate dopo le modifiche allo stato delle regole esterne. |
+| istantanea() | Restituisce lo snapshot della piattaforma corrente o null. |
+| slots(), superfici(), timerSlots() | Restituisce i nomi supportati per questa piattaforma. |
+| isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId | Helper URL per quella piattaforma. |
+
+Uno slot possiede un predicato per un gruppo/piattaforma. Una successiva chiamata hide/allow per lo stesso slot sostituisce il predicato precedente; non è un OR implicito. L'oggetto opzioni facoltativo riconosce:
+
+| Opzione | Effetto |
+| --- | --- |
+| blockPageOnVisit | Quando viene visitata una scheda/pagina corrispondente, richiedi il blocco della pagina anziché nascondere solo la scheda. |
+| effetto | bloccare (impostazione predefinita) o consentire. I set di helper consenti consentono automaticamente. |
+
+Chiama la nuova scansione ogni volta che un predicato dipende dallo stato che è cambiato dopo la prima valutazione delle carte, come una casella di controllo del pannello, una quota o una soglia temporale.
+
+Matrice di supporto della piattaforma grezza:
+
+| Piattaforma | Slot predicativi | Nomi delle superfici | Slot del timer |
+| --- | --- | --- | --- |
+| YouTube | cortometraggi, video, post, commenti, live | home, shortButton, commenti, live | cortometraggi, video, post |
+| TikTok | video, commenti, live | casa, commenti, live | video |
+| Instagram | cortometraggi, post, commenti | casa, commenti | cortometraggi, post |
+| Facebook | cortometraggi, video, post, commenti, live | casa, commenti, live | cortometraggi, video, post |
+| Contrazione | cortometraggi, streaming, video, live | casa, commenti, live | cortometraggi, streaming, video |
+
+L'helper della piattaforma personalizzata non elaborata non espone Reddit, Discord o Twitter/X. Utilizza URL generali, DOM, timer, pannello e funzionalità di navigazione per un lavoro personalizzato su tali siti.
+
+## 7. Pannelli personalizzati
+
+The panel helper creates safe, declarative on-page panels. Get it with helpers.getPanelHelper(). A panel can be scoped to URLs, react to interactions, display timer state, and retain its user-entered values for the active rule lifetime.
+
+### 7.1 API del pannello
+
+| Metodo | Comportamento |
+| --- | --- |
+| creare(config) | Crea o sostituisci un pannello. Restituisce l'ID del pannello normalizzato o null. |
+| getOrCreatePanel(config) | Crea solo quando assente; restituisce id o null. |
+| aggiornamento(id, patch) | Sostituisci i campi del pannello specificati dopo la convalida. |
+| elimina(id) | Rimuovere un pannello e i relativi gestori in linea registrati. |
+| mostra(id), nascondi(id) | Cambia visibilità. |
+| setValue(ID pannello, ID controllo, valore) | Imposta un valore di controllo scrivibile dopo la convalida. |
+| updateControl(Idpannello, Idcontrollo, patch) | Sostituisci i campi consentiti di un controllo. |
+| disabilita(panelId, controlId), abilita(panelId, controlId) | Attiva/disattiva il controllo della disponibilità. |
+| setOptions(panelId, controlId, opzioni) | Sostituisci le scelte di selezione/radio. |
+| setText(Idpannello, Idcontrollo, testo) | Aggiorna l'etichetta di un pulsante, un testo/testo di sezione o un'altra etichetta di controllo. |
+| setTheme(panelId, tema) | Sostituisci il tema del pannello. |
+| setTitle(panelId, titolo), setDescription(panelId, descrizione) | Aggiorna testo. |
+| getValue(ID pannello, ID controllo) | Restituisce un valore clonato o non definito. |
+| getValues(ID pannello) | Restituisce tutti i valori scrivibili digitati dall'id di controllo. |
+| getState(id) | Restituisce uno snapshot del pannello serializzabile o null. |
+| lista() | Restituisce istantanee serializzabili di tutti i pannelli. |
+| avviso(config) | Crea un pannello di stato compatto in basso a destra con messaggio/testo opzionale. |
+| conferma(config) | Crea una finestra di dialogo centrata con i pulsanti di conferma e annullamento generati. |
+| lista di controllo(config) | Crea un pannello di elementi con caselle di controllo. |
+| modulo(config) | Crea un pannello di layout del modulo dai campi. |
+
+### 7.2 Configurazione della centrale
+
+| Campo | Valori/comportamenti accettati |
+| --- | --- |
+| id | Necessario. Normalizzato in lettere, cifre, carattere di sottolineatura, trattino; massimo 80 caratteri. |
+| titolo | Titolo del pannello, massimo 240 caratteri. |
+| descrizione o corpo | Descrizione, massimo 1.000 caratteri. |
+| posizione | in alto a sinistra, in alto a destra, in basso a sinistra, in basso a destra o al centro. Predefinito in basso a destra. |
+| allineare | sinistra, centro o destra. Predefinito lasciato. |
+| disposizione | verticale, compatto, comodo, spazioso, in linea, riga, a capo, a due colonne, griglia, diviso, modulo, barra degli strumenti o pila. Verticale predefinito. |
+| priorità | Ordine di visualizzazione numerico, compreso tra -1000 e 1000. I pannelli più alti vengono visualizzati per primi. |
+| larghezza | piccolo, medio, grande o da 180 a 520 px. |
+| dimensione testo/dimensione carattere | Da 10 a 32 px o da 0,65 a 2 rem/em. |
+| ariaLabel/a11yLabel | Etichetta accessibile. |
+| ruolo | regione, finestra di dialogo, avviso, stato, modulo o gruppo. |
+| messa a fuoco automatica | Booleano. |
+| tema/colori | sfondo, primo piano, accento, bordo, disattivato, fontSize/textSize, titleSize. |
+| controlli | Array contenente fino a 32 controlli, con sezioni annidate fino a tre livelli. |
+| visibile | False nasconde il pannello. |
+| ambito(url), dominio(url) | Funzioni di controllo disponibilità/visualizzazione. il dominio ha la precedenza; senza dominio, vengono visualizzati i controlli dell'ambito. |
+
+I campi del gestore in linea del pannello possono essere visualizzati sul pannello o su un singolo controllo: onEvent, onChange, onClick, onInput, onFocus, onBlur, onSubmit, onClose, onMount, onUnmount, onKey e onKeyDown. Ciascuno riceve i normali parametri (evento, helper). Un gestore in linea viene sostituito quando il pannello viene ricreato/aggiornato con le definizioni dei controlli.
+
+### 7.3 Controlli
+
+I tipi di controllo disponibili sono testo, casella di controllo, selezione, textInput, textarea, pulsante, sezione, timer, numberInput, intervallo, attiva/disattiva, radio, data, ora, colore, pin e html. Gli alias input, menu a discesa, gruppo, numero, dispositivo di scorrimento, interruttore, raw e markup vengono normalizzati nel tipo corrispondente.
+
+Tutti i controlli accettano ID, tipo, etichetta, valore, disabilitato, priorità e, dove rilevante, layout, allineamento, ariaLabel/a11yLabel, messa a fuoco automatica, larghezza, altezza e righe.
+
+| Digitare | Campi importanti e contratto a valore |
+| --- | --- |
+| testo | testo (o etichetta) reso come testo non di input. |
+| casella di controllo, attiva/disattiva | Valore booleano. |
+| seleziona, radio | opzioni come stringhe o oggetti { valore, etichetta }; massimo 64. Il valore è una stringa breve. |
+| textInput, area di testo | Valore stringa, massimo 2.000 caratteri; segnaposto opzionale. |
+| pulsante | etichetta/testo; azione facoltativa inviare, annullare o chiudere. |
+| sezione | testo/descrizione, ruolo e controlli nidificati. |
+| temporizzatore | timerId o istantanea del timer; formato ms, ss, mm:ss o hh:mm:ss; showExpired è impostato su true. |
+| numeroInput, intervallo | Valore numerico vincolato al min/max fornito; passaggio positivo facoltativo. |
+| data | Solo valore AAAA-MM-GG. |
+| tempo | Solo valore HH:MM o HH:MM:SS. |
+| colore | Valore di input #RRGGBB a sei cifre. |
+| perno | Solo cifre, lunghezza da 3 a 12, mascherate per impostazione predefinita, invio automatico opzionale. |
+| html | Markup disinfettato. Blocchi di script, attributi di eventi in linea e javascript: gli URL vengono rimossi. |
+
+Ogni interazione renderizzata genera panelEvent. L'oggetto valori dell'evento contiene i controlli scrivibili del pannello, esclusi pulsanti, testo e controlli timer. Un'azione ravvicinata nasconde il pannello prima che gli operatori osservino l'evento.
+
+## 8. Ricette di azioni con regole personalizzate
+
+Gli esempi seguenti sono specifiche di composizione pubblica, non un tutorial.
+
+### 8.1 Reindirizzare una pagina di apertura
+
+```js
+(events, helpers) => {
+  events.on("openWebEvent", "redirect-distracting-search", (event, h) => {
+    const domain = h.getDomainHelper();
+    if (!domain.isSearchPage(event.url)) return;
+    event.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Return to your planned task."));
+    event.preventDefault();
+  });
+}
+```
+
+### 8.2 Conto alla rovescia del tempo visibile con blocco esplicito
+
+```js
+(events, helpers) => {
+  const timer = helpers.getTimerHelper();
+  timer.create({
+    id: "reading-budget",
+    displayName: "Reading budget",
+    direction: "backward",
+    currentMs: 10 * 60 * 1000,
+    scope: (url) => url.includes("example.com")
+  });
+
+  events.on("timerEnded", "stop-at-zero", (event) => {
+    if (event.data?.timerId !== "reading-budget") return;
+    event.setRedirectLink("about:blank");
+    event.preventDefault();
+  });
+}
+```
+
+### 8.3 Modificare un predicato di feed da un pannello
+
+```js
+(events, helpers) => {
+  const panel = helpers.getPanelHelper();
+  const youtube = helpers.platform("youtube");
+
+  panel.create({
+    id: "feed-filter",
+    title: "Feed filter",
+    controls: [{
+      id: "hide-sponsored",
+      type: "toggle",
+      label: "Hide sponsored items",
+      value: true,
+      onChange: (event, h) => {
+        const api = h.platform("youtube");
+        if (event.value) {
+          api.hide("videos", (item) => item?.sponsored === true);
+        } else {
+          api.show("videos");
+        }
+        api.rescan();
+      }
+    }]
+  });
+
+  youtube.hide("shorts", () => true);
+}
+```
+
+È necessario scrivere i predicati per i valori di snapshot/elemento della piattaforma forniti dalla superficie attiva della piattaforma. Se una piattaforma non è in grado di identificare un campo in modo affidabile, il predicato dovrebbe fallire all'apertura anziché presupporre che un valore sia vero.
+
+## 9. Protocollo di richiesta della cartella locale
+
+Le operazioni della cartella locale non sono I/O file immediati. La sequenza funzionale completa è:
+
+1. L'utente seleziona una cartella in Impostazioni globali.
+2. La regola accoda una richiesta e riceve un ID richiesta.
+3. Vault richiede alla funzionalità della cartella autorizzata di eseguire l'operazione.
+4. Vault invia localFileEvent allo stesso gruppo personalizzato.
+5. Il gestore mette in correlazione event.requestId con l'ID della richiesta originale.
+
+La lettura riuscita viene completata con il testo per i file di testo o il valore per JSON. L'elenco restituisce le voci. Esiste restituisce esiste. Scrivi/aggiungi fornisce byte ove applicabile. Il fallimento fornisce ok false ed errore. Le regole non devono mai presupporre che una cartella selezionata rimanga autorizzata dopo un ricaricamento, un riavvio del browser o una revoca dell'autorizzazione.
+
+## 10. Sicurezza delle regole personalizzate e semantica dei guasti
+
+### 10.1 Errori di compilazione ed esecuzione
+
+Controllare la sintassi segnala un errore di compilazione. Run può anche segnalare un errore di runtime durante la registrazione. Se un'origine simile a una funzione presenta un errore di sintassi, Vault non ricorre silenziosamente a trattarla come semplici istruzioni innocue.
+
+Un'origine vuota non ha gestori. È valida come regola personalizzata inattiva, ma non esegue alcuna azione personalizzata configurata.
+
+### 10.2 Errori del gestore
+
+Un'eccezione proveniente da un gestore viene isolata dall'invio complessivo dell'evento. È un output diagnostico; non fa sì che i gestori successivi abbiano magicamente successo. Utilizza gestori ristretti e registra gli errori su cui è possibile intervenire.
+
+### 10.3 Quarantena
+
+Vault può mettere in quarantena un gruppo personalizzato dopo ripetuti superamenti della scadenza o durante la registrazione. La quarantena disabilita il gruppo e ne registra il motivo dell'interruzione. Correggere l'origine, salvarla ed eseguirla di nuovo esplicitamente per ripristinare le registrazioni attive.
+
+### 10.4 Limiti del browser/pagina
+
+Nessuna regola personalizzata riceve API di estensione illimitate. In particolare:
+
+- un selettore DOM non può trovare nulla su una piattaforma che sia cambiata;
+- la navigazione, la chiusura delle schede e le azioni sullo schermo rimangono soggette alle funzionalità del browser;
+- un'estensione non può aprire applicazioni native;
+- le operazioni della cartella locale richiedono una cartella concessa dall'utente e i tipi di file supportati;
+- un gestore di eventi non può fare affidamento su una pagina invisibile che continua a produrre heartbeat in tempo visibile;
+- una pagina può ricaricarsi, navigare, essere scartata o invalidare uno script di contenuto indipendentemente dalla regola;
+- I blocchi di sito dinamici creati da regole sono azioni sullo stato della sessione, non modifiche permanenti al gruppo di siti.
+
+## 11. Bridge tra app Web
+
+Il ponte è facoltativo. Connette un client di estensione del browser a un hub Vault locale compatibile. L'estensione del browser è un client; un'app Vault nativa fornisce l'hub. L'endpoint locale fisso è ws://127.0.0.1:8787 ed è richiesta la compatibilità del protocollo.
+
+Gli stati di connessione sono Disattivato, Connessione in corso, Disconnesso, Connesso ed Errore. Con il client abilitato, Vault esegue prima la scansione rapidamente e poi continua i tentativi di riconnessione più lenti finché non si connette o finché l'utente non lo spegne. La connessione da sola non unisce tutti i gruppi.
+
+### 11.1 Collegamento di gruppi
+
+I gruppi sono collegabili solo quando il nome e il tipo corrispondono e sono idonei per il collegamento. L'utente seleziona/collega esplicitamente i programmi partecipanti. Un gruppo collegato forma un cluster. La disconnessione lascia intatti i dati del gruppo locale; interrompe la sincronizzazione live.
+
+Il bridge sincronizza la policy scalare condivisa per i gruppi collegati supportati, tra cui la modalità di blocco normale, i valori di autorizzazione/reimpostazione, le impostazioni di posticipazione, giorni/finestre attive, stato/scelta/durata di blocco, policy della home page, impostazione della lista consentita, URL di fallback e policy salta al successivo. Coordina inoltre l'utilizzo e lo stato di posticipazione per i membri del cluster.
+
+Il bridge non promette che ogni campo specifico del prodotto, selettore della piattaforma, testo sorgente personalizzato o funzionalità specifica del browser sia trasferibile a un programma diverso. Un gruppo può rimanere locale e non collegato anche mentre il bridge è connesso.
+
+I cluster di ponti congelati richiedono che tutti i membri interessati siano online per azioni di congelamento che richiedono una mutazione coordinata. Una connessione è un trasporto locale, non un backup su cloud o un canale di controllo remoto.
+
+## 12. Lista di controllo per la verifica per i manutentori
+
+Utilizza questa lista di controllo quando controlli un rilascio o riproduci un comportamento:
+
+1. Confermare che il gruppo abbia un nome univoco non vuoto, il tipo corretto, lo stato abilitato e l'elenco/ordine previsto.
+2. Per i gruppi normali, confermare il giorno della settimana attivo, la finestra temporale locale valida, l'assenza di posticipazione attiva e lo stato di modifica non bloccato.
+3. Per un gruppo Sito, testare l'host esatto, il sottodominio e (per la lista consentita) un host esterno all'elenco.
+4. Per un gruppo di piattaforme, testare separatamente la corrispondenza a livello di pagina, la corrispondenza di elemento/scheda mirata, la modalità autore, la modalità modulo contenuto e ciascuna superficie abilitata.
+5. Per i gruppi normali a tempo, verificare l'accumulo di pagine visibili, la scadenza dell'indennità o il comportamento non bloccante del conteggio e l'intervallo di ripristino.
+6. Per le regole personalizzate, eseguire il controllo della sintassi, Esegui, ispezionare il conteggio/i log del gestore, testare ogni evento integrato registrato, quindi testare un ricaricamento/navigazione.
+7. Testare ciascun timer personalizzato ai limiti dell'ambito e a zero; verificare che qualsiasi blocco sia esplicito nella regola.
+8. Testare i pannelli con ciascun valore di controllo, stato disabilitato, azione di invio/annullamento/chiusura e gestore panelEvent.
+9. Testare l'errore della cartella locale prima del successo: nessuna cartella selezionata, autorizzazione revocata, percorso non valido, estensione non supportata, quindi lettura/scrittura autorizzata.
+10. Testare la connessione bridge disattivata, la connessione attivata, il gruppo collegato/scollegato e un membro del cluster offline prima di affidarsi alla sincronizzazione o al blocco del coordinamento.
+
+## 13. Regola di versione
+
+Questo file inglese è il manuale sorgente mantenuto. I manuali localizzati ne sono traduzioni e potrebbero richiedere la rigenerazione dopo un aggiornamento della documentazione funzionale. La fonte del prodotto rimane la verità canonica per l'ambiguità a livello di implementazione.

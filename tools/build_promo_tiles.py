@@ -38,7 +38,7 @@ BG_BOTTOM_RIGHT = (155, 205, 240)    # slightly deeper sky blue
 TITLE_RGB = (12, 35, 78)             # deep navy
 TAGLINE_RGB = (40, 78, 138)          # mid navy
 
-TITLE_TEXT = "Custom Web Blocker"
+TITLE_TEXT = "Adamancia Vault"
 TAGLINE_TEXT = "Stay focused. Block what matters."
 
 # ---------------------------------------------------------------------------

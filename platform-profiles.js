@@ -180,7 +180,7 @@ function normalizePlatformAuthorInput(value, groupType) {
 
     if (normalizedGroupType === "facebook") {
       if (path.startsWith("profile.php")) return null;
-      const reserved = new Set(["watch", "reel", "groups", "marketplace", "gaming", "video", "videos"]);
+      const reserved = new Set(["watch", "reel", "share", "groups", "marketplace", "gaming", "video", "videos"]);
       return !reserved.has(first) && /^[a-z0-9.]+$/i.test(first) ? first : null;
     }
 
@@ -379,10 +379,20 @@ function detectVideoSiteContext(hostname, pathname) {
   }
 
   if (hostname === "facebook.com" || hostname?.endsWith(".facebook.com")) {
-    if (safePathname.startsWith("/reel/") || safePathname.startsWith("/watch/reel/")) {
+    if (
+      safePathname.startsWith("/reel/") ||
+      safePathname.startsWith("/watch/reel/") ||
+      safePathname.startsWith("/share/r/")
+    ) {
       return { site: "facebook", form: "short" };
     }
-    if (safePathname.startsWith("/watch")) return { site: "facebook", form: "long" };
+    if (
+      safePathname.startsWith("/watch") ||
+      safePathname.startsWith("/videos/") ||
+      safePathname.startsWith("/share/v/")
+    ) {
+      return { site: "facebook", form: "long" };
+    }
     if (safePathname.includes("/posts/") || safePathname.includes("/permalink/")) {
       return { site: "facebook", form: "post" };
     }
@@ -427,6 +437,27 @@ function detectVideoSiteContext(hostname, pathname) {
   return { site: null, form: "unknown" };
 }
 
+// Public custom-rule predicate slots are deliberately platform-specific:
+// TikTok calls its short-form feed "videos", and Twitch calls a channel-path
+// live stream "streams". Keep that translation next to URL classification so
+// feed scans and page predicates cannot drift from the helper API.
+function platformVideoFormToSlot(groupType, form) {
+  const t = normalizeGroupType(groupType);
+  if (t === "tiktok") return form === "short" ? "videos" : null;
+  if (t === "instagram") {
+    if (form === "short") return "shorts";
+    return form === "post" ? "posts" : null;
+  }
+  if (t === "twitch") {
+    if (form === "short") return "shorts";
+    if (form === "long") return "videos";
+    return form === "post" ? "streams" : null;
+  }
+  if (form === "short") return "shorts";
+  if (form === "long") return "videos";
+  return form === "post" ? "posts" : null;
+}
+
 function extractPrimaryAuthorFromPath(groupType, pathname, url) {
   const safePathname = String(pathname ?? "/");
   const t = normalizeGroupType(groupType);
@@ -460,7 +491,7 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
     } catch {}
     const match = safePathname.match(/^\/([^/?#]+)/i);
     if (!match) return null;
-    const reserved = new Set(["watch", "reel", "groups", "marketplace", "gaming", "video", "videos"]);
+    const reserved = new Set(["watch", "reel", "share", "groups", "marketplace", "gaming", "video", "videos"]);
     return reserved.has(match[1].toLowerCase())
       ? null
       : normalizePlatformAuthorInput(match[1], t);
@@ -779,8 +810,8 @@ const PLATFORM_PROFILES = {
     entity: {
       mode: "platformAuthorMode",
       list: "platformAuthors",
-      labelKey: "platform.authors.youtube",
-      placeholderKey: "platform.authors.youtube.placeholder"
+      labelKey: "platform.authors",
+      placeholderKey: "platform.placeholder.youtube"
     },
     contentType: {
       field: "platformVideoMode",
@@ -879,13 +910,27 @@ const PLATFORM_PROFILES = {
     entity: {
       mode: "platformAuthorMode",
       list: "platformAuthors",
-      labelKey: "platform.authors.tiktok",
-      placeholderKey: "platform.authors.tiktok.placeholder"
+      labelKey: "platform.authors",
+      placeholderKey: "platform.placeholder.tiktok"
     },
     contentType: { field: "platformVideoMode", values: ["all", "short"] },
     feed: {
       anchorSelectors: ['a[href*="/video/"]'],
       hrefSelectors: ['a[href*="/video/"]'],
+      // TikTok's current home/search cards are marked with data-e2e. Keep the
+      // link itself as the final fallback: it is better to hide the tile's
+      // clickable surface than to silently leave a matched card visible when
+      // TikTok experiments with its wrapper markup.
+      containerSelectors: [
+        '[data-e2e="recommend-list-item-container"]',
+        '[data-e2e="search-card"]',
+        '[data-e2e="video-item"]',
+        '[data-e2e*="feed-item"]',
+        "article",
+        '[role="article"]',
+        "li",
+        'a[href*="/video/"]'
+      ],
       replenish: { scroll: true }
     },
     surfaceHides: [
@@ -905,13 +950,37 @@ const PLATFORM_PROFILES = {
     entity: {
       mode: "platformAuthorMode",
       list: "platformAuthors",
-      labelKey: "platform.authors.facebook",
-      placeholderKey: "platform.authors.facebook.placeholder"
+      labelKey: "platform.authors",
+      placeholderKey: "platform.placeholder.facebook"
     },
     contentType: { field: "platformVideoMode", values: ["all", "short", "long", "post"] },
     feed: {
-      anchorSelectors: ['a[href*="/reel/"]', 'a[href*="/watch/"]', 'a[href*="/posts/"]', 'a[href*="/permalink/"]'],
-      hrefSelectors: ['a[href*="/reel/"]', 'a[href*="/watch/"]', 'a[href*="/posts/"]', 'a[href*="/permalink/"]'],
+      anchorSelectors: [
+        'a[href*="/reel/"]',
+        'a[href*="/watch/"]',
+        'a[href*="/videos/"]',
+        'a[href*="/posts/"]',
+        'a[href*="/permalink/"]',
+        'a[href*="/share/r/"]',
+        'a[href*="/share/v/"]'
+      ],
+      hrefSelectors: [
+        'a[href*="/reel/"]',
+        'a[href*="/watch/"]',
+        'a[href*="/videos/"]',
+        'a[href*="/posts/"]',
+        'a[href*="/permalink/"]',
+        'a[href*="/share/r/"]',
+        'a[href*="/share/v/"]'
+      ],
+      containerSelectors: [
+        '[role="article"]',
+        '[data-pagelet*="FeedUnit"]',
+        '[data-pagelet*="Video"]',
+        "article",
+        "li",
+        'a[href]'
+      ],
       replenish: { scroll: true }
     },
     surfaceHides: [
@@ -938,13 +1007,24 @@ const PLATFORM_PROFILES = {
     entity: {
       mode: "platformAuthorMode",
       list: "platformAuthors",
-      labelKey: "platform.authors.instagram",
-      placeholderKey: "platform.authors.instagram.placeholder"
+      labelKey: "platform.authors",
+      placeholderKey: "platform.placeholder.instagram"
     },
     contentType: { field: "platformVideoMode", values: ["all", "short", "post", "long"] },
     feed: {
       anchorSelectors: ['a[href^="/reel/"]', 'a[href^="/p/"]', 'a[href^="/tv/"]'],
       hrefSelectors: ['a[href^="/reel/"]', 'a[href^="/p/"]', 'a[href^="/tv/"]'],
+      // Explore/profile grids no longer consistently use <article>; retaining
+      // the link as a fallback keeps those tiles filterable across rollouts.
+      containerSelectors: [
+        "article",
+        '[role="article"]',
+        '[role="button"]',
+        "li",
+        'a[href^="/reel/"]',
+        'a[href^="/p/"]',
+        'a[href^="/tv/"]'
+      ],
       replenish: { scroll: true }
     },
     surfaceHides: [
@@ -975,13 +1055,35 @@ const PLATFORM_PROFILES = {
     entity: {
       mode: "platformAuthorMode",
       list: "platformAuthors",
-      labelKey: "platform.authors.twitch",
-      placeholderKey: "platform.authors.twitch.placeholder"
+      labelKey: "platform.authors",
+      placeholderKey: "platform.placeholder.twitch"
     },
     contentType: { field: "platformVideoMode", values: ["all", "short", "long", "post"] },
     feed: {
-      anchorSelectors: ['a[href*="/clip/"]', 'a[href^="/videos/"]'],
-      hrefSelectors: ['a[href*="/clip/"]', 'a[href^="/videos/"]'],
+      // Live-stream cards route to /<channel>, not /videos or /clip. Twitch
+      // still exposes stable preview-card targets for those links.
+      anchorSelectors: [
+        'a[data-a-target="preview-card-image-link"]',
+        'a[data-a-target="preview-card-title-link"]',
+        'a[href*="/clip/"]',
+        'a[href^="/videos/"]'
+      ],
+      hrefSelectors: [
+        'a[data-a-target="preview-card-image-link"]',
+        'a[data-a-target="preview-card-title-link"]',
+        'a[href*="/clip/"]',
+        'a[href^="/videos/"]'
+      ],
+      containerSelectors: [
+        '[data-a-target="preview-card"]',
+        '[data-a-target="preview-card-image-link"]',
+        "article",
+        "li",
+        'a[data-a-target="preview-card-image-link"]',
+        'a[data-a-target="preview-card-title-link"]',
+        'a[href*="/clip/"]',
+        'a[href^="/videos/"]'
+      ],
       replenish: { scroll: true }
     },
     surfaceHides: [
@@ -1001,8 +1103,8 @@ const PLATFORM_PROFILES = {
     entity: {
       mode: "redditMode",
       list: "redditSubreddits",
-      labelKey: "platform.subreddits",
-      placeholderKey: "platform.subreddits.placeholder"
+      labelKey: "reddit.subreddits",
+      placeholderKey: "reddit.subredditsPlaceholder"
     },
     feed: {
       cardSelectors: [
@@ -1031,8 +1133,8 @@ const PLATFORM_PROFILES = {
     entity: {
       mode: "discordMode",
       list: "discordTargets",
-      labelKey: "platform.discordTargets",
-      placeholderKey: "platform.discordTargets.placeholder"
+      labelKey: "discord.targets",
+      placeholderKey: "discord.targetsPlaceholder"
     },
     surfaceHides: []
   },
@@ -1045,8 +1147,8 @@ const PLATFORM_PROFILES = {
     entity: {
       mode: "platformAuthorMode",
       list: "platformAuthors",
-      labelKey: "platform.accounts.twitter",
-      placeholderKey: "platform.accounts.twitter.placeholder"
+      labelKey: "platform.accounts",
+      placeholderKey: "platform.placeholder.twitter"
     },
     feed: {
       anchorSelectors: ['article[data-testid="tweet"]'],
@@ -1113,6 +1215,7 @@ const __cbPlatformRegistry = {
   parseDiscordServerIdFromPath,
   parseDiscordChannelIdFromPath,
   detectVideoSiteContext,
+  platformVideoFormToSlot,
   extractPrimaryAuthorFromPath,
   normalizePlatformAuthorsMap,
   isHomeFeedPage,

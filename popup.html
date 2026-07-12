@@ -3,8 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title data-i18n="app.title">Screen Time Limiter: Custom Website Blocker & Focus Timer</title>
-    <link rel="icon" href="icons/icon-128.png" />
+    <title data-i18n="app.title">Adamancia Vault — Website Blocker & Focus Timer</title>
+    <link rel="icon" media="(prefers-color-scheme: light)" href="icons/adamancia-vault-lock-v3-128.png" />
+    <link rel="icon" media="(prefers-color-scheme: dark)" href="icons/adamancia-vault-lock-inverse-dark-128.png?v=20260712b" />
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -12,7 +13,7 @@
       <header class="hero">
         <div class="hero-topbar">
           <div>
-            <h1 data-i18n="app.shortTitle">Custom Website Blocker</h1>
+            <h1 data-i18n="app.shortTitle">Adamancia Vault</h1>
           </div>
           <div class="hero-actions">
             <button id="settingsButton" type="button" class="secondary" data-i18n="settings.button">
@@ -22,7 +23,28 @@
               Instruction Manual
             </button>
             <div class="language-picker">
-              <select id="languageSelect" aria-label="Language" data-i18n-aria-label="language.label"></select>
+              <select id="languageSelect" aria-label="Language" data-i18n-aria-label="language.label" translate="no" class="notranslate">
+                <option value="en">English</option>
+                <option value="zh">简体中文</option>
+                <option value="es">Espanol</option>
+                <option value="hi">हिन्दी</option>
+                <option value="ar">العربية</option>
+                <option value="bn">বাংলা</option>
+                <option value="pt">Portugues</option>
+                <option value="ru">Русский</option>
+                <option value="ja">日本語</option>
+                <option value="pa">ਪੰਜਾਬੀ</option>
+                <option value="de">Deutsch</option>
+                <option value="fr">Francais</option>
+                <option value="ko">한국어</option>
+                <option value="tr">Turkce</option>
+                <option value="vi">Tieng Viet</option>
+                <option value="it">Italiano</option>
+                <option value="th">ไทย</option>
+                <option value="nl">Nederlands</option>
+                <option value="pl">Polski</option>
+                <option value="id">Bahasa Indonesia</option>
+              </select>
             </div>
           </div>
         </div>
@@ -39,7 +61,7 @@
           <strong data-i18n="siteAccess.title">Limited site access detected</strong>
           <span data-i18n="siteAccess.body">
             Chrome is currently restricting this extension's access to web pages.
-            Screen Time Limiter: Custom Website Blocker & Focus Timer needs access to all sites in order to block them.
+            Adamancia Vault needs access to all sites in order to block them.
           </span>
         </div>
         <div class="site-access-banner-actions">
@@ -152,7 +174,7 @@
             <select id="blockMode">
               <option value="instant" data-i18n="mode.instant">Block immediately</option>
               <option value="after-minutes" data-i18n="mode.afterMinutes">Block after a number of minutes</option>
-              <option value="timer" data-i18n="mode.timer">Timer (count down, then block)</option>
+              <option value="timer" data-i18n="mode.timer">Timer (count up, no block)</option>
             </select>
           </div>
 
@@ -940,6 +962,44 @@
       </div>
     </div>
 
+    <div
+      id="contributionConsentModal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="contributionConsentTitle"
+    >
+      <div class="modal-card contribution-consent-card">
+        <p class="contribution-consent-eyebrow" data-i18n="consent.eyebrow">OPTIONAL CONTRIBUTION</p>
+        <h3 id="contributionConsentTitle" data-i18n="consent.title">Help classify YouTube creators?</h3>
+        <p class="modal-copy" data-i18n="consent.copy">
+          Topic-based blocking works better when the shared tag database knows what a channel covers. You can optionally help build it.
+        </p>
+        <ul class="contribution-consent-list">
+          <li>
+            <strong data-i18n="consent.sharedLabel">Shared:</strong>
+            <span data-i18n="consent.sharedCopy">only the YouTube channel ID of creators you encounter.</span>
+          </li>
+          <li>
+            <strong data-i18n="consent.neverSharedLabel">Never shared:</strong>
+            <span data-i18n="consent.neverSharedCopy">video titles, watch history, search terms, or information that identifies you.</span>
+          </li>
+          <li>
+            <strong data-i18n="consent.choiceLabel">Your choice:</strong>
+            <span data-i18n="consent.choiceCopy">this is off by default and can be changed anytime in Settings.</span>
+          </li>
+        </ul>
+        <div class="modal-actions contribution-consent-actions">
+          <button id="contributionConsentDeclineButton" type="button" class="secondary" data-i18n="consent.decline">
+            Keep it off
+          </button>
+          <button id="contributionConsentAcceptButton" type="button" data-i18n="consent.accept">
+            Turn on
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div id="templateModal" class="modal hidden">
       <div class="modal-card template-modal-card">
         <div class="manual-modal-header">
@@ -1010,15 +1070,8 @@
       category files must run before it.
     -->
     <script src="templates/template-utils.js"></script>
-    <script src="templates/timers.js"></script>
-    <script src="templates/schedule.js"></script>
-    <script src="templates/feed.js"></script>
-    <script src="templates/redirect.js"></script>
-    <script src="templates/focus.js"></script>
-    <script src="templates/nudge.js"></script>
-    <script src="templates/persistence.js"></script>
-    <script src="templates/dom.js"></script>
-    <script src="templates/debug.js"></script>
+    <script src="templates/examples.js"></script>
+    <script src="custom-rule-ai-reference.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -12,6 +12,33 @@ let nextRequestId = 1;
 let sandboxReady = false;
 const queuedToSandbox = [];
 
+// Chromium does not offer the manifest-level theme_icons mapping that Firefox
+// uses. This document has access to matchMedia, so it reports the active
+// system colour scheme to the Chromium service worker at startup and on every
+// change. The worker owns chrome.action.setIcon and ignores this message on
+// Firefox/Safari, where their native action handling remains in charge.
+function reportActionIconColorScheme() {
+  if (typeof window.matchMedia !== "function") return;
+  try {
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const pending = chrome.runtime.sendMessage({
+      type: "action-icon-color-scheme",
+      prefersDark
+    });
+    if (pending && typeof pending.catch === "function") pending.catch(() => {});
+  } catch (_) {}
+}
+
+try {
+  const actionIconColorSchemeQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  reportActionIconColorScheme();
+  if (typeof actionIconColorSchemeQuery.addEventListener === "function") {
+    actionIconColorSchemeQuery.addEventListener("change", reportActionIconColorScheme);
+  } else if (typeof actionIconColorSchemeQuery.addListener === "function") {
+    actionIconColorSchemeQuery.addListener(reportActionIconColorScheme);
+  }
+} catch (_) {}
+
 // Mirrors the Settings → Debug mode flag. We hydrate it from storage
 // on load and forward changes down to the sandbox so trace output
 // inside the iframe matches the user's preference without us having
@@ -331,11 +358,15 @@ function baseLocalFileResponse(request, patch = {}) {
   };
 }
 
-async function handleLocalFileRequest(request) {
+async function handleLocalFileRequest(request, broker = {}) {
+  const getRoot = typeof broker.getRoot === "function" ? broker.getRoot : getLocalFolderRootHandle;
+  const getPermission = typeof broker.getPermission === "function"
+    ? broker.getPermission
+    : ensureLocalFolderPermission;
   const action = typeof request?.action === "string" ? request.action : "";
   if (action === "status") {
-    const root = await getLocalFolderRootHandle();
-    const permission = await ensureLocalFolderPermission(root);
+    const root = await getRoot();
+    const permission = await getPermission(root);
     return baseLocalFileResponse(request || {}, {
       ok: permission === "granted",
       eventName: "status",
@@ -352,8 +383,8 @@ async function handleLocalFileRequest(request) {
   if (!normalized.ok) {
     return baseLocalFileResponse(request || {}, { ok: false, eventName: "error", error: normalized.error });
   }
-  const root = await getLocalFolderRootHandle();
-  const permission = await ensureLocalFolderPermission(root);
+  const root = await getRoot();
+  const permission = await getPermission(root);
   if (permission !== "granted") {
     return baseLocalFileResponse(request || {}, { ok: false, eventName: "error", error: "local-folder-permission-required" });
   }

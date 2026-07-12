@@ -1,716 +1,884 @@
-# Aangepaste webblocker - Handleiding
+# Functionele referentie voor kluisextensie
 
-Dit is de volledige referentiehandleiding voor de extensie. Het begint met de eenvoudigste, meest voorkomende workflows en gaat geleidelijk over naar geavanceerde onderwerpen zoals aangepaste gebeurtenisgestuurde blokkeerregels en de helper-API.
+## Doel en status
 
-Als je helemaal nieuw bent, lees dan **Snelle start** en **Blokkeergroepenoverzicht**. Alles onder deze secties is optioneel, afhankelijk van wat u wilt doen.
+Dit is de gezaghebbende functionele specificatie voor de Vault-browserextensie. Het documenteert het productcontract: de gegevens die een gebruiker kan configureren, het exacte gedrag dat de configuratie oplevert, de openbare aangepaste regeltaal en de limieten die daarop van toepassing zijn.
 
----
+Het is bewust geen snelstartgids. De website-tutorial is het leertraject. Dit document is bedoeld voor mensen die het voor gebruikers zichtbare gedrag van Vault moeten configureren, testen, onderhouden, controleren of reproduceren.
 
-## 1. Wat deze extensie doet
+De code is de canonieke waarheid als dit document en het product het niet eens zijn. Namen in dit document maken waar mogelijk gebruik van de opgeslagen/openbare woordenschat van het product. Een woord als 'retouren' betekent de retourwaarde die beschikbaar is gemaakt voor een aangepaste regel; het belooft geen resultaat op browserniveau als de browser of pagina de gevraagde actie weigert.
 
-Met Custom Web Blocker kunt u websites en online afleidingen blokkeren volgens de regels die u zelf definieert. U kunt:
+## 1. Productgrens
 
-- Blokkeer sites onmiddellijk met de eigen netwerkblokkering van de browser (hetzelfde soort blokkering dat `ERR_BLOCKED_BY_CLIENT` produceert).
-- Gun uzelf een bepaald aantal minuten per dag op een site en blokkeer deze zodra u die limiet overschrijdt.
-- Blokkeer specifieke soorten inhoud op Joetjoep, kortevideoportaal, Gezichtenboek, Fotogram, Livekanaal en gemeenschapsforum (niet de hele site).
-- Verberg geblokkeerde inhoud van feeds op ondersteunde platforms in plaats van alleen afzonderlijke pagina's te blokkeren.
-- Schema wanneer een regel actief is, per dag van de week en per `HHMM-HHMM`-tijdvenster.
-- Bevries een regel, zodat u deze niet gemakkelijk kunt wijzigen. Strikte bevriezing vergrendelt het voor een bepaald aantal uren en vereist een bevestigingsritueel van 20 stappen om het ongedaan te maken.
-- Sluimer een regel tijdelijk, maar pas nadat u een voldoende lange rechtvaardiging heeft geschreven.
-- Schrijf **gebeurtenisgestuurde** aangepaste regels in scripttaal met helpers voor voorwaartse/achterwaartse timers, permanente opslag per groep, DOM-intenties per platform (verberg navigatieknoppen, verberg feedkaarten per predikaat, stel timers per subsectie in), URL-hulpprogramma's en gestructureerde logboekregistratie.
-- Kies uit een ingebouwde bibliotheek met meer dan 50 kant-en-klare sjablonen (timers, schema's, het verbergen van feeds, focussessies, omleidingen, duwtjes, doorzettingsvermogen, DOM-tweaks, debug-helpers).
-- Gebruik de extensie in meer dan 20 talen.
+Vault is een WebExtension met focuscontrole. De configuratie-eenheid is een **blokgroep**. Een groep kan:
 
-De extensie is een Chroom-browser Manifest V3-extensie met één editorpagina (de pop-up), één achtergrondservicemedewerker, één offscreen sandbox die aangepaste regelcode host en één inhoudsscript dat op elke pagina wordt uitgevoerd. Aangepaste regels leven in de offscreen-sandbox; ze worden één keer per Run-klik geladen en blijven geregistreerd totdat de regel wordt uitgeschakeld of verwijderd.
+- beslissen dat een website, platformpagina, maker, community, server, kanaal of account op het hoogste niveau moet worden geblokkeerd;
+- verberg geconfigureerde platformoppervlakken of bijpassende feedkaarten;
+- meet de tijd doorgebracht in een bijpassende scope;
+- een schema, bevriezingsbeveiliging of tijdelijke snooze toepassen waar dat groepstype dit ondersteunt;
+- voer een aangepaste JavaScript-regel uit met een gebeurtenis-API;
+- toon een on-page timer, paneel, bericht of paginalogboek;
+- omleiden, navigeren, een browsertabblad sluiten of een siteblokkeringslijst bijhouden die alleen voor sessies is gemaakt;
+- optioneel deelnemen aan een lokaal verbonden Vault-bridgecluster.
 
----
+Vault werkt alleen binnen het browserprofiel waar het is geïnstalleerd en alleen daar waar de browser toestaat dat het inhoudsscript wordt uitgevoerd. Het doet niet:
 
-## 2. UI-rondleiding
+- installeer een native applicatie of browserextensie;
+- besturingssysteemapplicaties blokkeren;
+- browsertoestemmingsprompts, beperkingen voor privé-browsen of het eigen beveiligingsmodel van een website omzeilen;
+- garantie op selector-gebaseerde verberging wanneer een platform van een derde partij zijn DOM wijzigt;
+- maak de aangepaste regelstatus overdraagbaar tussen profielen, tenzij de gebruiker deze afzonderlijk exporteert/configureert;
+- zorg voor een netwerkfirewall, een proxy, accountbeheer of een dienst voor ouderlijk toezicht.
 
-Wanneer u op het pictogram van de extensie klikt, wordt de editor geopend als een volledige webpagina (geen kleine pop-up). De pagina heeft deze gebieden:
+De volgende terminologie wordt overal gebruikt:
 
-- **Bovenbalk**
-  - Knop **Instructiehandleiding** (dit document)
-  - **Taal** kiezer
-  - **Instellingen**-uitrusting (geavanceerde schakelaars, inclusief **Debug-modus**)
-- **Linkerpaneel — Blokgroepen**
-  - Lijst met uw blokgroepen. Elke kaart toont de groepsnaam, een korte samenvattingsregel en een selectievakje voor in-/uitschakelen.
-  - Met de knop **Toevoegen** wordt een nieuwe groep gemaakt. In de vervolgkeuzelijst ernaast wordt het type gekozen.
-  - **Alles verwijderen** verwijdert elke groep, met extra bevestigingen als een groep bevroren is.
-  - U kunt de `::`-handgreep op een kaart omhoog of omlaag slepen om groepen opnieuw te ordenen.
-  - U kunt de verticale splitser slepen om het formaat van dit paneel te wijzigen.
-- **Rechterpaneel — Editor**
-  - Bewerkt de momenteel geselecteerde groep: naam, blokkeergedrag, blokkeerlijsten, typespecifieke filters, planning, bevriezen, snooze.
-  - Alle wijzigingen worden automatisch een fractie van een seconde opgeslagen nadat u bent gestopt met typen of communiceren.
-  - Voor **Aangepaste** groepen toont de editor ook de **Sjablonen**-browser, de **Uitvoeren**-knop en het **Logboek**-paneel (hernoemd van *Activiteitenlog* in v1.1).
-- **Toast** (gecentreerde pop-up die vervaagt) — toont statusberichten zoals 'Opgeslagen wijzigingen'. of invoerfouten.
-- **Overlay op de pagina** — terwijl een tabblad een actieve timer of blok heeft, verschijnt er in de linkerbovenhoek een overlay met alle beperkingen die daarop van invloed zijn, in `hh:mm:ss` (of `mm:ss`)-indeling. Meerdere beperkingen worden op meerdere regels gestapeld. Standaard aftellingen voor blokgroepen en timers met aangepaste regels delen deze overlay.
+| Termijn | Betekenis |
+| --- | --- |
+| Groep | Eén onafhankelijk benoemd configuratieobject. Namen moeten uniek zijn binnen de extensie, waarbij hoofdletters en kleine letters worden genegeerd. |
+| Sitegroep | Een normale groep waarvan de domeinlijst de belangrijkste matchingvoorwaarde is. |
+| Platformgroep | Een normale groep gespecialiseerd voor YouTube, TikTok, Facebook, Instagram, Twitch, Reddit, Discord of Twitter/X. |
+| Aangepaste groep | Een groep die eigenaar is van een JavaScript-regel en de bijbehorende gebeurtenisregistraties. Zijn heerschappij bepaalt zijn gedrag. |
+| Overeenkomen | De pagina, het feeditem of het platformoppervlak voldoet aan de geconfigureerde voorwaarden van een groep. |
+| Actief | De groep is ingeschakeld, komt in aanmerking voor de planning en is momenteel niet op snooze gezet. Aangepaste groepen vallen niet onder de normale planningsUI. |
+| Blok | Voorkom dat de huidige pagina op het hoogste niveau bruikbaar blijft, normaal gesproken door om te leiden naar het reservedoel. |
+| Verbergen | Verwijder of verberg een element/kaart op de momenteel weergegeven pagina. Verbergen is geen netwerkblokkering. |
+| Reserve-URL | Een groepsspecifiek omleidingsdoel. Indien leeg, wordt de globale fallback gebruikt. |
+| Toestaan/uitzonderingseffect | Een platformkaartoordeel dat overeenkomende inhoud redt van verborgen regels met een lagere prioriteit. Het is geen algemene toelatingslijst voor websites. |
 
----
+## 2. Groepsmodel en gemeenschappelijke levenscyclus
 
-## 3. Snelle start1. Klik op het extensiepictogram. De editor wordt geopend als een volledige pagina.
-2. Kies in het paneel **Groepen blokkeren** een groepstype uit de vervolgkeuzelijst:
-   - `Default`, `Joetjoep`, `kortevideoportaal`, `Gezichtenboek`, `Fotogram`, `Livekanaal`, `gemeenschapsforum` of `Custom`.
-3. Klik op **Toevoegen**. Er verschijnt een nieuwe groep en de editor opent deze.
-4. Geef het een naam.
-5. Vul de typespecifieke velden in (voor `Default` betekent dit de lijst **Geblokkeerde websites**).
-6. Zorg ervoor dat het selectievakje van de groep in het linkerpaneel is ingeschakeld.
-7. Bezoek een van de genoemde sites. De blokkering zou onmiddellijk van kracht moeten worden.
+Elke opgeslagen groep heeft een stabiele ID, een naam, een type, een ingeschakelde vlag en gemeenschappelijke beleidsvelden. Standaard is een nieuwe normale groep ingeschakeld. Een groep kan worden geselecteerd, opgeslagen door het automatische opslaggedrag van de editor, opnieuw geordend, geëxporteerd, geïmporteerd, bevroren, gedeblokkeerd, op snooze gezet, uitgeschakeld of verwijderd.
 
-Dat is het hele gelukkige pad. De rest van deze handleiding bestaat uit slechts opties daarbovenop.
+### 2.1 Bestelling en overlap
 
-> Wanneer u op **Uitvoeren** drukt in een aangepaste groep, wordt de nieuwe regel gekoppeld aan **toekomstige** paginagebeurtenissen. Reeds geopende tabbladen blijven de vorige regel uitvoeren totdat u ze opnieuw laadt. De pop-up toont na elke succesvolle run een herinnering hierover.
+Er kan meer dan één groep overeenkomen met dezelfde pagina. Vault evalueert opgeslagen groepen vanaf het einde van de weergegeven lijst naar het begin. Behandel lagere items in de lijst als overeenkomsten met latere/hogere prioriteit bij het ontwerpen van overlappende regels.
 
----
+Voor gewone siteblokkering op het hoogste niveau kan elke toepasselijke blokkeringsgroep de pagina onbeschikbaar maken. Voor het filteren van feedkaarten gebruikt de platformcascade de volgorde en het effect van elke overeenkomende groep: een latere overeenkomende toestemming/uitzondering kan een item redden uit blokkeringspredikaten met een lagere prioriteit. Dit uitzonderingsgedrag is beperkt tot het platformkaartfilteroppervlak; het maakt een normaal siteblok van een hele pagina niet ongedaan.
 
-## 4. Overzicht blokgroepen
+### 2.2 Ingeschakelde status
 
-Alles in deze extensie is georganiseerd als **blokgroepen**. Een blokgroep is één regelset:
+Uitgeschakelde groepen blijven behouden, maar nemen niet deel aan normale matching, timers, schema's of gewone snooze-bewerkingen. Als u een aangepaste groep uitschakelt, worden ook de actieve registraties verwijderd. Door het opnieuw inschakelen wordt niet-opgeslagen tekst niet omgezet in een actieve aangepaste regel; voer de regel uit om de opgeslagen bron te laden.
 
-- Het heeft een naam, een type en een ingeschakelde/uitgeschakelde status.
-- Het heeft een blokkeergedrag (onmiddellijk, na een aantal minuten, of vast aftellen).
-- Het heeft een optioneel schema (dagen + tijdvensters) en optionele bedieningselementen voor bevriezen/sluimeren.
-- Afhankelijk van het type heeft het extra velden, zoals een lijst met websites, filters voor Joetjoep-creators, namen van subreddits of een gebeurtenisgestuurde scripttaal-regel.
+### 2.3 Gemeenschappelijke velden
 
-U kunt een willekeurig aantal groepen hebben. Er kunnen meerdere groepen op dezelfde pagina van toepassing zijn; in dat geval wint de **strengste** regel:
+| Veld | Betekenis en beperkingen |
+| --- | --- |
+| Naam | Niet-leeg, bijgesneden en uniek, hoofdlettergevoelig binnen dit eindpunt. De brug identificeert ook koppelbare groepen op naam en type, dus stabiele namen zijn belangrijk. |
+| Ingeschakeld | Schakelt normale matching in of uit. |
+| Gedrag | Direct blokkeren, blokkeren na een toeslag, of timer/optellen. Aangepaste groepen gebruiken hun eigen regel in plaats van deze normale gedragsselector. |
+| Toegestane minuten | Positief getal gebruikt door het blok-na-toelage-gedrag. Nieuwe groepen zijn standaard 15 minuten. |
+| Intervaluren resetten | Positief getal gebruikt door getimede normale groepen. Nieuwe groepen zijn standaard 24 uur. |
+| Actieve dagen | Maandag tot en met zondag. Een normale groep is inactief als de huidige lokale weekdag niet is geselecteerd. |
+| Tijdvensters | Nul of meer lokale tijdvensters, één per regel, geschreven als HHMM-HHMM. |
+| Bevriezingsmodus | Geen, Bevroren, Strikt bevroren of Ouderlijk bevroren. |
+| Sluimerbeleid | Of de groep snooze toestaat, met opties voor duur/vertraging/cooldown/bevestiging voor normale groepen. |
+| Reserve-URL | Bestemming die wordt gebruikt als de groep een pagina blokkeert. |
+| Ga naar volgende | Indien opgegeven in de editor, wordt de normale blokkeringsstroom gevraagd voorbij het geblokkeerde doel te gaan in plaats van erop te blijven. |
 
-- "Onmiddellijk blokkeren" is beter dan "blokkeren na enige tijd".
-- Een groep met minder resterende tijd verslaat een groep met meer resterende tijd.
+### 2.4 Normaal groepsgedrag
 
-Het toevoegen van meer groepen kan dus alleen eerder een paginablok maken, nooit later.
+De normale editor biedt drie gedragingen:
 
-**De evaluatievolgorde is van onder naar boven.** Wanneer de extensie uw blokgroepen herhaalt, begint deze met de groep onderaan de lijst en werkt zich omhoog. De groep bovenaan de lijst wordt als laatste geëvalueerd en krijgt het 'laatste woord'. Als een onderste groep bijvoorbeeld `helpers.getPlatformHelper().youtube().hideShortButton()` belt en een bovenste groep `showShortButton()`, blijft de knop zichtbaar. Sleep de `::`-greep op een kaart om deze volgorde te wijzigen.
+| Gedrag | Functioneel resultaat |
+| --- | --- |
+| Direct blokkeren | Zodra de groep actief is en overeenkomt, wordt de normale beslissing over het paginablok onmiddellijk genomen. |
+| Blokkeren na een aantal minuten | De overeenkomende tijd voor zichtbare pagina's wordt opgeteld bij de geconfigureerde vergoeding. Wanneer de toegestane hoeveelheid is opgebruikt, blokkeert de normale groep totdat de gebruiksperiode wordt gereset of de groep anderszins inactief/snoozed is. |
+| Timer (optellen, geen blokkering) | De overeenkomende zichtbare paginatijd wordt geregistreerd en kan worden weergegeven. Deze modus blokkeert nooit alleen maar omdat de timer een waarde bereikt. |
 
----
+Getimed gebruik is gebaseerd op de tijd op de zichtbare pagina. Het is niet bedoeld om tijd in rekening te brengen terwijl een pagina verborgen is op een achtergrondtabblad. Het reset-interval is een voortschrijdend beleidsinterval voor de normale getimede groep. Normale timers zijn onafhankelijk per groep.
 
-## 5. Groepstypen
+### 2.5 Schema's
 
-### 5.1 `Default` — blokkeer gewone websites
+Voor normale groepen gelden de roosters. Een aangepaste groep heeft geen normale schema-UI en wordt als actief beschouwd voor de doeleinden van zijn JavaScript; de regel moet zelf elke gewenste tijdsvoorwaarde opleggen.
 
-Voor het blokkeren van specifieke domeinen (het typische gebruiksscenario).
+Het actieve-dagenbeleid wordt geëvalueerd op basis van lokale tijd:
 
-- **Geblokkeerde websites**: één site per regel. Zowel `facebook.com` als `https://www.facebook.com/somepage` werken; de extensie extraheert en normaliseert de hostnaam.
-- Er is een siteregel van toepassing op die hostnaam en al zijn subdomeinen.
-- Dit groepstype maakt gebruik van de eigen netwerkblokkering van Chroom-browser, vergelijkbaar met `ERR_BLOCKED_BY_CLIENT`. Dat betekent dat de navigatie naar een geblokkeerde URL wordt gestopt voordat de pagina zelfs maar wordt geladen.
+1. Als de huidige weekdag niet is geselecteerd, is de normale groep inactief.
+2. Als er geen geldige tijdvensters zijn opgegeven, wordt onder een actieve dag de volledige dag verstaan.
+3. Als er geldige vensters worden opgegeven, moet de huidige lokale tijd zich in ten minste één venster bevinden.
 
-### 5.2 `Joetjoep` — blokkeer Joetjoep en soortgelijke videosites
+Elk venster heeft de exacte vorm UUMM-UUMM, bijvoorbeeld 0900-1200. De uren moeten van 00 tot en met 23 zijn, de minuten van 00 tot en met 59 en de start moet voor het einde op dezelfde dag liggen. Een venster omvat het begin ervan en sluit het einde ervan uit. Middernachtvensters, zoals 2300-0100, zijn niet geldig. Lege regels worden genegeerd en dubbele vensters worden samengevouwen.
 
-Voegt een sectie **Filters** toe aan de editor:
+### 2.6 Snooze
 
-- **Inhoudstype**:
-  - `Apply to all Joetjoep pages` — elke Joetjoep-pagina telt.
-  - `Apply to Shorts`: alleen Shorts-pagina's tellen mee.
-  - `Apply to long videos` — alleen `/watch`, `/live/`, `/embed/`, enz.
-  - `Apply to Joetjoep posts` — communityposts (`/post/...`, tabbladen kanaalcommunity/posts).
-- **Auteurfilter**:
-  - `Do not filter by author` — identiteit van de auteur doet er niet toe.
-  - `Apply to certain authors` — alleen vermelde auteurs activeren deze groep.
-  - `Apply to all except certain authors` — vermelde auteurs zijn vrijgesteld.
-- **Auteurs**: één auteur per regel. Accepteert `@handle`, volledige URL's, `/channel/UC...`, `/c/...`, `/user/...`.
-- **Geblokkeerde vermeldingen in de Joetjoep-feed verbergen**: terwijl deze groep actief blokkeert, zijn overeenkomende kaarten in Joetjoep-feeds verborgen. Wanneer het blok inactief wordt, komen ze terug bij de volgende vernieuwing.
+Voor een normale groep is snooze een tijdelijke inactieve toestand met maximaal drie fasen:
 
-Voor Shorts- en Posts-inhoudstypen verbergt de extensie, als er geen auteursfilter is ingesteld en de groep momenteel blokkeert, ook relevante navigatie-items (invoer in de Shorts-zijbalk, Community-/Posts-kanaaltabbladen) en de bijbehorende planken zoals 'Nieuwste Joetjoep-posts'.
+| Fase | Resultaat |
+| --- | --- |
+| In behandeling | De gevraagde snooze bestaat, maar is niet gestart vanwege de activeringsvertraging. De groep is nog steeds actief. |
+| Actief | De groep is tijdelijk inactief gedurende de sluimerduur. |
+| Afkoeling | De snooze is afgelopen, de groep is weer actief en een nieuwe snooze kan pas beginnen als de cooldown is verstreken. |
 
-De korte versus lange detectie strekt zich uit tot andere videosites zoals kortevideoportaal, Vimeo, Livekanaal-clips/VOD's en Dailymotion wanneer hun paginavorm kan worden gedetecteerd.
+Configuratievelden voor normale groepen zijn:
 
-### 5.3 `kortevideoportaal` — blokkeer kortevideoportaal-inhoud
+| Veld | Regel |
+| --- | --- |
+| Snooze toestaan ​​| Indien uitgeschakeld, kan de normale snooze niet worden gestart. |
+| Sluimerduur | Positieve minuten. Een nieuwe normale groep neemt de mondiale standaard, aanvankelijk 30. |
+| Activeringsvertraging | Nul of meer minuten. Leeg betekent nul. |
+| Afkoeling | Nul tot en met vijf minuten. Leeg betekent nul. |
+| Bevestigingen | Een niet-negatief geheel getal. Het product vereist zoveel bevestigingsinteracties voordat het verzoek wordt ingewilligd. |
 
-Dezelfde editorkaart als de platform-video-editor, maar met kortevideoportaal-specifieke labels:- Inhoudstypen: korte video's, video's, profielpagina's.
-- Auteurs: kortevideoportaal-handvatten (`@handle`) of profiel-URL's.
-- Feed verbergen verbergt overeenkomende kaarten op kortevideoportaal-pagina's terwijl de groep actief is.
+Een aangepaste groep beschouwt de knop Sluimeren alleen als een invoergebeurtenis. Vault verzendt de aangepaste gebeurtenis met de naam snoozePress voor die groep; het past niet de normale duur/vertraging/cooldown-fallback toe namens de regel. Een aangepaste regel kan de gebeurtenis, zijn eigen persistentie, een paneel, een timer of helemaal geen actie gebruiken.
 
-### 5.4 `Gezichtenboek` — blokkeer Gezichtenboek-inhoud
+### 2.7 Bevriezen
 
-- Inhoudstypen: rollen, video's, berichten.
-- Auteurs: paginanaam (`page.name`), profiel-URL of `profile.php?id=...`-formulier (de numerieke id blijft behouden als `id:<number>`).
-- Feed verbergen verbergt bijpassende feedkaarten op Gezichtenboek.
+Bevriezing beschermt een groep tegen gewone configuratiewijzigingen en tegen normale snooze-wijzigingen. Als u een bevriezingsmodus in de selector kiest, wordt de groep niet vanzelf bevroren; de bevriezingsactie past de gekozen modus toe.
 
-### 5.5 `Fotogram` — blokkeer Fotogram-inhoud
+| Modus | Functioneel contract |
+| --- | --- |
+| Bevroren | De groep is vergrendeld totdat de normale bevestigingsstroom voor het ontdooien van het product is voltooid. |
+| Strikt bevroren | De groep kan pas worden gedeblokkeerd als de strikte bevriezingsduur is verstreken. De duur moet groter zijn dan nul en niet langer dan 72 uur; een nieuwe groep is standaard ingesteld op 24 uur. |
+| Ouderlijk bevroren | Voor het beheer van bevriezen/deblokkeren is een beheerderswachtwoord vereist. Het configuratiedialoogvenster gebruikt een wachtwoord van zes cijfers. |
 
-- Inhoudstypen: rollen, video's, berichten.
-- Auteurs: Fotogram-handvatten of profiel-URL's.
-- Gereserveerde paden zoals `/reel/`, `/p/`, `/tv/`, `/explore/` worden niet als auteurs behandeld.
-- Feed verbergen verbergt bijpassende kaarten op Fotogram.
+Vastgezette groepen kunnen niet via gewone velden worden bewerkt. Een bridge-gekoppeld cluster met een offline lid kan ook de bevriezingsbesturingselementen vergrendelen, omdat Vault de bevroren status binnen het cluster niet veilig kan coördineren. Freeze is bescherming tegen normale UI-bewerkingen; het verandert een browserprofiel niet in een onveranderlijke beveiligingsgrens.
 
-### 5.6 `Livekanaal` — blokkeer Livekanaal-inhoud
+### 2.8 Importeren, exporteren, wissen en opnieuw instellen
 
-- Inhoudstypen: clips, streams/VOD's, kanaalpagina's.
-- Auteurs: kanaalnamen of kanaal-URL's.
-- Gereserveerde paden zoals `/directory`, `/videos`, `/settings`, enz. worden niet behandeld als kanaalnamen.
-- Feed verbergen verbergt bijpassende kaarten op Livekanaal.
+Exporteren produceert een compatibele representatie van de geselecteerde groep. Import valideert en normaliseert compatibele groepsgegevens voordat deze worden toegevoegd. Geïmporteerde groepsnamen moeten nog steeds uniek zijn. Groep verwijderen verwijdert die groep en de normale gebruiks-/sluimerstatus. Clear verwijdert alle groepen na bevestiging.
 
-### 5.7 `gemeenschapsforum` — blokkeer gemeenschapsforum of specifieke subreddits
+Het resetten naar de standaardwaarden is een bewerking van **algemene instellingen**. Het negeert voorkeuren voor de hele extensie; het is geen import-/exportsubstituut en moet als destructief worden behandeld.
 
-- **Subreddits**: één subreddit per regel. Een lege lijst betekent dat de groep van toepassing is op heel gemeenschapsforum. Zowel `productivity` als `r/productivity` worden geaccepteerd.
+## 3. Groepstypen en bijpassend contract
 
-### 5.8 `Custom` — blokkeren door gebeurtenisgestuurd scripttaal
+### 3.1 Standaard websitegroep
 
-U schrijft een scripttaal-functie die **handlers registreert** voor gebeurtenissen zoals het openen van de pagina, het wijzigen van de URL, de hartslag van de pagina, het einde van de timer en uw eigen aangepaste gebeurtenissen. De functie wordt één keer uitgevoerd per Run-klik; de geregistreerde handlers blijven actief in alle navigaties totdat u opnieuw op Uitvoeren drukt, de groep uitschakelt of verwijdert.
+Een sitegroep is eigenaar van een door regels gescheiden websitelijst. Inzendingen worden genormaliseerd in host-/domeinvorm. Een hostvermelding komt overeen met die host en al zijn subdomeinen.
 
-`Custom`-groepen worden niet weergegeven: blokkeergedrag, geblokkeerde sites, toegestane minuten, reset-interval, planningsdagen of tijdvensters. Ze behouden de **Blokkeerregels**-editor plus standaard besturingselementen voor bevriezen/snooze. Er is ook een knop **Sjablonen** die een vooraf ingestelde browser opent met geparametreerde starterregels; het toepassen van een voorinstelling vervangt de huidige regel na bevestiging.
+| Instelling | Resultaat |
+| --- | --- |
+| Blokkeer alles behalve deze sites uit | De lijst is een blokkeerlijst. Een overeenkomende host is geblokkeerd. |
+| Blokkeer alles behalve deze sites op | De lijst is een toelatingslijst. Elke host die niet in de lijst staat, wordt geblokkeerd. Een lege toelatingslijst is daarom een ​​opzettelijke volledige webblokkering. |
+| Startpagina blokkeren | Past het beleid van de groep toe op het geconfigureerde start-/thuisoppervlak van de browser waar dat besturingselement beschikbaar is. |
+| Reserve-URL | Omleidingsbestemming voor een blok. Een lege groepswaarde valt terug naar de globale standaardwaarde. |
 
-Zie **Sectie 11** voor de volledige referentie naar aangepaste regels en helpers-API.
+De normale lijst met sitegroepdomeinen is de enige declaratieve lijst met hele sites die door de editor wordt weergegeven. Platformgroepen komen in plaats daarvan overeen met hun eigen platform en geconfigureerde platformvoorwaarden.
 
----
+### 3.2 Videoplatformgroepen
 
-## 6. Blokkeergedrag
+YouTube, TikTok, Facebook, Instagram en Twitch zijn videoplatformgroepen. Elk is beperkt tot zijn eigen platformhost. Een groep kan zich richten op de vorm van de inhoud, het bereik van de auteur/account, de thuisfeed van het platform en optionele besturingselementen voor het verbergen van elementen.
 
-Voor de meeste groepstypes kies je één van de drie modi.
+De algemene auteurmodi zijn:
 
-### 6.1 Onmiddellijk blokkeren
+| Modus | Resultaat |
+| --- | --- |
+| Alles | Beperk niet op auteur; andere geconfigureerde assen beslissen de wedstrijd. |
+| Inclusief | Match alleen de vermelde genormaliseerde makers/accounts. |
+| Uitsluiten | Match alle gedetecteerde makers/accounts, behalve de vermelde vermeldingen. |
+| Niemand | Match geen auteur. Dit is een opzettelijke auteursas die niet overeenkomt. |
+| Tag omvat | Match makers met een vermelde tag wanneer Vault ze kan classificeren. Onbekende/niet-geclassificeerde makers kunnen niet worden geopend. |
+| Tag uitsluiten | Match makers zonder de geconfigureerde tag(s) wanneer Vault ze kan classificeren. Onbekende/niet-geclassificeerde makers kunnen niet worden geopend. |
 
-De regel is actief wanneer de groep is ingeschakeld, de planning dit toestaat en (voor platformgroepen) de pagina overeenkomt.
+De keuzes voor de inhoudsvorm zijn platformspecifiek:
 
-Voor `Default`-groepen wordt hierbij de native blokkering van Chroom-browser gebruikt. Voor platformgroepen wordt de in-page overlay/exit-logica gebruikt.
+| Platform | Inhoudsvormen |
+| --- | --- |
+| YouTube | Alle pagina's, shorts, lange video's, berichten. |
+| TikTok | Alle pagina's, korte video's. |
+| Facebook | Alle pagina's, rollen, video's, berichten. |
+| Instagram | Alle pagina's, rollen, video's, berichten. |
+| Trek | Alle pagina's, clips, streams/VOD's, kanaalpagina's. |
 
-### 6.2 Blokkeren na een aantal minuten
+Vault normaliseert de invoer van auteurs. De editor accepteert de gewone handle/channel/page-vorm van het platform en de ondersteunde profiel-URL's. Het kan verkeerd opgemaakte inzendingen afwijzen of als ongeldig weergeven in plaats van ze stilletjes in een ander doelwit te veranderen.
 
-Dit is een gebruiksbudget.
+Keuzes voor oppervlaktehuid zijn onafhankelijk van blokkering op het hoogste niveau. Ze hebben alleen invloed op de huidige gebruikersinterface van het platform en kunnen niet meer werken als het platform de markup wijzigt.
 
-- **Toegestane minuten voor blok** (decimaal): hoeveel minuten je jezelf gunt per periode. Voorbeeld: `15`, `0.5`, `90`.
-- **Timer reset-interval (uren)** (decimaal): hoe vaak het budget wordt gereset. Voorbeeld: `24` voor dagelijks, `1` voor elk uur, `0.25` voor elke 15 minuten.
+| Platform | Verzonden keuzes voor verborgen elementen |
+| --- | --- |
+| YouTube | Shorts-navigatie/planken/kaarten, promotie-/advertentieoppervlakken in de homefeed en opmerkingen. De advertentiegerelateerde optie geeft een waarschuwing omdat het verbergen van advertenties in strijd kan zijn met de voorwaarden van een platform. |
+| TikTok | Ontdek navigatie. |
+| Facebook | Molennavigatie en molenoppervlakken. |
+| Instagram | Rollen en verken navigatie/oppervlakken. |
+| Trek | Blader door navigatie. |
 
-Zolang u nog tijd over heeft, werkt de pagina normaal en wordt de timer-overlay weergegeven. Wanneer het budget nul bereikt, wordt de pagina voor de rest van de periode geblokkeerd en toont de overlay `0:00`, waarna het tabblad probeert af te sluiten.
+Bij het matchen van YouTube-creatortags wordt gebruik gemaakt van lokale/beschikbare kanaalclassificaties. Een ontbrekende classificatie wordt niet louter een blok omdat er een tagmodus is geselecteerd.
 
-De uitbreiding is per groep, per periode:
+### 3.3 Reddit
 
-- Elke groep heeft zijn eigen budget.
-- De tijd die wordt doorgebracht op een pagina die overeenkomt met de groep, telt mee voor het budget van die groep.
-- Meerdere tabbladen in dezelfde groep delen het budget. Hun timers blijven gesynchroniseerd; Als u naar een ander tabblad overschakelt, wordt ook een vernieuwing geforceerd, zodat de huidige gedeelde tijd onmiddellijk wordt weergegeven.
+Een Reddit-groep is alleen van toepassing op Reddit. De entiteit ervan is een subreddit. Subreddit-invoer accepteert de gewone communityvorm en normaliseert deze voordat deze wordt gematcht.
 
-Als er meerdere in de tijd beperkte groepen op dezelfde pagina van toepassing zijn, wint de strengste.
+De subreddit-modi zijn:
 
-### 6.3 Timer (aftellen en dan blokkeren)
+| Modus | Resultaat |
+| --- | --- |
+| Alles | Solliciteer op Reddit zonder beperking op de subredditlijst. |
+| Inclusief | Toepassen op vermelde subreddits. |
+| Uitsluiten | Van toepassing op alle behalve de vermelde subreddits. |
+| Niemand | Toepassen op geen subreddit. |
 
-Deze modus toont een afteltimer en blokkeert zodra `0:00` wordt bereikt.
+De meegeleverde optie voor oppervlakte verbergen verbergt de navigatie Populair/Alles. Het gedrag van de feedkaart is afhankelijk van de momenteel detecteerbare kaartstructuur van Reddit.
 
-- **Timer reset-interval (uren)** (decimaal): zowel de timerduur als de resetfrequentie. Voorbeeld: `24` voor dagelijks, `1` voor elk uur, `0.25` voor elke 15 minuten.
+### 3.4 Onenigheid
 
-In tegenstelling tot **Blokkeren na een aantal minuten** heeft deze modus **geen** een apart veld 'Toegestane minuten vóór blokkeren'. De timer start eenvoudigweg bij het reset-interval, telt af terwijl overeenkomende pagina's open zijn en blokkeert vervolgens tot de volgende reset.Aftellingen voor standaardgroepen en timers voor aangepaste groepen (zie **Paragraaf 11.3.1**) gaan beide **alleen verder als het tabblad zichtbaar is**. Als u van tabblad wisselt, het venster minimaliseert of het scherm vergrendelt, wordt het aftellen automatisch gepauzeerd.
+Een Discord-groep is alleen van toepassing op Discord/Discordapp-pagina's. Het doel ervan is een server-ID of een server/kanaalpaar. De doeleditor accepteert genormaliseerde Discord-kanaalpadwaarden.
 
----
+| Modus | Resultaat |
+| --- | --- |
+| Alles | Ben van toepassing op Discord zonder beperking van de doellijst. |
+| Inclusief | Alleen van toepassing op vermelde server- of server-/kanaaldoelen. |
+| Uitsluiten | Toepassen op alle doelen, behalve de vermelde doelen. |
+| Niemand | Toepassen op geen doel. |
 
-## 7. Schema
+Discord heeft momenteel geen optie voor verborgen elementen in het normale platformprofiel.
 
-Op de kaart **Schema** kunt u beperken wanneer een groep actief is:
+### 3.5 Twitter/X
 
-- **Dagen om te blokkeren**: kies de dagen waarop de groep van toepassing is. Niet-aangevinkte dagen betekenen dat de groep die dag inactief is.
-- **Tijdvensters**: lijst met vrije vorm, één venster per regel in `HHMM-HHMM`-indeling, bijvoorbeeld:
+Op X/Twitter is een Twitter/X-groep van toepassing. Het kan van toepassing zijn op alle accounts of de algemene accountmodi gebruiken die zijn beschreven voor videoplatforms, met genormaliseerde invoer van handle/profiellink.
 
-  ```
-  0900-1000
-  1200-1300
-  ```
+De verzonden keuzes voor verborgen elementen zijn Explore, Messages, Grok, Trends en gepromote feeditems. Zoals bij alle op selectoren gebaseerde oppervlaktebesturingselementen kan een wijziging in de X-markering de werking ervan beïnvloeden.
 
-  De groep is alleen actief binnen die vensters. Lege lijst betekent de hele dag.
+### 3.6 Aangepaste groepsdeclaratieve velden
 
-Dit geldt voor alle groepstypen behalve `Custom`. (Aangepaste regels kunnen hun eigen schema implementeren met behulp van `ev.time.dayName` / `ev.time.hour`; zie **Sectie 11.4**.)
+Een aangepaste groep voert voornamelijk de JavaScript-bron uit. Er wordt geen gebruik gemaakt van de normale gedragskiezer of de normale schema-UI. Het kan niettemin een domeinlijst bevatten wanneer het wordt geïmporteerd of geconfigureerd via compatibele gegevens:
 
----
+- een niet-lege aangepaste blokkeerlijst kan deelnemen aan de gewone sitebeslissing over een hele pagina;
+- een aangepaste toelatingslijst kan zelfs deelnemen als deze leeg is, waardoor een volledige webdeclaratieve vergrendeling ontstaat;
+- een niet-geconfigureerde Aangepaste groep blokkeert niet per ongeluk pagina's alleen maar omdat deze een regel heeft;
+- Aangepaste timers blokkeren nooit vanzelf; een regel bepaalt expliciet of er moet worden geblokkeerd wanneer een timer afloopt.
 
-## 8. Bevriezen (anti-manipulatie)
+## 4. Algemene instellingen
 
-Door bevriezing is het moeilijk om een groep in een impuls uit te schakelen.
+Algemene instellingen zijn van toepassing op de extensie in plaats van op één groep.
 
-Op de **Freeze** kaart kies je:
+| Instelling | Standaard | Gedrag |
+| --- | --- | --- |
+| Vinkpercentage | 1000 ms | Frequentie van de gedeelde Custom tickEvent. Geldig bereik is 250 tot en met 60.000 ms. Lagere waarden kunnen gebeurtenisgestuurde regels responsiever maken, maar meer CPU gebruiken. |
+| Debounce automatisch opslaan | 400 ms | Vertraging na de laatste editorwijziging voordat de normale instellingen blijven bestaan. Maximaal is 5.000 ms. |
+| Foutopsporingsmodus | Uit | Maakt uitgebreide traceringsuitvoer van aangepaste regels en de overlay voor foutopsporingslogboeken op de pagina mogelijk. Het bepaalt niet of de gewone logaanroepen van een regel het pop-uplogboek bereiken. |
+| Aangepaste regellogboeken op webpagina's weergeven | Aan | Bestuurt gewone paginalogboektoasts. Regelauteurs kunnen nog steeds expliciet uitvoer op het scherm of alleen pop-ups aanvragen. |
+| Standaard snoozeduur | 30 minuten | Seed gebruikt bij het maken van nieuwe normale groepen. Bestaande groepen behouden hun eigen duur. |
+| Standaard reserve-URL | over:leeg | Wordt gebruikt wanneer een blokkerende groep geen groepsspecifieke reserve-URL heeft. |
+| Help makers te classificeren | Uit | Expliciete aanmelding. Het stuurt gevonden YouTube-kanaal-ID's alleen naar de geconfigureerde classificatieservice; het verzendt geen titels of kijkgeschiedenis. |
+| Lokale bestandsmap | Geen | Optionele mapmogelijkheid voor aangepaste regels. Zie sectie 9. |
+| Web-app-bridge | Uit | Optionele verbinding met een compatibele lokale Vault-hub. Zie paragraaf 11. |
 
-- **Bevroren** — u kunt de groep niet bewerken of verwijderen, en u kunt de schakelaar voor inschakelen niet uitschakelen. Om iets te veranderen moet je het ontdooiritueel uitvoeren (zie hieronder).
-- **Strikt bevroren** — hetzelfde als Frozen, maar het blijft vergrendeld gedurende een door u gekozen aantal uren (decimaal, tot 72). Totdat die timer afloopt, is zelfs het ontdooiritueel niet beschikbaar.
+### 4.1 Editorinterface en feedbackoppervlakken
 
-Wanneer een bevroren groep ontgrendeld kan worden, verschijnt de knop **Ontdooien**. Als u erop klikt, wordt het **ritueel van 20 stappen** gestart:
+De extensie-editor heeft een permanente groepslijst en een editor voor geselecteerde groepen. De groepslijst bevat de groepstypekiezer, Toevoegen, Wissen, Selectie, Inschakelen en Sleepvolgorde. De verdeler is aanpasbaar. De editor voor geselecteerde groepen levert groepsspecifieke velden en de groepsexport-/importacties.
 
-- Het modale toont een boodschap van zelfdiscipline.
-- U moet 20 keer op `Confirm` klikken.
-- Er is een gedwongen wachttijd van 5 seconden tussen klikken.
-- Als u op enig moment annuleert, moet u opnieuw beginnen vanaf stap 1.
-- De 20 berichten roteren zodat je ze ook daadwerkelijk leest.
+De editor slaat gewone veldwijzigingen automatisch op na de globale debounce-periode. Validatiefouten worden gerapporteerd als status-/toastfeedback; ongeldige normale waarden worden niet stilletjes omgezet in niet-gerelateerde instellingen. Een bevroren groep schakelt de gewone bewerkingsknoppen uit.
 
-Als de groep ook gemarkeerd is als "geen snooze" (zie volgende sectie), kunt u deze ook niet snoozen als deze bevroren is.
+De extensie heeft ook deze voor de gebruiker zichtbare feedbackoppervlakken:
 
-De bevriezingsstatus wordt weergegeven in de metaregel van de groepskaart, inclusief de resterende tijd voor strikte bevriezing.
+| Oppervlakte | Functioneel doel |
+| --- | --- |
+| Handleiding | Opent deze referentie in de extensie. |
+| Taalkiezer | Kiest de taal van de extensie-interface. |
+| Instellingen | Opent de hierboven beschreven algemene instellingen. |
+| Status-/toastfeedback | Rapporten opslaan, importeren, validatie en actieresultaten. |
+| Timer-overlay op de pagina | Toont actieve normale timer-/aftelitems en aangepaste timers die zich binnen hun weergavebereik bevinden. Er kunnen meerdere items naast elkaar bestaan. |
+| Logoppervlak op de pagina | Ontvangt aangepaste log-, waarschuwings- en foutoproepen indien toegestaan ​​door de algemene instellingen. |
+| Aangepast logboek | Een live activiteitenlogboek voor door regels gemaakte pop-up-zichtbare vermeldingen. Het kan worden gewist en gedownload. |
 
----
+Voor aangepaste groepen wordt in het veld Regels de brontekst opgeslagen. Eerst uitvoeren voert de preflight van de syntaxis van de regel uit en laadt de bron pas als dat lukt. De editor voert ook lokale bronvermeldingen uit als tekst verandert. Het zichtbare besturingselement **Let AI Code** opent een promptveld en kopieert een bundel voor het genereren van code met daarin het verzoek van de gebruiker, de huidige regel en een gegenereerde verwijzing naar de huidige aangepaste regel-API. Er wordt geen contact opgenomen met een AI-service en de regel wordt niet automatisch gewijzigd.
 
-## 9. Sluimeren (tijdelijk uitschakelen)
+Het besturingselement Sjablonen opent de sjabloonbrowser. Wanneer een sjabloon wordt verzonden, heeft deze een titel, beschrijving, tags, parameters en een gegenereerd voorbeeld. Als u deze toepast, wordt na bevestiging de huidige regeltekst vervangen. De momenteel verzonden sjablooncatalogus is leeg; de browser blijft beschikbaar voor toekomstige beheerde sjablonen en mag niet worden behandeld als een bron van actieve regels.
 
-Met snooze wordt een groep tijdelijk uitgeschakeld zonder dat de bevriezing wordt opgeheven. Het ondersteunt vertraagde activering, cooldown na snooze, bevestigingsstappen en een totaal van de snooze-tijd.
+## 5. Taal op maat
 
-Op de **Snooze**-kaart:
+### 5.1 Regelbronformulieren
 
-- **Sluiten toestaan voor deze groep** — indien uitgeschakeld, kan deze groep helemaal niet op snooze worden gezet (ook niet wanneer deze is bevroren).
-- **Snooze gedurende (minuten)** — decimaal, hoe lang de snooze duurt.
-- **Activeringsvertraging (minuten)** — decimaal `>= 0`. Nadat je de snooze hebt bevestigd, blijft de groep blokkeren totdat deze vertraging is verstreken; pas dan wordt de snooze actief.
-- **Afkoelen na snooze (minuten)** — decimaal van `0` tot `5`. Nadat de snooze is afgelopen, kun je voor deze groep geen nieuwe snooze meer starten totdat de cooldown is afgelopen.
-- **Tijden van bevestiging** — geheel getal `>= 0`. Als dit `0` is, wordt snooze onmiddellijk gepland. Anders start het starten van de snooze een bevestigingsritueel met precies zoveel stappen.
+De bron van een aangepaste groep is JavaScript. Bij **Uitvoeren** verwijdert Vault de eerdere registraties en status van de groep die door de vorige actieve bron zijn gemaakt, en laadt vervolgens de nieuwe bron.
 
-Elke bevestigingsstap voor snooze heeft een geforceerde wachttijd van **5 seconden** voordat de volgende klik is toegestaan. De modal vertelt je dit expliciet en toont het live aftellen op de knop.
+De bron kan zijn:
 
-Als de groep bevroren is, worden de snooze-instellingen vergrendeld op de waarden die vóór het bevriezen zijn gekozen. Je kunt het nog steeds op snooze zetten, zolang snooze toegestaan ​​is, maar je moet wel de opgeslagen instellingen voor vertraging/afkoelen/bevestiging gebruiken.
-
-Op de snoozekaart wordt ook **Totale snoozetijd** voor die groep weergegeven. Dit totaal telt de volledige actieve snooze-duur, zelfs als de site tijdens die periode om een ​​andere reden bereikbaar wordt.
-
-Wanneer een snooze eindigt, komt de regel onmiddellijk terug. Als de groep nog niet bevroren was, bevriest het toestel deze automatisch opnieuw aan het einde van de snooze.
-
-Een statusbericht bevestigt de snooze. Wanneer de snooze eindigt, keert de groep automatisch terug naar normaal.
-
-U kunt een snooze ook vroegtijdig beëindigen met de knop **Snooze beëindigen**.
-
-Voor aangepaste groepen wordt door op **Start Snooze** te drukken ook een `snoozePress`-gebeurtenis naar de regel verzonden (zie de gebeurtenissentabel in **Sectie 11**), zodat een aangepaste regel de pers kan opnemen, een rechtvaardiging kan vastleggen of vervolggebeurtenissen kan activeren. De regel heeft **geen programmatische snooze-API**; hij kan reageren op de pers, maar kan deze niet annuleren of verlengen.
-
----
-
-## 10. Bulkacties- **Alles verwijderen** verwijdert elke groep.
-  - Er wordt altijd om bevestiging gevraagd.
-  - Als ten minste één groep bevroren is, is hetzelfde ritueel van 20 stappen vereist als bij het ontdooien.
-  - Als een groep strikt bevroren is en nog steeds vergrendeld is, is **Alles verwijderen** uitgeschakeld.
-
----
-
-## 11. Aangepaste groepen — gebeurtenisgestuurde referentie (v1.1+)
-
-Vanaf v1.1 zijn aangepaste regels **gebeurtenisgestuurd**. Uw regel is niet langer een functie per hartslag waarvan de retourwaarde de pagina blokkeert. In plaats daarvan is de regeltekst een script dat handlers **registreert** voor specifieke gebeurtenissen (pagina openen, URL-wijziging, paginahartslag, aangepaste gebeurtenissen, ...). De handlers blijven geregistreerd via paginanavigatie en tabbladschakelaars en leven in een langlevende **offscreen sandbox**.
-
-De regeltekst wordt **één keer per Run-klik** uitgevoerd (of één keer wanneer de groep is ingeschakeld en er al een actieve bron bestaat). Om handlers opnieuw te laden, klikt u op **Uitvoeren** in de editor. De pop-up toont een herinnering waarin u wordt gevraagd een reeds geopende pagina opnieuw te laden, zodat de nieuwe regel daar ook van toepassing is.
-
-### 11.1 Ondertekening van de regel
+1. a function expression accepting events and helpers; or
+2. kale instructies die gebruik maken van de opgegeven gebeurtenissen (of oudere gebeurtenissen) en helpersvariabelen.
 
 ```js
-(event, helpers) => {
-  // Register handlers here. This function is called exactly once
-  // per Run click (or when the group is enabled).
+// Function-expression form
+(events, helpers) => {
+  events.on("openWebEvent", "welcome", (event, h) => {
+    h.log("Opened", event.url);
+  });
 }
 ```
 
-Twee argumenten:
+```js
+// Bare-statement form
+events.on("openWebEvent", "welcome", (event, h) => {
+  h.log("Opened", event.url);
+});
+```
 
-- `event` — het **gebeurtenissenregister** voor deze groep. Gebruik het om handlers te registreren, te overschrijven, weer te geven, te tellen of de registratie ervan ongedaan te maken, en voor aangepaste `post(...)`-gebeurtenissen.
-- `helpers` — de helperbundel (zie **11.3**).
+Run voert de JavaScript-syntaxis/preflightcontrole uit en maakt, alleen als dit lukt, de huidige bron actief. Het opslaan van tekst en het uitvoeren van tekst zijn opzettelijk verschillend: een regel kan worden opgeslagen zonder de actieve gebeurtenisbron te worden.
 
-Er wordt **niet** verwacht dat de functie een waarde retourneert. De beslissing om te blokkeren of toe te staan ​​wordt later genomen, wanneer er een gebeurtenis plaatsvindt en een van uw geregistreerde handlers `ev.preventDefault()` en/of `ev.setResult(...)` aanroept.
+De actieve bron wordt verwijderd wanneer de aangepaste groep opnieuw wordt uitgevoerd, uitgeschakeld, verwijderd of expliciet gestopt. Als u de regel opnieuw uitvoert, worden de handlers, timers, panelen, persistentiebucket en door regels gemaakte platformpredikaten van de regel gewist voordat de registratie begint. Een sandboxherstel kan de actieve bron opnieuw laden; regelauteurs moeten daarom de registratie idempotent maken.
 
-### 11.2 Levenscyclus
+### 5.2 Uitvoeringsmodel en veilige aannames
 
-- **Uitvoeren** (knop per groep in de editor): de engine wist eerst elke handler die eerder met deze groep was getagd, en voert vervolgens de regeltekst opnieuw uit in de off-screen sandbox. Dit is de enige manier om opnieuw te registreren na het bewerken van de bron.
-- **Groep uitschakelen**: elke handler die met deze groep is getagd, wordt gewist. De groepsbron wordt in de opslag bewaard, maar reageert niet meer op gebeurtenissen.
-- **Groep opnieuw inschakelen**: de engine voert automatisch de actieve bron voor deze groep opnieuw uit.
-- **Groep verwijderen**: hetzelfde als uitschakelen; alle handlers die met de groep zijn getagd, worden gewist.
-- **Opnieuw registreren met dezelfde `(eventType, id)`**: overschrijft stil de vorige registratie.
+Custom rules are event registrations, not a continuous script loop. Register handlers during rule initialization, then respond to events.
 
-De offscreen-sandbox wordt gedeeld door **alle** aangepaste groepen. Handlers van verschillende groepen bestaan ​​daar naast elkaar, elk intern getagd met hun groeps-ID, zodat "Uitvoeren", uitschakelen of verwijderen alleen de juiste groep raakt.
-
-Als een aangepaste regel zich niet goed gedraagt ​​(synchrone oneindige lus, op hol geslagen logboekspam, enz.), plaatst de sandbox deze in quarantaine: de groep wordt automatisch uitgeschakeld en de fout wordt geregistreerd, zodat u deze kunt zien in het paneel Logboek. Om een ​​in quarantaine geplaatste regel opnieuw in te schakelen, corrigeert u de bron en klikt u op **Uitvoeren**. De engine wist de reden voor het afbreken en laadt de regel opnieuw.
-
-### 11.2.1 Het gebeurtenissenregister (`event`)
-
-Generieke methoden:
-
-- `event.register(type, id, handler, options?)` — registreer een handler voor een willekeurig gebeurtenistype. `id` is uw eigen keuze. `options.priority` (standaard `0`) - hogere runs eerst. `options.intervalMs` — alleen voor `tickEvent`; geef deze specifieke handler gas ten opzichte van de globale tick. Opnieuw registreren met dezelfde `(type, id)`-overschrijvingen.
-- `event.unregister(type, id)`, `event.unregisterAll(type)`.
-- `event.post(type, data?, { scope })` — activeer een aangepast evenement. `scope: "global"` bereikt elke groep; standaard `scope: "group"` bereikt alleen handlers in dezelfde **dezelfde** groep.
-
-Suiker per gebeurtenistype (één set methoden per ingebouwd type):
-
-- `event.registerTickEvent(id, handler, opts)`, `event.getTickEvent(id)`, `event.getTickEvents()`, `event.countTickRegistered()`.
-- `event.registerOpenWebEvent(id, handler, opts)`, `event.getOpenWebEvent(id)`, `event.getOpenWebEvents()`, `event.countOpenWebRegistered()`.
-- Dezelfde vorm voor `closeWebEvent`, `switchWebEvent`, `switchDomainEvent`, `webChangedEvent`, `pageHeartbeatEvent`, `timerEnded`, `snoozePress`.
-
-### 11.2.2 Ingebouwde gebeurtenistypen
-
-| Typ | Wanneer het vuurt | `ev.data` nuttige lading |
-|---|---|---|
-| `tickEvent` | Wereldwijd gedeeld vinkje van 1 seconde in de hele browser. Wordt geactiveerd ongeacht de zichtbaarheid van het tabblad. Gebruik dit voor klokachtige logica die moet blijven draaien, zelfs als er geen tabblad is gefocust. | `{ intervalMs: 1000 }` |
-| `pageHeartbeatEvent` | ~250 ms hartslag vanaf het tabblad **actief**, **zichtbaar**. Stuurt alle tabbladzichtbaarheidsbewuste logica aan, inclusief de automatische vink die is ingebouwd in de `getOrCreateTimer({ scope })`. Wordt **niet** geactiveerd vanaf tabbladen op de achtergrond of terwijl het scherm is vergrendeld. | `{ elapsedMs }` |
-| `openWebEvent` | Er wordt een nieuw tabblad aangemaakt OF een nieuwe navigatie komt op een URL terecht die de engine voor dat tabblad nog niet heeft gezien. Wordt **niet** opnieuw geactiveerd voor reeds geopende tabbladen na een klik op Uitvoeren. | `{ previousUrl, isNewTab }` |
-| `closeWebEvent` | Er is een tabblad gesloten. | `{ reason, nextUrl }` |
-| `switchWebEvent` | URL **wijzigingen** binnen hetzelfde tabblad - terug/vooruit, SPA-routewijziging of een navigatie die op een andere URL terechtkomt dan voorheen. Wordt **niet** geactiveerd bij een normale herlaadbeurt (dezelfde URL). | `{ previousUrl, previousHostname, sameDomain }` |
-| `switchDomainEvent` | URL-wijziging overschrijdt een hostnaamgrens (bijvoorbeeld `youtube.com` → `wikipedia.org`). Vuurt naast `switchWebEvent`. | `{ previousUrl, previousHostname }` |
-| `webChangedEvent` | De pagina wordt op welke manier dan ook (opnieuw) geladen: open, switch, SPA-geschiedenisupdate, **of gewoon opnieuw laden met dezelfde URL**. Dit is de betrouwbare haak "de pagina is gewijzigd, evalueer alles opnieuw". Vuurt naast `openWebEvent` / `switchWebEvent` / `switchDomainEvent`, en is de enige die vuurt voor herladen met dezelfde URL. | `{ previousUrl, previousHostname, sameDomain, isFirstLoad, isReload, transition }` waarbij `transition` `"tabCreated"`, `"commit"` of `"history"` is |
-| `timerEnded` | Een timer beheerd door de groep bereikt `currentMs === 0`. Enkel afgeleverd aan de eigenaarsgroep. | `{ timerId, displayName, direction, currentMs }` |
-| `snoozePress` | De gebruiker heeft op **Start Snooze** gedrukt in de pop-up voor deze **aangepaste** groep. Pure notificatiegebeurtenis: de handler kan willekeurige code uitvoeren (loggen, omleiden, andere gebeurtenissen activeren), maar aangepaste regels hebben **geen programmatische snooze-API**. Houtblokken die hier worden geproduceerd, verschijnen als toast op het actieve tabblad. Enkel geleverd aan de geperste groep. | `{ triggeredAt }` |
-
-URL's in `ev.url` en in gebeurtenisgegevens worden **genormaliseerd** voor gebeurtenissen: de pagina 'Nieuw tabblad' van Chroom-browser (die het 'Zoek Google of typ URL'-oppervlak van Google weergeeft), `about:blank` en gelijkwaardige newtab-schema's worden weergegeven als de lege tekenreeks `""`. Een timer gericht op `ev.url === ""` tikt dus alleen terwijl u zich op de nieuwe tabbladpagina bevindt. Reguliere `google.com`-URL's blijven ongewijzigd.
-
-### 11.2.3 Het gebeurtenisobject (`ev`)
-
-Elke handler wordt aangeroepen als `(ev, helpers) => void`. `ev` draagt:
-
-- `ev.type`: het verzonden gebeurtenistype.
-- `ev.groupId` — de id van de ontvangende groep.
-- `ev.tabId`, `ev.pageId`, `ev.url`, `ev.hostname` — context voor de gebeurtenis.
-- `ev.time` — `{ now, month, dayOfMonth, dayName, hour, minute }` momentopname bij verzending. `dayName` is `"Sunday"`..`"Saturday"`.
-- `ev.data` — gebeurtenisspecifieke payload (zie tabel hierboven).
-
-Methoden:
-
-- `ev.preventDefault()` — markeer de verzending als "geblokkeerd". Het hostinhoudscript verlaat de pagina (of volgt `setRedirectLink`), tenzij een handler met een hogere prioriteit later `setResult(1)` instelt.
-- `ev.stopPropagation()` — stop deze verzending onmiddellijk. **Voor deze gebeurtenis worden geen verdere handlers binnen een groep** ingeroepen.
-- `ev.setResult(value)` — stel het verzendresultaat in. `value` kan een **getal** zijn in `[-255, 255]` (`-1` blok, `0` neutraal, `1` toegestaan; andere gehele getallen worden bewaard voor uw eigen debug-logica), of een **tekenreeks** (geïnterpreteerd als een omleidings-URL). De laatste `setResult`-oproep van alle handlers wint. Een numerieke `1` overschrijft alle eerdere `preventDefault`.
-- `ev.setRedirectLink(url)` / `ev.getRedirectLink()` — de URL waar de host naartoe moet navigeren wanneer de verzending als geblokkeerd eindigt. Dit is de **enige** manier om om te leiden vanaf aangepaste regels; de editor geeft niet langer het veld 'Omleidings-URL bij blokkering' weer voor aangepaste groepen.
-- `ev.post(type, data, { scope })` — vuur een vervolggebeurtenis af vanuit een handler.
-
-Bovendien is `ev` een proxy: elk veld dat u erop instelt (bijvoorbeeld `ev.foo = 42`) wordt opgeslagen in een `custom`-kaart en kan worden teruggelezen door dezelfde afhandelaar of door latere afhandelaars in dezelfde verzending.### 11.3 Het `helpers`-object
-
-Elke handleraanroep krijgt een nieuwe `helpers`-bundel, gericht op de ontvangende groep en de URL van de gebeurtenis. Constante velden:
-
-- `helpers.now` — tijdperk milliseconden bij verzending.
-- `helpers.currentUrl` — de gebeurtenis-URL, na newtab/lege normalisatie.
-- `helpers.groupId` — groeps-ID ontvangen.
-
-Gemakssnelkoppelingen (route naar dezelfde accumulatorbewuste functies die worden gebruikt door de onderstaande helpers, zodat de uitvoer nog steeds in het logboekpaneel terechtkomt):
-
--`helpers.log(...)`, `helpers.warn(...)`, `helpers.error(...)`.
-
-Accessor-methoden:
-
-- `helpers.getLogHelper()` — `log` / `warn` / `error`. De uitvoer is beperkt in snelheid en beperkt per verzending om te voorkomen dat op hol geslagen regels de pop-up bevriezen.
-- `helpers.getDomainHelper()` (alias `helpers.getDomainUtility()`) — URL-inspectie (zie **11.3.5**).
-- `helpers.getTimerHelper()` - timers voor groepen (aftellen / optellen); status blijft bestaan ​​bij het opnieuw opstarten van de browser.
-- `helpers.getPersistenceHelper()`: JSON-sleutel/waarde-archief gericht op de groep.
-- `helpers.getRedirectionHelper()` — `setRedirectLink(url)` / `getRedirectLink()` (en `set` / `get` aliassen) plus `createMessageUrl(message)` die een `chrome-extension://...` URL retourneert die het gegeven bericht weergeeft.
-- `helpers.getPlatformHelper()` — DOM-intenties per platform (zie **11.3.6**).
-- `helpers.getDOMHelper()` - generieke DOM-intenties: `hide(sel)`, `show(sel)`, `addClass(sel, c)`, `removeClass(sel, c)`, `setText(sel, text)`, `click(sel)`, `injectCss(css, id?)`, `removeInjectedCss(id)`, `scrollTo(sel)`. Bewerkingen worden in batches uitgevoerd en toegepast nadat de afhandelaar terugkeert.
-- `helpers.getNavigationHelper()` — `back()`, `forward()`, `reload()`, `goTo(url)`, `closeTab()`. Effecten worden toegepast op het tabblad waar de gebeurtenis vandaan komt.
-- `helpers.getStorageHelper()` — superset van `getPersistenceHelper` plus async `requestAsyncGet(key)` / `requestAsyncSet(key, value)` hooks voor opslag tussen extensies (de resultaten komen binnen als een vervolggebeurtenis op maat).
-- `helpers.getTabHelper()` — `list()`, `getActiveTab()`, `getById(id)`, `countOpen()` tegen een momentopname die bij de gebeurtenis is geleverd.
-
-Alle hulpmethoden zijn veilig: slechte parameters retourneren `null`, `false` of een lege waarde in plaats van te gooien.
-
-#### 11.3.1 `getTimerHelper()`
-
-Timers per groep. Elke timer wordt geïdentificeerd door een string `id` die u kiest; identiteit is afgestemd op de groep, dus twee groepen kunnen beide de id `"yt-shorts"` gebruiken zonder met elkaar in botsing te komen. De status blijft bestaan ​​wanneer de browser opnieuw wordt opgestart.
-
-De persistente status van een timer is precies: `id`, `displayName`, `direction` (`"forward"` of `"backward"`), `isPaused` en `currentMs`. Er is geen opgeslagen "initiële duur" - `isExpired` is gewoon `currentMs === 0`. Voorwaartse timers lopen voor altijd door en verlopen nooit vanzelf. Achterwaartse timers stoppen met tikken bij `0` (geen negatieve waarden).
-
-Er zijn twee bouwmethoden. Kies degene waarvan de semantiek overeenkomt met wat u wilt:
-
-- `create({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **(re)creëert** altijd de timer met de opgegeven init-waarden, waarbij elke bestaande status wordt overschreven, inclusief `currentMs`. Gebruik dit als u "nieuw beginnen" bedoelt, b.v. binnen een one-shot reset-tak.
-- `getOrCreateTimer({ id, displayName?, direction?, currentMs?, scope?, domain? })` — **idempotent**. Als er al een timer met die `id` bestaat, kunnen de `displayName` en `direction` worden bijgewerkt, maar blijft `currentMs` behouden. Anders wordt het gemaakt met de opgegeven init-waarden. Dit is wat je wilt voor het veel voorkomende patroon "zorg ervoor dat mijn timer bestaat en laat hem dan tikken".
-
-Beide methoden accepteren twee predikaatfuncties die de engine onthoudt gedurende de levensduur van de regel (ze overleven over hartslagen en over `webChangedEvent`-herevaluaties, maar ze worden **nooit bewaard** in de opslag):- `scope: (url) => boolean`: wanneer `true` de huidige zichtbare URL op elke `pageHeartbeatEvent` is, tikt de timer automatisch op basis van het hartslaginterval (~250 ms). De helper zelf blokkeert nooit; het werkt alleen `currentMs` bij. Maximaal één automatische tik per hartslag per timer.
-- `domain: (url) => boolean` — wanneer `true` voor de huidige zichtbare URL wordt weergegeven, wordt de timer weergegeven in de overlay op de pagina (linksboven). Wanneer `domain` wordt weggelaten, valt de motor terug naar `scope` voor weergave, dus daar verschijnt ook een "vinkje op /korte pagina's" -timer zonder extra bedrading. Geef `domain` expliciet op als u een andere weergavepoort wilt (vink bijvoorbeeld alleen `/shorts/` aan, maar toon de resterende tijd voor heel `youtube.com`).
-
-> **Belangrijk: een timer blokkeert nooit uit zichzelf.** Wanneer een achterwaartse timer nul bereikt, stopt hij gewoon bij nul en vuurt `timerEnded` één keer af. Of de pagina daadwerkelijk moet worden geblokkeerd, is aan een afzonderlijke `openWebEvent` / `switchWebEvent`-handler die `ev.preventDefault()` aanroept na controle van `helpers.getTimerHelper().isExpired(id)`. Door deze scheiding kunt u 'alleen waarschuwings'-timers, opteltrackers, zachte duwtjes of harde blokken bouwen - dezelfde primitief, uw keuze.
-
-Andere methoden:
-
-- `delete(id)`, `pause(id)`, `resume(id)` — standaard levenscyclus. Pauze bevriest `currentMs`.
-- `setDirection(id, "forward" | "backward")`, `setCurrentMs(id, ms)`, `addMs(id, deltaMs)` — directe mutators (de meeste regels hebben deze niet nodig — laat de hartslag de timer voor je tikken).
-- `setDisplayName(id, name)` — opnieuw labelen.
-- `getCurrentMs(id)`, `getDirection(id)`, `getDisplayName(id)`, `isPaused(id)`, `exists(id)`.
-- `isExpired(id)` — `true` iff `currentMs === 0`.
-- `getState(id)` — `{ id, displayName, direction, isPaused, currentMs, isExpired }` of `null`.
-- `list()` — elke timer die deze groep bezit, als een array van statusobjecten.
-
-#### 11.3.2 `getPersistenceHelper()`
-
-Kaartachtige opslag gericht op uw groep. Waarden moeten JSON-serialiseerbaar zijn.
-
-- `set(key, value)`, `get(key, defaultValue?)`, `has(key)`, `delete(key)`, `keys()`, `entries()`, `clear()`, `size()`.
-
-Zachte limieten: ongeveer 200 sleutels per groep, 16 KB per waarde.
-
-#### 11.3.3 `getLogHelper()`
-
-- `log(...args)`, `warn(...args)`, `error(...args)` — schrijf naar het **Logboek**-paneel in de pop-up (de helperbundel leidt ze nog steeds door dezelfde accumulator, ongeacht welke verzending ze heeft geproduceerd). Elke regel wordt voorafgegaan door `[CustomBlocker:groupId]`.
-- De helper heeft harde caps: ongeveer **200 logboekvermeldingen per verzending** en een maximale tekenreekslengte per invoer. Overtollige invoer wordt verwijderd en meegeteld in `accumulator.logsDropped`. Dit is wat de pop-up beschermt tegen een wegloper van de `for (let i = 0; i < 100000; i++) helpers.log(i)`.
-- Wanneer de **Debug-modus** is uitgeschakeld (standaard), worden gegevens op traceerniveau die de engine zelf uitzendt (verzendingsstart/handlertiming) overal onderdrukt. Ze worden niet weergegeven in het logboekpaneel en worden niet afgedrukt naar de console. Uw eigen `log` / `warn` / `error`-oproepen gaan altijd door.
-
-#### 11.3.4 `getRedirectionHelper()`
-
-Inspecteer/overschrijf de omleidings-URL die het inhoudsscript zal gebruiken als de huidige pagina geblokkeerd raakt.
-
-- `get()` — retourneert de huidige effectieve omleidings-URL voor deze verzending. In eerste instantie is dit de geconfigureerde fallback-URL van de ingebouwde groep (indien aanwezig), anders `""`.
-- `set(url)`: overschrijft de omleidings-URL voor deze verzending. Retourneert `true` bij succes, `false` voor niet-tekenreeksinvoer. Als u `""` passeert, wordt de omleidingsoverschrijving opgeheven en wordt teruggevallen op het normale standaard afsluitgedrag.
-- `createMessageUrl(message)` — retourneert een `chrome-extension://<id>/message-page.html?msg=...`-URL die, wanneer ernaar wordt genavigeerd, het bericht op een schone pagina weergeeft. Handig om gebruikers door te sturen naar een scherm 'Ga werken'/'Neem een ​​pauze' nadat een timer is afgelopen. Voorbeeld: `ev.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Go Work"))`.
-
-Net als de andere bijwerkingen van aangepaste regels wordt deze status gedeeld door alle regels in de huidige verzending. Omdat de regels van onder naar boven lopen, wint de bovenste regel die `set(...)` aanroept.
-
-#### 11.3.5 `getDomainHelper()` (alias `getDomainUtility()`)
-
-Helpers voor URL-inspectie. Er is geen `normalize()` omdat inkomende URL's al newtab-genormaliseerd zijn.
-
-Kern:- `hostnameOf(url)`, `pathnameOf(url)`, `matches(hostname, site)`, `getPlatform(url)`.
-- `isYouTubeHost`, `isTikTokHost`, `isInstagramHost`, `isFacebookHost`, `isTwitchHost`, `isRedditHost`, `isDiscordHost`.
-- `youtube()`, `tiktok()`, `instagram()`, `facebook()`, `twitch()` — elk retourneert `{ isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId }`.
-
-URL-filtering en sectiehelpers:
-
-- `isEmptyStartPage(url)` — `true` voor de nieuwe tabbladpagina en equivalenten (de URL's die worden weergegeven als `""` voor handlers).
-- `matchesAny(url, patterns)` — `patterns` kan een regex, een stringregex of een array van beide zijn.
-- `pathStartsWith(url, path)` — grensbewust (`pathStartsWith("/r/", "/r")` is waar; `"/results/"` niet).
-- `queryHas(url, key, value?)`, `queryGet(url, key)` - inspectie van queryreeksen.
-- `isSearchPage(url)` - herkent Google / Bing / DuckDuckGo / Joetjoep-resultaten / gemeenschapsforum / Tjilper / X-zoekopdrachten.
-- `isInfiniteFeedUrl(url)` — herkent de algoritmische feedoppervlakken van Joetjoep, kortevideoportaal, Fotogram, Gezichtenboek, gemeenschapsforum, X.
-- `sameSection(a, b)` — dezelfde hostnaam EN hetzelfde eerste padsegment.
-
-#### 11.3.6 `getPlatformHelper()`
-
-DOM-intenties per platform en timers voor subsecties, plus inspectie. Elke `helpers.getPlatformHelper().<platform>()` retourneert een object waarvan de methodeset **wordt beheerd door het platform** - methoden die op een bepaald platform niet zinvol zijn, zijn eenvoudigweg afwezig, dus als u ze aanroept, wordt `TypeError: ... is not a function` gegenereerd in plaats van stilzwijgend geen actie te ondernemen. `twitch().hidePosts` bestaat bijvoorbeeld niet (Livekanaal heeft geen berichten) en `tiktok().hideShortButton` bestaat niet (de hele ervaring van kortevideoportaal is al een korte video). Gebruik `helpers.getPlatformHelper().hasMethod(platform, name)` of `.listMethods(platform)` voor introspectie tijdens runtime.
-
-Methodematrix per platform:
-
-| methode | youtube | tiktok | Fotogram | facebook | trillen |
-|---|:---:|:---:|:---:|:---:|:---:|
-| `hideShorts` / `showShorts` | ✓ |  |  |  |  |
-| `hideReels` / `showReels` |  |  | ✓ | ✓ |  |
-| `hideClips` / `showClips` |  |  |  |  | ✓ |
-| `hideStreams` / `showStreams` |  |  |  |  | ✓ |
-| `hideVideos` / `showVideos` | ✓ | ✓ |  | ✓ | ✓ (VOD's) |
-| `hidePosts` / `showPosts` | ✓ |  | ✓ | ✓ |  |
-| `hideShortButton` / `showShortButton` | ✓ |  |  |  |  |
-| `hideHomePage` / `showHomePage` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `hideComments` / `showComments` | ✓ | ✓ | ✓ | ✓ | ✓ (chatten) |
-| `filterComments` | ✓ | ✓ | ✓ | ✓ |  |
-| `hideLive` / `showLive` / `filterLive` | ✓ | ✓ |  | ✓ | ✓ |
-| `isCurrentChannelSubscribed` / `isChannelSubscribed` | ✓ |  |  |  | ✓ |
-| `isCurrentChannelVerified` | ✓ |  |  |  |  |
-| `isLiveNow` | ✓ | ✓ |  | ✓ | ✓ |
-| `isItemLive` | ✓ | ✓ |  | ✓ | ✓ |
-| `isAlgorithmicRecommendation` | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `isSponsored` | ✓ | ✓ | ✓ | ✓ |  |
-| `setShortsTimer` | ✓ |  |  |  |  |
-| `setReelsTimer` |  |  | ✓ | ✓ |  |
-| `setClipsTimer` |  |  |  |  | ✓ |
-| `setStreamsTimer` |  |  |  |  | ✓ |
-| `setVideosTimer` | ✓ | ✓ |  | ✓ | ✓ |
-| `setPostsTimer` | ✓ |  | ✓ | ✓ |  |
-
-De platformeigen namen (`hideReels`, `hideClips`, `hideStreams`) zijn GEEN afzonderlijke buckets van `hideShorts` / `hideVideos` - het opslagslot is hetzelfde; alleen de voor de gebruiker zichtbare naam volgt de terminologie van elk platform.
-
-> **Predicaatlevensduur en regel voor één slot.** Elk van `hideShorts` / `hideReels` / `hideClips` / `hideStreams` / `hideVideos` / `hidePosts` / `filterComments` / `filterLive` bezit **één** persistent predikaat volgens `(group, platform, slot)`. Het predikaat is **niet** afgestemd op de huidige gebeurtenis. Als u het eenmaal hebt ingesteld, blijft het actief bij elke pagina die wordt geladen en bij elke verzending totdat de overeenkomende `show*()` wordt aangeroepen of de groep wordt verwijderd. Door dezelfde methode opnieuw aan te roepen met een nieuwe functie **vervangt** de vorige: de engine voegt nooit meerdere predikaten samen binnen één groep. Om voorwaarden te combineren, schrijft u één predikaat dat zelf het combineren doet, b.v. `yt.hideVideos(item => isShort(item) || hasKeyword(item))`. In **verschillende** groepen draagt ​​elke groep zijn eigen predikaat bij en wordt een item verborgen als het predikaat van een groep overeenkomt.
-
-Inspectiemethoden ontlenen hun waarde op het moment van verzending aan een momentopname die bij de gebeurtenis is geleverd; hun beschikbaarheid wordt bepaald door de bovenstaande matrix.
-
-URL-classificatoren worden altijd opnieuw weergegeven, ongeacht het platform: `isPlatformUrl`, `isShortUrl`, `isVideoUrl`, `isPostUrl`, `isHomePage`, `extractAuthor`, `extractVideoId`.Timers voor subsecties registreren de timer in de persistente groepsbucket en vinken, indien van toepassing, alleen URL's aan die overeenkomen met die subsectie. De timermethoden accepteren `{ id, direction, currentMs, displayName }` en volgen dezelfde poort per platform.
-
-Voor predikaatmethoden wordt het predikaat per overeenkomende kaart aangeroepen met een genormaliseerde `item`: `{ url, name, author, length, views, publishedAt, description, live?, sponsored?, algorithmic? }`. Elk veld kan `null` zijn; "onschuldig totdat het tegendeel bewezen is" - retourneer `false` als het veld dat je nodig hebt ontbreekt.
-
-### 11.4 Voorbeelden
-
-**Eenvoudig**: blokkeer Joetjoep Shorts-pagina's op doordeweekse ochtenden:
+Elke begeleider ontvangt:
 
 ```js
 (event, helpers) => {
-  const yt = helpers.getDomainHelper().youtube();
-
-  function maybeBlock(ev) {
-    if (!yt.isShortUrl(ev.url)) return;
-    const { dayName, hour } = ev.time;
-    const weekday = !["Saturday", "Sunday"].includes(dayName);
-    if (weekday && hour >= 9 && hour < 12) {
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-
-  event.registerOpenWebEvent("morning-block", maybeBlock);
-  event.registerSwitchWebEvent("morning-block", maybeBlock);
+  // event: the currently dispatched event object
+  // helpers: the public Vault Custom-rule API
 }
 ```
 
-**Gemiddeld** — Dagbudget van 30 minuten voor Joetjoep Shorts. De timer tikt automatisch aan op `pageHeartbeatEvent`'s terwijl een Shorts-URL zichtbaar is; een afzonderlijke handler dwingt het blok af wanneer de timer nul bereikt.
+Handlers voor een gebeurtenis die wordt uitgevoerd met aflopende numerieke prioriteit; gelijke prioriteit maakt gebruik van registratievolgorde. Een handler kan worden vervangen door hetzelfde gebeurtenistype en dezelfde ID opnieuw te registreren. Er zijn maximaal 1.000 geregistreerde handlers voor één aangepaste groep.
+
+Vault beperkt het actieve werk van één handler tot ongeveer één seconde. Drie overschrijdingen van de deadline voor dezelfde groep binnen één minuut zetten de regel in quarantaine: Vault schakelt deze uit in plaats van herhaaldelijk een problematische handler uit te voeren. Maak geen gebruik van drukke wachttijden, onbegrensde lussen, synchrone polling of een groot aantal mutaties/logboeken per gebeurtenis.
+
+Per verzending accepteert Vault maximaal:
+
+| Artikel | Maximaal |
+| --- | --- |
+| Regellogboekvermeldingen | 200 |
+| Geplaatste evenementen | 64 |
+| DOM-bewerkingen | 256 |
+| Actie/intenties | 256 |
+| Panelen per groep | 24 |
+| Bediening in één paneel | 32 |
+| Opties in selecteren/radiobesturing | 64 |
+
+Overtollig logbestand, geposte gebeurtenis, DOM-bewerking en intentiegegevens kunnen worden verwijderd. Een aangepaste regel mag niet afhankelijk zijn van het aanleveren van teveel inzendingen.
+
+### 5.3 Ingebouwde gebeurtenistypen
+
+De volgende tekenreeksen van het gebeurtenistype zijn ingebouwd. Een regel kan ook zijn eigen niet-lege tekenreeks gebruiken, zolang deze maar niet begint met een onderstrepingsteken.
+
+| Evenementtype | Wanneer het wordt verzonden | Belangrijke gegevens |
+| --- | --- | --- |
+| tickEvent | Gedeelde periodieke tick met de globale tick-rate-instelling. | Huidige pagina-/tabcontext, indien beschikbaar. Gebruik de intervalMs-registratieoptie om een ​​individuele handler een snelheidslimiet te geven. |
+| openWebEvent | Er wordt een pagina op het hoogste niveau beschikbaar voor de regel. | URL, hostnaam, tabblad-/pagina-ID's, tijd. |
+| sluitenWebEvent | Een pagina/tabblad op het hoogste niveau wordt gesloten. | URL/hostnaam-context, indien beschikbaar. |
+| webChangedEvent | Een toegewijde navigatie op het hoogste niveau, inclusief herladen met dezelfde URL. | gegevens bevatten een eerdere URL/hostnaam en navigatievlaggen zoals isFirstLoad, isReload en sameDomain. |
+| timerBeëindigd | Een aangepaste timer verandert in de verlopen status. | gegevens: timerId, displayName, richting, currentMs. Het wordt alleen geleverd aan de groep die eigenaar is van de timer. |
+| snoozeDruk op | De gebruiker drukt op Start Snooze voor deze aangepaste groep. | De regel is eigenaar van het antwoord; er wordt geen normale snooze-fallback uitgevoerd. |
+| paneelGebeurtenis | Een gerenderd paneel Aangepast heeft een interactie. | gegevens- en gemaksvelden omvatten paneel-/controle-/gebeurtenis-/waarde-informatie. |
+| localFileEvent | Een gevraagde actie voor een lokaal bestand is voltooid. | gegevens- en gemaksvelden omvatten requestId, pad, resultaat, bytes, vermeldingen en fouten. |
+| paginaHeartbeatEvent | Een hartslag van een zichtbare pagina, ongeveer elke 250 ms terwijl het tabblad zichtbaar is. | elapsedMs is de verstreken tijd op de zichtbare pagina. Scoped Custom-timers gebruiken het automatisch, zelfs zonder een geregistreerde handler. |
+
+### 5.4 Gebeurtenisregistratie-API
+
+Het eerste argument voor een bron in functiestijl is het gebeurtenissenregister. In de kale-statementbron verwijzen zowel gebeurtenissen als gebeurtenissen naar dit register.
+
+| Werkwijze | Overeenkomst |
+| --- | --- |
+| events.on(type, id, handler, options) | Register a handler. Returns true when accepted, false for invalid/capped registrations. |
+| events.register(type, id, handler, options) | Alias of on. |
+| events.off(type, id) | Unregister a handler. Returns whether something was removed. |
+| events.unregister(type, id) | Alias of off. |
+| events.unregisterAll(type) | Remove all handlers owned by this group for that event type. Returns the number removed. |
+| events.getEvent(type, id) | Return the registered function for this group/id, or null. |
+| events.getEvents(type) | Return an object mapping this group's handler ids to functions. |
+| events.countRegistered(type) | Return this group's number of registrations for type. |
+| events.emit(type, data, options) | Queue a synthetic event. |
+| events.post(type, data, options) | Alias of emit. |
+
+Het optionele object handleropties ondersteunt:
+
+| Optie | Betekenis |
+| --- | --- |
+| prioriteit | Numerieke volgorde. Hogere waarden worden vóór lagere waarden uitgevoerd. Standaard 0. |
+| intervalMs | Positief getal. Alleen voor tickEvent: onderdrukt oproepen totdat zoveel tijd is verstreken sinds de vorige oproep van de handler. |
+
+Synthetische gebeurtenissen vallen standaard onder het groepsbereik: alleen handlers die tot de uitzendende groep behoren, ontvangen ze. Gebruik { scope: "global" } om de gebeurtenis naar elke regel te sturen die hetzelfde type registreerde. Gebruik geen voorlooponderstrepingsteken in de naam van een gebeurtenis; het is gereserveerd.
+
+### 5.5 Gebeurtenisobject
+
+Elke handler ontvangt een veranderlijk gebeurtenisobject met gemeenschappelijke velden:
+
+| Veld/methode | Overeenkomst |
+| --- | --- |
+| typ | Tekenreeks van gebeurtenistype. |
+| groepsID | Aangepaste groeps-ID van ontvanger. |
+| tabId, paginaId | Browser-ID's, indien beschikbaar; anders nul. |
+| url, hostnaam | Huidige URL en hostnaam op het hoogste niveau, of lege tekenreeksen. |
+| tijd | Kopie van het verzendtijdobject, of null. |
+| gegevens | Gebeurtenisspecifieke payload, of null. |
+| voorkomenDefault() | Markeert de verzending als een paginablokactie. De pagina wordt doorgestuurd naar de huidige omleidingslink/het huidige resultaat, indien aanwezig; anders gebruikt Vault het normale exit/fallback-pad. |
+| stopPropagation() | Stopt latere handlers voor de verzending van de huidige gebeurtenis. |
+| setResultaat(waarde) | Slaat een getal- of tekenreeksresultaat op. Een niet-lege tekenreeks wordt behandeld als een omleidingsdoel; resultaat 1 onderdrukt een anders geaccumuleerd preventieDefault-resultaat. |
+| getResultaat() | Retourneert het resultaat dat is ingesteld door dit gebeurtenisobject, of null. |
+| post(type, gegevens, opties) | Zet een synthetische gebeurtenis in de wachtrij, met dezelfde bereikregels als Events.post. |
+| setRedirectLink(url) | Stel de omleidings-URL voor deze verzending in. Retourneert alleen false voor een niet-tekenreeksinvoer. |
+| getRedirectLink() | Lees de omleidings-URL van deze verzending, of een lege tekenreeks. |
+| sluiten(id) | Verzoek om een ​​tabblad te sluiten. Een getal is een tabblad-ID, een tekenreeks identificeert een URL en een weggelaten waarde is gericht op het actieve tabblad. |
+| blok(id) | Voeg een dynamisch siteblokpatroon voor alleen sessies toe. Gebruik de hostnaam van de gebeurtenis als er geen tekenreeks-ID is. |
+| deblokkeren(id) | Verwijder een dynamisch siteblokpatroon dat alleen voor een sessie geldt. Gebruik de hostnaam van de gebeurtenis als er geen tekenreeks-ID is. |
+| open() | No-op in de browserextensie. Het kan geen applicaties starten. |
+
+Een handler kan willekeurige extra eigenschappen aan een gebeurtenis koppelen. Lees ze via event.custom of rechtstreeks via de toegewezen naam terwijl dat gebeurtenisobject actief is. Ze hebben geen persistente status en zijn geen cross-event-opslag.
+
+Voor panelEvent worden deze gemaksvelden toegevoegd: panelId, controlId, eventName, waarde, waarden, sleutel, code en keyInfo.
+
+Voor localFileEvent worden deze handige velden toegevoegd: eventName, action, path, directoryPath, requestId, ok, text, value, entrys, exist, bytes en error.
+
+### 5.6 Hulpingangspunten
+
+Het helpers-object heeft deze directe eigenschappen:
+
+| Instappunt | Betekenis |
+| --- | --- |
+| helpers.now | Current dispatch timestamp in milliseconds. |
+| helpers.currentUrl | Current unmodified URL string for this dispatch. |
+| helpers.groupId | Owning Custom-group id. |
+| helpers.log / warn / error | Direct aliases for the log helper. |
+| helpers.logScreen / warnScreen / errorScreen | Direct aliases for screen-only logs. |
+| helpers.logPopup / warnPopup / errorPopup | Direct aliases for popup-only logs. |
+| helpers.getLogHelper() | Returns the log helper. |
+| helpers.getDomainHelper(), getDomainUtility() | Return the domain helper. |
+| helpers.getTimerHelper() | Returns the timer helper. |
+| helpers.getPanelHelper() | Returns the panel helper. |
+| helpers.getPersistenceHelper() | Returns the persistence helper. |
+| helpers.getRedirectionHelper() | Returns the redirect helper. |
+| helpers.getDOMHelper() | Returns the DOM helper. |
+| helpers.getNavigationHelper() | Returns the navigation helper. |
+| helpers.getStorageHelper() | Returns the persistence plus asynchronous storage helper. |
+| helpers.getLocalFolderHelper() | Returns the optional local-folder helper. |
+| helpers.getTabHelper() | Returns the tab-snapshot helper. |
+| helpers.getWindowHelper() | Returns the browser-tab/window helper. |
+| helpers.getPlatformHelper() | Returns the platform-helper collection. |
+| helpers.platform() | Returns the platform-helper collection. |
+| helpers.platform(name) | Returns the named raw platform API. Valid names: youtube, tiktok, facebook, instagram, twitch. |
+
+## 6. Aangepaste helperreferentie
+
+### 6.1 Domeinhelper
+
+Get it with helpers.getDomainHelper(). It is also available as helpers.getDomainUtility().
+
+| Werkwijze | Terugkeer en gedrag |
+| --- | --- |
+| hostnaamVan(url) | Genormaliseerde host in kleine letters zonder voorafgaande www., of null voor een ongeldige URL. |
+| padnaamVan(url) | URL-padnaam, of / wanneer de URL niet kan worden geparseerd. |
+| komt overeen met(hostnaam, site) | Waar als de hostnaam gelijk is aan de site of het subdomein ervan is. |
+| getPlatform(url) | youtube, tiktok, instagram, facebook, twitch of null. |
+| isYouTubeHost(host), isTikTokHost(host), isInstagramHost(host), isFacebookHost(host), isTwitchHost(host), isRedditHost(host), isDiscordHost(host) | Gastclassificaties. |
+| youtube(), tiktok(), instagram(), facebook(), twitch() | Retourneer het URL-classifier-object van dat platform. |
+| isEmptyStartPage(url) | Waar voor de door de browser ondersteunde blanco/nieuw-tabblad-/startpagina-URL's. |
+| matchAny(url, patronen) | Vergelijk een URL met één RegExp, een RegExp-array of tekenreeksen die zijn gecompileerd als reguliere expressies. Ongeldige tekenreekspatronen worden genegeerd. |
+| pathStartsWith(url, pad) | Geldt voor een exact pad of een afstammeling van een pad. Er wordt een ontbrekende leidende schuine streep meegeleverd. |
+| queryHas(url, sleutel, waarde) | True als er een querysleutel bestaat; wanneer waarde wordt opgegeven, moet deze ook gelijk zijn aan de tekenreekswaarde. |
+| queryGet(url, sleutel) | Querywaarde of null. |
+| isSearchPage(url) | Detecteert ondersteunde zoek-URL's van Google, Bing, DuckDuckGo, YouTube, Reddit en X/Twitter. |
+| isInfiniteFeedUrl(url) | Detecteert ondersteunde oppervlakken met oneindige invoer. |
+| zelfdeSectie(a, b) | Alleen waar als beide URL's een host en het eerste padnaamsegment delen. |
+
+Elk platform-URL-classificatieobject geeft isPlatformUrl(url), isShortUrl(url), isVideoUrl(url), isPostUrl(url), isHomePage(url), extractAuthor(url) en extractVideoId(url) weer. Een methode kan false/null retourneren als de URL geldig is, maar dat soort inhoud niet identificeert.
+
+### 6.2 Timerhulp
+
+Get it with helpers.getTimerHelper(). Timers are rule-owned counters. They may be displayed in Vault's page overlay, but they never block on their own.
+
+Opties maken/krijgen:
+
+| Optie | Betekenis |
+| --- | --- |
+| ID | Vereiste niet-lege timer-ID. |
+| weergavenaam | Voor mensen leesbaar overlay-label. |
+| richting | vooruit voor optellen; elke andere waarde wordt achteruit/aftellen. |
+| huidigeMs | Initiële milliseconden, gevloerd op nul en begrensd als er grenzen zijn. |
+| minMs, maxMs | Optionele positieve minimum-/maximumgrenzen. |
+| stapMevrouw | Optionele positieve kwantiseringsstap voor verstreken ticks. |
+| overlayStijl | Optionele tekenreeksen voor kleur, achtergrond, fontSize, fontWeight, border, borderRadius, opvulling, dekking en pictogram. Niet-ondersteunde/ongeldige onderdelen worden verwijderd. |
+| bereik(url) | Predikaat dat bepaalt waar de tijd voor zichtbare pagina's toeneemt. |
+| domein(url) | Predikaat dat bepaalt waar de timer in de overlay verschijnt; standaard ingesteld op bereik. |
+| accrueWhen(url) | Optioneel extra predikaat. Tijd loopt alleen op als zowel scope als accrueWhen waar zijn. |
+
+| Werkwijze | Gedrag |
+| --- | --- |
+| creëren(opties) | Creëert/vervangt een timer en reset de status ervan. Retourneert id of null. |
+| getOrCreateTimer(opties) | Alleen aanmaken bij afwezigheid. De bestaande toestand blijft ongewijzigd. Retourneert id of null. |
+| verwijder(id) | Verwijder de timer en de reikwijdte/weergavepredicaten ervan. |
+| pauze(id), hervatten(id) | Wijzig de onderbroken status. Retourneert alleen waar als een statuswijziging mogelijk is. |
+| setDirection(id, richting) | Vooruit of achteruit instellen. |
+| setCurrentMs(id, ms) | Stel het absolute aantal in en handhaaf grenzen. |
+| addMs(id, deltaMs), subMs(id, deltaMs) | Pas het aantal aan en handhaaf grenzen. |
+| setBounds(id, minMs, maxMs) | Stel positieve grenzen; pass null voor een bound om het te verwijderen. |
+| setStep(id, stepMs) | Stel een positieve tick-kwantisering in. Geef null of nul door om het te wissen. |
+| setOverlayStyle(id, stijl) | Vervang/wist toegestane overlaystijlen. |
+| setDisplayName(id, naam) | Overlay-label instellen. |
+| getCurrentMs(id) | Getal, nul voor een afwezigheidstimer. |
+| isVerlopen(id) | Alleen waar als er een timer bestaat en currentMs nul is. |
+| isPaused(id) | Booleaans. |
+| getDirection(id), getDisplayName(id) | Richting/naam of nul. |
+| bestaat(id) | Booleaans. |
+| getState(id) | Serialiseerbare timer-snapshot of null. |
+| lijst() | Serialiseerbare reeks timer-snapshots. |
+
+Bereikpredikaten worden onthouden terwijl de aangepaste bron geladen blijft. Vault zet overeenkomende timers vooruit tijdens zichtbare pageHeartbeatEvent-cycli, één tik per timer per verzending. Een achterwaartse timer stopt bij nul en zendt timerEnded uit bij de overgang naar nul. Het blijft nul totdat de regel het wijzigt/reset. Gebruik een handler met timer-einde om te beslissen of een verlopen timer preventieDefault moet aanroepen, een omleiding moet instellen of een andere actie moet uitvoeren.
+
+### 6.3 Persistente en asynchrone opslag
+
+Get the synchronous persistence helper with helpers.getPersistenceHelper(). Values must be JSON-serializable. A group can store at most 200 keys and each serialized value is limited to 16 KiB.
+
+| Werkwijze | Gedrag |
+| --- | --- |
+| get(sleutel, standaardwaarde) | Lees een gekloonde waarde of defaultValue. |
+| set(sleutel, waarde) | Bewaar een JSON-veilige kloon. Retourneert false voor een ongeldige sleutel/waarde of uitputting van de sleutelkap. |
+| verwijder(sleutel) | Verwijder bestaande sleutel; geeft terug of het bestond. |
+| heeft(sleutel) | Booleaans. |
+| sleutels() | Reeks sleutels. |
+| vermeldingen() | Array van gekloonde [sleutel, waarde]-paren. |
+| helder() | Verwijder alle regelpersistentie voor deze groep. |
+| maat() | Aantal sleutels. |
+
+helpers.getStorageHelper() exposes all the preceding methods and two asynchronous request methods:
+
+| Werkwijze | Gedrag |
+| --- | --- |
+| requestAsyncGet(sleutel) | Vraag een asynchrone opslaglezing aan. Retourneert waar wanneer het in de wachtrij staat. Gebruik een latere gebeurtenis/uw eigen statusstroom om te reageren; het is geen synchrone getter. |
+| requestAsyncSet(sleutel, waarde) | Vraag een asynchrone JSON-veilige winkel aan. Retourneert waar wanneer het in de wachtrij staat. |
+
+Regelpersistentie wordt bij Uitvoeren gewist omdat een nieuwe actieve bron start met een schone aangepaste regelstatus.
+
+### 6.4 Logboekhulp
+
+Get it with helpers.getLogHelper(). Every method accepts any number of values.
+
+| Werkwijze | Bestemming |
+| --- | --- |
+| log, waarschuw, fout | Pop-up activiteitenlogboek; paginatoast wanneer algemene paginalogboektoasts zijn ingeschakeld. |
+| logScreen, warnScreen, errorScreen | Alleen paginatoast/foutopsporingsoppervlak; uitgesloten van pop-uplogboek. |
+| logPopup, warnPopup, errorPopup | Alleen pop-upactiviteitenlogboek; uitgesloten van paginatoast. |
+
+Logboeken proberen ook de browserconsole te bereiken met een CustomBlocker-groepsvoorvoegsel. Dit is diagnostische uitvoer, geen persistentie-API. Gebruik de persistentiehelper voor status.
+
+### 6.5 Omleidingshelper
+
+Get it with helpers.getRedirectionHelper().
+
+| Werkwijze | Gedrag |
+| --- | --- |
+| get(), getRedirectLink() | Retourneert de huidige verzendomleidings-URL of een lege tekenreeks. |
+| set(url), setRedirectLink(url) | Stel de omleidings-URL in voor de huidige verzending. |
+| createMessageUrl(bericht) | Maak een extensie-lokale berichtpagina-URL die het opgegeven bericht weergeeft. |
+
+Het instellen van alleen een omleiding dwingt de navigatie niet af. Koppel het met event.preventDefault(), of stel een niet-lege tekenreeks in via event.setResult(), volgens de gewenste regelstroom.
+
+### 6.6 DOM-helper
+
+Get it with helpers.getDOMHelper(). These actions are queued and applied to the current page. Selectors must be valid for the page browser; malformed selectors or elements that do not exist can produce no visible result.
+
+| Werkwijze | Gevraagde actie |
+| --- | --- |
+| verberg(kiezer), toon(kiezer) | Overeenkomende elementen verbergen/tonen. |
+| addClass(selector, klassenaam), removeClass(selector, klassenaam) | Muteer CSS-klasse. |
+| setText(selector, tekst) | Tekstinhoud vervangen. |
+| klik(kiezer) | Klik op het overeenkomende element. |
+| injectCss(css, id) | Voeg een geïdentificeerd CSS-blok toe. |
+| removeInjectedCss(id) | Verwijder een eerder geïdentificeerd geïnjecteerd CSS-blok. |
+| scrollNaar(selector) | Blader door een overeenkomend element in beeld. |
+
+DOM-acties bieden geen onbeperkte paginascripting. Ze zijn een begrensd actieoppervlak en zouden idempotent moeten zijn bij gebruik door hartslag-/tekenbehandelaars.
+
+### 6.7 Navigatie, tabbladen en browservensterhelper
+
+Get navigation with helpers.getNavigationHelper().
+
+| Werkwijze | Gevraagde actie |
+| --- | --- |
+| terug() | Navigeer naar het huidige tabblad terug. |
+| vooruit() | Navigeer naar voren op het huidige tabblad. |
+| herladen() | Huidig ​​tabblad opnieuw laden. |
+| gaNaar(url) | Navigeer op het huidige tabblad naar de URL. |
+| closeTab() | Sluit het huidige tabblad. |
+
+Get a snapshot helper with helpers.getTabHelper().
+
+| Werkwijze | Terugkeer/actie |
+| --- | --- |
+| lijst() | Kopie van de momentopname van het huidige tabblad. |
+| getActiveTab() | Momentopname van actief tabblad of null. |
+| getById(id) | Overeenkomende momentopname van tabblad of null. |
+| telOpen() | Aantal tabbladen in de momentopname. |
+| verzoekVernieuwen() | Vraag een momentopname van een nieuw tabblad aan voor later regelwerk. |
+
+Get the browser-tab/window helper with helpers.getWindowHelper(). In the extension, a "window" is represented by browser tabs.
+
+| Werkwijze | Gedrag |
+| --- | --- |
+| huidige() | Huidig ​​actief tabbladobject: id, url, hostnaam, titel, isBrowser. |
+| alles() | Array van tabbladobjecten met id, url, hostnaam, titel, actief. |
+| close(idOrUrl) | Sluiten op numerieke tabblad-ID, exacte URL-tekenreeks of actief tabblad indien weggelaten. |
+| closeTab() | Sluit het actieve tabblad. |
+| blok(patroon) | Voeg een genormaliseerd domeinblok voor alleen sessies toe en pas het toe. |
+| deblokkeren(patroon) | Verwijder een genormaliseerd domeinblok voor alleen sessies. |
+| isBlocked(urlOrHostnaam) | Query uitvoeren op de door de regel gemaakte sessieblokkeringslijst. |
+| getBlocked() | Maak een lijst van huidige, door sessies gemaakte patronen. |
+
+Door regels gemaakte blokpatronen normaliseren http/https, leiden www. en paden naar een hostpatroon. Ze komen overeen met de exacte host en subdomeinen. Deze dynamische blokkeerlijst is sessiegeheugen en geen opgeslagen normale sitegroep.
+
+### 6.8 Helper voor lokale bestandsmappen
+
+Get it with helpers.getLocalFolderHelper(). It only operates after the user has selected a folder in Global Settings and granted browser permission. It is asynchronous: every request returns a request id; completion arrives as localFileEvent.
+
+| Werkwijze | Gedrag |
+| --- | --- |
+| isBeschikbaar() | Rapporteert dat het API-oppervlak bestaat; het bewijst niet dat een map momenteel is geautoriseerd. |
+| requestRead(pad) | Vraag tekstlezen aan. |
+| requestWrite(pad, tekst) | Verzoek om tekst te schrijven. |
+| requestAppend(pad, tekst) | Verzoek om tekst toe te voegen. |
+| requestList(pad = "") | Vraag een directoryvermelding aan. |
+| requestExists(pad) | Bestaanstest aanvragen. |
+| requestReadJson(pad) | Vraag JSON-lezing aan; pad moet eindigen op .json. |
+| requestWriteJson(pad, waarde) | Vraag JSON-schrijven aan; pad moet eindigen op .json en de waarde moet JSON-veilig zijn. |
+
+Paden zijn altijd relatief ten opzichte van de geselecteerde wortel. Ze kunnen niet absoluut, drive-gekwalificeerd, puntvoorvoegsel of bevatten zijn. of .. segmenten. Alleen .txt-, .csv- en .json-bestanden worden geaccepteerd voor bestandsbewerkingen. De mapselectie kan op elk moment worden ingetrokken; een mislukt verzoek rapporteert ok false en een foutreeks in localFileEvent.
+
+### 6.9 Platformhelper
+
+Get the collection with helpers.getPlatformHelper() or helpers.platform(). Get one raw platform API with helpers.platform("youtube"), for example.
+
+Alle onbewerkte platform-API's onthullen:
+
+| Werkwijze | Gedrag |
+| --- | --- |
+| hide(predikaat, opties) | Stel hetzelfde predikaat per item in voor elke feedcardsleuf op dat platform. |
+| hide(slot, predikaat, opties) | Stel één predikaat per item in. Het predikaat ontvangt het platformitem/de momentopname die door dat platform wordt geleverd. |
+| allow(predikaat, opties), allow(slot, predikaat, opties) | Hetzelfde als verbergen, maar creëert een oordeel over toestaan/uitzonderen. |
+| toon(), toon(slot) | Wis alle of één geïnstalleerde predicaatslot. |
+| oppervlak(naam, "verbergen" of "tonen") | Verberg/toon een hele platformregio. home is de publieke naam voor homePage. |
+| timer(slot, opties) | Configureer een timer voor platformsubsecties. Retourneert options.id indien opgegeven, anders nul. |
+| opnieuw scannen() | Evalueer reeds gescande feedkaarten opnieuw na wijzigingen in de externe regelstatus. |
+| momentopname() | Retourneert de huidige platformmomentopname of null. |
+| slots(), oppervlakken(), timerSlots() | Retourneer de ondersteunde namen voor dit platform. |
+| isPlatformUrl, isShortUrl, isVideoUrl, isPostUrl, isHomePage, extractAuthor, extractVideoId | URL-helpers voor dat platform. |
+
+Een slot bezit één predikaat voor één groep/platform. Een latere verberg/toestaan-oproep voor hetzelfde slot vervangt het eerdere predikaat; het is geen impliciete OF. Het optionele optieobject herkent:
+
+| Optie | Effect |
+| --- | --- |
+| blockPageOnVisit | Wanneer een overeenkomende kaart/pagina wordt bezocht, vraag dan om een ​​paginablokkering in plaats van alleen de kaart te verbergen. |
+| uitwerking | blokkeren (standaard) of toestaan. De allow-helpersets staan ​​automatisch toe. |
+
+Roep opnieuw scannen aan wanneer een predikaat afhankelijk is van de status die is gewijzigd nadat de kaarten voor het eerst zijn geëvalueerd, zoals een selectievakje in een paneel, een quotum of een tijdsdrempel.
+
+Onbewerkte platformondersteuningsmatrix:
+
+| Platform | Predikaatslots | Oppervlaktenamen | Timerslots |
+| --- | --- | --- | --- |
+| YouTube | korte broeken, video's, berichten, reacties, live | home, shortButton, commentaar, live | korte broeken, video's, berichten |
+| TikTok | video's, reacties, live | thuis, reacties, live | video's |
+| Instagram | korte broeken, berichten, opmerkingen | thuis, reacties | korte broeken, berichten |
+| Facebook | korte broeken, video's, berichten, reacties, live | thuis, reacties, live | korte broeken, video's, berichten |
+| Trek | korte broeken, streams, video's, live | thuis, reacties, live | korte broeken, streams, video's |
+
+De onbewerkte aangepaste platformhelper stelt Reddit, Discord of Twitter/X niet bloot. Gebruik algemene URL-, DOM-, timer-, paneel- en navigatiemogelijkheden voor maatwerk op die sites.
+
+## 7. Aangepaste panelen
+
+The panel helper creates safe, declarative on-page panels. Get it with helpers.getPanelHelper(). A panel can be scoped to URLs, react to interactions, display timer state, and retain its user-entered values for the active rule lifetime.
+
+### 7.1 Paneel-API
+
+| Werkwijze | Gedrag |
+| --- | --- |
+| creëren(config) | Maak of vervang een paneel. Retourneert genormaliseerde paneel-ID of null. |
+| getOrCreatePanel(config) | Alleen aanmaken bij afwezigheid; retourneert id of null. |
+| update(id, patch) | Vervang gespecificeerde paneelvelden na validatie. |
+| verwijder(id) | Verwijder een paneel en de geregistreerde inline-handlers ervan. |
+| toon(id), verberg(id) | Verander de zichtbaarheid. |
+| setValue(paneelId, controleId, waarde) | Stel na validatie een beschrijfbare controlewaarde in. |
+| updateControl(paneelId, controleId, patch) | Vervang de toegestane velden van een besturingselement. |
+| uitschakelen(paneelId, controleId), inschakelen(paneelId, controleId) | Schakel de beschikbaarheid van controle in. |
+| setOptions(panelId, controlId, opties) | Vervang selectie-/radiokeuzes. |
+| setText(paneelId, controleId, tekst) | Update een knoplabel, tekst/sectietekst of een ander besturingselementlabel. |
+| setTheme(panelId, thema) | Paneelthema vervangen. |
+| setTitle(paneelId, titel), setDescription(paneelId, beschrijving) | Tekst bijwerken. |
+| getValue(paneelId, controleId) | Retourneert een gekloonde waarde of ongedefinieerd. |
+| getValues(paneelId) | Retourneert alle beschrijfbare waarden die zijn ingetoetst op controle-ID. |
+| getState(id) | Retourneert een serialiseerbare momentopname van het paneel of null. |
+| lijst() | Retourneer serialiseerbare snapshots van alle panelen. |
+| kennisgeving(config) | Creëer een compact statuspaneel rechtsonder met optioneel bericht/tekst. |
+| bevestigen(config) | Creëer een gecentreerd dialoogvenster met gegenereerde bevestigings- en annuleerknoppen. |
+| controlelijst(config) | Maak een paneel met selectievakjes. |
+| formulier(config) | Maak een formulierindelingspaneel van velden. |
+
+### 7.2 Paneelconfiguratie
+
+| Veld | Geaccepteerde waarden/gedrag |
+| --- | --- |
+| ID | Vereist. Genormaliseerd naar letters, cijfers, onderstrepingstekens, koppelteken; maximaal 80 tekens. |
+| titel | Paneeltitel, maximaal 240 tekens. |
+| beschrijving of hoofdtekst | Beschrijving, maximaal 1.000 tekens. |
+| positie | linksboven, rechtsboven, linksonder, rechtsonder of midden. Standaard rechtsonder. |
+| uitlijnen | links, midden of rechts. Standaard links. |
+| lay-out | verticaal, compact, comfortabel, ruim, inline, rij, omloop, twee kolommen, raster, splitsen, vorm, werkbalk of stapel. Standaard verticaal. |
+| prioriteit | Numerieke weergavevolgorde, vastgezet op -1000 tot en met 1000. Hogere panelen worden eerst weergegeven. |
+| breedte | klein, middelgroot, groot of 180 tot en met 520 px. |
+| tekstgrootte/lettergrootte | 10 tot en met 32 ​​px, of 0,65 tot en met 2 rem/em. |
+| ariaLabel/a11yLabel | Toegankelijk etiket. |
+| rol | regio, dialoogvenster, waarschuwing, status, formulier of groep. |
+| autoFocus | Booleaans. |
+| thema/kleuren | achtergrond, voorgrond, accent, rand, gedempt, fontSize/textSize, titleSize. |
+| controles | Array van maximaal 32 bedieningselementen, met secties die maximaal drie niveaus kunnen nesten. |
+| zichtbaar | Vals verbergt het paneel. |
+| bereik(url), domein(url) | Functies die de beschikbaarheid/weergave regelen. domein heeft voorrang; zonder domein worden de bereikbedieningen weergegeven. |
+
+Inline-handlervelden van het paneel kunnen op het paneel of op individuele besturingselementen verschijnen: onEvent, onChange, onClick, onInput, onFocus, onBlur, onSubmit, onClose, onMount, onUnmount, onKey en onKeyDown. Elk ontvangt de normale (gebeurtenis, helpers) parameters. Een inline-handler wordt vervangen wanneer dat paneel opnieuw wordt gemaakt/bijgewerkt met besturingsdefinities.
+
+### 7.3 Bediening
+
+De beschikbare besturingstypen zijn tekst, selectievakje, selectie, tekstinvoer, tekstgebied, knop, sectie, timer, getalinvoer, bereik, schakelen, radio, datum, tijd, kleur, pincode en html. Aliasseninvoer, vervolgkeuzelijst, groep, nummer, schuifregelaar, schakelaar, onbewerkt en opmaak normaliseren naar hun overeenkomstige type.
+
+Alle besturingselementen accepteren id, type, label, waarde, uitgeschakeld, prioriteit en, waar relevant, lay-out, uitlijning, ariaLabel/a11yLabel, autoFocus, breedte, hoogte en rijen.
+
+| Typ | Belangrijke velden en waardecontract |
+| --- | --- |
+| tekst | tekst (of label) weergegeven als niet-invoertekst. |
+| selectievakje, schakel | Booleaanse waarde. |
+| selecteren, radio | opties als strings of { value, label } objecten; maximaal 64. Waarde is een korte reeks. |
+| tekstInvoer, tekstgebied | Tekenreekswaarde, maximaal 2.000 tekens; optionele tijdelijke aanduiding. |
+| knop | etiket/tekst; optionele actie indienen, annuleren of sluiten. |
+| sectie | tekst/beschrijving, rol en geneste besturingselementen. |
+| timer | timerId of timermomentopname; formaat ms, ss, mm:ss of uu:mm:ss; showExpired is standaard waar. |
+| nummerInvoer, bereik | Numerieke waarde vastgeklemd op geleverde min/max; optionele positieve stap. |
+| datum | Alleen JJJJ-MM-DD-waarde. |
+| tijd | Alleen HH:MM- of HH:MM:SS-waarde. |
+| kleur | Zescijferige #RRGGBB-invoerwaarde. |
+| speld | Alleen cijfers, lengte 3 tot en met 12, standaard gemaskeerd, optioneel autoSubmit. |
+| html | Gezuiverde markeringen. Scriptblokken, inline gebeurteniskenmerken en javascript: URL's worden verwijderd. |
+
+Elke gerenderde interactie genereert panelEvent. Het waardenobject van de gebeurtenis bevat de beschrijfbare besturingselementen van het paneel, met uitzondering van knoppen, tekst en timerbesturingselementen. Een close action verbergt het paneel voordat handlers de gebeurtenis waarnemen.
+
+## 8. Actierecepten op maat
+
+De volgende voorbeelden zijn specificaties van openbare composities, geen tutorial.
+
+### 8.1 Een openingspagina omleiden
 
 ```js
-(event, helpers) => {
-  const TIMER_ID = "yt-shorts-budget";
-  const yt = helpers.getDomainHelper().youtube();
-  const onShorts = (url) => yt.isShortUrl(url);
+(events, helpers) => {
+  events.on("openWebEvent", "redirect-distracting-search", (event, h) => {
+    const domain = h.getDomainHelper();
+    if (!domain.isSearchPage(event.url)) return;
+    event.setRedirectLink(h.getRedirectionHelper().createMessageUrl("Return to your planned task."));
+    event.preventDefault();
+  });
+}
+```
 
-  helpers.getTimerHelper().getOrCreateTimer({
-    id: TIMER_ID,
+### 8.2 Zichtbare tijd aftellen met expliciet blok
+
+```js
+(events, helpers) => {
+  const timer = helpers.getTimerHelper();
+  timer.create({
+    id: "reading-budget",
+    displayName: "Reading budget",
     direction: "backward",
-    currentMs: 30 * 60 * 1000,
-    displayName: "YT Shorts",
-    scope: onShorts,
-    domain: onShorts
+    currentMs: 10 * 60 * 1000,
+    scope: (url) => url.includes("example.com")
   });
 
-  function maybeBlock(ev, h) {
-    if (!yt.isShortUrl(ev.url)) return;
-    if (h.getTimerHelper().isExpired(TIMER_ID)) {
-      ev.setRedirectLink("https://example.com/focus");
-      ev.preventDefault();
-      ev.setResult(-1);
-    }
-  }
-  event.registerOpenWebEvent("budget-block", maybeBlock);
-  event.registerSwitchWebEvent("budget-block", maybeBlock);
-
-  event.registerTimerEndedEvent("budget-warn", (_ev, h) => {
-    h.getLogHelper().log("Budget hit zero.");
+  events.on("timerEnded", "stop-at-zero", (event) => {
+    if (event.data?.timerId !== "reading-budget") return;
+    event.setRedirectLink("about:blank");
+    event.preventDefault();
   });
 }
 ```
 
-**Harder**: verberg individuele Joetjoep Shorts waarvan de auteurshandle te lang is, en injecteer een 'deze Short is verborgen'-CSS:
+### 8.3 Wijzig een feedpredikaat vanuit een paneel
 
 ```js
-(event, helpers) => {
-  const MAX_AUTHOR_LEN = 16;
+(events, helpers) => {
+  const panel = helpers.getPanelHelper();
+  const youtube = helpers.platform("youtube");
 
-  function configure(_ev, h) {
-    const yt = h.getPlatformHelper().youtube();
-    yt.hideShorts(
-      (item) => item.author && item.author.length > MAX_AUTHOR_LEN,
-      { blockPageOnVisit: true }
-    );
-    h.getDOMHelper().injectCss(
-      "ytd-rich-grid-media[data-cb-hidden] { opacity: 0.2 !important; }",
-      "long-author-label"
-    );
-  }
+  panel.create({
+    id: "feed-filter",
+    title: "Feed filter",
+    controls: [{
+      id: "hide-sponsored",
+      type: "toggle",
+      label: "Hide sponsored items",
+      value: true,
+      onChange: (event, h) => {
+        const api = h.platform("youtube");
+        if (event.value) {
+          api.hide("videos", (item) => item?.sponsored === true);
+        } else {
+          api.show("videos");
+        }
+        api.rescan();
+      }
+    }]
+  });
 
-  event.registerOpenWebEvent("hide-long-shorts", configure);
-  event.registerSwitchWebEvent("hide-long-shorts", configure);
-  event.registerWebChangedEvent("hide-long-shorts", configure);
+  youtube.hide("shorts", () => true);
 }
 ```
 
-**Moeilijkst** — zend een aangepaste gebeurtenis uit van de ene handler naar de andere:
+Er moeten predikaten worden geschreven voor de platformmomentopname/itemwaarden die door het actieve platformoppervlak worden geleverd. Als een platform een ​​veld niet op betrouwbare wijze kan identificeren, moet het predikaat niet worden geopend in plaats van aan te nemen dat een waarde waar is.
 
-```js
-(event, helpers) => {
-  event.registerSwitchDomainEvent("track-domain", (ev) => {
-    ev.post("domainChange", { from: ev.data.previousHostname, to: ev.hostname });
-  });
+## 9. Verzoekprotocol voor lokale mappen
 
-  event.register("domainChange", "log-it", (ev, h) => {
-    h.getLogHelper().log("crossed", ev.data.from, "→", ev.data.to);
-  });
-}
-```
+Lokale mapbewerkingen zijn geen directe bestands-I/O. De volledige functionele volgorde is:
 
----
+1. De gebruiker selecteert een map in Algemene instellingen.
+2. De regel plaatst een verzoek in de wachtrij en ontvangt een verzoek-ID.
+3. Vault vraagt de geautoriseerde mapfunctie om de bewerking uit te voeren.
+4. Vault verzendt localFileEvent naar dezelfde aangepaste groep.
+5. De handler correleert event.requestId met de oorspronkelijke aanvraag-ID.
 
-## 12. Sjablonen
+Succesvol lezen wordt voltooid met tekst voor tekstbestanden of waarde voor JSON. Lijst retourneert vermeldingen. Bestaat retourneert bestaat. Schrijven/toevoegen levert bytes op, waar van toepassing. Mislukking levert ok false en error op. Regels mogen er nooit van uitgaan dat een geselecteerde map geautoriseerd blijft na opnieuw laden, opnieuw opstarten van de browser of intrekken van toestemming.
 
-Elke aangepaste groep heeft een **Sjablonen**-kiezer waarmee een doorzoekbare, vooraf ingestelde browser wordt geopend. De bibliotheek levert nu **50+ sjablonen**, georganiseerd in negen categorieën, zodat u kunt bladeren in plaats van helemaal opnieuw regels te schrijven:
+## 10. Veiligheids- en storingssemantiek op maat
 
-| Categorie | Voorbeelden |
-|---|---|
-| **Timers** | Sitetijdbudget (aftellen + blokkeren), sitetijdtracker (optellen), Joetjoep Shorts-limiet, kortevideoportaal-feedlimiet, Fotogram Reels-limiet, Gezichtenboek Reels-limiet, Livekanaal Clips-limiet, Universeel afleidingsbudget, Dagelijkse tracker voor diepgaand werk |
-| **Schema** | Werktijdenblok op weekdagen, sites die alleen in het weekend beschikbaar zijn, uitschakeling vóór bedtijd, slechts één uur toestaan, nieuws alleen tijdens de lunch, nieuwe start op maandag, eerste N minuten van elk uur toestaan, streng werkblok voor diep werk |
-| **Feed/Shorts** | Blokkeer Joetjoep Shorts-URL's, verberg Shorts-kaarten, verberg Shorts op trefwoord, verberg Joetjoep-homefeed / reacties / trending, blokkeer kortevideoportaal FYP, verberg kortevideoportaal-shorts, blokkeer Fotogram Reels-URL's, verberg Fotogram Reels-feed, verberg Gezichtenboek-feed / Reels, verberg gemeenschapsforum / Tjilper / LinkedIn-home |
-| **Omleiding** | Afleidingen → focuspagina, Shorts → /feed/abonnementen, reddit.com → old.reddit.com, twitter / x → Nitter, nieuw tabblad → takenlijst |
-| **Focus** | Focussessie alleen op de toelatingslijst, Pomodoro 25/5, blokkeren tijdens vergadering, blokkeren na N bezoeken vandaag, blokkeren bij streakverlies |
-| ** Duw** | Registreer elk afleidingsbezoek, waarschuw bij elk Shorts-bezoek, tel dagelijkse bezoeken aan een site |
-| **Volharding** | Maandelijkse bezoeklimiet, wekelijkse ban-schakelaar, track bezochte chatdienst-kanalen |
-| **DOM-aanpassingen** | Verberg Joetjoep-autoplay-schakelaar, verberg Tjilper / X "Wat er gebeurt", algemeen "verberg selectors op een site" |
-| **Debuggen** | Demo aftellen (3 s), elke aangepaste gebeurtenis registreren |
+### 10.1 Compileer- en uitvoerfouten
 
-Filterchips bovenaan de kiezer verfijnen de lijst op categorie (`Timer`, `Schedule`, `Feed`, …) en platform (`Joetjoep`, `kortevideoportaal`, `Fotogram`, …). Een sjabloon selecteren:
+Controleer de syntaxis en rapporteer een compilatiefout. Run kan tijdens de registratie ook een runtimefout melden. Als een functie-achtige bron een syntaxisfout bevat, valt Vault niet stilzwijgend terug op het behandelen ervan als onschadelijke kale instructies.
 
-1. Laadt de parameterinvoer (URL, minuten, uurbereiken, enz.) in een klein formulier.
-2. **Voorinstelling toepassen** geeft een voorbeeld van de gegenereerde bron weer.
-3. Nadat u **De huidige aangepaste regel vervangen door deze voorinstelling?** heeft bevestigd, wordt de broncode naar de editor geschreven.
-4. Vervolgens klikt u op **Uitvoeren** om de handlers van de regel te registreren in de offscreen-sandbox.
+Een lege bron heeft nul handlers. Deze is geldig als een inactieve aangepaste regel, maar voert geen geconfigureerde aangepaste actie uit.
 
-Sjablonen worden gedefinieerd onder `templates/*.js` (`timers.js`, `schedule.js`, `feed.js`, …). Elk bestand roept `CB_REGISTER_TEMPLATES([...])` aan tijdens het laden, en de pop-up gebruikt de samengevoegde lijst. Het toevoegen van een nieuwe sjabloon betekent dat u één item in het juiste bestand schrijft - geen ander loodgieterswerk.
+### 10.2 Handlerfouten
 
----
+Een uitzondering van één handler wordt geïsoleerd van de algehele gebeurtenisverzending. Het is diagnostische uitvoer; het zorgt er niet voor dat latere handlers op magische wijze slagen. Gebruik smalle handlers en registreer bruikbare fouten.
 
-## 13. Gedrag van meerdere pagina's- Alle geopende tabbladen in dezelfde groep delen dezelfde timer.
-- Wanneer u naar een tabblad in dezelfde groep overschakelt, wordt de overlay onmiddellijk vernieuwd om de huidige gedeelde tijd weer te geven.
-- Timers met aangepaste regels tikken alleen op het tabblad **actief zichtbaar** — aangestuurd door `pageHeartbeatEvent`. Achtergrondtabbladen en geminimaliseerde vensters verplaatsen deze niet naar voren. Dit komt overeen met het standaard aftellen van blokgroepen.
-- Wanneer een nieuwe regel wordt toegevoegd, detecteert elke geopende pagina de wijziging en wordt deze binnen een fractie van een seconde opnieuw geëvalueerd; **maar** nieuw geregistreerde handlers "openen" niet met terugwerkende kracht reeds geopende tabbladen. Om die reden wordt in de pop-up na elke run een herlaadherinnering weergegeven.
-- Wanneer een regel vervalt, worden verborgen feedkaarten en navigatieknoppen hersteld bij de volgende vernieuwing.
+### 10.3 Quarantaine
 
----
+Vault kan een aangepaste groep in quarantaine plaatsen na herhaalde deadlineoverschrijdingen of een overschrijding tijdens de registratie. Quarantaine schakelt de groep uit en registreert de reden voor het afbreken ervan. Corrigeer de bron, sla deze op en voer deze expliciet opnieuw uit om actieve registraties te herstellen.
 
-## 14. Instellingen
+### 10.4 Browser-/paginalimieten
 
-Open het dialoogvenster **Instellingen** via het tandwielpictogram in de bovenste balk.
+Geen enkele aangepaste regel ontvangt onbeperkte uitbreidings-API's. In het bijzonder:
 
-- **Hartslaginterval**: hoe vaak het inhoudsscript de tabbladtijd rapporteert en `pageHeartbeatEvent` aanstuurt. Standaard 250 ms. Lagere waarden reageren beter, maar gebruiken meer CPU.
-- **Tick-interval** — hoe vaak de globale `tickEvent` vuurt. Standaard 1000 ms.
-- **Debug-modus** — standaard *uit*. Wanneer *aan*, verzendt de engine vermeldingen op traceerniveau naar het logboekpaneel (`[trace] dispatchEvent`, `[trace] N handler(s)`) en `[CustomBlocker:trace]`-regels naar de browserconsole. Laat het uit bij dagelijks gebruik; schakel het in terwijl u een regel voor wangedrag diagnosticeert. `pageHeartbeatEvent` wordt uitgesloten van traceringsregistratie, zelfs als de foutopsporingsmodus is ingeschakeld, omdat deze vier keer per seconde vuurt en de rest zou overstemmen.
+- een DOM-selector kan niets vinden op een platform dat is gewijzigd;
+- navigatie, tabblad sluiten en schermacties blijven afhankelijk van de browsermogelijkheden;
+- een extensie kan geen native applicaties openen;
+- Voor bewerkingen met lokale mappen zijn een door de gebruiker toegekende map en de ondersteunde bestandstypen vereist;
+- een gebeurtenishandler kan er niet op vertrouwen dat een onzichtbare pagina zichtbare hartslagen blijft produceren;
+- een pagina kan een inhoudsscript onafhankelijk van de regel opnieuw laden, navigeren, weggooien of ongeldig maken;
+- Door regels gemaakte dynamische siteblokken zijn sessiestatusacties, geen permanente sitegroepbewerkingen.
 
----
+## 11. Web-app-bridge
 
-## 15. Internationalisering
+De brug is optioneel. Het verbindt een browserextensieclient met een compatibele lokale Vault-hub. De browserextensie is een client; een native Vault-app biedt de hub. Het vaste lokale eindpunt is ws://127.0.0.1:8787 en protocolcompatibiliteit is vereist.
 
-De hele gebruikersinterface is vertaald. Gebruik de **Taal**-kiezer rechtsboven.
+Verbindingsstatussen zijn Uit, Verbinden, Verbinding verbroken, Verbonden en Fout. Als de client is ingeschakeld, onderzoekt Vault eerst snel en gaat vervolgens door met langzamere pogingen om opnieuw verbinding te maken totdat er verbinding wordt gemaakt of de gebruiker de verbinding uitschakelt. Connection voegt niet zelf alle groepen samen.
 
-Ondersteunde talen zijn onder meer Engels, Chinees (vereenvoudigd), Spaans, Japans, Koreaans, plus gedeeltelijke dekking voor Hindi, Arabisch, Bengaals, Portugees, Russisch, Punjabi, Duits, Frans, Turks, Vietnamees, Italiaans, Thais, Nederlands, Pools, Indonesisch, Urdu en Perzisch. Talen met gedeeltelijke dekking vallen terug op Engels vanwege ontbrekende tekenreeksen.
+### 11.1 Groepen koppelen
 
-De handleiding zelf laadt het markdown-bestand dat overeenkomt met de door u geselecteerde taal, met Engels als reserve.
+Groepen kunnen alleen worden gekoppeld als hun naam en type overeenkomen en ze in aanmerking komen voor koppeling. De gebruiker selecteert/koppelt expliciet de deelnemende programma’s. Een gekoppelde groep vormt een cluster. Als u de verbinding verbreekt, blijven de lokale groepsgegevens intact; het stopt live-synchronisatie.
 
----
+De bridge synchroniseert gedeeld scalair beleid voor ondersteunde gekoppelde groepen, inclusief de normale blokkeermodus, toegestane/resetwaarden, snooze-instellingen, actieve dagen/vensters, bevriezingsstatus/keuze/duur, homepagebeleid, toelatingslijstinstelling, fallback-URL en skip-to-next-beleid. Het coördineert ook het gebruik en de snooze-status voor clusterleden.
 
-## 16. Statusberichten
+De bridge belooft niet dat elk productspecifiek veld, platformkiezer, aangepaste brontekst of browserspecifieke mogelijkheid overdraagbaar is naar een ander programma. Een groep kan lokaal en niet-gekoppeld blijven, zelfs als de bridge is aangesloten.
 
-Statusberichten verschijnen als een gecentreerde toast die na ongeveer twee seconden vervaagt:
+Bevroren brugclusters vereisen dat alle relevante leden online zijn voor bevriezingsacties waarvoor gecoördineerde mutatie nodig is. Een verbinding is lokaal transport, geen cloudback-up of een kanaal voor afstandsbediening.
 
-- "Opgeslagen wijzigingen."
-- "\"Groepsnaam\" gemaakt."
-- "Aangepaste regel geladen — N ​​handler(s) actief. Om deze regel toe te passen op tabbladen die u al heeft geopend, laadt u ze opnieuw."
-- Validatiefouten zoals 'Toegestane minuten moeten een getal groter dan 0 zijn.'
-- "Snooze-minuten moeten een getal groter dan 0 zijn."
-- "Bevroren groepen kunnen niet worden gewijzigd."
+## 12. Verificatiechecklist voor beheerders
 
-Bij invoervelden met formaatvereisten verschijnt de melding ook naast de betreffende knop (voor snooze).
+Gebruik deze checklist bij het controleren van een uitstoot of het reproduceren van gedrag:
 
----
+1. Controleer of de groep een niet-lege unieke naam, het juiste type, de ingeschakelde status en de beoogde lijst/volgorde heeft.
+2. Bevestig voor normale groepen de actieve weekdag, het geldige lokale tijdvenster, geen actieve snooze en niet-bevroren bewerkingsstatus.
+3. Test voor een sitegroep de exacte host, het subdomein en (voor de toelatingslijst) een host buiten de lijst.
+4. Test voor een platformgroep de overeenkomsten op paginaniveau, de gerichte item-/kaartovereenkomsten, de auteursmodus, de inhoudsvormmodus en elke ingeschakelde oppervlakteverberging afzonderlijk.
+5. Controleer voor getimede normale groepen de opbouw van zichtbare pagina's, het verlopen van de toegestane hoeveelheid of het niet-blokkerende gedrag bij het optellen, en het opnieuw instellen van het interval.
+6. Voor aangepaste regels voert u syntaxiscontrole uit, Uitvoeren, inspecteert u het aantal handlers/logboeken, test u elke geregistreerde ingebouwde gebeurtenis en test u vervolgens opnieuw laden/navigeren.
+7. Test elke aangepaste timer op de grenzen van het bereik en op nul; controleer of elk blok expliciet is in de regel.
+8. Test panelen met elke controlewaarde, uitgeschakelde status, actie verzenden/annuleren/sluiten en panelEvent-handler.
+9. Test het falen van de lokale map vóór succes: geen geselecteerde map, toestemming ingetrokken, ongeldig pad, niet-ondersteunde extensie, daarna geautoriseerd lezen/schrijven.
+10. Test de brugverbinding-uit, verbinding-aan, gekoppelde/ontkoppelde groep en een offline clusterlid voordat u vertrouwt op synchronisatie of bevriezing van de coördinatie.
 
-## 17. Privacy en opslag
+## 13. Versiebeheerregel
 
-- Alles wordt lokaal opgeslagen in `chrome.storage.local`. Er worden nergens gegevens verzonden.
-- Opgeslagen items zijn onder meer: ​​uw groepen, gebruikstimers, laatste resettijden, snooze-records, aangepaste timers en aangepaste persistente waarden.
-- De extensie leest de pagina-inhoud niet verder dan wat nodig is om het paginatype (pad / hostnaam / bekende DOM-markeringen voor videosites) te detecteren en door de gebruiker geschreven predikaten te evalueren. Het leest uw berichten, berichten, opmerkingen of privé-inhoud niet.
-
----
-
-## 18. Machtigingen
-
-- `storage` — voor de bovenstaande gegevens.
-- `declarativeNetRequest` — voor native blokkering van `Default`-groepen.
-- `alarms` — om regelovergangen efficiënt te plannen.
-- `tabs`, `webNavigation` — om het maken van tabbladen, URL-wijzigingen en paginahartslagen te detecteren, zodat gebeurtenissen kunnen worden verzonden.
-- `offscreen` — om de duurzame sandbox met aangepaste regels te hosten.
-- `host_permissions: <all_urls>` — zodat het inhoudsscript de timer-overlay kan weergeven en platformcontext op elke pagina kan detecteren.
-
----
-
-## 19. Problemen oplossen- **Een groep die ik heb toegevoegd, doet niets.** Zorg ervoor dat de groep is ingeschakeld, dat de planning dit nu toestaat, dat er geen snooze actief is en (voor platformgroepen) dat de pagina daadwerkelijk overeenkomt met het gekozen inhoudstype en auteursfilter.
-- **Een timer loopt vast of is verkeerd op één tabblad.** Schakel weg en terug, of focus op het tabblad, waardoor een geforceerde vernieuwing van de gedeelde timer wordt geactiveerd.
-- **Feedkaarten verschijnen opnieuw nadat ik denk dat ze verborgen moeten worden.** Het verbergen van feeds wordt alleen uitgevoerd als de regel actief blokkeert. Als je een `after-minutes`-regel hebt, wordt het verbergen van feeds geactiveerd zodra je tijd nul bereikt.
-- **Er is nog steeds een Joetjoep-navigatieknop waarvan ik verwachtte dat deze verborgen zou zijn.** Voor het verbergen van de navigatie moet de regel zijn ingesteld op 'niet filteren op auteur' en moet het inhoudstype Shorts of Joetjoep-posts zijn. Met auteursfilters is het verbergen alleen per kaart mogelijk.
-- **Aangepaste regel deed niets of gooide stil.** Open Instellingen → schakel **Debug-modus** in, klik vervolgens opnieuw op **Uitvoeren** en bekijk het logboekpaneel. Regels voorafgegaan door `[trace]` tonen elke verzending en afhandelaar. Gebruik `helpers.getLogHelper().log(...)` om uw eigen traceerpunten toe te voegen. Als een regel die zich misdraagt ​​steeds automatisch in quarantaine wordt geplaatst, repareer dan de bron en klik op Uitvoeren. Met Uitvoeren wordt de reden voor het afbreken gewist.
-- **Mijn nieuwe aangepaste regel heeft geen invloed op reeds geopende tabbladen.** Laad ze opnieuw. Aangepaste regels zijn gekoppeld aan *toekomstige* paginagebeurtenissen; de pop-up toont een herinnering om na elke run te herladen.
-- **Mijn afteltimer loopt niet door.** Timers met aangepaste regels vinken alleen aan op het tabblad **actief zichtbaar** via `pageHeartbeatEvent`. Achtergrondtabbladen, geminimaliseerde vensters en vergrendelde schermen pauzeren ze door hun ontwerp - hetzelfde gedrag als het standaard aftellen van blokgroepen.
-- **Ik kan een groep niet verwijderen.** Deze is waarschijnlijk vastgelopen. Strikt bevroren groepen kunnen helemaal niet worden verwijderd totdat hun vergrendeling verloopt; niet-strikte bevroren groepen kunnen worden verwijderd via het unfreeze-ritueel.
-- **De pop-up toont voor altijd "Rennen...".** Een aangepaste regel is waarschijnlijk in de knoop geraakt. De engine schakelt deze uit na een moeilijke time-out en plaatst de regel in quarantaine. Open het paneel Logboek voor de reden van afbreken; herstel de regel en klik op Uitvoeren.
-
----
-
-## 20. Woordenlijst
-
-- **Blokkeergroep** — één regelset met zijn eigen type, gedrag, planning en bevriezen/snooze.
-- **Direct blokkeren**: de regel blokkeert onmiddellijk wanneer deze actief is.
-- **Blokking na minuten** — de regel begint pas te blokkeren nadat het tijdsbudget voor de periode is opgebruikt.
-- **Resetinterval** — hoe vaak het budget na minuten wordt gereset.
-- **Schema** — dagen + tijdvensters waarin een groep actief is.
-- **Bevriezen / Strenge bevriezing** — anti-manipulatiestatussen.
-- **Snooze** — tijdelijk uitschakelen met een configureerbaar bevestigingsritueel.
-- **Auteursfilter** — beperkt voor platformgroepen de regel tot bepaalde makers van inhoud.
-- **Contenttype** — voor platformgroepen beperkt deze regel tot bepaalde vormen van inhoud (kort, lang, post).
-- **Helpers** — hulpprogramma's doorgegeven aan de handler van een aangepaste regel.
-- **Platform** — een van `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`. Elk heeft zijn eigen groepstype en logica voor het verbergen van feeds.
-- **Hartslag**: de `pageHeartbeatEvent` van ~250 ms verzonden vanaf het actieve zichtbare tabblad.
-- **Vink aan** — de 1 s wereldwijd gedeelde `tickEvent` (zichtbaarheidsonafhankelijk).
-- **Debug-modus** — een instelling die interne traceringsregistratie zichtbaar maakt in het logboekpaneel en de browserconsole.
-- **Quarantaine** — automatische uitschakeling van een aangepaste regel die de runtime-veiligheidslimiet overschrijdt (deadline, logspam, …). Gewist bij de volgende run.
-
----
-
-## 21. Beperkingen- Het verbergen van feeds is afhankelijk van de huidige DOM van elk platform. Als het platform van lay-out verandert, moeten de verborgen selectors mogelijk worden bijgewerkt.
-- Platformcontextdetectie voor niet-Joetjoep-sites is grotendeels gebaseerd op URL's en is dus het meest betrouwbaar op URL's van canonieke inhoud.
-- Timers met aangepaste regels tikken met een hartslagresolutie (~250 ms). Vertrouw er niet op voor de timing van minder dan een seconde.
-- Predikaten doorgegeven aan `hideShorts` / `hideVideos` / `hidePosts` worden synchroon geëvalueerd per feedkaart. Zware logica in een predikaat kan het scrollen van de feed vertragen; hou ze goedkoop.
-- Twee tabbladen die dezelfde timer per groep bewerken, gebruiken gelijktijdig een strategie voor 'laatste schrijven wint'. Voor normaal gebruik is dit prima; als u afhankelijk bent van exacte boekhouding, kunt u af en toe een kleine afwijking verwachten.
-- De browser kan de achtergrondservicemedewerker opschorten wanneer deze niet actief is. De extensie hervat het zodra een pagina of alarm dit nodig heeft; site-/getimede gebruiksbudgetten blijven tellen via hartslagherhaling.
-
-## v1.2-opmerking
-
-De editor voor aangepaste regels kleurt nu scripttaal-syntaxis, en de templatebrowser gebruikt dezelfde kleuren voor codevoorbeelden. De bulkactie voor groepen heet **Wissen**.
-
+Dit Engelstalige bestand is de bijgehouden bronhandleiding. Gelokaliseerde handleidingen zijn vertalingen ervan en moeten mogelijk opnieuw worden gegenereerd na een update van de functionele documentatie. Productbron blijft de canonieke waarheid voor ambiguïteit op implementatieniveau.

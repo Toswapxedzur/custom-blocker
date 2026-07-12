@@ -19,6 +19,6 @@
   // we never want to render someone's "Go Work" string as HTML.
   body.textContent = message;
   if (message) {
-    document.title = "Custom Web Blocker — " + message;
+    document.title = "Adamancia Vault — " + message;
   }
 })();

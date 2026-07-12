@@ -97,6 +97,52 @@ function getGroupPlatformPredicates(groupId) {
   return groupPlatformPredicates.get(groupId);
 }
 
+// Which platform a URL belongs to (or null). Used to replay only the active
+// tab's platform-predicate activations, so non-matching tabs aren't spammed.
+function platformForUrl(url) {
+  const ops = helpersBundle && helpersBundle.platformUrlOps;
+  if (!ops || !url) return null;
+  for (const name of Object.keys(ops)) {
+    try {
+      if (ops[name] && typeof ops[name].isPlatformUrl === "function" && ops[name].isPlatformUrl(url)) {
+        return name;
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+// Append "this feed slot is filtered" activation intents for every persistent
+// platform predicate that matches the current tab's platform. Registration-time
+// hide()/allow() calls record the predicate in the persistent bucket, but their
+// activation intent would otherwise never reach the page — and a full page load
+// or a new tab resets the content-side active-slot set. Replaying on every
+// dispatch (gated to the tab's own platform, idempotent on the content side)
+// keeps the page in sync without any special-casing of when the predicate was set.
+function appendPlatformPredicateReplay(accumulator, descriptor) {
+  const platform = platformForUrl(descriptor && (descriptor.url || descriptor.hostname));
+  if (!platform) return;
+  for (const [, bucket] of groupPlatformPredicates.entries()) {
+    const slots = bucket && bucket[platform];
+    if (!slots) continue;
+    for (const slot of Object.keys(slots)) {
+      const entry = slots[slot];
+      if (!entry || typeof entry.predicate !== "function") continue;
+      accumulator.intents = accumulator.intents || [];
+      accumulator.intents.push({
+        kind: "platform",
+        platform,
+        intent: {
+          slot,
+          predicate: true,
+          blockPageOnVisit: Boolean(entry.blockPageOnVisit),
+          effect: entry.effect === "allow" ? "allow" : "block"
+        }
+      });
+    }
+  }
+}
+
 function getHandlersForType(type) {
   if (!handlersByType.has(type)) {
     handlersByType.set(type, []);
@@ -317,10 +363,10 @@ const BUILTIN_EVENT_TYPES = [
   "tickEvent",
   "openWebEvent",
   "closeWebEvent",
-  "switchWebEvent",
-  "switchDomainEvent",
-  // webChangedEvent fires on every navigation including same-URL reloads;
-  // switchWebEvent fires only on actual URL change.
+  // webChangedEvent fires once per committed top-level navigation (including
+  // same-URL reloads). It carries previousUrl/previousHostname plus
+  // isFirstLoad/isReload/sameDomain, so rules derive same-tab URL changes and
+  // cross-domain hops themselves — there are no separate switch events.
   "webChangedEvent",
   "timerEnded",
   // snoozePress fires when the user clicks Start Snooze in the popup for a
@@ -343,8 +389,6 @@ const BUILTIN_EVENT_TYPES = [
 const PANEL_VISIBILITY_EVENT_TYPES = new Set([
   "panelRefreshEvent",
   "openWebEvent",
-  "switchWebEvent",
-  "switchDomainEvent",
   "webChangedEvent"
 ]);
 
@@ -364,36 +408,31 @@ function panelBucketContainsTimerControl(panels) {
 }
 
 function buildEventsRegistry(groupId, dispatchContext) {
-  function typedRegister(type) {
-    return (id, handler, options) => registerHandler(groupId, type, id, handler, options);
-  }
-  function typedGet(type) {
-    return (id) => {
-      const list = handlersByType.get(type) || [];
-      const found = list.find((entry) => entry.groupId === groupId && entry.id === id);
-      return found ? found.handler : null;
-    };
-  }
-  function typedGetAll(type) {
-    return () => {
-      const list = handlersByType.get(type) || [];
-      const out = {};
-      for (const entry of list) {
-        if (entry.groupId === groupId) {
-          out[entry.id] = entry.handler;
-        }
-      }
-      return out;
-    };
-  }
-  function typedCount(type) {
-    return () => {
-      const list = handlersByType.get(type) || [];
-      return list.filter((entry) => entry.groupId === groupId).length;
-    };
-  }
-
+  // Raw event surface. Custom rules register handlers for any event type by
+  // its raw string (see BUILTIN_EVENT_TYPES for the built-in ones). There are
+  // no per-type convenience aliases — on()/off()/emit() are the primitives.
   const api = {
+    on(type, id, handler, options) {
+      if (typeof type !== "string" || !type) return false;
+      if (type.startsWith(RESERVED_EVENT_PREFIX)) return false;
+      return registerHandler(groupId, type, id, handler, options);
+    },
+    off(type, id) {
+      return unregisterHandler(groupId, type, id);
+    },
+    emit(type, data, options) {
+      if (typeof type !== "string" || !type) return;
+      if (type.startsWith(RESERVED_EVENT_PREFIX)) return;
+      if (dispatchContext.queuedPosts.length >= MAX_POSTS_PER_DISPATCH) {
+        return;
+      }
+      dispatchContext.queuedPosts.push({
+        type,
+        data,
+        scope: options?.scope === "global" ? "global" : "group",
+        groupId
+      });
+    },
     register(type, id, handler, options) {
       if (typeof type !== "string" || !type) return false;
       if (type.startsWith(RESERVED_EVENT_PREFIX)) return false;
@@ -438,43 +477,6 @@ function buildEventsRegistry(groupId, dispatchContext) {
       });
     }
   };
-
-  for (const type of BUILTIN_EVENT_TYPES) {
-    const suffix = type[0].toUpperCase() + type.slice(1);
-    api["register" + suffix] = typedRegister(type);
-    api["get" + suffix] = typedGet(type);
-    api["get" + suffix + "s"] = typedGetAll(type);
-    api["count" + suffix.replace(/Event$/, "") + "Registered"] = typedCount(type);
-  }
-  // Aliased counters using shorter, friendlier names.
-  api.countTickRegistered = typedCount("tickEvent");
-  api.countOpenWebRegistered = typedCount("openWebEvent");
-  api.countCloseWebRegistered = typedCount("closeWebEvent");
-  api.countSwitchWebRegistered = typedCount("switchWebEvent");
-  api.countSwitchDomainRegistered = typedCount("switchDomainEvent");
-  api.countWebChangedRegistered = typedCount("webChangedEvent");
-  api.countTimerEndedRegistered = typedCount("timerEnded");
-  api.countSnoozePressRegistered = typedCount("snoozePress");
-  api.countPanelRegistered = typedCount("panelEvent");
-  api.countLocalFileRegistered = typedCount("localFileEvent");
-  // timerEnded and snoozePress wire types lack the Event suffix; expose
-  // friendlier aliases so user code can use registerXxxEvent uniformly.
-  api.registerTimerEndedEvent = typedRegister("timerEnded");
-  api.getTimerEndedEvent = typedGet("timerEnded");
-  api.getTimerEndedEvents = typedGetAll("timerEnded");
-  api.countTimerEndedEventRegistered = typedCount("timerEnded");
-  api.registerSnoozePressEvent = typedRegister("snoozePress");
-  api.getSnoozePressEvent = typedGet("snoozePress");
-  api.getSnoozePressEvents = typedGetAll("snoozePress");
-  api.countSnoozePressEventRegistered = typedCount("snoozePress");
-  api.registerPanelEvent = typedRegister("panelEvent");
-  api.getPanelEvent = typedGet("panelEvent");
-  api.getPanelEvents = typedGetAll("panelEvent");
-  api.countPanelEventRegistered = typedCount("panelEvent");
-  api.registerLocalFileEvent = typedRegister("localFileEvent");
-  api.getLocalFileEvent = typedGet("localFileEvent");
-  api.getLocalFileEvents = typedGetAll("localFileEvent");
-  api.countLocalFileEventRegistered = typedCount("localFileEvent");
 
   return api;
 }
@@ -917,6 +919,11 @@ function dispatchEvent(descriptor) {
     anyPreventDefault = false;
   }
 
+  // Keep the content script's active feed-slot set in sync with the persistent
+  // platform predicates (covers registration-time hide()/allow(), full reloads,
+  // and new tabs). Idempotent on the content side.
+  appendPlatformPredicateReplay(accumulator, descriptor);
+
   return {
     defaultPrevented: anyPreventDefault,
     propagationStopped: anyStopPropagation,
@@ -1205,25 +1212,30 @@ window.addEventListener("message", (msg) => {
     const platform = String(payload.platform || "");
     const slot = String(payload.slot || "");
     const items = Array.isArray(payload.items) ? payload.items : [];
-    const results = items.map(() => ({ hide: false, blockPageOnVisit: false, matchedGroups: [] }));
+    const results = items.map(() => ({ hide: false, blockPageOnVisit: false, matchedGroups: [], effects: {} }));
     // Each group owns at most ONE predicate per (platform, slot). We report
     // each group's match separately (`matchedGroups`) so the content-side
     // cascade can place every custom group at its own ordered priority, while
-    // `hide` keeps the OR'd result for any legacy consumer. `evaluatedGroups`
-    // lists the groups whose predicate ran so the content side can clear stale
-    // verdicts for exactly those groups.
+    // `hide` keeps the OR'd result for any legacy consumer. `effects` maps each
+    // matched groupId → "allow" | "block" so a custom allow() predicate records
+    // a rescue verdict in the shared cascade (same as platform allow groups).
+    // `evaluatedGroups` lists the groups whose predicate ran so the content side
+    // can clear stale verdicts for exactly those groups.
     const evaluatedGroups = [];
     for (const [groupId, bucket] of groupPlatformPredicates.entries()) {
       const entry = bucket && bucket[platform] && bucket[platform][slot];
       if (!entry || typeof entry.predicate !== "function") continue;
       evaluatedGroups.push(groupId);
+      const effect = entry.effect === "allow" ? "allow" : "block";
       for (let i = 0; i < items.length; i++) {
         let matched = false;
         try { matched = Boolean(entry.predicate(items[i])); } catch { matched = false; }
         if (matched) {
           results[i].hide = true;
           results[i].matchedGroups.push(groupId);
-          if (entry.blockPageOnVisit) results[i].blockPageOnVisit = true;
+          results[i].effects[groupId] = effect;
+          // A page-level block only makes sense for a "block" predicate.
+          if (entry.blockPageOnVisit && effect !== "allow") results[i].blockPageOnVisit = true;
         }
       }
     }
