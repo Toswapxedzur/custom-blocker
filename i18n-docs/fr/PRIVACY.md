@@ -52,12 +52,12 @@ sur votre appareil, et uniquement dans votre propre profil de navigateur.
 
 | Autorisation | À quoi sert-il |
 | --- | --- |
-| @@@GARDER0000@@@ | Enregistrez et chargez vos groupes de blocs, vos paramètres et votre état d'exécution dans votre navigateur uniquement. |
-| @@@GARDER0000@@@ | Indiquez à Chrome quelles URL bloquer de manière native, en fonction des règles que vous avez configurées. Le navigateur gère le blocage ; l'extension enregistre et met à jour uniquement la liste de règles. |
-| @@@GARDER0000@@@ | Réveillez le travailleur de service en arrière-plan selon la planification pour actualiser les limites temporelles et mettre à jour l'état des règles lorsqu'une fenêtre de répétition, de gel ou de planification se termine. |
-| @@@GARDER0000@@@ | Exécutez du JavaScript avec règles personnalisées en bac à sable dans un document hors écran afin qu'il ne puisse pas échapper à l'extension ou toucher directement vos pages. |
-| @@@GARDER0000@@@ | Ouvrez l'éditeur sous forme d'onglet complet lorsque vous cliquez sur l'icône de la barre d'outils, recherchez l'URL de l'onglet actif pour évaluer les règles de groupe et rechargez les onglets après une modification de règle que vous avez apportée dans l'éditeur. |
-| @@@GARDER0000@@@ | Détectez les modifications d'URL SPA (navigation par état push) afin que les cacheurs de flux par plate-forme et les règles basées sur les événements puissent réagir à la navigation dans la page, et pas seulement au chargement de pages entières. |
+| `storage` | Enregistrez et chargez vos groupes de blocs, vos paramètres et votre état d'exécution dans votre navigateur uniquement. |
+| `declarativeNetRequest` | Indiquez à Chrome quelles URL bloquer de manière native, en fonction des règles que vous avez configurées. Le navigateur gère le blocage ; l'extension enregistre et met à jour uniquement la liste de règles. |
+| `alarms` | Réveillez le travailleur de service en arrière-plan selon la planification pour actualiser les limites temporelles et mettre à jour l'état des règles lorsqu'une fenêtre de répétition, de gel ou de planification se termine. |
+| `offscreen` | Exécutez du JavaScript avec règles personnalisées en bac à sable dans un document hors écran afin qu'il ne puisse pas échapper à l'extension ou toucher directement vos pages. |
+| `tabs` | Ouvrez l'éditeur sous forme d'onglet complet lorsque vous cliquez sur l'icône de la barre d'outils, recherchez l'URL de l'onglet actif pour évaluer les règles de groupe et rechargez les onglets après une modification de règle que vous avez apportée dans l'éditeur. |
+| `webNavigation` | Détectez les modifications d'URL SPA (navigation par état push) afin que les cacheurs de flux par plate-forme et les règles basées sur les événements puissent réagir à la navigation dans la page, et pas seulement au chargement de pages entières. |
 | `<all_urls>` accès hôte | Appliquez vos règles de blocage et vos cacheurs de flux par plateforme sur les sites que vous choisissez de bloquer. L'extension lit/modifie les pages uniquement sur les URL pour lesquelles vous avez activement configuré une règle, et uniquement pour appliquer cette règle. |
 
 ## Règles personnalisées

@@ -32,13 +32,13 @@ Your configuration lives in the browser profile. The extension does not need an 
 
 | Autorisation | Objectif actuel |
 | --- | --- |
-| @@@GARDER0000@@@ | Enregistrez les groupes, les paramètres et l'état de l'éditeur local. |
-| @@@GARDER0000@@@ | Planifiez des vérifications d’antécédents et des mises à jour de groupe basées sur le temps. |
-| @@@GARDER0000@@@ | Exécutez le runtime de règles personnalisées contrôlé où Chromium nécessite un document hors écran. |
-| @@@GARDER0000@@@ | Lisez le contexte de l'onglet actif nécessaire pour appliquer un groupe et afficher le statut. |
-| @@@GARDER0000@@@ | Réévaluez les groupes applicables après la navigation. |
-| @@@GARDER0000@@@ | Affichez les icônes du site Web dans l'éditeur lorsqu'elles sont disponibles. |
-| @@@GARDER0000@@@ | Appliquez les règles de site Web et de plate-forme créées par l'utilisateur aux pages que l'utilisateur choisit de contrôler. |
+| `storage` | Enregistrez les groupes, les paramètres et l'état de l'éditeur local. |
+| `alarms` | Planifiez des vérifications d’antécédents et des mises à jour de groupe basées sur le temps. |
+| `offscreen` | Exécutez le runtime de règles personnalisées contrôlé où Chromium nécessite un document hors écran. |
+| `tabs` | Lisez le contexte de l'onglet actif nécessaire pour appliquer un groupe et afficher le statut. |
+| `webNavigation` | Réévaluez les groupes applicables après la navigation. |
+| `favicon` | Affichez les icônes du site Web dans l'éditeur lorsqu'elles sont disponibles. |
+| `<all_urls>` | Appliquez les règles de site Web et de plate-forme créées par l'utilisateur aux pages que l'utilisateur choisit de contrôler. |
 
 ## Libérer les contrôles
 

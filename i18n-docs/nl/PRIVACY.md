@@ -52,12 +52,12 @@ op uw apparaat, en alleen binnen uw eigen browserprofiel.
 
 | Toestemming | Waar wordt het voor gebruikt |
 | --- | --- |
-| @@@HOUD0000@@@ | Bewaar en laad uw blokgroepen, instellingen en runtimestatus alleen in uw browser. |
-| @@@HOUD0000@@@ | Vertel Chrome welke URL's standaard moeten worden geblokkeerd, op basis van de regels die u heeft geconfigureerd. De browser zorgt voor de blokkering; de extensie registreert en werkt alleen de regellijst bij. |
-| @@@HOUD0000@@@ | Maak de achtergrondservicemedewerker op schema wakker om op tijd gebaseerde limieten te vernieuwen en de regelstatus bij te werken wanneer een snooze-, bevriezings- of planningsvenster eindigt. |
-| @@@HOUD0000@@@ | Voer JavaScript met aangepaste regels in een sandbox uit in een document buiten het scherm, zodat het niet aan de extensie kan ontsnappen of uw pagina's rechtstreeks kan raken. |
-| @@@HOUD0000@@@ | Open de editor als een volledig tabblad wanneer u op het werkbalkpictogram klikt, zoek de URL van het actieve tabblad op om groepsregels te evalueren en laad tabbladen opnieuw na een regelwijziging die u in de editor hebt aangebracht. |
-| @@@HOUD0000@@@ | Detecteer SPA-URL-wijzigingen (push-state navigatie), zodat feed-hiders en gebeurtenisgestuurde regels per platform kunnen reageren op navigatie op de pagina, en niet alleen op het laden van volledige pagina's. |
+| `storage` | Bewaar en laad uw blokgroepen, instellingen en runtimestatus alleen in uw browser. |
+| `declarativeNetRequest` | Vertel Chrome welke URL's standaard moeten worden geblokkeerd, op basis van de regels die u heeft geconfigureerd. De browser zorgt voor de blokkering; de extensie registreert en werkt alleen de regellijst bij. |
+| `alarms` | Maak de achtergrondservicemedewerker op schema wakker om op tijd gebaseerde limieten te vernieuwen en de regelstatus bij te werken wanneer een snooze-, bevriezings- of planningsvenster eindigt. |
+| `offscreen` | Voer JavaScript met aangepaste regels in een sandbox uit in een document buiten het scherm, zodat het niet aan de extensie kan ontsnappen of uw pagina's rechtstreeks kan raken. |
+| `tabs` | Open de editor als een volledig tabblad wanneer u op het werkbalkpictogram klikt, zoek de URL van het actieve tabblad op om groepsregels te evalueren en laad tabbladen opnieuw na een regelwijziging die u in de editor hebt aangebracht. |
+| `webNavigation` | Detecteer SPA-URL-wijzigingen (push-state navigatie), zodat feed-hiders en gebeurtenisgestuurde regels per platform kunnen reageren op navigatie op de pagina, en niet alleen op het laden van volledige pagina's. |
 | `<all_urls>` hosttoegang | Pas uw blokkeerregels en feed-hiders per platform toe op welke sites u ook blokkeert. De extensie leest/wijzigt alleen pagina's op URL's waarvoor u actief een regel heeft geconfigureerd, en alleen om die regel af te dwingen. |
 
 ## Aangepaste regels

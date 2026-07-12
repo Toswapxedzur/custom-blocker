@@ -23,7 +23,7 @@ Why an allowlist (not a denylist):
   *does* ship is safer than chasing every new development artefact.
 
 Output:
-  dist/custom-web-blocker-<target>-<version>.zip
+  dist/AdamanciaVault-extension-<target>-v<version>.zip
 
 Run:
   python3 tools/package.py                 # builds every target
@@ -203,7 +203,7 @@ def build_target(target: str) -> Path:
         sys.exit(1)
 
     DIST_DIR.mkdir(parents=True, exist_ok=True)
-    zip_path = DIST_DIR / f"custom-web-blocker-{target}-{version}.zip"
+    zip_path = DIST_DIR / f"AdamanciaVault-extension-{target}-v{version}.zip"
     if zip_path.exists():
         zip_path.unlink()
 
