@@ -39,6 +39,40 @@
   let harvested = false; // ytInitialData parsed for this navigation yet?
   let scanTimer = null;
 
+  // ------------------------------------------- continuation harvest (page world)
+  // ytInitialData only carries the FIRST batch of feed cards. Everything you
+  // scroll to ("continuation") arrives via /youtubei/v1 XHR/fetch, which this
+  // isolated content script can't read, and those cards expose only /@handle
+  // links. yt-harvest-main.js runs in the page world, hooks those responses, and
+  // posts handle→UC / videoId→UC pairs here so EVERY creator in the feed (not
+  // just the first batch) resolves, gets looked up, and is cached.
+  function ingestHarvest(handles, videos) {
+    let added = false;
+    if (Array.isArray(handles)) {
+      for (const pair of handles) {
+        if (pair && pair[0] && pair[1] && !handleToChannel.has(pair[0])) {
+          handleToChannel.set(String(pair[0]).toLowerCase(), pair[1]);
+          added = true;
+        }
+      }
+    }
+    if (Array.isArray(videos)) {
+      for (const pair of videos) {
+        if (pair && pair[0] && pair[1] && !videoToChannel.has(pair[0])) {
+          videoToChannel.set(pair[0], pair[1]);
+          added = true;
+        }
+      }
+    }
+    if (added) scheduleScan(); // re-resolve cards that were previously unmapped
+  }
+  window.addEventListener("message", (e) => {
+    if (e.source !== window) return;
+    const d = e.data;
+    if (!d || d.__cbYtHarvest !== true) return;
+    ingestHarvest(d.handles, d.videos);
+  });
+
   // ---------------------------------------------------------------- settings
   // Blocked tag slugs are the union of every *enabled* block group that targets
   // YouTube creators "with a certain tag" (platformAuthorMode === "tagInclude").

@@ -239,12 +239,20 @@
       isShortUrl(url) {
         if (!isFacebookHost(getHostname(url))) return false;
         const path = getPathname(url);
-        return path.startsWith("/reel/") || path.startsWith("/watch/reel/");
+        return (
+          path.startsWith("/reel/") ||
+          path.startsWith("/watch/reel/") ||
+          path.startsWith("/share/r/")
+        );
       },
       isVideoUrl(url) {
         if (!isFacebookHost(getHostname(url))) return false;
         const path = getPathname(url);
-        return path.startsWith("/watch") && !path.startsWith("/watch/reel/");
+        return (
+          (path.startsWith("/watch") && !path.startsWith("/watch/reel/")) ||
+          path.startsWith("/videos/") ||
+          path.startsWith("/share/v/")
+        );
       },
       isPostUrl(url) {
         if (!isFacebookHost(getHostname(url))) return false;
@@ -266,7 +274,7 @@
         }
         const path = parsed.pathname.toLowerCase().replace(/^\/+|\/+$/g, "");
         const first = path.split("/")[0] || "";
-        const reserved = new Set(["watch", "reel", "groups", "marketplace", "gaming", "video", "videos"]);
+        const reserved = new Set(["watch", "reel", "share", "groups", "marketplace", "gaming", "video", "videos"]);
         return !reserved.has(first) && /^[a-z0-9.]+$/.test(first) ? first : null;
       },
       extractVideoId(url) {
@@ -275,7 +283,7 @@
         if (parsed.pathname.startsWith("/watch")) {
           return parsed.searchParams.get("v");
         }
-        const m = parsed.pathname.match(/\/reel\/([^/?#]+)/);
+        const m = parsed.pathname.match(/\/(?:reel|videos|share\/r|share\/v)\/([^/?#]+)/);
         return m ? m[1] : null;
       }
     },
@@ -396,14 +404,28 @@
       return timer && typeof timer === "object" ? timer : null;
     }
 
+    // Clamp a candidate currentMs into the timer's optional [minMs,maxMs]
+    // bounds (both opt-in). Always floors at 0 so timers never go negative.
+    function clampToBounds(timer, ms) {
+      let v = Math.max(0, Math.floor(Number(ms) || 0));
+      if (timer && Number.isFinite(timer.maxMs)) v = Math.min(timer.maxMs, v);
+      if (timer && Number.isFinite(timer.minMs)) v = Math.max(timer.minMs, v);
+      return v;
+    }
+
     function tickInternal(id, deltaMs) {
       const timer = getTimer(id);
       if (!timer || timer.isPaused || !Number.isFinite(deltaMs)) return;
-      const step = Math.max(0, Math.floor(deltaMs));
+      let step = Math.max(0, Math.floor(deltaMs));
+      // Optional stepMs quantizes how much each tick moves the timer
+      // (e.g. stepMs:60000 accrues in whole-minute jumps).
+      if (Number.isFinite(timer.stepMs) && timer.stepMs > 0) {
+        step = Math.round(step / timer.stepMs) * timer.stepMs;
+      }
       if (timer.direction === "forward") {
-        timer.currentMs = Math.max(0, Math.floor(timer.currentMs + step));
+        timer.currentMs = clampToBounds(timer, timer.currentMs + step);
       } else {
-        timer.currentMs = Math.max(0, Math.floor(timer.currentMs - step));
+        timer.currentMs = clampToBounds(timer, timer.currentMs - step);
       }
     }
 
@@ -417,7 +439,7 @@
       acc.timerRegistryChanged = true;
     }
 
-    function rememberPredicates(id, scope, domain) {
+    function rememberPredicates(id, scope, domain, accrueWhen) {
       // Only update slots that the caller actually provided so a
       // subsequent getOrCreateTimer call without explicit predicates
       // doesn't accidentally drop the scope set at create time.
@@ -437,15 +459,22 @@
         if (typeof slot.domain === "function") changed = true;
         delete slot.domain;
       }
+      if (typeof accrueWhen === "function") {
+        if (typeof slot.accrueWhen !== "function") changed = true;
+        slot.accrueWhen = accrueWhen;
+      } else if (accrueWhen === null) {
+        if (typeof slot.accrueWhen === "function") changed = true;
+        delete slot.accrueWhen;
+      }
       predicatesBucket[id] = slot;
       if (changed) markTimerRegistryChanged();
     }
 
-    function applyScopeAndDomain(id, scope, domain) {
+    function applyScopeAndDomain(id, scope, domain, accrueWhen) {
       // Persist predicates for the lifetime of the sandbox so the
       // sandbox-driven heartbeat auto-tick can find them on subsequent
       // dispatches even if the user doesn't re-pass them.
-      rememberPredicates(id, scope, domain);
+      rememberPredicates(id, scope, domain, accrueWhen);
       // Auto-tick if scope matches and we haven't already ticked this id
       // in this dispatch. tickedSet is per-dispatch (provided by
       // event-sandbox.js) and shared across all handlers / timer
@@ -454,10 +483,15 @@
       const slot = predicatesBucket[id] || {};
       const effectiveScope = typeof scope === "function" ? scope : slot.scope;
       const effectiveDomain = typeof domain === "function" ? domain : slot.domain;
+      // Optional extra accrual gate. When present the timer only ticks
+      // when BOTH scope (where) and accrueWhen (whether) are true — e.g.
+      // scope: on youtube, accrueWhen: only while a video is playing.
+      const effectiveAccrue = typeof accrueWhen === "function" ? accrueWhen : slot.accrueWhen;
       const tickedSet = readTickedSet();
       if (typeof effectiveScope === "function" && !tickedSet.has(id)) {
         const timer = getTimer(id);
-        if (timer && !timer.isPaused && safePredicate(effectiveScope)) {
+        const accrueOk = typeof effectiveAccrue !== "function" || safePredicate(effectiveAccrue);
+        if (timer && !timer.isPaused && accrueOk && safePredicate(effectiveScope)) {
           tickInternal(id, readElapsedMs());
           tickedSet.add(id);
         }
@@ -479,7 +513,7 @@
     function tickAllScopedTimers() {
       for (const id of Object.keys(timersBucket)) {
         const slot = predicatesBucket[id] || {};
-        applyScopeAndDomain(id, slot.scope, slot.domain);
+        applyScopeAndDomain(id, slot.scope, slot.domain, slot.accrueWhen);
       }
     }
 
@@ -495,42 +529,68 @@
         if (!displayed.has(id)) continue;
         const timer = getTimer(id);
         if (!timer) continue;
-        out.push({
+        const snap = {
           id,
           displayName: timer.displayName || id,
           direction: timer.direction,
           currentMs: timer.currentMs,
           isPaused: Boolean(timer.isPaused),
           isExpired: timer.currentMs === 0
-        });
+        };
+        if (timer.overlayStyle) snap.overlayStyle = timer.overlayStyle;
+        out.push(snap);
       }
       return out;
     }
 
+    // Optional overlay styling for the on-page timer chip. Only known,
+    // JSON-safe string fields are kept so a rule can't smuggle functions
+    // or objects into the persisted bucket.
+    function sanitizeOverlayStyle(style) {
+      if (!style || typeof style !== "object") return null;
+      const out = {};
+      for (const key of ["color", "background", "fontSize", "fontWeight", "border", "borderRadius", "padding", "opacity", "icon"]) {
+        const v = style[key];
+        if (typeof v === "string" && v) out[key] = v.slice(0, 120);
+        else if (key === "opacity" && Number.isFinite(Number(v))) out[key] = String(Number(v));
+      }
+      return Object.keys(out).length ? out : null;
+    }
+
     function buildFresh(init) {
-      return {
+      const fresh = {
         displayName: typeof init?.displayName === "string" ? init.displayName : "",
         direction: init?.direction === "forward" ? "forward" : "backward",
         isPaused: false,
         currentMs: Math.max(0, Math.floor(Number(init?.currentMs) || 0))
       };
+      const minMs = Number(init?.minMs);
+      const maxMs = Number(init?.maxMs);
+      const stepMs = Number(init?.stepMs);
+      if (Number.isFinite(minMs) && minMs > 0) fresh.minMs = Math.floor(minMs);
+      if (Number.isFinite(maxMs) && maxMs > 0) fresh.maxMs = Math.floor(maxMs);
+      if (Number.isFinite(stepMs) && stepMs > 0) fresh.stepMs = Math.floor(stepMs);
+      const overlayStyle = sanitizeOverlayStyle(init?.overlayStyle);
+      if (overlayStyle) fresh.overlayStyle = overlayStyle;
+      fresh.currentMs = clampToBounds(fresh, fresh.currentMs);
+      return fresh;
     }
 
     return {
       groupId,
-      create({ id, displayName, direction, currentMs, scope, domain } = {}) {
+      create({ id, displayName, direction, currentMs, minMs, maxMs, stepMs, overlayStyle, scope, domain, accrueWhen } = {}) {
         if (typeof id !== "string" || !id) return null;
-        timersBucket[id] = buildFresh({ displayName, direction, currentMs });
+        timersBucket[id] = buildFresh({ displayName, direction, currentMs, minMs, maxMs, stepMs, overlayStyle });
         markTimerRegistryChanged();
-        applyScopeAndDomain(id, scope, domain);
+        applyScopeAndDomain(id, scope, domain, accrueWhen);
         return id;
       },
-      getOrCreateTimer({ id, displayName, direction, currentMs, scope, domain } = {}) {
+      getOrCreateTimer({ id, displayName, direction, currentMs, minMs, maxMs, stepMs, overlayStyle, scope, domain, accrueWhen } = {}) {
         if (typeof id !== "string" || !id) return null;
         if (!getTimer(id)) {
-          timersBucket[id] = buildFresh({ displayName, direction, currentMs });
+          timersBucket[id] = buildFresh({ displayName, direction, currentMs, minMs, maxMs, stepMs, overlayStyle });
           markTimerRegistryChanged();
-          applyScopeAndDomain(id, scope, domain);
+          applyScopeAndDomain(id, scope, domain, accrueWhen);
         } else {
           applyScopeAndDomain(id);
         }
@@ -567,7 +627,7 @@
         const timer = getTimer(id);
         const value = Number(ms);
         if (!timer || !Number.isFinite(value)) return false;
-        const nextMs = Math.max(0, Math.floor(value));
+        const nextMs = clampToBounds(timer, value);
         if (timer.currentMs === nextMs) return true;
         timer.currentMs = nextMs;
         markTimerRegistryChanged();
@@ -577,9 +637,51 @@
         const timer = getTimer(id);
         const value = Number(deltaMs);
         if (!timer || !Number.isFinite(value)) return false;
-        const nextMs = Math.max(0, Math.floor(timer.currentMs + value));
+        const nextMs = clampToBounds(timer, timer.currentMs + value);
         if (timer.currentMs === nextMs) return true;
         timer.currentMs = nextMs;
+        markTimerRegistryChanged();
+        return true;
+      },
+      subMs(id, deltaMs) {
+        const timer = getTimer(id);
+        const value = Number(deltaMs);
+        if (!timer || !Number.isFinite(value)) return false;
+        const nextMs = clampToBounds(timer, timer.currentMs - value);
+        if (timer.currentMs === nextMs) return true;
+        timer.currentMs = nextMs;
+        markTimerRegistryChanged();
+        return true;
+      },
+      setBounds(id, minMs, maxMs) {
+        const timer = getTimer(id);
+        if (!timer) return false;
+        const lo = Number(minMs);
+        const hi = Number(maxMs);
+        if (Number.isFinite(lo) && lo > 0) timer.minMs = Math.floor(lo);
+        else if (minMs === null) delete timer.minMs;
+        if (Number.isFinite(hi) && hi > 0) timer.maxMs = Math.floor(hi);
+        else if (maxMs === null) delete timer.maxMs;
+        timer.currentMs = clampToBounds(timer, timer.currentMs);
+        markTimerRegistryChanged();
+        return true;
+      },
+      setStep(id, stepMs) {
+        const timer = getTimer(id);
+        if (!timer) return false;
+        const v = Number(stepMs);
+        if (Number.isFinite(v) && v > 0) timer.stepMs = Math.floor(v);
+        else if (stepMs === null || v === 0) delete timer.stepMs;
+        else return false;
+        markTimerRegistryChanged();
+        return true;
+      },
+      setOverlayStyle(id, style) {
+        const timer = getTimer(id);
+        if (!timer) return false;
+        const sanitized = sanitizeOverlayStyle(style);
+        if (sanitized) timer.overlayStyle = sanitized;
+        else delete timer.overlayStyle;
         markTimerRegistryChanged();
         return true;
       },
@@ -613,7 +715,7 @@
       getState(id) {
         const timer = getTimer(id);
         if (!timer) return null;
-        return {
+        const state = {
           id,
           displayName: timer.displayName,
           direction: timer.direction,
@@ -621,6 +723,11 @@
           currentMs: timer.currentMs,
           isExpired: timer.currentMs === 0
         };
+        if (Number.isFinite(timer.minMs)) state.minMs = timer.minMs;
+        if (Number.isFinite(timer.maxMs)) state.maxMs = timer.maxMs;
+        if (Number.isFinite(timer.stepMs)) state.stepMs = timer.stepMs;
+        if (timer.overlayStyle) state.overlayStyle = timer.overlayStyle;
+        return state;
       },
       list() {
         return Object.entries(timersBucket).map(([id, timer]) => ({
@@ -679,13 +786,33 @@
     "date",
     "time",
     "color",
-    "pin"
+    "pin",
+    "html"
   ]);
   const PANEL_CONTROL_ACTIONS = new Set(["submit", "cancel", "close"]);
 
   function truncateText(value, maxLength) {
     const text = String(value ?? "");
     return text.length > maxLength ? text.slice(0, maxLength) : text;
+  }
+
+  // Raw HTML mount for the "html" panel control. Intentionally permissive
+  // (this is the user's own UI) but strips the two execution vectors that
+  // innerHTML would otherwise allow: <script> blocks and inline on*
+  // handler attributes. javascript: URLs are also neutralized. The result
+  // is JSON-safe text that content.js inserts via innerHTML.
+  function sanitizePanelHtml(value) {
+    let html = truncateText(value, 20000);
+    if (!html) return "";
+    html = html.replace(/<\s*script\b[\s\S]*?<\s*\/\s*script\s*>/gi, "");
+    html = html.replace(/<\s*script\b[^>]*>/gi, "");
+    // Drop inline event handler attributes (on...=) in single/double/unquoted forms.
+    html = html.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "");
+    html = html.replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "");
+    html = html.replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "");
+    // Neutralize javascript: in href/src.
+    html = html.replace(/(href|src)\s*=\s*("|')\s*javascript:[^"']*\2/gi, '$1=$2#$2');
+    return html;
   }
 
   function normalizePanelControlType(type) {
@@ -695,6 +822,7 @@
     if (type === "number") return "numberInput";
     if (type === "slider") return "range";
     if (type === "switch") return "toggle";
+    if (type === "raw" || type === "markup") return "html";
     return PANEL_CONTROL_TYPES.has(type) ? type : "text";
   }
 
@@ -932,6 +1060,9 @@
     }
     if (type === "text") {
       out.text = truncateText(control.text ?? control.label ?? "", 1000);
+    }
+    if (type === "html") {
+      out.html = sanitizePanelHtml(control.html ?? control.text ?? "");
     }
     if (type === "section") {
       out.text = truncateText(control.text ?? control.description ?? "", 1000);
@@ -1626,7 +1757,9 @@
   }
 
   function normalizeUrlForEvents(url) {
-    if (isEmptyStartPage(url)) return "";
+    // No URL normalization: rules receive the raw URL as reported by the
+    // browser. New-tab / start-page collapsing has been removed. Rules that
+    // still want that behavior can opt in via domain().isEmptyStartPage(url).
     return typeof url === "string" ? url : "";
   }
 
@@ -2301,9 +2434,32 @@
       persistentBucket[platform][slot] = null;
     }
 
+    // Raw, slot-based platform API. The capability sets (which feed slots,
+    // surfaces, and subsection-timer slots a platform supports) are derived
+    // from PLATFORM_API_SPEC, which stays the single source of truth for the
+    // declarative platform-group engine. There are no named convenience
+    // methods (no hideShorts/hideReels/…): custom rules drive the raw
+    // primitives directly, e.g. platform("youtube").hide("shorts", pred).
     function buildPlatformApi(platform) {
       const urlOps = platformUrlOps[platform];
       const specs = PLATFORM_API_SPEC[platform] || [];
+      const predicateSlots = new Set(
+        specs.filter((s) => s.kind === "predicate").map((s) => s.slot)
+      );
+      const timerSlots = new Set(
+        specs.filter((s) => s.kind === "subsectionTimer").map((s) => s.slot)
+      );
+      // Surface toggles (hide/show an entire region) are recorded as
+      // { kind: intentKind, value }. The public surface name is the
+      // intentKind, except "homePage" which reads as "home".
+      const surfaceKinds = new Set(
+        specs.filter((s) => s.kind === "intent").map((s) => s.intentKind)
+      );
+      // The no-slot hide(predicate) form targets every card-feed slot —
+      // i.e. predicate slots that aren't per-item comment/live filters.
+      const feedSlots = [...predicateSlots].filter(
+        (s) => s !== "comments" && s !== "live"
+      );
 
       function snapshot() {
         const ctx = getDispatchContext();
@@ -2311,42 +2467,134 @@
       }
 
       // Single-slot rule: each (group, platform, slot) owns ONE predicate.
-      // Each call replaces — no implicit OR-merge. Slot stays alive until
-      // matching show*() or group unload.
+      // Each call replaces — no implicit OR-merge. Slot stays alive until a
+      // matching show()/surface(show) or group unload. effect "allow" turns
+      // a match into a rescue verdict that overrides lower-priority hides in
+      // the shared cascade (same mechanism platform groups use).
       function setPredicate(slot, predicate, opts) {
         if (typeof predicate !== "function") return;
         const blockPageOnVisit = Boolean(opts && opts.blockPageOnVisit);
-        recordIntent(platform, { slot, predicate: true, blockPageOnVisit });
+        const effect = opts && opts.effect === "allow" ? "allow" : "block";
+        recordIntent(platform, { slot, predicate: true, blockPageOnVisit, effect });
         const acc = ensureAccumulatorShape(accumulatorRef.get());
         acc.platformPredicates = acc.platformPredicates || {};
         acc.platformPredicates[platform] = acc.platformPredicates[platform] || {};
-        acc.platformPredicates[platform][slot] = { predicate, blockPageOnVisit };
+        acc.platformPredicates[platform][slot] = { predicate, blockPageOnVisit, effect };
         if (persistentBucket) {
           if (!persistentBucket[platform]) persistentBucket[platform] = {};
-          persistentBucket[platform][slot] = { predicate, blockPageOnVisit };
+          persistentBucket[platform][slot] = { predicate, blockPageOnVisit, effect };
         }
       }
 
-      const api = {};
-      for (const spec of specs) {
-        api[spec.name] = buildSpecMethod(platform, spec, {
-          recordIntent,
-          setPredicate,
-          clearPersistentSlot,
-          snapshot
-        });
+      function assertSlot(slot) {
+        if (!predicateSlots.has(slot)) {
+          throw new TypeError(
+            platform + ".hide(): unknown slot '" + slot +
+            "'. Valid slots: " + [...predicateSlots].join(", ")
+          );
+        }
       }
 
-      // URL classifiers are always available, regardless of spec.
-      api.isPlatformUrl = urlOps?.isPlatformUrl ?? (() => false);
-      api.isShortUrl = urlOps?.isShortUrl ?? (() => false);
-      api.isVideoUrl = urlOps?.isVideoUrl ?? (() => false);
-      api.isPostUrl = urlOps?.isPostUrl ?? (() => false);
-      api.isHomePage = urlOps?.isHomePage ?? (() => false);
-      api.extractAuthor = urlOps?.extractAuthor ?? (() => null);
-      api.extractVideoId = urlOps?.extractVideoId ?? (() => null);
+      // hide(predicate, opts?)        → applies to every feed slot
+      // hide(slot, predicate, opts?)  → applies to one slot
+      function hide(slotOrPred, predicate, opts) {
+        if (typeof slotOrPred === "function") {
+          const o = predicate;
+          for (const slot of feedSlots) setPredicate(slot, slotOrPred, o);
+          return;
+        }
+        const slot = String(slotOrPred);
+        assertSlot(slot);
+        setPredicate(slot, predicate, opts);
+      }
 
-      return api;
+      // allow(...) is hide(...) with effect:"allow" (rescue cascade).
+      function allow(slotOrPred, predicate, opts) {
+        if (typeof slotOrPred === "function") {
+          return hide(slotOrPred, { ...(predicate || {}), effect: "allow" });
+        }
+        return hide(slotOrPred, predicate, { ...(opts || {}), effect: "allow" });
+      }
+
+      // show()      → clear every feed-predicate slot
+      // show(slot)  → clear one slot's predicate
+      function show(slot) {
+        if (slot === undefined || slot === null) {
+          for (const s of predicateSlots) {
+            recordIntent(platform, { kind: "clearPredicates", slot: s });
+            clearPersistentSlot(platform, s);
+          }
+          return;
+        }
+        const s = String(slot);
+        assertSlot(s);
+        recordIntent(platform, { kind: "clearPredicates", slot: s });
+        clearPersistentSlot(platform, s);
+      }
+
+      // surface(name, "hide"|"show") toggles a whole region (home page,
+      // comments section, shorts button, live shelf). Showing a region that
+      // also has a per-item filter slot clears that predicate too.
+      function surface(name, action) {
+        const kind = name === "home" ? "homePage" : String(name);
+        if (!surfaceKinds.has(kind)) {
+          const names = ["home", ...[...surfaceKinds].filter((k) => k !== "homePage")];
+          throw new TypeError(
+            platform + ".surface(): unknown surface '" + name +
+            "'. Valid surfaces: " + names.join(", ")
+          );
+        }
+        const value = action === "show" ? "show" : "hide";
+        recordIntent(platform, { kind, value });
+        if (value === "show" && predicateSlots.has(kind)) {
+          clearPersistentSlot(platform, kind);
+        }
+      }
+
+      // rescan() forces every already-evaluated feed card to be re-checked
+      // against the current predicate(s) on the next pass. The feed scan
+      // normally skips cards whose content is unchanged (a per-card signature
+      // cache), so when a predicate reads EXTERNAL, changing state (a panel
+      // toggle, a depleting quota, time-of-day) the cards already on screen
+      // would keep their stale hide/show verdict. Call this from the handler
+      // (or a tick/heartbeat) that changes that state to re-apply the rule.
+      function rescan() {
+        recordIntent(platform, { kind: "rescan" });
+      }
+
+      // timer(slot, opts) caps time spent on a subsection. Returns the id.
+      function timer(slot, opts = {}) {
+        const s = String(slot);
+        if (!timerSlots.has(s)) {
+          throw new TypeError(
+            platform + ".timer(): unknown timer slot '" + s +
+            "'. Valid slots: " + [...timerSlots].join(", ")
+          );
+        }
+        recordIntent(platform, { kind: "subsectionTimer", slot: s, opts });
+        return opts && typeof opts.id === "string" ? opts.id : null;
+      }
+
+      return {
+        hide,
+        show,
+        allow,
+        surface,
+        timer,
+        rescan,
+        snapshot,
+        slots: () => [...predicateSlots],
+        surfaces: () => ["home", ...[...surfaceKinds].filter((k) => k !== "homePage")],
+        timerSlots: () => [...timerSlots],
+        // URL classifiers / extractors are always available.
+        isPlatformUrl: urlOps?.isPlatformUrl ?? (() => false),
+        isShortUrl: urlOps?.isShortUrl ?? (() => false),
+        isVideoUrl: urlOps?.isVideoUrl ?? (() => false),
+        isPostUrl: urlOps?.isPostUrl ?? (() => false),
+        isHomePage: urlOps?.isHomePage ?? (() => false),
+        extractAuthor: urlOps?.extractAuthor ?? (() => null),
+        extractVideoId: urlOps?.extractVideoId ?? (() => null)
+      };
     }
 
     const helpers = {};
@@ -2355,70 +2603,7 @@
         return buildPlatformApi(platform);
       };
     }
-    helpers.listMethods = function listMethods(platform) {
-      const specs = PLATFORM_API_SPEC[platform] || [];
-      return specs.map((s) => s.name).concat([
-        "isPlatformUrl",
-        "isShortUrl",
-        "isVideoUrl",
-        "isPostUrl",
-        "isHomePage",
-        "extractAuthor",
-        "extractVideoId"
-      ]);
-    };
-    helpers.hasMethod = function hasMethod(platform, methodName) {
-      return helpers.listMethods(platform).includes(methodName);
-    };
     return helpers;
-  }
-
-  function buildSpecMethod(platform, spec, deps) {
-    const { recordIntent, setPredicate, clearPersistentSlot, snapshot } = deps;
-    switch (spec.kind) {
-      case "predicate":
-        return function (predicate, opts) {
-          setPredicate(spec.slot, predicate, opts);
-        };
-      case "clearPredicate":
-        return function () {
-          recordIntent(platform, { kind: "clearPredicates", slot: spec.slot });
-          clearPersistentSlot(platform, spec.slot);
-        };
-      case "intent":
-        return function () {
-          recordIntent(platform, { kind: spec.intentKind, value: spec.value });
-          if (spec.clearSlot) clearPersistentSlot(platform, spec.clearSlot);
-        };
-      case "subsectionTimer":
-        return function (opts = {}) {
-          recordIntent(platform, { kind: "subsectionTimer", slot: spec.slot, opts });
-          return opts && typeof opts.id === "string" ? opts.id : null;
-        };
-      case "snapshotBool":
-        return function () {
-          return Boolean(snapshot()?.[spec.field]);
-        };
-      case "snapshotChannelMembership":
-        return function (id) {
-          const snap = snapshot();
-          if (!snap || !id) return false;
-          return Array.isArray(snap.subscribedChannels) && snap.subscribedChannels.includes(id);
-        };
-      case "itemBool":
-        return function (item) {
-          return Boolean(item && item[spec.field] === true);
-        };
-      default:
-        // Schema bug — refuse to silently no-op so the test runner
-        // surfaces the typo loudly instead of returning undefined.
-        return function () {
-          throw new Error(
-            "Internal: PLATFORM_API_SPEC[" + platform + "]." + spec.name +
-            " has unknown kind " + spec.kind
-          );
-        };
-    }
   }
 
   // ctx accepts an accumulator (one-shot) OR an accumulatorRef +
@@ -2555,7 +2740,20 @@
       getLocalFolderHelper: () => localFolder,
       getTabHelper: () => tabs,
       getWindowHelper: () => win,
-      getPlatformHelper: () => platform
+      getPlatformHelper: () => platform,
+      // Raw platform access for custom rules:
+      //   helpers.platform().youtube().hide("shorts", pred)
+      //   helpers.platform("youtube").hide("shorts", pred)
+      platform: (name) => {
+        if (name === undefined || name === null) return platform;
+        const accessor = platform[name];
+        if (typeof accessor !== "function") {
+          throw new TypeError(
+            "Unknown platform '" + name + "'. Valid: " + PLATFORM_LIST.join(", ")
+          );
+        }
+        return accessor();
+      }
     };
   }
 

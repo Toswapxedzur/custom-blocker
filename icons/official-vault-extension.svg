@@ -1,0 +1,29 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Vault extension">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22344f"/><stop offset="1" stop-color="#070d18"/>
+    </linearGradient>
+    <linearGradient id="white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#eaf3ff"/><stop offset="1" stop-color="#c2dbfa"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#56a8f2"/><stop offset="1" stop-color="#1c5ca8"/>
+    </linearGradient>
+    <filter id="shadow" x="-45%" y="-45%" width="190%" height="190%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.7" flood-color="#03101f" flood-opacity=".55"/>
+    </filter>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#tile)"/>
+  <rect x="2" y="2" width="60" height="26" rx="16" fill="#fff" opacity=".07"/>
+  <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="15" fill="none" stroke="#fff" stroke-opacity=".08"/>
+  <!-- A 1.32x lock keeps the mark legible and peer-sized in 16-32px browser toolbars. -->
+  <g transform="translate(32 32) scale(1.32) translate(-32 -32)">
+    <g filter="url(#shadow)">
+      <path d="M23 30v-4.5a9 9 0 0 1 18 0V30" fill="none" stroke="url(#white)" stroke-width="3.6" stroke-linecap="round"/>
+      <rect x="19" y="30" width="26" height="20" rx="4.5" fill="url(#white)"/>
+    </g>
+    <rect x="19" y="30.5" width="26" height="7" rx="4.5" fill="#fff" opacity=".4"/>
+    <circle cx="32" cy="38" r="2.7" fill="url(#blue)"/>
+    <path d="M32 40v4.6" stroke="#1c5ca8" stroke-width="2.8" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -3,9 +3,11 @@
  * Responsibilities:
  *   - Persist groups, usage timers, snoozes, custom timer state, custom
  *     persistence buckets.
- *   - Maintain declarativeNetRequest rules for site/timed groups (custom
- *     groups do NOT contribute to network-level blocking — they run
- *     per-page in the content script).
+ *   - Block whole sites for site/timed groups via a redirect fast-path
+ *     (webNavigation.onBeforeNavigate → message page). Native network-level
+ *     blocking (declarativeNetRequest) has been removed; redirect is the
+ *     single blocking mechanism. Custom groups run per-page in the content
+ *     script and never block at the network level.
  *   - Build the page session payload that the content script consumes.
  *   - Sanitise and store the custom timer / persistence updates that the
  *     content script flushes back after running rules.
@@ -23,7 +25,7 @@
 // manifest.background.scripts, so it is already loaded by this point.
 if (typeof importScripts === "function") {
   try {
-    importScripts("platform-profiles.js");
+    if (typeof PLATFORM_PROFILES === "undefined") importScripts("platform-profiles.js");
   } catch (error) {
     console.error("[CustomBlocker] importScripts(platform-profiles.js) failed", error);
   }
@@ -79,6 +81,41 @@ const MS_PER_MINUTE = 60 * 1000;
 const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const MAX_HEARTBEAT_MS = 5000;
 const TRANSITION_ALARM_NAME = "custom-blocker-transition";
+const ACTION_ICON_NORMAL_PATHS = Object.freeze({
+  16: "icons/adamancia-vault-lock-v3-16.png",
+  32: "icons/adamancia-vault-lock-v3-32.png",
+  48: "icons/adamancia-vault-lock-v3-48.png"
+});
+const ACTION_ICON_INVERSE_DARK_PATHS = Object.freeze({
+  16: "icons/adamancia-vault-lock-inverse-dark-16.png",
+  32: "icons/adamancia-vault-lock-inverse-dark-32.png",
+  48: "icons/adamancia-vault-lock-inverse-dark-48.png"
+});
+let actionIconColorScheme = null;
+
+// Firefox has declarative action.theme_icons in its manifest. Chromium does
+// not, so its service worker applies the appropriate generated PNGs when the
+// long-lived offscreen document reports the system colour scheme. Firefox and
+// Safari have a DOM-bearing background page, while Chromium MV3 uses a worker.
+function supportsDynamicActionIcon() {
+  return typeof document === "undefined" && Boolean(chrome?.action?.setIcon);
+}
+
+async function syncActionIconColorScheme(prefersDark) {
+  if (!supportsDynamicActionIcon()) return false;
+  const next = prefersDark === true ? "dark" : "light";
+  if (next === actionIconColorScheme) return true;
+  try {
+    await chrome.action.setIcon({
+      path: next === "dark" ? ACTION_ICON_INVERSE_DARK_PATHS : ACTION_ICON_NORMAL_PATHS
+    });
+    actionIconColorScheme = next;
+    return true;
+  } catch (error) {
+    console.warn("[CustomBlocker] failed to update the toolbar icon colour scheme", error);
+    return false;
+  }
+}
 
 const DAY_NAMES = [
   "monday",
@@ -599,16 +636,17 @@ async function attachChannelTags(pageContext) {
   return pageContext;
 }
 
-function buildRules(hostnames) {
-  return [...new Set(hostnames)].map((hostname, index) => ({
-    id: index + 1,
-    priority: 1,
-    action: { type: "block" },
-    condition: {
-      urlFilter: `||${hostname}^`,
-      resourceTypes: ["main_frame", "sub_frame"]
-    }
-  }));
+// Native network-level blocking (declarativeNetRequest) has been removed.
+// Whole-site blocking now happens entirely via redirect: syncBlockingRules
+// refreshes this cache and the webNavigation.onBeforeNavigate fast-path
+// redirects matching main-frame navigations to the message page before the
+// blocked page paints. The content-script `shouldExitPage` path remains as a
+// second line of defence for in-page (SPA) navigations.
+let __blockedHostnamesCache = [];
+
+function isHostnameBlockedByCache(hostname) {
+  if (!hostname) return false;
+  return __blockedHostnamesCache.some((blocked) => hostnameMatchesSite(hostname, blocked));
 }
 
 function getAllowedMs(group) {
@@ -769,7 +807,7 @@ function buildCustomTimerItems(dispatchResult) {
       if (!snap || typeof snap !== "object") continue;
       const direction = snap.direction === "forward" ? "forward" : "backward";
       const currentMs = Math.max(0, Number(snap.currentMs) || 0);
-      out.push({
+      const item = {
         id: groupId + ":" + (snap.id || ""),
         name: snap.displayName || snap.id || "Timer",
         groupType: "custom",
@@ -780,7 +818,11 @@ function buildCustomTimerItems(dispatchResult) {
         remainingMs: direction === "backward" ? currentMs : Number.POSITIVE_INFINITY,
         usedMs: direction === "forward" ? currentMs : 0,
         blocksNow: false
-      });
+      };
+      if (snap.overlayStyle && typeof snap.overlayStyle === "object") {
+        item.overlayStyle = snap.overlayStyle;
+      }
+      out.push(item);
     }
   }
   return out;
@@ -988,9 +1030,8 @@ async function getState() {
 }
 
 function getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now) {
-  // Custom groups no longer contribute to network-level blocking. Only site
-  // groups (instant or timed) get registered as declarativeNetRequest
-  // rules.
+  // Custom groups never block whole sites. Only site groups (instant or
+  // timed) contribute hostnames to the redirect fast-path cache.
   const hostnames = new Set(
     groups.filter((group) => group.groupType === "site").flatMap((group) => group.sites)
   );
@@ -1301,21 +1342,22 @@ async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes,
 
 async function syncBlockingRules() {
   const now = Date.now();
-  const [
-    { groups, usageTimersMs, usageResetAtMs, groupSnoozes },
-    existingRules
-  ] = await Promise.all([getState(), chrome.declarativeNetRequest.getDynamicRules()]);
+  const { groups, usageTimersMs, usageResetAtMs, groupSnoozes } = await getState();
 
-  const hostnames = getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now);
-  const newRules = buildRules(hostnames);
-  const removeRuleIds = existingRules.map((rule) => rule.id);
-
-  await chrome.declarativeNetRequest.updateDynamicRules({
-    removeRuleIds,
-    addRules: newRules
-  });
+  // Refresh the redirect fast-path cache (replaces declarativeNetRequest).
+  __blockedHostnamesCache = getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now);
 
   await scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now);
+}
+
+// Redirect target for a fully-blocked site. The message page renders the
+// "blocked" screen without loading any of the blocked site's content.
+function blockedRedirectUrl() {
+  try {
+    return chrome.runtime.getURL("message-page.html");
+  } catch (_) {
+    return "about:blank";
+  }
 }
 
 async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInput) {
@@ -1621,6 +1663,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "action-icon-color-scheme") {
+    syncActionIconColorScheme(message.prefersDark === true)
+      .then((ok) => sendResponse({ ok }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
   if (message?.type === "refresh-blocking-rules") {
     syncBlockingRules()
       .then(() => sendResponse({ ok: true }))
@@ -1835,8 +1884,8 @@ const PENDING_APPLY_MAX_PER_TAB = 32;
 // survives MV3 service-worker idle restarts but is cleared when the
 // browser process exits. Mirroring previousTabUrls + pendingApplyByTab
 // there lets us recover from a SW restart without dropping the
-// "previous URL" memory used by switchDomainEvent / switchWebEvent /
-// isReload, and without losing apply messages that were queued for tabs
+// "previous URL" memory used by webChangedEvent (sameDomain / isReload /
+// previousHostname), and without losing apply messages that were queued for tabs
 // whose content script hadn't checked in yet.
 const SESSION_TAB_URLS_KEY = "__cb_previous_tab_urls__";
 const SESSION_PENDING_APPLY_KEY = "__cb_pending_apply_by_tab__";
@@ -2401,21 +2450,10 @@ function todayContext(now = Date.now()) {
 }
 
 function normalizeUrlForEvents(url) {
-  if (typeof url !== "string" || !url) return "";
-  const lowered = url.toLowerCase();
-  if (lowered === "about:blank" || lowered.startsWith("about:blank")) return "";
-  if (lowered === "about:newtab") return "";
-  if (lowered.startsWith("chrome://newtab")) return "";
-  if (lowered.startsWith("chrome://new-tab-page")) return "";
-  if (lowered.startsWith("chrome-search://")) return "";
-  if (lowered.startsWith("chrome-native://newtab")) return "";
-  if (lowered.startsWith("edge://newtab")) return "";
-  if (lowered.startsWith("edge://new-tab-page")) return "";
-  if (lowered.startsWith("brave://newtab")) return "";
-  if (lowered.startsWith("brave://new-tab-page")) return "";
-  if (lowered.startsWith("opera://startpage")) return "";
-  if (lowered.startsWith("vivaldi://startpage")) return "";
-  return url;
+  // No URL normalization: rules receive the raw URL exactly as the browser
+  // reports it (including chrome://newtab, about:blank, etc.). Any special
+  // casing of new-tab / start pages has been intentionally removed.
+  return typeof url === "string" ? url : "";
 }
 
 function hostnameOf(url) {
@@ -2872,7 +2910,7 @@ if (chrome.tabs && chrome.tabs.onUpdated) {
   });
 }
 
-async function handleCommittedWebNavigation(details) {
+async function handleCommittedWebNavigation(details, transition = "commit") {
   if (!details || details.frameId !== 0) return;
   const tabId = details.tabId;
   if (typeof tabId !== "number" || tabId < 0) return;
@@ -2887,6 +2925,14 @@ async function handleCommittedWebNavigation(details) {
   const previousHost = previous?.hostname || "";
   const nextUrl = details.url || "";
   const nextHost = hostnameOf(nextUrl);
+
+  // In-page (SPA / history API) navigations fire onHistoryStateUpdated rather
+  // than onCommitted — this is how single-page apps like YouTube move between
+  // e.g. the home feed and a /shorts/ player without a full document load.
+  // Skip no-op history replaces (identical URL) so frequent replaceState calls
+  // don't spam webChangedEvent; genuine reloads still arrive via onCommitted.
+  if (transition === "history" && previous && previousUrl === nextUrl) return;
+
   previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
   scheduleSessionFlush();
 
@@ -2894,28 +2940,13 @@ async function handleCommittedWebNavigation(details) {
   const isReload = !!previous && previousUrl === nextUrl;
   const sameDomain = !!previousHost && previousHost === nextHost;
 
-  if (!isFirstLoad && previousHost && previousHost !== nextHost) {
-    await dispatchEventToTab(
-      "switchDomainEvent",
-      { tabId, url: nextUrl },
-      { data: { previousUrl, previousHostname: previousHost } }
-    );
-    await dispatchEventToTab(
-      "switchWebEvent",
-      { tabId, url: nextUrl },
-      { data: { previousUrl, previousHostname: previousHost, sameDomain: false } }
-    );
-  } else if (previousUrl !== nextUrl) {
-    await dispatchEventToTab(
-      "switchWebEvent",
-      { tabId, url: nextUrl },
-      { data: { previousUrl, previousHostname: previousHost, sameDomain: true } }
-    );
-  }
-
-  // webChangedEvent is emitted exactly once for this accepted committed
-  // navigation record. More specific navigation events above are derived from
-  // the same record; openWebEvent is reserved for actual tab creation.
+  // webChangedEvent is emitted once per accepted navigation record — full
+  // document loads (transition "commit") AND in-page history updates
+  // (transition "history"). It carries everything a rule needs to classify
+  // the navigation: previousUrl/previousHostname plus isFirstLoad, isReload,
+  // and sameDomain, so same-tab URL changes and cross-domain hops are derived
+  // in-rule rather than dispatched as separate switch events.
+  // openWebEvent is reserved for actual tab creation; closeWebEvent for close.
   await dispatchEventToTab(
     "webChangedEvent",
     { tabId, url: nextUrl },
@@ -2926,7 +2957,7 @@ async function handleCommittedWebNavigation(details) {
         sameDomain,
         isFirstLoad,
         isReload,
-        transition: "commit"
+        transition
       }
     }
   );
@@ -2934,9 +2965,35 @@ async function handleCommittedWebNavigation(details) {
 
 if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
   chrome.webNavigation.onCommitted.addListener((details) => {
-    handleCommittedWebNavigation(details).catch((error) => {
+    handleCommittedWebNavigation(details, "commit").catch((error) => {
       try { console.warn("[CustomBlocker] committed navigation dispatch failed", error); } catch (_) {}
     });
+  });
+}
+
+// In-page navigations (history.pushState/replaceState) — required so SPA route
+// changes (e.g. YouTube home → /shorts/...) emit webChangedEvent too.
+if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
+  chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
+    handleCommittedWebNavigation(details, "history").catch((error) => {
+      try { console.warn("[CustomBlocker] history navigation dispatch failed", error); } catch (_) {}
+    });
+  });
+}
+
+// Redirect fast-path: replaces declarativeNetRequest for whole-site blocks.
+// onBeforeNavigate fires before the request is sent, so redirecting here
+// avoids painting any of the blocked page. Only top-level (main-frame)
+// navigations are intercepted; sub-frames and the message page itself are
+// left alone.
+if (chrome.webNavigation && chrome.webNavigation.onBeforeNavigate) {
+  chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+    if (!details || details.frameId !== 0) return;
+    const url = String(details.url || "");
+    if (!/^https?:/i.test(url)) return;
+    if (!isHostnameBlockedByCache(hostnameOf(url))) return;
+    const target = blockedRedirectUrl();
+    chrome.tabs.update(details.tabId, { url: target }).catch(() => {});
   });
 }
 
@@ -3854,7 +3911,7 @@ cbConnection.applyFromSettings();
 //  against a local cache and batch-POST the ids — and nothing else — to the
 //  tag server's /api/yt/contribute endpoint, which hydrates sub counts and
 //  enqueues eligible channels for classification. Off by default; toggled in
-//  Settings or on the first-run consent page.
+//  Settings or in the first-open popup consent dialog.
 // ===========================================================================
 const CB_YT_API_BASE = "http://127.0.0.1:8000";
 const CB_YT_SENT_KEY = "ytSentIds"; // local cache of ids already contributed
@@ -4005,17 +4062,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 //  It only *reads* the public channel→tags map so the content script can hide
 //  videos whose channel carries a blocked tag.
 //
-//  There is a SINGLE pool (cbYtVerdicts.items). Entries get there two ways, but
-//  that origin does NOT change how they're retained:
-//    • Seed       — on (re)seed we fold in the server's full tagged set (with
-//                   name/handle/subs). This is just the initial/periodic FILL
-//                   that gives cold-start coverage; a `seed:1` flag is kept only
-//                   for display + reconciliation, never for eviction.
-//    • Lookup     — creators you actually encounter resolve via /api/yt/lookup.
-//  Every entry competes purely on YOUR activity (a segmented-LRU): repeated
-//  engagement promotes "probation" → "protected" (evicted last); unused entries
-//  (seeded or not) are evicted first under cap pressure. Sub count NEVER affects
-//  retention. Under the cap, the whole seeded set stays resident.
+//  There is a SINGLE pool (cbYtVerdicts.items). Entries are added ONLY when you
+//  actually encounter a creator while browsing: the channel id resolves via
+//  /api/yt/lookup and the verdict is cached. There is NO bulk "seed" dictionary
+//  — nothing is pre-downloaded, so the cache only ever holds channels you have
+//  really seen. Every entry competes purely on YOUR activity (a segmented-LRU):
+//  repeated engagement promotes "probation" → "protected" (evicted last); unused
+//  entries are evicted first under cap pressure. Sub count NEVER affects
+//  retention.
 //
 //  Resolution: read the single store (O(1)); on a genuine miss, POST
 //  /api/yt/lookup. Fail-open everywhere: if the server is unreachable, unknown
@@ -4024,9 +4078,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ===========================================================================
 const CB_YT_VERDICT_KEY = "ytVerdicts";
 const CB_YT_LEGACY_BUNDLE_KEY = "ytBundle"; // removed structure — cleaned up on load
-const CB_YT_CACHE_VERSION = 2; // bump to force a one-time clean wipe of yt local memory
-const CB_YT_SEED_TTL_MS = 12 * 60 * 60 * 1000; // re-seed the dictionary twice a day
-const CB_YT_SEED_LIMIT = 200000; // upper bound on how many tagged creators we seed
+const CB_YT_CACHE_VERSION = 4; // bump to force a one-time clean wipe of yt local memory
 // Stale-while-revalidate freshness windows. A cached verdict is ALWAYS served
 // (it stays authoritative even when stale); once past its freshness window we
 // kick a background re-lookup and swap the value in when it arrives. Transient
@@ -4049,12 +4101,9 @@ const CB_YT_ACT_WEIGHT_WATCH = 3; // opening/watching a video (strong intent)
 const CB_YT_ACT_WEIGHT_FEED = 1;  // feed / channel-page impression
 const CB_YT_PROMOTE_SCORE = 2;    // probation → protected at/above this score
 
-// {rev, seededAt:ms, items:{id:{t:[slugs], s:state, n, h, subs, f:freshUntilMs,
-//   tier:"probation"|"protected", last:ms, score:number, seed?:1}}}
-// `seed` marks an entry that came from the server's tagged set (display +
-// reconciliation only); it does NOT exempt the entry from eviction.
+// {rev, items:{id:{t:[slugs], s:state, n, h, subs, f:freshUntilMs,
+//   tier:"probation"|"protected", last:ms, score:number}}}
 let cbYtVerdicts = null;
-let cbYtSeedLoading = null; // Promise — dedupe concurrent seed fetches
 let cbYtMigrated = false; // one-time version-gated wipe guard
 let cbYtVerdictSaveTimer = null;
 const cbYtLookupInFlight = new Map(); // id -> Promise<void> (dedupe concurrent lookups)
@@ -4093,97 +4142,12 @@ async function cbYtLoadVerdicts() {
   if (cbYtVerdicts) return cbYtVerdicts;
   try {
     const r = await chrome.storage.local.get(CB_YT_VERDICT_KEY);
-    cbYtVerdicts = (r && r[CB_YT_VERDICT_KEY]) || { rev: null, seededAt: 0, items: {} };
+    cbYtVerdicts = (r && r[CB_YT_VERDICT_KEY]) || { rev: null, items: {} };
   } catch (_) {
-    cbYtVerdicts = { rev: null, seededAt: 0, items: {} };
+    cbYtVerdicts = { rev: null, items: {} };
   }
   if (!cbYtVerdicts.items) cbYtVerdicts.items = {};
-  if (typeof cbYtVerdicts.seededAt !== "number") cbYtVerdicts.seededAt = 0;
   return cbYtVerdicts;
-}
-
-// Fold the server's full tagged set into the single cache as PINNED entries
-// (the offline dictionary). Reconciles each refresh: upserts current tags,
-// pins them, and un-pins any entry the server no longer tags so it ages out.
-// We take the whole set untruncated, so there is no sub-count ranking.
-function cbYtApplySeed(data) {
-  cbYtInvalidateIfRev(data && data.taxonomy_rev); // may clear stale-taxonomy items
-  const now = Date.now();
-  const seedIds = new Set();
-  for (const row of (data && data.creators) || []) {
-    if (!row || !row.c) continue;
-    seedIds.add(row.c);
-    const tags = Array.isArray(row.t) ? row.t : [];
-    const name = typeof row.n === "string" ? row.n : null;
-    const handle = typeof row.h === "string" ? row.h : null;
-    const subs = typeof row.s === "number" ? row.s : null;
-    const v = cbYtVerdicts.items[row.c];
-    if (!v) {
-      cbYtVerdicts.items[row.c] = {
-        t: tags,
-        s: "tagged",
-        n: name,
-        h: handle,
-        subs,
-        seed: 1,
-        f: now + CB_YT_SEED_TTL_MS,
-        tier: "probation",
-        last: 0, // unvisited until you actually encounter it
-        score: 0
-      };
-    } else {
-      v.t = tags;
-      v.seed = 1;
-      if (name != null) v.n = name;
-      if (handle != null) v.h = handle;
-      if (subs != null) v.subs = subs;
-      if (!v.s || v.s === "unknown") v.s = "tagged";
-    }
-  }
-  // Creators that dropped out of the tagged set: clear the seed marker + tags so
-  // they no longer block; whatever activity they have lets them age out normally.
-  for (const id in cbYtVerdicts.items) {
-    const v = cbYtVerdicts.items[id];
-    if (v && v.seed && !seedIds.has(id)) {
-      delete v.seed;
-      v.t = [];
-      v.s = "unknown";
-    }
-  }
-  cbYtVerdicts.seededAt = now;
-  if (data && data.taxonomy_rev != null) cbYtVerdicts.rev = data.taxonomy_rev;
-}
-
-// Ensure the seeded dictionary is present and not stale. Lazy: called from
-// cbYtResolve, so the first resolve after install/refresh pulls the set. Keeps
-// the existing seed on network failure (resilience) and backs off.
-async function cbYtSeed(forceFresh) {
-  await cbYtLoadVerdicts();
-  const fresh =
-    !forceFresh && Date.now() - (cbYtVerdicts.seededAt || 0) < CB_YT_SEED_TTL_MS;
-  if (fresh) return;
-  if (cbYtSeedLoading) return cbYtSeedLoading;
-
-  cbYtSeedLoading = (async () => {
-    if (Date.now() < cbYtNetCooldownUntil) return; // backing off; keep current seed
-    const base = await cbYtGetApiBase();
-    try {
-      const resp = await fetch(`${base}/api/yt/bundle?limit=${CB_YT_SEED_LIMIT}`);
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      const data = await resp.json();
-      cbYtApplySeed(data);
-      cbYtScheduleVerdictSave();
-      cbDebugLog("[CustomBlocker] yt seed loaded:", data.count, "tagged creators");
-    } catch (error) {
-      cbYtNetCooldownUntil = Date.now() + CB_YT_NET_COOLDOWN_MS;
-      cbDebugWarn("[CustomBlocker] yt seed fetch failed", error);
-    }
-  })();
-  try {
-    return await cbYtSeedLoading;
-  } finally {
-    cbYtSeedLoading = null;
-  }
 }
 
 function cbYtScheduleVerdictSave() {
@@ -4191,16 +4155,14 @@ function cbYtScheduleVerdictSave() {
   cbYtVerdictSaveTimer = setTimeout(async () => {
     cbYtVerdictSaveTimer = null;
     if (!cbYtVerdicts) return;
-    // ONE pool, retention by activity only (segmented-LRU). Keep seed entries
-    // (the dictionary fill) and anything you've used within the max-age window;
-    // an unused, non-seed entry past max-age is dropped. Then — only if over the
-    // cap — evict by tier + activity (probation before protected; within a tier
-    // the lowest decayed-frequency, then oldest access, goes first). Seed entries
-    // have no special protection here; under pressure, unused ones (score 0,
-    // last 0) sort to the front and go first. Sub count is NEVER consulted.
+    // ONE pool, retention by activity only (segmented-LRU). Keep anything you've
+    // used within the max-age window; an unused entry past max-age is dropped.
+    // Then — only if over the cap — evict by tier + activity (probation before
+    // protected; within a tier the lowest decayed-frequency, then oldest access,
+    // goes first). Sub count is NEVER consulted.
     const now = Date.now();
     let entries = Object.entries(cbYtVerdicts.items).filter(
-      ([, v]) => v && (v.seed || now - (v.last || 0) < CB_YT_VERDICT_MAX_AGE_MS)
+      ([, v]) => v && now - (v.last || 0) < CB_YT_VERDICT_MAX_AGE_MS
     );
     if (entries.length > CB_YT_VERDICT_CAP) {
       entries.sort((a, b) => {
@@ -4222,14 +4184,12 @@ function cbYtScheduleVerdictSave() {
 }
 
 // If the server's taxonomy revision moved, our cached slugs may be stale —
-// clear the items so the next seed/lookup re-resolves against the new taxonomy.
-// (The caller re-seeds the tagged set immediately afterwards.)
+// clear the items so the next lookup re-resolves against the new taxonomy.
 function cbYtInvalidateIfRev(rev) {
   if (rev == null) return;
   if (!cbYtVerdicts) return;
   if (cbYtVerdicts.rev != null && cbYtVerdicts.rev !== rev) {
     cbYtVerdicts.rev = rev;
-    cbYtVerdicts.seededAt = 0;
     cbYtVerdicts.items = {};
   } else if (cbYtVerdicts.rev == null) {
     cbYtVerdicts.rev = rev;
@@ -4251,6 +4211,30 @@ function cbYtBumpActivity(id, weight) {
   v.last = now;
   if (v.score >= CB_YT_PROMOTE_SCORE) v.tier = "protected";
   else if (!v.tier) v.tier = "probation";
+}
+
+// Surface a freshly-discovered channel as "pending" the instant we see it —
+// pending here means *we are waiting for the server's first response*, not a
+// server-side classification. A local placeholder is created (inflight:true,
+// f:0 so SWR keeps retrying until the server answers) so the popup shows the
+// channel in the pending tier right away. cbYtLookup clears `inflight` and fills
+// in the real verdict once the server responds, moving it to probation/protected.
+// No-op if the channel already has any entry (resolved or already pending).
+function cbYtMarkInflight(id) {
+  if (!cbYtVerdicts) return;
+  if (cbYtVerdicts.items[id]) return;
+  cbYtVerdicts.items[id] = {
+    t: [],
+    s: "pending",
+    n: null,
+    h: null,
+    subs: null,
+    f: 0,
+    tier: "probation",
+    last: Date.now(),
+    score: 0,
+    inflight: true
+  };
 }
 
 // Fire-and-forget background re-lookup (dedup concurrent requests for the same
@@ -4304,8 +4288,18 @@ async function cbYtLookup(ids) {
           last: prev.last || Date.now(),
           score: typeof prev.score === "number" ? prev.score : 0
         };
-        if (prev.seed) next.seed = 1;
         cbYtVerdicts.items[res.channel_id] = next;
+      }
+      // A successful round-trip answers every id in the slice. Clear the
+      // in-flight flag on any placeholder the server omitted (resolve it as
+      // "unknown") so it leaves the pending tier instead of waiting forever.
+      for (const id of slice) {
+        const v = cbYtVerdicts.items[id];
+        if (v && v.inflight) {
+          v.inflight = false;
+          if (v.s == null || v.s === "pending") v.s = "unknown";
+          v.f = Date.now() + cbYtFreshMs(v.s);
+        }
       }
       cbYtScheduleVerdictSave();
     } catch (error) {
@@ -4318,15 +4312,13 @@ async function cbYtLookup(ids) {
 
 // Resolve a set of ids to {id: [slugs]} from the SINGLE cache,
 // stale-while-revalidate:
-//   * entry present    → serve it ALWAYS. Non-seed entries past their freshness
-//                        window kick a background re-lookup; a (legacy) seed
-//                        entry lacking a display name kicks a one-off enrich
-//                        lookup. Neither blocks the response.
+//   * entry present    → serve it ALWAYS. Entries past their freshness window
+//                        kick a background re-lookup. Does not block the response.
 //   * no cached value  → genuine miss: fetch and wait, so the first resolution
 //                        isn't perpetually empty.
 async function cbYtResolve(ids, weight) {
   const w = typeof weight === "number" ? weight : CB_YT_ACT_WEIGHT_FEED;
-  await cbYtSeed(false); // loads verdicts + (lazily) refreshes the seeded dictionary
+  await cbYtLoadVerdicts();
   const known = Object.create(null);
   const misses = [];
   const stale = [];
@@ -4336,9 +4328,7 @@ async function cbYtResolve(ids, weight) {
     if (v) {
       known[id] = v.t || [];
       cbYtBumpActivity(id, w);
-      const needEnrich = v.seed && v.n == null; // legacy seed entry lacking a name
-      const needRefresh = !v.seed && (v.f || 0) <= now;
-      if (needEnrich || needRefresh) stale.push(id); // serve stale, revalidate below
+      if ((v.f || 0) <= now) stale.push(id); // serve stale, revalidate below
     } else {
       misses.push(id);
     }
@@ -4348,6 +4338,10 @@ async function cbYtResolve(ids, weight) {
   if (stale.length) cbYtKickLookup(stale);
 
   if (misses.length) {
+    // Show newly-discovered channels as "pending" (awaiting the server's first
+    // response) immediately — before the network round-trip — so they appear in
+    // the popup's pending tier the moment they're seen in the feed.
+    for (const id of misses) cbYtMarkInflight(id);
     // Dedupe concurrent lookups for the same id across messages.
     const toFetch = misses.filter((id) => !cbYtLookupInFlight.has(id));
     if (toFetch.length) {
@@ -4421,6 +4415,23 @@ async function cbEnrichItemsWithCreator(platform, items) {
         : null;
     it.creator = cbCreatorFromCache(cid);
   }
+  // Diagnostics: with debug mode on, log what each card resolved to so it's
+  // obvious WHY a creator predicate did or didn't match (null channelId =
+  // the card's UC id wasn't resolvable from the DOM yet; null subCount = the
+  // channel isn't in cache / the lookup server didn't return a count).
+  if (typeof cbDebugLog === "function") {
+    try {
+      cbDebugLog(
+        "[CustomBlocker:yt] creator enrichment",
+        items.map((it) => ({
+          channelId: (it && it.channelId) || null,
+          subCount: it && it.creator ? it.creator.subCount : null,
+          name: (it && it.creator && it.creator.name) || null,
+          url: (it && it.url) || null
+        }))
+      );
+    } catch (_) {}
+  }
   return items;
 }
 
@@ -4445,19 +4456,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // async response
 });
 
-// Open the one-time consent page right after the extension is installed, so
-// the user is told about (and can opt into) channel-id sharing up front.
-chrome.runtime.onInstalled.addListener((details) => {
-  if (!details || details.reason !== "install") return;
+// Clear the entire local YouTube footprint — including this worker's IN-MEMORY
+// cache. The popup "Clear cache" button MUST route through here: wiping
+// chrome.storage alone never worked because the worker keeps cbYtVerdicts in
+// memory and re-persists it on the next activity (lookup / seed / activity
+// bump), so cleared entries reappeared and the cache looked undeletable.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.type !== "cb-yt-clear") return false;
   (async () => {
     try {
-      const r = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
-      const s = (r && r[CB_GLOBAL_SETTINGS_KEY]) || {};
-      if (s.contributeAsked === true) return; // already decided
-      await chrome.tabs.create({ url: chrome.runtime.getURL("yt-consent.html") });
+      if (cbYtVerdictSaveTimer) {
+        clearTimeout(cbYtVerdictSaveTimer);
+        cbYtVerdictSaveTimer = null;
+      }
+      // Reset in-memory state so nothing repopulates storage after the wipe.
+      cbYtVerdicts = { rev: null, items: {} };
+      cbYtLookupInFlight.clear();
+      cbYtPending.clear();
+      cbYtNetCooldownUntil = 0;
+      await chrome.storage.local.remove([
+        CB_YT_VERDICT_KEY,
+        CB_YT_LEGACY_BUNDLE_KEY,
+        CB_YT_SENT_KEY,
+        CB_YT_STATS_KEY
+      ]);
+      sendResponse({ ok: true });
     } catch (error) {
-      cbDebugWarn("[CustomBlocker] failed to open consent page", error);
+      cbDebugWarn("[CustomBlocker] yt clear failed", error);
+      sendResponse({ ok: false, error: String((error && error.message) || error) });
     }
   })();
+  return true; // async response
 });
-

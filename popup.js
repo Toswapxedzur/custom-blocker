@@ -6,6 +6,28 @@ const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
 const GLOBAL_SETTINGS_KEY = "globalSettings";
 const LAYOUT_WIDTH_STORAGE_KEY = "custom-blocker-groups-panel-width";
 const LANGUAGE_STORAGE_KEY = "custom-blocker-language";
+const LANGUAGE_FALLBACKS = Object.freeze({
+  en: { label: "English", nativeLabel: "English" },
+  zh: { label: "Chinese (Simplified)", nativeLabel: "简体中文" },
+  es: { label: "Spanish", nativeLabel: "Espanol" },
+  hi: { label: "Hindi", nativeLabel: "हिन्दी" },
+  ar: { label: "Arabic", nativeLabel: "العربية" },
+  bn: { label: "Bengali", nativeLabel: "বাংলা" },
+  pt: { label: "Portuguese", nativeLabel: "Portugues" },
+  ru: { label: "Russian", nativeLabel: "Русский" },
+  ja: { label: "Japanese", nativeLabel: "日本語" },
+  pa: { label: "Punjabi", nativeLabel: "ਪੰਜਾਬੀ" },
+  de: { label: "German", nativeLabel: "Deutsch" },
+  fr: { label: "French", nativeLabel: "Francais" },
+  ko: { label: "Korean", nativeLabel: "한국어" },
+  tr: { label: "Turkish", nativeLabel: "Turkce" },
+  vi: { label: "Vietnamese", nativeLabel: "Tieng Viet" },
+  it: { label: "Italian", nativeLabel: "Italiano" },
+  th: { label: "Thai", nativeLabel: "ไทย" },
+  nl: { label: "Dutch", nativeLabel: "Nederlands" },
+  pl: { label: "Polish", nativeLabel: "Polski" },
+  id: { label: "Indonesian", nativeLabel: "Bahasa Indonesia" }
+});
 const AI_PROMPT_STORAGE_PREFIX = "custom-blocker-ai-prompt:";
 const GROUP_TRANSFER_PREFIX = "custom-blocker-group:v1:";
 const LOCAL_FOLDER_DB_NAME = "custom-blocker-local-folder";
@@ -389,6 +411,9 @@ const settingsAutosaveDebounceField = document.getElementById("settingsAutosaveD
 const settingsDebugModeField = document.getElementById("settingsDebugMode");
 const settingsShowOnPageLogToastsField = document.getElementById("settingsShowOnPageLogToasts");
 const settingsContributeChannelsField = document.getElementById("settingsContributeChannels");
+const contributionConsentModal = document.getElementById("contributionConsentModal");
+const contributionConsentAcceptButton = document.getElementById("contributionConsentAcceptButton");
+const contributionConsentDeclineButton = document.getElementById("contributionConsentDeclineButton");
 const platformAuthorTagsList = document.getElementById("platformAuthorTagsList");
 const tagPickerModal = document.getElementById("tagPickerModal");
 const tagPickerSearch = document.getElementById("tagPickerSearch");
@@ -411,6 +436,7 @@ const settingsDefaultFallbackUrlField = document.getElementById("settingsDefault
 const localFolderChooseButton = document.getElementById("localFolderChooseButton");
 const localFolderRevokeButton = document.getElementById("localFolderRevokeButton");
 const localFolderStatus = document.getElementById("localFolderStatus");
+let localFolderHandle = null;
 const settingsResetButton = document.getElementById("settingsResetButton");
 const settingsStatus = document.getElementById("settingsStatus");
 const connectionSection = document.getElementById("connectionSection");
@@ -525,17 +551,15 @@ function getTranslationsConfig() {
   return window.CUSTOM_BLOCKER_I18N ?? {
     defaultLanguage: "en",
     translationDirectory: "translation",
-    languages: {
-      en: {
-        label: "English",
-        nativeLabel: "English"
-      }
-    }
+    languages: LANGUAGE_FALLBACKS
   };
 }
 
 function getAvailableLanguages() {
-  return getTranslationsConfig().languages;
+  const languages = getTranslationsConfig().languages;
+  return languages && typeof languages === "object" && Object.keys(languages).length
+    ? languages
+    : LANGUAGE_FALLBACKS;
 }
 
 function getDefaultLanguageCode() {
@@ -614,25 +638,16 @@ function loadLanguage() {
 
 async function fetchManualMarkdown(languageCode) {
   const candidates = languageCode === "en" ? ["en"] : [languageCode, "en"];
-
   for (const candidate of candidates) {
-    if (state.manualCache[candidate]) {
-      return state.manualCache[candidate];
-    }
-
+    if (state.manualCache[candidate]) return state.manualCache[candidate];
     try {
       const response = await fetch(chrome.runtime.getURL(`manual/${candidate}.md`));
-
-      if (!response.ok) {
-        continue;
-      }
-
+      if (!response.ok) continue;
       const markdown = await response.text();
       state.manualCache[candidate] = markdown;
       return markdown;
     } catch {}
   }
-
   throw new Error(t("manual.error"));
 }
 
@@ -644,13 +659,8 @@ async function loadManualContent() {
     const markdown = await fetchManualMarkdown(state.language);
     manualStatus.textContent = "";
     let html = renderMarkdownToHtml(markdown);
-    // Non-English manuals are machine-translated. Surface that up-front
-    // so a reader does not mistake an MT artefact for an authoritative
-    // statement. The banner itself is localized via the standard
-    // translation pipeline.
     if (state.language && state.language !== "en") {
-      const bannerText = escapeHtml(t("manual.mtBanner"));
-      html = `<blockquote class="mt-banner">${bannerText}</blockquote>${html}`;
+      html = `<blockquote class="mt-banner">${escapeHtml(t("manual.mtBanner"))}</blockquote>${html}`;
     }
     manualContent.innerHTML = html;
   } catch (error) {
@@ -733,23 +743,32 @@ async function localFolderDbDelete(key) {
   });
 }
 
+function setLocalFolderChooseButtonLabel(key) {
+  if (!localFolderChooseButton) return;
+  localFolderChooseButton.textContent = t(key);
+}
+
 async function renderLocalFolderStatus() {
   if (!localFolderStatus) return;
   if (!("showDirectoryPicker" in window)) {
+    localFolderHandle = null;
     localFolderStatus.textContent = t("settings.localFolderUnsupported");
     if (localFolderChooseButton) localFolderChooseButton.disabled = true;
     if (localFolderRevokeButton) localFolderRevokeButton.disabled = true;
     return;
   }
   if (localFolderChooseButton) localFolderChooseButton.disabled = false;
+  setLocalFolderChooseButtonLabel("settings.localFolderChoose");
   try {
     const handle = await localFolderDbGet(LOCAL_FOLDER_ROOT_KEY);
     const metadata = await localFolderDbGet(LOCAL_FOLDER_META_KEY);
     if (!handle || handle.kind !== "directory") {
+      localFolderHandle = null;
       localFolderStatus.textContent = t("settings.localFolderStatusNone");
       if (localFolderRevokeButton) localFolderRevokeButton.disabled = true;
       return;
     }
+    localFolderHandle = handle;
     if (localFolderRevokeButton) localFolderRevokeButton.disabled = false;
     const name = handle.name || metadata?.name || t("settings.localFolderUnknownName");
     let permission = "granted";
@@ -759,9 +778,11 @@ async function renderLocalFolderStatus() {
     if (permission === "granted") {
       localFolderStatus.textContent = t("settings.localFolderStatusConnected").replace("{name}", name);
     } else {
+      setLocalFolderChooseButtonLabel("settings.localFolderReconnect");
       localFolderStatus.textContent = t("settings.localFolderStatusNeedsPermission").replace("{name}", name);
     }
   } catch (error) {
+    localFolderHandle = null;
     localFolderStatus.textContent = String(error?.message ?? error);
     if (localFolderRevokeButton) localFolderRevokeButton.disabled = true;
   }
@@ -774,6 +795,20 @@ async function chooseLocalFolder() {
   }
   if (localFolderStatus) localFolderStatus.textContent = t("settings.localFolderChoosing");
   try {
+    // A stored handle commonly becomes "prompt" after Chrome restarts. Ask
+    // for that same handle first, from this button's user gesture, so a user
+    // can restore access without selecting the folder all over again.
+    const existingHandle = localFolderHandle;
+    if (existingHandle?.kind === "directory" && typeof existingHandle.requestPermission === "function") {
+      const existingPermission = await existingHandle.requestPermission({ mode: "readwrite" });
+      if (existingPermission === "granted") {
+        await renderLocalFolderStatus();
+        return;
+      }
+      if (localFolderStatus) localFolderStatus.textContent = t("settings.localFolderPermissionDenied");
+      return;
+    }
+
     const handle = await window.showDirectoryPicker({ mode: "readwrite" });
     let permission = "granted";
     if (typeof handle.requestPermission === "function") {
@@ -787,6 +822,7 @@ async function chooseLocalFolder() {
       name: handle.name || "",
       grantedAt: Date.now()
     });
+    localFolderHandle = handle;
     await renderLocalFolderStatus();
   } catch (error) {
     if (localFolderStatus) {
@@ -800,6 +836,7 @@ async function chooseLocalFolder() {
 async function revokeLocalFolder() {
   await localFolderDbDelete(LOCAL_FOLDER_ROOT_KEY);
   await localFolderDbDelete(LOCAL_FOLDER_META_KEY);
+  localFolderHandle = null;
   await renderLocalFolderStatus();
 }
 
@@ -1876,7 +1913,6 @@ function ytCacheRowEl(cid, v, blocked) {
   const bits = [];
   bits.push(v.last ? "seen " + ytAgeLabel(v.last) : "not visited");
   if (typeof v.score === "number" && v.score > 0) bits.push("freq " + v.score.toFixed(1));
-  if (v.seed) bits.push("from seed");
   meta.textContent = bits.join(" · ");
   nameCol.appendChild(meta);
 
@@ -1895,10 +1931,14 @@ function ytCacheRowEl(cid, v, blocked) {
   return row;
 }
 
-// Tier of an entry for the three-box view. Pending state wins over activity tier
-// (it's the most useful thing to watch); otherwise protected vs probation.
+// Tier of an entry for the three-box view. "pending" means exactly one thing:
+// we're still WAITING FOR THE SERVER'S FIRST RESPONSE for this channel
+// (inflight). The moment the lookup returns — with tags, a sub count, or even
+// just "unknown"/"pending" classification — the flag is cleared and the entry is
+// a normal cached verdict, ranked by its activity tier (protected vs probation).
+// This keeps the pending box showing only genuinely-unanswered channels.
 function ytTierOf(v) {
-  if (v && v.s === "pending") return "pending";
+  if (v && v.inflight === true) return "pending";
   return v && v.tier === "protected" ? "protected" : "probation";
 }
 
@@ -1919,7 +1959,7 @@ function ytRenderTierBox(box, countEl, entries, blocked) {
   if (entries.length > shown.length) {
     const more = document.createElement("div");
     more.className = "yt-cache-empty";
-    more.textContent = `…and ${entries.length - shown.length} more.`;
+    more.textContent = t("meta.moreResults", { count: entries.length - shown.length });
     box.appendChild(more);
   }
 }
@@ -1934,7 +1974,7 @@ async function renderYtCache() {
     store = await chrome.storage.local.get(["ytVerdicts"]);
   } catch (_) {}
 
-  const cache = store.ytVerdicts || { rev: null, seededAt: 0, items: {} };
+  const cache = store.ytVerdicts || { rev: null, items: {} };
   const verdicts = cache.items || {};
   const blocked = blockedTagSlugsFromGroups();
 
@@ -2002,15 +2042,25 @@ function setupYtTagUi() {
   }
   if (ytCacheClearButton) {
     ytCacheClearButton.addEventListener("click", async () => {
-      // Full clean slate: cache + legacy bundle + contributed-id dedupe + stats.
+      // Full clean slate. Route through the background worker so its IN-MEMORY
+      // cbYtVerdicts is reset too — otherwise the worker re-persists the cache
+      // on the next activity and the entries reappear (the "can't be deleted"
+      // bug). Fall back to a direct storage wipe only if the worker is asleep.
+      let cleared = false;
       try {
-        await chrome.storage.local.remove([
-          "ytBundle",
-          "ytVerdicts",
-          "ytSentIds",
-          "ytContribStats"
-        ]);
+        const resp = await chrome.runtime.sendMessage({ type: "cb-yt-clear" });
+        cleared = !!(resp && resp.ok);
       } catch (_) {}
+      if (!cleared) {
+        try {
+          await chrome.storage.local.remove([
+            "ytBundle",
+            "ytVerdicts",
+            "ytSentIds",
+            "ytContribStats"
+          ]);
+        } catch (_) {}
+      }
       renderYtCache();
     });
   }
@@ -2034,13 +2084,16 @@ function closeSettings() {
 }
 
 async function saveSettingsFromForm() {
+  const contributionChoiceChanged =
+    Boolean(settingsContributeChannelsField) &&
+    Boolean(settingsContributeChannelsField.checked) !== Boolean(state.globalSettings?.contributeChannels);
   const draft = {
     tickRateMs: settingsTickRateField?.value,
     autosaveDebounceMs: settingsAutosaveDebounceField?.value,
     debugMode: settingsDebugModeField?.checked ?? false,
     showOnPageLogToasts: settingsShowOnPageLogToastsField?.checked ?? true,
     contributeChannels: settingsContributeChannelsField?.checked ?? false,
-    contributeAsked: state.globalSettings?.contributeAsked,
+    contributeAsked: state.globalSettings?.contributeAsked === true || contributionChoiceChanged,
     contributeApiBase: state.globalSettings?.contributeApiBase,
     defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
     defaultFallbackUrl: settingsDefaultFallbackUrlField?.value
@@ -2062,6 +2115,28 @@ async function saveSettingsFromForm() {
       settingsStatus.classList.add("error");
     }
   }
+}
+
+function showContributionConsentIfNeeded() {
+  if (!contributionConsentModal) return;
+  contributionConsentModal.classList.toggle(
+    "hidden",
+    state.globalSettings?.contributeAsked === true
+  );
+}
+
+async function saveContributionConsent(enabled) {
+  const sanitized = sanitizeGlobalSettings({
+    ...(state.globalSettings || DEFAULT_GLOBAL_SETTINGS),
+    contributeChannels: enabled === true,
+    contributeAsked: true
+  });
+  state.globalSettings = sanitized;
+  if (settingsContributeChannelsField) {
+    settingsContributeChannelsField.checked = sanitized.contributeChannels;
+  }
+  await chrome.storage.local.set({ [GLOBAL_SETTINGS_KEY]: sanitized });
+  showContributionConsentIfNeeded();
 }
 
 function resetSettingsToDefaults() {
@@ -2111,11 +2186,22 @@ function populateLanguageOptions() {
   for (const [code, language] of Object.entries(languages)) {
     const option = document.createElement("option");
     option.value = code;
+    option.setAttribute("translate", "no");
+    option.classList.add("notranslate");
     option.textContent = language.nativeLabel || language.label || code;
     languageSelect.appendChild(option);
   }
 
-  languageSelect.value = state.language;
+  const selectedLanguage = languages[state.language]
+    ? state.language
+    : getDefaultLanguageCode();
+  languageSelect.value = selectedLanguage;
+
+  // A browser can discard an invalid selected value. Keep a visible option in
+  // that case rather than leaving the language control blank.
+  if (!languageSelect.value) {
+    languageSelect.value = Object.keys(languages)[0] || "en";
+  }
 }
 
 async function setLanguage(languageCode) {
@@ -2640,8 +2726,8 @@ function sanitizeGlobalSettings(raw) {
     defaultFallbackUrl,
     connection: sanitizeConnectionSettings(src.connection)
   };
-  // Pass through opt-in bookkeeping written by the first-run consent page so a
-  // later Settings save doesn't drop it.
+  // Preserve the first-open popup consent decision when later Settings saves
+  // update other preferences.
   if (src.contributeAsked === true) out.contributeAsked = true;
   if (typeof src.contributeApiBase === "string" && src.contributeApiBase.trim()) {
     out.contributeApiBase = src.contributeApiBase.trim();
@@ -3987,7 +4073,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     parentalPasswordSalt: null,
     sites: [],
     // false → `sites` is a blocklist; true → `sites` is an allowlist
-    // ("block everything except these"). Honored for site + custom groups.
+    // ("block everything except these"). Only site groups use this list.
     allowlist: false,
     blockHomePage: false,
     effect: "block",
@@ -4053,6 +4139,7 @@ function sanitizeGroups(groups) {
     const rawAuthorTags = Array.isArray(group?.platformAuthorTags) ? group.platformAuthorTags : [];
     const rawRedditSubreddits = Array.isArray(group?.redditSubreddits) ? group.redditSubreddits : [];
     const rawDiscordTargets = Array.isArray(group?.discordTargets) ? group.discordTargets : [];
+    const ownsSiteList = normalizedGroupType === "site";
 
     return {
       ...baseGroup,
@@ -4139,10 +4226,10 @@ function sanitizeGroups(groups) {
         typeof group?.parentalPasswordSalt === "string" && group.parentalPasswordSalt
           ? group.parentalPasswordSalt
           : null,
-      sites: Array.isArray(group?.sites)
+      sites: ownsSiteList && Array.isArray(group?.sites)
         ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
         : [],
-      allowlist: Boolean(group?.allowlist),
+      allowlist: ownsSiteList && Boolean(group?.allowlist),
       blockHomePage: Boolean(group?.blockHomePage),
       effect: group?.effect === "allow" ? "allow" : "block",
       fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
@@ -5481,10 +5568,9 @@ function renderEditor(now = Date.now()) {
     fallbackUrlSection.classList.toggle("hidden", isCustomGroup);
   }
   scheduleSection.classList.toggle("hidden", isCustomGroup);
-  // The domain list (and its allowlist toggle) is offered to site groups and
-  // custom groups (custom groups can carry a declarative block / allowlist list
-  // in addition to their JS rules). Platform-profile groups never use it.
-  siteSettingsSection.classList.toggle("hidden", isPlatformProfileGroup);
+  // Website groups own the domain list and its allowlist toggle. Custom rules
+  // define their own behavior, so they never carry a hidden site boundary.
+  siteSettingsSection.classList.toggle("hidden", isPlatformProfileGroup || isCustomGroup);
 
   const allowlistOn = Boolean(draft?.allowlist ?? group.allowlist);
   if (siteAllowlistField) siteAllowlistField.checked = allowlistOn;
@@ -5508,9 +5594,10 @@ function renderEditor(now = Date.now()) {
   const domainsMirrored =
     group.groupType === "site" && bridgeOwnsApps() && Boolean(groupConnectionCluster(group));
   blockedSitesField.disabled =
-    !editable || isPlatformProfileGroup || domainsMirrored;
+    !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
   if (siteAllowlistField) {
-    siteAllowlistField.disabled = !editable || isPlatformProfileGroup || domainsMirrored;
+    siteAllowlistField.disabled =
+      !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
   }
   blockingRulesField.disabled = !editable || !isCustomGroup;
   const currentAuthorMode = normalizePlatformAuthorMode(platformAuthorModeField.value);
@@ -6148,8 +6235,8 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
     fail(new Error(t("status.invalidTimeWindows", { list: timeWindows.invalidLines.join(", ") })));
   }
 
-  // Site groups and custom groups both own a domain list.
-  const usesSiteList = group.groupType === "site" || isCustomGroup;
+  // Only website groups own a domain list.
+  const usesSiteList = group.groupType === "site";
 
   if (usesSiteList && siteResults.invalidSites.length > 0) {
     fail(new Error(t("status.invalidSites", { list: siteResults.invalidSites.join(", ") })));
@@ -6207,8 +6294,8 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
       discordMode: group.groupType === "discord" ? discordMode : group.discordMode,
       blockingRulesText: isCustomGroup ? blockingRulesText : group.blockingRulesText,
       sites: usesSiteList ? siteResults.validSites : [],
-      // Blocklist (false) vs "block all except" (true). Only meaningful for the
-      // groups that own a domain list; everything else stays a plain blocklist.
+      // Blocklist (false) vs "block all except" (true). Only website groups
+      // can carry an allowlist.
       allowlist: usesSiteList ? Boolean(draft.allowlist) : false,
       blockHomePage: Boolean(draft.blockHomePage),
       // Only platform-profile groups expose the effect toggle; force "block"
@@ -7379,46 +7466,26 @@ async function requestCustomGroupSyntaxCheck(source) {
 function buildCustomRuleAiPrompt(userRequest, currentRule) {
   const demand = String(userRequest || "").trim() || "(No extra user request was provided.)";
   const existingRule = String(currentRule || "").trim() || "(No current rule.)";
+  const reference =
+    typeof globalThis.CUSTOM_RULE_AI_REFERENCE === "string" &&
+    globalThis.CUSTOM_RULE_AI_REFERENCE.trim()
+      ? globalThis.CUSTOM_RULE_AI_REFERENCE
+      : "CUSTOM_RULE_API_REFERENCE_UNAVAILABLE";
 
   return [
-    "TASK: generate custom-rule JavaScript for Chrome extension Screen Time Limiter: Custom Website Blocker & Focus Timer.",
-    "OUTPUT_CONTRACT: put only the final valid JavaScript source inside one copyable fenced code block labeled javascript; no prose before or after the code block.",
-    "TOP_LEVEL_SHAPE: (event, helpers) => { /* register handlers here */ }",
-    "EXECUTION_MODEL: top-level function runs once per Run click or enable; it must register persistent handlers. Do not do the blocking work only at top level. Handlers persist until Run again, disable, delete, or same (type,id) re-register. Sandbox is long-lived and shared by groups. Keep synchronous work bounded. No infinite loops, network fetches, external packages, eval/new Function, DOM globals, chrome APIs, timers like setInterval for rule logic, or assumptions that browser/page globals exist.",
+    "TASK: Generate a Custom-rule source for Adamancia Vault.",
+    "OUTPUT_CONTRACT: Return exactly one fenced javascript code block containing the complete source. Do not include prose, pseudocode, placeholders, imports, or markdown outside that one code block.",
+    "QUALITY_CONTRACT: Implement the user's request with the current API reference below. Preserve useful behaviour from the current rule only when it does not conflict with the user's request. Never invent API methods.",
+    "CUSTOM_RULE_API_REFERENCE_BEGIN",
+    reference,
+    "CUSTOM_RULE_API_REFERENCE_END",
     "USER_REQUEST_BEGIN",
     demand,
     "USER_REQUEST_END",
-    "API.EVENT_REGISTRY:",
-    "event.register(type,id,handler,options?) -> boolean; event.getEvent(type,id) -> function|null; event.getEvents(type) -> object; event.countRegistered(type) -> number; event.unregister(type,id) -> boolean; event.unregisterAll(type) -> number; event.post(type,data?,{scope?}) -> void. Reserved event names starting '_' are rejected. options.priority default 0, higher runs first. options.intervalMs throttles tickEvent/pageHeartbeat-style frequent handlers. Same type+id replaces.",
-    "BUILTIN_EVENT_TYPES: tickEvent, openWebEvent, closeWebEvent, switchWebEvent, switchDomainEvent, webChangedEvent, timerEnded, snoozePress, panelEvent, localFileEvent, pageHeartbeatEvent.",
-    "TYPED_EVENT_METHODS: for each built-in type suffix S = TickEvent/OpenWebEvent/CloseWebEvent/SwitchWebEvent/SwitchDomainEvent/WebChangedEvent/TimerEnded/SnoozePress/PanelEvent/LocalFileEvent/PageHeartbeatEvent: event.registerS(id,handler,opts), event.getS(id), event.getSs(), count name as event.countTickRegistered/countOpenWebRegistered/countCloseWebRegistered/countSwitchWebRegistered/countSwitchDomainRegistered/countWebChangedRegistered/countTimerEndedRegistered/countSnoozePressRegistered/countPanelRegistered/countLocalFileRegistered/countPageHeartbeatRegistered. Also aliases: registerTimerEndedEvent/getTimerEndedEvent/getTimerEndedEvents/countTimerEndedEventRegistered; registerSnoozePressEvent/getSnoozePressEvent/getSnoozePressEvents/countSnoozePressEventRegistered; registerPanelEvent/getPanelEvent/getPanelEvents/countPanelEventRegistered; registerLocalFileEvent/getLocalFileEvent/getLocalFileEvents/countLocalFileEventRegistered.",
-    "EVENT_SEMANTICS: tickEvent per-open-tab 1s tick data {intervalMs} with at most one tick per tab per second; pageHeartbeatEvent active visible tab heartbeat data {elapsedMs}; openWebEvent new tab created data {previousUrl,isNewTab}; closeWebEvent tab close data {reason,nextUrl}; switchWebEvent same-tab committed URL change data {previousUrl,previousHostname,sameDomain}; switchDomainEvent committed hostname boundary data {previousUrl,previousHostname}; webChangedEvent one committed top-level navigation/reload data {previousUrl,previousHostname,sameDomain,isFirstLoad,isReload,transition:'commit'}; timerEnded owning group only data {timerId,displayName,direction,currentMs}; snoozePress custom group only when Start Snooze clicked data {triggeredAt}; panelEvent owning group only data {panelId,controlId,eventName,value,values,key,code,keyInfo} and ev.panelId/ev.controlId/ev.eventName/ev.value/ev.values/ev.key/ev.code/ev.keyInfo shortcuts; localFileEvent owning group only data {eventName,action,path,directoryPath,requestId,ok,text,value,entries,exists,bytes,error} and same-name ev shortcuts. New tab/about blank exposed as ev.url === ''.",
-    "HANDLER_SHAPE: (ev, helpers) => void. ev fields: type, groupId, tabId, pageId, url, hostname, time:{now,month,dayOfMonth,dayName,hour,minute}, data. ev methods: preventDefault(), stopPropagation(), setResult(number|string), getResult(), post(type,data,{scope?}), setRedirectLink(url), getRedirectLink(). setResult(-1)=block, 0=neutral/pass, 1=allow override; string result is redirect URL; setRedirectLink sets redirect target for blocked result; stopPropagation halts all later handlers across groups. ev is Proxy: custom fields can be assigned/read during same dispatch.",
-    "HELPERS.TOP: helpers.now, helpers.currentUrl, helpers.groupId, helpers.log(...), helpers.warn(...), helpers.error(...), helpers.logScreen(...), helpers.warnScreen(...), helpers.errorScreen(...), helpers.logPopup(...), helpers.warnPopup(...), helpers.errorPopup(...), getLogHelper, getDomainHelper, getDomainUtility, getTimerHelper, getPanelHelper, getPersistenceHelper, getRedirectionHelper, getDOMHelper, getNavigationHelper, getStorageHelper, getLocalFolderHelper, getTabHelper, getPlatformHelper.",
-    "HELPERS.LOG: log=helpers.getLogHelper(); log.log/warn/error write popup Log panel and follow Settings → Show custom rule logs on web pages for page toasts. log.logScreen/warnScreen/errorScreen write screen/page toast only. log.logPopup/warnPopup/errorPopup write popup only. Top-level helpers.log*, warn*, error* shortcuts mirror these. Logs are capped/rate-limited.",
-    "HELPERS.DOMAIN: d=helpers.getDomainHelper(); d.hostnameOf(url); d.pathnameOf(url); d.matches(hostname,site); d.getPlatform(url); d.isYouTubeHost(host); d.isTikTokHost(host); d.isInstagramHost(host); d.isFacebookHost(host); d.isTwitchHost(host); d.isRedditHost(host); d.isDiscordHost(host); d.isEmptyStartPage(url); d.matchesAny(url,regexOrArrayOrString); d.pathStartsWith(url,path); d.queryHas(url,key,value?); d.queryGet(url,key); d.isSearchPage(url); d.isInfiniteFeedUrl(url); d.sameSection(a,b). Platform URL classifiers: d.youtube()/tiktok()/instagram()/facebook()/twitch() each expose isPlatformUrl(url), isShortUrl(url), isVideoUrl(url), isPostUrl(url), isHomePage(url), extractAuthor(url), extractVideoId(url).",
-    "HELPERS.TIMER: tm=helpers.getTimerHelper(); tm.groupId; tm.create({id,displayName?,direction?,currentMs?,scope?,domain?}) resets; tm.getOrCreateTimer({id,displayName?,direction?,currentMs?,scope?,domain?}) creates only when missing and otherwise returns existing timer unchanged; init fields including scope/domain apply only on creation. direction forward/backward; currentMs ms; scope(url) auto-ticks on visible page heartbeat; domain(url) controls overlay display. To change an existing timer use setDirection/setCurrentMs/addMs/setDisplayName or create() to reset. tm.delete(id), pause(id), resume(id), setDirection(id,dir), setCurrentMs(id,ms), addMs(id,deltaMs), setDisplayName(id,name), getCurrentMs(id), isExpired(id), isPaused(id), getDirection(id), getDisplayName(id), exists(id), getState(id)->{id,displayName,direction,isPaused,currentMs,isExpired}|null, list()->array. Timers do not block by themselves; check isExpired in open/switch/webChanged handler and then block.",
-    "HELPERS.PANEL: pn=helpers.getPanelHelper(); pn.create({id,title?,description?,position?,align?,layout?,priority?,width?,textSize?,theme?,ariaLabel?,role?,autoFocus?,scope?,domain?,controls?,onEvent?,onChange?,onClick?,onInput?,onFocus?,onBlur?,onSubmit?,onClose?,onMount?,onUnmount?,onKey?}) replaces/resets; pn.getOrCreatePanel(config) creates only when missing and otherwise returns existing panel unchanged; pn.update(id,patch), delete(id), show(id), hide(id), setValue(panelId,controlId,value), updateControl(panelId,controlId,patch), enable/disable(panelId,controlId), setOptions(panelId,controlId,options), setText(panelId,controlId,text), setTheme(panelId,theme), setTitle(panelId,title), setDescription(panelId,text), getValue(panelId,controlId), getValues(panelId), getState(id), list(); builders: notice(config), confirm(config), checklist(config), form(config). Controls: {id,type,label?,text?,placeholder?,value?,options?,min?,max?,step?,timerId?,timer?,format?,showExpired?,action?,layout?,priority?,width?,height?,rows?,disabled?,ariaLabel?,autoFocus?,onEvent?,onChange?,onClick?,onInput?,onFocus?,onBlur?,onSubmit?,onClose?,onMount?,onUnmount?,onKey?}; types text, checkbox, select, textInput, textarea, button, section, timer, numberInput, range, toggle, radio, date, time, color. section has nested controls and its own layout/priority. timer is display-only: use timerId to hydrate from getTimerHelper state, or timer: tm.getState(id) for a snapshot. numberInput/range support min/max/step; radio uses options; toggle is boolean. Layout presets: vertical, compact, comfortable, spacious, inline, row, wrap, twoColumn, grid, split, form, toolbar, stack. Higher priority panels/controls/sections appear earlier/closer to corner. Per-control width accepts px/%, full, auto; height accepts px/auto; rows affects textarea. If panel width is omitted, the outer panel auto-fits content tightly. Panel events include change/click/input/focus/blur/submit/close/mount/unmount/key; key events expose ev.key/ev.code/ev.keyInfo. scope/domain decide where shown.",
-    "HELPERS.PERSISTENCE: p=helpers.getPersistenceHelper(); p.get(key,defaultValue?), set(key,valueJSON), delete(key), has(key), keys(), entries(), clear(), size(). Values JSON-serializable; scoped to group.",
-    "HELPERS.REDIRECT: r=helpers.getRedirectionHelper(); r.get(); r.set(url); r.setRedirectLink(url); r.getRedirectLink(); r.createMessageUrl(message). ev.setRedirectLink can also be used directly.",
-    "HELPERS.DOM: dom=helpers.getDOMHelper(); dom.hide(selector), show(selector), addClass(selector,className), removeClass(selector,className), setText(selector,text), click(selector), injectCss(css,id?), removeInjectedCss(id), scrollTo(selector). These enqueue content-script DOM intents, applied after handler returns.",
-    "HELPERS.NAVIGATION: nav=helpers.getNavigationHelper(); nav.back(), forward(), reload(), goTo(url), closeTab(). These enqueue tab navigation intents for current event tab.",
-    "HELPERS.STORAGE: s=helpers.getStorageHelper(); includes persistence methods plus s.requestAsyncGet(key), s.requestAsyncSet(key,valueJSON). Async results arrive via follow-up custom storage events; do not await.",
-    "HELPERS.LOCAL_FOLDER: lf=helpers.getLocalFolderHelper(); requires Settings → Local File Folder. Supported files: .txt, .csv, .json inside the granted folder only. Request methods are async and return requestId: requestRead(path), requestWrite(path,text), requestAppend(path,text), requestList(directoryPath?), requestExists(path), requestReadJson(path), requestWriteJson(path,valueJSON). Results arrive via event.registerLocalFileEvent(id,(ev,h)=>{}) with ev.eventName read/write/append/list/exists/error, ev.path, ev.directoryPath, ev.requestId, ev.text, ev.value, ev.entries, ev.exists, ev.error.",
-    "HELPERS.TAB: tab=helpers.getTabHelper(); tab.list(), getActiveTab(), getById(id), countOpen(), requestRefresh(). Uses snapshot bundled with dispatch.",
-    "HELPERS.PLATFORM: ph=helpers.getPlatformHelper(); ph.youtube(), ph.tiktok(), ph.instagram(), ph.facebook(), ph.twitch(); ph.listMethods(platform); ph.hasMethod(platform,methodName). Each platform API always has URL classifiers isPlatformUrl,isShortUrl,isVideoUrl,isPostUrl,isHomePage,extractAuthor,extractVideoId.",
-    "PLATFORM_METHODS.YOUTUBE: hideShorts(predicate,{blockPageOnVisit?}), showShorts(), hideVideos(predicate,opts), showVideos(), hidePosts(predicate,opts), showPosts(), hideShortButton(), showShortButton(), hideHomePage(), showHomePage(), hideComments(), showComments(), filterComments(predicate,opts), hideLive(), showLive(), filterLive(predicate,opts), isCurrentChannelSubscribed(), isChannelSubscribed(id), isCurrentChannelVerified(), isLiveNow(), isItemLive(item), isAlgorithmicRecommendation(item), isSponsored(item), setShortsTimer(opts), setVideosTimer(opts), setPostsTimer(opts).",
-    "PLATFORM_METHODS.TIKTOK: hideVideos(predicate,opts), showVideos(), hideHomePage(), showHomePage(), hideComments(), showComments(), filterComments(predicate,opts), hideLive(), showLive(), filterLive(predicate,opts), isLiveNow(), isItemLive(item), isAlgorithmicRecommendation(item), isSponsored(item), setVideosTimer(opts).",
-    "PLATFORM_METHODS.INSTAGRAM: hideReels(predicate,opts), showReels(), hidePosts(predicate,opts), showPosts(), hideHomePage(), showHomePage(), hideComments(), showComments(), filterComments(predicate,opts), isAlgorithmicRecommendation(item), isSponsored(item), setReelsTimer(opts), setPostsTimer(opts).",
-    "PLATFORM_METHODS.FACEBOOK: hideReels(predicate,opts), showReels(), hideVideos(predicate,opts), showVideos(), hidePosts(predicate,opts), showPosts(), hideHomePage(), showHomePage(), hideComments(), showComments(), filterComments(predicate,opts), hideLive(), showLive(), filterLive(predicate,opts), isLiveNow(), isItemLive(item), isAlgorithmicRecommendation(item), isSponsored(item), setReelsTimer(opts), setVideosTimer(opts), setPostsTimer(opts).",
-    "PLATFORM_METHODS.TWITCH: hideComments(), showComments(), hideClips(predicate,opts), showClips(), hideStreams(predicate,opts), showStreams(), hideVideos(predicate,opts), showVideos(), hideHomePage(), showHomePage(), hideLive(), showLive(), filterLive(predicate,opts), isCurrentChannelSubscribed(), isChannelSubscribed(id), isLiveNow(), isItemLive(item), isAlgorithmicRecommendation(item), setClipsTimer(opts), setStreamsTimer(opts), setVideosTimer(opts).",
-    "PLATFORM_PREDICATE_ITEM: item={url,name,author,length,views,publishedAt,description,live?,sponsored?,algorithmic?}; fields may be null. Predicate methods keep one persistent predicate per group+platform+slot; each call replaces previous predicate; show* clears. opts.blockPageOnVisit can block page visits when predicate matches.",
-    "COMMON_PATTERNS: immediate block -> registerOpenWebEvent and registerSwitchWebEvent or registerWebChangedEvent; if condition matches ev.url then ev.setRedirectLink(optional), ev.preventDefault(), ev.setResult(-1). Reload-sensitive logic -> webChangedEvent. Time budgets -> getOrCreateTimer with scope/domain plus block handler checking isExpired. DOM hiding -> run on open/switch/webChanged and call platform/DOM helper.",
     "CURRENT_RULE_BEGIN",
-    "BEGIN_CURRENT_RULE",
     existingRule,
-    "END_CURRENT_RULE",
-    "CURRENT_RULE_END"
+    "CURRENT_RULE_END",
+    "Return the final JavaScript source now."
   ].join("\n");
 }
 
@@ -7477,9 +7544,7 @@ async function runSelectedCustomGroup() {
     ]);
     if (response && response.__timedOut) {
       if (runCustomGroupStatus) {
-        runCustomGroupStatus.textContent =
-          "Halted: the rule took too long to load and was force-aborted. " +
-          "Check the Log panel for details.";
+        runCustomGroupStatus.textContent = t("custom.runStatusHalted");
         runCustomGroupStatus.className = "run-status error";
       }
       setStatus(t("status.customRunHaltedTimeBudget"), true);
@@ -7874,6 +7939,7 @@ if (settingsModal) {
     settingsAutosaveDebounceField,
     settingsDebugModeField,
     settingsShowOnPageLogToastsField,
+    settingsContributeChannelsField,
     settingsDefaultSnoozeMinutesField,
     settingsDefaultFallbackUrlField
   ];
@@ -7886,6 +7952,22 @@ if (settingsModal) {
     if (!field) continue;
     field.addEventListener("change", autoSaveSettings);
   }
+}
+
+if (contributionConsentAcceptButton) {
+  contributionConsentAcceptButton.addEventListener("click", () => {
+    saveContributionConsent(true).catch((error) => {
+      console.error("Failed to save contribution consent.", error);
+    });
+  });
+}
+
+if (contributionConsentDeclineButton) {
+  contributionConsentDeclineButton.addEventListener("click", () => {
+    saveContributionConsent(false).catch((error) => {
+      console.error("Failed to save contribution consent.", error);
+    });
+  });
 }
 
 if (connectionServerToggle) {
@@ -8186,14 +8268,17 @@ function renderLogFeedEntry(entry) {
   if (entry.id != null && logFeedSeenIds.has(entry.id)) return;
   if (entry.id != null) logFeedSeenIds.add(entry.id);
 
-  const gn = entry.groupName || entry.eventType || "";
-  const selectedGroup = getSelectedGroup();
-  const selectedName = selectedGroup ? selectedGroup.name : "";
+  // Feed entries are tagged with the originating group's id (plus the
+  // eventType), never its display name — so filter by id against the
+  // selected group. The previous name-based match fell back to eventType
+  // (e.g. "load-source"/"webChangedEvent"), which never equals a group
+  // name, so every entry was hidden whenever a group was selected.
+  const gid = entry.groupId || "";
 
   const row = document.createElement("div");
   row.className = "log-feed-entry " + (entry.level === "warn" ? "warn" : entry.level === "error" ? "error" : "");
-  if (gn) row.setAttribute("data-group-name", gn);
-  if (gn && selectedName && gn !== selectedName) {
+  if (gid) row.setAttribute("data-group-id", gid);
+  if (gid && state.selectedGroupId && gid !== state.selectedGroupId) {
     row.style.display = "none";
   }
   const meta = document.createElement("span");
@@ -8227,11 +8312,9 @@ function updateLogFeedVisibleCount() {
 
 function filterLogFeedByGroup() {
   if (!logFeedList) return;
-  const selectedGroup = getSelectedGroup();
-  const selectedName = selectedGroup ? selectedGroup.name : "";
   for (const row of logFeedList.children) {
-    const gn = row.getAttribute("data-group-name") || "";
-    if (!gn || !selectedName || gn === selectedName) {
+    const gid = row.getAttribute("data-group-id") || "";
+    if (!gid || !state.selectedGroupId || gid === state.selectedGroupId) {
       row.style.display = "";
     } else {
       row.style.display = "none";
@@ -8385,6 +8468,8 @@ async function initializeSiteAccessBanner() {
 async function initializePopupApp() {
   const defaultLanguage = getDefaultLanguageCode();
   state.language = loadLanguage();
+  // The language picker must be usable while translation files are loading.
+  populateLanguageOptions();
 
   await ensureLanguageMessages(defaultLanguage).catch(() => {
     state.translationMessages[defaultLanguage] = {};
@@ -8401,6 +8486,7 @@ async function initializePopupApp() {
   applyPanelWidth(loadPanelWidth());
 
   await loadGroups();
+  showContributionConsentIfNeeded();
   await loadLogFeedSnapshot();
   // Banner runs after translations are applied so the labels read in
   // the user's language, and runs after loadGroups so the popup is in a
