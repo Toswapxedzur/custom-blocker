@@ -62,10 +62,10 @@
   "settings.save": "Zapisz",
   "settings.saved": "Ustawienia zapisane.",
   "connection.title": "Most aplikacji internetowej",
-  "connection.copy": "Połącz tę aplikację z aplikacją na macOS, aby grupy domyślne i niestandardowe mogły być łączone i synchronizowane.",
+  "connection.copy": "Połącz grupy domyślne i niestandardowe między rozszerzeniem przeglądarki a Mac Vault lub Windows Vault.",
   "connection.serverToggle": "Uruchom serwer lokalny (koncentrator)",
-  "connection.serverToggleHelp": "Inne aplikacje na tym Macu mogą łączyć się z tym centrum za pośrednictwem stałego adresu lokalnego.",
-  "connection.clientHelp": "Połącz tę przeglądarkę z aplikacją macOS za pośrednictwem stałego adresu lokalnego.",
+  "connection.serverToggleHelp": "Rozszerzenia przeglądarki na tym komputerze mogą się połączyć po skopiowaniu klucza parowania.",
+  "connection.clientHelp": "Użyj klucza parowania widocznego w Mac Vault lub Windows Vault, aby połączyć tę przeglądarkę.",
   "connection.addressLabel": "Adres",
   "connection.connect": "Połącz",
   "connection.disconnect": "Rozłącz",
@@ -552,5 +552,10 @@
   "logFeed.clear": "Jasne",
   "app.shortTitle": "Niestandardowy bloker stron",
   "groupName.twitterPattern": "Twitter / X Block {number}",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com"
+  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "connection.pairingKeyLabel": "Klucz parowania",
+  "connection.pairingKeyPrompt": "Wklej 64-znakowy klucz parowania widoczny w Mac Vault lub Windows Vault.",
+  "connection.errorPairingKey": "Wprowadź prawidłowy 64-znakowy klucz parowania.",
+  "connection.errorProtocolMismatch": "Aplikacja i rozszerzenie używają niezgodnych wersji protokołu mostu.",
+  "connection.errorSecureConnection": "Nie udało się nawiązać bezpiecznego połączenia z lokalną aplikacją Vault."
 }

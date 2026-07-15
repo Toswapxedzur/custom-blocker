@@ -888,7 +888,7 @@
             <div>
               <h3 data-i18n="connection.title">Web-app bridge</h3>
               <p class="section-copy" data-i18n="connection.copy">
-                Connect this app to the macOS app so Default and Custom groups can be linked and kept in sync.
+                Link Default and Custom groups between a browser extension and Mac Vault or Windows Vault.
               </p>
             </div>
           </div>
@@ -908,14 +908,18 @@
               <span data-i18n="connection.serverToggle">Run local server (hub)</span>
             </label>
             <p class="field-help" data-i18n="connection.serverToggleHelp">
-              Other apps on this Mac can connect to this hub over a fixed local address.
+              Browser extensions on this computer can connect after you copy the pairing key.
+            </p>
+            <p class="field-help">
+              <span data-i18n="connection.pairingKeyLabel">Pairing key</span>:
+              <code id="connectionPairingKeyReadout">—</code>
             </p>
             <div id="connectionPeerList" class="connection-peer-list"></div>
           </div>
 
           <div id="connectionClientControls" class="hidden">
             <p class="field-help" data-i18n="connection.clientHelp">
-              Connect this browser to the macOS app over the fixed local address.
+              Use the pairing key shown by Mac Vault or Windows Vault to connect this browser.
             </p>
             <div class="field-actions">
               <button id="connectionConnectButton" type="button" class="secondary" data-i18n="connection.connect">
@@ -1058,6 +1062,7 @@
     </div>
 
     <script src="browser-compat.js"></script>
+    <script src="bridge-protocol.js"></script>
     <script src="platform-profiles.js"></script>
     <script src="translations.js"></script>
     <script src="popup-markdown.js"></script>

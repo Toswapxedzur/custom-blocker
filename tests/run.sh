@@ -28,6 +28,7 @@ run_suite() {
 failed=0
 run_suite "platform-helpers" tests/runner.js || failed=1
 run_suite "platform-profiles" tests/runner-platform-profiles.js || failed=1
+run_suite "bridge-protocol" tests/runner-bridge-protocol.js || failed=1
 run_suite "markdown-renderer" tests/runner-markdown.js || failed=1
 run_suite "event-sandbox-stress" tests/runner-event-sandbox-stress.js || failed=1
 node scripts/documentation-audit.js || failed=1

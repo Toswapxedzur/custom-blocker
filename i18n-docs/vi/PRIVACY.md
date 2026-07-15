@@ -1,22 +1,22 @@
 # Chính sách quyền riêng tư — Trình chặn web tùy chỉnh
 
-_Cập nhật lần cuối: 2026-06-30_
+_Cập nhật lần cuối: 2026-07-13_
 
 Trang này giải thích chính xác dữ liệu của trình duyệt **Custom Web Blocker**
 tiện ích mở rộng sẽ thu thập, nó đi đâu và tại sao mỗi quyền của trình duyệt lại bị thu thập
-được yêu cầu. Phiên bản ngắn gọn là: không có gì rời khỏi trình duyệt của bạn.
+được yêu cầu. Tóm lại: chúng tôi không lưu quy tắc hoặc dữ liệu duyệt web cá nhân
+của bạn. Quy tắc theo thẻ có thể tra cứu ID kênh YouTube công khai, nhưng yêu
+cầu đó không được lưu hoặc liên kết với bạn.
 
 ## Tóm tắt
 
-- **Không có dữ liệu nào được gửi đến bất kỳ máy chủ nào.** Tiện ích mở rộng khiến không có mạng
-  yêu cầu cho bất kỳ bên thứ ba nào (hoặc cho chúng tôi). Nó không có phân tích, không
-  đo từ xa, không có trình báo cáo sự cố, không có cấu hình từ xa, không có tự động
-  các bản cập nhật ngoài cơ chế Cửa hàng Chrome trực tuyến tiêu chuẩn.
-- **Tất cả dữ liệu vẫn còn trong trình duyệt của bạn**, được lưu giữ qua cục bộ của Chrome
-  bộ nhớ mở rộng (`chrome.storage.local`). Nó không bao giờ được đồng bộ hóa trừ khi
-  Chrome tự đồng bộ hóa hồ sơ cục bộ của bạn.
-- **Không có thông tin nhận dạng cá nhân nào được thu thập** bởi
-  gia hạn bất kỳ lúc nào.
+- **Cấu hình ở lại trong trình duyệt.** Nhóm, lịch, quy tắc, nhật ký, bộ hẹn giờ
+  và tùy chọn chỉ được lưu trong `chrome.storage.local`.
+- **Tra cứu thẻ chỉ chứa ID kênh công khai.** URL, tiêu đề, từ khóa tìm kiếm,
+  thời gian, tài khoản và cài đặt tiện ích không được gửi.
+- **Yêu cầu tra cứu không được lưu.** API chỉ đọc, không thêm kênh chưa biết và
+  không gắn yêu cầu với một cá nhân.
+- **Không có phân tích, đo từ xa, quảng cáo hoặc báo cáo sự cố.**
 - **Không theo dõi** hoạt động duyệt web ngoài những gì thực sự cần thiết
   để áp dụng các quy tắc chặn mà chính bạn đã cấu hình.
 
@@ -53,7 +53,8 @@ trên thiết bị của bạn và chỉ trong hồ sơ trình duyệt của ri�
 | Giấy phép | Nó được dùng để làm gì |
 | --- | --- |
 | `storage` | Chỉ lưu và tải các nhóm khối, cài đặt và trạng thái thời gian chạy trong trình duyệt của bạn. |
-| `declarativeNetRequest` | Cho Chrome biết những URL nào cần chặn nguyên bản, dựa trên các quy tắc bạn đã định cấu hình. Trình duyệt xử lý việc chặn; tiện ích mở rộng chỉ đăng ký và cập nhật danh sách quy tắc. |
+| `favicon` | Hiển thị trong Chromium biểu tượng trang đã được trình duyệt lưu đệm bên cạnh quy tắc. Việc này không gửi lịch sử duyệt web hoặc yêu cầu đến dịch vụ của chúng tôi. |
+| `nativeMessaging` | Chỉ trong Safari, chuyển yêu cầu vùng cách ly của quy tắc tùy chỉnh đến ứng dụng cục bộ trên thiết bị. Đây không phải truyền tải đám mây. |
 | `alarms` | Đánh thức nhân viên dịch vụ nền theo lịch trình để làm mới các giới hạn dựa trên thời gian và cập nhật trạng thái quy tắc khi cửa sổ báo lại, đóng băng hoặc lên lịch kết thúc. |
 | `offscreen` | Chạy JavaScript quy tắc tùy chỉnh được đóng hộp cát trong tài liệu ngoài màn hình để nó không thể thoát khỏi tiện ích mở rộng hoặc chạm trực tiếp vào các trang của bạn. |
 | `tabs` | Mở trình chỉnh sửa dưới dạng tab đầy đủ khi bạn nhấp vào biểu tượng thanh công cụ, tra cứu URL của tab đang hoạt động để đánh giá các quy tắc nhóm và tải lại các tab sau khi bạn thực hiện thay đổi quy tắc trong trình chỉnh sửa. |
@@ -76,10 +77,9 @@ và không bao giờ được truyền ra khỏi thiết bị.
 
 ## Thống kê dịch vụ trang web và thẻ người sáng tạo
 
-Phần này nói về **trang web và dịch vụ thẻ người sáng tạo tùy chọn**,
-tách biệt với chính phần mở rộng. Tiện ích mở rộng vẫn gửi
-không có gì, như đã mô tả ở trên. Trang web xuất bản một **Thống kê** nhỏ
-bảng điều khiển và để điền vào đó, máy chủ sẽ giữ một số tổng số:
+Phần này nói về **trang web và dịch vụ thẻ người sáng tạo**. Tiện ích có thể
+tra cứu ID kênh công khai ở chế độ chỉ đọc; yêu cầu đó không được lưu.
+Bảng **Thống kê** chỉ giữ các số tổng hợp không gắn với một cá nhân:
 
 - **Số lượt tải xuống** — số lần nút tải xuống của mỗi sản phẩm
   đã nhấp vào (macOS, Windows, tiện ích mở rộng trình duyệt, Safari).
@@ -100,6 +100,9 @@ lịch sử.
 - **Đóng góp theo id kênh tùy chọn.** Nếu — và chỉ khi — bạn chọn tham gia, thì
   tiện ích mở rộng/trang web có thể chia sẻ YouTube **id kênh** (không bao giờ có tiêu đề video,
   lịch sử xem hoặc bất kỳ nội dung nào mang tính cá nhân) để giúp phân loại người sáng tạo cho mọi người.
+- **Đóng góp thủ công.** Khi người dùng đăng nhập chủ động gửi, liên kết giữa
+  email và ID kênh chỉ được giữ trong cửa sổ hạn mức 24 giờ và dọn mỗi giờ.
+- **Hàng đợi công khai.** Có thể hiển thị ID và trạng thái, nhưng không hiển thị thời điểm hay người gửi.
 
 ## Trẻ em
 

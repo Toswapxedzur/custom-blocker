@@ -62,10 +62,10 @@
   "settings.save": "Ahorrar",
   "settings.saved": "Configuración guardada.",
   "connection.title": "Puente de aplicación web",
-  "connection.copy": "Conecte esta aplicación a la aplicación macOS para que los grupos predeterminados y personalizados puedan vincularse y mantenerse sincronizados.",
+  "connection.copy": "Vincula grupos predeterminados y personalizados entre una extensión del navegador y Mac Vault o Windows Vault.",
   "connection.serverToggle": "Ejecutar servidor local (hub)",
-  "connection.serverToggleHelp": "Otras aplicaciones en esta Mac pueden conectarse a este centro a través de una dirección local fija.",
-  "connection.clientHelp": "Conecte este navegador a la aplicación macOS a través de la dirección local fija.",
+  "connection.serverToggleHelp": "Las extensiones del navegador de este equipo pueden conectarse después de copiar la clave de emparejamiento.",
+  "connection.clientHelp": "Usa la clave de emparejamiento que aparece en Mac Vault o Windows Vault para conectar este navegador.",
   "connection.addressLabel": "Dirección",
   "connection.connect": "Conectar",
   "connection.disconnect": "Desconectar",
@@ -552,5 +552,10 @@
   "logFeed.empty": "No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.",
   "logFeed.clear": "Claro",
   "app.shortTitle": "Bloqueador web personalizado",
-  "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789"
+  "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
+  "connection.pairingKeyLabel": "Clave de emparejamiento",
+  "connection.pairingKeyPrompt": "Pega la clave de emparejamiento de 64 caracteres que aparece en Mac Vault o Windows Vault.",
+  "connection.errorPairingKey": "Introduce la clave de emparejamiento correcta de 64 caracteres.",
+  "connection.errorProtocolMismatch": "La aplicación y la extensión usan versiones incompatibles del protocolo del puente.",
+  "connection.errorSecureConnection": "No se pudo establecer una conexión segura con la aplicación Vault local."
 }

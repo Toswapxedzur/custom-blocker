@@ -128,6 +128,21 @@ assert("E6 scoped timer ticks only on Shorts heartbeat", loaded.ok && shortTimer
   shortTimers[0].currentMs === 1500 && watchTimers.length === 0);
 unloadGroup("e-scoped-timer", { clearState: true });
 
+log.section("E7: event block intents carry group ownership");
+loaded = loadSource("e-window-owner", `
+(events) => {
+  events.on("webChangedEvent", "own-block", (ev) => {
+    ev.block("example.com");
+    ev.unblock("old.example");
+  });
+}
+`);
+result = dispatch("e-window-owner", { url: "https://example.com/" });
+const ownedIntents = (result.intents || []).filter((intent) => intent.action === "blockSite" || intent.action === "unblockSite");
+assert("E7 event block/unblock intents include recipient group id",
+  loaded.ok && ownedIntents.length === 2 && ownedIntents.every((intent) => intent.groupId === "e-window-owner"));
+unloadGroup("e-window-owner", { clearState: true });
+
 const counts = log.counts();
 log.summary("EVENT SANDBOX STRESS TOTAL " + counts.total + " PASS " + counts.pass + " FAIL " + counts.fail);
 if (counts.fail > 0) {

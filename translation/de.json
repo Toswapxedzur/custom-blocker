@@ -62,10 +62,10 @@
   "settings.save": "Speichern",
   "settings.saved": "Einstellungen gespeichert.",
   "connection.title": "Web-App-Brücke",
-  "connection.copy": "Verbinden Sie diese App mit der macOS-App, damit Standard- und benutzerdefinierte Gruppen verknüpft und synchron gehalten werden können.",
+  "connection.copy": "Verknüpfe Standard- und benutzerdefinierte Gruppen zwischen einer Browser-Erweiterung und Mac Vault oder Windows Vault.",
   "connection.serverToggle": "Lokalen Server (Hub) ausführen",
-  "connection.serverToggleHelp": "Andere Apps auf diesem Mac können über eine feste lokale Adresse eine Verbindung zu diesem Hub herstellen.",
-  "connection.clientHelp": "Verbinden Sie diesen Browser über die feste lokale Adresse mit der macOS-App.",
+  "connection.serverToggleHelp": "Browser-Erweiterungen auf diesem Computer können sich verbinden, nachdem du den Kopplungsschlüssel kopiert hast.",
+  "connection.clientHelp": "Verwende den in Mac Vault oder Windows Vault angezeigten Kopplungsschlüssel, um diesen Browser zu verbinden.",
   "connection.addressLabel": "Adresse",
   "connection.connect": "Verbinden",
   "connection.disconnect": "Trennen",
@@ -552,5 +552,10 @@
   "platform.short.youtube": "Shorts",
   "platform.placeholder.tiktok": "@creatorhandle\nhttps://www.tiktok.com/@creator",
   "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com"
+  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "connection.pairingKeyLabel": "Kopplungsschlüssel",
+  "connection.pairingKeyPrompt": "Füge den 64-stelligen Kopplungsschlüssel aus Mac Vault oder Windows Vault ein.",
+  "connection.errorPairingKey": "Gib den richtigen 64-stelligen Kopplungsschlüssel ein.",
+  "connection.errorProtocolMismatch": "App und Erweiterung verwenden inkompatible Versionen des Bridge-Protokolls.",
+  "connection.errorSecureConnection": "Es konnte keine sichere Verbindung zur lokalen Vault-App hergestellt werden."
 }

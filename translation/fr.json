@@ -61,10 +61,10 @@
   "settings.save": "Sauvegarder",
   "settings.saved": "Paramètres enregistrés.",
   "connection.title": "Pont d'application Web",
-  "connection.copy": "Connectez cette application à l'application macOS afin que les groupes par défaut et personnalisés puissent être liés et synchronisés.",
+  "connection.copy": "Liez les groupes par défaut et personnalisés entre une extension de navigateur et Mac Vault ou Windows Vault.",
   "connection.serverToggle": "Exécuter le serveur local (hub)",
-  "connection.serverToggleHelp": "D'autres applications sur ce Mac peuvent se connecter à ce hub via une adresse locale fixe.",
-  "connection.clientHelp": "Connectez ce navigateur à l'application macOS via l'adresse locale fixe.",
+  "connection.serverToggleHelp": "Les extensions de navigateur de cet ordinateur peuvent se connecter après la copie de la clé d'association.",
+  "connection.clientHelp": "Utilisez la clé d'association affichée dans Mac Vault ou Windows Vault pour connecter ce navigateur.",
   "connection.addressLabel": "Adresse",
   "connection.connect": "Se connecter",
   "connection.disconnect": "Déconnecter",
@@ -552,5 +552,10 @@
   "logFeed.clear": "Clair",
   "app.shortTitle": "Bloqueur de sites personnalisé",
   "settings.tierProbation": "Probation",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com"
+  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "connection.pairingKeyLabel": "Clé d'association",
+  "connection.pairingKeyPrompt": "Collez la clé d'association de 64 caractères affichée dans Mac Vault ou Windows Vault.",
+  "connection.errorPairingKey": "Saisissez la bonne clé d'association de 64 caractères.",
+  "connection.errorProtocolMismatch": "L'application et l'extension utilisent des versions incompatibles du protocole de liaison.",
+  "connection.errorSecureConnection": "Impossible d'établir une connexion sécurisée avec l'application Vault locale."
 }

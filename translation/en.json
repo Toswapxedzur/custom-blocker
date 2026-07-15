@@ -62,10 +62,10 @@
   "settings.save": "Save",
   "settings.saved": "Settings saved.",
   "connection.title": "Web-app bridge",
-  "connection.copy": "Connect this app to the macOS app so Default and Custom groups can be linked and kept in sync.",
+  "connection.copy": "Link Default and Custom groups between a browser extension and Mac Vault or Windows Vault.",
   "connection.serverToggle": "Run local server (hub)",
-  "connection.serverToggleHelp": "Other apps on this Mac can connect to this hub over a fixed local address.",
-  "connection.clientHelp": "Connect this browser to the macOS app over the fixed local address.",
+  "connection.serverToggleHelp": "Browser extensions on this computer can connect after you copy the pairing key.",
+  "connection.clientHelp": "Use the pairing key shown by Mac Vault or Windows Vault to connect this browser.",
   "connection.addressLabel": "Address",
   "connection.connect": "Connect",
   "connection.disconnect": "Disconnect",
@@ -552,5 +552,10 @@
   "logFeed.hint": "Output from helpers.log() / helpers.warn() / helpers.error() inside your custom rules.",
   "logFeed.empty": "Nothing logged yet. Call helpers.log(\"hello\") inside one of your handlers to see entries here.",
   "logFeed.clear": "Clear",
-  "app.shortTitle": "Adamancia Vault"
+  "app.shortTitle": "Adamancia Vault",
+  "connection.pairingKeyLabel": "Pairing key",
+  "connection.pairingKeyPrompt": "Paste the 64-character pairing key shown in Mac Vault or Windows Vault.",
+  "connection.errorPairingKey": "Enter the correct 64-character pairing key.",
+  "connection.errorProtocolMismatch": "The app and extension use incompatible bridge protocol versions.",
+  "connection.errorSecureConnection": "Could not establish a secure connection to the local Vault app."
 }

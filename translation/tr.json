@@ -62,10 +62,10 @@
   "settings.save": "Kaydetmek",
   "settings.saved": "Ayarlar kaydedildi.",
   "connection.title": "Web uygulaması köprüsü",
-  "connection.copy": "Varsayılan ve Özel grupların birbirine bağlanabilmesi ve senkronize edilebilmesi için bu uygulamayı macOS uygulamasına bağlayın.",
+  "connection.copy": "Varsayılan ve Özel grupları bir tarayıcı uzantısı ile Mac Vault veya Windows Vault arasında bağlayın.",
   "connection.serverToggle": "Yerel sunucuyu (hub) çalıştır",
-  "connection.serverToggleHelp": "Bu Mac'teki diğer uygulamalar bu merkeze sabit bir yerel adres üzerinden bağlanabilir.",
-  "connection.clientHelp": "Bu tarayıcıyı sabit yerel adres üzerinden macOS uygulamasına bağlayın.",
+  "connection.serverToggleHelp": "Bu bilgisayardaki tarayıcı uzantıları, eşleştirme anahtarını kopyaladıktan sonra bağlanabilir.",
+  "connection.clientHelp": "Bu tarayıcıyı bağlamak için Mac Vault veya Windows Vault'ta gösterilen eşleştirme anahtarını kullanın.",
   "connection.addressLabel": "Adres",
   "connection.connect": "Bağlan",
   "connection.disconnect": "Bağlantıyı kes",
@@ -552,5 +552,10 @@
   "app.shortTitle": "Özel Web Sitesi Engelleyici",
   "platform.placeholder.tiktok": "@creatorhandle\nhttps://www.tiktok.com/@creator",
   "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com"
+  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "connection.pairingKeyLabel": "Eşleştirme anahtarı",
+  "connection.pairingKeyPrompt": "Mac Vault veya Windows Vault'ta gösterilen 64 karakterlik eşleştirme anahtarını yapıştırın.",
+  "connection.errorPairingKey": "Doğru 64 karakterlik eşleştirme anahtarını girin.",
+  "connection.errorProtocolMismatch": "Uygulama ve uzantı uyumsuz köprü protokolü sürümleri kullanıyor.",
+  "connection.errorSecureConnection": "Yerel Vault uygulamasıyla güvenli bağlantı kurulamadı."
 }

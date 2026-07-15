@@ -62,10 +62,10 @@
   "settings.save": "Salva",
   "settings.saved": "Impostazioni salvate.",
   "connection.title": "Ponte dell'app Web",
-  "connection.copy": "Collega questa app all'app macOS in modo che i gruppi predefiniti e personalizzati possano essere collegati e mantenuti sincronizzati.",
+  "connection.copy": "Collega i gruppi predefiniti e personalizzati tra un'estensione del browser e Mac Vault o Windows Vault.",
   "connection.serverToggle": "Esegui il server locale (hub)",
-  "connection.serverToggleHelp": "Altre app su questo Mac possono connettersi a questo hub tramite un indirizzo locale fisso.",
-  "connection.clientHelp": "Connetti questo browser all'app macOS tramite l'indirizzo locale fisso.",
+  "connection.serverToggleHelp": "Le estensioni del browser su questo computer possono connettersi dopo aver copiato la chiave di associazione.",
+  "connection.clientHelp": "Usa la chiave di associazione mostrata in Mac Vault o Windows Vault per collegare questo browser.",
   "connection.addressLabel": "Indirizzo",
   "connection.connect": "Connettiti",
   "connection.disconnect": "Disconnetti",
@@ -552,5 +552,10 @@
   "platform.placeholder.twitter": "@handle\nhttps://x.com/anotheruser",
   "platform.placeholder.tiktok": "@creatorhandle\nhttps://www.tiktok.com/@creator",
   "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com"
+  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "connection.pairingKeyLabel": "Chiave di associazione",
+  "connection.pairingKeyPrompt": "Incolla la chiave di associazione di 64 caratteri mostrata in Mac Vault o Windows Vault.",
+  "connection.errorPairingKey": "Inserisci la chiave di associazione corretta di 64 caratteri.",
+  "connection.errorProtocolMismatch": "L'app e l'estensione usano versioni incompatibili del protocollo bridge.",
+  "connection.errorSecureConnection": "Impossibile stabilire una connessione sicura con l'app Vault locale."
 }

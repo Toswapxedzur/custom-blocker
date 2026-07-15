@@ -62,10 +62,10 @@
   "settings.save": "구하다",
   "settings.saved": "설정이 저장되었습니다.",
   "connection.title": "웹앱 브리지",
-  "connection.copy": "기본 및 사용자 정의 그룹을 연결하고 동기화를 유지할 수 있도록 이 앱을 macOS 앱에 연결하세요.",
+  "connection.copy": "브라우저 확장 프로그램과 Mac Vault 또는 Windows Vault 간에 기본 및 사용자 지정 그룹을 연결합니다.",
   "connection.serverToggle": "로컬 서버(허브) 실행",
-  "connection.serverToggleHelp": "이 Mac의 다른 앱은 고정된 로컬 주소를 통해 이 허브에 연결할 수 있습니다.",
-  "connection.clientHelp": "고정된 로컬 주소를 통해 이 브라우저를 macOS 앱에 연결하세요.",
+  "connection.serverToggleHelp": "페어링 키를 복사하면 이 컴퓨터의 브라우저 확장 프로그램이 연결할 수 있습니다.",
+  "connection.clientHelp": "Mac Vault 또는 Windows Vault에 표시된 페어링 키를 사용하여 이 브라우저를 연결하세요.",
   "connection.addressLabel": "주소",
   "connection.connect": "연결하다",
   "connection.disconnect": "연결 끊기",
@@ -552,5 +552,10 @@
   "app.shortTitle": "맞춤 웹사이트 차단기",
   "platform.placeholder.tiktok": "@creatorhandle\nhttps://www.tiktok.com/@creator",
   "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com"
+  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "connection.pairingKeyLabel": "페어링 키",
+  "connection.pairingKeyPrompt": "Mac Vault 또는 Windows Vault에 표시된 64자 페어링 키를 붙여넣으세요.",
+  "connection.errorPairingKey": "올바른 64자 페어링 키를 입력하세요.",
+  "connection.errorProtocolMismatch": "앱과 확장 프로그램의 브리지 프로토콜 버전이 호환되지 않습니다.",
+  "connection.errorSecureConnection": "로컬 Vault 앱과 보안 연결을 설정하지 못했습니다."
 }

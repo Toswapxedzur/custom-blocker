@@ -62,10 +62,10 @@
   "settings.save": "يحفظ",
   "settings.saved": "تم حفظ الإعدادات.",
   "connection.title": "جسر تطبيقات الويب",
-  "connection.copy": "قم بتوصيل هذا التطبيق بتطبيق macOS حتى يمكن ربط المجموعات الافتراضية والمخصصة والحفاظ على مزامنتها.",
+  "connection.copy": "اربط مجموعات Default وCustom بين إضافة المتصفح وMac Vault أو Windows Vault.",
   "connection.serverToggle": "تشغيل الخادم المحلي (المحور)",
-  "connection.serverToggleHelp": "يمكن للتطبيقات الأخرى الموجودة على جهاز Mac هذا الاتصال بهذا المحور عبر عنوان محلي ثابت.",
-  "connection.clientHelp": "قم بتوصيل هذا المتصفح بتطبيق macOS عبر العنوان المحلي الثابت.",
+  "connection.serverToggleHelp": "يمكن لإضافات المتصفح على هذا الكمبيوتر الاتصال بعد نسخ مفتاح الاقتران.",
+  "connection.clientHelp": "استخدم مفتاح الاقتران الظاهر في Mac Vault أو Windows Vault لتوصيل هذا المتصفح.",
   "connection.addressLabel": "العنوان",
   "connection.connect": "الاتصال",
   "connection.disconnect": "قطع الاتصال",
@@ -552,5 +552,10 @@
   "platform.placeholder.twitter": "@handle\nhttps://x.com/anotheruser",
   "platform.placeholder.tiktok": "@creatorhandle\nhttps://www.tiktok.com/@creator",
   "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com"
+  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "connection.pairingKeyLabel": "مفتاح الاقتران",
+  "connection.pairingKeyPrompt": "الصق مفتاح الاقتران المكوّن من 64 حرفًا والظاهر في Mac Vault أو Windows Vault.",
+  "connection.errorPairingKey": "أدخل مفتاح الاقتران الصحيح المكوّن من 64 حرفًا.",
+  "connection.errorProtocolMismatch": "يستخدم التطبيق والإضافة إصدارين غير متوافقين من بروتوكول الجسر.",
+  "connection.errorSecureConnection": "تعذّر إنشاء اتصال آمن بتطبيق Vault المحلي."
 }

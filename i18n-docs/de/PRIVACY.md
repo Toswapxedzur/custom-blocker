@@ -1,22 +1,22 @@
 # Datenschutzrichtlinie – Benutzerdefinierter Webblocker
 
-_Letzte Aktualisierung: 30.06.2026_
+_Letzte Aktualisierung: 13.07.2026_
 
 Auf dieser Seite wird genau erklärt, welche Daten der **Custom Web Blocker**-Browser benötigt
 Die Erweiterung erfasst, wohin sie geht und warum die jeweilige Browserberechtigung vorliegt
-angefordert. Die Kurzfassung lautet: Nichts verlässt Ihren Browser.
+angefordert. Kurz gesagt: Ihre Regeln und persönlichen Browserdaten werden von
+uns nicht gespeichert. Creator-Tag-Regeln können öffentliche YouTube-Kanal-IDs
+schreibgeschützt abfragen; diese Anfragen werden nicht aufbewahrt oder Ihnen zugeordnet.
 
 ## Zusammenfassung
 
-- **Es werden keine Daten an einen Server gesendet.** Die Erweiterung macht kein Netzwerk mehr
-  Anfragen an Dritte (oder an uns). Es gibt keine Analyse, nein
-  Telemetrie, kein Crash-Reporter, keine Fernkonfiguration, keine Automatik
-  Aktualisierungen, die über den Standardmechanismus des Chrome Web Store hinausgehen.
-- **Alle Daten bleiben in Ihrem Browser** und werden über die lokale Version von Chrome gespeichert
-  Erweiterungsspeicher (`chrome.storage.local`). Es wird nie synchronisiert, es sei denn
-  Chrome selbst synchronisiert Ihr lokales Profil.
-- **Es werden keine personenbezogenen Daten erfasst**
-  Verlängerung jederzeit möglich.
+- **Ihre Konfiguration bleibt im Browser.** Gruppen, Zeitpläne, Regeln, Protokolle,
+  Timer und Einstellungen werden nur in `chrome.storage.local` gespeichert.
+- **Tag-Abfragen enthalten nur öffentliche Kanal-IDs.** Es werden keine URL,
+  Videotitel, Suchanfrage, Zeitangabe, Konto-ID oder Einstellungen mitgesendet.
+- **Abfragen werden nicht gespeichert.** Der Endpunkt ist schreibgeschützt,
+  speichert unbekannte Kanäle nicht und ordnet Anfragen keiner Person zu.
+- **Es gibt keine Analyse, Telemetrie, Werbung oder Absturzberichte.**
 - **Keine Nachverfolgung** der Browsing-Aktivitäten, die über das unbedingt Notwendige hinausgehen
   um die von Ihnen selbst konfigurierten Sperrregeln anzuwenden.
 
@@ -53,7 +53,8 @@ auf Ihrem Gerät und nur innerhalb Ihres eigenen Browserprofils.
 | Erlaubnis | Wofür wird es verwendet |
 | --- | --- |
 | `storage` | Speichern und laden Sie Ihre Blockgruppen, Einstellungen und den Laufzeitstatus nur in Ihrem Browser. |
-| `declarativeNetRequest` | Teilen Sie Chrome anhand der von Ihnen konfigurierten Regeln mit, welche URLs nativ blockiert werden sollen. Die Blockierung erfolgt durch den Browser; Die Erweiterung registriert und aktualisiert nur die Regelliste. |
+| `favicon` | Zeigt in Chromium neben Regeln lokal im Browser zwischengespeicherte Website-Symbole an. Dabei werden weder Browserverlauf noch Anfragen an unseren Dienst gesendet. |
+| `nativeMessaging` | Leitet nur in Safari Sandbox-Anfragen benutzerdefinierter Regeln an die lokale Begleit-App auf dem Gerät weiter. Dies ist kein Cloud-Transport. |
 | `alarms` | Wecken Sie den Hintergrunddienstmitarbeiter nach Zeitplan, um zeitbasierte Grenzwerte zu aktualisieren und den Regelstatus zu aktualisieren, wenn ein Snooze-, Freeze- oder Zeitplanfenster endet. |
 | `offscreen` | Führen Sie Sandbox-JavaScript mit benutzerdefinierten Regeln in einem Offscreen-Dokument aus, damit es der Erweiterung nicht entgehen oder Ihre Seiten nicht direkt berühren kann. |
 | `tabs` | Öffnen Sie den Editor als vollständige Registerkarte, indem Sie auf das Symbolleistensymbol klicken, suchen Sie nach der URL der aktiven Registerkarte, um Gruppenregeln auszuwerten, und laden Sie Registerkarten nach einer Regeländerung, die Sie im Editor vorgenommen haben, neu. |
@@ -76,9 +77,9 @@ und werden niemals außerhalb des Geräts übertragen.
 
 ## Statistiken zu Websites und Ersteller-Tag-Diensten
 
-In diesem Abschnitt geht es um die **Website und den optionalen Creator-Tag-Dienst**,
-die von der Erweiterung selbst getrennt sind. Die Erweiterung sendet weiterhin
-nichts, wie oben beschrieben. Die Website veröffentlicht eine kleine **Statistik**
+In diesem Abschnitt geht es um die **Website und den Creator-Tag-Dienst**.
+Die Erweiterung kann öffentliche Kanal-IDs schreibgeschützt abfragen; diese
+Abfragen werden nicht gespeichert. Die Website veröffentlicht eine kleine **Statistik**
 Panel, und um es zu füllen, speichert der Server einige aggregierte Zählungen:
 
 - **Download-Anzahl** – wie oft der Download-Button jedes Produkts war
@@ -100,6 +101,11 @@ Geschichte.
 - **Optionale Kanal-ID-Beiträge.** Wenn – und nur wenn – Sie sich dafür entscheiden, wird die
   Erweiterung/Website darf YouTube-**Kanal-IDs** teilen (niemals Videotitel,
   B. den Uhrenverlauf oder etwas Persönliches), um die Klassifizierung der Urheber für alle zu erleichtern.
+- **Manuelle Beiträge.** Bei absichtlichen Beiträgen auf der Website wird die
+  Zuordnung zwischen E-Mail und Kanal-ID höchstens für das rollierende
+  24-Stunden-Kontingent aufbewahrt und stündlich bereinigt.
+- **Öffentliche Warteschlange.** Sie kann öffentliche Kanal-IDs und den
+  Bearbeitungsstatus zeigen, aber keine Übermittlungszeit und keinen Einreicher.
 
 ## Kinder
 

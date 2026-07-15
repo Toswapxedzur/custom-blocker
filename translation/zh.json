@@ -62,10 +62,10 @@
   "settings.save": "保存",
   "settings.saved": "设置已保存。",
   "connection.title": "Web 应用桥",
-  "connection.copy": "将此应用程序连接到 macOS 应用程序，以便默认组和自定义组可以链接并保持同步。",
+  "connection.copy": "在浏览器扩展与 Mac Vault 或 Windows Vault 之间关联默认组和自定义组。",
   "connection.serverToggle": "运行本地服务器（集线器）",
-  "connection.serverToggleHelp": "此 Mac 上的其他应用程序可以通过固定的本地地址连接到此集线器。",
-  "connection.clientHelp": "通过固定的本地地址将此浏览器连接到 macOS 应用程序。",
+  "connection.serverToggleHelp": "复制配对密钥后，此计算机上的浏览器扩展即可连接。",
+  "connection.clientHelp": "使用 Mac Vault 或 Windows Vault 中显示的配对密钥连接此浏览器。",
   "connection.addressLabel": "地址",
   "connection.connect": "连接",
   "connection.disconnect": "断开连接",
@@ -552,5 +552,10 @@
   "logFeed.clear": "清空",
   "app.shortTitle": "自定义网站拦截器",
   "platform.placeholder.tiktok": "@creatorhandle\nhttps://www.tiktok.com/@creator",
-  "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789"
+  "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
+  "connection.pairingKeyLabel": "配对密钥",
+  "connection.pairingKeyPrompt": "粘贴 Mac Vault 或 Windows Vault 中显示的 64 位配对密钥。",
+  "connection.errorPairingKey": "请输入正确的 64 位配对密钥。",
+  "connection.errorProtocolMismatch": "应用与扩展使用的桥接协议版本不兼容。",
+  "connection.errorSecureConnection": "无法与本地 Vault 应用建立安全连接。"
 }
