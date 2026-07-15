@@ -62,10 +62,10 @@
   "settings.save": "Opslaan",
   "settings.saved": "Instellingen opgeslagen",
   "connection.title": "Web-app-brug",
-  "connection.copy": "Verbind deze app met de macOS-app, zodat standaard- en aangepaste groepen kunnen worden gekoppeld en gesynchroniseerd kunnen worden gehouden.",
+  "connection.copy": "Koppel standaard- en aangepaste groepen tussen een browserextensie en Mac Vault of Windows Vault.",
   "connection.serverToggle": "Voer lokale server (hub) uit",
-  "connection.serverToggleHelp": "Andere apps op deze Mac kunnen via een vast lokaal adres verbinding maken met deze hub.",
-  "connection.clientHelp": "Verbind deze browser met de macOS-app via het vaste lokale adres.",
+  "connection.serverToggleHelp": "Browserextensies op deze computer kunnen verbinding maken nadat je de koppelingssleutel hebt gekopieerd.",
+  "connection.clientHelp": "Gebruik de koppelingssleutel uit Mac Vault of Windows Vault om deze browser te verbinden.",
   "connection.addressLabel": "Adres",
   "connection.connect": "Verbinden",
   "connection.disconnect": "Verbreek de verbinding",
@@ -552,5 +552,10 @@
   "logFeed.empty": "No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.",
   "logFeed.clear": "Duidelijk",
   "app.shortTitle": "Aangepaste websiteblokkering",
-  "connectionGroup.memberOffline": "offline"
+  "connectionGroup.memberOffline": "offline",
+  "connection.pairingKeyLabel": "Koppelingssleutel",
+  "connection.pairingKeyPrompt": "Plak de koppelingssleutel van 64 tekens die in Mac Vault of Windows Vault staat.",
+  "connection.errorPairingKey": "Voer de juiste koppelingssleutel van 64 tekens in.",
+  "connection.errorProtocolMismatch": "De app en extensie gebruiken incompatibele versies van het bridgeprotocol.",
+  "connection.errorSecureConnection": "Er kon geen beveiligde verbinding met de lokale Vault-app worden gemaakt."
 }

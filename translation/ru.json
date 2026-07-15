@@ -62,10 +62,10 @@
   "settings.save": "Сохранить",
   "settings.saved": "Настройки сохранены.",
   "connection.title": "Мост через веб-приложение",
-  "connection.copy": "Подключите это приложение к приложению macOS, чтобы можно было связать группы по умолчанию и пользовательские группы и синхронизировать их.",
+  "connection.copy": "Свяжите группы по умолчанию и пользовательские группы между расширением браузера и Mac Vault или Windows Vault.",
   "connection.serverToggle": "Запустить локальный сервер (хаб)",
-  "connection.serverToggleHelp": "Другие приложения на этом Mac могут подключаться к этому концентратору по фиксированному локальному адресу.",
-  "connection.clientHelp": "Подключите этот браузер к приложению macOS по фиксированному локальному адресу.",
+  "connection.serverToggleHelp": "Расширения браузера на этом компьютере смогут подключиться после копирования ключа сопряжения.",
+  "connection.clientHelp": "Используйте ключ сопряжения из Mac Vault или Windows Vault, чтобы подключить этот браузер.",
   "connection.addressLabel": "Адрес",
   "connection.connect": "Подключиться",
   "connection.disconnect": "Отключить",
@@ -552,5 +552,10 @@
   "groupName.twitterPattern": "Twitter / X Block {number}",
   "platform.placeholder.twitter": "@handle\nhttps://x.com/anotheruser",
   "platform.placeholder.tiktok": "@creatorhandle\nhttps://www.tiktok.com/@creator",
-  "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789"
+  "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
+  "connection.pairingKeyLabel": "Ключ сопряжения",
+  "connection.pairingKeyPrompt": "Вставьте 64-значный ключ сопряжения, показанный в Mac Vault или Windows Vault.",
+  "connection.errorPairingKey": "Введите правильный 64-значный ключ сопряжения.",
+  "connection.errorProtocolMismatch": "Приложение и расширение используют несовместимые версии протокола моста.",
+  "connection.errorSecureConnection": "Не удалось установить защищённое соединение с локальным приложением Vault."
 }

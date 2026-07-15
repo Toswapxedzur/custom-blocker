@@ -48,6 +48,7 @@ DIST_DIR = REPO_ROOT / "dist"
 # renamed/synthesised during the copy.
 COMMON_TOP_LEVEL_FILES = [
     "background.js",
+    "bridge-protocol.js",
     "content.js",
     "platform-profiles.js",
     "helpers.js",
@@ -146,6 +147,53 @@ def collect_dir_files() -> list[Path]:
     return files
 
 
+def manifest_file_references(manifest: dict[str, object]) -> set[str]:
+    """Return every packaged file path directly named by the manifest."""
+    references: set[str] = set()
+
+    background = manifest.get("background")
+    if isinstance(background, dict):
+        service_worker = background.get("service_worker")
+        if isinstance(service_worker, str):
+            references.add(service_worker)
+        scripts = background.get("scripts")
+        if isinstance(scripts, list):
+            references.update(script for script in scripts if isinstance(script, str))
+
+    content_scripts = manifest.get("content_scripts")
+    if isinstance(content_scripts, list):
+        for definition in content_scripts:
+            if not isinstance(definition, dict):
+                continue
+            scripts = definition.get("js")
+            if isinstance(scripts, list):
+                references.update(script for script in scripts if isinstance(script, str))
+
+    sandbox = manifest.get("sandbox")
+    if isinstance(sandbox, dict):
+        pages = sandbox.get("pages")
+        if isinstance(pages, list):
+            references.update(page for page in pages if isinstance(page, str))
+
+    return references
+
+
+def validate_manifest_files(target: str, manifest_path: Path, archive_paths: set[str]) -> None:
+    """Fail before release if a manifest points at a file absent from the ZIP."""
+    with manifest_path.open("r", encoding="utf-8") as f:
+        manifest = json.load(f)
+
+    if not isinstance(manifest, dict):
+        raise ValueError(f"{manifest_path.name} must contain a JSON object")
+
+    missing = sorted(manifest_file_references(manifest) - archive_paths)
+    if missing:
+        raise RuntimeError(
+            f"ERROR [{target}]: manifest references files missing from the package:\n  - "
+            + "\n  - ".join(missing)
+        )
+
+
 def build_target(target: str) -> Path:
     """Build one target. Returns the path to the written zip.
 
@@ -221,6 +269,10 @@ def build_target(target: str) -> Path:
             else:
                 z.write(src, arc)
                 total_bytes += src.stat().st_size
+
+    # Validate the actual archive layout, rather than trusting the source tree.
+    with zipfile.ZipFile(zip_path, "r") as z:
+        validate_manifest_files(target, REPO_ROOT / manifest_name, set(z.namelist()))
 
     print(
         f"[{target}] packaged {len(seen)} files "

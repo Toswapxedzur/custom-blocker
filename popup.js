@@ -181,19 +181,20 @@ const cbDialog = (function () {
 
 // Extension-wide preferences. Keep these defaults in sync with the
 // placeholder text in popup.html's Settings modal.
-// Web-app bridge (connection) defaults. The macOS app is the only endpoint
+// Web-app bridge (connection) defaults. A native Vault app is the only endpoint
 // that can host the local hub (a browser extension cannot listen on a socket),
 // so `server*` fields are honored only on the native host and `client*` fields
 // only in the browser extensions. Both are persisted in globalSettings so the
 // transport layer (background service worker / native server) can read them.
-const CONNECTION_PROTOCOL_VERSION = 1;
+const CONNECTION_PROTOCOL_VERSION = window.CBBridgeProtocol.PROTOCOL_VERSION;
 const CONNECTION_DEFAULT_PORT = 8787;
 const CONNECTION_DEFAULT_ADDRESS = `ws://127.0.0.1:${CONNECTION_DEFAULT_PORT}`;
 const DEFAULT_CONNECTION_SETTINGS = {
   // macOS hub
   serverEnabled: false,
   // browser client
-  clientEnabled: false
+  clientEnabled: false,
+  pairingKey: ""
 };
 
 const DEFAULT_GLOBAL_SETTINGS = {
@@ -216,7 +217,7 @@ const TICK_RATE_MIN_MS = 250;
 const TICK_RATE_MAX_MS = 60_000;
 const AUTOSAVE_DEBOUNCE_MAX_MS = 5_000;
 
-// True when running inside the macOS app's WKWebView (the native chrome shim),
+// True when running inside a native Vault WebView (the native chrome shim),
 // false in a real browser extension. Used to decide whether this endpoint is
 // the connection HUB (macOS, hosts the server) or a CLIENT (browser).
 function isNativeHost() {
@@ -230,7 +231,7 @@ function isNativeHost() {
 // Stable identifier for this endpoint's "program", shown in the per-group
 // connection panel's program picker (macapp / chrome / edge / firefox / ...).
 function detectProgramId() {
-  if (isNativeHost()) return "macapp";
+  if (isNativeHost()) return window.CBBridgeProtocol.nativeProgramId(window.__CB_DESKTOP_PROGRAM_ID);
   let ua = "";
   try {
     ua = navigator.userAgent || "";
@@ -448,6 +449,7 @@ const connectionDisconnectButton = document.getElementById("connectionDisconnect
 const connectionStatusDot = document.getElementById("connectionStatusDot");
 const connectionStatusText = document.getElementById("connectionStatusText");
 const connectionAddressReadout = document.getElementById("connectionAddressReadout");
+const connectionPairingKeyReadout = document.getElementById("connectionPairingKeyReadout");
 const connectionPeerList = document.getElementById("connectionPeerList");
 const connectionGroupSection = document.getElementById("connectionGroupSection");
 const connectionGroupHint = document.getElementById("connectionGroupHint");
@@ -869,9 +871,14 @@ function connectionStatusLabel(status) {
     case "connecting":
       return t("connection.statusConnecting");
     case "error":
-      return status.error
-        ? t("connection.statusError") + ": " + status.error
-        : t("connection.statusError");
+      if (!status.error) return t("connection.statusError");
+      return t("connection.statusError") + ": " + ({
+        "pairing-key-required": t("connection.errorPairingKey"),
+        "pairing-key-rejected": t("connection.errorPairingKey"),
+        "protocol-mismatch": t("connection.errorProtocolMismatch"),
+        "handshake-timeout": t("connection.errorSecureConnection"),
+        "socket-error": t("connection.errorSecureConnection")
+      }[status.error] || status.error);
     case "disconnected":
       return t("connection.statusDisconnected");
     default:
@@ -910,6 +917,9 @@ function renderConnectionSettings() {
   if (connectionAddressReadout) {
     connectionAddressReadout.textContent = status.address || CONNECTION_DEFAULT_ADDRESS;
   }
+  if (connectionPairingKeyReadout) {
+    connectionPairingKeyReadout.textContent = status.pairingKey || "—";
+  }
 
   if (connectionPeerList) {
     connectionPeerList.textContent = "";
@@ -945,7 +955,9 @@ function applyConnectionStatus(raw) {
     state: typeof incoming.state === "string" ? incoming.state : "off",
     address: typeof incoming.address === "string" ? incoming.address : "",
     peers: Array.isArray(incoming.peers) ? incoming.peers : [],
-    error: typeof incoming.error === "string" ? incoming.error : ""
+    error: typeof incoming.error === "string" ? incoming.error : "",
+    pairingKey: typeof incoming.pairingKey === "string" ? incoming.pairingKey : "",
+    hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
   if (state.isSettingsOpen) renderConnectionSettings();
   // The per-group panel lives in the editor (always visible), so keep it fresh.
@@ -982,7 +994,8 @@ function requestConnectionStatus() {
 // ---------------------------------------------------------------------------
 
 const CONNECTION_PROGRAM_LABELS = {
-  macapp: "Mac app",
+  macapp: "Mac Vault",
+  windowsapp: "Windows Vault",
   chrome: "Chrome",
   edge: "Edge",
   firefox: "Firefox",
@@ -1034,36 +1047,17 @@ function clusterOfflineMembers(cluster) {
 // re-creating one with the same name does NOT re-adopt the old cluster. Falls
 // back to the saved name for pre-id-pinning hubs that don't send a groupId.
 function groupConnectionCluster(group) {
-  if (!group) return null;
-  const clusters = Array.isArray(state.clusters) ? state.clusters : [];
-  return (
-    clusters.find((cluster) =>
-      Array.isArray(cluster.members) &&
-      cluster.members.some(
-        (m) =>
-          m &&
-          m.program === LOCAL_PROGRAM_ID &&
-          (m.groupId ? m.groupId === group.id : m.groupName === group.name)
-      )
-    ) || null
-  );
+  return window.CBBridgeProtocol.clusterForGroup(state.clusters, group, LOCAL_PROGRAM_ID);
 }
 
 // This endpoint's local group for a cluster, resolved via the member's pinned
 // group id (falling back to the saved name for pre-id-pinning hubs).
 function clusterLocalGroup(cluster) {
-  if (!cluster || !Array.isArray(cluster.members)) return null;
-  const self = cluster.members.find((m) => m && m.program === LOCAL_PROGRAM_ID);
-  if (!self) return null;
-  if (self.groupId) {
-    const byId = state.groups.find((g) => g.id === self.groupId);
-    if (byId) return byId;
-  }
-  return state.groups.find((g) => g.name === (self.groupName || cluster.groupName)) || null;
+  return window.CBBridgeProtocol.groupForCluster(state.groups, cluster, LOCAL_PROGRAM_ID);
 }
 
 // Programs the user can link to right now (other connected endpoints). A client
-// is always implicitly connected to the Mac hub; the hub sees its peers.
+// is implicitly connected to the authenticated native hub; the hub sees peers.
 function bridgeConnectablePrograms() {
   if (!bridgeIsOnline()) return [];
   const status = state.connectionStatus || {};
@@ -1072,7 +1066,10 @@ function bridgeConnectablePrograms() {
   for (const peer of peers) {
     if (peer && peer.connected !== false && peer.program) programs.add(peer.program);
   }
-  if (!IS_CONNECTION_HUB) programs.add("macapp");
+  if (!IS_CONNECTION_HUB) {
+    const hubProgram = window.CBBridgeProtocol.hubProgramFromStatus(status);
+    if (hubProgram) programs.add(hubProgram);
+  }
   programs.delete(LOCAL_PROGRAM_ID);
   programs.delete("browser");
   programs.delete("");
@@ -1587,8 +1584,10 @@ function syncSettingsFormFromState() {
 // --- YouTube tag targeting picker (per group) --------------------------
 let ytBlockPickerWired = false;
 let tagPickerSearchTimer = null;
-let ytAllTags = null; // full validated tag list, fetched once: [{slug,name,dimension,color}]
+let ytAllTags = null; // full validated tag list for ytAllTagsLocale
+let ytAllTagsLocale = null;
 let ytAllTagsLoading = null;
+let ytAllTagsLoadingLocale = null;
 let ytTagBySlug = new Map(); // slug -> {slug,name,dimension,color} for chip labels
 const YT_BLOCK_MAX_RESULTS = 60;
 
@@ -1603,19 +1602,23 @@ function ytBlockApiBase() {
 // Fetch every tag once so the picker filters a known-valid list locally — the
 // user can only ever add a real tag (like the app's selection panel).
 function loadAllTags(force) {
-  if (ytAllTags && !force) return Promise.resolve(ytAllTags);
-  if (ytAllTagsLoading) return ytAllTagsLoading;
-  ytAllTagsLoading = (async () => {
+  let locale = "en";
+  try { locale = loadLanguage() || "en"; } catch (_) {}
+  if (ytAllTags && ytAllTagsLocale === locale && !force) return Promise.resolve(ytAllTags);
+  if (ytAllTagsLoading && ytAllTagsLoadingLocale === locale) return ytAllTagsLoading;
+  const requestLocale = locale;
+  const request = (async () => {
     try {
       // Localize the picker: the API LEFT JOINs tag_names and falls back to the
       // canonical literal_name, so an untranslated locale is safe.
-      let locale = "en";
-      try { locale = loadLanguage() || "en"; } catch (_) {}
       const resp = await fetch(
-        `${ytBlockApiBase()}/api/tags/all?locale=${encodeURIComponent(locale)}`
+        `${ytBlockApiBase()}/api/tags/all?locale=${encodeURIComponent(requestLocale)}`
       );
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const rows = await resp.json();
+      // A slower request for the previous UI language must never overwrite the
+      // current language's labels.
+      if (loadLanguage() !== requestLocale) return ytAllTags || [];
       ytAllTags = (rows || [])
         .filter((r) => r && r.slug)
         .map((r) => ({
@@ -1624,16 +1627,25 @@ function loadAllTags(force) {
           dimension: r.dimension || "",
           color: r.color || ""
         }));
+      ytAllTagsLocale = requestLocale;
       ytTagBySlug = new Map(ytAllTags.map((t) => [t.slug, t]));
       return ytAllTags;
     } catch (_) {
-      ytAllTags = null; // allow a later retry
+      if (loadLanguage() === requestLocale) {
+        ytAllTags = null; // allow a later retry
+        ytAllTagsLocale = null;
+      }
       throw new Error("unreachable");
     } finally {
-      ytAllTagsLoading = null;
+      if (ytAllTagsLoadingLocale === requestLocale) {
+        ytAllTagsLoading = null;
+        ytAllTagsLoadingLocale = null;
+      }
     }
   })();
-  return ytAllTagsLoading;
+  ytAllTagsLoading = request;
+  ytAllTagsLoadingLocale = requestLocale;
+  return request;
 }
 
 // The per-group Tags field is backed by a hidden textarea of newline-separated
@@ -1714,6 +1726,10 @@ function renderPlatformTagChips() {
     chip.className = "tag-chip";
     chip.setAttribute("role", "listitem");
     chip.title = slug;
+    if (ytAllTags && !tag) {
+      chip.classList.add("tag-chip-invalid");
+      chip.setAttribute("aria-invalid", "true");
+    }
 
     const sw = document.createElement("span");
     sw.className = "swatch";
@@ -1721,7 +1737,7 @@ function renderPlatformTagChips() {
     chip.appendChild(sw);
 
     const label = document.createElement("span");
-    label.textContent = tagLabelForSlug(slug);
+    label.textContent = tag ? tag.name : slug + (ytAllTags ? " \u26a0" : "");
     chip.appendChild(label);
 
     if (editable) {
@@ -2208,16 +2224,35 @@ async function setLanguage(languageCode) {
   const nextLanguage = getAvailableLanguages()[languageCode]
     ? languageCode
     : getDefaultLanguageCode();
+  const languageChanged = state.language !== nextLanguage;
   await ensureLanguageMessages(nextLanguage).catch(() => {
     state.translationMessages[nextLanguage] = {};
   });
   state.language = nextLanguage;
+  if (languageChanged) {
+    ytAllTags = null;
+    ytAllTagsLocale = null;
+    ytTagBySlug = new Map();
+  }
   try {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, state.language);
   } catch {}
   populateLanguageOptions();
   applyStaticTranslations();
   render();
+
+  if (languageChanged) {
+    try {
+      await loadAllTags(true);
+      renderPlatformTagChips();
+      renderYtCache();
+      if (tagPickerModal && !tagPickerModal.classList.contains("hidden")) {
+        await renderTagPickerResults(tagPickerSearch ? tagPickerSearch.value : "");
+      }
+    } catch (_) {
+      // The ordinary picker error state handles an unavailable local tag API.
+    }
+  }
 
   if (state.isManualOpen) {
     loadManualContent().catch((error) => {
@@ -2690,7 +2725,8 @@ function sanitizeConnectionSettings(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
   return {
     serverEnabled: src.serverEnabled === true,
-    clientEnabled: src.clientEnabled === true
+    clientEnabled: src.clientEnabled === true,
+    pairingKey: window.CBBridgeProtocol.normalizePairingKey(src.pairingKey)
   };
 }
 
@@ -3006,7 +3042,7 @@ function applyPlatformRulesHeader(groupType) {
 
 // Builds the author/account mode dropdown for the current platform. Video
 // platforms + Twitter share these modes; YouTube additionally offers the
-// (visual-only) tag modes.
+// fully enforced tag modes.
 function rebuildAuthorModeOptions(type) {
   const isTwitter = type === "twitter";
   const isYouTube = type === "youtube";
@@ -3059,7 +3095,7 @@ function applyPlatformVideoUi(groupType) {
       ? t("platform.help.twitter", { platform })
       : t("platform.help.generic", { platform, shortLabel, longLabel, postLabel });
 
-  // YouTube-only tag stubs.
+  // YouTube-only creator-tag targeting.
   platformAuthorTagsLabel.textContent = t("platform.authorTags");
   platformAuthorTagsField.setAttribute("placeholder", t("platform.authorTagsPlaceholder"));
   platformAuthorTagsHelp.textContent = t("platform.authorTagsHelp");
@@ -4178,7 +4214,7 @@ function sanitizeGroups(groups) {
             .filter(Boolean)
         )
       ],
-      // Visual-only stub: free-form tags for the YouTube tag author modes.
+      // Canonical tag slugs selected for the YouTube tag author modes.
       platformAuthorTags: [
         ...new Set(rawAuthorTags.map((tag) => String(tag ?? "").trim()).filter(Boolean))
       ],
@@ -5602,7 +5638,7 @@ function renderEditor(now = Date.now()) {
   blockingRulesField.disabled = !editable || !isCustomGroup;
   const currentAuthorMode = normalizePlatformAuthorMode(platformAuthorModeField.value);
   const authorModeUsesList = platformAuthorModeUsesList(currentAuthorMode); // include/exclude
-  const authorModeUsesTags = isPlatformAuthorTagMode(currentAuthorMode); // youtube tag stubs
+  const authorModeUsesTags = isPlatformAuthorTagMode(currentAuthorMode);
   // Show the author list only for include/exclude; show the tag box only for the
   // YouTube tag modes; show neither for "all"/"no authors".
   platformAuthorsBlock.classList.toggle("hidden", !usesAuthorAxis || !authorModeUsesList);
@@ -6188,7 +6224,8 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
   const siteResults = parseSiteTextareaValue(draft.sitesText);
   const authorResults = parsePlatformAuthorsTextarea(group.groupType, draft.platformAuthorsText);
   const authorMode = normalizePlatformAuthorMode(draft.platformAuthorMode);
-  // Visual-only stub: tags are free-form, so every non-empty entry is kept.
+  // Preserve every non-empty taxonomy slug; stale slugs remain visible and
+  // invalid in the editor so the user can correct them explicitly.
   const authorTags = [
     ...new Set(
       String(draft.platformAuthorTagsText ?? "")
@@ -7986,15 +8023,24 @@ if (connectionServerToggle) {
 }
 
 if (connectionConnectButton) {
-  connectionConnectButton.addEventListener("click", () => {
-    updateConnectionSettings({ clientEnabled: true })
-      .then(() => {
-        try {
-          chrome.runtime.sendMessage({ type: "connection-connect" });
-        } catch (_) {}
-        applyConnectionStatus({ ...state.connectionStatus, state: "connecting" });
-      })
-      .catch(() => {});
+  connectionConnectButton.addEventListener("click", async () => {
+    const current = getConnectionSettings();
+    const entered = await uiDialog.prompt(
+      t("connection.pairingKeyPrompt"),
+      current.pairingKey || "",
+      { confirmText: t("connection.connect"), cancelText: t("manual.close") }
+    );
+    if (entered === null) return;
+    const pairingKey = window.CBBridgeProtocol.normalizePairingKey(entered);
+    if (!pairingKey) {
+      applyConnectionStatus({ ...state.connectionStatus, state: "error", error: "pairing-key-required" });
+      return;
+    }
+    try {
+      await updateConnectionSettings({ clientEnabled: true, pairingKey });
+      chrome.runtime.sendMessage({ type: "connection-connect", pairingKey });
+      applyConnectionStatus({ ...state.connectionStatus, state: "connecting", error: "" });
+    } catch (_) {}
   });
 }
 

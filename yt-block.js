@@ -1,23 +1,28 @@
-// yt-block.js — hide YouTube videos whose channel carries a blocked tag.
+// yt-block.js — resolve YouTube feed cards to stateful creator-tag verdicts.
 //
 // Read-only + fail-open by design:
 //   * We resolve each on-screen video to a channel id (from /channel/UC links,
 //     from /@handle links, or from a videoId→channelId map parsed out of
 //     ytInitialData), then ask the background worker for that channel's tags.
-//   * The background worker answers from its hybrid cache (offline bundle +
-//     small lookup cache) and only hits the server for genuine misses.
-//   * Anything we can't resolve, or any failure anywhere in the chain, leaves
-//     the video visible. We never hide something we're unsure about.
+//   * The background worker answers from one bounded local verdict cache and
+//     only hits the read-only service for genuine misses or stale verdicts.
+//   * Verdicts are published as card attributes. content.js applies them through
+//     the canonical feed cascade, so schedules, snoozes, timers, video forms,
+//     allow rules, and group order have exactly the same meaning as other rules.
+//   * Anything we can't resolve remains unknown and therefore fails open.
 //
-// This script does not send any browsing data — channel-id *contribution* is a
-// separate, consent-gated path (yt-collect.js + background.js).
+// Lookups send only public YouTube channel ids. The lookup service does not save
+// the request or browsing context. Saving a channel id for classification is a
+// separate, consent-gated contribution path (yt-collect.js + background.js).
 (function () {
   "use strict";
   if (window.__cbYtBlock) return;
   window.__cbYtBlock = true;
 
-  const HIDDEN_ATTR = "data-cb-yt-hidden";
+  const LEGACY_HIDDEN_ATTR = "data-cb-yt-hidden";
   const CH_ATTR = "data-cb-channel";
+  const TAG_STATE_ATTR = "data-cb-tag-state";
+  const TAGS_ATTR = "data-cb-tags";
   const ITEM_SELECTOR = [
     "ytd-rich-item-renderer",
     "ytd-video-renderer",
@@ -29,8 +34,8 @@
     "ytd-rich-grid-media"
   ].join(",");
 
-  let blockedSlugs = new Set();
-  // channelId -> { slugs:string[], at:ms } — `at` lets us periodically re-ask
+  let tagRulesConfigured = false;
+  // channelId -> { slugs:string[], state:string, at:ms } — `at` lets us periodically re-ask
   // the background so stale-while-revalidate updates propagate to the page.
   const tagCache = new Map();
   const REASK_MS = 5000; // re-query an on-screen channel at most this often
@@ -74,38 +79,32 @@
   });
 
   // ---------------------------------------------------------------- settings
-  // Blocked tag slugs are the union of every *enabled* block group that targets
-  // YouTube creators "with a certain tag" (platformAuthorMode === "tagInclude").
-  // The per-group Tags picker in the popup is the single source of truth, so
-  // nothing here is hardcoded and it tracks taxonomy changes for free.
+  // Avoid creator lookups unless at least one enabled YouTube tag rule exists.
+  // Runtime policy is deliberately NOT evaluated here; the background session
+  // owns schedules/snoozes/timers and content.js owns the priority cascade.
   const BLOCKED_GROUPS_KEY = "blockedGroups";
-  function slugsFromGroups(groups) {
-    const out = new Set();
-    if (!Array.isArray(groups)) return out;
-    for (const g of groups) {
-      if (!g || g.enabled !== true) continue;
-      if (g.platformAuthorMode !== "tagInclude") continue;
-      const tags = Array.isArray(g.platformAuthorTags) ? g.platformAuthorTags : [];
-      for (const s of tags) {
-        if (typeof s === "string" && s.trim()) out.add(s.trim());
+  function hasConfiguredTagRules(groups) {
+    if (!Array.isArray(groups)) return false;
+    return groups.some((g) => {
+      if (!g || g.enabled !== true || g.groupType !== "youtube") return false;
+      if (g.platformAuthorMode !== "tagInclude" && g.platformAuthorMode !== "tagExclude") {
+        return false;
       }
-    }
-    return out;
+      return Array.isArray(g.platformAuthorTags) && g.platformAuthorTags.some(
+        (slug) => typeof slug === "string" && slug.trim()
+      );
+    });
   }
 
   try {
     chrome.storage.local.get(BLOCKED_GROUPS_KEY, (r) => {
-      blockedSlugs = slugsFromGroups(r && r[BLOCKED_GROUPS_KEY]);
+      tagRulesConfigured = hasConfiguredTagRules(r && r[BLOCKED_GROUPS_KEY]);
       scheduleScan();
     });
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local" || !changes[BLOCKED_GROUPS_KEY]) return;
-      blockedSlugs = slugsFromGroups(changes[BLOCKED_GROUPS_KEY].newValue);
-      if (!blockedSlugs.size) {
-        unhideAll();
-        return;
-      }
-      scan(); // re-apply: hides newly-blocked, unhides no-longer-blocked
+      tagRulesConfigured = hasConfiguredTagRules(changes[BLOCKED_GROUPS_KEY].newValue);
+      scheduleScan();
     });
   } catch (_) {
     // No extension storage (shouldn't happen in a content script) — do nothing.
@@ -306,45 +305,62 @@
     return null;
   }
 
-  // --------------------------------------------------------------- applying
-  function hide(el) {
-    if (!el.hasAttribute(HIDDEN_ATTR)) {
-      el.setAttribute(HIDDEN_ATTR, "1");
-      el.style.display = "none";
-    }
-  }
-  function unhide(el) {
-    if (el.hasAttribute(HIDDEN_ATTR)) {
-      el.removeAttribute(HIDDEN_ATTR);
-      el.style.display = "";
-    }
-  }
-  function unhideAll() {
-    document.querySelectorAll("[" + HIDDEN_ATTR + "]").forEach(unhide);
-  }
-  function apply(el, slugs) {
-    if (slugs && slugs.some((s) => blockedSlugs.has(s))) hide(el);
-    else unhide(el);
-  }
-
-  function applyCacheToAll() {
-    document.querySelectorAll(ITEM_SELECTOR).forEach((el) => {
-      const cid = el.getAttribute(CH_ATTR);
-      const entry = cid && tagCache.get(cid);
-      if (entry) apply(el, entry.slugs);
+  // ------------------------------------------------------------- publishing
+  function restoreLegacyHides() {
+    document.querySelectorAll("[" + LEGACY_HIDDEN_ATTR + "]").forEach((el) => {
+      el.removeAttribute(LEGACY_HIDDEN_ATTR);
+      if (el.style.display === "none") el.style.removeProperty("display");
     });
   }
 
+  function annotate(el, entry) {
+    if (!el || !entry) return false;
+    const state = typeof entry.state === "string" ? entry.state : "unknown";
+    const tags = state === "tagged" && Array.isArray(entry.slugs) ? entry.slugs : [];
+    const encoded = tags.join(" ");
+    let changed = false;
+    if (el.getAttribute(TAG_STATE_ATTR) !== state) {
+      el.setAttribute(TAG_STATE_ATTR, state);
+      changed = true;
+    }
+    if (el.getAttribute(TAGS_ATTR) !== encoded) {
+      el.setAttribute(TAGS_ATTR, encoded);
+      changed = true;
+    }
+    return changed;
+  }
+
+  function notifyTagVerdicts() {
+    try { window.dispatchEvent(new CustomEvent("cb-yt-tags-resolved")); } catch (_) {}
+  }
+
+  function applyCacheToAll() {
+    let changed = false;
+    document.querySelectorAll(ITEM_SELECTOR).forEach((el) => {
+      const cid = el.getAttribute(CH_ATTR);
+      const entry = cid && tagCache.get(cid);
+      if (entry && annotate(el, entry)) changed = true;
+    });
+    return changed;
+  }
+
   function scan() {
-    // Note: we resolve + look up channels even when no tag is being blocked,
-    // so the local cache reflects everything you watch (useful for debugging
-    // and pre-warming). Hiding only happens in apply() when blockedSlugs is
-    // non-empty, so this never hides anything unexpectedly.
     harvestInitialData();
     publishPageChannel();
+    if (!tagRulesConfigured) return;
     const items = document.querySelectorAll(ITEM_SELECTOR);
     const need = new Set();
     const now = Date.now();
+    const pageChannelId =
+      typeof window.__cbPageChannelId === "string" &&
+      /^UC[0-9A-Za-z_-]{22}$/.test(window.__cbPageChannelId)
+        ? window.__cbPageChannelId
+        : null;
+    if (pageChannelId) {
+      const pageEntry = tagCache.get(pageChannelId);
+      if (!pageEntry || now - pageEntry.at > REASK_MS) need.add(pageChannelId);
+    }
+    let annotationsChanged = false;
     items.forEach((el) => {
       let cid = el.getAttribute(CH_ATTR);
       if (!cid) {
@@ -353,11 +369,12 @@
       }
       if (!cid) return; // unresolved → fail open (leave visible)
       const entry = tagCache.get(cid);
-      if (entry) apply(el, entry.slugs); // serve cached value immediately
+      if (entry && annotate(el, entry)) annotationsChanged = true;
       // Ask (or re-ask) the background so stale-while-revalidate updates from
       // the server propagate: first time, or once our local copy is old enough.
       if (!entry || now - entry.at > REASK_MS) need.add(cid);
     });
+    if (annotationsChanged) notifyTagVerdicts();
     if (!need.size) return;
     try {
       chrome.runtime.sendMessage(
@@ -365,11 +382,19 @@
         (resp) => {
           if (chrome.runtime.lastError || !resp) return; // fail open
           const tags = resp.tags || {};
+          const states = resp.states || {};
           const stamp = Date.now();
           for (const id of need) {
-            tagCache.set(id, { slugs: tags[id] || [], at: stamp });
+            tagCache.set(id, {
+              slugs: tags[id] || [],
+              state: typeof states[id] === "string" ? states[id] : "unknown",
+              at: stamp
+            });
           }
           applyCacheToAll();
+          // The primary page channel may not be represented by a feed card, so
+          // always notify the page matcher after a completed verdict round.
+          notifyTagVerdicts();
         }
       );
     } catch (_) {
@@ -392,6 +417,8 @@
   }
   if (document.body) startObserver();
   else document.addEventListener("DOMContentLoaded", startObserver, { once: true });
+  if (document.body) restoreLegacyHides();
+  else document.addEventListener("DOMContentLoaded", restoreLegacyHides, { once: true });
 
   // SPA navigations: re-harvest ytInitialData and re-scan.
   window.addEventListener("yt-navigate-finish", () => {
@@ -399,8 +426,8 @@
     scheduleScan();
   });
 
-  // Safety net for lazily-injected content the observer might miss. Runs
-  // regardless of blocking so the tag cache keeps filling as you browse.
+  // Safety net for lazily-injected content the observer might miss. scan()
+  // itself skips lookups while no enabled tag rule is configured.
   setInterval(() => {
     scheduleScan();
   }, 2500);

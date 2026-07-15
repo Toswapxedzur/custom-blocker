@@ -62,10 +62,10 @@
   "settings.save": "সংরক্ষণ করুন",
   "settings.saved": "সেটিংস সংরক্ষিত।",
   "connection.title": "ওয়েব অ্যাপ ব্রিজ",
-  "connection.copy": "এই অ্যাপটিকে macOS অ্যাপের সাথে সংযুক্ত করুন যাতে ডিফল্ট এবং কাস্টম গ্রুপগুলিকে লিঙ্ক করা যায় এবং সিঙ্কে রাখা যায়।",
+  "connection.copy": "ব্রাউজার এক্সটেনশন এবং Mac Vault বা Windows Vault-এর মধ্যে Default ও Custom গ্রুপ লিঙ্ক করুন।",
   "connection.serverToggle": "স্থানীয় সার্ভার চালান (হাব)",
-  "connection.serverToggleHelp": "এই ম্যাকের অন্যান্য অ্যাপগুলি একটি নির্দিষ্ট স্থানীয় ঠিকানার মাধ্যমে এই হাবের সাথে সংযোগ করতে পারে৷",
-  "connection.clientHelp": "স্থির স্থানীয় ঠিকানার মাধ্যমে এই ব্রাউজারটিকে macOS অ্যাপের সাথে সংযুক্ত করুন৷",
+  "connection.serverToggleHelp": "পেয়ারিং কী কপি করার পর এই কম্পিউটারের ব্রাউজার এক্সটেনশনগুলি সংযোগ করতে পারবে।",
+  "connection.clientHelp": "এই ব্রাউজারটি সংযুক্ত করতে Mac Vault বা Windows Vault-এ দেখানো পেয়ারিং কী ব্যবহার করুন।",
   "connection.addressLabel": "ঠিকানা",
   "connection.connect": "সংযোগ করুন",
   "connection.disconnect": "সংযোগ বিচ্ছিন্ন করুন",
@@ -552,5 +552,10 @@
   "app.shortTitle": "কাস্টম ওয়েবসাইট ব্লকার",
   "platform.placeholder.tiktok": "@creatorhandle\nhttps://www.tiktok.com/@creator",
   "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com"
+  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "connection.pairingKeyLabel": "পেয়ারিং কী",
+  "connection.pairingKeyPrompt": "Mac Vault বা Windows Vault-এ দেখানো ৬৪-অক্ষরের পেয়ারিং কী পেস্ট করুন।",
+  "connection.errorPairingKey": "সঠিক ৬৪-অক্ষরের পেয়ারিং কী লিখুন।",
+  "connection.errorProtocolMismatch": "অ্যাপ ও এক্সটেনশনটি ব্রিজ প্রোটোকলের অসামঞ্জস্যপূর্ণ সংস্করণ ব্যবহার করছে।",
+  "connection.errorSecureConnection": "স্থানীয় Vault অ্যাপের সঙ্গে নিরাপদ সংযোগ স্থাপন করা যায়নি।"
 }

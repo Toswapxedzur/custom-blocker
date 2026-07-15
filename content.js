@@ -454,6 +454,23 @@ function getCurrentFeedSite() {
   return null;
 }
 
+function getYouTubeCardTagData(card) {
+  let source = null;
+  try {
+    source = card.matches("[data-cb-channel]") ? card : card.querySelector("[data-cb-channel]");
+  } catch (_) {}
+  const tagState = source?.getAttribute("data-cb-tag-state") || "unknown";
+  const tags = (source?.getAttribute("data-cb-tags") || "")
+    .split(/\s+/)
+    .map((slug) => slug.trim())
+    .filter(Boolean);
+  return {
+    channelId: source?.getAttribute("data-cb-channel") || null,
+    tagState,
+    tags
+  };
+}
+
 function getFeedCardData(card) {
   const currentSite = getCurrentFeedSite();
   if (currentSite === "reddit") {
@@ -485,14 +502,22 @@ function getFeedCardData(card) {
     return { videoForm: videoContext.form, creators };
   }
   if (isPostCard(card)) {
-    return { videoForm: "post", creators: getFeedCardCreators(card) };
+    return {
+      videoForm: "post",
+      creators: getFeedCardCreators(card),
+      ...getYouTubeCardTagData(card)
+    };
   }
   const href = getFeedCardHref(card, "youtube");
   if (!href) return null;
   let url;
   try { url = new URL(href, location.origin); } catch { return null; }
   const videoContext = detectVideoSiteContext(normalizeHostname(url.hostname), url.pathname);
-  return { videoForm: videoContext.form, creators: getFeedCardCreators(card) };
+  return {
+    videoForm: videoContext.form,
+    creators: getFeedCardCreators(card),
+    ...getYouTubeCardTagData(card)
+  };
 }
 
 function matchesFeedFilter(cardData, filter) {
@@ -508,7 +533,15 @@ function matchesFeedFilter(cardData, filter) {
     if (cardData.videoForm !== filter.videoMode) return false;
   }
   if (filter.authorMode === "all") return true;
-  // "nobody" / tag stubs never trim by author (and aren't emitted as filters).
+  if (isPlatformAuthorTagMode(filter.authorMode)) {
+    return matchesYouTubeTagSelection(
+      filter.authorMode,
+      filter.tags,
+      cardData.tagState,
+      cardData.tags
+    );
+  }
+  // "nobody" never trims by author (and isn't emitted as a filter).
   if (filter.authorMode !== "include" && filter.authorMode !== "exclude") return false;
   const authors = Array.isArray(filter.authors) ? filter.authors : [];
   if (authors.length === 0) return false;
@@ -1409,6 +1442,13 @@ if (/^https?:$/i.test(location.protocol)) {
   // settles; re-run the session the moment that resolves so the tag/author
   // page block fires (the feed hider already reacts continuously).
   window.addEventListener("cb-page-channel-resolved", () => scheduleRefreshSession(0));
+  // yt-block.js owns YouTube's channel-id extraction and publishes read-only
+  // tag verdicts onto cards. Re-run both the feed cascade and page matcher when
+  // those verdicts change; unresolved states remain fail-open.
+  window.addEventListener("cb-yt-tags-resolved", () => {
+    scheduleApplyFeedFilters();
+    scheduleRefreshSession(0);
+  });
   document.addEventListener("yt-navigate-finish", () => {
     refreshSession();
     scheduleSessionResolveRetries();

@@ -13,7 +13,7 @@
     "128": "icons/adamancia-vault-lock-v3-128.png"
   },
   "background": {
-    "scripts": ["browser-compat.js", "sandbox-transport.js", "platform-profiles.js", "helpers.js", "background.js"],
+    "scripts": ["browser-compat.js", "sandbox-transport.js", "bridge-protocol.js", "platform-profiles.js", "helpers.js", "background.js"],
     "persistent": false
   },
   "content_scripts": [

@@ -1,22 +1,22 @@
 # Gizlilik Politikası — Özel Web Engelleyici
 
-_Son güncelleme: 2026-06-30_
+_Son güncelleme: 2026-07-13_
 
 Bu sayfada **Özel Web Engelleyici** tarayıcısının tam olarak hangi verileri açıkladığı açıklanmaktadır
 uzantı toplanıyor, nereye gidiyor ve her tarayıcı izninin neden
-talep edildi. Kısa versiyonu: tarayıcınızdan hiçbir şey çıkmıyor.
+talep edildiğini açıklar. Kısaca: kurallarınızı veya kişisel gezinme verilerinizi
+kaydetmeyiz. Etiket kuralları herkese açık YouTube kanal kimliklerini sorgulayabilir,
+ancak bu sorgular saklanmaz veya sizinle ilişkilendirilmez.
 
 ## Özet
 
-- **Hiçbir sunucuya veri gönderilmez.** Uzantı sıfır ağ oluşturur
-  herhangi bir üçüncü tarafa (veya bize) yapılan talepler. Analitiği yok, hayır
-  telemetri, kilitlenme raporlayıcısı yok, uzaktan yapılandırma yok, otomatik yok
-  standart Chrome Web Mağazası mekanizmasının ötesinde güncellemeler.
-- **Tüm veriler tarayıcınızda kalır** ve Chrome'un yerel özelliği aracılığıyla kalıcı olur
-  uzatma depolama (`chrome.storage.local`). sürece asla senkronize edilmez.
-  Chrome'un kendisi yerel profilinizi senkronize eder.
-- **Kişisel olarak tanımlanabilir hiçbir bilgi toplanmaz**
-  istediğiniz zaman uzatabilirsiniz.
+- **Yapılandırma tarayıcıda kalır.** Gruplar, programlar, kurallar, günlükler,
+  sayaçlar ve tercihler yalnızca `chrome.storage.local` içinde tutulur.
+- **Etiket sorgusu yalnızca herkese açık kanal kimliğini içerir.** URL, video
+  başlığı, arama, zaman, hesap veya uzantı ayarı gönderilmez.
+- **Sorgular kaydedilmez.** Uç nokta salt okunurdur, bilinmeyen kanalları eklemez
+  ve isteği bir kişiyle ilişkilendirmez.
+- **Analitik, telemetri, reklam veya çökme raporu yoktur.**
 - Kesinlikle gerekli olanın ötesinde tarama etkinliği **takip edilmez**
   Kendi yapılandırdığınız engelleme kurallarını uygulamak için.
 
@@ -53,7 +53,8 @@ cihazınızda ve yalnızca kendi tarayıcı profilinizin içinde.
 | İzin | Ne için kullanılır |
 | --- | --- |
 | `storage` | Blok gruplarınızı, ayarlarınızı ve çalışma zamanı durumunuzu yalnızca tarayıcınıza kaydedin ve yükleyin. |
-| `declarativeNetRequest` | Chrome'a, yapılandırdığınız kurallara göre hangi URL'lerin yerel olarak engelleneceğini söyleyin. Tarayıcı engellemeyi yönetir; uzantı yalnızca kural listesini kaydeder ve günceller. |
+| `favicon` | Chromium'da kuralların yanında tarayıcının yerel önbelleğindeki site simgelerini gösterir. Tarama geçmişini göndermez ve hizmetimize istek yapmaz. |
+| `nativeMessaging` | Yalnızca Safari'de özel kural sanal alanı isteklerini cihazdaki yerel uygulamaya iletir. Bulut aktarımı değildir. |
 | `alarms` | Bir erteleme, dondurma veya zamanlama penceresi sona erdiğinde zamana dayalı sınırları yenilemek ve kural durumunu güncellemek için arka plan hizmet çalışanını programa göre uyandırın. |
 | `offscreen` | Korumalı alana alınmış özel kurallı JavaScript'i ekran dışı bir belgede çalıştırın, böylece uzantıdan kaçamaz veya sayfalarınıza doğrudan dokunamaz. |
 | `tabs` | Araç çubuğu simgesini tıklattığınızda düzenleyiciyi tam sekme olarak açın, grup kurallarını değerlendirmek için etkin sekmenin URL'sine bakın ve düzenleyicide yaptığınız bir kural değişikliğinden sonra sekmeleri yeniden yükleyin. |
@@ -76,10 +77,9 @@ ve asla cihazdan aktarılmaz.
 
 ## Web sitesi ve içerik oluşturucu etiketi hizmet istatistikleri
 
-Bu bölüm **web sitesi ve isteğe bağlı yaratıcı etiketi hizmeti** ile ilgilidir.
-bunlar uzantının kendisinden ayrıdır. Uzantı hala gönderiyor
-yukarıda açıklandığı gibi hiçbir şey. Web sitesi küçük bir **İstatistik** yayınlıyor
-Paneli doldurmak için sunucu birkaç toplu sayım tutar:
+Bu bölüm **web sitesi ve içerik oluşturucu etiketi hizmeti** ile ilgilidir.
+Uzantı herkese açık kanal kimliklerini salt okunur biçimde sorgulayabilir; bu
+istekler kaydedilmez. **İstatistik** paneli yalnızca kişiyle bağlantısız sayımları tutar:
 
 - **İndirme sayısı** — her bir ürünün indirme düğmesine kaç kez basıldığı
   tıklandı (macOS, Windows, tarayıcı uzantısı, Safari).
@@ -100,6 +100,9 @@ tarih.
 - **İsteğe bağlı kanal kimliği katkıları.** Yalnızca ve yalnızca katılmayı tercih ederseniz,
   uzantı/web sitesi YouTube **kanal kimliklerini** paylaşabilir (asla video başlıklarını,
   yaratıcıları herkes için sınıflandırmaya yardımcı olmak için geçmişi veya kişisel herhangi bir şeyi izleyin.
+- **Elle katkı.** Oturum açmış kullanıcının bilinçli gönderiminde e-posta–kanal
+  bağlantısı yalnızca 24 saatlik kota için tutulur ve saatlik temizlenir.
+- **Herkese açık kuyruk.** Kanal kimliğini ve durumu gösterebilir; zamanı veya katkıda bulunanı göstermez.
 
 ## Çocuklar
 

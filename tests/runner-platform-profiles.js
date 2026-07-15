@@ -124,6 +124,47 @@ assert("Twitch includes live preview-card links", PLATFORM_PROFILES.twitch.feed.
   'a[data-a-target="preview-card-image-link"]'
 ));
 
+log.section("P5: YouTube creator-tag verdicts are state-aware and fail open");
+const taggedSlugs = ["gaming", "gaming-genres-fps"];
+assert("tagInclude matches a selected tag on a classified creator",
+  matchesYouTubeTagSelection("tagInclude", ["gaming"], "tagged", taggedSlugs));
+assert("tagInclude does not match a different tag",
+  !matchesYouTubeTagSelection("tagInclude", ["music"], "tagged", taggedSlugs));
+assert("tagExclude matches a classified creator carrying none of the selected tags",
+  matchesYouTubeTagSelection("tagExclude", ["music"], "tagged", taggedSlugs));
+assert("tagExclude does not match a classified creator carrying a selected tag",
+  !matchesYouTubeTagSelection("tagExclude", ["gaming"], "tagged", taggedSlugs));
+for (const unresolved of ["unknown", "pending", "below_floor", null]) {
+  assert("tagExclude fails open for " + String(unresolved),
+    !matchesYouTubeTagSelection("tagExclude", ["music"], unresolved, []));
+  assert("tagInclude fails open for " + String(unresolved),
+    !matchesYouTubeTagSelection("tagInclude", ["gaming"], unresolved, taggedSlugs));
+}
+
+const youtubeTagPage = {
+  ...pageContext("www.youtube.com", "/watch?v=abcdefghijk"),
+  isYouTubePage: true,
+  videoSite: "youtube",
+  videoForm: "long",
+  channelTagState: "tagged",
+  channelTagsKnown: true,
+  channelTags: taggedSlugs
+};
+assert("YouTube tagInclude participates in the canonical page matcher",
+  matchesProfileGroup({
+    groupType: "youtube", blockHomePage: false, platformVideoMode: "long",
+    platformAuthorMode: "tagInclude", platformAuthorTags: ["gaming"]
+  }, youtubeTagPage));
+assert("YouTube tagExclude page matcher fails open while pending",
+  !matchesProfileGroup({
+    groupType: "youtube", blockHomePage: false, platformVideoMode: "long",
+    platformAuthorMode: "tagExclude", platformAuthorTags: ["music"]
+  }, { ...youtubeTagPage, channelTagState: "pending", channelTagsKnown: false, channelTags: [] }));
+assert("Entry-scoped surface rules share the creator-tag predicate",
+  platformGroupAuthorAxisMatchesPage({
+    groupType: "youtube", platformAuthorMode: "tagInclude", platformAuthorTags: ["gaming"]
+  }, youtubeTagPage));
+
 const counts = log.counts();
 log.summary("─".repeat(60));
 log.summary(

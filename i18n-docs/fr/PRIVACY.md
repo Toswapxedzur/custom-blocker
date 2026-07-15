@@ -1,22 +1,22 @@
 # Politique de confidentialité — Bloqueur Web personnalisé
 
-_Dernière mise à jour : 2026-06-30_
+_Dernière mise à jour : 2026-07-13_
 
 Cette page explique exactement quelles données le navigateur **Custom Web Blocker**
 l'extension collecte, où elle va et pourquoi chaque autorisation du navigateur est
-demandé. La version courte est la suivante : rien ne quitte votre navigateur.
+demandée. En bref : nous ne conservons ni vos règles ni vos données personnelles
+de navigation. Les règles par tag peuvent interroger des identifiants publics de
+chaînes YouTube, mais ces requêtes ne sont ni conservées ni rattachées à vous.
 
 ## Résumé
 
-- **Aucune donnée n'est envoyée à un serveur.** L'extension ne crée aucun réseau
-  demandes à un tiers (ou à nous). Il n'a pas d'analyse, non
-  télémétrie, pas de rapporteur de crash, pas de configuration à distance, pas de automatique
-  mises à jour au-delà du mécanisme standard du Chrome Web Store.
-- **Toutes les données restent dans votre navigateur**, conservées via la version locale de Chrome
-  stockage d'extension (`chrome.storage.local`). Il n'est jamais synchronisé sauf si
-  Chrome lui-même synchronise votre profil local.
-- **Aucune information personnelle identifiable n'est collectée** par le
-  prolongation à tout moment.
+- **Votre configuration reste dans le navigateur.** Groupes, horaires, règles,
+  journaux, minuteurs et préférences sont stockés uniquement dans `chrome.storage.local`.
+- **Une requête de tag ne contient qu'un identifiant public de chaîne.** Elle
+  n'inclut ni URL, ni titre, ni recherche, ni heure, ni compte, ni réglage.
+- **Les requêtes ne sont pas enregistrées.** Le point d'accès est en lecture
+  seule, n'ajoute pas les chaînes inconnues et n'associe personne à la requête.
+- **Aucune analyse, télémétrie, publicité ni remontée de panne.**
 - **Aucun suivi** de l'activité de navigation au-delà de ce qui est strictement nécessaire
   pour appliquer les règles de blocage que vous avez vous-même configurées.
 
@@ -53,7 +53,8 @@ sur votre appareil, et uniquement dans votre propre profil de navigateur.
 | Autorisation | À quoi sert-il |
 | --- | --- |
 | `storage` | Enregistrez et chargez vos groupes de blocs, vos paramètres et votre état d'exécution dans votre navigateur uniquement. |
-| `declarativeNetRequest` | Indiquez à Chrome quelles URL bloquer de manière native, en fonction des règles que vous avez configurées. Le navigateur gère le blocage ; l'extension enregistre et met à jour uniquement la liste de règles. |
+| `favicon` | Affiche dans Chromium les icônes de sites déjà mises en cache par le navigateur à côté des règles. Cela n'envoie pas l'historique et ne contacte pas notre service. |
+| `nativeMessaging` | Dans Safari uniquement, transmet les requêtes du bac à sable des règles personnalisées à l'application locale de l'appareil. Ce n'est pas un transport cloud. |
 | `alarms` | Réveillez le travailleur de service en arrière-plan selon la planification pour actualiser les limites temporelles et mettre à jour l'état des règles lorsqu'une fenêtre de répétition, de gel ou de planification se termine. |
 | `offscreen` | Exécutez du JavaScript avec règles personnalisées en bac à sable dans un document hors écran afin qu'il ne puisse pas échapper à l'extension ou toucher directement vos pages. |
 | `tabs` | Ouvrez l'éditeur sous forme d'onglet complet lorsque vous cliquez sur l'icône de la barre d'outils, recherchez l'URL de l'onglet actif pour évaluer les règles de groupe et rechargez les onglets après une modification de règle que vous avez apportée dans l'éditeur. |
@@ -76,9 +77,9 @@ et ne sont jamais transmis depuis l'appareil.
 
 ## Statistiques du site Web et du service de balise de créateur
 
-Cette section concerne le **site Web et le service facultatif de balise de créateur**,
-qui sont distincts de l’extension elle-même. L'extension envoie toujours
-rien, comme décrit ci-dessus. Le site publie une petite **Statistiques**
+Cette section concerne le **site Web et le service de tags de créateurs**.
+L'extension peut interroger en lecture seule des identifiants publics de chaîne ;
+ces requêtes ne sont pas conservées. Le site publie un petit panneau de **statistiques**
 panneau, et pour le remplir, le serveur conserve quelques comptes globaux :
 
 - **Les téléchargements comptent** : combien de fois le bouton de téléchargement de chaque produit a été actionné
@@ -100,6 +101,11 @@ histoire.
 - **Contributions facultatives à l'identifiant de chaîne.** Si — et seulement si — vous vous inscrivez, le
   l'extension/le site Web peut partager des **identifiants de chaîne** YouTube (jamais de titres de vidéo,
   regarder l'historique ou quoi que ce soit de personnel) pour aider à classer les créateurs pour tout le monde.
+- **Contributions manuelles.** Lorsqu'un utilisateur connecté envoie volontairement
+  des chaînes, l'association e-mail/chaîne n'est conservée que pendant la fenêtre
+  glissante de 24 heures puis supprimée par le nettoyage horaire.
+- **File publique.** Elle peut afficher l'identifiant public et l'état du
+  classement, jamais l'heure d'envoi ni l'identité du contributeur.
 
 ## Enfants
 

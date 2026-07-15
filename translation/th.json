@@ -62,10 +62,10 @@
   "settings.save": "บันทึก",
   "settings.saved": "บันทึกการตั้งค่าแล้ว",
   "connection.title": "บริดจ์เว็บแอป",
-  "connection.copy": "เชื่อมต่อแอปนี้กับแอป macOS เพื่อให้สามารถเชื่อมโยงและซิงค์กลุ่มเริ่มต้นและกลุ่มแบบกำหนดเองได้",
+  "connection.copy": "เชื่อมกลุ่มเริ่มต้นและกลุ่มกำหนดเองระหว่างส่วนขยายเบราว์เซอร์กับ Mac Vault หรือ Windows Vault",
   "connection.serverToggle": "เรียกใช้เซิร์ฟเวอร์ภายในเครื่อง (ฮับ)",
-  "connection.serverToggleHelp": "แอพอื่นๆ บน Mac นี้สามารถเชื่อมต่อกับฮับนี้ผ่านที่อยู่ในเครื่องที่แน่นอนได้",
-  "connection.clientHelp": "เชื่อมต่อเบราว์เซอร์นี้กับแอพ macOS ผ่านที่อยู่ในเครื่องที่แน่นอน",
+  "connection.serverToggleHelp": "ส่วนขยายเบราว์เซอร์ในคอมพิวเตอร์นี้จะเชื่อมต่อได้หลังจากคุณคัดลอกคีย์จับคู่",
+  "connection.clientHelp": "ใช้คีย์จับคู่ที่แสดงใน Mac Vault หรือ Windows Vault เพื่อเชื่อมต่อเบราว์เซอร์นี้",
   "connection.addressLabel": "ที่อยู่",
   "connection.connect": "เชื่อมต่อ",
   "connection.disconnect": "ตัดการเชื่อมต่อ",
@@ -552,5 +552,10 @@
   "logFeed.clear": "ชัดเจน",
   "app.shortTitle": "ตัวบล็อกเว็บไซต์แบบกำหนดเอง",
   "platform.placeholder.tiktok": "@creatorhandle\nhttps://www.tiktok.com/@creator",
-  "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789"
+  "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
+  "connection.pairingKeyLabel": "คีย์จับคู่",
+  "connection.pairingKeyPrompt": "วางคีย์จับคู่ 64 อักขระที่แสดงใน Mac Vault หรือ Windows Vault",
+  "connection.errorPairingKey": "ป้อนคีย์จับคู่ 64 อักขระที่ถูกต้อง",
+  "connection.errorProtocolMismatch": "แอปและส่วนขยายใช้เวอร์ชันโปรโตคอลบริดจ์ที่ไม่เข้ากัน",
+  "connection.errorSecureConnection": "ไม่สามารถสร้างการเชื่อมต่อที่ปลอดภัยกับแอป Vault ในเครื่องได้"
 }

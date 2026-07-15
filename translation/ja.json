@@ -62,10 +62,10 @@
   "settings.save": "保存",
   "settings.saved": "設定が保存されました。",
   "connection.title": "Webアプリブリッジ",
-  "connection.copy": "このアプリを macOS アプリに接続すると、デフォルト グループとカスタム グループをリンクして同期を保つことができます。",
+  "connection.copy": "ブラウザー拡張機能と Mac Vault または Windows Vault の間で、デフォルトグループとカスタムグループをリンクします。",
   "connection.serverToggle": "ローカルサーバー（ハブ）を実行する",
-  "connection.serverToggleHelp": "この Mac 上の他のアプリは、固定ローカル アドレスを介してこのハブに接続できます。",
-  "connection.clientHelp": "固定ローカル アドレスを介してこのブラウザを macOS アプリに接続します。",
+  "connection.serverToggleHelp": "ペアリングキーをコピーすると、このコンピューターのブラウザー拡張機能から接続できます。",
+  "connection.clientHelp": "Mac Vault または Windows Vault に表示されるペアリングキーを使って、このブラウザーを接続します。",
   "connection.addressLabel": "住所",
   "connection.connect": "接続する",
   "connection.disconnect": "切断する",
@@ -552,5 +552,10 @@
   "logFeed.empty": "No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.",
   "logFeed.clear": "クリア",
   "app.shortTitle": "カスタムWebブロッカー",
-  "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789"
+  "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
+  "connection.pairingKeyLabel": "ペアリングキー",
+  "connection.pairingKeyPrompt": "Mac Vault または Windows Vault に表示される64文字のペアリングキーを貼り付けてください。",
+  "connection.errorPairingKey": "正しい64文字のペアリングキーを入力してください。",
+  "connection.errorProtocolMismatch": "アプリと拡張機能のブリッジプロトコルのバージョンに互換性がありません。",
+  "connection.errorSecureConnection": "ローカルの Vault アプリとの安全な接続を確立できませんでした。"
 }

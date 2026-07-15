@@ -1,22 +1,22 @@
 # Privacybeleid - Aangepaste webblokkering
 
-_Laatst bijgewerkt: 30-06-2026_
+_Laatst bijgewerkt: 13-07-2026_
 
 Op deze pagina wordt precies uitgelegd welke gegevens de **Custom Web Blocker**-browser bevat
 extensie verzamelt, waar deze naartoe gaat en waarom elke browser toestemming heeft
-gevraagd. De korte versie is: niets verlaat uw browser.
+gevraagd. Kort gezegd: wij bewaren uw regels en persoonlijke browsegegevens
+niet. Tagregels kunnen openbare YouTube-kanaal-ID's opvragen, maar die
+opvragingen worden niet bewaard of aan u gekoppeld.
 
 ## Samenvatting
 
-- **Er worden geen gegevens naar een server verzonden.** De extensie maakt een nulnetwerk
-  verzoeken aan een derde partij (of aan ons). Het heeft geen analyses, nee
-  telemetrie, geen crashreporter, geen configuratie op afstand, geen automaat
-  updates die verder gaan dan het standaard Chrome Web Store-mechanisme.
-- **Alle gegevens blijven in uw browser**, bewaard via de lokale versie van Chrome
-  uitbreiding opslag (`chrome.storage.local`). Het wordt nooit gesynchroniseerd tenzij
-  Chrome synchroniseert zelf uw lokale profiel.
-- **Er wordt geen persoonlijk identificeerbare informatie verzameld** door de
-  verlenging op elk gewenst moment.
+- **Uw configuratie blijft in de browser.** Groepen, schema's, regels, logboeken,
+  timers en voorkeuren worden alleen in `chrome.storage.local` opgeslagen.
+- **Een tagopvraging bevat alleen een openbaar kanaal-ID.** Geen URL, videotitel,
+  zoekterm, tijdstip, account of extensie-instelling wordt meegestuurd.
+- **Opvragingen worden niet opgeslagen.** Het endpoint is alleen-lezen, voegt
+  onbekende kanalen niet toe en koppelt het verzoek niet aan een persoon.
+- **Er zijn geen analyses, telemetrie, advertenties of crashrapporten.**
 - **Geen tracking** van browse-activiteit buiten wat strikt noodzakelijk is
   om de blokkeerregels toe te passen die u zelf hebt geconfigureerd.
 
@@ -53,7 +53,8 @@ op uw apparaat, en alleen binnen uw eigen browserprofiel.
 | Toestemming | Waar wordt het voor gebruikt |
 | --- | --- |
 | `storage` | Bewaar en laad uw blokgroepen, instellingen en runtimestatus alleen in uw browser. |
-| `declarativeNetRequest` | Vertel Chrome welke URL's standaard moeten worden geblokkeerd, op basis van de regels die u heeft geconfigureerd. De browser zorgt voor de blokkering; de extensie registreert en werkt alleen de regellijst bij. |
+| `favicon` | Toont in Chromium naast regels sitepictogrammen die al lokaal door de browser zijn gecachet. Dit verstuurt geen browsegeschiedenis en doet geen verzoek aan onze dienst. |
+| `nativeMessaging` | Stuurt alleen in Safari sandboxverzoeken van aangepaste regels door naar de lokale app op het apparaat. Dit is geen cloudtransport. |
 | `alarms` | Maak de achtergrondservicemedewerker op schema wakker om op tijd gebaseerde limieten te vernieuwen en de regelstatus bij te werken wanneer een snooze-, bevriezings- of planningsvenster eindigt. |
 | `offscreen` | Voer JavaScript met aangepaste regels in een sandbox uit in een document buiten het scherm, zodat het niet aan de extensie kan ontsnappen of uw pagina's rechtstreeks kan raken. |
 | `tabs` | Open de editor als een volledig tabblad wanneer u op het werkbalkpictogram klikt, zoek de URL van het actieve tabblad op om groepsregels te evalueren en laad tabbladen opnieuw na een regelwijziging die u in de editor hebt aangebracht. |
@@ -76,10 +77,9 @@ en worden nooit via het apparaat verzonden.
 
 ## Website- en maker-tagservicestatistieken
 
-Dit gedeelte gaat over de **website en de optionele creator-tagservice**,
-die los staan van de extensie zelf. De extensie verzendt nog steeds
-niets, zoals hierboven beschreven. De website publiceert een kleine **Statistieken**
-paneel, en om het te vullen houdt de server een aantal verzamelde tellingen bij:
+Dit gedeelte gaat over de **website en de creator-tagservice**. De extensie kan
+openbare kanaal-ID's alleen-lezen opvragen; die verzoeken worden niet opgeslagen.
+Het **Statistieken**-paneel bewaart alleen tellingen die niet aan een persoon zijn gekoppeld:
 
 - **Downloadtellingen**: hoe vaak de downloadknop van elk product is gebruikt
   aangeklikt (macOS, Windows, browserextensie, Safari).
@@ -100,6 +100,10 @@ geschiedenis.
 - **Optionele kanaal-ID-bijdragen.** Als – en alleen als – u zich aanmeldt, wordt de
   extensie/website mag YouTube **kanaal-ID’s** delen (nooit videotitels,
   kijkgeschiedenis of iets persoonlijks) om makers voor iedereen te classificeren.
+- **Handmatige bijdragen.** Bij bewuste inzendingen door ingelogde gebruikers
+  blijft de koppeling e-mail–kanaal-ID alleen gedurende het 24-uursquotum bewaard
+  en wordt deze elk uur opgeschoond.
+- **Openbare wachtrij.** Openbare ID's en status zijn zichtbaar, niet het tijdstip of de inzender.
 
 ## Kinderen
 

@@ -1,22 +1,22 @@
 # Informativa sulla privacy: blocco Web personalizzato
 
-_Ultimo aggiornamento: 30-06-2026_
+_Ultimo aggiornamento: 13-07-2026_
 
 Questa pagina spiega esattamente quali dati utilizza il browser **Custom Web Blocker**
 l'estensione raccoglie, dove va e perché è l'autorizzazione di ciascun browser
-richiesto. La versione breve è: nulla lascia il tuo browser.
+richiesta. In breve: non salviamo le tue regole né i tuoi dati personali di
+navigazione. Le regole per tag possono interrogare ID pubblici di canali YouTube,
+ma tali richieste non vengono conservate né collegate a te.
 
 ## Riepilogo
 
-- **Nessun dato viene inviato ad alcun server.** L'estensione crea zero rete
-  richieste a terzi (o a noi). Non ha analisi, no
-  telemetria, nessun crash reporter, nessuna configurazione remota, nessun automatico
-  aggiornamenti oltre il meccanismo standard del Chrome Web Store.
-- **Tutti i dati rimangono nel tuo browser**, mantenuti tramite la versione locale di Chrome
-  archiviazione dell'estensione (`chrome.storage.local`). Non viene mai sincronizzato a meno che
-  Chrome stesso sincronizza il tuo profilo locale.
-- **Nessuna informazione personale viene raccolta** da parte di
-  proroga in qualsiasi momento.
+- **La configurazione resta nel browser.** Gruppi, orari, regole, registri,
+  timer e preferenze sono salvati solo in `chrome.storage.local`.
+- **Le richieste contengono soltanto ID pubblici di canali.** Non includono URL,
+  titolo, ricerca, orario, account o impostazioni dell'estensione.
+- **Le richieste non vengono salvate.** L'endpoint è di sola lettura, non
+  inserisce canali sconosciuti e non associa la richiesta a una persona.
+- **Nessuna analisi, telemetria, pubblicità o segnalazione di arresti anomali.**
 - **Nessun tracciamento** dell'attività di navigazione oltre quanto strettamente necessario
   per applicare le regole di blocco da te configurate.
 
@@ -53,7 +53,8 @@ sul tuo dispositivo e solo all'interno del tuo profilo del browser.
 | Autorizzazione | A cosa serve |
 | --- | --- |
 | `storage` | Salva e carica i gruppi di blocco, le impostazioni e lo stato di runtime solo nel tuo browser. |
-| `declarativeNetRequest` | Indica a Chrome quali URL bloccare in modo nativo, in base alle regole che hai configurato. Il browser gestisce il blocco; l'estensione registra e aggiorna solo l'elenco delle regole. |
+| `favicon` | Mostra in Chromium, accanto alle regole, le icone dei siti già memorizzate nella cache del browser. Non invia la cronologia né contatta il nostro servizio. |
+| `nativeMessaging` | Solo in Safari, inoltra le richieste della sandbox delle regole personalizzate all'app locale sul dispositivo. Non è un trasporto cloud. |
 | `alarms` | Riattiva l'operatore dei servizi in background secondo la pianificazione per aggiornare i limiti basati sul tempo e aggiornare lo stato delle regole al termine di una finestra di posticipazione, blocco o pianificazione. |
 | `offscreen` | Esegui JavaScript con regole personalizzate in modalità sandbox in un documento fuori schermo in modo che non possa sfuggire all'estensione o toccare direttamente le tue pagine. |
 | `tabs` | Apri l'editor come scheda completa quando fai clic sull'icona della barra degli strumenti, cerca l'URL della scheda attiva per valutare le regole del gruppo e ricarica le schede dopo una modifica alle regole apportata nell'editor. |
@@ -76,9 +77,9 @@ e non vengono mai trasmessi dal dispositivo.
 
 ## Statistiche del servizio sito web e tag creatore
 
-Questa sezione riguarda il **sito web e il servizio opzionale creator-tag**,
-che sono separati dall'estensione stessa. L'estensione invia comunque
-niente, come descritto sopra. Il sito web pubblica una piccola **Statistica**
+Questa sezione riguarda il **sito web e il servizio di tag dei creator**.
+L'estensione può interrogare ID pubblici di canali in sola lettura; tali
+richieste non vengono conservate. Il sito pubblica un piccolo pannello di **statistiche**
 pannello e per popolarlo il server conserva alcuni conteggi aggregati:
 
 - **Conteggio download**: quante volte è stato visualizzato il pulsante di download di ciascun prodotto
@@ -100,6 +101,11 @@ storia.
 - **Contributi facoltativi per l'ID canale.** Se, e solo se, aderisci, il
   l'estensione/il sito web possono condividere gli **ID canale** di YouTube (mai titoli di video,
   cronologia visualizzazioni o qualsiasi cosa personale) per aiutare a classificare i creatori per tutti.
+- **Contributi manuali.** Per gli invii volontari di utenti autenticati,
+  l'associazione e-mail/ID canale è conservata solo nella finestra mobile di
+  24 ore e viene eliminata dalla pulizia oraria.
+- **Coda pubblica.** Può mostrare l'ID pubblico e lo stato, ma non l'ora di
+  invio né l'identità di chi lo ha fornito.
 
 ## Bambini
 

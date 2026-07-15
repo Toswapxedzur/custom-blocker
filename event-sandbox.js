@@ -317,6 +317,9 @@ function unloadGroup(groupId, { clearState = false } = {}) {
   }
   groupSources.delete(groupId);
   groupHelpersCache.delete(groupId);
+  if (helpersBundle && typeof helpersBundle.clearEventWindowBlocklist === "function") {
+    helpersBundle.clearEventWindowBlocklist(groupId);
+  }
   groupPlatformPredicates.delete(groupId);
   overrunHistoryByGroup.delete(groupId);
   // Drop scope/domain predicates so a re-Run doesn't leak the previous
@@ -644,7 +647,9 @@ function buildEventObject(descriptor, recipientGroupId, accumulator) {
         ? id
         : (typeof descriptor.hostname === "string" && descriptor.hostname ? descriptor.hostname : "");
       if (pattern) {
-        accumulator.intents.push({ kind: "window", action: "blockSite", pattern });
+        accumulator.intents.push({
+          kind: "window", action: "blockSite", groupId: recipientGroupId, pattern
+        });
       }
     },
 
@@ -654,7 +659,9 @@ function buildEventObject(descriptor, recipientGroupId, accumulator) {
         ? id
         : (typeof descriptor.hostname === "string" && descriptor.hostname ? descriptor.hostname : "");
       if (pattern) {
-        accumulator.intents.push({ kind: "window", action: "unblockSite", pattern });
+        accumulator.intents.push({
+          kind: "window", action: "unblockSite", groupId: recipientGroupId, pattern
+        });
       }
     },
 

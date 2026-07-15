@@ -1,22 +1,22 @@
 # Polityka prywatności — Niestandardowa blokada sieci
 
-_Ostatnia aktualizacja: 2026-06-30_
+_Ostatnia aktualizacja: 2026-07-13_
 
 Na tej stronie dokładnie wyjaśniono, jakie dane ma przeglądarka **Custom Web Blocker**
 rozszerzenie zbiera, dokąd trafia i dlaczego każde uprawnienie przeglądarki jest
-zażądano. Krótka wersja brzmi: nic nie opuszcza Twojej przeglądarki.
+żądane. W skrócie: nie zapisujemy Twoich reguł ani osobistych danych
+przeglądania. Reguły tagów mogą odpytywać publiczne identyfikatory kanałów
+YouTube, ale zapytania nie są przechowywane ani łączone z Tobą.
 
 ## Podsumowanie
 
-- **Żadne dane nie są wysyłane do żadnego serwera.** Rozszerzenie powoduje zerową sieć
-  żądań osobom trzecim (lub nam). Nie ma żadnych analiz, nie
-  telemetrii, bez raportowania awarii, bez zdalnej konfiguracji, bez automatycznej konfiguracji
-  aktualizacje wykraczające poza standardowy mechanizm Chrome Web Store.
-- **Wszystkie dane pozostają w Twojej przeglądarce** i są utrwalane poprzez lokalną przeglądarkę Chrome
-  pamięć rozszerzeń (`chrome.storage.local`). Nigdy nie jest synchronizowany, chyba że
-  Sama Chrome synchronizuje Twój profil lokalny.
-- **Nie są gromadzone żadne dane osobowe** przez
-  przedłużenie w dowolnym momencie.
+- **Konfiguracja pozostaje w przeglądarce.** Grupy, harmonogramy, reguły, logi,
+  liczniki i preferencje są zapisywane wyłącznie w `chrome.storage.local`.
+- **Zapytanie tagów zawiera tylko publiczny identyfikator kanału.** Nie wysyła
+  adresu URL, tytułu, wyszukiwania, czasu, konta ani ustawień rozszerzenia.
+- **Zapytania nie są zapisywane.** Endpoint jest tylko do odczytu, nie dodaje
+  nieznanych kanałów i nie przypisuje żądania do osoby.
+- **Brak analityki, telemetrii, reklam i raportów o awariach.**
 - **Brak śledzenia** aktywności przeglądania poza niezbędnym zakresem
   aby zastosować skonfigurowane przez siebie reguły blokowania.
 
@@ -53,7 +53,8 @@ na Twoim urządzeniu i wyłącznie w Twoim profilu przeglądarki.
 | Pozwolenie | Do czego służy |
 | --- | --- |
 | `storage` | Zapisz i załaduj grupy bloków, ustawienia i stan środowiska wykonawczego tylko w przeglądarce. |
-| `declarativeNetRequest` | W oparciu o skonfigurowane reguły powiedz Chrome, które adresy URL mają być natywnie blokowane. Przeglądarka obsługuje blokowanie; rozszerzenie jedynie rejestruje i aktualizuje listę reguł. |
+| `favicon` | Wyświetla w Chromium obok reguł ikony witryn zapisane lokalnie w pamięci podręcznej przeglądarki. Nie wysyła historii ani żądania do naszej usługi. |
+| `nativeMessaging` | Tylko w Safari przekazuje żądania piaskownicy reguł niestandardowych do lokalnej aplikacji na urządzeniu. Nie jest to transport chmurowy. |
 | `alarms` | Obudź pracownika usługi działającej w tle zgodnie z harmonogramem, aby odświeżyć limity czasowe i zaktualizować stan reguły po zakończeniu okna drzemki, zawieszenia lub harmonogramu. |
 | `offscreen` | Uruchom JavaScript z niestandardową regułą w trybie piaskownicy w dokumencie poza ekranem, aby nie mógł uciec z rozszerzenia ani bezpośrednio dotknąć Twoich stron. |
 | `tabs` | Otwórz edytor w trybie pełnej karty po kliknięciu ikony na pasku narzędzi, wyszukaj adres URL aktywnej karty, aby ocenić reguły grupowe i ponownie załaduj karty po zmianie reguły wprowadzonej w edytorze. |
@@ -76,10 +77,9 @@ i nigdy nie są przesyłane poza urządzenie.
 
 ## Statystyki witryny i usługi tagów twórcy
 
-Ta sekcja dotyczy **witryny internetowej i opcjonalnej usługi tagu twórcy**,
-które są niezależne od samego rozszerzenia. Rozszerzenie nadal wysyła
-nic, jak opisano powyżej. Na stronie publikuje się małe **Statystyki**
-panelu i aby go wypełnić, serwer przechowuje kilka zagregowanych liczników:
+Ta sekcja dotyczy **witryny i usługi tagów twórców**. Rozszerzenie może w trybie
+tylko do odczytu odpytywać publiczne ID kanałów; żądania nie są zapisywane.
+Panel **Statystyki** przechowuje tylko liczniki niepowiązane z osobą:
 
 - **Liczba pobrań** — ile razy był przycisk pobierania każdego produktu
   kliknięty (macOS, Windows, rozszerzenie przeglądarki, Safari).
@@ -100,6 +100,9 @@ historia.
 - **Opcjonalne wkłady w postaci identyfikatora kanału.** Jeśli – i tylko wtedy – wyrazisz na to zgodę,
   rozszerzenie/strona internetowa może udostępniać YouTube **identyfikatory kanałów** (nigdy tytuły filmów,
   historię oglądania lub cokolwiek osobistego), aby pomóc w sklasyfikowaniu twórców dla każdego.
+- **Wkłady ręczne.** Przy świadomym zgłoszeniu zalogowanego użytkownika powiązanie
+  e-mail–kanał jest przechowywane tylko przez ruchome okno 24 godzin i czyszczone co godzinę.
+- **Kolejka publiczna.** Może pokazywać publiczny ID i stan, lecz nie czas ani zgłaszającego.
 
 ## Dzieci
 

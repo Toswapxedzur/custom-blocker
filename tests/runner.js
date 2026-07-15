@@ -1112,6 +1112,44 @@ log.section("S16: local folder helper intents");
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// S17: rule-created window blocks are group-owned and unload-safe.
+// ────────────────────────────────────────────────────────────────────────
+log.section("S17: window blocklist group ownership");
+{
+  const accA = {};
+  const accB = {};
+  const make = (groupId, accumulator) => H.createEventGroupHelpers({
+    groupId,
+    persistenceBucket: {},
+    accumulatorRef: { get: () => accumulator },
+    dispatchContextRef: () => ({ currentUrl: "https://example.com/", tabsSnapshot: [] })
+  });
+  const winA = make("g-window-a", accA).getWindowHelper();
+  const winB = make("g-window-b", accB).getWindowHelper();
+
+  winA.block("https://www.example.com/path");
+  winB.block("other.example");
+  assert("S17: group A sees its own subdomain block", winA.isBlocked("sub.example.com"));
+  assertEqual("S17: group A does not see group B block", winA.isBlocked("other.example"), false);
+  assertEqual("S17: group B does not see group A block", winB.isBlocked("example.com"), false);
+  assertEqual("S17: block intents carry owning group ids",
+    [accA.intents[0].groupId, accB.intents[0].groupId],
+    ["g-window-a", "g-window-b"]);
+
+  H.clearEventWindowBlocklist("g-window-a");
+  const reloadedA = make("g-window-a", {}).getWindowHelper();
+  const reloadedB = make("g-window-b", {}).getWindowHelper();
+  assertEqual("S17: unloading A clears only A", reloadedA.getBlocked(), []);
+  assertEqual("S17: unloading A preserves B", reloadedB.getBlocked(), ["other.example"]);
+
+  winB.unblock("other.example");
+  assertEqual("S17: unblock intent stays group-owned",
+    { action: accB.intents[1].action, groupId: accB.intents[1].groupId },
+    { action: "unblockSite", groupId: "g-window-b" });
+  H.clearEventWindowBlocklist("g-window-b");
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // Final summary.
 // ────────────────────────────────────────────────────────────────────────
 const counts = log.counts();

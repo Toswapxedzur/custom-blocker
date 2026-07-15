@@ -61,8 +61,8 @@ function isPlatformProfileGroupType(groupType) {
 //   include      → applies only to the listed authors
 //   exclude      → applies to every author except the listed ones
 //   nobody       → applies to no author (author axis blocks nothing)
-//   tagInclude   → YouTube-only stub: authors carrying a tag (no logic yet)
-//   tagExclude   → YouTube-only stub: authors without a tag (no logic yet)
+//   tagInclude   → YouTube creators carrying any selected tag
+//   tagExclude   → classified YouTube creators carrying none of the selected tags
 const PLATFORM_AUTHOR_MODES = ["all", "include", "exclude", "nobody", "tagInclude", "tagExclude"];
 const PLATFORM_AUTHOR_TAG_MODES = ["tagInclude", "tagExclude"];
 
@@ -77,9 +77,22 @@ function platformAuthorModeUsesList(mode) {
   return m === "include" || m === "exclude";
 }
 
-// True for the YouTube tag-based stubs (visual only for now).
+// True for the YouTube tag-based author modes.
 function isPlatformAuthorTagMode(mode) {
   return PLATFORM_AUTHOR_TAG_MODES.includes(normalizePlatformAuthorMode(mode));
+}
+
+// Shared, state-aware tag predicate for page and feed enforcement. Only a
+// definitive `tagged` verdict is safe to use: pending, unknown, below-floor,
+// absent, and network-error states all fail open for BOTH modes.
+function matchesYouTubeTagSelection(mode, wantedTags, tagState, channelTags) {
+  const normalizedMode = normalizePlatformAuthorMode(mode);
+  if (!isPlatformAuthorTagMode(normalizedMode)) return false;
+  const wanted = Array.isArray(wantedTags) ? wantedTags.filter(Boolean) : [];
+  if (wanted.length === 0 || tagState !== "tagged") return false;
+  const actual = Array.isArray(channelTags) ? channelTags : [];
+  const hasTag = wanted.some((slug) => actual.includes(slug));
+  return normalizedMode === "tagInclude" ? hasTag : !hasTag;
 }
 
 function normalizeVideoMode(value) {
@@ -624,12 +637,14 @@ function matchesPlatformVideoGroup(group, pageContext) {
   // page's channel (channelTagsKnown), we never block.
   if (authorMode === "tagInclude" || authorMode === "tagExclude") {
     if (!isYouTubeGroup) return false;
-    const wantedTags = Array.isArray(group.platformAuthorTags) ? group.platformAuthorTags : [];
-    if (wantedTags.length === 0) return false;
-    if (!pageContext.channelTagsKnown) return false;
-    const channelTags = Array.isArray(pageContext.channelTags) ? pageContext.channelTags : [];
-    const hasTag = wantedTags.some((slug) => channelTags.includes(slug));
-    return authorMode === "tagInclude" ? hasTag : !hasTag;
+    const tagState =
+      pageContext.channelTagState || (pageContext.channelTagsKnown ? "tagged" : "unknown");
+    return matchesYouTubeTagSelection(
+      authorMode,
+      group.platformAuthorTags,
+      tagState,
+      pageContext.channelTags
+    );
   }
 
   // "nobody" doesn't block via the author axis.
@@ -699,7 +714,7 @@ function matchesTwitterGroup(group, pageContext) {
 
   const mode = normalizePlatformAuthorMode(group.platformAuthorMode);
   if (mode === "all") return true;
-  // Twitter has no tag stubs; "nobody" blocks no account.
+  // Tag modes are YouTube-only; "nobody" blocks no account.
   if (mode !== "include" && mode !== "exclude") return false;
 
   const accounts = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
@@ -771,7 +786,18 @@ function platformGroupAuthorAxisMatchesPage(group, pageContext) {
   const t = normalizeGroupType(group.groupType);
   const mode = normalizePlatformAuthorMode(group.platformAuthorMode);
   if (mode === "all") return true;
-  if (mode !== "include" && mode !== "exclude") return false; // nobody / tag stubs
+  if (isPlatformAuthorTagMode(mode)) {
+    if (t !== "youtube") return false;
+    const tagState =
+      pageContext.channelTagState || (pageContext.channelTagsKnown ? "tagged" : "unknown");
+    return matchesYouTubeTagSelection(
+      mode,
+      group.platformAuthorTags,
+      tagState,
+      pageContext.channelTags
+    );
+  }
+  if (mode !== "include" && mode !== "exclude") return false; // nobody
 
   const list = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
   if (list.length === 0) return false;
@@ -1231,6 +1257,7 @@ const __cbPlatformRegistry = {
   platformGroupAuthorAxisMatchesPage,
   platformAuthorModeUsesList,
   isPlatformAuthorTagMode,
+  matchesYouTubeTagSelection,
   PLATFORM_AUTHOR_MODES,
   PLATFORM_AUTHOR_TAG_MODES
 };

@@ -1,22 +1,22 @@
 # Política de Privacidade – Bloqueador de Web Personalizado
 
-_Última atualização: 30/06/2026_
+_Última atualização: 13/07/2026_
 
 Esta página explica exatamente quais dados o navegador **Custom Web Blocker**
 a extensão coleta, para onde vai e por que cada permissão do navegador é
-solicitado. A versão resumida é: nada sai do seu navegador.
+solicitada. Em resumo: não guardamos as suas regras nem os seus dados pessoais de
+navegação. Regras por tag podem consultar IDs públicos de canais do YouTube, mas
+essas consultas não são retidas nem associadas a você.
 
 ## Resumo
 
-- **Nenhum dado é enviado para nenhum servidor.** A extensão faz zero rede
-  solicitações a terceiros (ou a nós). Não tem análise, não
-  telemetria, sem relator de falhas, sem configuração remota, sem automático
-  atualizações além do mecanismo padrão da Chrome Web Store.
-- **Todos os dados permanecem no seu navegador**, persistidos através do site local do Chrome
-  armazenamento de extensão (`chrome.storage.local`). Nunca é sincronizado, a menos que
-  O próprio Chrome sincroniza seu perfil local.
-- **Nenhuma informação de identificação pessoal é coletada** pelo
-  extensão a qualquer momento.
+- **A configuração fica no navegador.** Grupos, horários, regras, registros,
+  temporizadores e preferências são salvos apenas em `chrome.storage.local`.
+- **A consulta contém somente um ID público de canal.** Não inclui URL, título,
+  pesquisa, horário, conta nem configurações da extensão.
+- **As consultas não são salvas.** O endpoint é somente leitura, não adiciona
+  canais desconhecidos e não associa o pedido a uma pessoa.
+- **Não há análise, telemetria, publicidade nem relatórios de falha.**
 - **Sem rastreamento** da atividade de navegação além do estritamente necessário
   para aplicar as regras de bloqueio que você mesmo configurou.
 
@@ -53,7 +53,8 @@ no seu dispositivo e apenas dentro do seu próprio perfil de navegador.
 | Permissão | Para que é utilizado |
 | --- | --- |
 | `storage` | Salve e carregue seus grupos de blocos, configurações e estado de tempo de execução somente em seu navegador. |
-| `declarativeNetRequest` | Informe ao Chrome quais URLs bloquear nativamente, com base nas regras que você configurou. O navegador cuida do bloqueio; a extensão apenas registra e atualiza a lista de regras. |
+| `favicon` | Mostra no Chromium, ao lado das regras, ícones de sites já armazenados no cache do navegador. Não envia o histórico nem faz solicitações ao nosso serviço. |
+| `nativeMessaging` | Somente no Safari, encaminha solicitações da área isolada de regras personalizadas ao aplicativo local do dispositivo. Não é um transporte em nuvem. |
 | `alarms` | Ative o trabalhador do serviço em segundo plano dentro do cronograma para atualizar os limites baseados em tempo e atualizar o estado da regra quando uma janela de suspensão, congelamento ou agendamento terminar. |
 | `offscreen` | Execute JavaScript de regra personalizada em sandbox em um documento fora da tela para que ele não possa escapar da extensão ou tocar diretamente em suas páginas. |
 | `tabs` | Abra o editor como uma guia completa ao clicar no ícone da barra de ferramentas, procure o URL da guia ativa para avaliar as regras do grupo e recarregue as guias após uma alteração de regra feita no editor. |
@@ -76,9 +77,9 @@ e nunca são transmitidos pelo dispositivo.
 
 ## Estatísticas do site e do serviço de tags do criador
 
-Esta seção é sobre o **site e o serviço opcional de criador de tags**,
-que são separados da própria extensão. A extensão ainda envia
-nada, conforme descrito acima. O site publica uma pequena **Estatísticas**
+Esta seção é sobre o **site e o serviço de tags de criadores**. A extensão pode
+consultar IDs públicos de canais em modo somente leitura; essas consultas não
+são guardadas. O site publica um pequeno painel de **estatísticas**
 painel e, para preenchê-lo, o servidor mantém algumas contagens agregadas:
 
 - **Contagem de downloads** — quantas vezes o botão de download de cada produto foi acionado
@@ -100,6 +101,11 @@ história.
 - **Contribuições opcionais de ID de canal.** Se — e somente se — você aceitar, o
   extensão/website pode compartilhar **IDs de canais** do YouTube (nunca títulos de vídeos,
   assistir ao histórico ou qualquer coisa pessoal) para ajudar a classificar os criadores para todos.
+- **Contribuições manuais.** Em envios voluntários de usuários autenticados, a
+  associação entre e-mail e canal é mantida apenas pela janela móvel de 24 horas
+  e removida pela limpeza horária.
+- **Fila pública.** Pode mostrar o ID público e o estado, mas não o horário do
+  envio nem quem forneceu o canal.
 
 ## Crianças
 

@@ -62,10 +62,10 @@
   "settings.save": "ਸੇਵ ਕਰੋ",
   "settings.saved": "ਸੈਟਿੰਗਾਂ ਰੱਖਿਅਤ ਕੀਤੀਆਂ।",
   "connection.title": "ਵੈੱਬ-ਐਪ ਬ੍ਰਿਜ",
-  "connection.copy": "ਇਸ ਐਪ ਨੂੰ macOS ਐਪ ਨਾਲ ਕਨੈਕਟ ਕਰੋ ਤਾਂ ਕਿ ਪੂਰਵ-ਨਿਰਧਾਰਤ ਅਤੇ ਕਸਟਮ ਗਰੁੱਪਾਂ ਨੂੰ ਲਿੰਕ ਕੀਤਾ ਜਾ ਸਕੇ ਅਤੇ ਸਿੰਕ ਵਿੱਚ ਰੱਖਿਆ ਜਾ ਸਕੇ।",
+  "connection.copy": "ਬ੍ਰਾਊਜ਼ਰ ਐਕਸਟੈਂਸ਼ਨ ਅਤੇ Mac Vault ਜਾਂ Windows Vault ਵਿਚਕਾਰ Default ਅਤੇ Custom ਗਰੁੱਪ ਲਿੰਕ ਕਰੋ।",
   "connection.serverToggle": "ਸਥਾਨਕ ਸਰਵਰ (ਹੱਬ) ਚਲਾਓ",
-  "connection.serverToggleHelp": "ਇਸ ਮੈਕ 'ਤੇ ਹੋਰ ਐਪਸ ਇੱਕ ਨਿਸ਼ਚਿਤ ਸਥਾਨਕ ਪਤੇ 'ਤੇ ਇਸ ਹੱਬ ਨਾਲ ਜੁੜ ਸਕਦੇ ਹਨ।",
-  "connection.clientHelp": "ਇਸ ਬ੍ਰਾਊਜ਼ਰ ਨੂੰ ਨਿਸ਼ਚਤ ਸਥਾਨਕ ਪਤੇ 'ਤੇ macOS ਐਪ ਨਾਲ ਕਨੈਕਟ ਕਰੋ।",
+  "connection.serverToggleHelp": "ਪੇਅਰਿੰਗ ਕੁੰਜੀ ਕਾਪੀ ਕਰਨ ਤੋਂ ਬਾਅਦ ਇਸ ਕੰਪਿਊਟਰ ਦੇ ਬ੍ਰਾਊਜ਼ਰ ਐਕਸਟੈਂਸ਼ਨ ਕਨੈਕਟ ਕਰ ਸਕਦੇ ਹਨ।",
+  "connection.clientHelp": "ਇਸ ਬ੍ਰਾਊਜ਼ਰ ਨੂੰ ਕਨੈਕਟ ਕਰਨ ਲਈ Mac Vault ਜਾਂ Windows Vault ਵਿੱਚ ਦਿਖਾਈ ਪੇਅਰਿੰਗ ਕੁੰਜੀ ਵਰਤੋ।",
   "connection.addressLabel": "ਪਤਾ",
   "connection.connect": "ਜੁੜੋ",
   "connection.disconnect": "ਡਿਸਕਨੈਕਟ ਕਰੋ",
@@ -552,5 +552,10 @@
   "platform.placeholder.facebook": "page.name\nhttps://www.facebook.com/pagename\nprofile.php?id=123456",
   "platform.placeholder.instagram": "creatorhandle\nhttps://www.instagram.com/creatorhandle/",
   "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com"
+  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "connection.pairingKeyLabel": "ਪੇਅਰਿੰਗ ਕੁੰਜੀ",
+  "connection.pairingKeyPrompt": "Mac Vault ਜਾਂ Windows Vault ਵਿੱਚ ਦਿਖਾਈ 64-ਅੱਖਰਾਂ ਦੀ ਪੇਅਰਿੰਗ ਕੁੰਜੀ ਪੇਸਟ ਕਰੋ।",
+  "connection.errorPairingKey": "ਸਹੀ 64-ਅੱਖਰਾਂ ਦੀ ਪੇਅਰਿੰਗ ਕੁੰਜੀ ਦਰਜ ਕਰੋ।",
+  "connection.errorProtocolMismatch": "ਐਪ ਅਤੇ ਐਕਸਟੈਂਸ਼ਨ ਬ੍ਰਿਜ ਪ੍ਰੋਟੋਕੋਲ ਦੇ ਗੈਰ-ਅਨੁਕੂਲ ਵਰਜਨ ਵਰਤ ਰਹੇ ਹਨ।",
+  "connection.errorSecureConnection": "ਲੋਕਲ Vault ਐਪ ਨਾਲ ਸੁਰੱਖਿਅਤ ਕਨੈਕਸ਼ਨ ਨਹੀਂ ਬਣ ਸਕਿਆ।"
 }

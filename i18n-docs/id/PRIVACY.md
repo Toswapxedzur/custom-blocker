@@ -1,22 +1,22 @@
 # Kebijakan Privasi — Pemblokir Web Khusus
 
-_Terakhir diperbarui: 30-06-2026_
+_Terakhir diperbarui: 13-07-2026_
 
 Halaman ini menjelaskan dengan tepat data apa yang ada di browser **Pemblokir Web Khusus**
 ekstensi dikumpulkan, ke mana perginya, dan alasan setiap izin browser
-diminta. Versi singkatnya adalah: tidak ada yang keluar dari browser Anda.
+diminta. Singkatnya: kami tidak menyimpan aturan atau data penjelajahan pribadi
+Anda. Aturan tag dapat meminta ID kanal YouTube yang bersifat publik, tetapi
+permintaan tersebut tidak disimpan atau dikaitkan dengan Anda.
 
 ## Ringkasan
 
-- **Tidak ada data yang dikirim ke server mana pun.** Ekstensi ini menjadikan jaringan nol
-  permintaan kepada pihak ketiga mana pun (atau kepada kami). Ia tidak memiliki analitik, tidak
-  telemetri, tidak ada pelapor kerusakan, tidak ada konfigurasi jarak jauh, tidak ada otomatis
-  pembaruan di luar mekanisme Toko Web Chrome standar.
-- **Semua data tetap ada di browser Anda**, disimpan melalui lokal Chrome
-  penyimpanan ekstensi (`chrome.storage.local`). Itu tidak pernah disinkronkan kecuali
-  Chrome sendiri menyinkronkan profil lokal Anda.
-- **Tidak ada informasi identitas pribadi yang dikumpulkan** oleh
-  perpanjangan kapan saja.
+- **Konfigurasi tetap di browser.** Grup, jadwal, aturan, log, timer, dan
+  preferensi hanya disimpan di `chrome.storage.local`.
+- **Permintaan tag hanya berisi ID kanal publik.** URL, judul video, pencarian,
+  waktu, akun, dan pengaturan ekstensi tidak dikirim.
+- **Permintaan tidak disimpan.** Endpoint hanya-baca, tidak menambahkan kanal
+  yang belum dikenal, dan tidak mengaitkan permintaan dengan seseorang.
+- **Tidak ada analitik, telemetri, iklan, atau laporan kerusakan.**
 - **Tidak ada pelacakan** aktivitas penjelajahan di luar yang benar-benar diperlukan
   untuk menerapkan aturan pemblokiran yang Anda konfigurasikan sendiri.
 
@@ -53,7 +53,8 @@ di perangkat Anda, dan hanya di dalam profil browser Anda sendiri.
 | Izin | Untuk apa |
 | --- | --- |
 | `storage` | Simpan dan muat grup blok, pengaturan, dan status runtime di browser Anda saja. |
-| `declarativeNetRequest` | Beri tahu Chrome URL mana yang harus diblokir, berdasarkan aturan yang Anda konfigurasikan. Browser menangani pemblokiran; ekstensi hanya mendaftarkan dan memperbarui daftar aturan. |
+| `favicon` | Menampilkan ikon situs yang sudah disimpan di cache browser di samping aturan pada Chromium. Ini tidak mengirim riwayat penelusuran atau meminta data dari layanan kami. |
+| `nativeMessaging` | Khusus Safari, meneruskan permintaan sandbox aturan khusus ke aplikasi lokal di perangkat. Ini bukan transportasi cloud. |
 | `alarms` | Membangunkan pekerja layanan latar belakang sesuai jadwal untuk menyegarkan batas berbasis waktu dan memperbarui status aturan ketika jendela penundaan, pembekuan, atau jadwal berakhir. |
 | `offscreen` | Jalankan JavaScript aturan khusus yang dikotak pasir dalam dokumen di luar layar sehingga tidak dapat keluar dari ekstensi atau menyentuh halaman Anda secara langsung. |
 | `tabs` | Buka editor sebagai tab penuh saat Anda mengeklik ikon bilah alat, cari URL tab aktif untuk mengevaluasi aturan grup, dan muat ulang tab setelah perubahan aturan yang Anda buat di editor. |
@@ -76,10 +77,9 @@ dan tidak pernah dikirim keluar perangkat.
 
 ## Statistik situs web & layanan tag pembuat
 
-Bagian ini membahas tentang **situs web dan layanan tag pembuat opsional**,
-yang terpisah dari ekstensi itu sendiri. Ekstensi masih terkirim
-tidak ada, seperti dijelaskan di atas. Situs web menerbitkan **Statistik** kecil
-panel, dan untuk mengisinya, server menyimpan beberapa jumlah agregat:
+Bagian ini membahas **situs web dan layanan tag kreator**. Ekstensi dapat meminta
+ID kanal publik secara hanya-baca, tetapi permintaan itu tidak disimpan. Panel
+**Statistik** hanya menyimpan jumlah agregat yang tidak terhubung dengan seseorang:
 
 - **Jumlah unduhan** — berapa kali tombol unduh setiap produk
   diklik (macOS, Windows, ekstensi browser, Safari).
@@ -100,6 +100,9 @@ sejarah.
 - **Kontribusi id saluran opsional.** Jika — dan hanya jika — Anda ikut serta,
   ekstensi/situs web dapat membagikan **ID saluran** YouTube (tidak pernah judul video,
   riwayat tontonan, atau informasi pribadi lainnya) untuk membantu mengklasifikasikan pembuat konten untuk semua orang.
+- **Kontribusi manual.** Untuk kiriman sengaja dari pengguna yang masuk, kaitan
+  email–ID kanal disimpan hanya selama jendela kuota 24 jam dan dibersihkan tiap jam.
+- **Antrean publik.** ID publik dan status dapat ditampilkan, tetapi bukan waktu atau pengirimnya.
 
 ## Anak-anak
 

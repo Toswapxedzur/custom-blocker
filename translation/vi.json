@@ -62,10 +62,10 @@
   "settings.save": "Cứu",
   "settings.saved": "Đã lưu cài đặt.",
   "connection.title": "Cầu ứng dụng web",
-  "connection.copy": "Kết nối ứng dụng này với ứng dụng macOS để các nhóm Mặc định và Tùy chỉnh có thể được liên kết và giữ đồng bộ hóa.",
+  "connection.copy": "Liên kết các nhóm Mặc định và Tùy chỉnh giữa tiện ích trình duyệt với Mac Vault hoặc Windows Vault.",
   "connection.serverToggle": "Chạy máy chủ cục bộ (trung tâm)",
-  "connection.serverToggleHelp": "Các ứng dụng khác trên máy Mac này có thể kết nối với trung tâm này qua một địa chỉ cục bộ cố định.",
-  "connection.clientHelp": "Kết nối trình duyệt này với ứng dụng macOS qua địa chỉ cục bộ cố định.",
+  "connection.serverToggleHelp": "Các tiện ích trình duyệt trên máy tính này có thể kết nối sau khi bạn sao chép khóa ghép nối.",
+  "connection.clientHelp": "Dùng khóa ghép nối hiển thị trong Mac Vault hoặc Windows Vault để kết nối trình duyệt này.",
   "connection.addressLabel": "Địa chỉ",
   "connection.connect": "Kết nối",
   "connection.disconnect": "Ngắt kết nối",
@@ -552,5 +552,10 @@
   "platform.placeholder.twitter": "@handle\nhttps://x.com/anotheruser",
   "platform.placeholder.tiktok": "@creatorhandle\nhttps://www.tiktok.com/@creator",
   "discord.targetsPlaceholder": "123456789012345678\nhttps://discord.com/channels/123456789012345678/\nhttps://discord.com/channels/123456789012345678/234567890123456789",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com"
+  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "connection.pairingKeyLabel": "Khóa ghép nối",
+  "connection.pairingKeyPrompt": "Dán khóa ghép nối 64 ký tự hiển thị trong Mac Vault hoặc Windows Vault.",
+  "connection.errorPairingKey": "Nhập đúng khóa ghép nối gồm 64 ký tự.",
+  "connection.errorProtocolMismatch": "Ứng dụng và tiện ích đang dùng các phiên bản giao thức cầu nối không tương thích.",
+  "connection.errorSecureConnection": "Không thể thiết lập kết nối an toàn với ứng dụng Vault cục bộ."
 }

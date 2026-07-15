@@ -531,6 +531,11 @@ textarea:focus {
   font-weight: 600;
 }
 
+#connectionPairingKeyReadout {
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 .connection-dot {
   width: 10px;
   height: 10px;
@@ -1970,6 +1975,12 @@ code {
   font-size: 12px;
   font-weight: 600;
   color: var(--navy-700, #1f3a5f);
+}
+
+.tag-chip.tag-chip-invalid {
+  border-color: #b45309;
+  background: #fff7ed;
+  color: #9a3412;
 }
 
 .tag-chip .swatch {

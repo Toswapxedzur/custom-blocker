@@ -1,22 +1,26 @@
 # Privacy Policy — Custom Web Blocker
 
-_Last updated: 2026-06-30_
+_Last updated: 2026-07-13_
 
 This page explains exactly what data the **Custom Web Blocker** browser
 extension collects, where it goes, and why each browser permission is
-requested. The short version is: nothing leaves your browser.
+requested. The short version is: your rules and personal browsing data are not
+saved by us. Creator-tag rules may send public YouTube channel IDs for a
+read-only lookup, but those lookup requests are not retained or linked to you.
 
 ## Summary
 
-- **No data is sent to any server.** The extension makes zero network
-  requests to any third party (or to us). It has no analytics, no
-  telemetry, no crash reporter, no remote configuration, no automatic
-  updates beyond the standard Chrome Web Store mechanism.
-- **All data stays in your browser**, persisted via Chrome's local
-  extension storage (`chrome.storage.local`). It is never synced unless
-  Chrome itself syncs your local profile.
-- **No personally identifiable information is collected** by the
-  extension at any time.
+- **Your configuration stays in your browser.** Block groups, schedules,
+  custom rules, logs, timers, and preferences are persisted only through
+  Chrome's local extension storage (`chrome.storage.local`).
+- **Creator-tag lookups contain only public channel IDs.** When an enabled
+  YouTube tag rule needs a verdict, the extension may send a channel ID such as
+  `UC…` to the configured tag service. It does not send the page URL, video ID,
+  title, search query, timestamp, account identity, or extension settings.
+- **Lookup requests are not saved.** The lookup endpoint is read-only, does not
+  add unknown channels to the database, does not associate a request with a
+  person or account, and runs behind origin servers with access logging off.
+- **There is no analytics, advertising profile, telemetry, or crash reporter.**
 - **No tracking** of browsing activity beyond what is strictly necessary
   to apply the blocking rules you yourself configured.
 
@@ -36,24 +40,33 @@ storage so it can do its job across sessions:
   toggle, chosen UI language).
 - Activity log entries shown in the in-app **Log** panel, which you can
   clear from the UI.
+- Cached public creator-tag verdicts (channel ID, classification state, and
+  tag slugs), which you can clear from Settings.
 
-This data is read and written only by the extension's own scripts, only
-on your device, and only inside your own browser profile.
+Your configuration, runtime state, and activity log stay on your device and
+are not saved by our service. Depending on the browser build and features you
+enable, they may be processed by the extension, its device-local Safari
+companion, or an explicitly linked local Vault bridge. Creator-tag cache
+entries are responses from the configured tag service and remain local after
+lookup.
 
 ## What is NOT collected or transmitted
 
-- Browsing history is not recorded, summarised, or transmitted.
+- Browsing history is not recorded, summarised, or transmitted. A public
+  channel ID may be queried only to evaluate an enabled creator-tag rule; it is
+  not sent with a URL, video title, search term, or viewing timestamp.
 - Page content is not exfiltrated, screenshotted, or logged.
 - Form input, passwords, and personal information are never read.
-- No information about you, your device, or your usage is sent to the
-  extension author or any third party.
+- No extension identifier, account identifier, device identifier, or rule
+  configuration is attached to a creator-tag lookup.
 
 ## Why each permission is requested
 
 | Permission | What it is used for |
 | --- | --- |
 | `storage` | Save and load your block groups, settings, and runtime state in your browser only. |
-| `declarativeNetRequest` | Tell Chrome which URLs to natively block, based on the rules you configured. The browser handles the blocking; the extension only registers and updates the rule list. |
+| `favicon` | Show browser-cached site icons beside rules in Chromium. This does not send browsing history or make a request to our service. |
+| `nativeMessaging` | In Safari only, forward custom-rule sandbox requests to the device-local containing app. It is not a cloud transport. |
 | `alarms` | Wake the background service worker on schedule to refresh time-based limits and update rule state when a snooze, freeze, or schedule window ends. |
 | `offscreen` | Run sandboxed custom-rule JavaScript in an offscreen document so it cannot escape the extension or touch your pages directly. |
 | `tabs` | Open the editor as a full tab when you click the toolbar icon, look up the active tab's URL to evaluate group rules, and reload tabs after a rule change you made in the editor. |
@@ -76,10 +89,9 @@ and are never transmitted off the device.
 
 ## Website & creator-tag service statistics
 
-This section is about the **website and the optional creator-tag service**,
-which are separate from the extension itself. The extension still sends
-nothing, as described above. The website publishes a small **Statistics**
-panel, and to populate it the server keeps a few aggregate counts:
+This section is about the **website and creator-tag service**. The website
+publishes a small **Statistics** panel, and to populate it the server keeps a
+few aggregate counts:
 
 - **Download counts** — how many times each product's download button was
   clicked (macOS, Windows, browser extension, Safari).
@@ -87,9 +99,8 @@ panel, and to populate it the server keeps a few aggregate counts:
 - **Accounts** — how many accounts exist.
 - **Q&A activity** — the total number of forum posts and comments.
 
-Once an hour the server records the current value of each of these counts and
-nothing else. There are no per-event records, no clickstreams, and no session
-history.
+Once an hour the server records the current value of each aggregate count.
+These snapshots contain no per-visitor event, clickstream, or session history.
 
 - **Fully anonymous / de-identified.** These are plain running totals. They
   are **not** linked to your name, account, email, IP address, device, or any
@@ -97,9 +108,21 @@ history.
 - **Never commercial.** This data exists only to show the public Statistics
   panel. It is **never sold, shared with third parties, used for advertising,
   or used for any other commercial purpose.**
+- **Read-only creator lookup.** An enabled creator-tag rule may query public
+  YouTube channel IDs. The application does not store the lookup request, IP
+  address, or browsing context, and unknown IDs are not added by this endpoint.
 - **Optional channel-id contributions.** If — and only if — you opt in, the
-  extension/website may share YouTube **channel ids** (never video titles,
-  watch history, or anything personal) to help classify creators for everyone.
+  extension may save encountered public YouTube **channel IDs** to the shared
+  classification queue. It never contributes video titles, URLs, search terms,
+  viewing timestamps, watch history, or an extension/user identifier.
+- **Manual website contributions.** A signed-in website user may deliberately
+  submit channel IDs. To enforce the 50-per-24-hour quota, the website retains
+  the account email/channel-ID association only for that rolling window; an
+  hourly cleanup deletes expired records. The creator catalog itself retains
+  the public channel ID and resulting public classification without the email.
+- **Public queue.** The website may show public channel IDs and classification
+  state while work is pending, but it does not publish submission timestamps or
+  identify who supplied an ID.
 
 ## Children
 

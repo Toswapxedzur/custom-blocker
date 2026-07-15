@@ -62,10 +62,10 @@
   "settings.save": "Menyimpan",
   "settings.saved": "Pengaturan disimpan.",
   "connection.title": "Jembatan aplikasi web",
-  "connection.copy": "Hubungkan aplikasi ini ke aplikasi macOS sehingga grup Default dan Kustom dapat ditautkan dan tetap tersinkronisasi.",
+  "connection.copy": "Tautkan grup Default dan Kustom antara ekstensi browser dan Mac Vault atau Windows Vault.",
   "connection.serverToggle": "Jalankan server lokal (hub)",
-  "connection.serverToggleHelp": "Aplikasi lain di Mac ini dapat terhubung ke hub ini melalui alamat lokal tetap.",
-  "connection.clientHelp": "Hubungkan browser ini ke aplikasi macOS melalui alamat lokal tetap.",
+  "connection.serverToggleHelp": "Ekstensi browser di komputer ini dapat terhubung setelah Anda menyalin kunci pemasangan.",
+  "connection.clientHelp": "Gunakan kunci pemasangan yang ditampilkan di Mac Vault atau Windows Vault untuk menghubungkan browser ini.",
   "connection.addressLabel": "Alamat",
   "connection.connect": "Hubungkan",
   "connection.disconnect": "Putuskan sambungan",
@@ -552,5 +552,10 @@
   "logFeed.hint": "Live feed of helpers.getLogHelper() output from every event dispatch.",
   "logFeed.empty": "No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.",
   "logFeed.clear": "Jernih",
-  "app.shortTitle": "Pemblokir situs kustom"
+  "app.shortTitle": "Pemblokir situs kustom",
+  "connection.pairingKeyLabel": "Kunci pemasangan",
+  "connection.pairingKeyPrompt": "Tempel kunci pemasangan 64 karakter yang ditampilkan di Mac Vault atau Windows Vault.",
+  "connection.errorPairingKey": "Masukkan kunci pemasangan 64 karakter yang benar.",
+  "connection.errorProtocolMismatch": "Aplikasi dan ekstensi menggunakan versi protokol bridge yang tidak kompatibel.",
+  "connection.errorSecureConnection": "Tidak dapat membuat koneksi aman ke aplikasi Vault lokal."
 }
