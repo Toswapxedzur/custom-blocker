@@ -7,6 +7,8 @@
   "use strict";
   if (window.__vaultClassifierYouTube) return;
   window.__vaultClassifierYouTube = true;
+  const C = globalThis.VaultClassifierExtensionContract;
+  if (!C || typeof C.youtubeVideoIDFromURL !== "function" || typeof C.entryFingerprint !== "function") return;
 
   const SETTINGS_KEY = "vaultClassifierSettings";
   const CARD_SELECTOR = [
@@ -22,9 +24,14 @@
   const STYLE_ID = "vault-classifier-youtube-style";
   const CARD_BANNER = "[data-vault-classifier-banner]";
   const PAGE_OVERLAY_ID = "vault-classifier-page-overlay";
+  const CARD_REVEALED_FINGERPRINT = "data-vault-classifier-revealed-fingerprint";
+  const PAGE_FINGERPRINT = "data-vault-classifier-page";
+  const PAGE_REVEALED_ENTRY = "data-vault-classifier-page-revealed-entry";
   let enabled = false;
   let scanTimer = null;
   let pageTimer = null;
+  let settingsEpoch = 0;
+  let presentationGeneration = 0;
 
   function compactText(value, maximum) {
     if (typeof value !== "string") return null;
@@ -32,31 +39,24 @@
     return output && output.length <= maximum ? output : null;
   }
 
-  function selectorText(root, selectors, maximum) {
+  function selectorElement(root, selectors) {
+    if (!root || typeof root.querySelector !== "function") return null;
     for (const selector of selectors) {
       const element = root.querySelector(selector);
-      const value = compactText(element && element.textContent, maximum);
-      if (value) return value;
+      if (element) return element;
     }
     return null;
   }
 
-  function videoIDFromURL(value) {
-    try {
-      const url = new URL(value, location.origin);
-      const watch = url.searchParams.get("v");
-      if (/^[A-Za-z0-9_-]{11}$/.test(watch || "")) return watch;
-      const shorts = url.pathname.match(/\/shorts\/([A-Za-z0-9_-]{11})/);
-      return shorts ? shorts[1] : null;
-    } catch (_) {
-      return null;
-    }
+  function selectorText(root, selectors, maximum) {
+    const element = selectorElement(root, selectors);
+    return compactText(element && element.textContent, maximum);
   }
 
   function findVideoID(root) {
     const links = root.querySelectorAll('a#thumbnail[href], a#video-title-link[href], a[href*="watch?v="], a[href*="/shorts/"]');
     for (const link of links) {
-      const id = videoIDFromURL(link.getAttribute("href") || "");
+      const id = C.youtubeVideoIDFromURL(link.getAttribute("href") || "", location.href);
       if (id) return id;
     }
     return null;
@@ -103,25 +103,36 @@
       "ytd-video-summary-renderer",
       "[data-testid='video-summary']",
       "[data-testid='ai-summary']",
-      "ytd-engagement-panel-section-list-renderer[visibility='ENGAGEMENT_PANEL_VISIBILITY_EXPANDED'] #content-text"
+      "ytd-engagement-panel-section-list-renderer[target-id*='ai-summary' i] #content-text",
+      "ytd-engagement-panel-section-list-renderer[data-target-id*='ai-summary' i] #content-text"
     ], 16000);
   }
 
   function watchEvidence() {
     const root = document;
-    const title = selectorText(root, ["h1.ytd-watch-metadata", "ytd-watch-metadata h1", "h1.title", "h1"], 500);
+    const videoID = C.youtubeVideoIDFromURL(location.href, location.href);
+    if (!videoID) return null;
+    // Never fall back to a document-wide heading: on a channel/search page it
+    // could turn unrelated rendered text into a full-page video decision.
+    const watchRoot = root.querySelector("ytd-watch-metadata")
+      || root.querySelector("ytd-reel-player-overlay-renderer")
+      || root.querySelector("#above-the-fold")
+      || root.querySelector("ytd-shorts");
+    if (!watchRoot) return null;
+    const title = selectorText(watchRoot, ["h1.ytd-watch-metadata", "h1", "h2", ".title"], 500);
     if (!title) return null;
-    const source = findSource(root.querySelector("ytd-watch-metadata") || root);
-    const videoID = videoIDFromURL(location.href);
-    const description = selectorText(root, ["ytd-watch-metadata #description", "#description-inline-expander", "ytd-text-inline-expander#description"], 16000);
-    const suppliedTags = Array.from(root.querySelectorAll('a[href*="/hashtag/"]'))
+    const source = findSource(watchRoot);
+    const descriptionRoot = selectorElement(watchRoot, ["#description", "#description-inline-expander", "ytd-text-inline-expander#description"]);
+    const description = compactText(descriptionRoot && descriptionRoot.textContent, 16000);
+    // Hashtags from comments/related videos are not evidence for this video.
+    const suppliedTags = Array.from(descriptionRoot ? descriptionRoot.querySelectorAll('a[href*="/hashtag/"]') : [])
       .map((item) => compactText(item.textContent, 256))
       .filter(Boolean)
       .slice(0, 64);
-    const details = selectorText(root, ["ytd-watch-metadata #info", "#above-the-fold #info"], 512);
+    const details = selectorText(watchRoot, ["#info", "#above-the-fold #info"], 512);
     return {
       platform: "youtube",
-      entryID: videoID ? `youtube:video:${videoID}` : null,
+      entryID: `youtube:video:${videoID}`,
       sourceID: source.id,
       surface: "page",
       evidence: {
@@ -129,7 +140,7 @@
         text: description,
         summary: visibleSummary(root),
         suppliedTags,
-        metadata: { sourceName: source.name || "", details: details || "", url: location.href.slice(0, 1024) }
+        metadata: { sourceName: source.name || "", details: details || "", canonicalURL: `https://www.youtube.com/watch?v=${videoID}` }
       }
     };
   }
@@ -162,6 +173,7 @@
       .vault-classifier-dim:hover, .vault-classifier-revealed { opacity: 1 !important; filter: none !important; }
       .vault-classifier-block { min-height: 84px !important; }
       .vault-classifier-block > :not([data-vault-classifier-banner]) { visibility: hidden !important; }
+      .vault-classifier-block.vault-classifier-revealed > :not([data-vault-classifier-banner]) { visibility: visible !important; }
       [data-vault-classifier-banner] { position: relative; z-index: 3; display: flex; align-items: center; gap: 8px; min-height: 32px; margin: 8px; padding: 8px 10px; border: 1px solid rgba(30,58,138,.22); border-radius: 10px; box-sizing: border-box; background: rgba(248,250,252,.97); color: #1f2937; font: 12px/1.35 Arial,sans-serif; box-shadow: 0 5px 16px rgba(15,23,42,.12); }
       [data-vault-classifier-banner] strong { color: #1e3a8a; font-size: 11px; letter-spacing: .035em; text-transform: uppercase; }
       [data-vault-classifier-banner] span { flex: 1; min-width: 0; color: #475569; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -181,11 +193,12 @@
     card.classList.remove("vault-classifier-dim", "vault-classifier-block", "vault-classifier-revealed");
     card.removeAttribute("data-vault-classifier-state");
     card.removeAttribute("data-vault-classifier-fingerprint");
+    card.removeAttribute(CARD_REVEALED_FINGERPRINT);
     const banner = card.querySelector(CARD_BANNER);
     if (banner) banner.remove();
   }
 
-  function cardBanner(card, verdict) {
+  function cardBanner(card, verdict, fingerprint) {
     let banner = card.querySelector(CARD_BANNER);
     if (!banner) {
       banner = document.createElement("div");
@@ -204,6 +217,7 @@
       event.preventDefault();
       event.stopPropagation();
       card.classList.add("vault-classifier-revealed");
+      if (fingerprint) card.setAttribute(CARD_REVEALED_FINGERPRINT, fingerprint);
       requestCorrection(verdict.ledgerID, verdict.action === "block" ? "falseBlock" : "falseDim");
       reveal.textContent = "Revealed";
       reveal.disabled = true;
@@ -220,20 +234,26 @@
     banner.append(label, copy, reveal, why);
   }
 
-  function presentCard(card, verdict) {
+  function presentCard(card, verdict, fingerprint) {
+    if (!verdict || verdict.ok !== true || verdict.action === "allow") {
+      clearCard(card);
+      return;
+    }
+    // Keep an explicit reveal visible for this exact entry evidence until the
+    // user changes settings, navigates, or YouTube supplies new evidence.
+    if (fingerprint && card.getAttribute(CARD_REVEALED_FINGERPRINT) === fingerprint) return;
     clearCard(card);
-    if (!verdict || verdict.ok !== true || verdict.action === "allow") return;
     ensureStyles();
     card.setAttribute("data-vault-classifier-state", verdict.action);
     card.classList.add(verdict.action === "block" ? "vault-classifier-block" : "vault-classifier-dim");
-    cardBanner(card, verdict);
+    cardBanner(card, verdict, fingerprint);
   }
 
   function clearPageOverlay() {
     document.getElementById(PAGE_OVERLAY_ID)?.remove();
   }
 
-  function presentPage(verdict) {
+  function presentPage(verdict, entryID) {
     clearPageOverlay();
     if (!verdict || verdict.ok !== true || verdict.action !== "block") return;
     ensureStyles();
@@ -249,6 +269,7 @@
     reveal.textContent = "Reveal page";
     reveal.addEventListener("click", () => {
       requestCorrection(verdict.ledgerID, "falseBlock");
+      if (entryID) document.documentElement.setAttribute(PAGE_REVEALED_ENTRY, entryID);
       overlay.remove();
     });
     const why = document.createElement("button");
@@ -262,31 +283,54 @@
   }
 
   async function classifyCard(card) {
+    if (!enabled) { clearCard(card); return; }
     const evidence = feedEvidence(card);
-    if (!evidence) return;
-    const fingerprint = `${evidence.entryID || ""}|${evidence.sourceID || ""}|${evidence.evidence.title || ""}`;
+    if (!evidence) { clearCard(card); return; }
+    const fingerprint = C.entryFingerprint(evidence);
+    if (!fingerprint) return;
     if (card.getAttribute("data-vault-classifier-fingerprint") === fingerprint) return;
+    const generation = presentationGeneration;
     card.setAttribute("data-vault-classifier-fingerprint", fingerprint);
     const verdict = await requestClassification(evidence);
     // A card can be recycled by YouTube while native messaging is in flight.
-    if (card.getAttribute("data-vault-classifier-fingerprint") !== fingerprint) return;
+    const latestEvidence = feedEvidence(card);
+    if (!enabled || generation !== presentationGeneration || card.getAttribute("data-vault-classifier-fingerprint") !== fingerprint || C.entryFingerprint(latestEvidence) !== fingerprint) return;
     if (!verdict || verdict.ok !== true) { clearCard(card); return; }
     card.setAttribute("data-vault-classifier-fingerprint", fingerprint);
-    presentCard(card, verdict);
+    presentCard(card, verdict, fingerprint);
     card.setAttribute("data-vault-classifier-fingerprint", fingerprint);
   }
 
   async function classifyPage() {
-    if (!enabled) { clearPageOverlay(); return; }
+    if (!enabled) {
+      clearPageOverlay();
+      document.documentElement.removeAttribute(PAGE_FINGERPRINT);
+      return;
+    }
     const evidence = watchEvidence();
-    if (!evidence) return;
-    const path = `${location.href}|${evidence.evidence.title}`;
-    if (document.documentElement.getAttribute("data-vault-classifier-page") === path) return;
-    document.documentElement.setAttribute("data-vault-classifier-page", path);
+    if (!evidence) {
+      clearPageOverlay();
+      document.documentElement.removeAttribute(PAGE_FINGERPRINT);
+      document.documentElement.removeAttribute(PAGE_REVEALED_ENTRY);
+      return;
+    }
+    const fingerprint = C.entryFingerprint(evidence);
+    if (!fingerprint) return;
+    const entryID = evidence.entryID || fingerprint;
+    const revealedEntry = document.documentElement.getAttribute(PAGE_REVEALED_ENTRY);
+    if (revealedEntry && revealedEntry !== entryID) document.documentElement.removeAttribute(PAGE_REVEALED_ENTRY);
+    if (document.documentElement.getAttribute(PAGE_FINGERPRINT) === fingerprint) return;
+    const generation = presentationGeneration;
+    document.documentElement.setAttribute(PAGE_FINGERPRINT, fingerprint);
     const verdict = await requestClassification(evidence);
-    if (document.documentElement.getAttribute("data-vault-classifier-page") !== path) return;
+    const latestEvidence = watchEvidence();
+    if (!enabled || generation !== presentationGeneration || document.documentElement.getAttribute(PAGE_FINGERPRINT) !== fingerprint || C.entryFingerprint(latestEvidence) !== fingerprint) return;
     if (!verdict || verdict.ok !== true) { clearPageOverlay(); return; }
-    presentPage(verdict);
+    if (document.documentElement.getAttribute(PAGE_REVEALED_ENTRY) === entryID) {
+      clearPageOverlay();
+      return;
+    }
+    presentPage(verdict, entryID);
   }
 
   function scheduleScan() {
@@ -303,28 +347,45 @@
     pageTimer = setTimeout(() => { pageTimer = null; void classifyPage(); }, 450);
   }
 
+  function applySettings(raw) {
+    presentationGeneration++;
+    enabled = Boolean(raw && raw.enabled === true);
+    clearPageOverlay();
+    document.documentElement.removeAttribute(PAGE_FINGERPRINT);
+    document.documentElement.removeAttribute(PAGE_REVEALED_ENTRY);
+    document.querySelectorAll(CARD_SELECTOR).forEach(clearCard);
+    if (!enabled) return;
+    scheduleScan();
+    schedulePageCheck();
+  }
+
   function refreshEnabled() {
+    const epoch = ++settingsEpoch;
     chrome.storage.local.get(SETTINGS_KEY, (result) => {
-      enabled = Boolean(result && result[SETTINGS_KEY] && result[SETTINGS_KEY].enabled === true);
-      if (!enabled) {
-        clearPageOverlay();
-        document.querySelectorAll(CARD_SELECTOR).forEach(clearCard);
-        return;
-      }
-      scheduleScan();
-      schedulePageCheck();
+      if (epoch !== settingsEpoch) return;
+      applySettings(chrome.runtime.lastError ? null : result && result[SETTINGS_KEY]);
     });
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes[SETTINGS_KEY]) refreshEnabled();
+    if (area !== "local" || !changes[SETTINGS_KEY]) return;
+    settingsEpoch++;
+    applySettings(changes[SETTINGS_KEY].newValue);
   });
   window.addEventListener("yt-navigate-finish", () => {
-    document.documentElement.removeAttribute("data-vault-classifier-page");
+    presentationGeneration++;
+    clearPageOverlay();
+    document.documentElement.removeAttribute(PAGE_FINGERPRINT);
+    document.documentElement.removeAttribute(PAGE_REVEALED_ENTRY);
+    document.querySelectorAll(CARD_SELECTOR).forEach(clearCard);
     scheduleScan();
     schedulePageCheck();
   });
-  const observer = new MutationObserver(() => { scheduleScan(); schedulePageCheck(); });
+  const observer = new MutationObserver(() => {
+    if (!enabled) return;
+    scheduleScan();
+    schedulePageCheck();
+  });
   if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true });
   else document.addEventListener("DOMContentLoaded", () => observer.observe(document.documentElement, { childList: true, subtree: true }), { once: true });
   refreshEnabled();
