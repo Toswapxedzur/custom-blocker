@@ -1,6 +1,6 @@
 # Privacy Policy — Custom Web Blocker
 
-_Last updated: 2026-07-13_
+_Last updated: 2026-07-15_
 
 This page explains exactly what data the **Custom Web Blocker** browser
 extension collects, where it goes, and why each browser permission is
@@ -20,6 +20,11 @@ read-only lookup, but those lookup requests are not retained or linked to you.
 - **Lookup requests are not saved.** The lookup endpoint is read-only, does not
   add unknown channels to the database, does not associate a request with a
   person or account, and runs behind origin servers with access logging off.
+- **Vault Classifier is local-only.** If you explicitly enable the optional
+  Vault Classifier integration, visible YouTube card/page evidence (such as a
+  title, visible description, displayed tags, and public creator/video IDs) is
+  sent only to the paired Vault Classifier app on your Mac. It is not sent to
+  our website, a model provider, YouTube's Data API, or any other server.
 - **There is no analytics, advertising profile, telemetry, or crash reporter.**
 - **No tracking** of browsing activity beyond what is strictly necessary
   to apply the blocking rules you yourself configured.
@@ -42,6 +47,10 @@ storage so it can do its job across sessions:
   clear from the UI.
 - Cached public creator-tag verdicts (channel ID, classification state, and
   tag slugs), which you can clear from Settings.
+- When you explicitly enable Vault Classifier, its companion app keeps a
+  user-bounded local cache of the visible evidence, local scores, decisions,
+  and corrections needed to classify and explain entries. This cache remains
+  on your Mac and is not part of normal extension-to-server traffic.
 
 Your configuration, runtime state, and activity log stay on your device and
 are not saved by our service. Depending on the browser build and features you
@@ -56,6 +65,8 @@ lookup.
   channel ID may be queried only to evaluate an enabled creator-tag rule; it is
   not sent with a URL, video title, search term, or viewing timestamp.
 - Page content is not exfiltrated, screenshotted, or logged.
+- Vault Classifier evidence is not transmitted off-device. It is processed by
+  the paired local app only when you explicitly enable that integration.
 - Form input, passwords, and personal information are never read.
 - No extension identifier, account identifier, device identifier, or rule
   configuration is attached to a creator-tag lookup.
@@ -66,12 +77,12 @@ lookup.
 | --- | --- |
 | `storage` | Save and load your block groups, settings, and runtime state in your browser only. |
 | `favicon` | Show browser-cached site icons beside rules in Chromium. This does not send browsing history or make a request to our service. |
-| `nativeMessaging` | In Safari only, forward custom-rule sandbox requests to the device-local containing app. It is not a cloud transport. |
+| `nativeMessaging` | When enabled, connect Chrome/Edge to the paired Vault Classifier app on the same Mac; Safari uses it for its device-local companion path. It is never a cloud transport. |
 | `alarms` | Wake the background service worker on schedule to refresh time-based limits and update rule state when a snooze, freeze, or schedule window ends. |
 | `offscreen` | Run sandboxed custom-rule JavaScript in an offscreen document so it cannot escape the extension or touch your pages directly. |
 | `tabs` | Open the editor as a full tab when you click the toolbar icon, look up the active tab's URL to evaluate group rules, and reload tabs after a rule change you made in the editor. |
 | `webNavigation` | Detect SPA URL changes (push-state navigation) so per-platform feed-hiders and event-driven rules can react to in-page navigation, not just full page loads. |
-| `<all_urls>` host access | Apply your blocking rules and per-platform feed hiders on whichever sites you choose to block. The extension reads/modifies pages only on URLs you have actively configured a rule for, and only to enforce that rule. |
+| `<all_urls>` host access | Apply your blocking rules and per-platform feed hiders on whichever sites you choose to block. The extension reads/modifies pages only on URLs you have actively configured a rule for, and only to enforce that rule; the optional Vault Classifier adapter is restricted to YouTube. |
 
 ## Custom rules
 

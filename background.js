@@ -35,6 +35,12 @@ if (typeof importScripts === "function") {
     console.error("[CustomBlocker] importScripts(platform-profiles.js) failed", error);
   }
   try {
+    if (typeof VaultClassifierExtensionContract === "undefined") importScripts("vault-classifier-contract.js");
+    importScripts("vault-classifier-bridge.js");
+  } catch (error) {
+    console.error("[CustomBlocker] importScripts(vault classifier bridge) failed", error);
+  }
+  try {
     importScripts("helpers.js");
   } catch (error) {
     console.error("[CustomBlocker] importScripts(helpers.js) failed", error);
