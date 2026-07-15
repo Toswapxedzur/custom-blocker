@@ -30,6 +30,12 @@ run_suite "platform-helpers" tests/runner.js || failed=1
 run_suite "platform-profiles" tests/runner-platform-profiles.js || failed=1
 run_suite "bridge-protocol" tests/runner-bridge-protocol.js || failed=1
 run_suite "vault-classifier-extension-contract" tests/runner-vault-classifier.js || failed=1
+node_out=$(node tests/runner-vault-classifier-bridge.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-native-bridge' FAILED" >&2
+  failed=1
+fi
 run_suite "markdown-renderer" tests/runner-markdown.js || failed=1
 run_suite "event-sandbox-stress" tests/runner-event-sandbox-stress.js || failed=1
 node scripts/documentation-audit.js || failed=1

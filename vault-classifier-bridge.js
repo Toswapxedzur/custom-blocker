@@ -9,20 +9,29 @@
   self.__vaultClassifierBridge = true;
 
   const C = self.VaultClassifierExtensionContract;
-  if (!C || typeof chrome === "undefined" || !chrome.runtime) return;
+  if (!C || typeof C.fitEntryForNativeTransport !== "function" || typeof C.isNativeEnvelope !== "function" || typeof C.isTrustedYouTubeURL !== "function" || typeof C.entryFingerprint !== "function" || typeof chrome === "undefined" || !chrome.runtime) return;
 
   const HOST_NAME = "com.adamancia.vault_classifier";
   const SETTINGS_KEY = "vaultClassifierSettings";
   const SECRET_KEY = "vaultClassifierPairingSecret";
   const CLIENT_KEY = "vaultClassifierClientID";
   const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+  const MAX_PENDING_REQUESTS = 16;
+  const MAX_CLASSIFICATION_JOBS = 48;
+  const MAX_ACTIVE_CLASSIFICATIONS = 4;
   const pending = new Map();
   const seenResponseNonces = new Map();
+  const classificationJobs = new Map();
+  const classificationQueue = [];
+  let activeClassifications = 0;
   let nativePort = null;
   let pairingPromise = null;
 
   function storageGet(keys) {
-    return new Promise((resolve) => chrome.storage.local.get(keys, (result) => resolve(result || {})));
+    return new Promise((resolve) => chrome.storage.local.get(keys, (result) => {
+      if (chrome.runtime.lastError) return resolve({});
+      resolve(result || {});
+    }));
   }
 
   function storageSet(value) {
@@ -53,6 +62,7 @@
   }
 
   function base64ToBytes(value) {
+    if (typeof value !== "string") throw new Error("Invalid base64 native field.");
     const binary = atob(value);
     const output = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index++) output[index] = binary.charCodeAt(index);
@@ -75,6 +85,7 @@
 
   async function bodyHash(bodyBase64) {
     const bytes = base64ToBytes(bodyBase64);
+    if (bytes.length > C.maximumNativeBodyBytes) throw new Error("Native body exceeds the local frame limit.");
     return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
   }
 
@@ -84,7 +95,10 @@
   }
 
   async function makeEnvelope(kind, body, secretBase64, requestID) {
-    const bodyBytes = new TextEncoder().encode(JSON.stringify(body));
+    const bodyJSON = JSON.stringify(body);
+    if (typeof bodyJSON !== "string") throw new Error("Native request body is malformed.");
+    const bodyBytes = new TextEncoder().encode(bodyJSON);
+    if (bodyBytes.length > C.maximumNativeBodyBytes) throw new Error("Native request exceeds the local frame limit.");
     const envelope = {
       protocolVersion: C.protocolVersion,
       kind,
@@ -100,24 +114,36 @@
   }
 
   async function decodeBody(envelope) {
-    if (!envelope || typeof envelope.bodyBase64 !== "string" || typeof envelope.bodyHash !== "string") throw new Error("Malformed native response.");
+    if (!C.isNativeEnvelope(envelope)) throw new Error("Malformed native response.");
     if ((await bodyHash(envelope.bodyBase64)) !== envelope.bodyHash.toLowerCase()) throw new Error("Native response body failed integrity verification.");
-    return JSON.parse(new TextDecoder().decode(base64ToBytes(envelope.bodyBase64)));
+    const body = JSON.parse(new TextDecoder().decode(base64ToBytes(envelope.bodyBase64)));
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Native response body is malformed.");
+    return body;
   }
 
-  async function verifyResponse(envelope, secretBase64) {
-    if (!envelope || envelope.protocolVersion !== C.protocolVersion || typeof envelope.nonce !== "string" || Math.abs(Date.now() - Number(envelope.timestampMilliseconds)) > MAX_CLOCK_SKEW_MS) {
-      throw new Error("Stale or malformed native response.");
+  function pruneSeenResponseNonces(now) {
+    const cutoff = now - MAX_CLOCK_SKEW_MS;
+    for (const [nonce, acceptedAt] of seenResponseNonces) {
+      if (acceptedAt < cutoff) seenResponseNonces.delete(nonce);
     }
-    if (seenResponseNonces.has(envelope.nonce)) throw new Error("Replayed native response.");
-    const expected = await mac(canonical(envelope), secretBase64);
-    if (typeof envelope.mac !== "string" || !constantTimeTextEquals(expected, envelope.mac)) throw new Error("Invalid native response MAC.");
-    seenResponseNonces.set(envelope.nonce, Date.now());
     if (seenResponseNonces.size > 1024) {
       const oldest = Array.from(seenResponseNonces.entries()).sort((a, b) => a[1] - b[1]).slice(0, seenResponseNonces.size - 1024);
       oldest.forEach(([nonce]) => seenResponseNonces.delete(nonce));
     }
-    return decodeBody(envelope);
+  }
+
+  async function verifyResponse(envelope, secretBase64, expectedKind, expectedRequestID) {
+    const now = Date.now();
+    if (!C.isNativeEnvelope(envelope, { authenticated: true }) || envelope.protocolVersion !== C.protocolVersion || envelope.kind !== expectedKind || envelope.requestID !== expectedRequestID || Math.abs(now - envelope.timestampMilliseconds) > MAX_CLOCK_SKEW_MS) {
+      throw new Error("Stale or malformed native response.");
+    }
+    pruneSeenResponseNonces(now);
+    if (seenResponseNonces.has(envelope.nonce)) throw new Error("Replayed native response.");
+    const expected = await mac(canonical(envelope), secretBase64);
+    if (!constantTimeTextEquals(expected, envelope.mac)) throw new Error("Invalid native response MAC.");
+    const body = await decodeBody(envelope);
+    seenResponseNonces.set(envelope.nonce, now);
+    return body;
   }
 
   function constantTimeTextEquals(left, right) {
@@ -148,8 +174,14 @@
 
   function roundTrip(envelope) {
     return new Promise((resolve, reject) => {
-      let port;
-      try { port = connectPort(); } catch (error) { reject(error); return; }
+      if (!envelope || typeof envelope.requestID !== "string" || pending.has(envelope.requestID)) {
+        reject(new Error("Malformed or duplicate native request."));
+        return;
+      }
+      if (pending.size >= MAX_PENDING_REQUESTS) {
+        reject(new Error("Vault Classifier native bridge is busy."));
+        return;
+      }
       const timer = setTimeout(() => {
         if (pending.delete(envelope.requestID)) reject(new Error("Vault Classifier native request timed out."));
       }, 6_000);
@@ -157,7 +189,11 @@
         resolve(message) { clearTimeout(timer); resolve(message); },
         reject(error) { clearTimeout(timer); reject(error); }
       });
-      try { port.postMessage(envelope); } catch (error) {
+      try {
+        // Register the waiter before connecting: an immediate disconnect must
+        // reject it rather than leaving it to the timeout path.
+        connectPort().postMessage(envelope);
+      } catch (error) {
         pending.delete(envelope.requestID);
         clearTimeout(timer);
         reject(error);
@@ -174,12 +210,12 @@
     }
     if (pairingPromise) return pairingPromise;
     pairingPromise = (async () => {
-      const clientID = typeof saved[CLIENT_KEY] === "string" && saved[CLIENT_KEY].length >= 16
+      const clientID = typeof saved[CLIENT_KEY] === "string" && saved[CLIENT_KEY].length >= 16 && saved[CLIENT_KEY].length <= 128 && !/[\u0000-\u001f\u007f]/.test(saved[CLIENT_KEY])
         ? saved[CLIENT_KEY]
         : C.randomID("extension");
       const envelope = await makeEnvelope("pair", { clientID }, null);
       const response = await roundTrip(envelope);
-      if (!response || response.kind !== "pair-response" || response.requestID !== envelope.requestID) throw new Error("Native pairing failed.");
+      if (!response || response.kind !== "pair-response" || response.requestID !== envelope.requestID || !Number.isSafeInteger(response.timestampMilliseconds) || Math.abs(Date.now() - response.timestampMilliseconds) > MAX_CLOCK_SKEW_MS) throw new Error("Native pairing failed.");
       const body = await decodeBody(response);
       if (!body || typeof body.secretBase64 !== "string" || base64ToBytes(body.secretBase64).length !== 32) throw new Error("Native pairing returned an invalid secret.");
       await storageSet({ [SECRET_KEY]: body.secretBase64, [CLIENT_KEY]: clientID });
@@ -189,25 +225,66 @@
     finally { pairingPromise = null; }
   }
 
-  async function classify(rawEntry) {
-    const current = await settings();
-    if (!current.enabled) return { ok: false, failOpen: true, reason: "disabled" };
-    const entry = C.normalizeEvidence({ ...rawEntry, policyIDs: [current.policyID] });
-    if (!entry) return { ok: false, failOpen: true, reason: "invalid-evidence" };
+  function enqueueClassification(run) {
+    return new Promise((resolve) => {
+      classificationQueue.push({ run, resolve });
+      drainClassificationQueue();
+    });
+  }
+
+  function drainClassificationQueue() {
+    while (activeClassifications < MAX_ACTIVE_CLASSIFICATIONS && classificationQueue.length) {
+      const next = classificationQueue.shift();
+      activeClassifications++;
+      Promise.resolve()
+        .then(next.run)
+        .then(next.resolve, () => next.resolve({ ok: false, failOpen: true, reason: "classification-failed" }))
+        .finally(() => {
+          activeClassifications--;
+          drainClassificationQueue();
+        });
+    }
+  }
+
+  async function classifyEntry(entry, current) {
     try {
+      // A card can sit in the bounded queue while its local setting changes.
+      // Do not classify it under a disabled or replaced policy.
+      const latest = await settings();
+      if (!latest.enabled || latest.policyID !== current.policyID) return { ok: false, failOpen: true, reason: "settings-changed" };
       const secret = await pairedSecret();
       const envelope = await makeEnvelope("classify", { entry }, secret);
       const response = await roundTrip(envelope);
-      if (!response || response.kind !== "classification-response" || response.requestID !== envelope.requestID) throw new Error("Invalid native classification response.");
-      const body = await verifyResponse(response, secret);
+      const body = await verifyResponse(response, secret, "classification-response", envelope.requestID);
       const result = body && body.result;
       if (!C.isResult(result)) throw new Error("Native classifier returned an invalid result.");
       let action = C.strongestAction(result);
-      if (entry.surface === "feed" && action === "block" && !current.feedHardBlock) action = "dim";
+      if (entry.surface === "feed" && action === "block" && !latest.feedHardBlock) action = "dim";
       return { ok: true, result, action, explanation: C.explanation(result), ledgerID: typeof body.ledgerID === "string" ? body.ledgerID : null };
     } catch (error) {
       return { ok: false, failOpen: true, reason: String(error && error.message || error) };
     }
+  }
+
+  async function classify(rawEntry) {
+    const current = await settings();
+    if (!current.enabled) return { ok: false, failOpen: true, reason: "disabled" };
+    const normalized = C.normalizeEvidence({ ...rawEntry, policyIDs: [current.policyID] });
+    if (!normalized || normalized.policyIDs.length !== 1) return { ok: false, failOpen: true, reason: "invalid-evidence" };
+    const entry = C.fitEntryForNativeTransport(normalized);
+    if (!entry) return { ok: false, failOpen: true, reason: "oversized-evidence" };
+    const key = C.entryFingerprint(entry);
+    if (!key) return { ok: false, failOpen: true, reason: "invalid-evidence" };
+    const existing = classificationJobs.get(key);
+    if (existing) return existing;
+    if (classificationJobs.size >= MAX_CLASSIFICATION_JOBS) return { ok: false, failOpen: true, reason: "classifier-busy" };
+    const job = enqueueClassification(() => classifyEntry(entry, current));
+    classificationJobs.set(key, job);
+    job.then(
+      () => classificationJobs.delete(key),
+      () => classificationJobs.delete(key)
+    );
+    return job;
   }
 
   async function correct(ledgerID, correction) {
@@ -217,24 +294,29 @@
       const secret = await pairedSecret();
       const envelope = await makeEnvelope("correct", { ledgerID, correction }, secret);
       const response = await roundTrip(envelope);
-      if (!response || response.kind !== "correction-response" || response.requestID !== envelope.requestID) throw new Error("Invalid correction response.");
-      const body = await verifyResponse(response, secret);
+      const body = await verifyResponse(response, secret, "correction-response", envelope.requestID);
       return { ok: Boolean(body && body.accepted === true) };
     } catch (_) {
       return { ok: false, failOpen: true };
     }
   }
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!message || message.type !== "vault-classifier-classify") return false;
+  function isTrustedYouTubeSender(sender) {
+    if (!sender || (sender.id && sender.id !== chrome.runtime.id)) return false;
+    const pageURL = typeof sender.url === "string" ? sender.url : sender.tab && sender.tab.url;
+    return C.isTrustedYouTubeURL(pageURL);
+  }
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || message.type !== "vault-classifier-classify" || !isTrustedYouTubeSender(sender)) return false;
     classify(message.entry)
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, failOpen: true }));
     return true;
   });
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!message || message.type !== "vault-classifier-correct") return false;
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || message.type !== "vault-classifier-correct" || !isTrustedYouTubeSender(sender)) return false;
     correct(message.ledgerID, message.correction)
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, failOpen: true }));
