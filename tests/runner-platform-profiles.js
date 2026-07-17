@@ -153,13 +153,10 @@ assert("Twitch includes live preview-card links", PLATFORM_PROFILES.twitch.feed.
   'a[data-a-target="preview-card-image-link"]'
 ));
 
-log.section("P6: surface hides are composable only across verified card profiles");
-const verifiedCardPlatforms = PLATFORM_GROUP_TYPES.filter((platform) => {
-  const feed = PLATFORM_PROFILES[platform]?.feed;
-  return platform === "reddit" ||
-    (Array.isArray(feed?.cardSelectors) && feed.cardSelectors.length > 0) ||
-    (Array.isArray(feed?.anchorSelectors) && feed.anchorSelectors.length > 0);
-});
+log.section("P6: surface hides are composable only across verified card boundaries");
+const verifiedCardPlatforms = PLATFORM_GROUP_TYPES.filter((platform) =>
+  PLATFORM_PROFILES[platform]?.feed?.surfaceHideCards === true
+);
 for (const platform of verifiedCardPlatforms) {
   const entries = getSurfaceHideEntries(platform);
   const ids = entries.map((entry) => entry.id);
@@ -171,6 +168,8 @@ for (const platform of verifiedCardPlatforms) {
     platform, ["all-content-cards"], "app"
   ).includes(getSurfaceFeedCardsDirective(platform)));
 }
+assertEqual("only live-verified card profiles expose a blank-feed control",
+  verifiedCardPlatforms.sort(), ["bilibili", "peertube", "youtube"]);
 assertEqual("all-content-cards directives parse back to their platform",
   parseSurfaceFeedCardsDirective(getSurfaceFeedCardsDirective("pixelfed")), "pixelfed");
 assertEqual("untrusted surface directives fail closed",
@@ -178,8 +177,18 @@ assertEqual("untrusted surface directives fail closed",
 assert("YouTube exposes independent ads and recommendations controls", ["ads-sponsored", "recommendations"].every(
   (id) => getSurfaceHideEntries("youtube").some((entry) => entry.id === id)
 ));
-for (const platform of ["discord", "kick", "kuaishou"]) {
-  assert(platform + " omits all-content-cards without a verified card model", !getSurfaceHideEntries(
+assert("PeerTube exposes a live-card control without implying ads or recommendations", (() => {
+  const ids = getSurfaceHideEntries("peertube").map((entry) => entry.id);
+  return ids.includes("live-streams") && !ids.includes("ads-sponsored") && !ids.includes("recommendations");
+})());
+assertEqual("PeerTube retains its live-card and blank-feed selections together",
+  normalizeSurfaceHides(["live-streams", "all-content-cards"], "peertube"),
+  ["live-streams", "all-content-cards"]);
+assert("PeerTube's live-card selector stays scoped to a video-card host", getSurfaceHideSelectors(
+  "peertube", ["live-streams"], "app"
+).includes("my-video-miniature:has(.live-overlay.live-streaming)"));
+for (const platform of PLATFORM_GROUP_TYPES.filter((platform) => !verifiedCardPlatforms.includes(platform))) {
+  assert(platform + " omits all-content-cards without a live-verified card boundary", !getSurfaceHideEntries(
     platform
   ).some((entry) => entry.id === "all-content-cards"));
 }
