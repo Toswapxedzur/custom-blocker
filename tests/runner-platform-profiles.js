@@ -153,7 +153,30 @@ assert("Twitch includes live preview-card links", PLATFORM_PROFILES.twitch.feed.
   'a[data-a-target="preview-card-image-link"]'
 ));
 
-log.section("P6: YouTube creator-tag verdicts are state-aware and fail open");
+log.section("P6: surface hides are composable across every platform profile");
+for (const platform of PLATFORM_GROUP_TYPES) {
+  const entries = getSurfaceHideEntries(platform);
+  const ids = entries.map((entry) => entry.id);
+  assert(platform + " exposes an all-content-cards control", ids.includes("all-content-cards"));
+  assertEqual(platform + " retains combined surface selections",
+    normalizeSurfaceHides(["all-content-cards", "all-content-cards", "not-a-control"], platform),
+    ["all-content-cards"]);
+  assert(platform + " emits a dedicated all-content-cards directive", getSurfaceHideSelectors(
+    platform, ["all-content-cards"], "app"
+  ).includes(getSurfaceFeedCardsDirective(platform)));
+}
+assertEqual("all-content-cards directives parse back to their platform",
+  parseSurfaceFeedCardsDirective(getSurfaceFeedCardsDirective("pixelfed")), "pixelfed");
+assertEqual("untrusted surface directives fail closed",
+  parseSurfaceFeedCardsDirective("__cb_surface_feed_cards__:not-a-platform"), null);
+assert("TikTok exposes independent short-form and comments controls", ["short-form", "comments-replies"].every(
+  (id) => getSurfaceHideEntries("tiktok").some((entry) => entry.id === id)
+));
+assert("YouTube exposes independent ads and recommendations controls", ["ads-sponsored", "recommendations"].every(
+  (id) => getSurfaceHideEntries("youtube").some((entry) => entry.id === id)
+));
+
+log.section("P7: YouTube creator-tag verdicts are state-aware and fail open");
 const taggedSlugs = ["gaming", "gaming-genres-fps"];
 assert("tagInclude matches a selected tag on a classified creator",
   matchesYouTubeTagSelection("tagInclude", ["gaming"], "tagged", taggedSlugs));

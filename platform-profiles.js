@@ -948,13 +948,58 @@ function matchesProfileGroup(group, pageContext) {
 //             (handled by background.js gating the selector emission).
 // ────────────────────────────────────────────────────────────────────────
 
+const SURFACE_FEED_CARDS_DIRECTIVE_PREFIX = "__cb_surface_feed_cards__:";
+
+function getSurfaceFeedCardsDirective(groupType) {
+  return `${SURFACE_FEED_CARDS_DIRECTIVE_PREFIX}${normalizeGroupType(groupType)}`;
+}
+
+function parseSurfaceFeedCardsDirective(value) {
+  if (typeof value !== "string" || !value.startsWith(SURFACE_FEED_CARDS_DIRECTIVE_PREFIX)) {
+    return null;
+  }
+  const groupType = normalizeGroupType(value.slice(SURFACE_FEED_CARDS_DIRECTIVE_PREFIX.length));
+  return isPlatformProfileGroupType(groupType) ? groupType : null;
+}
+
 function surfaceHideEntryScope(entry) {
   return entry && entry.scope === "entry" ? "entry" : "app";
 }
 
+// The core controls are deliberately composable: a user can hide ads and
+// recommendations while leaving ordinary cards visible, or enable all-cards
+// as a deliberate blank-feed switch. Platform-specific selectors are declared
+// below once the profiles have been built.
+function getSurfaceHideEntries(groupType) {
+  const type = normalizeGroupType(groupType);
+  const profile = PLATFORM_PROFILES[type];
+  if (!profile) return [];
+
+  const entries = [...(Array.isArray(profile.surfaceHides) ? profile.surfaceHides : [])];
+  const categories = PLATFORM_SURFACE_CATEGORY_SELECTORS[type] || {};
+  for (const category of SURFACE_HIDE_CATEGORIES) {
+    if (category.id === "all-content-cards") {
+      entries.push({
+        id: category.id,
+        labelKey: category.labelKey,
+        selectors: [getSurfaceFeedCardsDirective(type)]
+      });
+      continue;
+    }
+    const selectors = categories[category.id];
+    if (!Array.isArray(selectors) || selectors.length === 0) continue;
+    entries.push({
+      id: category.id,
+      labelKey: category.labelKey,
+      selectors,
+      warnOnEnableKey: category.warnOnEnableKey
+    });
+  }
+  return entries;
+}
+
 function normalizeSurfaceHides(value, groupType) {
-  const profile = PLATFORM_PROFILES[normalizeGroupType(groupType)];
-  const allowed = new Set((profile?.surfaceHides ?? []).map((entry) => entry.id));
+  const allowed = new Set(getSurfaceHideEntries(groupType).map((entry) => entry.id));
   const raw = Array.isArray(value) ? value : [];
   return [...new Set(raw.filter((id) => allowed.has(id)))];
 }
@@ -962,11 +1007,11 @@ function normalizeSurfaceHides(value, groupType) {
 // scope: "app" | "entry" | undefined (all). Returns the CSS selectors for the
 // enabled entries whose scope matches.
 function getSurfaceHideSelectors(groupType, enabledIds, scope) {
-  const profile = PLATFORM_PROFILES[normalizeGroupType(groupType)];
-  if (!profile || !Array.isArray(profile.surfaceHides)) return [];
+  const entries = getSurfaceHideEntries(groupType);
+  if (entries.length === 0) return [];
   const enabled = new Set(Array.isArray(enabledIds) ? enabledIds : []);
   const selectors = [];
-  for (const entry of profile.surfaceHides) {
+  for (const entry of entries) {
     if (!enabled.has(entry.id)) continue;
     if (scope && surfaceHideEntryScope(entry) !== scope) continue;
     for (const sel of entry.selectors) selectors.push(sel);
@@ -1563,6 +1608,169 @@ const PLATFORM_PROFILES = {
   }
 };
 
+const SURFACE_HIDE_CATEGORIES = [
+  {
+    id: "ads-sponsored",
+    labelKey: "surfaceHide.adsSponsored",
+    warnOnEnableKey: "surfaceHide.genericAdWarning"
+  },
+  { id: "short-form", labelKey: "surfaceHide.shortForm" },
+  { id: "live-streams", labelKey: "surfaceHide.liveStreams" },
+  { id: "comments-replies", labelKey: "surfaceHide.commentsReplies" },
+  { id: "recommendations", labelKey: "surfaceHide.recommendations" },
+  { id: "all-content-cards", labelKey: "surfaceHide.allContentCards" }
+];
+
+// Selectors are intentionally conservative: they target a named/structural
+// content surface, never generic navigation links. A missing category means
+// the platform has no durable public selector for it yet; all platforms still
+// provide the explicit all-content-cards control below.
+const PLATFORM_SURFACE_CATEGORY_SELECTORS = {
+  youtube: {
+    "ads-sponsored": [
+      "ytd-ad-slot-renderer",
+      "ytd-in-feed-ad-layout-renderer",
+      "ytd-display-ad-renderer",
+      "ytd-rich-item-renderer:has(ytd-ad-slot-renderer)",
+      "ytd-rich-item-renderer:has(ytd-in-feed-ad-layout-renderer)"
+    ],
+    "live-streams": [
+      'ytd-rich-item-renderer:has(a[href*="/live/"])',
+      'ytd-video-renderer:has(a[href*="/live/"])',
+      'ytd-compact-video-renderer:has(a[href*="/live/"])'
+    ],
+    recommendations: ["#related", "ytd-watch-next-secondary-results-renderer"]
+  },
+  tiktok: {
+    "ads-sponsored": ['[data-e2e*="ad-card"]', '[data-e2e*="sponsored"]'],
+    "short-form": [getSurfaceFeedCardsDirective("tiktok")],
+    "live-streams": ['a[href*="/live"]', '[data-e2e*="live"]'],
+    "comments-replies": ['[data-e2e*="comment-list"]', '[data-e2e*="comment-panel"]'],
+    recommendations: ['[data-e2e*="recommend"]']
+  },
+  facebook: {
+    "ads-sponsored": [
+      '[role="article"]:has([aria-label="Sponsored"])',
+      '[data-pagelet*="FeedUnit"]:has([aria-label="Sponsored"])'
+    ],
+    "short-form": [
+      'a[href^="/reel/"]',
+      'div[role="article"]:has(a[href^="/reel/"])',
+      'div[data-pagelet^="Reels"]'
+    ],
+    "live-streams": ['a[href*="/live/"]', 'div[role="article"]:has(a[href*="/live/"])'],
+    "comments-replies": ['[aria-label="Comments"]', '[data-pagelet*="Comments"]'],
+    recommendations: ['[data-pagelet*="PeopleYouMayKnow"]', '[data-pagelet*="PYMK"]']
+  },
+  instagram: {
+    "ads-sponsored": ['article:has(a[href*="/ads/"])'],
+    "short-form": ['a[href="/reels/"]', 'a[href^="/reels/"]', 'a[href^="/reel/"]'],
+    "live-streams": ['a[href^="/live/"]'],
+    "comments-replies": ['[aria-label="Comments"]'],
+    recommendations: ['a[href^="/suggested/"]', 'a[href^="/accounts/suggested/"]']
+  },
+  twitch: {
+    "ads-sponsored": ['[data-a-target*="ad"]', '[class*="ad-container"]'],
+    "short-form": ['a[href*="/clip/"]', 'a[href*="clips.twitch.tv/"]'],
+    "live-streams": [getSurfaceFeedCardsDirective("twitch")],
+    "comments-replies": ['[data-a-target="chat-room-component"]'],
+    recommendations: ['[data-a-target="side-nav-card"]']
+  },
+  reddit: {
+    "ads-sponsored": ["shreddit-ad-post", '[data-click-id="promoted"]', '[data-testid*="ad"]'],
+    "comments-replies": ["shreddit-comment-tree", "#comment-tree", ".commentarea"],
+    recommendations: ['faceplate-tracker[source*="recommend"]']
+  },
+  discord: {
+    "comments-replies": [
+      'li[id^="chat-messages-"]',
+      '[data-list-item-id^="chat-messages_"]',
+      '[class*="messageListItem"]'
+    ]
+  },
+  twitter: {
+    "ads-sponsored": ['article:has([data-testid="placementTracking"])'],
+    "live-streams": ['a[href*="/i/broadcasts/"]'],
+    "comments-replies": ['[aria-label^="Timeline: Conversation"] article'],
+    recommendations: ['[data-testid="sidebarColumn"] [aria-label*="Who to follow"]']
+  },
+  bluesky: {
+    "comments-replies": ['[data-testid="postThread"] [role="article"]'],
+    recommendations: ['[data-testid*="suggest"]']
+  },
+  threads: {
+    "comments-replies": ['[role="dialog"] [role="article"]'],
+    recommendations: ['a[href*="/suggested/"]']
+  },
+  substack: {
+    "comments-replies": ["#comments", '[data-testid*="comment"]']
+  },
+  bilibili: {
+    "ads-sponsored": ['a[href*="cm.bilibili.com"]', '[class*="ad"]'],
+    "live-streams": ['a[href*="live.bilibili.com"]'],
+    "comments-replies": ["#comment", ".reply-list", '[class*="comment"]'],
+    recommendations: [".recommended-container", '[class*="recommend"]']
+  },
+  rumble: {
+    "ads-sponsored": ['[class*="ad-"]', '[id*="ad_"]'],
+    "comments-replies": ["#comments", '[class*="comment"]'],
+    recommendations: ['[class*="recommended"]']
+  },
+  pinterest: {
+    "ads-sponsored": ['[data-test-id*="ad"]', '[data-test-id*="promoted"]'],
+    "short-form": ['a[href^="/idea/"]'],
+    "comments-replies": ['[data-test-id*="comment"]'],
+    recommendations: ['[data-test-id*="recommend"]']
+  },
+  kick: {
+    "ads-sponsored": ['[data-testid*="ad"]'],
+    "live-streams": [getSurfaceFeedCardsDirective("kick")],
+    "comments-replies": ['[data-testid*="chat"]', '[class*="chat-room"]'],
+    recommendations: ['[data-testid*="recommended"]']
+  },
+  tumblr: {
+    "ads-sponsored": ['[data-testid*="ad"]', '[class*="sponsored"]'],
+    "comments-replies": ['[data-testid*="notes"]', '[class*="notes"]'],
+    recommendations: ['[data-testid*="recommend"]']
+  },
+  peertube: {
+    "comments-replies": ["my-comment-list", ".comment-list"],
+    recommendations: [".related-videos", ".video-recommendations"]
+  },
+  pixelfed: {
+    "comments-replies": ["#comments", '[class*="comment"]'],
+    recommendations: ['[class*="recommend"]']
+  },
+  kuaishou: {
+    "ads-sponsored": ['[data-testid*="ad"]', '[class*="ad"]'],
+    "short-form": [getSurfaceFeedCardsDirective("kuaishou")],
+    "live-streams": ['a[href*="/live"]'],
+    "comments-replies": ['[class*="comment"]'],
+    recommendations: ['[class*="recommend"]']
+  }
+};
+
+// Some public platforms do not expose a stable entry URL for every discovery
+// tile. These selectors are used only by the explicit all-cards (or a
+// whole-feed short/live) control, never by author-aware feed filtering.
+const PLATFORM_SURFACE_CARD_SELECTORS = {
+  discord: [
+    'li[id^="chat-messages-"]',
+    '[data-list-item-id^="chat-messages_"]',
+    '[class*="messageListItem"]'
+  ],
+  kick: [
+    'main [data-testid*="card"]',
+    'main [class*="channel-card"]',
+    'main [class*="thumbnail"]'
+  ],
+  kuaishou: [
+    'main [data-testid*="card"]',
+    'main [class*="feed-card"]',
+    'main [class*="video-card"]'
+  ]
+};
+
 // ────────────────────────────────────────────────────────────────────────
 // Export — bare globals for worker/content/popup, module.exports for Node.
 // ────────────────────────────────────────────────────────────────────────
@@ -1571,6 +1779,9 @@ const __cbPlatformRegistry = {
   PLATFORM_GROUP_TYPES,
   PLATFORM_VIDEO_GROUP_TYPES,
   PLATFORM_FEED_GROUP_TYPES,
+  SURFACE_HIDE_CATEGORIES,
+  PLATFORM_SURFACE_CATEGORY_SELECTORS,
+  PLATFORM_SURFACE_CARD_SELECTORS,
   PLATFORM_PROFILES,
   normalizeGroupType,
   isPlatformVideoGroupType,
@@ -1609,8 +1820,11 @@ const __cbPlatformRegistry = {
   matchesTwitterGroup,
   matchesPlatformFeedGroup,
   matchesProfileGroup,
+  getSurfaceHideEntries,
   normalizeSurfaceHides,
   getSurfaceHideSelectors,
+  getSurfaceFeedCardsDirective,
+  parseSurfaceFeedCardsDirective,
   surfaceHideEntryScope,
   platformGroupAuthorAxisMatchesPage,
   platformAuthorModeUsesList,
