@@ -3137,9 +3137,7 @@ function applyPlatformVideoUi(groupType) {
 }
 
 function getProfileSurfaceHideEntries(groupType) {
-  const profile =
-    typeof PLATFORM_PROFILES !== "undefined" ? PLATFORM_PROFILES[normalizeGroupType(groupType)] : null;
-  return Array.isArray(profile?.surfaceHides) ? profile.surfaceHides : [];
+  return getSurfaceHideEntries(groupType);
 }
 
 function getDraftSurfaceHides(group, draft) {
