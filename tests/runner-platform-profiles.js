@@ -113,7 +113,36 @@ assert("X include group matches a profile handle", matchesProfileGroup({
   groupType: "twitter", blockHomePage: false, platformAuthorMode: "include", platformAuthors: ["focus_account"]
 }, twitter));
 
-log.section("P4: feed profiles retain platform-specific card anchors");
+log.section("P4: public feed adapters share author matching without video forms");
+const feedAdapters = [
+  ["bluesky", "bsky.app", "/profile/focus.test", "focus.test"],
+  ["threads", "threads.com", "/@focus", "focus"],
+  ["substack", "substack.com", "/@focus", "focus"],
+  ["bilibili", "www.bilibili.com", "/space/123456", "space:123456"],
+  ["rumble", "rumble.com", "/user/focus", "user:focus"],
+  ["pinterest", "www.pinterest.com", "/focus/", "focus"],
+  ["kick", "kick.com", "/focus", "focus"],
+  ["tumblr", "focus.tumblr.com", "/post/123/example", "blog:focus"],
+  ["peertube", "peertube.tv", "/a/focus", "account:focus"],
+  ["pixelfed", "pixelfed.social", "/focus", "focus"],
+  ["kuaishou", "www.kuaishou.com", "/profile/abc123", "profile:abc123"]
+];
+for (const [groupType, hostname, pathname, author] of feedAdapters) {
+  const context = pageContext(hostname, pathname);
+  assert(groupType + " is available in the unified Platform selector", PLATFORM_GROUP_TYPES.includes(groupType));
+  assertEqual(groupType + " normalizes its public author route", context.platformAuthors[groupType], [author]);
+  assert(groupType + " include group matches its public author page", matchesProfileGroup({
+    groupType, blockHomePage: false, platformAuthorMode: "include", platformAuthors: [author]
+  }, context));
+}
+assertEqual("Substack accepts a direct publication URL",
+  normalizePlatformAuthorInput("https://focus.substack.com/p/example", "substack"), "focus");
+assert("PeerTube does not overreach to unverified federation instances",
+  !isPlatformHost("peertube", "example.peertube.instance"));
+assert("Pixelfed does not overreach to unverified federation instances",
+  !isPlatformHost("pixelfed", "example.pixelfed.social.example"));
+
+log.section("P5: feed profiles retain platform-specific card anchors");
 for (const platform of ["tiktok", "facebook", "instagram", "twitch"]) {
   const feed = PLATFORM_PROFILES[platform]?.feed;
   assert(platform + " has card anchor selectors", Array.isArray(feed?.anchorSelectors) && feed.anchorSelectors.length > 0);
@@ -124,7 +153,7 @@ assert("Twitch includes live preview-card links", PLATFORM_PROFILES.twitch.feed.
   'a[data-a-target="preview-card-image-link"]'
 ));
 
-log.section("P5: YouTube creator-tag verdicts are state-aware and fail open");
+log.section("P6: YouTube creator-tag verdicts are state-aware and fail open");
 const taggedSlugs = ["gaming", "gaming-genres-fps"];
 assert("tagInclude matches a selected tag on a classified creator",
   matchesYouTubeTagSelection("tagInclude", ["gaming"], "tagged", taggedSlugs));

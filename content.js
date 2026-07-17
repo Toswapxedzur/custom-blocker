@@ -70,6 +70,7 @@ function normalizeHostname(hostname) {
 //   normalizeYouTubeCreatorInput, normalizePlatformAuthorInput,
 //   normalizeRedditSubredditInput, normalizeDiscordTargetInput,
 //   isYouTubeHost, isRedditHost, isDiscordHost, isTwitterHost,
+//   getPlatformGroupTypeForHost,
 //   parseRedditSubredditFromPath, parseDiscordServerIdFromPath,
 //   parseDiscordChannelIdFromPath, detectVideoSiteContext.
 
@@ -450,8 +451,7 @@ function getCurrentFeedSite() {
   const videoCtx = detectVideoSiteContext(hostname, location.pathname);
   if (videoCtx.site) return videoCtx.site;
   if (isRedditHost(hostname)) return "reddit";
-  if (isTwitterHost(hostname)) return "twitter";
-  return null;
+  return getPlatformGroupTypeForHost(hostname);
 }
 
 function getYouTubeCardTagData(card) {

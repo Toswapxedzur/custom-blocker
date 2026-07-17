@@ -1,7 +1,9 @@
 /* Custom Web Blocker — platform site-profile registry.
  *
  * SINGLE SOURCE OF TRUTH for everything platform-specific (YouTube,
- * TikTok, Facebook, Instagram, Twitch, Reddit, Discord, Twitter/X).
+ * TikTok, Facebook, Instagram, Twitch, Reddit, Discord, Twitter/X, Bluesky,
+ * Threads, Substack, Bilibili, Rumble, Pinterest, Kick, Tumblr, PeerTube,
+ * Pixelfed, and Kuaishou).
  *
  * This file is loaded into all three script contexts:
  *   - background service worker (via importScripts / packaged scripts)
@@ -29,13 +31,41 @@ const PLATFORM_GROUP_TYPES = [
   "twitch",
   "reddit",
   "discord",
-  "twitter"
+  "twitter",
+  "bluesky",
+  "threads",
+  "substack",
+  "bilibili",
+  "rumble",
+  "pinterest",
+  "kick",
+  "tumblr",
+  "peertube",
+  "pixelfed",
+  "kuaishou"
 ];
 
 // Types that share the "platform video" model (content-type + creator axes
 // matched against detectVideoSiteContext()). Twitter is feed-based but does
 // NOT use the video-form axis, so it is handled on its own track.
 const PLATFORM_VIDEO_GROUP_TYPES = ["youtube", "tiktok", "facebook", "instagram", "twitch"];
+
+// Feed-first platforms share the author/account and home-feed axes without a
+// video-form selector. Twitter/X belongs here too.
+const PLATFORM_FEED_GROUP_TYPES = [
+  "twitter",
+  "bluesky",
+  "threads",
+  "substack",
+  "bilibili",
+  "rumble",
+  "pinterest",
+  "kick",
+  "tumblr",
+  "peertube",
+  "pixelfed",
+  "kuaishou"
+];
 
 function normalizeGroupType(value) {
   if (value === "custom") return "custom";
@@ -44,6 +74,15 @@ function normalizeGroupType(value) {
 
 function isPlatformVideoGroupType(groupType) {
   return PLATFORM_VIDEO_GROUP_TYPES.includes(normalizeGroupType(groupType));
+}
+
+function isPlatformFeedGroupType(groupType) {
+  return PLATFORM_FEED_GROUP_TYPES.includes(normalizeGroupType(groupType));
+}
+
+function isPlatformAuthorGroupType(groupType) {
+  const t = normalizeGroupType(groupType);
+  return isPlatformVideoGroupType(t) || isPlatformFeedGroupType(t);
 }
 
 // Any non-custom, non-site group that owns a dedicated matcher in this
@@ -163,6 +202,112 @@ function normalizeTwitterHandleInput(value) {
   return /^[a-z0-9_]{1,15}$/.test(first) ? first : null;
 }
 
+function normalizeSimplePlatformHandle(value) {
+  const handle = String(value ?? "").trim().toLowerCase().replace(/^@/, "");
+  return /^[a-z0-9][a-z0-9._-]{0,127}$/.test(handle) ? handle : null;
+}
+
+const FEED_PLATFORM_RESERVED_PATHS = {
+  pinterest: new Set([
+    "pin", "ideas", "search", "explore", "today", "topics", "business",
+    "about", "login", "settings", "create", "privacy", "terms"
+  ]),
+  kick: new Set([
+    "categories", "search", "browse", "following", "login", "signup",
+    "subscriptions", "terms", "about", "help", "privacy"
+  ]),
+  pixelfed: new Set([
+    "web", "discover", "site", "i", "settings", "login", "register",
+    "api", "oauth", "privacy", "terms"
+  ])
+};
+
+// Normalised values deliberately retain an account/channel prefix where a
+// platform has more than one identity namespace. That prevents a PeerTube
+// channel from being confused with an account of the same text.
+function normalizeFeedPlatformAuthorInput(value, groupType) {
+  const t = normalizeGroupType(groupType);
+  let raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  let hostname = "";
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      hostname = parsed.hostname.toLowerCase();
+      raw = parsed.pathname;
+    } catch {
+      // JavaScriptCore test shells may not expose URL. Keep this normaliser
+      // deterministic there as well as in Chrome's extension contexts.
+      const match = raw.match(/^https?:\/\/([^/?#]+)(\/[^?#]*)?/i);
+      if (!match) return null;
+      hostname = match[1].toLowerCase();
+      raw = match[2] || "/";
+    }
+  }
+
+  if (
+    t === "tumblr" &&
+    hostname.endsWith(".tumblr.com") &&
+    hostname !== "www.tumblr.com"
+  ) {
+    const blog = hostname.slice(0, -".tumblr.com".length).split(".").pop();
+    const handle = normalizeSimplePlatformHandle(blog);
+    return handle ? `blog:${handle}` : null;
+  }
+
+  if (
+    t === "substack" &&
+    hostname.endsWith(".substack.com") &&
+    hostname !== "www.substack.com"
+  ) {
+    return normalizeSimplePlatformHandle(hostname.slice(0, -".substack.com".length).split(".").pop());
+  }
+
+  const path = raw.toLowerCase().replace(/^\/+|\/+$/g, "");
+  const segments = path.split("/").filter(Boolean);
+  const first = segments[0] || "";
+  const simpleFirst = normalizeSimplePlatformHandle(first);
+
+  if (t === "bluesky") {
+    const handle = path.match(/^profile\/([^/?#]+)/)?.[1] || raw.replace(/^@/, "");
+    return normalizeSimplePlatformHandle(handle);
+  }
+  if (t === "threads" || t === "substack") {
+    const handle = path.match(/^@([^/?#]+)/)?.[1] || raw.replace(/^@/, "");
+    return normalizeSimplePlatformHandle(handle);
+  }
+  if (t === "bilibili") {
+    const id = path.match(/^space\/?([^/?#]+)/)?.[1] || path.match(/^space:([^/?#]+)/)?.[1];
+    return id && /^[0-9]+$/.test(id) ? `space:${id}` : null;
+  }
+  if (t === "rumble") {
+    const match = path.match(/^(user|c)[/:]([^/?#]+)/);
+    const handle = match ? normalizeSimplePlatformHandle(match[2]) : null;
+    return handle ? `${match[1] === "c" ? "channel" : "user"}:${handle}` : null;
+  }
+  if (t === "pinterest" || t === "kick" || t === "pixelfed") {
+    const reserved = FEED_PLATFORM_RESERVED_PATHS[t];
+    return simpleFirst && !reserved.has(simpleFirst) ? simpleFirst : null;
+  }
+  if (t === "tumblr") {
+    const handle = path.match(/^blog\/?([^/?#]+)/)?.[1] || raw;
+    const normalized = normalizeSimplePlatformHandle(handle);
+    return normalized ? `blog:${normalized}` : null;
+  }
+  if (t === "peertube") {
+    const match = path.match(/^(a|c)[/:]([^/?#]+)/);
+    const handle = match ? normalizeSimplePlatformHandle(match[2]) : null;
+    return handle ? `${match[1] === "c" ? "channel" : "account"}:${handle}` : null;
+  }
+  if (t === "kuaishou") {
+    const id = path.match(/^profile\/?([^/?#]+)/)?.[1] || path.match(/^profile:([^/?#]+)/)?.[1];
+    return id && /^[a-z0-9_-]+$/i.test(id) ? `profile:${id}` : null;
+  }
+
+  return null;
+}
+
 function normalizePlatformAuthorInput(value, groupType) {
   const normalizedGroupType = normalizeGroupType(groupType);
 
@@ -171,6 +316,9 @@ function normalizePlatformAuthorInput(value, groupType) {
   }
   if (normalizedGroupType === "twitter") {
     return normalizeTwitterHandleInput(value);
+  }
+  if (isPlatformFeedGroupType(normalizedGroupType)) {
+    return normalizeFeedPlatformAuthorInput(value, normalizedGroupType);
   }
 
   let trimmed = String(value ?? "").trim().toLowerCase();
@@ -331,8 +479,26 @@ function isPlatformHost(groupType, hostname) {
     case "reddit": return isRedditHost(hostname);
     case "discord": return isDiscordHost(hostname);
     case "twitter": return isTwitterHost(hostname);
+    case "bluesky": return hostname === "bsky.app" || hostname.endsWith(".bsky.app");
+    case "threads": return hostname === "threads.com" || hostname.endsWith(".threads.com");
+    case "substack": return hostname === "substack.com" || hostname.endsWith(".substack.com");
+    case "bilibili": return hostname === "bilibili.com" || hostname.endsWith(".bilibili.com");
+    case "rumble": return hostname === "rumble.com" || hostname.endsWith(".rumble.com");
+    case "pinterest": return hostname === "pinterest.com" || hostname.endsWith(".pinterest.com");
+    case "kick": return hostname === "kick.com" || hostname.endsWith(".kick.com");
+    case "tumblr": return hostname === "tumblr.com" || hostname.endsWith(".tumblr.com");
+    // Federation hosts are intentionally scoped to the verified public
+    // instances. Adding a whole federated network requires per-instance DOM
+    // verification, not an optimistic hostname wildcard.
+    case "peertube": return hostname === "peertube.tv" || hostname.endsWith(".peertube.tv");
+    case "pixelfed": return hostname === "pixelfed.social" || hostname.endsWith(".pixelfed.social");
+    case "kuaishou": return hostname === "kuaishou.com" || hostname.endsWith(".kuaishou.com");
     default: return false;
   }
+}
+
+function getPlatformGroupTypeForHost(hostname) {
+  return PLATFORM_GROUP_TYPES.find((groupType) => isPlatformHost(groupType, hostname)) || null;
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -482,6 +648,10 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
     return match ? normalizeTwitterHandleInput(match[1]) : null;
   }
 
+  if (isPlatformFeedGroupType(t)) {
+    return normalizeFeedPlatformAuthorInput(url || safePathname, t);
+  }
+
   if (t === "tiktok") {
     const match = safePathname.match(/^\/@([^/?#]+)/i);
     return match ? normalizePlatformAuthorInput(match[1], t) : null;
@@ -535,7 +705,9 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
 // Builds the page's author map (per platform) from any client-provided hints
 // plus whatever can be parsed from the path. Twitter participates here too so
 // account include/exclude works on profile pages.
-const PLATFORM_AUTHOR_MAP_TYPES = ["youtube", "tiktok", "facebook", "instagram", "twitch", "twitter"];
+const PLATFORM_AUTHOR_MAP_TYPES = [
+  ...new Set([...PLATFORM_VIDEO_GROUP_TYPES, ...PLATFORM_FEED_GROUP_TYPES])
+];
 
 function normalizePlatformAuthorsMap(inputMap, pathname, url) {
   const map = {};
@@ -583,6 +755,22 @@ function isHomeFeedPage(groupType, hostname, pathname) {
       return p === "/channels/@me" || p.startsWith("/channels/@me/");
     case "twitter":
       return p === "/" || p === "/home" || p.startsWith("/home/");
+    case "bluesky":
+    case "threads":
+    case "substack":
+    case "bilibili":
+    case "rumble":
+    case "pinterest":
+    case "kick":
+      return p === "/";
+    case "tumblr":
+      return p === "/" || p === "/explore" || p.startsWith("/explore/");
+    case "peertube":
+      return p === "/" || p === "/videos/browse" || p.startsWith("/videos/browse/");
+    case "pixelfed":
+      return p === "/" || p === "/web/explore" || p.startsWith("/web/explore/");
+    case "kuaishou":
+      return p === "/" || p === "/new-reco" || p.startsWith("/new-reco/");
     default:
       return false;
   }
@@ -704,11 +892,14 @@ function matchesDiscordGroup(group, pageContext) {
   return mode === "include" ? Boolean(isListed) : !isListed;
 }
 
-// Twitter/X uses the account axis (platformAuthorMode/platformAuthors) but no
-// video-form axis. authorMode "all" means "block all of X" (coarse).
-function matchesTwitterGroup(group, pageContext) {
-  if (!pageContext.isTwitterPage) return false;
-  if (group.blockHomePage && isHomeFeedPage("twitter", pageContext.hostname, pageContext.pathname)) {
+// Feed platforms use the author/account axis (platformAuthorMode/
+// platformAuthors) but no video-form axis. authorMode "all" means a coarse
+// whole-platform block; include/exclude stay fail-open until the page author
+// can be determined.
+function matchesPlatformFeedGroup(group, pageContext) {
+  const type = normalizeGroupType(group.groupType);
+  if (!isPlatformFeedGroupType(type) || !isPlatformHost(type, pageContext.hostname)) return false;
+  if (group.blockHomePage && isHomeFeedPage(type, pageContext.hostname, pageContext.pathname)) {
     return true;
   }
 
@@ -717,16 +908,20 @@ function matchesTwitterGroup(group, pageContext) {
   // Tag modes are YouTube-only; "nobody" blocks no account.
   if (mode !== "include" && mode !== "exclude") return false;
 
-  const accounts = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
-  if (accounts.length === 0) return false;
+  const authors = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
+  if (authors.length === 0) return false;
 
-  const pageAccounts = Array.isArray(pageContext.platformAuthors?.twitter)
-    ? pageContext.platformAuthors.twitter
+  const pageAuthors = Array.isArray(pageContext.platformAuthors?.[type])
+    ? pageContext.platformAuthors[type]
     : [];
-  if (pageAccounts.length === 0) return false;
+  if (pageAuthors.length === 0) return false;
 
-  const hasMatch = accounts.some((account) => pageAccounts.includes(account));
+  const hasMatch = authors.some((author) => pageAuthors.includes(author));
   return mode === "include" ? hasMatch : !hasMatch;
+}
+
+function matchesTwitterGroup(group, pageContext) {
+  return matchesPlatformFeedGroup(group, pageContext);
 }
 
 // Single dispatch entry point — "does this platform group block this page?"
@@ -735,7 +930,7 @@ function matchesProfileGroup(group, pageContext) {
   if (isPlatformVideoGroupType(t)) return matchesPlatformVideoGroup(group, pageContext);
   if (t === "reddit") return matchesRedditGroup(group, pageContext);
   if (t === "discord") return matchesDiscordGroup(group, pageContext);
-  if (t === "twitter") return matchesTwitterGroup(group, pageContext);
+  if (isPlatformFeedGroupType(t)) return matchesPlatformFeedGroup(group, pageContext);
   return false;
 }
 
@@ -802,7 +997,7 @@ function platformGroupAuthorAxisMatchesPage(group, pageContext) {
   const list = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
   if (list.length === 0) return false;
 
-  const key = t === "twitter" ? "twitter" : t;
+  const key = t;
   const pageAuthors = Array.isArray(pageContext.platformAuthors?.[key])
     ? pageContext.platformAuthors[key]
     : [];
@@ -817,7 +1012,7 @@ function platformGroupAuthorAxisMatchesPage(group, pageContext) {
 //
 //   defaultName   : default group name when created
 //   labelKey      : i18n key for the type label
-//   kind          : "video" | "reddit" | "discord" | "twitter"
+//   kind          : "video" | "feed" | "reddit" | "discord" | "twitter"
 //   entity        : axis describing creators/subreddits/servers/accounts
 //                     .mode/.list  → group field names
 //                     .labelKey/.placeholderKey → editor wording
@@ -1208,6 +1403,163 @@ const PLATFORM_PROFILES = {
         selectors: ['article[data-testid="tweet"]:has(span:not(:empty))[data-cb-promoted="1"]']
       }
     ]
+  },
+
+  bluesky: {
+    id: "bluesky",
+    displayName: "Bluesky",
+    defaultName: "Bluesky Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    feed: {
+      anchorSelectors: ['a[href^="/profile/"][href*="/post/"]'],
+      hrefSelectors: ['a[href^="/profile/"][href*="/post/"]'],
+      containerSelectors: ['[data-testid="feedItem"]', '[role="article"]', 'article'],
+      replenish: { scroll: true }
+    },
+    surfaceHides: []
+  },
+
+  threads: {
+    id: "threads",
+    displayName: "Threads",
+    defaultName: "Threads Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    feed: {
+      anchorSelectors: ['a[href^="/@"][href*="/post/"]'],
+      hrefSelectors: ['a[href^="/@"][href*="/post/"]'],
+      containerSelectors: ['[role="article"]', 'article', '[data-pressable-container]'],
+      replenish: { scroll: true }
+    },
+    surfaceHides: []
+  },
+
+  substack: {
+    id: "substack",
+    displayName: "Substack",
+    defaultName: "Substack Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    feed: {
+      anchorSelectors: ['a[href^="/@"][href*="/note/"]', 'a[href*="/p/"]'],
+      hrefSelectors: ['a[href^="/@"][href*="/note/"]', 'a[href*="/p/"]'],
+      containerSelectors: ['[role="article"]', 'article', 'li'],
+      replenish: { scroll: true }
+    },
+    surfaceHides: []
+  },
+
+  bilibili: {
+    id: "bilibili",
+    displayName: "Bilibili",
+    defaultName: "Bilibili Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    feed: {
+      anchorSelectors: ['a[href*="/video/BV"]'],
+      hrefSelectors: ['a[href*="/video/BV"]'],
+      containerSelectors: ['.bili-video-card', 'article', 'li'],
+      replenish: { scroll: true }
+    },
+    surfaceHides: []
+  },
+
+  rumble: {
+    id: "rumble",
+    displayName: "Rumble",
+    defaultName: "Rumble Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    feed: {
+      anchorSelectors: ['a[href^="/v"]'],
+      hrefSelectors: ['a[href^="/v"]'],
+      containerSelectors: ['article', 'li', '[role="article"]'],
+      replenish: { scroll: true }
+    },
+    surfaceHides: []
+  },
+
+  pinterest: {
+    id: "pinterest",
+    displayName: "Pinterest",
+    defaultName: "Pinterest Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    feed: {
+      anchorSelectors: ['a[href^="/pin/"]'],
+      hrefSelectors: ['a[href^="/pin/"]'],
+      containerSelectors: ['[data-test-id="pin"]', '[role="listitem"]', 'article'],
+      replenish: { scroll: true }
+    },
+    surfaceHides: []
+  },
+
+  kick: {
+    id: "kick",
+    displayName: "Kick",
+    defaultName: "Kick Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    // The public homepage did not expose stable content-card semantics. Keep
+    // reliable whole-platform/profile enforcement without guessing a feed DOM.
+    surfaceHides: []
+  },
+
+  tumblr: {
+    id: "tumblr",
+    displayName: "Tumblr",
+    defaultName: "Tumblr Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    feed: {
+      anchorSelectors: ['a[href*=".tumblr.com/post/"]', 'a[href^="/post/"]'],
+      hrefSelectors: ['a[href*=".tumblr.com/post/"]', 'a[href^="/post/"]'],
+      containerSelectors: ['[role="article"]', 'article'],
+      replenish: { scroll: true }
+    },
+    surfaceHides: []
+  },
+
+  peertube: {
+    id: "peertube",
+    displayName: "PeerTube",
+    defaultName: "PeerTube Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    feed: {
+      anchorSelectors: ['a[href^="/w/"]'],
+      hrefSelectors: ['a[href^="/w/"]'],
+      containerSelectors: ['.video-miniature', 'article', 'li'],
+      replenish: { scroll: true }
+    },
+    surfaceHides: []
+  },
+
+  pixelfed: {
+    id: "pixelfed",
+    displayName: "Pixelfed",
+    defaultName: "Pixelfed Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    feed: {
+      anchorSelectors: ['a[href^="/p/"]'],
+      hrefSelectors: ['a[href^="/p/"]'],
+      containerSelectors: ['[role="article"]', 'article'],
+      replenish: { scroll: true }
+    },
+    surfaceHides: []
+  },
+
+  kuaishou: {
+    id: "kuaishou",
+    displayName: "Kuaishou",
+    defaultName: "Kuaishou Block",
+    kind: "feed",
+    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    // The tested public recommendation shell exposed no stable content-card
+    // hooks. Profile and whole-platform matching remain available.
+    surfaceHides: []
   }
 };
 
@@ -1218,9 +1570,12 @@ const PLATFORM_PROFILES = {
 const __cbPlatformRegistry = {
   PLATFORM_GROUP_TYPES,
   PLATFORM_VIDEO_GROUP_TYPES,
+  PLATFORM_FEED_GROUP_TYPES,
   PLATFORM_PROFILES,
   normalizeGroupType,
   isPlatformVideoGroupType,
+  isPlatformFeedGroupType,
+  isPlatformAuthorGroupType,
   isPlatformProfileGroupType,
   normalizePlatformAuthorMode,
   normalizeVideoMode,
@@ -1228,6 +1583,7 @@ const __cbPlatformRegistry = {
   normalizeDiscordMode,
   normalizeYouTubeCreatorInput,
   normalizeTwitterHandleInput,
+  normalizeFeedPlatformAuthorInput,
   normalizePlatformAuthorInput,
   normalizeRedditSubredditInput,
   normalizeDiscordTargetInput,
@@ -1237,6 +1593,7 @@ const __cbPlatformRegistry = {
   isDiscordHost,
   isTwitterHost,
   isPlatformHost,
+  getPlatformGroupTypeForHost,
   parseRedditSubredditFromPath,
   parseDiscordServerIdFromPath,
   parseDiscordChannelIdFromPath,
@@ -1250,6 +1607,7 @@ const __cbPlatformRegistry = {
   matchesRedditGroup,
   matchesDiscordGroup,
   matchesTwitterGroup,
+  matchesPlatformFeedGroup,
   matchesProfileGroup,
   normalizeSurfaceHides,
   getSurfaceHideSelectors,
