@@ -1083,7 +1083,7 @@ function isPlatformBlockEnforcing(group, usageTimersMs) {
 
 function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnoozes, now) {
   const filters = [];
-  const currentSite = pageContext.videoSite;
+  const currentSite = pageContext.videoSite || getPlatformGroupTypeForHost(pageContext.hostname);
   const orderedGroups = reversed(groups);
 
   if (currentSite) {
@@ -1153,10 +1153,10 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
     }
   }
 
-  if (pageContext.isTwitterPage) {
+  if (currentSite && isPlatformFeedGroupType(currentSite)) {
     for (const group of orderedGroups) {
       if (
-        group.groupType !== "twitter" ||
+        group.groupType !== currentSite ||
         !group.enabled ||
         !isGroupActiveNow(group, now) ||
         getActiveSnooze(group.id, groupSnoozes, now)
@@ -1164,13 +1164,13 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
         continue;
       }
       const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
-      // mode "all" blocks the whole page (handled by the matcher); "nobody"
-      // blocks nothing. Only include/exclude trim the feed per-account.
+      // Mode "all" blocks the whole page (handled by the matcher); "nobody"
+      // blocks nothing. Only include/exclude trim individual feed cards.
       if (authorMode !== "include" && authorMode !== "exclude") continue;
       const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
       filters.push({
         id: group.id,
-        site: "twitter",
+        site: currentSite,
         authorMode,
         authors: [...group.platformAuthors],
         enforce

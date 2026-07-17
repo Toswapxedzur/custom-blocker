@@ -2861,6 +2861,9 @@ function isTimedBlockingMode(mode) {
 }
 
 function getGroupTypeLabel(groupType) {
+  const profile = PLATFORM_PROFILES?.[normalizeGroupType(groupType)];
+  if (profile?.displayName) return profile.displayName;
+
   if (groupType === "youtube") {
     return t("groupType.youtube");
   }
@@ -2901,6 +2904,10 @@ function getGroupTypeLabel(groupType) {
 }
 
 function getEditorTypeSummary(groupType) {
+  if (isPlatformFeedGroupType(groupType) && normalizeGroupType(groupType) !== "twitter") {
+    return t("platform.rulesCopy", { platform: getPlatformDisplayName(groupType) });
+  }
+
   if (groupType === "youtube") {
     return t("editor.typeSummaryYouTube");
   }
@@ -2941,6 +2948,9 @@ function getEditorTypeSummary(groupType) {
 }
 
 function getPlatformDisplayName(groupType) {
+  const profile = PLATFORM_PROFILES?.[normalizeGroupType(groupType)];
+  if (profile?.displayName) return profile.displayName;
+
   if (groupType === "youtube") {
     return t("groupType.youtube");
   }
@@ -3029,7 +3039,9 @@ function getPlatformTypeLabel(groupType, type) {
 }
 
 function getPlatformAuthorsPlaceholder(groupType) {
-  return t(`platform.placeholder.${normalizeGroupType(groupType)}`);
+  const key = `platform.placeholder.${normalizeGroupType(groupType)}`;
+  const translated = t(key);
+  return translated === key ? "" : translated;
 }
 
 // Sets the unified "Platform rules" card header (title + one-line copy). Runs
@@ -3060,9 +3072,8 @@ function applyPlatformRuleSelection(groupType) {
   platformRulePlatformField.value = selectedType;
 }
 
-// Builds the author/account mode dropdown for the current platform. Video
-// platforms + Twitter share these modes; YouTube additionally offers the
-// fully enforced tag modes.
+// Builds the author/account mode dropdown for the current platform. Video and
+// feed platforms share these modes; YouTube additionally offers tag modes.
 function rebuildAuthorModeOptions(type) {
   const isTwitter = type === "twitter";
   const isYouTube = type === "youtube";
@@ -3090,9 +3101,11 @@ function applyPlatformVideoUi(groupType) {
   const isYouTube = type === "youtube";
   const isTwitter = type === "twitter";
 
-  // Twitter/X has no video-form axis — hide the content-type selector and
-  // present account (handle) controls only.
-  platformVideoModeRow.classList.toggle("hidden", isTwitter);
+  const isFeedPlatform = isPlatformFeedGroupType(type);
+
+  // Feed platforms have no video-form axis. Twitter/X retains its account
+  // wording; the other feeds use the generic author wording.
+  platformVideoModeRow.classList.toggle("hidden", isFeedPlatform);
 
   platformVideoModeLabel.textContent = t("platform.videoMode");
   if (platformVideoModeHelp) platformVideoModeHelp.textContent = t("platform.videoModeHelp");
@@ -3113,6 +3126,8 @@ function applyPlatformVideoUi(groupType) {
     ? t("platform.help.youtube", { platform })
     : isTwitter
       ? t("platform.help.twitter", { platform })
+      : isFeedPlatform
+        ? t("platform.rulesCopy", { platform })
       : t("platform.help.generic", { platform, shortLabel, longLabel, postLabel });
 
   // YouTube-only creator-tag targeting.
@@ -3323,6 +3338,15 @@ function describeTwitterScope(groupLike) {
     return t("meta.noAuthors");
   }
   return t("meta.allTwitter");
+}
+
+function describeFeedPlatformScope(groupLike) {
+  const authors = Array.isArray(groupLike.platformAuthors) ? groupLike.platformAuthors : [];
+  const mode = normalizePlatformAuthorMode(groupLike.platformAuthorMode);
+  if (mode === "include") return `${authors.length} ${t("meta.creators")}`;
+  if (mode === "exclude") return t("meta.allExceptCreators", { count: authors.length });
+  if (mode === "nobody") return t("meta.noAuthors");
+  return getPlatformDisplayName(groupLike.groupType);
 }
 
 function describeRedditScope(groupLike) {
@@ -5036,16 +5060,20 @@ function getGroupMetaText(group, draft, now = Date.now()) {
         discordTargets: draftTargets.length > 0 ? draftTargets : group.discordTargets
       })
     );
-  } else if (group.groupType === "twitter") {
-    const draftAccounts = parsePlatformAuthorsTextarea(
+  } else if (isPlatformFeedGroupType(group.groupType)) {
+    const draftAuthors = parsePlatformAuthorsTextarea(
       group.groupType,
       draft?.platformAuthorsText ?? ""
     ).validAuthors;
-    pieces.push(
-      describeTwitterScope({
+    const scopeGroup = {
+      groupType: group.groupType,
         platformAuthorMode: draft?.platformAuthorMode ?? group.platformAuthorMode,
-        platformAuthors: draftAccounts.length > 0 ? draftAccounts : group.platformAuthors
-      })
+        platformAuthors: draftAuthors.length > 0 ? draftAuthors : group.platformAuthors
+    };
+    pieces.push(
+      group.groupType === "twitter"
+        ? describeTwitterScope(scopeGroup)
+        : describeFeedPlatformScope(scopeGroup)
     );
   } else if (group.groupType === "custom") {
     pieces.push(t("meta.customRules"));
@@ -5517,9 +5545,7 @@ function renderEditor(now = Date.now()) {
   const selectedMode = normalizeBlockingMode(draft?.mode ?? group.mode);
   const isTimedMode = isTimedBlockingMode(selectedMode);
   const isPlatformVideoGroup = isPlatformVideoGroupType(group.groupType);
-  const isTwitterGroup = normalizeGroupType(group.groupType) === "twitter";
-  // Twitter/X reuses the account (author) controls, minus the video-form axis.
-  const usesAuthorAxis = isPlatformVideoGroup || isTwitterGroup;
+  const usesAuthorAxis = isPlatformAuthorGroupType(group.groupType);
   const isRedditGroup = group.groupType === "reddit";
   const isDiscordGroup = group.groupType === "discord";
   const isCustomGroup = group.groupType === "custom";
@@ -5838,8 +5864,7 @@ function stashCurrentDraft() {
   }
 
   const isPlatformVideoGroup = isPlatformVideoGroupType(group.groupType);
-  const isTwitterGroup = normalizeGroupType(group.groupType) === "twitter";
-  const usesAuthorAxis = isPlatformVideoGroup || isTwitterGroup;
+  const usesAuthorAxis = isPlatformAuthorGroupType(group.groupType);
   const isRedditGroup = group.groupType === "reddit";
   const isDiscordGroup = group.groupType === "discord";
 
@@ -6381,8 +6406,7 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
     fail(new Error(t("status.invalidSites", { list: siteResults.invalidSites.join(", ") })));
   }
 
-  const usesAuthorAxis =
-    isPlatformVideoGroupType(group.groupType) || normalizeGroupType(group.groupType) === "twitter";
+  const usesAuthorAxis = isPlatformAuthorGroupType(group.groupType);
 
   // Invalid platform entries are surfaced inline as red chips in the editor, so
   // we no longer abort the save — valid entries persist and the bad chips stay
