@@ -359,6 +359,17 @@
               <select id="platformRulePlatform"></select>
             </div>
 
+            <!-- Verified card/content controls. Kept immediately below the
+                 platform choice so each platform's actual available card
+                 controls are visible before author and feed-scope settings. -->
+            <div id="surfaceHidesSection" class="platform-fields hidden">
+              <label class="label" data-i18n="surfaceHide.title">Hide elements</label>
+              <p class="field-help" data-i18n="surfaceHide.help">
+                Hide specific buttons or content surfaces on this platform, independent of blocking.
+              </p>
+              <div id="surfaceHidesList" class="surface-hides-list"></div>
+            </div>
+
             <!-- Creator / account fields (video platforms + Twitter/X) -->
             <div id="platformVideoFields" class="platform-fields hidden">
               <div id="platformVideoModeRow">
@@ -475,14 +486,6 @@
               </p>
             </div>
 
-            <!-- Hide elements (surface hides): chrome + content-type toggles -->
-            <div id="surfaceHidesSection" class="platform-fields hidden">
-              <label class="label" data-i18n="surfaceHide.title">Hide elements</label>
-              <p class="field-help" data-i18n="surfaceHide.help">
-                Hide specific buttons or content surfaces on this platform, independent of blocking.
-              </p>
-              <div id="surfaceHidesList" class="surface-hides-list"></div>
-            </div>
           </section>
 
           <section id="scheduleSection" class="section-card">

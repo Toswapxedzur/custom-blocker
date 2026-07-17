@@ -968,8 +968,10 @@ function surfaceHideEntryScope(entry) {
 
 // The core controls are deliberately composable: a user can hide ads and
 // recommendations while leaving ordinary cards visible, or enable all-cards
-// as a deliberate blank-feed switch. Platform-specific selectors are declared
-// below once the profiles have been built.
+// as a deliberate blank-feed switch. The all-cards switch is intentionally
+// opt-in per profile: a feed having author anchors is not proof that its card
+// boundary is safe to hide. Platform-specific selectors are declared below
+// once the profiles have been built.
 function getSurfaceHideEntries(groupType) {
   const type = normalizeGroupType(groupType);
   const profile = PLATFORM_PROFILES[type];
@@ -979,10 +981,7 @@ function getSurfaceHideEntries(groupType) {
   const categories = PLATFORM_SURFACE_CATEGORY_SELECTORS[type] || {};
   for (const category of SURFACE_HIDE_CATEGORIES) {
     if (category.id === "all-content-cards") {
-      const hasVerifiedFeedCards = type === "reddit" ||
-        (Array.isArray(profile.feed?.cardSelectors) && profile.feed.cardSelectors.length > 0) ||
-        (Array.isArray(profile.feed?.anchorSelectors) && profile.feed.anchorSelectors.length > 0);
-      if (!hasVerifiedFeedCards) continue;
+      if (profile.feed?.surfaceHideCards !== true) continue;
       entries.push({
         id: category.id,
         labelKey: category.labelKey,
@@ -1088,6 +1087,9 @@ const PLATFORM_PROFILES = {
       values: ["all", "short", "long", "post"]
     },
     feed: {
+      // Verified on the public home feed: these wrappers are content cards,
+      // not navigation or page chrome.
+      surfaceHideCards: true,
       cardSelectors: [
         "ytd-rich-item-renderer",
         "ytd-video-renderer",
@@ -1506,6 +1508,9 @@ const PLATFORM_PROFILES = {
     kind: "feed",
     entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
     feed: {
+      // Verified on the public home feed: every matched .bili-video-card
+      // contained video-card links, while the carousel/nav links did not.
+      surfaceHideCards: true,
       anchorSelectors: ['a[href*="/video/BV"]'],
       hrefSelectors: ['a[href*="/video/BV"]'],
       containerSelectors: ['.bili-video-card', 'article', 'li'],
@@ -1577,6 +1582,9 @@ const PLATFORM_PROFILES = {
     kind: "feed",
     entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
     feed: {
+      // Verified on peertube.tv: /w/ video links resolve to individual
+      // .video-miniature cards (the host is my-video-miniature).
+      surfaceHideCards: true,
       anchorSelectors: ['a[href^="/w/"]'],
       hrefSelectors: ['a[href^="/w/"]'],
       containerSelectors: ['.video-miniature', 'article', 'li'],
@@ -1641,6 +1649,11 @@ const PLATFORM_SURFACE_CATEGORY_SELECTORS = {
       'ytd-compact-video-renderer:has(a[href*="/live/"])'
     ],
     recommendations: ["#related", "ytd-watch-next-secondary-results-renderer"]
+  },
+  peertube: {
+    // The public PeerTube feed marks live cards inside their video-miniature
+    // host. This selector leaves normal video cards and page navigation alone.
+    "live-streams": ["my-video-miniature:has(.live-overlay.live-streaming)"]
   }
 };
 
