@@ -347,6 +347,8 @@ const discordTargetsField = document.getElementById("discordTargets");
 const discordBlockHomePageField = document.getElementById("discordBlockHomePage");
 const surfaceHidesSection = document.getElementById("surfaceHidesSection");
 const surfaceHidesList = document.getElementById("surfaceHidesList");
+const surfaceHidesTitle = document.getElementById("surfaceHidesTitle");
+const surfaceHidesHelp = document.getElementById("surfaceHidesHelp");
 const fallbackUrlSection = document.getElementById("fallbackUrlSection");
 const fallbackUrlField = document.getElementById("fallbackUrl");
 const groupEffectSection = document.getElementById("groupEffectSection");
@@ -3153,9 +3155,8 @@ function readSurfaceHidesFromForm() {
     .map((input) => input.value);
 }
 
-// Render the opt-in "Hide elements" checklist for the selected platform group.
-// Each entry maps to a registry surfaceHides id; toggling persists into the
-// group's draft (same auto-save path as the other platform fields).
+// Render the platform's verified content-control matrix. Each entry maps to a
+// registry surfaceHides id; toggling persists into the group's draft.
 function renderSurfaceHides(group, draft, editable) {
   if (!surfaceHidesSection || !surfaceHidesList) {
     return;
@@ -3170,6 +3171,8 @@ function renderSurfaceHides(group, draft, editable) {
   }
 
   surfaceHidesSection.classList.remove("hidden");
+  if (surfaceHidesTitle) surfaceHidesTitle.textContent = t("surfaceHide.contentTitle");
+  if (surfaceHidesHelp) surfaceHidesHelp.textContent = t("surfaceHide.contentHelp");
   const enabled = new Set(getDraftSurfaceHides(group, draft));
 
   for (const entry of entries) {

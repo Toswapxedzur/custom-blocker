@@ -966,12 +966,10 @@ function surfaceHideEntryScope(entry) {
   return entry && entry.scope === "entry" ? "entry" : "app";
 }
 
-// The core controls are deliberately composable: a user can hide ads and
-// recommendations while leaving ordinary cards visible, or enable all-cards
-// as a deliberate blank-feed switch. The all-cards switch is intentionally
-// opt-in per profile: a feed having author anchors is not proof that its card
-// boundary is safe to hide. Platform-specific selectors are declared below
-// once the profiles have been built.
+// The core controls are deliberately composable: a user can combine verified
+// card types to clear a feed. The legacy all-cards switch remains only where
+// individual visible card types have not yet been separated. A feed having
+// author anchors is not proof that its card boundary is safe to hide.
 function getSurfaceHideEntries(groupType) {
   const type = normalizeGroupType(groupType);
   const profile = PLATFORM_PROFILES[type];
@@ -1002,9 +1000,19 @@ function getSurfaceHideEntries(groupType) {
 }
 
 function normalizeSurfaceHides(value, groupType) {
+  const type = normalizeGroupType(groupType);
+  const legacyAllCardsExpansion = {
+    bilibili: ["ads-sponsored", "live-streams", "recommendations", "featured-carousel"],
+    peertube: ["live-streams", "video-cards"]
+  }[type] || [];
   const allowed = new Set(getSurfaceHideEntries(groupType).map((entry) => entry.id));
   const raw = Array.isArray(value) ? value : [];
-  return [...new Set(raw.filter((id) => allowed.has(id)))];
+  const expanded = raw.flatMap((id) =>
+    id === "all-content-cards" && legacyAllCardsExpansion.length > 0
+      ? legacyAllCardsExpansion
+      : [id]
+  );
+  return [...new Set(expanded.filter((id) => allowed.has(id)))];
 }
 
 // scope: "app" | "entry" | undefined (all). Returns the CSS selectors for the
@@ -1508,9 +1516,6 @@ const PLATFORM_PROFILES = {
     kind: "feed",
     entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
     feed: {
-      // Verified on the public home feed: every matched .bili-video-card
-      // contained video-card links, while the carousel/nav links did not.
-      surfaceHideCards: true,
       anchorSelectors: ['a[href*="/video/BV"]'],
       hrefSelectors: ['a[href*="/video/BV"]'],
       containerSelectors: ['.bili-video-card', 'article', 'li'],
@@ -1582,9 +1587,6 @@ const PLATFORM_PROFILES = {
     kind: "feed",
     entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
     feed: {
-      // Verified on peertube.tv: /w/ video links resolve to individual
-      // .video-miniature cards (the host is my-video-miniature).
-      surfaceHideCards: true,
       anchorSelectors: ['a[href^="/w/"]'],
       hrefSelectors: ['a[href^="/w/"]'],
       containerSelectors: ['.video-miniature', 'article', 'li'],
@@ -1627,7 +1629,9 @@ const SURFACE_HIDE_CATEGORIES = [
     warnOnEnableKey: "surfaceHide.genericAdWarning"
   },
   { id: "live-streams", labelKey: "surfaceHide.liveStreams" },
+  { id: "video-cards", labelKey: "surfaceHide.videoCards" },
   { id: "recommendations", labelKey: "surfaceHide.recommendations" },
+  { id: "featured-carousel", labelKey: "surfaceHide.featuredCarousel" },
   { id: "all-content-cards", labelKey: "surfaceHide.allContentCards" }
 ];
 
@@ -1650,10 +1654,27 @@ const PLATFORM_SURFACE_CATEGORY_SELECTORS = {
     ],
     recommendations: ["#related", "ytd-watch-next-secondary-results-renderer"]
   },
+  bilibili: {
+    // Verified on the public homepage (2026-07-17). The feed contains four
+    // distinct card surfaces: ordinary recommendation videos, labelled
+    // sponsored video cards, carousel promotions, and live floor cards.
+    "ads-sponsored": [
+      '.bili-video-card:has(a[href*="cm.bilibili.com"])',
+      '.vui_carousel__slide:has(a[href*="cm.bilibili.com"])'
+    ],
+    "live-streams": [
+      '.floor-single-card:has(a[href*="live.bilibili.com"])'
+    ],
+    recommendations: [
+      '.bili-video-card:not(:has(a[href*="cm.bilibili.com"]))'
+    ],
+    "featured-carousel": [".carousel-area"]
+  },
   peertube: {
-    // The public PeerTube feed marks live cards inside their video-miniature
-    // host. This selector leaves normal video cards and page navigation alone.
-    "live-streams": ["my-video-miniature:has(.live-overlay.live-streaming)"]
+    // Verified on peertube.tv: the video-miniature host separates ordinary
+    // videos from its .live-overlay.live-streaming live-card variant.
+    "live-streams": ["my-video-miniature:has(.live-overlay.live-streaming)"],
+    "video-cards": ["my-video-miniature:not(:has(.live-overlay.live-streaming))"]
   }
 };
 

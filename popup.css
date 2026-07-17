@@ -1002,17 +1002,22 @@ textarea:focus {
 }
 
 .surface-hides-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 8px;
   margin-top: 6px;
 }
 
 .surface-hide-row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 10px;
   font-weight: 700;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--cyan-text) 18%, white);
+  border-radius: 10px;
+  background: color-mix(in srgb, white 72%, var(--cyan-surface));
 }
 
 .surface-hide-row input[type="checkbox"] {

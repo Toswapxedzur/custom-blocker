@@ -153,7 +153,7 @@ assert("Twitch includes live preview-card links", PLATFORM_PROFILES.twitch.feed.
   'a[data-a-target="preview-card-image-link"]'
 ));
 
-log.section("P6: surface hides are composable only across verified card boundaries");
+log.section("P6: content controls expose only recorded card types");
 const verifiedCardPlatforms = PLATFORM_GROUP_TYPES.filter((platform) =>
   PLATFORM_PROFILES[platform]?.feed?.surfaceHideCards === true
 );
@@ -168,8 +168,8 @@ for (const platform of verifiedCardPlatforms) {
     platform, ["all-content-cards"], "app"
   ).includes(getSurfaceFeedCardsDirective(platform)));
 }
-assertEqual("only live-verified card profiles expose a blank-feed control",
-  verifiedCardPlatforms.sort(), ["bilibili", "peertube", "youtube"]);
+assertEqual("only YouTube retains the legacy all-card control",
+  verifiedCardPlatforms.sort(), ["youtube"]);
 assertEqual("all-content-cards directives parse back to their platform",
   parseSurfaceFeedCardsDirective(getSurfaceFeedCardsDirective("pixelfed")), "pixelfed");
 assertEqual("untrusted surface directives fail closed",
@@ -177,18 +177,41 @@ assertEqual("untrusted surface directives fail closed",
 assert("YouTube exposes independent ads and recommendations controls", ["ads-sponsored", "recommendations"].every(
   (id) => getSurfaceHideEntries("youtube").some((entry) => entry.id === id)
 ));
-assert("PeerTube exposes a live-card control without implying ads or recommendations", (() => {
-  const ids = getSurfaceHideEntries("peertube").map((entry) => entry.id);
-  return ids.includes("live-streams") && !ids.includes("ads-sponsored") && !ids.includes("recommendations");
+assert("Bilibili records its four verified homepage card types", (() => {
+  const ids = getSurfaceHideEntries("bilibili").map((entry) => entry.id);
+  return ["ads-sponsored", "live-streams", "recommendations", "featured-carousel"].every(
+    (id) => ids.includes(id)
+  ) && !ids.includes("all-content-cards");
 })());
-assertEqual("PeerTube retains its live-card and blank-feed selections together",
-  normalizeSurfaceHides(["live-streams", "all-content-cards"], "peertube"),
-  ["live-streams", "all-content-cards"]);
+assert("Bilibili keeps sponsored videos separate from ordinary recommendations", (() => {
+  const selectors = getSurfaceHideSelectors("bilibili", ["ads-sponsored", "recommendations"], "app");
+  return selectors.includes('.bili-video-card:has(a[href*="cm.bilibili.com"])') &&
+    selectors.includes('.bili-video-card:not(:has(a[href*="cm.bilibili.com"]))');
+})());
+assert("Bilibili's live and carousel controls stay scoped to their actual cards", (() => {
+  const selectors = getSurfaceHideSelectors("bilibili", ["live-streams", "featured-carousel"], "app");
+  return selectors.includes('.floor-single-card:has(a[href*="live.bilibili.com"])') &&
+    selectors.includes(".carousel-area");
+})());
+assertEqual("Bilibili migrates its old blank-feed choice to recorded card types",
+  normalizeSurfaceHides(["all-content-cards"], "bilibili"),
+  ["ads-sponsored", "live-streams", "recommendations", "featured-carousel"]);
+assert("PeerTube exposes separate ordinary-video and live-card controls", (() => {
+  const ids = getSurfaceHideEntries("peertube").map((entry) => entry.id);
+  return ids.includes("live-streams") && ids.includes("video-cards") &&
+    !ids.includes("ads-sponsored") && !ids.includes("recommendations") && !ids.includes("all-content-cards");
+})());
+assertEqual("PeerTube migrates its old blank-feed choice to both card types",
+  normalizeSurfaceHides(["all-content-cards"], "peertube"),
+  ["live-streams", "video-cards"]);
 assert("PeerTube's live-card selector stays scoped to a video-card host", getSurfaceHideSelectors(
   "peertube", ["live-streams"], "app"
 ).includes("my-video-miniature:has(.live-overlay.live-streaming)"));
+assert("PeerTube's ordinary-video selector excludes its live-card variant", getSurfaceHideSelectors(
+  "peertube", ["video-cards"], "app"
+).includes("my-video-miniature:not(:has(.live-overlay.live-streaming))"));
 for (const platform of PLATFORM_GROUP_TYPES.filter((platform) => !verifiedCardPlatforms.includes(platform))) {
-  assert(platform + " omits all-content-cards without a live-verified card boundary", !getSurfaceHideEntries(
+  assert(platform + " omits the legacy all-content-cards control", !getSurfaceHideEntries(
     platform
   ).some((entry) => entry.id === "all-content-cards"));
 }
