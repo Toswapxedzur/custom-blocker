@@ -310,25 +310,6 @@ function getFeedCardElements(site) {
   return [...containers];
 }
 
-// The all-content-cards surface control is intentionally broader than an
-// author-aware feed filter. Use a small explicit fallback only for platforms
-// whose discovery tiles do not carry a stable content URL.
-function getSurfaceCardElements(site) {
-  const explicitSelectors = Array.isArray(PLATFORM_SURFACE_CARD_SELECTORS?.[site])
-    ? PLATFORM_SURFACE_CARD_SELECTORS[site]
-    : [];
-  if (explicitSelectors.length > 0) {
-    const cards = new Set();
-    for (const selector of explicitSelectors) {
-      let nodes = [];
-      try { nodes = document.querySelectorAll(selector); } catch { continue; }
-      for (const node of nodes) cards.add(node);
-    }
-    if (cards.size > 0) return [...cards];
-  }
-  return getFeedCardElements(site);
-}
-
 function isPostCard(card) {
   return Boolean(card.matches(POST_CARD_SELECTOR) || card.querySelector(POST_CARD_SELECTOR));
 }
@@ -902,7 +883,7 @@ function applySurfaceHides() {
   for (const selector of latestSurfaceHides) {
     const surfaceCardSite = parseSurfaceFeedCardsDirective(selector);
     if (surfaceCardSite) {
-      for (const card of getSurfaceCardElements(surfaceCardSite)) hideSurfaceElement(card);
+      for (const card of getFeedCardElements(surfaceCardSite)) hideSurfaceElement(card);
       continue;
     }
     let nodes = [];
