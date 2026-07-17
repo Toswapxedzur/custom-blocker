@@ -82,6 +82,14 @@ YOUTUBE_FILES = [
     "yt-harvest-main.js",
 ]
 
+# The opt-in Vault Classifier adapter is currently Chromium-only. Keep it out
+# of Firefox and Safari packages until their native transport contracts exist,
+# but include every manifest-declared Chrome/Edge content script.
+VAULT_CLASSIFIER_FILES = [
+    "vault-classifier-contract.js",
+    "vault-classifier-youtube.js",
+]
+
 INCLUDE_DIRS = [
     "_locales",
     "icons",
@@ -215,6 +223,10 @@ def build_target(target: str) -> Path:
 
     for rel in YOUTUBE_FILES:
         entries.append((REPO_ROOT / rel, rel, None))
+
+    if target in ("chrome", "edge"):
+        for rel in VAULT_CLASSIFIER_FILES:
+            entries.append((REPO_ROOT / rel, rel, None))
 
     if target != "safari":
         for rel in SANDBOX_FILES:

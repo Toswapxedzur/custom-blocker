@@ -254,6 +254,7 @@ const DEFAULT_SNOOZE_MINUTES = 30;
 const DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES = 0;
 const DEFAULT_SNOOZE_COOLDOWN_MINUTES = 0;
 const DEFAULT_GROUP_TYPE = "site";
+const DEFAULT_PLATFORM_RULE_GROUP_TYPE = "youtube";
 const MAX_STRICT_FREEZE_HOURS = 72;
 const MAX_SNOOZE_COOLDOWN_MINUTES = 5;
 const MS_PER_SECOND = 1000;
@@ -310,6 +311,7 @@ const blockingRulesField = document.getElementById("blockingRules");
 const blockingRulesLint = document.getElementById("blockingRulesLint");
 const openRuleTemplatesButton = document.getElementById("openRuleTemplatesButton");
 const platformRulesCard = document.getElementById("platformRulesCard");
+const platformRulePlatformField = document.getElementById("platformRulePlatform");
 const platformVideoCard = document.getElementById("platformVideoFields");
 const platformVideoTitle = document.getElementById("platformRulesTitle");
 const platformVideoCopy = document.getElementById("platformRulesCopy");
@@ -3040,6 +3042,24 @@ function applyPlatformRulesHeader(groupType) {
   if (platformVideoCopy) platformVideoCopy.textContent = t("platform.rulesCopy", { platform });
 }
 
+// A Platform rule has one platform at a time. Populate the selector from the
+// same registry that drives its capabilities so adding a platform never creates
+// a second editor or a stale hard-coded option list.
+function applyPlatformRuleSelection(groupType) {
+  if (!platformRulePlatformField) return;
+
+  const selectedType = normalizeGroupType(groupType);
+  platformRulePlatformField.innerHTML = "";
+  for (const type of PLATFORM_GROUP_TYPES) {
+    const option = document.createElement("option");
+    option.value = type;
+    option.textContent = getPlatformDisplayName(type);
+    option.selected = type === selectedType;
+    platformRulePlatformField.appendChild(option);
+  }
+  platformRulePlatformField.value = selectedType;
+}
+
 // Builds the author/account mode dropdown for the current platform. Video
 // platforms + Twitter share these modes; YouTube additionally offers the
 // fully enforced tag modes.
@@ -4051,7 +4071,11 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
   const twitterCount = state.groups.filter((group) => group.groupType === "twitter").length + 1;
   const customCount = state.groups.filter((group) => group.groupType === "custom").length + 1;
   const siteCount = state.groups.filter((group) => group.groupType === "site").length + 1;
-  const normalizedGroupType = normalizeGroupType(groupType);
+  // The add menu offers one unified Platform rule. It starts with YouTube only
+  // as a safe first profile; the cyan Rule box owns the actual platform choice.
+  const normalizedGroupType = normalizeGroupType(
+    groupType === "platform" ? DEFAULT_PLATFORM_RULE_GROUP_TYPE : groupType
+  );
 
   return {
     id: createGroupId(),
@@ -5421,6 +5445,7 @@ function renderEditor(now = Date.now()) {
     timedSettings.classList.add("hidden");
     customSettingsCard.classList.add("hidden");
     if (platformRulesCard) platformRulesCard.classList.add("hidden");
+    if (platformRulePlatformField) platformRulePlatformField.disabled = true;
     platformVideoCard.classList.add("hidden");
     redditSettingsCard.classList.add("hidden");
     discordSettingsCard.classList.add("hidden");
@@ -5514,6 +5539,7 @@ function renderEditor(now = Date.now()) {
 
   if (isPlatformProfileGroup) {
     applyPlatformRulesHeader(group.groupType);
+    applyPlatformRuleSelection(group.groupType);
   }
   if (usesAuthorAxis) {
     applyPlatformVideoUi(group.groupType);
@@ -5595,6 +5621,9 @@ function renderEditor(now = Date.now()) {
   customSettingsCard.classList.toggle("hidden", !isCustomGroup);
   if (platformRulesCard) {
     platformRulesCard.classList.toggle("hidden", !isPlatformProfileGroup);
+  }
+  if (platformRulePlatformField) {
+    platformRulePlatformField.disabled = !editable || !isPlatformProfileGroup;
   }
   platformVideoCard.classList.toggle("hidden", !usesAuthorAxis);
   redditSettingsCard.classList.toggle("hidden", !isRedditGroup);
@@ -6024,6 +6053,53 @@ async function addGroup(groupType = DEFAULT_GROUP_TYPE) {
   render();
   groupNameField.focus();
   groupNameField.select();
+}
+
+function resetPlatformCriteriaFor(group, groupType) {
+  const defaults = createDefaultGroup(groupType);
+  return {
+    ...group,
+    groupType: defaults.groupType,
+    platformVideoMode: defaults.platformVideoMode,
+    platformAuthorMode: defaults.platformAuthorMode,
+    platformAuthors: defaults.platformAuthors,
+    platformAuthorTags: defaults.platformAuthorTags,
+    redditMode: defaults.redditMode,
+    redditSubreddits: defaults.redditSubreddits,
+    discordMode: defaults.discordMode,
+    discordTargets: defaults.discordTargets,
+    surfaceHides: defaults.surfaceHides,
+    blockHomePage: defaults.blockHomePage,
+    skipToNextOnBlock: defaults.skipToNextOnBlock
+  };
+}
+
+async function changeSelectedPlatformRule(groupType) {
+  const requestedType = normalizeGroupType(groupType);
+  if (!isPlatformProfileGroupType(requestedType)) {
+    render();
+    return;
+  }
+
+  // Prevent a second change event from racing the draft flush below.
+  if (platformRulePlatformField) platformRulePlatformField.disabled = true;
+  stashCurrentDraft();
+  await flushAutosave();
+  const group = getSelectedGroup();
+  if (!group || !isPlatformProfileGroupType(group.groupType) || !isGroupEditable(group)) {
+    render();
+    return;
+  }
+  if (group.groupType === requestedType) return;
+
+  // Every platform parses different identifiers and exposes different surface
+  // controls. Start those criteria fresh instead of retaining invisible rules
+  // that could accidentally become active on the newly selected platform.
+  const updatedGroup = resetPlatformCriteriaFor(group, requestedType);
+  state.groups = state.groups.map((item) => (item.id === group.id ? updatedGroup : item));
+  state.drafts[group.id] = groupToDraft(updatedGroup);
+  await persistState();
+  render();
 }
 
 async function deleteAllGroups() {
@@ -7839,6 +7915,16 @@ platformVideoModeField.addEventListener("change", () => {
   renderGroupList();
   scheduleAutosave();
 });
+
+if (platformRulePlatformField) {
+  platformRulePlatformField.addEventListener("change", () => {
+    changeSelectedPlatformRule(platformRulePlatformField.value).catch((error) => {
+      console.error("Failed to change the platform rule.", error);
+      setStatus(t("status.errorSaveGroup"), true);
+      render();
+    });
+  });
+}
 
 platformAuthorModeField.addEventListener("change", () => {
   if (platformAuthorModeField.value === "exclude") {
