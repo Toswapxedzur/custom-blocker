@@ -153,8 +153,14 @@ assert("Twitch includes live preview-card links", PLATFORM_PROFILES.twitch.feed.
   'a[data-a-target="preview-card-image-link"]'
 ));
 
-log.section("P6: surface hides are composable across every platform profile");
-for (const platform of PLATFORM_GROUP_TYPES) {
+log.section("P6: surface hides are composable only across verified card profiles");
+const verifiedCardPlatforms = PLATFORM_GROUP_TYPES.filter((platform) => {
+  const feed = PLATFORM_PROFILES[platform]?.feed;
+  return platform === "reddit" ||
+    (Array.isArray(feed?.cardSelectors) && feed.cardSelectors.length > 0) ||
+    (Array.isArray(feed?.anchorSelectors) && feed.anchorSelectors.length > 0);
+});
+for (const platform of verifiedCardPlatforms) {
   const entries = getSurfaceHideEntries(platform);
   const ids = entries.map((entry) => entry.id);
   assert(platform + " exposes an all-content-cards control", ids.includes("all-content-cards"));
@@ -169,11 +175,16 @@ assertEqual("all-content-cards directives parse back to their platform",
   parseSurfaceFeedCardsDirective(getSurfaceFeedCardsDirective("pixelfed")), "pixelfed");
 assertEqual("untrusted surface directives fail closed",
   parseSurfaceFeedCardsDirective("__cb_surface_feed_cards__:not-a-platform"), null);
-assert("TikTok exposes independent short-form and comments controls", ["short-form", "comments-replies"].every(
-  (id) => getSurfaceHideEntries("tiktok").some((entry) => entry.id === id)
-));
 assert("YouTube exposes independent ads and recommendations controls", ["ads-sponsored", "recommendations"].every(
   (id) => getSurfaceHideEntries("youtube").some((entry) => entry.id === id)
+));
+for (const platform of ["discord", "kick", "kuaishou"]) {
+  assert(platform + " omits all-content-cards without a verified card model", !getSurfaceHideEntries(
+    platform
+  ).some((entry) => entry.id === "all-content-cards"));
+}
+assert("TikTok omits unverified category controls", !getSurfaceHideEntries("tiktok").some(
+  (entry) => entry.id === "ads-sponsored" || entry.id === "comments-replies"
 ));
 
 log.section("P7: YouTube creator-tag verdicts are state-aware and fail open");
