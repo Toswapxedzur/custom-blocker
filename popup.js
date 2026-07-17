@@ -6081,8 +6081,31 @@ async function changeSelectedPlatformRule(groupType) {
     return;
   }
 
-  // Prevent a second change event from racing the draft flush below.
+  const currentGroup = getSelectedGroup();
+  if (
+    !currentGroup ||
+    !isPlatformProfileGroupType(currentGroup.groupType) ||
+    !isGroupEditable(currentGroup)
+  ) {
+    render();
+    return;
+  }
+  if (currentGroup.groupType === requestedType) return;
+
+  // Prevent a second change event from racing the confirmation and draft flush.
   if (platformRulePlatformField) platformRulePlatformField.disabled = true;
+  const confirmed = await cbDialog.confirm(
+    t("platform.changeWarning", {
+      from: getPlatformDisplayName(currentGroup.groupType),
+      to: getPlatformDisplayName(requestedType)
+    }),
+    { danger: true, confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
+  );
+  if (!confirmed) {
+    render();
+    return;
+  }
+
   stashCurrentDraft();
   await flushAutosave();
   const group = getSelectedGroup();
@@ -6090,7 +6113,10 @@ async function changeSelectedPlatformRule(groupType) {
     render();
     return;
   }
-  if (group.groupType === requestedType) return;
+  if (group.groupType === requestedType) {
+    render();
+    return;
+  }
 
   // Every platform parses different identifiers and exposes different surface
   // controls. Start those criteria fresh instead of retaining invisible rules
