@@ -33,7 +33,9 @@ assert("desktop identities may not impersonate a remote peer", !bridge.isRemoteP
 log.section("P2: distinct desktop identities");
 assertEqual("Mac identity remains macapp", bridge.nativeProgramId("macapp"), "macapp");
 assertEqual("Windows identity remains windowsapp", bridge.nativeProgramId("windowsapp"), "windowsapp");
+assertEqual("Classifier may identify the local fallback hub", bridge.nativeProgramId("classifier"), "classifier");
 assertEqual("client learns Windows hub identity", bridge.hubProgramFromStatus({ hubProgram: "windowsapp" }), "windowsapp");
+assertEqual("client learns Classifier hub identity", bridge.hubProgramFromStatus({ hubProgram: "classifier" }), "classifier");
 
 log.section("P3: pinned group identity");
 const groups = [

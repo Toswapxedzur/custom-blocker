@@ -7,7 +7,9 @@
   "use strict";
 
   var PROTOCOL_VERSION = 2;
-  var DESKTOP_PROGRAMS = ["macapp", "windowsapp"];
+  // Vault Classifier can host the same loopback bridge when Mac Vault is not
+  // the active host. It is a desktop hub identity, never a remote peer.
+  var DESKTOP_PROGRAMS = ["macapp", "windowsapp", "classifier"];
   var REMOTE_PROGRAMS = ["chrome", "edge", "firefox", "safari", "opera", "browser"];
 
   function normalizePairingKey(value) {
