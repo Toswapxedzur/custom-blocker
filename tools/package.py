@@ -91,6 +91,7 @@ VAULT_CLASSIFIER_FILES = [
     # The service worker imports this adapter at startup; it is not declared
     # in the manifest, so it must remain explicitly listed here.
     "vault-classifier-bridge.js",
+    "vault-classifier-collector.js",
     "vault-classifier-youtube.js",
 ]
 

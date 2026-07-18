@@ -29,7 +29,7 @@ const hub = {
         return;
       }
       if (operation === "collection-info") {
-        resolve(inExtensionRealm({ enabledPlatformIDs: ["youtube"] }));
+        resolve(inExtensionRealm({ enabledPlatformIDs: ["youtube", "reddit"] }));
         return;
       }
       if (operation === "collect") {
@@ -126,8 +126,19 @@ function entry(id, title) {
   };
 }
 
+function redditEntry(id, title) {
+  return {
+    platform: "reddit",
+    entryID: `reddit:content:${id}`,
+    sourceID: "reddit:creator:gaming",
+    surface: "feed",
+    evidence: { title, metadata: { sourceName: "r/gaming", entryType: "post", canonicalURL: `https://www.reddit.com/r/gaming/comments/${id}/post/` } }
+  };
+}
+
 const trustedSender = { id: "vault-classifier-test-extension", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" };
 const untrustedSender = { id: "vault-classifier-test-extension", url: "https://youtube.com.evil/watch?v=dQw4w9WgXcQ" };
+const trustedRedditSender = { id: "vault-classifier-test-extension", url: "https://www.reddit.com/r/gaming/" };
 let failures = 0;
 
 function assert(name, condition, detail) {
@@ -154,6 +165,14 @@ function assert(name, condition, detail) {
 
   const collected = await dispatch({ type: "vault-classifier-collect", entry: entry("dQw4w9WgXcQ", "Visible non-ad card") }, trustedSender);
   assert("sends one bounded rendered entry only after opt-in", collected.waiting && collected.value && collected.value.accepted === true && hubCalls === 2, collected);
+  hubCalls = 0;
+
+  const redditCollectionInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "reddit" }, trustedRedditSender);
+  assert("reads a non-YouTube app-owned collection opt-in only from that platform", redditCollectionInfo.waiting && redditCollectionInfo.value && redditCollectionInfo.value.enabled === true && hubCalls === 1, redditCollectionInfo);
+  const redditCollected = await dispatch({ type: "vault-classifier-collect", entry: redditEntry("123", "Visible Reddit card") }, trustedRedditSender);
+  assert("routes a bounded non-YouTube collected entry through the shared hub", redditCollected.waiting && redditCollected.value && redditCollected.value.accepted === true && hubCalls === 2, redditCollected);
+  const mismatchedCollection = await dispatch({ type: "vault-classifier-collect", entry: redditEntry("124", "Forged platform") }, trustedSender);
+  assert("rejects a collection platform that does not match the sender origin", !mismatchedCollection.waiting && hubCalls === 2, mismatchedCollection);
   hubCalls = 0;
 
   const disabled = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "Disabled setting") }, trustedSender);

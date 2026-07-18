@@ -278,7 +278,12 @@ function normalizeFeedPlatformAuthorInput(value, groupType) {
     return normalizeSimplePlatformHandle(handle);
   }
   if (t === "bilibili") {
-    const id = path.match(/^space\/?([^/?#]+)/)?.[1] || path.match(/^space:([^/?#]+)/)?.[1];
+    // Creator links use Bilibili's dedicated space subdomain (`/123`), while
+    // user-entered values can retain the older `space/123` spelling.
+    const id =
+      (hostname === "space.bilibili.com" ? first : null) ||
+      path.match(/^space\/?([^/?#]+)/)?.[1] ||
+      path.match(/^space:([^/?#]+)/)?.[1];
     return id && /^[0-9]+$/.test(id) ? `space:${id}` : null;
   }
   if (t === "rumble") {

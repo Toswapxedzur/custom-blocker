@@ -19,7 +19,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["platform-profiles.js", "helpers.js", "content.js"],
+      "js": ["platform-profiles.js", "helpers.js", "content.js", "vault-classifier-contract.js", "vault-classifier-collector.js"],
       "run_at": "document_idle"
     },
     {
