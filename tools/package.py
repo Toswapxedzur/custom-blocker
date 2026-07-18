@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 import zipfile
@@ -87,6 +88,9 @@ YOUTUBE_FILES = [
 # but include every manifest-declared Chrome/Edge content script.
 VAULT_CLASSIFIER_FILES = [
     "vault-classifier-contract.js",
+    # The service worker imports this adapter at startup; it is not declared
+    # in the manifest, so it must remain explicitly listed here.
+    "vault-classifier-bridge.js",
     "vault-classifier-youtube.js",
 ]
 
@@ -202,6 +206,27 @@ def validate_manifest_files(target: str, manifest_path: Path, archive_paths: set
         )
 
 
+def validate_service_worker_imports(target: str, archive_paths: set[str]) -> None:
+    """Reject Chromium packages whose worker imports an omitted local script.
+
+    Manifest validation cannot see classic-worker ``importScripts`` calls. The
+    Vault Classifier bridge is one such dependency; omitting it makes a fresh
+    Chrome/Edge service worker fail before it can receive extension messages.
+    Only Chromium runs this branch: Firefox and Safari preload their background
+    dependencies through their manifest-specific script lists.
+    """
+    if target not in ("chrome", "edge"):
+        return
+    background_source = (REPO_ROOT / "background.js").read_text(encoding="utf-8")
+    imports = set(re.findall(r'''\bimportScripts\(\s*["']([^"']+)["']\s*\)''', background_source))
+    missing = sorted(imports - archive_paths)
+    if missing:
+        raise RuntimeError(
+            f"ERROR [{target}]: background service-worker imports missing from the package:\n  - "
+            + "\n  - ".join(missing)
+        )
+
+
 def build_target(target: str) -> Path:
     """Build one target. Returns the path to the written zip.
 
@@ -284,7 +309,9 @@ def build_target(target: str) -> Path:
 
     # Validate the actual archive layout, rather than trusting the source tree.
     with zipfile.ZipFile(zip_path, "r") as z:
-        validate_manifest_files(target, REPO_ROOT / manifest_name, set(z.namelist()))
+        archive_paths = set(z.namelist())
+        validate_manifest_files(target, REPO_ROOT / manifest_name, archive_paths)
+        validate_service_worker_imports(target, archive_paths)
 
     print(
         f"[{target}] packaged {len(seen)} files "
