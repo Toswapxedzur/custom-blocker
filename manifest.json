@@ -24,13 +24,7 @@
     },
     {
       "matches": ["*://*.youtube.com/*"],
-      "js": ["yt-harvest-main.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["yt-collect.js", "yt-block.js", "vault-classifier-contract.js", "vault-classifier-youtube.js"],
+      "js": ["vault-classifier-contract.js", "vault-classifier-youtube.js"],
       "run_at": "document_idle"
     }
   ],

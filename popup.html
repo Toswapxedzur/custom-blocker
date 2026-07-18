@@ -399,17 +399,6 @@
                 <p id="platformVideoHelp" class="field-help"></p>
               </div>
 
-              <!-- YouTube tag targeting: pick validated tags from the server. -->
-              <div id="platformAuthorTagsBlock" class="hidden">
-                <label id="platformAuthorTagsLabel" class="label" for="platformAuthorTags"></label>
-                <!-- Hidden backing store: newline-separated tag slugs. The chip
-                     list below is the editable surface; this keeps the existing
-                     draft / autosave / save pipeline working unchanged. -->
-                <textarea id="platformAuthorTags" hidden spellcheck="false"></textarea>
-                <div id="platformAuthorTagsList" class="tag-chip-list" role="list"></div>
-                <p id="platformAuthorTagsHelp" class="field-help"></p>
-              </div>
-
               <label class="checkbox-row compact" for="platformBlockHomePage">
                 <input id="platformBlockHomePage" type="checkbox" />
                 <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
@@ -831,58 +820,6 @@
             </section>
 
             <section class="settings-col">
-              <h4 class="settings-col-title" data-i18n="settings.colYouTube">YouTube tags</h4>
-        <label class="checkbox-row compact" for="settingsContributeChannels">
-          <input id="settingsContributeChannels" type="checkbox" />
-          <span data-i18n="settings.contributeChannels">Help classify creators (anonymous)</span>
-        </label>
-        <p class="field-help" data-i18n="settings.contributeChannelsHelp">
-          When on, the channel ids of YouTube creators you encounter while browsing are sent automatically — only the channel id, never video titles, your watch history, or anything that identifies you — to help build the public topic-tag database. Off by default; turn it off anytime.
-        </p>
-
-        <div class="yt-cache-debug">
-          <div class="yt-cache-head">
-            <span class="field-label" data-i18n="settings.ytCache">YouTube tag cache (local)</span>
-            <div class="yt-cache-actions">
-              <button id="ytCacheRefresh" type="button" class="secondary" data-i18n="settings.ytCacheRefresh">Refresh</button>
-              <button id="ytCacheClear" type="button" class="secondary danger" data-i18n="settings.ytCacheClear">Clear</button>
-            </div>
-          </div>
-          <p class="field-help" data-i18n="settings.ytCacheHelp">
-            What this device has cached locally — useful to see why a video is (or isn't) blocked. Nothing here ever leaves your machine.
-          </p>
-          <input
-            id="ytCacheSearch"
-            type="search"
-            class="yt-cache-search"
-            placeholder="Search name, channel id, or tag…"
-            data-i18n-placeholder="settings.ytCacheSearch"
-          />
-          <div class="yt-tier-box">
-            <div class="yt-tier-title">
-              <span data-i18n="settings.tierPending">Pending</span>
-              <span id="ytTierPendingCount" class="yt-tier-count">0</span>
-            </div>
-            <div id="ytCachePending" class="yt-cache-list"></div>
-          </div>
-          <div class="yt-tier-box">
-            <div class="yt-tier-title">
-              <span data-i18n="settings.tierProtected">Protected</span>
-              <span id="ytTierProtectedCount" class="yt-tier-count">0</span>
-            </div>
-            <div id="ytCacheProtected" class="yt-cache-list"></div>
-          </div>
-          <div class="yt-tier-box">
-            <div class="yt-tier-title">
-              <span data-i18n="settings.tierProbation">Probation</span>
-              <span id="ytTierProbationCount" class="yt-tier-count">0</span>
-            </div>
-            <div id="ytCacheProbation" class="yt-cache-list"></div>
-          </div>
-        </div>
-            </section>
-
-            <section class="settings-col">
               <h4 class="settings-col-title" data-i18n="settings.colConnections">Connections &amp; files</h4>
         <section id="connectionSection" class="section-card settings-section-card">
           <div class="section-header">
@@ -996,44 +933,6 @@
       </div>
     </div>
 
-    <div
-      id="contributionConsentModal"
-      class="modal hidden"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="contributionConsentTitle"
-    >
-      <div class="modal-card contribution-consent-card">
-        <p class="contribution-consent-eyebrow" data-i18n="consent.eyebrow">OPTIONAL CONTRIBUTION</p>
-        <h3 id="contributionConsentTitle" data-i18n="consent.title">Help classify YouTube creators?</h3>
-        <p class="modal-copy" data-i18n="consent.copy">
-          Topic-based blocking works better when the shared tag database knows what a channel covers. You can optionally help build it.
-        </p>
-        <ul class="contribution-consent-list">
-          <li>
-            <strong data-i18n="consent.sharedLabel">Shared:</strong>
-            <span data-i18n="consent.sharedCopy">only the YouTube channel ID of creators you encounter.</span>
-          </li>
-          <li>
-            <strong data-i18n="consent.neverSharedLabel">Never shared:</strong>
-            <span data-i18n="consent.neverSharedCopy">video titles, watch history, search terms, or information that identifies you.</span>
-          </li>
-          <li>
-            <strong data-i18n="consent.choiceLabel">Your choice:</strong>
-            <span data-i18n="consent.choiceCopy">this is off by default and can be changed anytime in Settings.</span>
-          </li>
-        </ul>
-        <div class="modal-actions contribution-consent-actions">
-          <button id="contributionConsentDeclineButton" type="button" class="secondary" data-i18n="consent.decline">
-            Keep it off
-          </button>
-          <button id="contributionConsentAcceptButton" type="button" data-i18n="consent.accept">
-            Turn on
-          </button>
-        </div>
-      </div>
-    </div>
-
     <div id="templateModal" class="modal hidden">
       <div class="modal-card template-modal-card">
         <div class="manual-modal-header">
@@ -1057,37 +956,6 @@
             Apply preset
           </button>
         </div>
-      </div>
-    </div>
-
-    <div id="tagPickerModal" class="modal hidden">
-      <div class="modal-card tag-picker-card">
-        <div class="manual-modal-header">
-          <div>
-            <h3 data-i18n="tagPicker.title">Choose a tag</h3>
-            <p class="modal-copy" data-i18n="tagPicker.copy">
-              Search the topic list and pick a tag. Only tags that exist on the server can be added, so your group always targets a valid tag.
-            </p>
-          </div>
-          <button id="tagPickerCloseButton" type="button" class="secondary" data-i18n="manual.close">
-            Close
-          </button>
-        </div>
-        <input
-          id="tagPickerSearch"
-          type="text"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="Type a tag name…"
-          data-i18n-placeholder="tagPicker.placeholder"
-        />
-        <div id="tagPickerResults" class="tag-picker-results" role="listbox"></div>
-        <p id="tagPickerEmpty" class="field-help hidden" data-i18n="tagPicker.noResults">
-          No matching tags found.
-        </p>
-        <p id="tagPickerError" class="field-help hidden" data-i18n="tagPicker.error">
-          Couldn't reach the tag server. Make sure it's running, then try again.
-        </p>
       </div>
     </div>
 

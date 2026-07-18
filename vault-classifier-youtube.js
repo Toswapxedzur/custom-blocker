@@ -1,6 +1,6 @@
 // Vault Classifier YouTube adapter — Phase 2 vertical slice.
 //
-// This adapter is independent from the legacy creator-tag resolver. It reads
+// This adapter is independent from ordinary platform feed matching. It reads
 // only rendered DOM values, asks the paired local app through the authenticated
 // shared Vault bridge, and fails open on any missing evidence, selector drift,
 // or transport error.

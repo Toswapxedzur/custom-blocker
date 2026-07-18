@@ -100,10 +100,7 @@ function isPlatformProfileGroupType(groupType) {
 //   include      → applies only to the listed authors
 //   exclude      → applies to every author except the listed ones
 //   nobody       → applies to no author (author axis blocks nothing)
-//   tagInclude   → YouTube creators carrying any selected tag
-//   tagExclude   → classified YouTube creators carrying none of the selected tags
-const PLATFORM_AUTHOR_MODES = ["all", "include", "exclude", "nobody", "tagInclude", "tagExclude"];
-const PLATFORM_AUTHOR_TAG_MODES = ["tagInclude", "tagExclude"];
+const PLATFORM_AUTHOR_MODES = ["all", "include", "exclude", "nobody"];
 
 function normalizePlatformAuthorMode(value) {
   if (value === "none") return "all"; // legacy value meant "apply to all authors"
@@ -114,24 +111,6 @@ function normalizePlatformAuthorMode(value) {
 function platformAuthorModeUsesList(mode) {
   const m = normalizePlatformAuthorMode(mode);
   return m === "include" || m === "exclude";
-}
-
-// True for the YouTube tag-based author modes.
-function isPlatformAuthorTagMode(mode) {
-  return PLATFORM_AUTHOR_TAG_MODES.includes(normalizePlatformAuthorMode(mode));
-}
-
-// Shared, state-aware tag predicate for page and feed enforcement. Only a
-// definitive `tagged` verdict is safe to use: pending, unknown, below-floor,
-// absent, and network-error states all fail open for BOTH modes.
-function matchesYouTubeTagSelection(mode, wantedTags, tagState, channelTags) {
-  const normalizedMode = normalizePlatformAuthorMode(mode);
-  if (!isPlatformAuthorTagMode(normalizedMode)) return false;
-  const wanted = Array.isArray(wantedTags) ? wantedTags.filter(Boolean) : [];
-  if (wanted.length === 0 || tagState !== "tagged") return false;
-  const actual = Array.isArray(channelTags) ? channelTags : [];
-  const hasTag = wanted.some((slug) => actual.includes(slug));
-  return normalizedMode === "tagInclude" ? hasTag : !hasTag;
 }
 
 function normalizeVideoMode(value) {
@@ -824,22 +803,6 @@ function matchesPlatformVideoGroup(group, pageContext) {
 
   if (authorMode === "all") return true;
 
-  // YouTube tag axis — shares this engine with the author axis so a tag block
-  // has the SAME repercussion as an author block (full page block, not just a
-  // feed hide). Fail-open: until we have a definitive tag verdict for the
-  // page's channel (channelTagsKnown), we never block.
-  if (authorMode === "tagInclude" || authorMode === "tagExclude") {
-    if (!isYouTubeGroup) return false;
-    const tagState =
-      pageContext.channelTagState || (pageContext.channelTagsKnown ? "tagged" : "unknown");
-    return matchesYouTubeTagSelection(
-      authorMode,
-      group.platformAuthorTags,
-      tagState,
-      pageContext.channelTags
-    );
-  }
-
   // "nobody" doesn't block via the author axis.
   if (authorMode !== "include" && authorMode !== "exclude") return false;
 
@@ -910,7 +873,7 @@ function matchesPlatformFeedGroup(group, pageContext) {
 
   const mode = normalizePlatformAuthorMode(group.platformAuthorMode);
   if (mode === "all") return true;
-  // Tag modes are YouTube-only; "nobody" blocks no account.
+  // "nobody" blocks no account.
   if (mode !== "include" && mode !== "exclude") return false;
 
   const authors = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
@@ -1042,17 +1005,6 @@ function platformGroupAuthorAxisMatchesPage(group, pageContext) {
   const t = normalizeGroupType(group.groupType);
   const mode = normalizePlatformAuthorMode(group.platformAuthorMode);
   if (mode === "all") return true;
-  if (isPlatformAuthorTagMode(mode)) {
-    if (t !== "youtube") return false;
-    const tagState =
-      pageContext.channelTagState || (pageContext.channelTagsKnown ? "tagged" : "unknown");
-    return matchesYouTubeTagSelection(
-      mode,
-      group.platformAuthorTags,
-      tagState,
-      pageContext.channelTags
-    );
-  }
   if (mode !== "include" && mode !== "exclude") return false; // nobody
 
   const list = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
@@ -1739,10 +1691,7 @@ const __cbPlatformRegistry = {
   surfaceHideEntryScope,
   platformGroupAuthorAxisMatchesPage,
   platformAuthorModeUsesList,
-  isPlatformAuthorTagMode,
-  matchesYouTubeTagSelection,
-  PLATFORM_AUTHOR_MODES,
-  PLATFORM_AUTHOR_TAG_MODES
+  PLATFORM_AUTHOR_MODES
 };
 
 if (typeof module !== "undefined" && module.exports) {

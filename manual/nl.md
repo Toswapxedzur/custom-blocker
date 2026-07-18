@@ -191,8 +191,6 @@ Keuzes voor oppervlaktehuid zijn onafhankelijk van blokkering op het hoogste niv
 | Instagram | Rollen en verken navigatie/oppervlakken. |
 | Trek | Blader door navigatie. |
 
-Bij het matchen van YouTube-creatortags wordt gebruik gemaakt van lokale/beschikbare kanaalclassificaties. Een ontbrekende classificatie wordt niet louter een blok omdat er een tagmodus is geselecteerd.
-
 ### 3.3 Reddit
 
 Een Reddit-groep is alleen van toepassing op Reddit. De entiteit ervan is een subreddit. Subreddit-invoer accepteert de gewone communityvorm en normaliseert deze voordat deze wordt gematcht.

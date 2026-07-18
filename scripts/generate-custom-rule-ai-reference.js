@@ -174,7 +174,7 @@ function buildReference(eventSource, helperSource) {
     "LOCAL_FOLDER: lf.requestRead/requestWrite/requestAppend/requestList/requestExists/requestReadJson/requestWriteJson are asynchronous and require a user-granted Local File Folder. Paths are relative to that root; file operations allow .txt, .csv, .json only. Correlate results with localFileEvent.requestId.",
     "PLATFORM: helpers.platform(name) or helpers.platform().youtube(). Raw methods: hide(slot,predicate,opts?), hide(predicate,opts?), allow(slot,predicate,opts?), allow(predicate,opts?), show(slot?), surface(name,'hide'|'show'), timer(slot,opts), rescan(), snapshot(), slots(), surfaces(), timerSlots(), plus URL classifiers. One predicate owns group/platform/slot; later calls replace it. allow creates a rescue/exception verdict. opts supports blockPageOnVisit. Call rescan after state affecting an existing-card predicate changes.",
     "PLATFORM_MATRIX: " + platformMatrix(helperSource, platforms).join(" "),
-    "PREDICATE_ITEM: url, name/title, author, channelId, length, views, publishedAt, description, live, sponsored, algorithmic, videoForm. Many fields may be null; null-check and fail open.",
+    "PREDICATE_ITEM: url, name/title, author, length, views, publishedAt, description, live, sponsored, algorithmic, videoForm. Many fields may be null; null-check and fail open.",
     "SAFE_PATTERN: Whole-page block = handler for openWebEvent/webChangedEvent, test URL, optionally set redirect/message URL, then ev.preventDefault(). Feed filtering = install platform predicate during registration; call rescan after predicate state changes.",
     "END_CUSTOM_RULE_API_REFERENCE"
   ].join("\n");
