@@ -1,8 +1,9 @@
 // Vault Classifier YouTube adapter — Phase 2 vertical slice.
 //
-// This adapter is independent from the legacy creator-tag resolver. It collects
-// only rendered DOM values, asks the paired local app through native messaging,
-// and fails open on any missing evidence, selector drift, or transport error.
+// This adapter is independent from the legacy creator-tag resolver. It reads
+// only rendered DOM values, asks the paired local app through the authenticated
+// shared Vault bridge, and fails open on any missing evidence, selector drift,
+// or transport error.
 (function () {
   "use strict";
   if (window.__vaultClassifierYouTube) return;
@@ -19,7 +20,8 @@
     "ytd-playlist-video-renderer",
     "ytd-reel-item-renderer",
     "ytm-shorts-lockup-view-model",
-    "ytd-rich-grid-media"
+    "ytd-rich-grid-media",
+    "ytd-backstage-post-thread-renderer"
   ].join(",");
   const STYLE_ID = "vault-classifier-youtube-style";
   const CARD_BANNER = "[data-vault-classifier-banner]";
@@ -28,10 +30,13 @@
   const PAGE_FINGERPRINT = "data-vault-classifier-page";
   const PAGE_REVEALED_ENTRY = "data-vault-classifier-page-revealed-entry";
   let enabled = false;
+  let collectionEnabled = false;
   let scanTimer = null;
   let pageTimer = null;
   let settingsEpoch = 0;
+  let collectionEpoch = 0;
   let presentationGeneration = 0;
+  const collectedEntryIDs = new Set();
 
   function compactText(value, maximum) {
     if (typeof value !== "string") return null;
@@ -62,6 +67,32 @@
     return null;
   }
 
+  function findPostID(root) {
+    const link = root.querySelector('a[href*="/post/"]');
+    const match = (link && (link.getAttribute("href") || "")).match(/\/post\/([A-Za-z0-9_-]{3,128})/);
+    return match ? match[1] : null;
+  }
+
+  function isAdvertisement(root) {
+    if (!root || typeof root.matches !== "function") return false;
+    const selectors = [
+      "ytd-ad-slot-renderer",
+      "ytd-promoted-video-renderer",
+      "ytd-promoted-sparkles-web-renderer",
+      "ytd-in-feed-ad-layout-renderer",
+      "[is-ad]",
+      "[is-promoted]"
+    ].join(",");
+    return root.matches(selectors) || Boolean(root.closest(selectors)) || Boolean(root.querySelector(selectors));
+  }
+
+  function cardEntryType(card, metadataLine) {
+    if (card.matches("ytd-backstage-post-thread-renderer")) return "post";
+    if (card.matches("ytd-reel-item-renderer, ytm-shorts-lockup-view-model")) return "short";
+    if ((metadataLine || []).some((value) => /\blive\b/i.test(value))) return "live";
+    return "video";
+  }
+
   function findSource(root) {
     const channel = root.querySelector('a[href*="/channel/UC"]');
     const channelMatch = (channel && (channel.getAttribute("href") || "")).match(/\/channel\/(UC[0-9A-Za-z_-]{22})/);
@@ -73,15 +104,19 @@
   }
 
   function feedEvidence(card) {
-    const title = selectorText(card, ["#video-title", "a#video-title-link", "a#video-title", "h3 a"], 500);
+    if (isAdvertisement(card)) return null;
+    const title = selectorText(card, ["#video-title", "a#video-title-link", "a#video-title", "h3 a", "#content-text", "#content #content-text"], 500);
     if (!title) return null;
     const source = findSource(card);
     const videoID = findVideoID(card);
+    const postID = videoID ? null : findPostID(card);
+    const entryID = videoID ? `youtube:video:${videoID}` : (postID ? `youtube:post:${postID}` : null);
     const duration = selectorText(card, ["ytd-thumbnail-overlay-time-status-renderer span", ".ytd-thumbnail-overlay-time-status-renderer"], 64);
     const metadataLine = Array.from(card.querySelectorAll("#metadata-line span")).map((item) => compactText(item.textContent, 128)).filter(Boolean).slice(0, 3);
+    const entryType = cardEntryType(card, metadataLine);
     return {
       platform: "youtube",
-      entryID: videoID ? `youtube:video:${videoID}` : null,
+      entryID,
       sourceID: source.id,
       surface: "feed",
       evidence: {
@@ -89,8 +124,10 @@
         suppliedTags: [],
         metadata: {
           sourceName: source.name || "",
+          entryType,
           duration: duration || "",
-          metadata: metadataLine.join(" · ")
+          metadata: metadataLine.join(" · "),
+          canonicalURL: videoID ? `https://www.youtube.com/watch?v=${videoID}` : (postID ? `https://www.youtube.com/post/${postID}` : "")
         }
       }
     };
@@ -130,6 +167,10 @@
       .filter(Boolean)
       .slice(0, 64);
     const details = selectorText(watchRoot, ["#info", "#above-the-fold #info"], 512);
+    const subscriberCount = selectorText(watchRoot, ["#owner-sub-count", "ytd-video-owner-renderer #owner-sub-count", "#subscribe-button #subscriber-count"], 64);
+    const published = selectorText(watchRoot, ["#info-strings yt-formatted-string", "#date yt-formatted-string", "#info-strings span"], 128);
+    const viewCount = selectorText(watchRoot, ["#info #count yt-formatted-string", "#info #count", "ytd-watch-info-text #count"], 128);
+    const entryType = location.pathname.startsWith("/shorts/") ? "short" : (/\blive\b/i.test(details || "") ? "live" : "video");
     return {
       platform: "youtube",
       entryID: `youtube:video:${videoID}`,
@@ -140,7 +181,15 @@
         text: description,
         summary: visibleSummary(root),
         suppliedTags,
-        metadata: { sourceName: source.name || "", details: details || "", canonicalURL: `https://www.youtube.com/watch?v=${videoID}` }
+        metadata: {
+          sourceName: source.name || "",
+          entryType,
+          details: details || "",
+          subscriberCount: subscriberCount || "",
+          published: published || "",
+          viewCount: viewCount || "",
+          canonicalURL: `https://www.youtube.com/watch?v=${videoID}`
+        }
       }
     };
   }
@@ -162,6 +211,32 @@
     try {
       chrome.runtime.sendMessage({ type: "vault-classifier-correct", ledgerID, correction }, () => void chrome.runtime.lastError);
     } catch (_) {}
+  }
+
+  function requestCollectionInfo() {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "vault-classifier-collection-info" }, (response) => {
+          if (chrome.runtime.lastError) return resolve(false);
+          resolve(Boolean(response && response.ok === true && response.enabled === true));
+        });
+      } catch (_) {
+        resolve(false);
+      }
+    });
+  }
+
+  function requestCollection(entry) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "vault-classifier-collect", entry }, (response) => {
+          if (chrome.runtime.lastError) return resolve(false);
+          resolve(Boolean(response && response.ok === true && response.accepted === true));
+        });
+      } catch (_) {
+        resolve(false);
+      }
+    });
   }
 
   function ensureStyles() {
@@ -333,18 +408,48 @@
     presentPage(verdict, entryID);
   }
 
+  async function collectEntry(entry) {
+    if (!collectionEnabled || !entry || !entry.entryID || !entry.sourceID) return;
+    const stableID = `${entry.platform}:${entry.entryID}`;
+    if (collectedEntryIDs.has(stableID)) return;
+    // Mark before the asynchronous bridge call so repeated YouTube DOM
+    // mutations cannot enqueue the same visible entry. A later navigation or
+    // reload can refresh its mutable public metadata in the local dataset.
+    collectedEntryIDs.add(stableID);
+    if (collectedEntryIDs.size > 2_000) collectedEntryIDs.delete(collectedEntryIDs.values().next().value);
+    const accepted = await requestCollection(entry);
+    if (!accepted) collectedEntryIDs.delete(stableID);
+  }
+
+  function collectCard(card) {
+    if (!collectionEnabled || isAdvertisement(card)) return;
+    void collectEntry(feedEvidence(card));
+  }
+
+  function collectPage() {
+    if (!collectionEnabled) return;
+    void collectEntry(watchEvidence());
+  }
+
   function scheduleScan() {
     if (scanTimer) return;
     scanTimer = setTimeout(() => {
       scanTimer = null;
-      if (!enabled) return;
-      document.querySelectorAll(CARD_SELECTOR).forEach((card) => void classifyCard(card));
+      if (!enabled && !collectionEnabled) return;
+      document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
+        if (enabled) void classifyCard(card);
+        if (collectionEnabled) collectCard(card);
+      });
     }, 250);
   }
 
   function schedulePageCheck() {
     if (pageTimer) return;
-    pageTimer = setTimeout(() => { pageTimer = null; void classifyPage(); }, 450);
+    pageTimer = setTimeout(() => {
+      pageTimer = null;
+      if (enabled) void classifyPage();
+      if (collectionEnabled) collectPage();
+    }, 450);
   }
 
   function applySettings(raw) {
@@ -354,9 +459,10 @@
     document.documentElement.removeAttribute(PAGE_FINGERPRINT);
     document.documentElement.removeAttribute(PAGE_REVEALED_ENTRY);
     document.querySelectorAll(CARD_SELECTOR).forEach(clearCard);
-    if (!enabled) return;
-    scheduleScan();
-    schedulePageCheck();
+    if (enabled || collectionEnabled) {
+      scheduleScan();
+      schedulePageCheck();
+    }
   }
 
   function refreshEnabled() {
@@ -364,6 +470,18 @@
     chrome.storage.local.get(SETTINGS_KEY, (result) => {
       if (epoch !== settingsEpoch) return;
       applySettings(chrome.runtime.lastError ? null : result && result[SETTINGS_KEY]);
+    });
+  }
+
+  function refreshCollectionEnabled() {
+    const epoch = ++collectionEpoch;
+    requestCollectionInfo().then((nextEnabled) => {
+      if (epoch !== collectionEpoch || collectionEnabled === nextEnabled) return;
+      collectionEnabled = nextEnabled;
+      if (enabled || collectionEnabled) {
+        scheduleScan();
+        schedulePageCheck();
+      }
     });
   }
 
@@ -378,6 +496,7 @@
     document.documentElement.removeAttribute(PAGE_FINGERPRINT);
     document.documentElement.removeAttribute(PAGE_REVEALED_ENTRY);
     document.querySelectorAll(CARD_SELECTOR).forEach(clearCard);
+    collectedEntryIDs.clear();
     scheduleScan();
     schedulePageCheck();
   });
@@ -389,4 +508,9 @@
   if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true });
   else document.addEventListener("DOMContentLoaded", () => observer.observe(document.documentElement, { childList: true, subtree: true }), { once: true });
   refreshEnabled();
+  refreshCollectionEnabled();
+  // A collection toggle lives in the local Vault app rather than extension
+  // storage. This bounded status poll carries no page metadata; the app still
+  // rejects every collection request after a toggle is turned off.
+  setInterval(refreshCollectionEnabled, 15_000);
 })();

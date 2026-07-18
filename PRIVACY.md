@@ -23,8 +23,15 @@ read-only lookup, but those lookup requests are not retained or linked to you.
 - **Vault Classifier is local-only.** If you explicitly enable the optional
   Vault Classifier integration, visible YouTube card/page evidence (such as a
   title, visible description, displayed tags, and public creator/video IDs) is
-  sent only to the paired Vault Classifier app on your Mac. It is not sent to
-  our website, a model provider, YouTube's Data API, or any other server.
+  routed only through the paired local Vault bridge to Vault Classifier on your
+  Mac. It is not sent to our website, a model provider, YouTube's Data API, or
+  any other server.
+- **Collection is a separate opt-in.** Vault Classifier asks the extension for
+  rendered, non-ad YouTube metadata only after you turn on YouTube collection
+  in its Classification data workspace. When it is off, the extension sends no
+  title or creator metadata for collection. When it is on, retained local
+  fields can include a visible title, creator name/identifier, video type,
+  duration, visible subscriber/view/published text, and canonical URL.
 - **There is no analytics, advertising profile, telemetry, or crash reporter.**
 - **No tracking** of browsing activity beyond what is strictly necessary
   to apply the blocking rules you yourself configured.
@@ -47,7 +54,7 @@ storage so it can do its job across sessions:
   clear from the UI.
 - Cached public creator-tag verdicts (channel ID, classification state, and
   tag slugs), which you can clear from Settings.
-- When you explicitly enable Vault Classifier, its companion app keeps a
+- When you explicitly enable Vault Classifier, its local app keeps a
   user-bounded local cache of the visible evidence, local scores, decisions,
   and corrections needed to classify and explain entries. This cache remains
   on your Mac and is not part of normal extension-to-server traffic.
@@ -66,7 +73,7 @@ lookup.
   not sent with a URL, video title, search term, or viewing timestamp.
 - Page content is not exfiltrated, screenshotted, or logged.
 - Vault Classifier evidence is not transmitted off-device. It is processed by
-  the paired local app only when you explicitly enable that integration.
+  the paired local bridge and app only when you explicitly enable that integration.
 - Form input, passwords, and personal information are never read.
 - No extension identifier, account identifier, device identifier, or rule
   configuration is attached to a creator-tag lookup.
@@ -77,7 +84,7 @@ lookup.
 | --- | --- |
 | `storage` | Save and load your block groups, settings, and runtime state in your browser only. |
 | `favicon` | Show browser-cached site icons beside rules in Chromium. This does not send browsing history or make a request to our service. |
-| `nativeMessaging` | When enabled, connect Chrome/Edge to the paired Vault Classifier app on the same Mac; Safari uses it for its device-local companion path. It is never a cloud transport. |
+| `nativeMessaging` | In Safari only, forward custom-rule sandbox requests to the device-local containing app. It is not a cloud transport. |
 | `alarms` | Wake the background service worker on schedule to refresh time-based limits and update rule state when a snooze, freeze, or schedule window ends. |
 | `offscreen` | Run sandboxed custom-rule JavaScript in an offscreen document so it cannot escape the extension or touch your pages directly. |
 | `tabs` | Open the editor as a full tab when you click the toolbar icon, look up the active tab's URL to evaluate group rules, and reload tabs after a rule change you made in the editor. |

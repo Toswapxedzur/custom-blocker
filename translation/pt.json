@@ -571,14 +571,14 @@
   "connection.errorProtocolMismatch": "O aplicativo e a extensão usam versões incompatíveis do protocolo da ponte.",
   "connection.errorSecureConnection": "Não foi possível estabelecer uma conexão segura com o aplicativo Vault local.",
   "classifierBridge.title": "Ponte do Vault Classifier",
-  "classifierBridge.copy": "Peça decisões do YouTube ao aplicativo local Vault Classifier. Se o host nativo ou o aplicativo não estiver disponível, o YouTube continuará visível.",
+  "classifierBridge.copy": "Peça decisões do YouTube ao Vault Classifier pela ponte local compartilhada do Vault. Se Mac Vault, Vault Classifier ou a ponte não estiver disponível, o YouTube continuará visível.",
   "classifierBridge.enabled": "Ativar a ponte do Vault Classifier",
   "classifierBridge.policy": "Política nomeada",
   "classifierBridge.hardBlock": "Permitir bloqueios rígidos nos feeds do YouTube",
   "classifierBridge.hardBlockHelp": "Sem esta opção, um bloqueio no feed aparece esmaecido com os controles Mostrar e Por quê.",
   "classifierBridge.off": "Desativado",
   "classifierBridge.loading": "Verificando a ponte local…",
-  "classifierBridge.unavailable": "O host local não está disponível. Instale a ponte do navegador e reabra este painel.",
+  "classifierBridge.unavailable": "A ponte compartilhada do Vault não está disponível. Abra Mac Vault e Vault Classifier, conecte ambos os apps e reabra este painel.",
   "classifierBridge.none": "Não há políticas nomeadas disponíveis no Vault Classifier.",
   "classifierBridge.active": "Conectado localmente. O YouTube é avaliado com a política selecionada."
 }

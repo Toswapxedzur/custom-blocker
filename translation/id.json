@@ -571,14 +571,14 @@
   "connection.errorProtocolMismatch": "Aplikasi dan ekstensi menggunakan versi protokol bridge yang tidak kompatibel.",
   "connection.errorSecureConnection": "Tidak dapat membuat koneksi aman ke aplikasi Vault lokal.",
   "classifierBridge.title": "Jembatan Vault Classifier",
-  "classifierBridge.copy": "Minta keputusan YouTube kepada aplikasi Vault Classifier lokal. Jika host native atau aplikasi tidak tersedia, YouTube tetap terlihat.",
+  "classifierBridge.copy": "Minta keputusan YouTube kepada Vault Classifier melalui jembatan Vault lokal bersama. Jika Mac Vault, Vault Classifier, atau jembatan tidak tersedia, YouTube tetap terlihat.",
   "classifierBridge.enabled": "Aktifkan jembatan Vault Classifier",
   "classifierBridge.policy": "Kebijakan bernama",
   "classifierBridge.hardBlock": "Izinkan pemblokiran tegas di feed YouTube",
   "classifierBridge.hardBlockHelp": "Tanpa opsi ini, blokir feed ditampilkan redup dengan kontrol Tampilkan dan Mengapa.",
   "classifierBridge.off": "Mati",
   "classifierBridge.loading": "Memeriksa jembatan lokal…",
-  "classifierBridge.unavailable": "Host lokal tidak tersedia. Pasang jembatan browser, lalu buka kembali panel ini.",
+  "classifierBridge.unavailable": "Jembatan Vault bersama tidak tersedia. Buka Mac Vault dan Vault Classifier, hubungkan kedua aplikasi, lalu buka kembali panel ini.",
   "classifierBridge.none": "Tidak ada kebijakan bernama yang tersedia di Vault Classifier.",
   "classifierBridge.active": "Terhubung secara lokal. YouTube dievaluasi dengan kebijakan yang dipilih."
 }

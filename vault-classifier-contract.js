@@ -1,7 +1,7 @@
 // Vault Classifier extension contract — browser-safe, dependency-free helpers.
 //
 // This is deliberately separate from the legacy creator-tag path. It accepts
-// only bounded DOM evidence and turns a missing/invalid/native-host failure
+// only bounded DOM evidence and turns a missing/invalid/shared-hub failure
 // into a fail-open result. It never contacts a web service.
 (function (global) {
   "use strict";

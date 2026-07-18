@@ -571,14 +571,14 @@
   "connection.errorProtocolMismatch": "应用与扩展使用的桥接协议版本不兼容。",
   "connection.errorSecureConnection": "无法与本地 Vault 应用建立安全连接。",
   "classifierBridge.title": "Vault Classifier 桥接",
-  "classifierBridge.copy": "向本地 Vault Classifier 应用请求 YouTube 判定。如果原生主机或应用不可用，YouTube 仍会保持可见。",
+  "classifierBridge.copy": "通过共享的本地 Vault 桥接向 Vault Classifier 请求 YouTube 判定。如果 Mac Vault、Vault Classifier 或桥接不可用，YouTube 仍会保持可见。",
   "classifierBridge.enabled": "启用 Vault Classifier 桥接",
   "classifierBridge.policy": "命名策略",
   "classifierBridge.hardBlock": "允许在 YouTube 信息流中强制屏蔽",
   "classifierBridge.hardBlockHelp": "未启用此选项时，信息流屏蔽会以淡化方式显示，并提供“显示”和“原因”控件。",
   "classifierBridge.off": "关闭",
   "classifierBridge.loading": "正在检查本地桥接…",
-  "classifierBridge.unavailable": "本地主机不可用。请安装浏览器桥接，然后重新打开此面板。",
+  "classifierBridge.unavailable": "共享 Vault 桥接不可用。请打开 Mac Vault 和 Vault Classifier，连接两个应用，然后重新打开此面板。",
   "classifierBridge.none": "Vault Classifier 中没有可用的命名策略。",
   "classifierBridge.active": "已在本地连接。YouTube 会按所选策略评估。"
 }

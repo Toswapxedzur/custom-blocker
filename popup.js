@@ -1186,6 +1186,9 @@ function bridgeConnectablePrograms() {
     if (hubProgram) programs.add(hubProgram);
   }
   programs.delete(LOCAL_PROGRAM_ID);
+  // Vault Classifier shares this hub for routed decisions only. It never owns
+  // a block-group roster, so it is not a valid group-link destination.
+  programs.delete("classifier");
   programs.delete("browser");
   programs.delete("");
   return Array.from(programs);
