@@ -569,5 +569,16 @@
   "connection.pairingKeyPrompt": "Mac Vault 또는 Windows Vault에 표시된 64자 페어링 키를 붙여넣으세요.",
   "connection.errorPairingKey": "올바른 64자 페어링 키를 입력하세요.",
   "connection.errorProtocolMismatch": "앱과 확장 프로그램의 브리지 프로토콜 버전이 호환되지 않습니다.",
-  "connection.errorSecureConnection": "로컬 Vault 앱과 보안 연결을 설정하지 못했습니다."
+  "connection.errorSecureConnection": "로컬 Vault 앱과 보안 연결을 설정하지 못했습니다.",
+  "classifierBridge.title": "Vault Classifier 브리지",
+  "classifierBridge.copy": "YouTube 판단을 로컬 Vault Classifier 앱에 요청합니다. 네이티브 호스트나 앱을 사용할 수 없으면 YouTube는 계속 표시됩니다.",
+  "classifierBridge.enabled": "Vault Classifier 브리지 사용",
+  "classifierBridge.policy": "이름이 있는 정책",
+  "classifierBridge.hardBlock": "YouTube 피드에서 강제 차단 허용",
+  "classifierBridge.hardBlockHelp": "이 옵션이 없으면 피드 차단은 표시 및 이유 제어가 있는 흐린 상태로 나타납니다.",
+  "classifierBridge.off": "끔",
+  "classifierBridge.loading": "로컬 브리지를 확인하는 중…",
+  "classifierBridge.unavailable": "로컬 호스트를 사용할 수 없습니다. 브라우저 브리지를 설치한 다음 이 패널을 다시 여세요.",
+  "classifierBridge.none": "Vault Classifier에서 사용할 수 있는 이름이 있는 정책이 없습니다.",
+  "classifierBridge.active": "로컬로 연결되었습니다. 선택한 정책으로 YouTube를 평가합니다."
 }

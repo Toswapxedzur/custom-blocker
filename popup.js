@@ -455,6 +455,10 @@ const connectionStatusText = document.getElementById("connectionStatusText");
 const connectionAddressReadout = document.getElementById("connectionAddressReadout");
 const connectionPairingKeyReadout = document.getElementById("connectionPairingKeyReadout");
 const connectionPeerList = document.getElementById("connectionPeerList");
+const classifierBridgeToggle = document.getElementById("classifierBridgeToggle");
+const classifierBridgePolicy = document.getElementById("classifierBridgePolicy");
+const classifierBridgeHardBlock = document.getElementById("classifierBridgeHardBlock");
+const classifierBridgeStatus = document.getElementById("classifierBridgeStatus");
 const connectionGroupSection = document.getElementById("connectionGroupSection");
 const connectionGroupHint = document.getElementById("connectionGroupHint");
 const connectionGroupDisconnected = document.getElementById("connectionGroupDisconnected");
@@ -528,6 +532,113 @@ const state = {
   // hub re-pushes every second) don't trigger needless re-renders.
   clustersLastJSON: ""
 };
+
+// This is intentionally separate from the Mac/Windows WebSocket hub settings.
+// Vault Classifier uses a Chrome/Edge native-message host and app-owned IPC;
+// it never receives the WebSocket pairing key or a browser group definition.
+const CLASSIFIER_BRIDGE_SETTINGS_KEY = "vaultClassifierSettings";
+const DEFAULT_CLASSIFIER_BRIDGE_SETTINGS = Object.freeze({
+  enabled: false,
+  policyID: "",
+  feedHardBlock: false
+});
+let classifierBridgeSettings = { ...DEFAULT_CLASSIFIER_BRIDGE_SETTINGS };
+let classifierBridgePolicies = [];
+let classifierBridgeStatusKey = "classifierBridge.off";
+
+function sanitizeClassifierBridgeSettings(raw) {
+  const policyID = raw && typeof raw.policyID === "string" ? raw.policyID.trim() : "";
+  return {
+    enabled: Boolean(raw && raw.enabled === true),
+    policyID: policyID.length <= 128 && !/[\u0000-\u001f\u007f]/.test(policyID) ? policyID : "",
+    feedHardBlock: Boolean(raw && raw.feedHardBlock === true)
+  };
+}
+
+function classifierBridgeStorageGet() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([CLASSIFIER_BRIDGE_SETTINGS_KEY], (result) => {
+      resolve(sanitizeClassifierBridgeSettings(result && result[CLASSIFIER_BRIDGE_SETTINGS_KEY]));
+    });
+  });
+}
+
+function classifierBridgeStorageSet(next) {
+  classifierBridgeSettings = sanitizeClassifierBridgeSettings(next);
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set({ [CLASSIFIER_BRIDGE_SETTINGS_KEY]: classifierBridgeSettings }, () => {
+      const error = chrome.runtime.lastError;
+      error ? reject(new Error(error.message)) : resolve(classifierBridgeSettings);
+    });
+  });
+}
+
+function renderClassifierBridgeSettings() {
+  const enabled = classifierBridgeSettings.enabled;
+  if (classifierBridgeToggle) classifierBridgeToggle.checked = enabled;
+  if (classifierBridgeHardBlock) {
+    classifierBridgeHardBlock.checked = classifierBridgeSettings.feedHardBlock;
+    classifierBridgeHardBlock.disabled = !enabled;
+  }
+  if (classifierBridgePolicy) {
+    classifierBridgePolicy.replaceChildren();
+    for (const policy of classifierBridgePolicies) {
+      const option = document.createElement("option");
+      option.value = policy.id;
+      option.textContent = policy.name || policy.id;
+      classifierBridgePolicy.appendChild(option);
+    }
+    if (!classifierBridgePolicies.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = t("classifierBridge.none");
+      classifierBridgePolicy.appendChild(option);
+    }
+    const selected = classifierBridgePolicies.some((policy) => policy.id === classifierBridgeSettings.policyID)
+      ? classifierBridgeSettings.policyID
+      : (classifierBridgePolicies[0] && classifierBridgePolicies[0].id) || "";
+    classifierBridgePolicy.value = selected;
+    classifierBridgePolicy.disabled = !enabled || !classifierBridgePolicies.length;
+  }
+  if (classifierBridgeStatus) classifierBridgeStatus.textContent = t(classifierBridgeStatusKey);
+}
+
+async function refreshClassifierBridgePolicies() {
+  classifierBridgeStatusKey = "classifierBridge.loading";
+  renderClassifierBridgeSettings();
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "vault-classifier-bridge-policies" });
+    if (!response || response.ok !== true || !Array.isArray(response.policies)) throw new Error("unavailable");
+    classifierBridgePolicies = response.policies
+      .filter((policy) => policy && typeof policy.id === "string" && typeof policy.name === "string" && policy.id.length > 0 && policy.id.length <= 128 && policy.name.length <= 256)
+      .slice(0, 64);
+    if (!classifierBridgePolicies.length) {
+      classifierBridgeStatusKey = "classifierBridge.none";
+      return false;
+    }
+    const selected = classifierBridgePolicies.some((policy) => policy.id === classifierBridgeSettings.policyID)
+      ? classifierBridgeSettings.policyID
+      : classifierBridgePolicies[0].id;
+    if (selected !== classifierBridgeSettings.policyID) {
+      await classifierBridgeStorageSet({ ...classifierBridgeSettings, policyID: selected });
+    }
+    classifierBridgeStatusKey = "classifierBridge.active";
+    return true;
+  } catch (_) {
+    classifierBridgePolicies = [];
+    classifierBridgeStatusKey = "classifierBridge.unavailable";
+    return false;
+  } finally {
+    renderClassifierBridgeSettings();
+  }
+}
+
+async function loadClassifierBridgeSettings() {
+  classifierBridgeSettings = await classifierBridgeStorageGet();
+  classifierBridgeStatusKey = classifierBridgeSettings.enabled ? "classifierBridge.loading" : "classifierBridge.off";
+  renderClassifierBridgeSettings();
+  if (classifierBridgeSettings.enabled) await refreshClassifierBridgePolicies();
+}
 
 function getAiPromptStorageKey(groupId) {
   return `${AI_PROMPT_STORAGE_PREFIX}${groupId}`;
@@ -2091,6 +2202,10 @@ function openSettings() {
   setupYtTagUi();
   syncSettingsFormFromState();
   requestConnectionStatus();
+  loadClassifierBridgeSettings().catch(() => {
+    classifierBridgeStatusKey = "classifierBridge.unavailable";
+    renderClassifierBridgeSettings();
+  });
   settingsModal.classList.remove("hidden");
   renderLocalFolderStatus().catch((error) => {
     if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
@@ -8191,6 +8306,41 @@ if (connectionDisconnectButton) {
         applyConnectionStatus({ state: "off" });
       })
       .catch(() => {});
+  });
+}
+
+if (classifierBridgeToggle) {
+  classifierBridgeToggle.addEventListener("change", async () => {
+    if (!classifierBridgeToggle.checked) {
+      await classifierBridgeStorageSet({ ...classifierBridgeSettings, enabled: false });
+      classifierBridgeStatusKey = "classifierBridge.off";
+      renderClassifierBridgeSettings();
+      return;
+    }
+    const available = await refreshClassifierBridgePolicies();
+    if (!available) {
+      await classifierBridgeStorageSet({ ...classifierBridgeSettings, enabled: false });
+      renderClassifierBridgeSettings();
+      return;
+    }
+    const selected = classifierBridgePolicy?.value || classifierBridgePolicies[0].id;
+    await classifierBridgeStorageSet({ ...classifierBridgeSettings, enabled: true, policyID: selected });
+    classifierBridgeStatusKey = "classifierBridge.active";
+    renderClassifierBridgeSettings();
+  });
+}
+
+if (classifierBridgePolicy) {
+  classifierBridgePolicy.addEventListener("change", () => {
+    const policyID = classifierBridgePolicy.value;
+    if (!classifierBridgePolicies.some((policy) => policy.id === policyID)) return;
+    classifierBridgeStorageSet({ ...classifierBridgeSettings, policyID }).catch(() => {});
+  });
+}
+
+if (classifierBridgeHardBlock) {
+  classifierBridgeHardBlock.addEventListener("change", () => {
+    classifierBridgeStorageSet({ ...classifierBridgeSettings, feedHardBlock: classifierBridgeHardBlock.checked }).catch(() => {});
   });
 }
 

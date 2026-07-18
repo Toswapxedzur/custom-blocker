@@ -569,5 +569,16 @@
   "connection.pairingKeyPrompt": "วางคีย์จับคู่ 64 อักขระที่แสดงใน Mac Vault หรือ Windows Vault",
   "connection.errorPairingKey": "ป้อนคีย์จับคู่ 64 อักขระที่ถูกต้อง",
   "connection.errorProtocolMismatch": "แอปและส่วนขยายใช้เวอร์ชันโปรโตคอลบริดจ์ที่ไม่เข้ากัน",
-  "connection.errorSecureConnection": "ไม่สามารถสร้างการเชื่อมต่อที่ปลอดภัยกับแอป Vault ในเครื่องได้"
+  "connection.errorSecureConnection": "ไม่สามารถสร้างการเชื่อมต่อที่ปลอดภัยกับแอป Vault ในเครื่องได้",
+  "classifierBridge.title": "บริดจ์ Vault Classifier",
+  "classifierBridge.copy": "ขอการตัดสินใจของ YouTube จากแอป Vault Classifier ในเครื่อง หากโฮสต์เนทีฟหรือแอปไม่พร้อมใช้งาน YouTube จะยังคงแสดงอยู่",
+  "classifierBridge.enabled": "เปิดใช้บริดจ์ Vault Classifier",
+  "classifierBridge.policy": "นโยบายที่ตั้งชื่อ",
+  "classifierBridge.hardBlock": "อนุญาตการบล็อกแบบเข้มงวดในฟีด YouTube",
+  "classifierBridge.hardBlockHelp": "หากไม่เลือกตัวเลือกนี้ การบล็อกในฟีดจะแสดงแบบจางพร้อมตัวควบคุมแสดงและเหตุผล",
+  "classifierBridge.off": "ปิด",
+  "classifierBridge.loading": "กำลังตรวจสอบบริดจ์ในเครื่อง…",
+  "classifierBridge.unavailable": "โฮสต์ในเครื่องไม่พร้อมใช้งาน ติดตั้งบริดจ์เบราว์เซอร์ แล้วเปิดแผงนี้อีกครั้ง",
+  "classifierBridge.none": "ไม่มีนโยบายที่ตั้งชื่อไว้ใน Vault Classifier",
+  "classifierBridge.active": "เชื่อมต่อในเครื่องแล้ว YouTube จะได้รับการประเมินด้วยนโยบายที่เลือก"
 }

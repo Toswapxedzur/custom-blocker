@@ -569,5 +569,16 @@
   "connection.pairingKeyPrompt": "Plak de koppelingssleutel van 64 tekens die in Mac Vault of Windows Vault staat.",
   "connection.errorPairingKey": "Voer de juiste koppelingssleutel van 64 tekens in.",
   "connection.errorProtocolMismatch": "De app en extensie gebruiken incompatibele versies van het bridgeprotocol.",
-  "connection.errorSecureConnection": "Er kon geen beveiligde verbinding met de lokale Vault-app worden gemaakt."
+  "connection.errorSecureConnection": "Er kon geen beveiligde verbinding met de lokale Vault-app worden gemaakt.",
+  "classifierBridge.title": "Vault Classifier-brug",
+  "classifierBridge.copy": "Vraag de lokale Vault Classifier-app om YouTube-beslissingen. Als de native host of app niet beschikbaar is, blijft YouTube zichtbaar.",
+  "classifierBridge.enabled": "Vault Classifier-brug inschakelen",
+  "classifierBridge.policy": "Benoemd beleid",
+  "classifierBridge.hardBlock": "Harde blokkeringen in YouTube-feeds toestaan",
+  "classifierBridge.hardBlockHelp": "Zonder deze optie wordt een feedblokkering gedimd weergegeven met de bedieningselementen Tonen en Waarom.",
+  "classifierBridge.off": "Uit",
+  "classifierBridge.loading": "Lokale brug wordt gecontroleerd…",
+  "classifierBridge.unavailable": "De lokale host is niet beschikbaar. Installeer de browserbrug en open dit paneel opnieuw.",
+  "classifierBridge.none": "Er zijn geen benoemde beleidsregels beschikbaar in Vault Classifier.",
+  "classifierBridge.active": "Lokaal verbonden. YouTube wordt beoordeeld met het geselecteerde beleid."
 }

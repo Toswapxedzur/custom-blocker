@@ -287,6 +287,31 @@
     return job;
   }
 
+  function isOwnExtensionSender(sender) {
+    return Boolean(sender) && sender.id === chrome.runtime.id;
+  }
+
+  async function bridgePolicies() {
+    try {
+      const secret = await pairedSecret();
+      const envelope = await makeEnvelope("bridge-info", {}, secret);
+      const response = await roundTrip(envelope);
+      const body = await verifyResponse(response, secret, "bridge-info-response", envelope.requestID);
+      const candidates = Array.isArray(body && body.policies) ? body.policies : [];
+      const policies = [];
+      const seen = new Set();
+      for (const candidate of candidates) {
+        if (!candidate || typeof candidate.id !== "string" || typeof candidate.name !== "string" || candidate.id.length === 0 || candidate.id.length > 128 || candidate.name.length > 256 || /[\u0000-\u001f\u007f]/.test(candidate.id) || seen.has(candidate.id)) continue;
+        seen.add(candidate.id);
+        policies.push({ id: candidate.id, name: candidate.name });
+        if (policies.length >= 64) break;
+      }
+      return { ok: true, policies };
+    } catch (error) {
+      return { ok: false, policies: [], reason: String(error && error.message || error) };
+    }
+  }
+
   async function correct(ledgerID, correction) {
     if (typeof ledgerID !== "string" || !/^[0-9a-f-]{36}$/i.test(ledgerID)) return { ok: false, failOpen: true };
     if (correction !== "falseAllow" && correction !== "falseDim" && correction !== "falseBlock" && correction !== null) return { ok: false, failOpen: true };
@@ -320,6 +345,17 @@
     correct(message.ledgerID, message.correction)
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, failOpen: true }));
+    return true;
+  });
+
+  // This inventory is only for the extension's own settings page. Unlike
+  // evidence and corrections, it is not accepted from a web page or content
+  // surface. The native app remains the authority for which policy IDs exist.
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || message.type !== "vault-classifier-bridge-policies" || !isOwnExtensionSender(sender)) return false;
+    bridgePolicies()
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false, policies: [] }));
     return true;
   });
 })();

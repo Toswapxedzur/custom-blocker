@@ -569,5 +569,16 @@
   "connection.pairingKeyPrompt": "Mac Vault ਜਾਂ Windows Vault ਵਿੱਚ ਦਿਖਾਈ 64-ਅੱਖਰਾਂ ਦੀ ਪੇਅਰਿੰਗ ਕੁੰਜੀ ਪੇਸਟ ਕਰੋ।",
   "connection.errorPairingKey": "ਸਹੀ 64-ਅੱਖਰਾਂ ਦੀ ਪੇਅਰਿੰਗ ਕੁੰਜੀ ਦਰਜ ਕਰੋ।",
   "connection.errorProtocolMismatch": "ਐਪ ਅਤੇ ਐਕਸਟੈਂਸ਼ਨ ਬ੍ਰਿਜ ਪ੍ਰੋਟੋਕੋਲ ਦੇ ਗੈਰ-ਅਨੁਕੂਲ ਵਰਜਨ ਵਰਤ ਰਹੇ ਹਨ।",
-  "connection.errorSecureConnection": "ਲੋਕਲ Vault ਐਪ ਨਾਲ ਸੁਰੱਖਿਅਤ ਕਨੈਕਸ਼ਨ ਨਹੀਂ ਬਣ ਸਕਿਆ।"
+  "connection.errorSecureConnection": "ਲੋਕਲ Vault ਐਪ ਨਾਲ ਸੁਰੱਖਿਅਤ ਕਨੈਕਸ਼ਨ ਨਹੀਂ ਬਣ ਸਕਿਆ।",
+  "classifierBridge.title": "Vault Classifier ਬ੍ਰਿਜ",
+  "classifierBridge.copy": "YouTube ਦੇ ਫੈਸਲਿਆਂ ਲਈ ਲੋਕਲ Vault Classifier ਐਪ ਨੂੰ ਪੁੱਛੋ। ਨੇਟਿਵ ਹੋਸਟ ਜਾਂ ਐਪ ਉਪਲਬਧ ਨਾ ਹੋਵੇ ਤਾਂ ਵੀ YouTube ਦਿਸਦਾ ਰਹੇਗਾ।",
+  "classifierBridge.enabled": "Vault Classifier ਬ੍ਰਿਜ ਚਾਲੂ ਕਰੋ",
+  "classifierBridge.policy": "ਨਾਮ ਵਾਲੀ ਨੀਤੀ",
+  "classifierBridge.hardBlock": "YouTube ਫੀਡਾਂ ਵਿੱਚ ਸਖ਼ਤ ਬਲਾਕ ਦੀ ਇਜਾਜ਼ਤ ਦਿਓ",
+  "classifierBridge.hardBlockHelp": "ਇਸ ਚੋਣ ਤੋਂ ਬਿਨਾਂ, ਫੀਡ ਬਲਾਕ ਨੂੰ ਦਿਖਾਓ ਅਤੇ ਕਿਉਂ ਕੰਟਰੋਲਾਂ ਨਾਲ ਮੰਦ ਰੂਪ ਵਿੱਚ ਦਿਖਾਇਆ ਜਾਂਦਾ ਹੈ।",
+  "classifierBridge.off": "ਬੰਦ",
+  "classifierBridge.loading": "ਲੋਕਲ ਬ੍ਰਿਜ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ…",
+  "classifierBridge.unavailable": "ਲੋਕਲ ਹੋਸਟ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਬ੍ਰਾਊਜ਼ਰ ਬ੍ਰਿਜ ਇੰਸਟਾਲ ਕਰੋ, ਫਿਰ ਇਹ ਪੈਨਲ ਦੁਬਾਰਾ ਖੋਲ੍ਹੋ।",
+  "classifierBridge.none": "Vault Classifier ਵਿੱਚ ਕੋਈ ਨਾਮ ਵਾਲੀ ਨੀਤੀ ਉਪਲਬਧ ਨਹੀਂ ਹੈ।",
+  "classifierBridge.active": "ਲੋਕਲ ਤੌਰ ਤੇ ਜੁੜਿਆ ਹੈ। YouTube ਦਾ ਮੁਲਾਂਕਣ ਚੁਣੀ ਹੋਈ ਨੀਤੀ ਨਾਲ ਹੁੰਦਾ ਹੈ।"
 }

@@ -569,5 +569,16 @@
   "connection.pairingKeyPrompt": "Mac Vault বা Windows Vault-এ দেখানো ৬৪-অক্ষরের পেয়ারিং কী পেস্ট করুন।",
   "connection.errorPairingKey": "সঠিক ৬৪-অক্ষরের পেয়ারিং কী লিখুন।",
   "connection.errorProtocolMismatch": "অ্যাপ ও এক্সটেনশনটি ব্রিজ প্রোটোকলের অসামঞ্জস্যপূর্ণ সংস্করণ ব্যবহার করছে।",
-  "connection.errorSecureConnection": "স্থানীয় Vault অ্যাপের সঙ্গে নিরাপদ সংযোগ স্থাপন করা যায়নি।"
+  "connection.errorSecureConnection": "স্থানীয় Vault অ্যাপের সঙ্গে নিরাপদ সংযোগ স্থাপন করা যায়নি।",
+  "classifierBridge.title": "Vault Classifier ব্রিজ",
+  "classifierBridge.copy": "YouTube-এর সিদ্ধান্তের জন্য স্থানীয় Vault Classifier অ্যাপকে জিজ্ঞাসা করুন। নেটিভ হোস্ট বা অ্যাপ না থাকলে YouTube দৃশ্যমানই থাকবে।",
+  "classifierBridge.enabled": "Vault Classifier ব্রিজ চালু করুন",
+  "classifierBridge.policy": "নামযুক্ত নীতি",
+  "classifierBridge.hardBlock": "YouTube ফিডে কঠোর ব্লক অনুমোদন করুন",
+  "classifierBridge.hardBlockHelp": "এই বিকল্প ছাড়া, ফিডের ব্লক Reveal ও Why নিয়ন্ত্রণসহ ম্লানভাবে দেখানো হয়।",
+  "classifierBridge.off": "বন্ধ",
+  "classifierBridge.loading": "স্থানীয় ব্রিজ পরীক্ষা করা হচ্ছে…",
+  "classifierBridge.unavailable": "স্থানীয় হোস্ট পাওয়া যাচ্ছে না। ব্রাউজার ব্রিজ ইনস্টল করে এই প্যানেলটি আবার খুলুন।",
+  "classifierBridge.none": "Vault Classifier-এ কোনো নামযুক্ত নীতি উপলভ্য নেই।",
+  "classifierBridge.active": "স্থানীয়ভাবে সংযুক্ত। নির্বাচিত নীতিতে YouTube মূল্যায়ন করা হচ্ছে।"
 }
