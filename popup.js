@@ -184,17 +184,14 @@ const cbDialog = (function () {
 // Web-app bridge (connection) defaults. A native Vault app is the only endpoint
 // that can host the local hub (a browser extension cannot listen on a socket),
 // so `server*` fields are honored only on the native host and `client*` fields
-// only in the browser extensions. Both are persisted in globalSettings so the
-// transport layer (background service worker / native server) can read them.
+// only in the browser extension. The legacy server field is retained only for
+// migration; every live client is outbound.
 const CONNECTION_PROTOCOL_VERSION = window.CBBridgeProtocol.PROTOCOL_VERSION;
-const CONNECTION_DEFAULT_PORT = 8787;
-const CONNECTION_DEFAULT_ADDRESS = `ws://127.0.0.1:${CONNECTION_DEFAULT_PORT}`;
+const CONNECTION_DEFAULT_ADDRESS = "wss://customblocker.com/api/vault-bridge";
 const DEFAULT_CONNECTION_SETTINGS = {
-  // macOS hub
+  // Kept for migration only. No client listens locally anymore.
   serverEnabled: false,
-  // browser client
-  clientEnabled: false,
-  pairingKey: ""
+  clientEnabled: false
 };
 
 const DEFAULT_GLOBAL_SETTINGS = {
@@ -214,9 +211,7 @@ const TICK_RATE_MIN_MS = 250;
 const TICK_RATE_MAX_MS = 60_000;
 const AUTOSAVE_DEBOUNCE_MAX_MS = 5_000;
 
-// True when running inside a native Vault WebView (the native chrome shim),
-// false in a real browser extension. Used to decide whether this endpoint is
-// the connection HUB (macOS, hosts the server) or a CLIENT (browser).
+// Native and browser clients both connect out to the shared broker.
 function isNativeHost() {
   try {
     return !!(window.chrome && window.chrome.__cbShim);
@@ -242,7 +237,7 @@ function detectProgramId() {
 }
 
 const LOCAL_PROGRAM_ID = detectProgramId();
-const IS_CONNECTION_HUB = isNativeHost();
+const IS_NATIVE_DESKTOP = isNativeHost();
 
 const DEFAULT_ALLOWED_MINUTES = 15;
 const DEFAULT_RESET_INTERVAL_HOURS = 24;
@@ -419,13 +414,11 @@ const settingsStatus = document.getElementById("settingsStatus");
 const connectionSection = document.getElementById("connectionSection");
 const connectionServerControls = document.getElementById("connectionServerControls");
 const connectionClientControls = document.getElementById("connectionClientControls");
-const connectionServerToggle = document.getElementById("connectionServerToggle");
 const connectionConnectButton = document.getElementById("connectionConnectButton");
 const connectionDisconnectButton = document.getElementById("connectionDisconnectButton");
 const connectionStatusDot = document.getElementById("connectionStatusDot");
 const connectionStatusText = document.getElementById("connectionStatusText");
 const connectionAddressReadout = document.getElementById("connectionAddressReadout");
-const connectionPairingKeyReadout = document.getElementById("connectionPairingKeyReadout");
 const connectionPeerList = document.getElementById("connectionPeerList");
 const classifierBridgeToggle = document.getElementById("classifierBridgeToggle");
 const classifierBridgePolicy = document.getElementById("classifierBridgePolicy");
@@ -511,13 +504,11 @@ const state = {
   clustersLastJSON: ""
 };
 
-// This remains separate from the Web-app bridge settings. Vault Classifier has
-// its own authenticated loopback listener, pairing key, and runtime status;
-// it never receives a browser group definition.
+// This remains separate from the group-sync connection. Its browser evidence
+// requests share the public broker but never receive a group definition.
 const CLASSIFIER_BRIDGE_SETTINGS_KEY = "vaultClassifierSettings";
 const DEFAULT_CLASSIFIER_BRIDGE_SETTINGS = Object.freeze({
   connectionEnabled: false,
-  pairingKey: "",
   collectionEnabled: true,
   enabled: false,
   policyID: "",
@@ -530,12 +521,8 @@ let classifierConnectionStatus = { running: false, state: "off", address: "", pe
 
 function sanitizeClassifierBridgeSettings(raw) {
   const policyID = raw && typeof raw.policyID === "string" ? raw.policyID.trim() : "";
-  const pairingKey = raw && typeof raw.pairingKey === "string" && window.CBBridgeProtocol
-    ? window.CBBridgeProtocol.normalizePairingKey(raw.pairingKey)
-    : "";
   return {
     connectionEnabled: Boolean(raw && raw.connectionEnabled === true),
-    pairingKey,
     collectionEnabled: !raw || raw.collectionEnabled !== false,
     enabled: Boolean(raw && raw.enabled === true),
     policyID: policyID.length <= 128 && !/[\u0000-\u001f\u007f]/.test(policyID) ? policyID : "",
@@ -1011,8 +998,6 @@ function connectionStatusLabel(status) {
     case "error":
       if (!status.error) return t("connection.statusError");
       return t("connection.statusError") + ": " + ({
-        "pairing-key-required": t("connection.errorPairingKey"),
-        "pairing-key-rejected": t("connection.errorPairingKey"),
         "protocol-mismatch": t("connection.errorProtocolMismatch"),
         "handshake-timeout": t("connection.errorSecureConnection"),
         "socket-error": t("connection.errorSecureConnection")
@@ -1029,21 +1014,11 @@ function renderConnectionSettings() {
   const conn = getConnectionSettings();
   const status = state.connectionStatus || {};
 
-  if (connectionServerControls) {
-    connectionServerControls.classList.toggle("hidden", !IS_CONNECTION_HUB);
-  }
-  if (connectionClientControls) {
-    connectionClientControls.classList.toggle("hidden", IS_CONNECTION_HUB);
-  }
-
-  if (IS_CONNECTION_HUB) {
-    if (connectionServerToggle) connectionServerToggle.checked = Boolean(conn.serverEnabled);
-  } else {
-    const connected = status.state === "connected" || status.state === "connecting";
-    if (connectionConnectButton) connectionConnectButton.classList.toggle("hidden", connected);
-    if (connectionDisconnectButton)
-      connectionDisconnectButton.classList.toggle("hidden", !connected);
-  }
+  if (connectionServerControls) connectionServerControls.classList.add("hidden");
+  if (connectionClientControls) connectionClientControls.classList.remove("hidden");
+  const connected = status.state === "connected" || status.state === "connecting";
+  if (connectionConnectButton) connectionConnectButton.classList.toggle("hidden", connected);
+  if (connectionDisconnectButton) connectionDisconnectButton.classList.toggle("hidden", !connected);
 
   const activeState = status.state || "off";
   if (connectionStatusDot) {
@@ -1054,9 +1029,6 @@ function renderConnectionSettings() {
   }
   if (connectionAddressReadout) {
     connectionAddressReadout.textContent = status.address || CONNECTION_DEFAULT_ADDRESS;
-  }
-  if (connectionPairingKeyReadout) {
-    connectionPairingKeyReadout.textContent = status.pairingKey || "—";
   }
 
   if (connectionPeerList) {
@@ -1094,7 +1066,6 @@ function applyConnectionStatus(raw) {
     address: typeof incoming.address === "string" ? incoming.address : "",
     peers: Array.isArray(incoming.peers) ? incoming.peers : [],
     error: typeof incoming.error === "string" ? incoming.error : "",
-    pairingKey: typeof incoming.pairingKey === "string" ? incoming.pairingKey : "",
     hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
   if (state.isSettingsOpen) renderConnectionSettings();
@@ -1204,7 +1175,7 @@ function bridgeConnectablePrograms() {
   for (const peer of peers) {
     if (peer && peer.connected !== false && peer.program) programs.add(peer.program);
   }
-  if (!IS_CONNECTION_HUB) {
+  if (!IS_NATIVE_DESKTOP) {
     const hubProgram = window.CBBridgeProtocol.hubProgramFromStatus(status);
     if (hubProgram) programs.add(hubProgram);
   }
@@ -1554,7 +1525,7 @@ const SYNC_SCALAR_FIELDS = [
 // This endpoint owns (can edit + contributes) one blocked-list type: the Mac
 // owns apps, browsers own domains. The other type is a read-only mirror.
 function bridgeOwnsApps() {
-  return IS_CONNECTION_HUB;
+  return IS_NATIVE_DESKTOP;
 }
 
 function buildSyncContribution(group) {
@@ -2319,9 +2290,8 @@ function clampNumber(value, min, max, fallback) {
 function sanitizeConnectionSettings(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
   return {
-    serverEnabled: src.serverEnabled === true,
-    clientEnabled: src.clientEnabled === true,
-    pairingKey: window.CBBridgeProtocol.normalizePairingKey(src.pairingKey)
+    serverEnabled: false,
+    clientEnabled: src.clientEnabled === true
   };
 }
 
@@ -7664,38 +7634,11 @@ if (settingsModal) {
   }
 }
 
-if (connectionServerToggle) {
-  connectionServerToggle.addEventListener("change", () => {
-    const enabled = connectionServerToggle.checked;
-    updateConnectionSettings({ serverEnabled: enabled })
-      .then(() => {
-        try {
-          chrome.runtime.sendMessage({
-            type: enabled ? "connection-server-start" : "connection-server-stop"
-          });
-        } catch (_) {}
-      })
-      .catch(() => {});
-  });
-}
-
 if (connectionConnectButton) {
   connectionConnectButton.addEventListener("click", async () => {
-    const current = getConnectionSettings();
-    const entered = await uiDialog.prompt(
-      t("connection.pairingKeyPrompt"),
-      current.pairingKey || "",
-      { confirmText: t("connection.connect"), cancelText: t("manual.close") }
-    );
-    if (entered === null) return;
-    const pairingKey = window.CBBridgeProtocol.normalizePairingKey(entered);
-    if (!pairingKey) {
-      applyConnectionStatus({ ...state.connectionStatus, state: "error", error: "pairing-key-required" });
-      return;
-    }
     try {
-      await updateConnectionSettings({ clientEnabled: true, pairingKey });
-      chrome.runtime.sendMessage({ type: "connection-connect", pairingKey });
+      await updateConnectionSettings({ clientEnabled: true });
+      chrome.runtime.sendMessage({ type: "connection-connect" });
       applyConnectionStatus({ ...state.connectionStatus, state: "connecting", error: "" });
     } catch (_) {}
   });
@@ -7751,20 +7694,9 @@ if (classifierBridgeHardBlock) {
 
 if (classifierConnectionConnectButton) {
   classifierConnectionConnectButton.addEventListener("click", async () => {
-    const entered = await uiDialog.prompt(
-      t("connection.pairingKeyPrompt"),
-      classifierBridgeSettings.pairingKey || "",
-      { confirmText: t("connection.connect"), cancelText: t("manual.close") }
-    );
-    if (entered === null) return;
-    const pairingKey = window.CBBridgeProtocol.normalizePairingKey(entered);
-    if (!pairingKey) {
-      applyClassifierConnectionStatus({ ...classifierConnectionStatus, state: "error", error: "pairing-key-required" });
-      return;
-    }
     try {
-      await classifierBridgeStorageSet({ ...classifierBridgeSettings, connectionEnabled: true, pairingKey });
-      chrome.runtime.sendMessage({ type: "classifier-connection-connect", pairingKey });
+      await classifierBridgeStorageSet({ ...classifierBridgeSettings, connectionEnabled: true });
+      chrome.runtime.sendMessage({ type: "classifier-connection-connect" });
       applyClassifierConnectionStatus({ ...classifierConnectionStatus, state: "connecting", address: CONNECTION_DEFAULT_ADDRESS, error: "" });
     } catch (_) {}
   });

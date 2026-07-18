@@ -6,19 +6,19 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  var PROTOCOL_VERSION = 2;
-  // Vault Classifier can host the same loopback bridge when Mac Vault is not
-  // the active host. It is a desktop hub identity, never a remote peer.
+  var PROTOCOL_VERSION = 3;
+  // Every product connects to the one ephemeral Vault broker. Desktop
+  // identities remain peers; the broker is the sole hub identity.
   var DESKTOP_PROGRAMS = ["macapp", "windowsapp", "classifier"];
+  var HUB_PROGRAMS = DESKTOP_PROGRAMS.concat(["vault-broker"]);
   var REMOTE_PROGRAMS = ["chrome", "edge", "firefox", "safari", "opera", "browser"];
-
-  function normalizePairingKey(value) {
-    var key = typeof value === "string" ? value.trim().toLowerCase() : "";
-    return /^[0-9a-f]{64}$/.test(key) ? key : "";
-  }
 
   function isDesktopProgram(program) {
     return DESKTOP_PROGRAMS.indexOf(String(program || "")) >= 0;
+  }
+
+  function isHubProgram(program) {
+    return HUB_PROGRAMS.indexOf(String(program || "")) >= 0;
   }
 
   function isRemoteProgram(program) {
@@ -31,7 +31,7 @@
 
   function hubProgramFromStatus(status) {
     var program = status && status.hubProgram;
-    return isDesktopProgram(program) ? program : "";
+    return isHubProgram(program) ? program : "";
   }
 
   function localMember(cluster, program) {
@@ -71,9 +71,10 @@
   return {
     PROTOCOL_VERSION: PROTOCOL_VERSION,
     DESKTOP_PROGRAMS: DESKTOP_PROGRAMS.slice(),
+    HUB_PROGRAMS: HUB_PROGRAMS.slice(),
     REMOTE_PROGRAMS: REMOTE_PROGRAMS.slice(),
-    normalizePairingKey: normalizePairingKey,
     isDesktopProgram: isDesktopProgram,
+    isHubProgram: isHubProgram,
     isRemoteProgram: isRemoteProgram,
     nativeProgramId: nativeProgramId,
     hubProgramFromStatus: hubProgramFromStatus,

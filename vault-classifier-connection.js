@@ -1,8 +1,8 @@
-// Independent authenticated loopback connection for Vault Classifier.
+// Independent connection to the shared ephemeral Vault broker.
 //
 // This deliberately does not reuse the Web-app bridge socket. Both listeners
-// use the same v2 pairing protocol and loopback endpoint, but classifier
-// requests have an independent lifecycle and status so collection continues
+// use the same broker protocol, but classifier requests have an independent
+// lifecycle and status so collection continues
 // when ordinary group synchronization is disabled. Page evidence is never
 // persisted here: only short-lived request correlation lives in the worker.
 (function () {
@@ -10,10 +10,10 @@
   if (self.CBClassifierConnection) return;
 
   const bridge = self.CBBridgeProtocol;
-  if (!bridge || typeof bridge.normalizePairingKey !== "function" || typeof WebSocket === "undefined" || typeof chrome === "undefined" || !chrome.runtime || !chrome.storage?.local) return;
+  if (!bridge || typeof bridge.isHubProgram !== "function" || typeof WebSocket === "undefined" || typeof chrome === "undefined" || !chrome.runtime || !chrome.storage?.local) return;
 
   const SETTINGS_KEY = "vaultClassifierSettings";
-  const ADDRESS = "ws://127.0.0.1:8787";
+  const ADDRESS = "wss://customblocker.com/api/vault-bridge";
   const PROTOCOL_VERSION = bridge.PROTOCOL_VERSION;
   const PING_INTERVAL_MS = 20_000;
   const RETRY_INTERVAL_MS = 5_000;
@@ -36,7 +36,6 @@
     handshakeTimer: null,
     reconnectTimer: null,
     desired: false,
-    pairingKey: "",
     status: { running: false, state: "off", address: "", peers: [], error: "", hubProgram: "" },
 
     setStatus(patch) {
@@ -78,16 +77,7 @@
       this.ws = null;
     },
 
-    connect(pairingKey) {
-      if (typeof pairingKey === "string") this.pairingKey = bridge.normalizePairingKey(pairingKey);
-      if (!this.pairingKey) {
-        this.desired = false;
-        this.clearTimers();
-        this.closeSocket();
-        rejectPending("The Vault Classifier bridge is off.");
-        this.setStatus({ state: "error", address: ADDRESS, peers: [], error: "pairing-key-required", hubProgram: "" });
-        return;
-      }
+    connect() {
       this.desired = true;
       this.clearTimers();
       this.closeSocket();
@@ -108,8 +98,7 @@
           socket.send(JSON.stringify({
             kind: "hello",
             v: PROTOCOL_VERSION,
-            program: this.browserProgram(),
-            pairingKey: this.pairingKey
+            program: this.browserProgram()
           }));
         } catch (_) {}
         this.handshakeTimer = setTimeout(() => {
@@ -170,7 +159,7 @@
       if (message.kind !== "welcome" && message.kind !== "rejected" && this.status.state !== "connected") return;
       switch (message.kind) {
         case "welcome":
-          if (message.v !== PROTOCOL_VERSION || !bridge.isDesktopProgram(message.hubProgram)) {
+          if (message.v !== PROTOCOL_VERSION || !bridge.isHubProgram(message.hubProgram)) {
             this.desired = false;
             this.clearTimers();
             this.closeSocket();
@@ -212,8 +201,7 @@
         raw = result && result[SETTINGS_KEY];
       } catch (_) {}
       const enabled = Boolean(raw && raw.connectionEnabled === true);
-      const pairingKey = typeof raw?.pairingKey === "string" ? bridge.normalizePairingKey(raw.pairingKey) : "";
-      if (enabled) this.connect(pairingKey);
+      if (enabled) this.connect();
       else this.disconnect();
     }
   };
@@ -224,7 +212,7 @@
     if (!message || typeof message.type !== "string") return false;
     switch (message.type) {
       case "classifier-connection-connect":
-        connection.connect(message.pairingKey);
+        connection.connect();
         sendResponse({ ok: true, status: connection.status });
         return false;
       case "classifier-connection-disconnect":

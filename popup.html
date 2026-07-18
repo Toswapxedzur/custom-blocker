@@ -840,25 +840,11 @@
             <code id="connectionAddressReadout">—</code>
           </p>
 
-          <div id="connectionServerControls" class="hidden">
-            <label class="checkbox-row compact" for="connectionServerToggle">
-              <input id="connectionServerToggle" type="checkbox" />
-              <span data-i18n="connection.serverToggle">Run local server (hub)</span>
-            </label>
-            <p class="field-help" data-i18n="connection.serverToggleHelp">
-              Browser extensions on this computer can connect after you copy the pairing key.
-            </p>
-            <p class="field-help">
-              <span data-i18n="connection.pairingKeyLabel">Pairing key</span>:
-              <code id="connectionPairingKeyReadout">—</code>
-            </p>
-            <div id="connectionPeerList" class="connection-peer-list"></div>
-          </div>
-
           <div id="connectionClientControls" class="hidden">
             <p class="field-help" data-i18n="connection.clientHelp">
-              Use the pairing key shown by Mac Vault or Windows Vault to connect this browser.
+              Connect to the shared Vault server. It shows every currently connected Vault app.
             </p>
+            <div id="connectionPeerList" class="connection-peer-list"></div>
             <div class="field-actions">
               <button id="connectionConnectButton" type="button" class="secondary" data-i18n="connection.connect">
                 Connect
@@ -875,7 +861,7 @@
             <div>
               <h3 data-i18n="classifierBridge.title">Vault Classifier bridge</h3>
               <p class="section-copy" data-i18n="classifierBridge.copy">
-                Ask Vault Classifier for YouTube decisions through the shared local Vault bridge. If Mac Vault, Vault Classifier, or the bridge is unavailable, YouTube stays visible.
+                Ask Vault Classifier for YouTube decisions through the shared Vault broker. If Vault Classifier or the broker is unavailable, YouTube stays visible.
               </p>
             </div>
           </div>
@@ -888,7 +874,7 @@
             <code id="classifierConnectionAddressReadout">—</code>
           </p>
           <p class="field-help" data-i18n="classifierBridge.connectionHelp">
-            Connect this browser to Vault Classifier with the pairing key shown in its Browser bridge settings.
+            Connect this browser to the shared Vault broker. Its status lists Mac Vault and Vault Classifier when available.
           </p>
           <div class="field-actions">
             <button id="classifierConnectionConnectButton" type="button" class="secondary" data-i18n="connection.connect">
