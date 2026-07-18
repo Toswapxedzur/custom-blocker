@@ -571,14 +571,14 @@
   "connection.errorProtocolMismatch": "ऐप और एक्सटेंशन ब्रिज प्रोटोकॉल के असंगत संस्करण इस्तेमाल कर रहे हैं।",
   "connection.errorSecureConnection": "स्थानीय Vault ऐप से सुरक्षित कनेक्शन स्थापित नहीं हो सका।",
   "classifierBridge.title": "Vault Classifier ब्रिज",
-  "classifierBridge.copy": "YouTube के निर्णयों के लिए स्थानीय Vault Classifier ऐप से पूछें। नेटिव होस्ट या ऐप उपलब्ध न हो तो YouTube दिखाई देता रहेगा।",
+  "classifierBridge.copy": "साझा स्थानीय Vault ब्रिज के माध्यम से YouTube के निर्णयों के लिए Vault Classifier से पूछें। Mac Vault, Vault Classifier या ब्रिज उपलब्ध न हो तो YouTube दिखाई देता रहेगा।",
   "classifierBridge.enabled": "Vault Classifier ब्रिज सक्षम करें",
   "classifierBridge.policy": "नामित नीति",
   "classifierBridge.hardBlock": "YouTube फ़ीड में कड़े ब्लॉक की अनुमति दें",
   "classifierBridge.hardBlockHelp": "इस विकल्प के बिना, फ़ीड ब्लॉक को दिखाएँ और क्यों नियंत्रणों के साथ धुंधला करके दिखाया जाता है।",
   "classifierBridge.off": "बंद",
   "classifierBridge.loading": "स्थानीय ब्रिज की जाँच हो रही है…",
-  "classifierBridge.unavailable": "स्थानीय होस्ट उपलब्ध नहीं है। ब्राउज़र ब्रिज इंस्टॉल करें, फिर यह पैनल दोबारा खोलें।",
+  "classifierBridge.unavailable": "साझा Vault ब्रिज उपलब्ध नहीं है। Mac Vault और Vault Classifier खोलें, दोनों ऐप को जोड़ें, फिर यह पैनल दोबारा खोलें।",
   "classifierBridge.none": "Vault Classifier में कोई नामित नीति उपलब्ध नहीं है।",
   "classifierBridge.active": "स्थानीय रूप से कनेक्ट है। YouTube का मूल्यांकन चुनी हुई नीति से किया जाता है।"
 }

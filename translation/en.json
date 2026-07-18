@@ -571,14 +571,14 @@
   "connection.errorProtocolMismatch": "The app and extension use incompatible bridge protocol versions.",
   "connection.errorSecureConnection": "Could not establish a secure connection to the local Vault app.",
   "classifierBridge.title": "Vault Classifier bridge",
-  "classifierBridge.copy": "Ask the local Vault Classifier app for YouTube decisions. If the native host or app is unavailable, YouTube stays visible.",
+  "classifierBridge.copy": "Ask Vault Classifier for YouTube decisions through the shared local Vault bridge. If Mac Vault, Vault Classifier, or the bridge is unavailable, YouTube stays visible.",
   "classifierBridge.enabled": "Enable the Vault Classifier bridge",
   "classifierBridge.policy": "Named policy",
   "classifierBridge.hardBlock": "Allow hard blocks in YouTube feeds",
   "classifierBridge.hardBlockHelp": "Without this option, a feed block is shown as a dim with Reveal and Why controls.",
   "classifierBridge.off": "Off",
   "classifierBridge.loading": "Checking the local bridge…",
-  "classifierBridge.unavailable": "The local host is unavailable. Install the browser bridge, then reopen this panel.",
+  "classifierBridge.unavailable": "The shared Vault bridge is unavailable. Open Mac Vault and Vault Classifier, connect both apps, then reopen this panel.",
   "classifierBridge.none": "No named policies are available in Vault Classifier.",
   "classifierBridge.active": "Connected locally. YouTube is evaluated with the selected policy."
 }

@@ -571,14 +571,14 @@
   "connection.errorProtocolMismatch": "Uygulama ve uzantı uyumsuz köprü protokolü sürümleri kullanıyor.",
   "connection.errorSecureConnection": "Yerel Vault uygulamasıyla güvenli bağlantı kurulamadı.",
   "classifierBridge.title": "Vault Classifier köprüsü",
-  "classifierBridge.copy": "YouTube kararlarını yerel Vault Classifier uygulamasından isteyin. Yerel ana makine veya uygulama kullanılamazsa YouTube görünür kalır.",
+  "classifierBridge.copy": "Paylaşılan yerel Vault köprüsü üzerinden Vault Classifier'dan YouTube kararları isteyin. Mac Vault, Vault Classifier veya köprü kullanılamazsa YouTube görünür kalır.",
   "classifierBridge.enabled": "Vault Classifier köprüsünü etkinleştir",
   "classifierBridge.policy": "Adlandırılmış ilke",
   "classifierBridge.hardBlock": "YouTube akışlarında kesin engellemelere izin ver",
   "classifierBridge.hardBlockHelp": "Bu seçenek olmadan, akış engellemesi Göster ve Neden denetimleriyle soluk olarak görüntülenir.",
   "classifierBridge.off": "Kapalı",
   "classifierBridge.loading": "Yerel köprü denetleniyor…",
-  "classifierBridge.unavailable": "Yerel ana makine kullanılamıyor. Tarayıcı köprüsünü yükleyin, ardından bu paneli yeniden açın.",
+  "classifierBridge.unavailable": "Paylaşılan Vault köprüsü kullanılamıyor. Mac Vault ve Vault Classifier'ı açın, iki uygulamayı bağlayın, ardından bu paneli yeniden açın.",
   "classifierBridge.none": "Vault Classifier içinde kullanılabilir adlandırılmış ilke yok.",
   "classifierBridge.active": "Yerel olarak bağlandı. YouTube seçilen ilkeyle değerlendirilir."
 }

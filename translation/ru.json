@@ -571,14 +571,14 @@
   "connection.errorProtocolMismatch": "Приложение и расширение используют несовместимые версии протокола моста.",
   "connection.errorSecureConnection": "Не удалось установить защищённое соединение с локальным приложением Vault.",
   "classifierBridge.title": "Мост Vault Classifier",
-  "classifierBridge.copy": "Запрашивайте решения для YouTube у локального приложения Vault Classifier. Если нативный хост или приложение недоступны, YouTube остаётся видимым.",
+  "classifierBridge.copy": "Запрашивайте решения для YouTube у Vault Classifier через общий локальный мост Vault. Если Mac Vault, Vault Classifier или мост недоступны, YouTube остаётся видимым.",
   "classifierBridge.enabled": "Включить мост Vault Classifier",
   "classifierBridge.policy": "Именованная политика",
   "classifierBridge.hardBlock": "Разрешить жёсткую блокировку в лентах YouTube",
   "classifierBridge.hardBlockHelp": "Без этого параметра блокировка в ленте показывается как затемнение с элементами управления «Показать» и «Почему».",
   "classifierBridge.off": "Выключено",
   "classifierBridge.loading": "Проверка локального моста…",
-  "classifierBridge.unavailable": "Локальный хост недоступен. Установите мост браузера и снова откройте эту панель.",
+  "classifierBridge.unavailable": "Общий мост Vault недоступен. Откройте Mac Vault и Vault Classifier, подключите оба приложения и снова откройте эту панель.",
   "classifierBridge.none": "В Vault Classifier нет доступных именованных политик.",
   "classifierBridge.active": "Подключено локально. YouTube оценивается по выбранной политике."
 }

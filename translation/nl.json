@@ -571,14 +571,14 @@
   "connection.errorProtocolMismatch": "De app en extensie gebruiken incompatibele versies van het bridgeprotocol.",
   "connection.errorSecureConnection": "Er kon geen beveiligde verbinding met de lokale Vault-app worden gemaakt.",
   "classifierBridge.title": "Vault Classifier-brug",
-  "classifierBridge.copy": "Vraag de lokale Vault Classifier-app om YouTube-beslissingen. Als de native host of app niet beschikbaar is, blijft YouTube zichtbaar.",
+  "classifierBridge.copy": "Vraag Vault Classifier via de gedeelde lokale Vault-brug om YouTube-beslissingen. Als Mac Vault, Vault Classifier of de brug niet beschikbaar is, blijft YouTube zichtbaar.",
   "classifierBridge.enabled": "Vault Classifier-brug inschakelen",
   "classifierBridge.policy": "Benoemd beleid",
   "classifierBridge.hardBlock": "Harde blokkeringen in YouTube-feeds toestaan",
   "classifierBridge.hardBlockHelp": "Zonder deze optie wordt een feedblokkering gedimd weergegeven met de bedieningselementen Tonen en Waarom.",
   "classifierBridge.off": "Uit",
   "classifierBridge.loading": "Lokale brug wordt gecontroleerd…",
-  "classifierBridge.unavailable": "De lokale host is niet beschikbaar. Installeer de browserbrug en open dit paneel opnieuw.",
+  "classifierBridge.unavailable": "De gedeelde Vault-brug is niet beschikbaar. Open Mac Vault en Vault Classifier, verbind beide apps en open dit paneel opnieuw.",
   "classifierBridge.none": "Er zijn geen benoemde beleidsregels beschikbaar in Vault Classifier.",
   "classifierBridge.active": "Lokaal verbonden. YouTube wordt beoordeeld met het geselecteerde beleid."
 }

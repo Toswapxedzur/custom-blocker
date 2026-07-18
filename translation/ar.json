@@ -571,14 +571,14 @@
   "connection.errorProtocolMismatch": "يستخدم التطبيق والإضافة إصدارين غير متوافقين من بروتوكول الجسر.",
   "connection.errorSecureConnection": "تعذّر إنشاء اتصال آمن بتطبيق Vault المحلي.",
   "classifierBridge.title": "جسر Vault Classifier",
-  "classifierBridge.copy": "اطلب قرارات YouTube من تطبيق Vault Classifier المحلي. إذا لم يتوفر المضيف الأصلي أو التطبيق، يبقى YouTube ظاهرًا.",
+  "classifierBridge.copy": "اطلب قرارات YouTube من Vault Classifier عبر جسر Vault المحلي المشترك. إذا لم يتوفر Mac Vault أو Vault Classifier أو الجسر، يبقى YouTube ظاهرًا.",
   "classifierBridge.enabled": "تمكين جسر Vault Classifier",
   "classifierBridge.policy": "سياسة مسمّاة",
   "classifierBridge.hardBlock": "السماح بالحظر الصارم في خلاصات YouTube",
   "classifierBridge.hardBlockHelp": "من دون هذا الخيار، يُعرض حظر الخلاصة كتعتيم مع عنصري إظهار ولماذا.",
   "classifierBridge.off": "متوقف",
   "classifierBridge.loading": "جارٍ التحقق من الجسر المحلي…",
-  "classifierBridge.unavailable": "المضيف المحلي غير متاح. ثبّت جسر المتصفح ثم أعد فتح هذه اللوحة.",
+  "classifierBridge.unavailable": "جسر Vault المشترك غير متاح. افتح Mac Vault وVault Classifier، وصِل التطبيقين، ثم أعد فتح هذه اللوحة.",
   "classifierBridge.none": "لا توجد سياسات مسمّاة متاحة في Vault Classifier.",
   "classifierBridge.active": "متصل محليًا. يُقيَّم YouTube بالسياسة المحددة."
 }
