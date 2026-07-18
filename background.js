@@ -3363,9 +3363,8 @@ ensureStartupGate().catch((error) => {
 /* ------------------------------------------------------------------ *
  * Web-app bridge — extension WebSocket client.
  *
- * Mac Vault or Windows Vault hosts the hub (a browser extension cannot listen
- * on a socket). This client connects to that fixed loopback address and
- * authenticates with the per-install pairing key shown by the native app.
+ * Every product opens an outbound WebSocket to the shared Vault broker. This
+ * client does not host a socket or send a pairing key.
  * It keeps a live status that the popup reads
  * via the "connection-status" message (and live "connection-status-push"
  * broadcasts while the popup is open).
@@ -3374,8 +3373,8 @@ ensureStartupGate().catch((error) => {
  * the connection survives popup open/close. We also send a periodic ping.
  * ------------------------------------------------------------------ */
 const CB_CONNECTION_PROTOCOL_VERSION = self.CBBridgeProtocol.PROTOCOL_VERSION;
-// Fixed loopback address for either native Vault hub.
-const CB_FIXED_ADDRESS = "ws://127.0.0.1:8787";
+// Fixed public address for the ephemeral Vault broker.
+const CB_FIXED_ADDRESS = "wss://customblocker.com/api/vault-bridge";
 const CB_CONNECTION_PING_MS = 20_000;
 // Four-state connection model (matches the UI):
 //   connecting   – actively probing; rapid burst every 100ms for a 5s window.
@@ -3489,7 +3488,6 @@ const cbConnection = {
   handshakeTimer: null,
   reconnectTimer: null,
   desired: false,
-  pairingKey: "",
   address: CB_FIXED_ADDRESS,
   status: { running: false, state: "off", address: "", peers: [], error: "", hubProgram: "" },
   // Latest web-app bridge clusters that involve this endpoint (hub is the source
@@ -3683,15 +3681,7 @@ const cbConnection = {
     }
   },
 
-  connect(pairingKey) {
-    if (typeof pairingKey === "string") this.pairingKey = self.CBBridgeProtocol.normalizePairingKey(pairingKey);
-    if (!this.pairingKey) {
-      this.desired = false;
-      this.clearTimers();
-      this.closeSocket();
-      this.setStatus({ state: "error", address: CB_FIXED_ADDRESS, error: "pairing-key-required", peers: [], hubProgram: "" });
-      return;
-    }
+  connect() {
     this.desired = true;
     this.address = CB_FIXED_ADDRESS;
     this.clearTimers();
@@ -3717,8 +3707,7 @@ const cbConnection = {
           JSON.stringify({
             kind: "hello",
             v: CB_CONNECTION_PROTOCOL_VERSION,
-            program: cbDetectProgramId(),
-            pairingKey: this.pairingKey
+            program: cbDetectProgramId()
           })
         );
       } catch (_) {}
@@ -3734,7 +3723,7 @@ const cbConnection = {
       this.handleMessage(event && event.data);
     };
     socket.onerror = () => {
-      // A failure before the socket ever opened just means the desktop hub isn't
+      // A failure before the socket ever opened means the shared broker isn't
       // reachable yet; let onclose drive the backed-off reconnect instead of
       // flapping the status to "error" on every attempt.
       if (this.openedThisAttempt) {
@@ -3809,7 +3798,7 @@ const cbConnection = {
       case "welcome":
         if (
           msg.v !== CB_CONNECTION_PROTOCOL_VERSION ||
-          !self.CBBridgeProtocol.isDesktopProgram(msg.hubProgram)
+          !self.CBBridgeProtocol.isHubProgram(msg.hubProgram)
         ) {
           this.desired = false;
           this.clearTimers();
@@ -3885,16 +3874,15 @@ const cbConnection = {
       conn = s && typeof s === "object" ? s.connection : null;
     } catch (_) {}
     if (conn && conn.clientEnabled) {
-      this.pairingKey = self.CBBridgeProtocol.normalizePairingKey(conn.pairingKey);
       this.burstStartMs = 0;
-      this.connect(this.pairingKey);
+      this.connect();
     } else {
       this.disconnect();
     }
   }
 };
 
-// Vault Classifier is a second client of the same authenticated Mac Vault hub.
+// Vault Classifier is a second client of the same shared Vault broker.
 // Keep its routed request budget separate from group-sync traffic so an
 // unavailable classifier never blocks ordinary Vault synchronization.
 const CB_CLASSIFIER_HUB_MAX_PENDING = 16;
@@ -3986,7 +3974,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case "connection-connect":
       cbConnection.burstStartMs = 0;
-      cbConnection.connect(message.pairingKey);
+      cbConnection.connect();
       sendResponse({ ok: true, status: cbConnection.status });
       return false;
     case "connection-disconnect":

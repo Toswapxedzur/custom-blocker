@@ -1,4 +1,4 @@
-/* Independent localhost connection tests for the Vault Classifier bridge. */
+/* Independent shared-broker connection tests for the Vault Classifier bridge. */
 "use strict";
 
 const fs = require("node:fs");
@@ -6,9 +6,8 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
-const pairingKey = "a".repeat(64);
 const storage = {
-  vaultClassifierSettings: { connectionEnabled: true, pairingKey }
+  vaultClassifierSettings: { connectionEnabled: true }
 };
 const listeners = [];
 const sockets = [];
@@ -74,12 +73,8 @@ const context = vm.createContext({
   clearInterval,
   console,
   CBBridgeProtocol: {
-    PROTOCOL_VERSION: 2,
-    normalizePairingKey(value) {
-      const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-      return /^[a-f0-9]{64}$/.test(normalized) ? normalized : "";
-    },
-    isDesktopProgram(value) { return value === "macapp" || value === "windowsapp" || value === "classifier"; }
+    PROTOCOL_VERSION: 3,
+    isHubProgram(value) { return value === "vault-broker"; }
   },
   CBClassifierHub: {
     receive(message) { received.push(message); },
@@ -108,13 +103,13 @@ function dispatch(message) {
 (async () => {
   vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-connection.js"), "utf8"), context, { filename: "vault-classifier-connection.js" });
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert("starts an independent classifier connection from classifier settings", sockets.length === 1 && sockets[0].address === "ws://127.0.0.1:8787");
+  assert("starts an independent classifier connection from classifier settings", sockets.length === 1 && sockets[0].address === "wss://customblocker.com/api/vault-bridge");
 
   const socket = sockets[0];
   socket.open();
-  assert("authenticates as a browser with the classifier pairing key", socket.sent.length === 1 && socket.sent[0].kind === "hello" && socket.sent[0].program === "chrome" && socket.sent[0].pairingKey === pairingKey, socket.sent);
+  assert("identifies as a browser without a pairing key", socket.sent.length === 1 && socket.sent[0].kind === "hello" && socket.sent[0].program === "chrome" && !Object.hasOwn(socket.sent[0], "pairingKey"), socket.sent);
 
-  socket.message({ kind: "welcome", v: 2, hubProgram: "classifier", peers: [] });
+  socket.message({ kind: "welcome", v: 3, hubProgram: "vault-broker", peers: [] });
   assert("publishes the connected classifier status", context.CBClassifierConnection.status.state === "connected" && pushes.some((message) => message.type === "classifier-connection-status-push" && message.status.state === "connected"), pushes);
 
   socket.message({ kind: "classifier-response", requestID: "classifier-test", operation: "collect", body: { accepted: true } });
@@ -126,10 +121,10 @@ function dispatch(message) {
   const disconnected = dispatch({ type: "classifier-connection-disconnect" });
   assert("disconnects without changing normal Web-app bridge state", disconnected.response?.ok === true && context.CBClassifierConnection.status.state === "off" && rejections.length > 0, { disconnected, rejections });
 
-  const invalid = dispatch({ type: "classifier-connection-connect", pairingKey: "not-a-pairing-key" });
-  assert("rejects malformed pairing input before opening another socket", invalid.response?.status?.state === "error" && sockets.length === 1, invalid);
+  const reconnect = dispatch({ type: "classifier-connection-connect" });
+  assert("reconnects without prompting for a pairing key", reconnect.response?.ok === true && sockets.length === 2, reconnect);
 
-  assert("keeps no collected page metadata in extension storage", Object.keys(storage).length === 1 && Object.keys(storage.vaultClassifierSettings).every((key) => ["connectionEnabled", "pairingKey"].includes(key)), storage);
+  assert("keeps no collected page metadata or pairing material in extension storage", Object.keys(storage).length === 1 && Object.keys(storage.vaultClassifierSettings).every((key) => key === "connectionEnabled"), storage);
 
   console.log(`__CB_TEST_RESULT__: ${failures === 0 ? "OK" : "FAIL"} (${failures} failures)`);
   if (failures !== 0) process.exitCode = 1;
