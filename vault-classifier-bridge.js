@@ -131,21 +131,21 @@
   // This makes the app-owned opt-in authoritative even when classification is
   // disabled: absent/unavailable settings mean no platform metadata leaves
   // the page at all.
-  async function collectionInfo() {
+  async function collectionInfo(platform) {
     try {
       const body = await hubRequest("collection-info", {});
       const enabledPlatformIDs = Array.isArray(body && body.enabledPlatformIDs)
         ? body.enabledPlatformIDs.filter((id) => typeof id === "string" && id.length > 0 && id.length <= 64)
         : [];
-      return { ok: true, enabled: enabledPlatformIDs.includes("youtube") };
+      return { ok: true, enabled: enabledPlatformIDs.includes(platform) };
     } catch (error) {
       return { ok: false, enabled: false, reason: String(error && error.message || error) };
     }
   }
 
-  async function collect(rawEntry) {
+  async function collect(rawEntry, expectedPlatform) {
     const normalized = C.normalizeEvidence(rawEntry);
-    if (!normalized || normalized.platform !== "youtube" || !normalized.entryID || !normalized.sourceID) {
+    if (!normalized || normalized.platform !== expectedPlatform || !normalized.entryID || !normalized.sourceID) {
       return { ok: false, accepted: false, reason: "invalid-collection-entry" };
     }
     const entry = C.fitEntryForNativeTransport(normalized);
@@ -175,6 +175,13 @@
     return C.isTrustedYouTubeURL(pageURL);
   }
 
+  function collectionPlatformForSender(sender, requestedPlatform) {
+    if (!sender || (sender.id && sender.id !== chrome.runtime.id)) return null;
+    const pageURL = typeof sender.url === "string" ? sender.url : sender.tab && sender.tab.url;
+    if (typeof requestedPlatform !== "string" || requestedPlatform.length === 0 || requestedPlatform.length > 64) return null;
+    return C.isTrustedCollectionURL(requestedPlatform, pageURL) ? requestedPlatform : null;
+  }
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!message || message.type !== "vault-classifier-classify" || !isTrustedYouTubeSender(sender)) return false;
     classify(message.entry)
@@ -192,16 +199,19 @@
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!message || message.type !== "vault-classifier-collection-info" || !isTrustedYouTubeSender(sender)) return false;
-    collectionInfo()
+    if (!message || message.type !== "vault-classifier-collection-info") return false;
+    const platform = collectionPlatformForSender(sender, typeof message.platform === "string" ? message.platform : "youtube");
+    if (!platform) return false;
+    collectionInfo(platform)
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, enabled: false }));
     return true;
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!message || message.type !== "vault-classifier-collect" || !isTrustedYouTubeSender(sender)) return false;
-    collect(message.entry)
+    const platform = message && message.entry && typeof message.entry.platform === "string" ? message.entry.platform : null;
+    if (!message || message.type !== "vault-classifier-collect" || !collectionPlatformForSender(sender, platform)) return false;
+    collect(message.entry, platform)
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, accepted: false }));
     return true;

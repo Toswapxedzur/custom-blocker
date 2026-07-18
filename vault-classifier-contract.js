@@ -272,6 +272,35 @@
     return Boolean(parsed && (parsed.hostname === "youtube.com" || parsed.hostname.endsWith(".youtube.com")));
   }
 
+  // Collection is restricted to the small public-content platform inventory
+  // that the extension already has reviewed profiles for. Keep this host
+  // check here, beside the evidence normalizer, rather than trusting a page
+  // supplied platform string in the background worker.
+  function isTrustedCollectionURL(platform, value, base) {
+    const parsed = parseYouTubeURL(value, base);
+    if (!parsed) return false;
+    const host = parsed.hostname;
+    switch (platform) {
+      case "youtube": return host === "youtube.com" || host.endsWith(".youtube.com");
+      case "tiktok": return host === "tiktok.com" || host.endsWith(".tiktok.com");
+      case "facebook": return host === "facebook.com" || host.endsWith(".facebook.com");
+      case "instagram": return host === "instagram.com" || host.endsWith(".instagram.com");
+      case "twitch": return host === "twitch.tv" || host.endsWith(".twitch.tv") || host === "clips.twitch.tv";
+      case "reddit": return host === "reddit.com" || host.endsWith(".reddit.com");
+      case "twitter": return host === "twitter.com" || host.endsWith(".twitter.com") || host === "x.com" || host.endsWith(".x.com");
+      case "bluesky": return host === "bsky.app" || host.endsWith(".bsky.app");
+      case "threads": return host === "threads.com" || host.endsWith(".threads.com");
+      case "substack": return host === "substack.com" || host.endsWith(".substack.com");
+      case "bilibili": return host === "bilibili.com" || host.endsWith(".bilibili.com");
+      case "rumble": return host === "rumble.com" || host.endsWith(".rumble.com");
+      case "pinterest": return host === "pinterest.com" || host.endsWith(".pinterest.com");
+      case "tumblr": return host === "tumblr.com" || host.endsWith(".tumblr.com");
+      case "peertube": return host === "peertube.tv" || host.endsWith(".peertube.tv");
+      case "pixelfed": return host === "pixelfed.social" || host.endsWith(".pixelfed.social");
+      default: return false;
+    }
+  }
+
   function youtubeVideoIDFromURL(value, base) {
     const parsed = parseYouTubeURL(value, base);
     if (!parsed || !(parsed.hostname === "youtube.com" || parsed.hostname.endsWith(".youtube.com"))) return null;
@@ -341,6 +370,7 @@
     nativeBodyByteLength,
     isNativeEnvelope,
     isTrustedYouTubeURL,
+    isTrustedCollectionURL,
     youtubeVideoIDFromURL,
     entryFingerprint,
     strongestAction,
