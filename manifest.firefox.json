@@ -26,17 +26,6 @@
       "matches": ["<all_urls>"],
       "js": ["browser-compat.js", "platform-profiles.js", "helpers.js", "content.js"],
       "run_at": "document_idle"
-    },
-    {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["yt-harvest-main.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["browser-compat.js", "yt-collect.js", "yt-block.js"],
-      "run_at": "document_idle"
     }
   ],
   "action": {

@@ -191,8 +191,6 @@ Surface-hide choices are independent of top-level blocking. They affect only the
 | Instagram | Reels and Explore navigation/surfaces. |
 | Twitch | Browse navigation. |
 
-YouTube creator-tag matching uses local/available channel classifications. A missing classification does not become a block merely because a tag mode was selected.
-
 ### 3.3 Reddit
 
 A Reddit group applies only on Reddit. Its entity is a subreddit. Subreddit input accepts the ordinary community form and normalizes it before matching.

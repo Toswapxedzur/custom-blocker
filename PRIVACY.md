@@ -5,21 +5,14 @@ _Last updated: 2026-07-15_
 This page explains exactly what data the **Custom Web Blocker** browser
 extension collects, where it goes, and why each browser permission is
 requested. The short version is: your rules and personal browsing data are not
-saved by us. Creator-tag rules may send public YouTube channel IDs for a
-read-only lookup, but those lookup requests are not retained or linked to you.
+saved by us. Optional Vault Classifier collection and classification stay under
+your control and use the paired local bridge.
 
 ## Summary
 
 - **Your configuration stays in your browser.** Block groups, schedules,
   custom rules, logs, timers, and preferences are persisted only through
   Chrome's local extension storage (`chrome.storage.local`).
-- **Creator-tag lookups contain only public channel IDs.** When an enabled
-  YouTube tag rule needs a verdict, the extension may send a channel ID such as
-  `UC…` to the configured tag service. It does not send the page URL, video ID,
-  title, search query, timestamp, account identity, or extension settings.
-- **Lookup requests are not saved.** The lookup endpoint is read-only, does not
-  add unknown channels to the database, does not associate a request with a
-  person or account, and runs behind origin servers with access logging off.
 - **Vault Classifier is local-only.** If you explicitly enable the optional
   Vault Classifier integration, visible YouTube card/page evidence (such as a
   title, visible description, displayed tags, and public creator/video IDs) is
@@ -52,8 +45,6 @@ storage so it can do its job across sessions:
   toggle, chosen UI language).
 - Activity log entries shown in the in-app **Log** panel, which you can
   clear from the UI.
-- Cached public creator-tag verdicts (channel ID, classification state, and
-  tag slugs), which you can clear from Settings.
 - When you explicitly enable Vault Classifier, its local app keeps a
   user-bounded local cache of the visible evidence, local scores, decisions,
   and corrections needed to classify and explain entries. This cache remains
@@ -62,21 +53,17 @@ storage so it can do its job across sessions:
 Your configuration, runtime state, and activity log stay on your device and
 are not saved by our service. Depending on the browser build and features you
 enable, they may be processed by the extension, its device-local Safari
-companion, or an explicitly linked local Vault bridge. Creator-tag cache
-entries are responses from the configured tag service and remain local after
-lookup.
+companion, or an explicitly linked local Vault bridge.
 
 ## What is NOT collected or transmitted
 
-- Browsing history is not recorded, summarised, or transmitted. A public
-  channel ID may be queried only to evaluate an enabled creator-tag rule; it is
-  not sent with a URL, video title, search term, or viewing timestamp.
+- Browsing history is not recorded, summarised, or transmitted.
 - Page content is not exfiltrated, screenshotted, or logged.
 - Vault Classifier evidence is not transmitted off-device. It is processed by
   the paired local bridge and app only when you explicitly enable that integration.
 - Form input, passwords, and personal information are never read.
 - No extension identifier, account identifier, device identifier, or rule
-  configuration is attached to a creator-tag lookup.
+  configuration is transmitted for normal rule enforcement.
 
 ## Why each permission is requested
 
@@ -105,15 +92,14 @@ If you write custom JavaScript rules, that code:
 Your custom rules are stored locally with the rest of your settings
 and are never transmitted off the device.
 
-## Website & creator-tag service statistics
+## Website statistics
 
-This section is about the **website and creator-tag service**. The website
+This section is about the **website**. The website
 publishes a small **Statistics** panel, and to populate it the server keeps a
 few aggregate counts:
 
 - **Download counts** — how many times each product's download button was
   clicked (macOS, Windows, browser extension, Safari).
-- **Creators classified** — how many YouTube creators have been tagged.
 - **Accounts** — how many accounts exist.
 - **Q&A activity** — the total number of forum posts and comments.
 
@@ -126,21 +112,6 @@ These snapshots contain no per-visitor event, clickstream, or session history.
 - **Never commercial.** This data exists only to show the public Statistics
   panel. It is **never sold, shared with third parties, used for advertising,
   or used for any other commercial purpose.**
-- **Read-only creator lookup.** An enabled creator-tag rule may query public
-  YouTube channel IDs. The application does not store the lookup request, IP
-  address, or browsing context, and unknown IDs are not added by this endpoint.
-- **Optional channel-id contributions.** If — and only if — you opt in, the
-  extension may save encountered public YouTube **channel IDs** to the shared
-  classification queue. It never contributes video titles, URLs, search terms,
-  viewing timestamps, watch history, or an extension/user identifier.
-- **Manual website contributions.** A signed-in website user may deliberately
-  submit channel IDs. To enforce the 50-per-24-hour quota, the website retains
-  the account email/channel-ID association only for that rolling window; an
-  hourly cleanup deletes expired records. The creator catalog itself retains
-  the public channel ID and resulting public classification without the email.
-- **Public queue.** The website may show public channel IDs and classification
-  state while work is pending, but it does not publish submission timestamps or
-  identify who supplied an ID.
 
 ## Children
 

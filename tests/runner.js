@@ -217,7 +217,7 @@ log.section("S5: snapshot() returns the raw per-platform snapshot");
 log.section("S6: no-slot hide(predicate) targets every feed slot");
 {
   const { persistentBucket, platformHelpers } = makeFixture();
-  const pred = (it) => it.creator && it.creator.subCount < 1000;
+  const pred = (it) => it.author === "example-channel";
   platformHelpers.youtube().hide(pred, { blockPageOnVisit: false });
   // YouTube feed slots are shorts/videos/posts (comments/live are excluded).
   assert("youtube.shorts predicate set", persistentBucket.youtube.shorts.predicate === pred);
@@ -306,7 +306,7 @@ log.section("S10: allow(...) records effect:'allow' (rescue cascade)");
 {
   const { accumulator, persistentBucket, platformHelpers } = makeFixture();
   const yt = platformHelpers.youtube();
-  yt.allow("videos", (it) => it.creator && it.creator.tags.includes("education"));
+  yt.allow("videos", (it) => it.creator && it.creator.author === "education-channel");
   assertEqual("allow intent carries effect:'allow'",
     intentsFor(accumulator, "youtube")[0].effect, "allow");
   assertEqual("allow persistent bucket carries effect:'allow'",
