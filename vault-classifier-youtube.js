@@ -36,7 +36,12 @@
   let settingsEpoch = 0;
   let collectionEpoch = 0;
   let presentationGeneration = 0;
-  const collectedEntryIDs = new Set();
+  // Short-lived in-page de-duplication only. The opted-in Vault Classifier
+  // dataset is the sole retained collection store; these identifiers expire so
+  // an open tab does not turn into a durable browser-side cache.
+  const collectedEntryIDs = new Map();
+  const COLLECTION_DEDUPLICATION_MS = 5 * 60 * 1000;
+  const MAX_COLLECTED_ENTRY_IDS = 128;
 
   function compactText(value, maximum) {
     if (typeof value !== "string") return null;
@@ -411,12 +416,16 @@
   async function collectEntry(entry) {
     if (!collectionEnabled || !entry || !entry.entryID || !entry.sourceID) return;
     const stableID = `${entry.platform}:${entry.entryID}`;
+    const now = Date.now();
+    for (const [candidate, timestamp] of collectedEntryIDs) {
+      if (now - timestamp > COLLECTION_DEDUPLICATION_MS) collectedEntryIDs.delete(candidate);
+    }
     if (collectedEntryIDs.has(stableID)) return;
     // Mark before the asynchronous bridge call so repeated YouTube DOM
     // mutations cannot enqueue the same visible entry. A later navigation or
     // reload can refresh its mutable public metadata in the local dataset.
-    collectedEntryIDs.add(stableID);
-    if (collectedEntryIDs.size > 2_000) collectedEntryIDs.delete(collectedEntryIDs.values().next().value);
+    collectedEntryIDs.set(stableID, now);
+    while (collectedEntryIDs.size > MAX_COLLECTED_ENTRY_IDS) collectedEntryIDs.delete(collectedEntryIDs.keys().next().value);
     const accepted = await requestCollection(entry);
     if (!accepted) collectedEntryIDs.delete(stableID);
   }

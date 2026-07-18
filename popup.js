@@ -431,6 +431,12 @@ const classifierBridgeToggle = document.getElementById("classifierBridgeToggle")
 const classifierBridgePolicy = document.getElementById("classifierBridgePolicy");
 const classifierBridgeHardBlock = document.getElementById("classifierBridgeHardBlock");
 const classifierBridgeStatus = document.getElementById("classifierBridgeStatus");
+const classifierConnectionStatusDot = document.getElementById("classifierConnectionStatusDot");
+const classifierConnectionStatusText = document.getElementById("classifierConnectionStatusText");
+const classifierConnectionAddressReadout = document.getElementById("classifierConnectionAddressReadout");
+const classifierConnectionConnectButton = document.getElementById("classifierConnectionConnectButton");
+const classifierConnectionDisconnectButton = document.getElementById("classifierConnectionDisconnectButton");
+const classifierCollectionToggle = document.getElementById("classifierCollectionToggle");
 const connectionGroupSection = document.getElementById("connectionGroupSection");
 const connectionGroupHint = document.getElementById("connectionGroupHint");
 const connectionGroupDisconnected = document.getElementById("connectionGroupDisconnected");
@@ -505,11 +511,14 @@ const state = {
   clustersLastJSON: ""
 };
 
-// This is intentionally separate from the Mac/Windows WebSocket hub settings.
-// Vault Classifier uses a Chrome/Edge native-message host and app-owned IPC;
-// it never receives the WebSocket pairing key or a browser group definition.
+// This remains separate from the Web-app bridge settings. Vault Classifier has
+// its own authenticated loopback listener, pairing key, and runtime status;
+// it never receives a browser group definition.
 const CLASSIFIER_BRIDGE_SETTINGS_KEY = "vaultClassifierSettings";
 const DEFAULT_CLASSIFIER_BRIDGE_SETTINGS = Object.freeze({
+  connectionEnabled: false,
+  pairingKey: "",
+  collectionEnabled: true,
   enabled: false,
   policyID: "",
   feedHardBlock: false
@@ -517,10 +526,17 @@ const DEFAULT_CLASSIFIER_BRIDGE_SETTINGS = Object.freeze({
 let classifierBridgeSettings = { ...DEFAULT_CLASSIFIER_BRIDGE_SETTINGS };
 let classifierBridgePolicies = [];
 let classifierBridgeStatusKey = "classifierBridge.off";
+let classifierConnectionStatus = { running: false, state: "off", address: "", peers: [], error: "", hubProgram: "" };
 
 function sanitizeClassifierBridgeSettings(raw) {
   const policyID = raw && typeof raw.policyID === "string" ? raw.policyID.trim() : "";
+  const pairingKey = raw && typeof raw.pairingKey === "string" && window.CBBridgeProtocol
+    ? window.CBBridgeProtocol.normalizePairingKey(raw.pairingKey)
+    : "";
   return {
+    connectionEnabled: Boolean(raw && raw.connectionEnabled === true),
+    pairingKey,
+    collectionEnabled: !raw || raw.collectionEnabled !== false,
     enabled: Boolean(raw && raw.enabled === true),
     policyID: policyID.length <= 128 && !/[\u0000-\u001f\u007f]/.test(policyID) ? policyID : "",
     feedHardBlock: Boolean(raw && raw.feedHardBlock === true)
@@ -547,7 +563,15 @@ function classifierBridgeStorageSet(next) {
 
 function renderClassifierBridgeSettings() {
   const enabled = classifierBridgeSettings.enabled;
+  const connection = classifierConnectionStatus || {};
+  const connected = connection.state === "connected" || connection.state === "connecting";
   if (classifierBridgeToggle) classifierBridgeToggle.checked = enabled;
+  if (classifierCollectionToggle) classifierCollectionToggle.checked = classifierBridgeSettings.collectionEnabled;
+  if (classifierConnectionStatusDot) classifierConnectionStatusDot.className = "connection-dot " + (connection.state || "off");
+  if (classifierConnectionStatusText) classifierConnectionStatusText.textContent = connectionStatusLabel(connection);
+  if (classifierConnectionAddressReadout) classifierConnectionAddressReadout.textContent = connection.address || CONNECTION_DEFAULT_ADDRESS;
+  if (classifierConnectionConnectButton) classifierConnectionConnectButton.classList.toggle("hidden", connected);
+  if (classifierConnectionDisconnectButton) classifierConnectionDisconnectButton.classList.toggle("hidden", !connected);
   if (classifierBridgeHardBlock) {
     classifierBridgeHardBlock.checked = classifierBridgeSettings.feedHardBlock;
     classifierBridgeHardBlock.disabled = !enabled;
@@ -573,6 +597,33 @@ function renderClassifierBridgeSettings() {
     classifierBridgePolicy.disabled = !enabled || !classifierBridgePolicies.length;
   }
   if (classifierBridgeStatus) classifierBridgeStatus.textContent = t(classifierBridgeStatusKey);
+}
+
+function applyClassifierConnectionStatus(raw) {
+  const incoming = raw && typeof raw === "object" ? raw : {};
+  classifierConnectionStatus = {
+    running: Boolean(incoming.running),
+    state: typeof incoming.state === "string" ? incoming.state : "off",
+    address: typeof incoming.address === "string" ? incoming.address : "",
+    peers: Array.isArray(incoming.peers) ? incoming.peers : [],
+    error: typeof incoming.error === "string" ? incoming.error : "",
+    hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
+  };
+  if (state.isSettingsOpen) renderClassifierBridgeSettings();
+  if (classifierConnectionStatus.state === "connected" && classifierBridgeSettings.enabled) {
+    refreshClassifierBridgePolicies().catch(() => {});
+  }
+}
+
+function requestClassifierConnectionStatus() {
+  try {
+    chrome.runtime
+      .sendMessage({ type: "classifier-connection-status" })
+      .then((response) => {
+        if (response && response.status) applyClassifierConnectionStatus(response.status);
+      })
+      .catch(() => {});
+  } catch (_) {}
 }
 
 async function refreshClassifierBridgePolicies() {
@@ -1673,6 +1724,7 @@ function openSettings() {
   state.isSettingsOpen = true;
   syncSettingsFormFromState();
   requestConnectionStatus();
+  requestClassifierConnectionStatus();
   loadClassifierBridgeSettings().catch(() => {
     classifierBridgeStatusKey = "classifierBridge.unavailable";
     renderClassifierBridgeSettings();
@@ -7697,6 +7749,46 @@ if (classifierBridgeHardBlock) {
   });
 }
 
+if (classifierConnectionConnectButton) {
+  classifierConnectionConnectButton.addEventListener("click", async () => {
+    const entered = await uiDialog.prompt(
+      t("connection.pairingKeyPrompt"),
+      classifierBridgeSettings.pairingKey || "",
+      { confirmText: t("connection.connect"), cancelText: t("manual.close") }
+    );
+    if (entered === null) return;
+    const pairingKey = window.CBBridgeProtocol.normalizePairingKey(entered);
+    if (!pairingKey) {
+      applyClassifierConnectionStatus({ ...classifierConnectionStatus, state: "error", error: "pairing-key-required" });
+      return;
+    }
+    try {
+      await classifierBridgeStorageSet({ ...classifierBridgeSettings, connectionEnabled: true, pairingKey });
+      chrome.runtime.sendMessage({ type: "classifier-connection-connect", pairingKey });
+      applyClassifierConnectionStatus({ ...classifierConnectionStatus, state: "connecting", address: CONNECTION_DEFAULT_ADDRESS, error: "" });
+    } catch (_) {}
+  });
+}
+
+if (classifierConnectionDisconnectButton) {
+  classifierConnectionDisconnectButton.addEventListener("click", () => {
+    classifierBridgeStorageSet({ ...classifierBridgeSettings, connectionEnabled: false })
+      .then(() => {
+        try {
+          chrome.runtime.sendMessage({ type: "classifier-connection-disconnect" });
+        } catch (_) {}
+        applyClassifierConnectionStatus({ state: "off" });
+      })
+      .catch(() => {});
+  });
+}
+
+if (classifierCollectionToggle) {
+  classifierCollectionToggle.addEventListener("change", () => {
+    classifierBridgeStorageSet({ ...classifierBridgeSettings, collectionEnabled: classifierCollectionToggle.checked }).catch(() => {});
+  });
+}
+
 if (connectionGroupConnectButton) {
   connectionGroupConnectButton.addEventListener("click", () => {
     const group = getSelectedGroup();
@@ -8061,6 +8153,10 @@ if (chrome.runtime && chrome.runtime.onMessage) {
     }
     if (message.type === "connection-status-push") {
       applyConnectionStatus(message.status);
+      return;
+    }
+    if (message.type === "classifier-connection-status-push") {
+      applyClassifierConnectionStatus(message.status);
       return;
     }
     if (message.type === "clusters-push") {

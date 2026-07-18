@@ -152,7 +152,13 @@
   const profile = platform && global.PLATFORM_PROFILES?.[platform];
   if (!Collector.canCollect(platform) || !profile?.feed) return;
 
-  const sentEntryIDs = new Set();
+  // This is a short-lived in-page delivery guard, not a collection cache.
+  // The classifier app owns opted-in retention; the extension keeps at most a
+  // small set of identifiers for five minutes to prevent mutation storms from
+  // resending the same visible card.
+  const sentEntryIDs = new Map();
+  const COLLECTION_DEDUPLICATION_MS = 5 * 60 * 1000;
+  const MAX_SENT_ENTRY_IDS = 128;
   let collectionEnabled = false;
   let scanTimer = null;
 
@@ -257,6 +263,17 @@
     }
   }
 
+  function rememberEntryID(entryID) {
+    const now = Date.now();
+    for (const [candidate, timestamp] of sentEntryIDs) {
+      if (now - timestamp > COLLECTION_DEDUPLICATION_MS) sentEntryIDs.delete(candidate);
+    }
+    if (sentEntryIDs.has(entryID)) return false;
+    sentEntryIDs.set(entryID, now);
+    while (sentEntryIDs.size > MAX_SENT_ENTRY_IDS) sentEntryIDs.delete(sentEntryIDs.keys().next().value);
+    return true;
+  }
+
   function collectCard(card) {
     if (!collectionEnabled || isAdvertisement(card)) return;
     const entry = contentAnchor(card);
@@ -270,9 +287,7 @@
       sourceName: source?.getAttribute?.("aria-label") || source?.textContent || "",
       baseURL: global.location.href
     });
-    if (!evidence || sentEntryIDs.has(evidence.entryID)) return;
-    sentEntryIDs.add(evidence.entryID);
-    if (sentEntryIDs.size > 2_000) sentEntryIDs.delete(sentEntryIDs.values().next().value);
+    if (!evidence || !rememberEntryID(evidence.entryID)) return;
     try {
       chrome.runtime.sendMessage({ type: "vault-classifier-collect", entry: evidence }, (response) => {
         if (chrome.runtime.lastError || !response?.accepted) sentEntryIDs.delete(evidence.entryID);
