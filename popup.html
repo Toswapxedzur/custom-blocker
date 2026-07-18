@@ -879,6 +879,32 @@
               </p>
             </div>
           </div>
+          <div class="connection-status-row">
+            <span id="classifierConnectionStatusDot" class="connection-dot off"></span>
+            <span id="classifierConnectionStatusText" data-i18n="connection.statusOff">Off</span>
+          </div>
+          <p class="field-help">
+            <span data-i18n="connection.addressLabel">Address</span>:
+            <code id="classifierConnectionAddressReadout">—</code>
+          </p>
+          <p class="field-help" data-i18n="classifierBridge.connectionHelp">
+            Connect this browser to Vault Classifier with the pairing key shown in its Browser bridge settings.
+          </p>
+          <div class="field-actions">
+            <button id="classifierConnectionConnectButton" type="button" class="secondary" data-i18n="connection.connect">
+              Connect
+            </button>
+            <button id="classifierConnectionDisconnectButton" type="button" class="secondary danger hidden" data-i18n="connection.disconnect">
+              Disconnect
+            </button>
+          </div>
+          <label class="checkbox-row compact" for="classifierCollectionToggle">
+            <input id="classifierCollectionToggle" type="checkbox" checked />
+            <span data-i18n="classifierBridge.collection">Collect supported platform entries</span>
+          </label>
+          <p class="field-help" data-i18n="classifierBridge.collectionHelp">
+            Only rendered public content is sent while collection is on. Ads and page entries are not retained by the extension.
+          </p>
           <label class="checkbox-row compact" for="classifierBridgeToggle">
             <input id="classifierBridgeToggle" type="checkbox" />
             <span data-i18n="classifierBridge.enabled">Enable the Vault Classifier bridge</span>

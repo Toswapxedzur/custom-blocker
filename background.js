@@ -36,6 +36,7 @@ if (typeof importScripts === "function") {
   }
   try {
     if (typeof VaultClassifierExtensionContract === "undefined") importScripts("vault-classifier-contract.js");
+    importScripts("vault-classifier-connection.js");
     importScripts("vault-classifier-bridge.js");
   } catch (error) {
     console.error("[CustomBlocker] importScripts(vault classifier bridge) failed", error);
@@ -3694,7 +3695,6 @@ const cbConnection = {
     this.desired = true;
     this.address = CB_FIXED_ADDRESS;
     this.clearTimers();
-    cbClassifierHub.rejectAll("The shared Vault bridge is reconnecting.");
     this.closeSocket();
     if (this.burstStartMs === 0) this.burstStartMs = Date.now();
     this.setStatus({ state: "connecting", address: this.address, error: "", hubProgram: "" });
@@ -3744,7 +3744,6 @@ const cbConnection = {
     socket.onclose = () => {
       this.clearTimers();
       this.ws = null;
-      cbClassifierHub.rejectAll("The shared Vault bridge disconnected.");
       if (!this.desired) {
         this.setStatus({ state: "off", peers: [], hubProgram: "" });
         return;
@@ -3793,7 +3792,6 @@ const cbConnection = {
   disconnect() {
     this.desired = false;
     this.clearTimers();
-    cbClassifierHub.rejectAll("The shared Vault bridge is off.");
     this.closeSocket();
     this.setStatus({ state: "off", peers: [], error: "", hubProgram: "" });
   },
@@ -3872,9 +3870,6 @@ const cbConnection = {
             .catch(() => {});
         } catch (_) {}
         break;
-      case "classifier-response":
-        cbClassifierHub.receive(msg);
-        break;
       case "pong":
         break;
       default:
@@ -3911,8 +3906,9 @@ const cbClassifierHub = {
     if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "collect" && operation !== "classify" && operation !== "correct") {
       return Promise.reject(new Error("Unsupported Vault Classifier operation."));
     }
-    if (!cbConnection.ws || cbConnection.ws.readyState !== WebSocket.OPEN || cbConnection.status.state !== "connected") {
-      return Promise.reject(new Error("The shared Vault bridge is unavailable."));
+    const connection = self.CBClassifierConnection;
+    if (!connection || !connection.ws || connection.ws.readyState !== WebSocket.OPEN || connection.status.state !== "connected") {
+      return Promise.reject(new Error("The Vault Classifier bridge is unavailable."));
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return Promise.reject(new Error("Invalid Vault Classifier request."));
@@ -3938,10 +3934,10 @@ const cbClassifierHub = {
         reject(new Error("Vault Classifier request timed out."));
       }, CB_CLASSIFIER_HUB_TIMEOUT_MS);
       this.pending.set(requestID, { operation, resolve, reject, timer });
-      if (!cbConnection.sendWS({ kind: "classifier-request", requestID, operation, body })) {
+      if (!connection.send({ kind: "classifier-request", requestID, operation, body })) {
         clearTimeout(timer);
         this.pending.delete(requestID);
-        reject(new Error("The shared Vault bridge is unavailable."));
+        reject(new Error("The Vault Classifier bridge is unavailable."));
       }
     });
   },

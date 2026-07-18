@@ -1,9 +1,9 @@
 // Vault Classifier route over the shared Vault localhost WebSocket hub.
 //
-// Mac Vault owns ws://127.0.0.1:8787. Vault Classifier joins that same
-// authenticated hub as a client, so the extension keeps one local connection
-// for both Vault synchronization and classifier decisions. This layer is
-// fail-open: missing peers, invalid replies, and timeouts leave content shown.
+// The classifier connection uses the same authenticated loopback protocol as
+// the Web-app bridge, but its own browser socket and status lifecycle. This
+// layer is fail-open: missing peers, invalid replies, and timeouts leave
+// content shown.
 (function () {
   "use strict";
   if (self.__vaultClassifierBridge) return;
@@ -30,6 +30,7 @@
     const result = await storageGet(SETTINGS_KEY);
     const raw = result[SETTINGS_KEY];
     return {
+      collectionEnabled: !raw || raw.collectionEnabled !== false,
       enabled: Boolean(raw && raw.enabled === true),
       policyID: raw && typeof raw.policyID === "string" && raw.policyID.length <= 128
         ? raw.policyID
@@ -133,6 +134,8 @@
   // the page at all.
   async function collectionInfo(platform) {
     try {
+      const current = await settings();
+      if (!current.collectionEnabled) return { ok: true, enabled: false };
       const body = await hubRequest("collection-info", {});
       const enabledPlatformIDs = Array.isArray(body && body.enabledPlatformIDs)
         ? body.enabledPlatformIDs.filter((id) => typeof id === "string" && id.length > 0 && id.length <= 64)

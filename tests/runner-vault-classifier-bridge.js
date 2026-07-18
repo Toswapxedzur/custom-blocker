@@ -201,6 +201,12 @@ function assert(name, condition, detail) {
   const unavailable = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "Unavailable bridge") }, trustedSender);
   assert("fails open when the shared hub is unavailable", unavailable.value && unavailable.value.ok === false && unavailable.value.failOpen === true);
 
+  hubAvailable = true;
+  hubCalls = 0;
+  storage.vaultClassifierSettings = { enabled: true, policyID: "clash-royale-focus", feedHardBlock: false, collectionEnabled: false };
+  const collectionDisabled = await dispatch({ type: "vault-classifier-collection-info" }, trustedSender);
+  assert("browser-side collection opt-out prevents metadata routing before the shared hub", collectionDisabled.waiting && collectionDisabled.value && collectionDisabled.value.ok === true && collectionDisabled.value.enabled === false && hubCalls === 0, collectionDisabled);
+
   console.log(`__CB_TEST_RESULT__: ${failures === 0 ? "OK" : "FAIL"} (${failures} failures)`);
   if (failures !== 0) process.exitCode = 1;
 })().catch((error) => {
