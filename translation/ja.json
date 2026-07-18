@@ -569,5 +569,16 @@
   "connection.pairingKeyPrompt": "Mac Vault または Windows Vault に表示される64文字のペアリングキーを貼り付けてください。",
   "connection.errorPairingKey": "正しい64文字のペアリングキーを入力してください。",
   "connection.errorProtocolMismatch": "アプリと拡張機能のブリッジプロトコルのバージョンに互換性がありません。",
-  "connection.errorSecureConnection": "ローカルの Vault アプリとの安全な接続を確立できませんでした。"
+  "connection.errorSecureConnection": "ローカルの Vault アプリとの安全な接続を確立できませんでした。",
+  "classifierBridge.title": "Vault Classifier ブリッジ",
+  "classifierBridge.copy": "YouTube の判定をローカルの Vault Classifier アプリに問い合わせます。ネイティブホストまたはアプリを利用できない場合も、YouTube は表示されたままです。",
+  "classifierBridge.enabled": "Vault Classifier ブリッジを有効にする",
+  "classifierBridge.policy": "名前付きポリシー",
+  "classifierBridge.hardBlock": "YouTube フィードでの強制ブロックを許可する",
+  "classifierBridge.hardBlockHelp": "このオプションがない場合、フィードのブロックは［表示］と［理由］の操作を伴う薄暗い表示になります。",
+  "classifierBridge.off": "オフ",
+  "classifierBridge.loading": "ローカルブリッジを確認中…",
+  "classifierBridge.unavailable": "ローカルホストを利用できません。ブラウザブリッジをインストールしてから、このパネルを開き直してください。",
+  "classifierBridge.none": "Vault Classifier で利用できる名前付きポリシーはありません。",
+  "classifierBridge.active": "ローカルに接続済みです。選択したポリシーで YouTube を評価します。"
 }

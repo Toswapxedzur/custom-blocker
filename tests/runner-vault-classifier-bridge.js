@@ -31,7 +31,7 @@ function makePort() {
       activeNativeCalls++;
       maximumActiveNativeCalls = Math.max(maximumActiveNativeCalls, activeNativeCalls);
       setTimeout(async () => {
-        const response = await signedClassificationResponse(envelope, tamperNextResponse);
+        const response = await signedNativeResponse(envelope, tamperNextResponse);
         tamperNextResponse = false;
         context.__nativeResponse = JSON.stringify(response);
         // Native messaging serializes JSON. Recreate it in the service-worker
@@ -96,20 +96,23 @@ function base64(bytes) {
   return Buffer.from(bytes).toString("base64");
 }
 
-async function signedClassificationResponse(request, tamper) {
-  const body = {
-    result: {
-      selectedLeafTagIDs: ["content.entities.clash-royale"],
-      decisions: [{ policyID: "clash-royale-focus", action: "block", matchedTagIDs: ["content.entities.clash-royale"], explanation: "Matched local focus policy." }]
-    },
-    ledgerID: "00000000-0000-4000-8000-000000000001"
-  };
+async function signedNativeResponse(request, tamper) {
+  const bridgeInfo = request.kind === "bridge-info";
+  const body = bridgeInfo
+    ? { policies: [{ id: "clash-royale-focus", name: "Clash Royale focus" }] }
+    : {
+      result: {
+        selectedLeafTagIDs: ["content.entities.clash-royale"],
+        decisions: [{ policyID: "clash-royale-focus", action: "block", matchedTagIDs: ["content.entities.clash-royale"], explanation: "Matched local focus policy." }]
+      },
+      ledgerID: "00000000-0000-4000-8000-000000000001"
+    };
   const bytes = new TextEncoder().encode(JSON.stringify(body));
   const nonce = new Uint8Array(18);
   nonce[17] = ++responseCounter;
   const response = {
     protocolVersion: 1,
-    kind: "classification-response",
+    kind: bridgeInfo ? "bridge-info-response" : "classification-response",
     requestID: request.requestID,
     timestampMilliseconds: Date.now(),
     nonce: base64(nonce),
@@ -168,6 +171,13 @@ function assert(name, condition, detail) {
 (async () => {
   const rejected = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "Untrusted sender") }, untrustedSender);
   assert("rejects non-YouTube runtime senders before native messaging", !rejected.waiting && nativeCalls === 0);
+
+  const untrustedBridgeInfo = await dispatch({ type: "vault-classifier-bridge-policies" }, { id: "another-extension" });
+  assert("rejects policy inventory requests outside the extension", !untrustedBridgeInfo.waiting && nativeCalls === 0);
+
+  const bridgeInfo = await dispatch({ type: "vault-classifier-bridge-policies" }, { id: "vault-classifier-test-extension" });
+  assert("loads only the native app's bounded named policy inventory", bridgeInfo.waiting && bridgeInfo.value && bridgeInfo.value.ok === true && bridgeInfo.value.policies.length === 1 && bridgeInfo.value.policies[0].id === "clash-royale-focus", bridgeInfo);
+  nativeCalls = 0;
 
   const disabled = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "Disabled setting") }, trustedSender);
   assert("fails open while the local feature is disabled", disabled.waiting && disabled.value && disabled.value.ok === false && disabled.value.failOpen === true && nativeCalls === 0);

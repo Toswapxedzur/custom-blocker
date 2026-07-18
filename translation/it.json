@@ -569,5 +569,16 @@
   "connection.pairingKeyPrompt": "Incolla la chiave di associazione di 64 caratteri mostrata in Mac Vault o Windows Vault.",
   "connection.errorPairingKey": "Inserisci la chiave di associazione corretta di 64 caratteri.",
   "connection.errorProtocolMismatch": "L'app e l'estensione usano versioni incompatibili del protocollo bridge.",
-  "connection.errorSecureConnection": "Impossibile stabilire una connessione sicura con l'app Vault locale."
+  "connection.errorSecureConnection": "Impossibile stabilire una connessione sicura con l'app Vault locale.",
+  "classifierBridge.title": "Ponte Vault Classifier",
+  "classifierBridge.copy": "Chiedi decisioni su YouTube all’app locale Vault Classifier. Se l’host nativo o l’app non sono disponibili, YouTube rimane visibile.",
+  "classifierBridge.enabled": "Abilita il ponte Vault Classifier",
+  "classifierBridge.policy": "Criterio denominato",
+  "classifierBridge.hardBlock": "Consenti blocchi rigidi nei feed di YouTube",
+  "classifierBridge.hardBlockHelp": "Senza questa opzione, un blocco del feed viene mostrato attenuato con i controlli Mostra e Perché.",
+  "classifierBridge.off": "Disattivato",
+  "classifierBridge.loading": "Verifica del ponte locale…",
+  "classifierBridge.unavailable": "L’host locale non è disponibile. Installa il ponte del browser, poi riapri questo pannello.",
+  "classifierBridge.none": "Non sono disponibili criteri denominati in Vault Classifier.",
+  "classifierBridge.active": "Connesso localmente. YouTube viene valutato con il criterio selezionato."
 }

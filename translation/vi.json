@@ -569,5 +569,16 @@
   "connection.pairingKeyPrompt": "Dán khóa ghép nối 64 ký tự hiển thị trong Mac Vault hoặc Windows Vault.",
   "connection.errorPairingKey": "Nhập đúng khóa ghép nối gồm 64 ký tự.",
   "connection.errorProtocolMismatch": "Ứng dụng và tiện ích đang dùng các phiên bản giao thức cầu nối không tương thích.",
-  "connection.errorSecureConnection": "Không thể thiết lập kết nối an toàn với ứng dụng Vault cục bộ."
+  "connection.errorSecureConnection": "Không thể thiết lập kết nối an toàn với ứng dụng Vault cục bộ.",
+  "classifierBridge.title": "Cầu nối Vault Classifier",
+  "classifierBridge.copy": "Yêu cầu ứng dụng Vault Classifier cục bộ đưa ra quyết định cho YouTube. Nếu máy chủ gốc hoặc ứng dụng không khả dụng, YouTube vẫn hiển thị.",
+  "classifierBridge.enabled": "Bật cầu nối Vault Classifier",
+  "classifierBridge.policy": "Chính sách có tên",
+  "classifierBridge.hardBlock": "Cho phép chặn cứng trong bảng tin YouTube",
+  "classifierBridge.hardBlockHelp": "Không có tùy chọn này, một lệnh chặn trong bảng tin được hiển thị mờ cùng các điều khiển Hiện và Lý do.",
+  "classifierBridge.off": "Tắt",
+  "classifierBridge.loading": "Đang kiểm tra cầu nối cục bộ…",
+  "classifierBridge.unavailable": "Máy chủ cục bộ không khả dụng. Hãy cài cầu nối trình duyệt rồi mở lại bảng này.",
+  "classifierBridge.none": "Không có chính sách có tên nào trong Vault Classifier.",
+  "classifierBridge.active": "Đã kết nối cục bộ. YouTube được đánh giá theo chính sách đã chọn."
 }

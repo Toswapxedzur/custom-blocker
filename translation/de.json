@@ -569,5 +569,16 @@
   "connection.pairingKeyPrompt": "Füge den 64-stelligen Kopplungsschlüssel aus Mac Vault oder Windows Vault ein.",
   "connection.errorPairingKey": "Gib den richtigen 64-stelligen Kopplungsschlüssel ein.",
   "connection.errorProtocolMismatch": "App und Erweiterung verwenden inkompatible Versionen des Bridge-Protokolls.",
-  "connection.errorSecureConnection": "Es konnte keine sichere Verbindung zur lokalen Vault-App hergestellt werden."
+  "connection.errorSecureConnection": "Es konnte keine sichere Verbindung zur lokalen Vault-App hergestellt werden.",
+  "classifierBridge.title": "Vault-Classifier-Brücke",
+  "classifierBridge.copy": "Frage die lokale Vault-Classifier-App nach YouTube-Entscheidungen. Wenn der native Host oder die App nicht verfügbar ist, bleibt YouTube sichtbar.",
+  "classifierBridge.enabled": "Vault-Classifier-Brücke aktivieren",
+  "classifierBridge.policy": "Benannte Richtlinie",
+  "classifierBridge.hardBlock": "Harte Sperren in YouTube-Feeds zulassen",
+  "classifierBridge.hardBlockHelp": "Ohne diese Option wird eine Feed-Sperre als Abdunklung mit den Steuerelementen „Anzeigen“ und „Warum“ dargestellt.",
+  "classifierBridge.off": "Aus",
+  "classifierBridge.loading": "Lokale Brücke wird geprüft…",
+  "classifierBridge.unavailable": "Der lokale Host ist nicht verfügbar. Installiere die Browser-Brücke und öffne dieses Feld erneut.",
+  "classifierBridge.none": "In Vault Classifier sind keine benannten Richtlinien verfügbar.",
+  "classifierBridge.active": "Lokal verbunden. YouTube wird mit der ausgewählten Richtlinie ausgewertet."
 }

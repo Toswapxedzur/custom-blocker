@@ -933,6 +933,35 @@
           </div>
         </section>
 
+        <section id="classifierBridgeSection" class="section-card settings-section-card">
+          <div class="section-header">
+            <div>
+              <h3 data-i18n="classifierBridge.title">Vault Classifier bridge</h3>
+              <p class="section-copy" data-i18n="classifierBridge.copy">
+                Ask the local Vault Classifier app for YouTube decisions. If the native host or app is unavailable, YouTube stays visible.
+              </p>
+            </div>
+          </div>
+          <label class="checkbox-row compact" for="classifierBridgeToggle">
+            <input id="classifierBridgeToggle" type="checkbox" />
+            <span data-i18n="classifierBridge.enabled">Enable the Vault Classifier bridge</span>
+          </label>
+          <div class="settings-grid">
+            <div>
+              <label class="label" for="classifierBridgePolicy" data-i18n="classifierBridge.policy">Named policy</label>
+              <select id="classifierBridgePolicy" disabled></select>
+            </div>
+          </div>
+          <label class="checkbox-row compact" for="classifierBridgeHardBlock">
+            <input id="classifierBridgeHardBlock" type="checkbox" disabled />
+            <span data-i18n="classifierBridge.hardBlock">Allow hard blocks in YouTube feeds</span>
+          </label>
+          <p class="field-help" data-i18n="classifierBridge.hardBlockHelp">
+            Without this option, a feed block is shown as a dim with Reveal and Why controls.
+          </p>
+          <p id="classifierBridgeStatus" class="field-help" aria-live="polite"></p>
+        </section>
+
         <section class="section-card settings-section-card">
           <div class="section-header">
             <div>
