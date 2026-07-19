@@ -328,19 +328,6 @@
               </p>
             </div>
 
-            <details id="logFeedSection" class="log-feed">
-              <summary>
-                <span data-i18n="logFeed.title">Log</span>
-                <span id="logFeedCount" class="log-feed-count">0</span>
-              </summary>
-              <div class="log-feed-toolbar">
-                <button id="logFeedDownload" type="button" class="weird" title="Download logs" aria-label="Download logs">⬇</button>
-                <span class="log-feed-hint" data-i18n="logFeed.hint">Live feed of helpers.getLogHelper() output from every event dispatch.</span>
-                <button id="logFeedClear" type="button" class="weird" data-i18n="logFeed.clear">Clear</button>
-              </div>
-              <div id="logFeedList" class="log-feed-list" aria-live="polite"></div>
-              <p id="logFeedEmpty" class="log-feed-empty" data-i18n="logFeed.empty">No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.</p>
-            </details>
           </section>
 
           <!-- Unified, data-driven platform-rules card. Which sub-blocks show
@@ -888,6 +875,19 @@
           <p class="field-help" data-i18n="classifierBridge.collectionHelp">
             Only rendered public content is sent while collection is on. Ads and page entries are not retained by the extension.
           </p>
+          <details id="logFeedSection" class="log-feed">
+            <summary>
+              <span data-i18n="logFeed.title">Log</span>
+              <span id="logFeedCount" class="log-feed-count">0</span>
+            </summary>
+            <div class="log-feed-toolbar">
+              <button id="logFeedDownload" type="button" class="weird" title="Download logs" aria-label="Download logs">⬇</button>
+              <span class="log-feed-hint" data-i18n="logFeed.hint">Live feed of helpers.getLogHelper() output from every event dispatch.</span>
+              <button id="logFeedClear" type="button" class="weird" data-i18n="logFeed.clear">Clear</button>
+            </div>
+            <div id="logFeedList" class="log-feed-list" aria-live="polite"></div>
+            <p id="logFeedEmpty" class="log-feed-empty" data-i18n="logFeed.empty">No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.</p>
+          </details>
         </section>
 
         <section class="section-card settings-section-card">

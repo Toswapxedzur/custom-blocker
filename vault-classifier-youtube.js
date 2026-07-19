@@ -23,16 +23,35 @@
     "ytd-rich-grid-media",
     "ytd-backstage-post-thread-renderer"
   ].join(",");
+  const PLATFORM = "youtube";
   let collectionEnabled = false;
   let scanTimer = null;
   let pageTimer = null;
   let collectionEpoch = 0;
+  let lastWatchEvidenceFailure = "missing-watch-root";
   // Short-lived in-page de-duplication only. The opted-in Vault Classifier
   // dataset is the sole retained collection store; these identifiers expire so
   // an open tab does not turn into a durable browser-side cache.
   const collectedEntryIDs = new Map();
   const COLLECTION_DEDUPLICATION_MS = 5 * 60 * 1000;
   const MAX_COLLECTED_ENTRY_IDS = 128;
+  const reportedDiagnostics = new Set();
+
+  // Diagnostics are deliberately fixed pipeline tokens. They never carry
+  // titles, URLs, creator names, IDs, or any other rendered page content.
+  function reportDiagnostic(event, detail) {
+    const key = `${event}:${detail || ""}`;
+    if (reportedDiagnostics.has(key)) return;
+    reportedDiagnostics.add(key);
+    try {
+      chrome.runtime.sendMessage({
+        type: "vault-classifier-diagnostic",
+        platform: PLATFORM,
+        event,
+        ...(detail ? { detail } : {})
+      }, () => void chrome.runtime.lastError);
+    } catch (_) {}
+  }
 
   function compactText(value, maximum) {
     if (typeof value !== "string") return null;
@@ -158,17 +177,30 @@
   function watchEvidence() {
     const root = document;
     const videoID = C.youtubeVideoIDFromURL(location.href, location.href);
-    if (!videoID) return null;
+    if (!videoID) {
+      lastWatchEvidenceFailure = "missing-video-id";
+      return null;
+    }
     // Never fall back to a document-wide heading: on a channel/search page it
     // could turn unrelated rendered text into a full-page video decision.
     const watchRoot = root.querySelector("ytd-watch-metadata")
       || root.querySelector("ytd-reel-player-overlay-renderer")
       || root.querySelector("#above-the-fold")
       || root.querySelector("ytd-shorts");
-    if (!watchRoot) return null;
+    if (!watchRoot) {
+      lastWatchEvidenceFailure = "missing-watch-root";
+      return null;
+    }
     const title = selectorText(watchRoot, ["h1.ytd-watch-metadata", "h1", "h2", ".title"], 500);
-    if (!title) return null;
+    if (!title) {
+      lastWatchEvidenceFailure = "missing-title";
+      return null;
+    }
     const source = findSource(watchRoot);
+    if (!source.id) {
+      lastWatchEvidenceFailure = "missing-creator";
+      return null;
+    }
     const descriptionRoot = selectorElement(watchRoot, ["#description", "#description-inline-expander", "ytd-text-inline-expander#description"]);
     const description = compactText(descriptionRoot && descriptionRoot.textContent, 16000);
     // Hashtags from comments/related videos are not evidence for this video.
@@ -191,8 +223,9 @@
       canonicalURL: `https://www.youtube.com/watch?v=${videoID}`
     };
     if (source.url) metadata.creatorURL = source.url;
+    lastWatchEvidenceFailure = "";
     return {
-      platform: "youtube",
+      platform: PLATFORM,
       entryID: `youtube:video:${videoID}`,
       sourceID: source.id,
       surface: "page",
@@ -210,11 +243,14 @@
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage({ type: "vault-classifier-collection-info" }, (response) => {
-          if (chrome.runtime.lastError) return resolve(false);
-          resolve(Boolean(response && response.ok === true && response.enabled === true));
+          if (chrome.runtime.lastError) return resolve({ enabled: false, failed: true });
+          resolve({
+            enabled: Boolean(response && response.ok === true && response.enabled === true),
+            failed: !(response && response.ok === true)
+          });
         });
       } catch (_) {
-        resolve(false);
+        resolve({ enabled: false, failed: true });
       }
     });
   }
@@ -245,8 +281,14 @@
     // reload can refresh its mutable public metadata in the local dataset.
     collectedEntryIDs.set(stableID, now);
     while (collectedEntryIDs.size > MAX_COLLECTED_ENTRY_IDS) collectedEntryIDs.delete(collectedEntryIDs.keys().next().value);
+    reportDiagnostic("collection-requested");
     const accepted = await requestCollection(entry);
-    if (!accepted) collectedEntryIDs.delete(stableID);
+    if (!accepted) {
+      collectedEntryIDs.delete(stableID);
+      reportDiagnostic("collection-rejected", "rejected");
+      return;
+    }
+    reportDiagnostic("collection-accepted");
   }
 
   function collectCard(card) {
@@ -256,7 +298,13 @@
 
   function collectPage() {
     if (!collectionEnabled) return;
-    void collectEntry(watchEvidence());
+    const entry = watchEvidence();
+    if (!entry) {
+      reportDiagnostic("page-evidence-missing", lastWatchEvidenceFailure || "missing-watch-root");
+      return;
+    }
+    reportDiagnostic("page-evidence-ready");
+    void collectEntry(entry);
   }
 
   function scheduleScan() {
@@ -279,9 +327,17 @@
 
   function refreshCollectionEnabled() {
     const epoch = ++collectionEpoch;
+    reportDiagnostic("collection-info-requested");
     requestCollectionInfo().then((nextEnabled) => {
       if (epoch !== collectionEpoch) return;
-      collectionEnabled = nextEnabled;
+      collectionEnabled = nextEnabled.enabled;
+      if (nextEnabled.failed) {
+        reportDiagnostic("collection-info-failed", "runtime-last-error");
+      } else if (collectionEnabled) {
+        reportDiagnostic("collection-info-enabled");
+      } else {
+        reportDiagnostic("collection-info-disabled");
+      }
       if (collectionEnabled) {
         scheduleScan();
         schedulePageCheck();
@@ -295,6 +351,7 @@
   });
   window.addEventListener("yt-navigate-finish", () => {
     collectedEntryIDs.clear();
+    reportedDiagnostics.clear();
     scheduleScan();
     schedulePageCheck();
   });
@@ -305,6 +362,7 @@
   });
   if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true });
   else document.addEventListener("DOMContentLoaded", () => observer.observe(document.documentElement, { childList: true, subtree: true }), { once: true });
+  reportDiagnostic("collector-started");
   refreshCollectionEnabled();
   // A collection toggle lives in the local Vault app rather than extension
   // storage. This bounded status poll carries no page metadata; the app still

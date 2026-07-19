@@ -1985,6 +1985,24 @@ function pushLogFeedEntry(entry) {
   } catch (_) {}
 }
 
+// Collection diagnostics never include page text, titles, creator identities,
+// URLs, or entry IDs. They make the local collection hops inspectable in the
+// existing extension Activity Log without creating browser-side browsing data.
+function recordVaultClassifierDiagnostic(entry) {
+  if (!entry || typeof entry !== "object") return;
+  const event = typeof entry.event === "string" && /^[a-z0-9-]{1,64}$/.test(entry.event) ? entry.event : "invalid-event";
+  const platform = typeof entry.platform === "string" && /^[a-z0-9-]{1,64}$/.test(entry.platform) ? entry.platform : "unknown";
+  const detail = typeof entry.detail === "string" && /^[a-z0-9-]{1,64}$/.test(entry.detail) ? entry.detail : "";
+  const outcome = typeof entry.outcome === "string" && /^[a-z0-9-]{1,32}$/.test(entry.outcome) ? entry.outcome : "unknown";
+  const isFailure = event.endsWith("failed") || event.endsWith("rejected") || outcome === "unavailable" || outcome === "rejected";
+  pushLogFeedEntry({
+    level: isFailure ? "warn" : "log",
+    eventType: "vault-collection",
+    message: [platform, event, detail, outcome].filter(Boolean).join(" · ")
+  });
+}
+self.CBRecordVaultClassifierDiagnostic = recordVaultClassifierDiagnostic;
+
 function ingestSandboxLogs(result, descriptor) {
   if (!result) return;
   const eventType = descriptor && descriptor.type ? descriptor.type : "";
@@ -3948,7 +3966,7 @@ const cbClassifierHub = {
   pending: new Map(),
 
   request(operation, body) {
-    if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "collect" && operation !== "classify" && operation !== "correct") {
+    if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "diagnostic" && operation !== "collect" && operation !== "classify" && operation !== "correct") {
       return Promise.reject(new Error("Unsupported Vault Classifier operation."));
     }
     const connection = cbConnection;
