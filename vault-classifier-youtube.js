@@ -130,7 +130,8 @@
             // item "Videos", not the creator label. Prefer the nearby owner
             // text whenever the card exposes it.
             name: fallbackName() || compactText(link.textContent, 256),
-            url: creatorURL(href)
+            url: creatorURL(href),
+            link
           };
           if (candidate.name) return candidate;
           if (!firstMatch) firstMatch = candidate;
@@ -170,6 +171,43 @@
     }
   }
 
+  function imageURLFrom(element) {
+    if (!element?.getAttribute) return null;
+    for (const attribute of ["src", "data-src", "data-lazy-src", "data-original"]) {
+      const value = element.getAttribute(attribute);
+      if (value) return value;
+    }
+    const srcset = element.getAttribute("srcset") || element.getAttribute("data-srcset");
+    if (!srcset) return null;
+    const firstSource = srcset.split(",")[0]?.trim().split(/\s+/)[0];
+    return firstSource || null;
+  }
+
+  function creatorAvatarURL(root, source) {
+    if (!root || !source?.id || typeof C.isTrustedCreatorAvatarURL !== "function") return null;
+    const authorAnchors = [];
+    if (source.link) authorAnchors.push(source.link);
+    // YouTube deliberately labels the rendered channel image with
+    // #avatar-link. Restricting this search to the verified item/watch root
+    // excludes video thumbnails and comments while allowing a handle avatar
+    // link to differ from an adjacent /channel/UC creator link.
+    for (const link of root.querySelectorAll?.("a#avatar-link[href]") || []) {
+      if (!authorAnchors.includes(link)) authorAnchors.push(link);
+    }
+    for (const authorAnchor of authorAnchors) {
+      for (const image of authorAnchor.querySelectorAll?.("img") || []) {
+        const rawURL = imageURLFrom(image);
+        if (!C.isTrustedCreatorAvatarURL(PLATFORM, rawURL, location.href)) continue;
+        try {
+          const url = new URL(rawURL, location.href);
+          url.hash = "";
+          if (url.href.length <= 512) return url.href;
+        } catch (_) {}
+      }
+    }
+    return null;
+  }
+
   function feedEvidence(card) {
     if (isAdvertisement(card)) return null;
     const title = selectorText(card, ["#video-title", "a#video-title-link", "a#video-title", "h3 a", "#content-text", "#content #content-text"], 500);
@@ -189,6 +227,8 @@
       canonicalURL: videoID ? `https://www.youtube.com/watch?v=${videoID}` : (postID ? `https://www.youtube.com/post/${postID}` : "")
     };
     if (source.url) metadata.creatorURL = source.url;
+    const avatarURL = creatorAvatarURL(card, source);
+    if (avatarURL) metadata.creatorAvatarURL = avatarURL;
     return {
       platform: "youtube",
       entryID,
@@ -263,6 +303,8 @@
       canonicalURL: `https://www.youtube.com/watch?v=${videoID}`
     };
     if (source.url) metadata.creatorURL = source.url;
+    const avatarURL = creatorAvatarURL(watchRoot, source);
+    if (avatarURL) metadata.creatorAvatarURL = avatarURL;
     lastWatchEvidenceFailure = "";
     return {
       platform: PLATFORM,

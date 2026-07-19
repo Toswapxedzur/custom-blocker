@@ -103,6 +103,8 @@
       canonicalURL
     };
     if (creatorURL) metadata.creatorURL = creatorURL;
+    const creatorAvatarURL = canonicalCreatorAvatarURL(raw.platform, raw.creatorAvatarURL, raw.baseURL);
+    if (creatorAvatarURL) metadata.creatorAvatarURL = creatorAvatarURL;
     return C.normalizeEvidence({
       platform: raw.platform,
       entryID: entryIdentifier(raw.platform, canonicalURL),
@@ -113,6 +115,14 @@
         metadata
       }
     });
+  }
+
+  function canonicalCreatorAvatarURL(platform, value, base) {
+    if (!C?.isTrustedCreatorAvatarURL?.(platform, value, base)) return null;
+    const url = safeURL(value, base);
+    if (!url) return null;
+    url.hash = "";
+    return url.href.length <= 512 ? url.href : null;
   }
 
   function isContentURL(platform, value) {
@@ -229,10 +239,58 @@
     const normalize = global.normalizePlatformEntityInput;
     if (typeof normalize !== "function") return null;
     const entryURL = canonicalContentURL(platform, entry.href, global.location.href);
+    const entryIdentity = entryURL ? normalize(entryURL, platform) : null;
+    let firstSource = null;
     for (const anchor of card.querySelectorAll?.("a[href]") || []) {
       const candidateURL = canonicalContentURL(platform, anchor.href, global.location.href);
       if (!candidateURL || candidateURL === entryURL || !normalize(candidateURL, platform)) continue;
-      return anchor;
+      const candidateIdentity = normalize(candidateURL, platform);
+      // Direct-source platforms encode the author in the content URL. Match
+      // that identity exactly so a repost, quoted author, or nearby account
+      // cannot become the collected creator (or donate its avatar).
+      if (DIRECT_SOURCE_FROM_ENTRY.has(platform)) {
+        if (entryIdentity && candidateIdentity === entryIdentity) return anchor;
+        continue;
+      }
+      if (!firstSource) firstSource = anchor;
+    }
+    return firstSource;
+  }
+
+  function imageURLFrom(element) {
+    if (!element?.getAttribute) return null;
+    for (const attribute of ["src", "data-src", "data-lazy-src", "data-original"]) {
+      const value = element.getAttribute(attribute);
+      if (value) return value;
+    }
+    const srcset = element.getAttribute("srcset") || element.getAttribute("data-srcset");
+    if (!srcset) return null;
+    const firstSource = srcset.split(",")[0]?.trim().split(/\s+/)[0];
+    return firstSource || null;
+  }
+
+  function creatorAvatarURL(card, source) {
+    if (!source?.href) return null;
+    const sourceURL = canonicalContentURL(platform, source.href, global.location.href);
+    const normalize = global.normalizePlatformEntityInput;
+    if (!sourceURL || typeof normalize !== "function") return null;
+    const sourceIdentity = normalize(sourceURL, platform);
+    if (!sourceIdentity) return null;
+
+    // An avatar is author-scoped only when its own anchor resolves to exactly
+    // the already-verified source identity. Never inspect a bare card image:
+    // those are normally video/media thumbnails or other people.
+    const authorAnchors = [];
+    for (const anchor of card.querySelectorAll?.("a[href]") || []) {
+      const candidateURL = canonicalContentURL(platform, anchor.href, global.location.href);
+      if (candidateURL && normalize(candidateURL, platform) === sourceIdentity) authorAnchors.push(anchor);
+    }
+    if (!authorAnchors.includes(source)) authorAnchors.unshift(source);
+    for (const authorAnchor of authorAnchors) {
+      for (const image of authorAnchor.querySelectorAll?.("img") || []) {
+        const candidate = canonicalCreatorAvatarURL(platform, imageURLFrom(image), global.location.href);
+        if (candidate) return candidate;
+      }
     }
     return null;
   }
@@ -288,6 +346,7 @@
       sourceURL: source?.href || null,
       title: visibleTitle(card, entry),
       sourceName: source?.getAttribute?.("aria-label") || source?.textContent || "",
+      creatorAvatarURL: creatorAvatarURL(card, source),
       baseURL: global.location.href
     });
     if (!evidence || !rememberEntryID(evidence.entryID)) return;
