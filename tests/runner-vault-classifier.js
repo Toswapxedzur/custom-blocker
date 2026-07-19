@@ -135,8 +135,13 @@ const collectedEntries = collectorFixtures.map(([platform, entryURL, sourceURL])
   title: `Visible ${platform} entry`,
   sourceName: "Visible creator"
 }));
-const everyCollectorEntryIsBounded = Collector.platformIDs.length === 15 && collectedEntries.every(Boolean) && collectedEntries.every((entry, index) => entry.platform === collectorFixtures[index][0] && entry.sourceID.startsWith(`${entry.platform}:creator:`) && entry.evidence.metadata.canonicalURL);
-assert("builds bounded creator-attributed entries for every reviewed non-YouTube collector", everyCollectorEntryIsBounded, everyCollectorEntryIsBounded ? null : collectedEntries.map((entry, index) => entry ? [entry.platform, entry.sourceID, entry.evidence.metadata.canonicalURL] : collectorFixtures[index][0]));
+const everyCollectorEntryIsBounded = Collector.platformIDs.length === 15 && collectedEntries.every(Boolean) && collectedEntries.every((entry, index) => entry.platform === collectorFixtures[index][0] && entry.sourceID.startsWith(`${entry.platform}:creator:`) && entry.evidence.title === `Visible ${entry.platform} entry` && entry.evidence.metadata.sourceName === "Visible creator" && entry.evidence.metadata.canonicalURL);
+assert("builds bounded creator-attributed titles and names for every reviewed non-YouTube collector", everyCollectorEntryIsBounded, everyCollectorEntryIsBounded ? null : collectedEntries.map((entry, index) => entry ? [entry.platform, entry.sourceID, entry.evidence.metadata.canonicalURL] : collectorFixtures[index][0]));
+const sourceURLsStayAvailable = collectedEntries.every((entry, index) => {
+  const sourceURL = collectorFixtures[index][2];
+  return sourceURL ? entry.evidence.metadata.creatorURL === sourceURL : entry.evidence.metadata.creatorURL === undefined;
+});
+assert("retains a reviewed creator-page URL when the platform exposes one", sourceURLsStayAvailable, sourceURLsStayAvailable ? null : collectedEntries.map((entry) => [entry.platform, entry.evidence.metadata.creatorURL]));
 assert("rejects a collector entry without a reviewed creator identity", Collector.makeCollectedEntry({ platform: "kick", entryURL: "https://kick.com/example", title: "Unknown card" }) === null);
 
 const fingerprintOne = VC.entryFingerprint(VC.normalizeEvidence({

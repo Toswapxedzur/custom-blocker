@@ -93,9 +93,16 @@
     const sourceURL = raw.sourceURL && C.isTrustedCollectionURL(raw.platform, raw.sourceURL, raw.baseURL)
       ? raw.sourceURL
       : null;
+    const creatorURL = sourceURL ? canonicalContentURL(raw.platform, sourceURL, raw.baseURL) : null;
     const creator = sourceIdentity(raw.platform, sourceURL, canonicalURL);
     if (!creator) return null;
     const sourceName = compactText(raw.sourceName, 256) || creator;
+    const metadata = {
+      sourceName,
+      entryType: entryType(raw.platform, canonicalURL),
+      canonicalURL
+    };
+    if (creatorURL) metadata.creatorURL = creatorURL;
     return C.normalizeEvidence({
       platform: raw.platform,
       entryID: entryIdentifier(raw.platform, canonicalURL),
@@ -103,11 +110,7 @@
       surface: "feed",
       evidence: {
         title,
-        metadata: {
-          sourceName,
-          entryType: entryType(raw.platform, canonicalURL),
-          canonicalURL
-        }
+        metadata
       }
     });
   }

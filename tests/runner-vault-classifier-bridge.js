@@ -7,27 +7,15 @@ const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const storage = {
-  vaultClassifierSettings: { enabled: false, policyID: "clash-royale-focus", feedHardBlock: false }
+  vaultClassifierSettings: {}
 };
 const listeners = [];
 let hubCalls = 0;
-let activeHubCalls = 0;
-let maximumActiveHubCalls = 0;
-let invalidNextResult = false;
-let hubAvailable = true;
 
 const hub = {
   request(operation, body) {
-    if (!hubAvailable) return Promise.reject(new Error("shared hub unavailable"));
     hubCalls++;
-    activeHubCalls++;
-    maximumActiveHubCalls = Math.max(maximumActiveHubCalls, activeHubCalls);
     return new Promise((resolve) => setTimeout(() => {
-      activeHubCalls--;
-      if (operation === "bridge-info") {
-        resolve(inExtensionRealm({ policies: [{ id: "clash-royale-focus", name: "Clash Royale focus" }] }));
-        return;
-      }
       if (operation === "collection-info") {
         resolve(inExtensionRealm({ enabledPlatformIDs: ["youtube", "reddit"] }));
         return;
@@ -36,22 +24,7 @@ const hub = {
         resolve(inExtensionRealm({ accepted: true, inserted: true }));
         return;
       }
-      if (operation === "correct") {
-        resolve(inExtensionRealm({ accepted: true }));
-        return;
-      }
-      if (invalidNextResult) {
-        invalidNextResult = false;
-        resolve(inExtensionRealm({ result: { malformed: true } }));
-        return;
-      }
-      resolve(inExtensionRealm({
-        result: {
-          selectedLeafTagIDs: ["content.entities.clash-royale"],
-          decisions: [{ policyID: "clash-royale-focus", action: "block", matchedTagIDs: ["content.entities.clash-royale"], explanation: "Matched local focus policy." }]
-        },
-        ledgerID: "00000000-0000-4000-8000-000000000001"
-      }));
+      resolve(inExtensionRealm({ accepted: false, inserted: false }));
     }, 8));
   }
 };
@@ -147,21 +120,11 @@ function assert(name, condition, detail) {
 }
 
 (async () => {
-  const rejected = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "Untrusted sender") }, untrustedSender);
-  assert("rejects non-YouTube runtime senders before the shared hub", !rejected.waiting && hubCalls === 0);
-
-  const untrustedBridgeInfo = await dispatch({ type: "vault-classifier-bridge-policies" }, { id: "another-extension" });
-  assert("rejects policy inventory requests outside the extension", !untrustedBridgeInfo.waiting && hubCalls === 0);
-
-  const bridgeInfo = await dispatch({ type: "vault-classifier-bridge-policies" }, { id: "vault-classifier-test-extension" });
-  assert("loads the bounded named policy inventory through the shared hub", bridgeInfo.waiting && bridgeInfo.value && bridgeInfo.value.ok === true && bridgeInfo.value.policies.length === 1 && bridgeInfo.value.policies[0].id === "clash-royale-focus", bridgeInfo);
-  hubCalls = 0;
-
   const untrustedCollection = await dispatch({ type: "vault-classifier-collect", entry: entry("dQw4w9WgXcQ", "Untrusted collection") }, untrustedSender);
   assert("rejects collection from a non-YouTube runtime sender", !untrustedCollection.waiting && hubCalls === 0);
 
   const collectionInfo = await dispatch({ type: "vault-classifier-collection-info" }, trustedSender);
-  assert("reads the app-owned collection opt-in before sending page metadata", collectionInfo.waiting && collectionInfo.value && collectionInfo.value.ok === true && collectionInfo.value.enabled === true && hubCalls === 1, collectionInfo);
+  assert("browser collection defaults on when the app enables YouTube", collectionInfo.waiting && collectionInfo.value && collectionInfo.value.ok === true && collectionInfo.value.enabled === true && hubCalls === 1, collectionInfo);
 
   const collected = await dispatch({ type: "vault-classifier-collect", entry: entry("dQw4w9WgXcQ", "Visible non-ad card") }, trustedSender);
   assert("sends one bounded rendered entry only after opt-in", collected.waiting && collected.value && collected.value.accepted === true && hubCalls === 2, collected);
@@ -175,35 +138,10 @@ function assert(name, condition, detail) {
   assert("rejects a collection platform that does not match the sender origin", !mismatchedCollection.waiting && hubCalls === 2, mismatchedCollection);
   hubCalls = 0;
 
-  const disabled = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "Disabled setting") }, trustedSender);
-  assert("fails open while the local feature is disabled", disabled.waiting && disabled.value && disabled.value.ok === false && disabled.value.failOpen === true && hubCalls === 0);
+  const removedPolicyBridge = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "No browser policy") }, trustedSender);
+  assert("does not expose browser-side classifier policy actions", !removedPolicyBridge.waiting && hubCalls === 0, removedPolicyBridge);
 
-  storage.vaultClassifierSettings = { enabled: true, policyID: "clash-royale-focus", feedHardBlock: false };
-  const duplicated = await Promise.all([
-    dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "Duplicate visible card") }, trustedSender),
-    dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "Duplicate visible card") }, trustedSender)
-  ]);
-  assert("coalesces identical concurrent shared-hub classifications", hubCalls === 1 && duplicated.every((item) => item.value && item.value.ok === true && item.value.action === "dim"), { hubCalls, duplicated });
-
-  hubCalls = 0;
-  activeHubCalls = 0;
-  maximumActiveHubCalls = 0;
-  const distinct = await Promise.all(Array.from({ length: 10 }, (_, index) => dispatch(
-    { type: "vault-classifier-classify", entry: entry(`dQw4w9Wg${String(index).padStart(2, "0")}`, `Visible card ${index}`) }, trustedSender
-  )));
-  assert("bounds distinct shared-hub classifications to the local concurrency budget", hubCalls === 10 && maximumActiveHubCalls <= 4 && distinct.every((item) => item.value && item.value.ok === true), { hubCalls, maximumActiveHubCalls, responses: distinct.map((item) => item.value) });
-
-  invalidNextResult = true;
-  const malformed = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "Malformed response") }, trustedSender);
-  assert("fails open on an invalid shared-hub classifier response", malformed.value && malformed.value.ok === false && malformed.value.failOpen === true);
-
-  hubAvailable = false;
-  const unavailable = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "Unavailable bridge") }, trustedSender);
-  assert("fails open when the shared hub is unavailable", unavailable.value && unavailable.value.ok === false && unavailable.value.failOpen === true);
-
-  hubAvailable = true;
-  hubCalls = 0;
-  storage.vaultClassifierSettings = { enabled: true, policyID: "clash-royale-focus", feedHardBlock: false, collectionEnabled: false };
+  storage.vaultClassifierSettings = { collectionEnabled: false };
   const collectionDisabled = await dispatch({ type: "vault-classifier-collection-info" }, trustedSender);
   assert("browser-side collection opt-out prevents metadata routing before the shared hub", collectionDisabled.waiting && collectionDisabled.value && collectionDisabled.value.ok === true && collectionDisabled.value.enabled === false && hubCalls === 0, collectionDisabled);
 
