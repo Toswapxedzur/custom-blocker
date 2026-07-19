@@ -74,6 +74,7 @@
   "connection.statusRunning": "サーバー稼働中",
   "connection.statusConnecting": "接続中…",
   "connection.statusConnected": "接続済み",
+  "connection.statusConnectedNotListening": "接続済み、待受なし",
   "connection.statusError": "エラー",
   "connection.noPeers": "接続されているアプリはまだありません。",
   "connectionGroup.title": "Webアプリブリッジ",

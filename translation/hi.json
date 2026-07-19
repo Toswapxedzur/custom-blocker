@@ -74,6 +74,7 @@
   "connection.statusRunning": "सर्वर चल रहा है",
   "connection.statusConnecting": "कनेक्ट हो रहा है...",
   "connection.statusConnected": "जुड़ा हुआ",
+  "connection.statusConnectedNotListening": "जुड़ा है, पर सुन नहीं रहा",
   "connection.statusError": "त्रुटि",
   "connection.noPeers": "अभी तक कोई कनेक्टेड ऐप्स नहीं है.",
   "connectionGroup.title": "वेब-ऐप ब्रिज",

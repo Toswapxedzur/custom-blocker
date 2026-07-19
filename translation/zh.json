@@ -74,6 +74,7 @@
   "connection.statusRunning": "服务器运行",
   "connection.statusConnecting": "正在连接…",
   "connection.statusConnected": "已连接",
+  "connection.statusConnectedNotListening": "已连接，未监听",
   "connection.statusError": "错误",
   "connection.noPeers": "还没有连接的应用程序。",
   "connectionGroup.title": "Web 应用桥",

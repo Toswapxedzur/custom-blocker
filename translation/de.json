@@ -74,6 +74,7 @@
   "connection.statusRunning": "Server läuft",
   "connection.statusConnecting": "Verbinden…",
   "connection.statusConnected": "Verbunden",
+  "connection.statusConnectedNotListening": "Verbunden, hört nicht zu",
   "connection.statusError": "Fehler",
   "connection.noPeers": "Noch keine verbundenen Apps.",
   "connectionGroup.title": "Web-App-Brücke",

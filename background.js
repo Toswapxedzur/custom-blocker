@@ -3496,6 +3496,7 @@ const cbConnection = {
   clusters: [],
   lastAnnounce: null,
   primaryStream: "none",
+  selectedStreams: { macapp: false, classifier: false },
   // Rapid-retry burst bookkeeping. burstStartMs marks the start of the current
   // retry window; openedThisAttempt tracks whether the live socket connected.
   burstStartMs: 0,
@@ -3506,13 +3507,35 @@ const cbConnection = {
     this.broadcast();
   },
 
+  // There is one physical loopback socket, but the two Settings cards are
+  // separate product targets. An unselected target can see that the local
+  // server is alive without being an active listener on that target's stream.
+  statusForTarget(target) {
+    const selected = Boolean(this.selectedStreams && this.selectedStreams[target]);
+    const current = { ...this.status };
+    if (current.state === "connected" || current.state === "running") {
+      return {
+        ...current,
+        state: selected ? "connected" : "connected-not-listening",
+        error: ""
+      };
+    }
+    if (!selected) {
+      return { ...current, state: "off", peers: [], error: "", hubProgram: "" };
+    }
+    // The Settings surface intentionally has five states. Transport failures
+    // remain available to diagnostics, but present as Disconnected here.
+    if (current.state === "error") return { ...current, state: "disconnected" };
+    return current;
+  },
+
   broadcast() {
     try {
       chrome.runtime
-        .sendMessage({ type: "connection-status-push", status: this.status })
+        .sendMessage({ type: "connection-status-push", status: this.statusForTarget("macapp") })
         .catch(() => {});
       chrome.runtime
-        .sendMessage({ type: "classifier-connection-status-push", status: this.status })
+        .sendMessage({ type: "classifier-connection-status-push", status: this.statusForTarget("classifier") })
         .catch(() => {});
     } catch (_) {}
   },
@@ -3888,6 +3911,7 @@ const cbConnection = {
     } catch (_) {}
     const macVaultSelected = Boolean(conn && conn.clientEnabled);
     const classifierSelected = Boolean(classifier && classifier.connectionEnabled === true);
+    this.selectedStreams = { macapp: macVaultSelected, classifier: classifierSelected };
     // Classifier is deliberately the efficient primary when both products are
     // selected; turning it off immediately makes Mac Vault the sole stream.
     this.primaryStream = classifierSelected ? "classifier" : (macVaultSelected ? "macapp" : "none");
@@ -3992,26 +4016,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "connection-connect":
       cbConnection.burstStartMs = 0;
       cbConnection.applyFromSettings();
-      sendResponse({ ok: true, status: cbConnection.status });
+      sendResponse({ ok: true, status: cbConnection.statusForTarget("macapp") });
       return false;
     case "connection-disconnect":
       cbConnection.applyFromSettings();
-      sendResponse({ ok: true, status: cbConnection.status });
+      sendResponse({ ok: true, status: cbConnection.statusForTarget("macapp") });
       return false;
     case "connection-status":
-      sendResponse({ ok: true, status: cbConnection.status });
+      sendResponse({ ok: true, status: cbConnection.statusForTarget("macapp") });
       return false;
     case "classifier-connection-connect":
       cbConnection.burstStartMs = 0;
       cbConnection.applyFromSettings();
-      sendResponse({ ok: true, status: cbConnection.status });
+      sendResponse({ ok: true, status: cbConnection.statusForTarget("classifier") });
       return false;
     case "classifier-connection-disconnect":
       cbConnection.applyFromSettings();
-      sendResponse({ ok: true, status: cbConnection.status });
+      sendResponse({ ok: true, status: cbConnection.statusForTarget("classifier") });
       return false;
     case "classifier-connection-status":
-      sendResponse({ ok: true, status: cbConnection.status });
+      sendResponse({ ok: true, status: cbConnection.statusForTarget("classifier") });
       return false;
     case "group-connect":
       if (cbConnection.primaryStream !== "macapp") { sendResponse({ ok: false, error: "macapp-not-primary" }); return false; }

@@ -74,6 +74,7 @@
   "connection.statusRunning": "Server running",
   "connection.statusConnecting": "Connecting…",
   "connection.statusConnected": "Connected",
+  "connection.statusConnectedNotListening": "Connected, not listening",
   "connection.statusError": "Error",
   "connection.noPeers": "No connected apps yet.",
   "connectionGroup.title": "Web-app bridge",

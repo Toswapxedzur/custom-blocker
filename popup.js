@@ -989,6 +989,8 @@ function connectionStatusLabel(status) {
       return t("connection.statusRunning");
     case "connected":
       return t("connection.statusConnected");
+    case "connected-not-listening":
+      return t("connection.statusConnectedNotListening");
     case "connecting":
       return t("connection.statusConnecting");
     case "error":

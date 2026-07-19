@@ -73,6 +73,7 @@
   "connection.statusRunning": "Serveur en cours d'exécution",
   "connection.statusConnecting": "Connexion…",
   "connection.statusConnected": "Connecté",
+  "connection.statusConnectedNotListening": "Connecté, sans écoute",
   "connection.statusError": "Erreur",
   "connection.noPeers": "Aucune application connectée pour l'instant.",
   "connectionGroup.title": "Pont d'application Web",

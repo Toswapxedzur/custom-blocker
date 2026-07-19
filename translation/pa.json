@@ -74,6 +74,7 @@
   "connection.statusRunning": "ਸਰਵਰ ਚੱਲ ਰਿਹਾ ਹੈ",
   "connection.statusConnecting": "ਕਨੈਕਟ ਕੀਤਾ ਜਾ ਰਿਹਾ ਹੈ...",
   "connection.statusConnected": "ਜੁੜਿਆ",
+  "connection.statusConnectedNotListening": "ਜੁੜਿਆ ਹੈ, ਪਰ ਸੁਣ ਨਹੀਂ ਰਿਹਾ",
   "connection.statusError": "ਗਲਤੀ",
   "connection.noPeers": "ਅਜੇ ਤੱਕ ਕੋਈ ਕਨੈਕਟ ਕੀਤੀਆਂ ਐਪਾਂ ਨਹੀਂ ਹਨ।",
   "connectionGroup.title": "ਵੈੱਬ-ਐਪ ਬ੍ਰਿਜ",

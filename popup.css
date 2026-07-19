@@ -544,6 +544,10 @@ textarea:focus {
   background: #16a34a;
 }
 
+.connection-dot.connected-not-listening {
+  background: #64748b;
+}
+
 .connection-dot.connecting {
   background: #f59e0b;
 }

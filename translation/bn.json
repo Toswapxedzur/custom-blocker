@@ -74,6 +74,7 @@
   "connection.statusRunning": "সার্ভার চলমান",
   "connection.statusConnecting": "সংযোগ করা হচ্ছে...",
   "connection.statusConnected": "সংযুক্ত",
+  "connection.statusConnectedNotListening": "সংযুক্ত, কিন্তু শুনছে না",
   "connection.statusError": "ত্রুটি",
   "connection.noPeers": "এখনো কোনো সংযুক্ত অ্যাপ নেই।",
   "connectionGroup.title": "ওয়েব অ্যাপ ব্রিজ",

@@ -74,6 +74,7 @@
   "connection.statusRunning": "เซิร์ฟเวอร์ทำงาน",
   "connection.statusConnecting": "กำลังเชื่อมต่อ...",
   "connection.statusConnected": "เชื่อมต่อแล้ว",
+  "connection.statusConnectedNotListening": "เชื่อมต่อแล้ว แต่ไม่ได้รับฟัง",
   "connection.statusError": "เกิดข้อผิดพลาด",
   "connection.noPeers": "ยังไม่มีแอปที่เชื่อมต่อ",
   "connectionGroup.title": "บริดจ์เว็บแอป",
