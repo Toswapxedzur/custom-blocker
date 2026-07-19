@@ -12,22 +12,42 @@ const end = source.indexOf("\nself.CBClassifierHub = cbClassifierHub;", start);
 if (start < 0 || end < 0) throw new Error("Could not locate classifier hub.");
 
 const sent = [];
+const fallbackSockets = [];
 let classifierPresent = true;
+class FakeWebSocket {
+  static OPEN = 1;
+
+  constructor(address) {
+    this.address = address;
+    this.readyState = 0;
+    this.sent = [];
+    fallbackSockets.push(this);
+  }
+
+  send(value) { this.sent.push(JSON.parse(value)); }
+  close() { this.readyState = 3; }
+  open() { this.readyState = FakeWebSocket.OPEN; this.onopen?.(); }
+  message(value) { this.onmessage?.({ data: JSON.stringify(value) }); }
+}
 const connection = {
   primaryStream: "macapp",
-  ws: { readyState: 1 },
+  ws: { readyState: FakeWebSocket.OPEN },
   status: { state: "connected" },
   targetIsPresent(target) { return target === "classifier" && classifierPresent; },
   send(message) { sent.push(message); return true; }
 };
 const context = vm.createContext({
   cbConnection: connection,
-  WebSocket: { OPEN: 1 },
+  WebSocket: FakeWebSocket,
+  CB_FIXED_ADDRESS: "ws://127.0.0.1:8787",
+  CB_CONNECTION_PROTOCOL_VERSION: 3,
+  cbDetectProgramId: () => "chrome",
+  CBBridgeProtocol: { isHubProgram: (value) => value === "macapp" || value === "classifier" },
   TextEncoder,
   setTimeout,
   clearTimeout,
   console,
-  VaultClassifierExtensionContract: { randomID: () => "classifier-relay-test" }
+  VaultClassifierExtensionContract: { randomID: (prefix) => `${prefix}-test` }
 });
 context.self = context;
 vm.runInContext(`${source.slice(start, end)}\nself.__classifierHub = cbClassifierHub;`, context, { filename: "background.js" });
@@ -52,7 +72,7 @@ function assert(name, condition, detail) {
   );
   hub.receive({
     kind: "classifier-response",
-    requestID: "classifier-relay-test",
+    requestID: "classifier-test",
     operation: "collection-info",
     body: { enabledPlatformIDs: ["youtube"] }
   });
@@ -60,8 +80,33 @@ function assert(name, condition, detail) {
   assert("accepts the matching relay response regardless of primary stream", response.enabledPlatformIDs?.[0] === "youtube", response);
 
   classifierPresent = false;
+  const fallbackPending = hub.request("collection-info", {});
+  await new Promise((resolve) => setImmediate(resolve));
+  const fallback = fallbackSockets.at(-1);
+  fallback.open();
+  fallback.message({ kind: "welcome", v: 3, hubProgram: "macapp", peers: [{ program: "classifier", connected: true }] });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(
+    "uses a temporary fallback socket when the durable worker socket is stale",
+    fallback.sent.some((message) => message.kind === "classifier-request" && message.operation === "collection-info"),
+    fallback.sent
+  );
+  fallback.message({
+    kind: "classifier-response",
+    requestID: "classifier-fallback-test",
+    operation: "collection-info",
+    body: { enabledPlatformIDs: ["youtube"] }
+  });
+  const fallbackResponse = await fallbackPending;
+  assert("accepts the fallback relay response", fallbackResponse.enabledPlatformIDs?.[0] === "youtube", fallbackResponse);
+
   try {
-    await hub.request("collection-info", {});
+    const noPeer = hub.request("collection-info", {});
+    await new Promise((resolve) => setImmediate(resolve));
+    const rejectedSocket = fallbackSockets.at(-1);
+    rejectedSocket.open();
+    rejectedSocket.message({ kind: "welcome", v: 3, hubProgram: "macapp", peers: [] });
+    await noPeer;
     assert("rejects a hub that has no Classifier peer", false);
   } catch (error) {
     assert("rejects a hub that has no Classifier peer", /unavailable/.test(String(error && error.message)));
