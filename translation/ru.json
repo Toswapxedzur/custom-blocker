@@ -74,6 +74,7 @@
   "connection.statusRunning": "Сервер работает",
   "connection.statusConnecting": "Подключение…",
   "connection.statusConnected": "Подключено",
+  "connection.statusConnectedNotListening": "Подключено, без прослушивания",
   "connection.statusError": "Ошибка",
   "connection.noPeers": "Подключенных приложений пока нет.",
   "connectionGroup.title": "Мост через веб-приложение",

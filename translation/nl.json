@@ -74,6 +74,7 @@
   "connection.statusRunning": "Server actief",
   "connection.statusConnecting": "Verbinden…",
   "connection.statusConnected": "Verbonden",
+  "connection.statusConnectedNotListening": "Verbonden, luistert niet",
   "connection.statusError": "Fout",
   "connection.noPeers": "Nog geen verbonden apps.",
   "connectionGroup.title": "Web-app-brug",

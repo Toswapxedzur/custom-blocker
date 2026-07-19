@@ -74,6 +74,7 @@
   "connection.statusRunning": "Sunucu çalışıyor",
   "connection.statusConnecting": "Bağlanıyor…",
   "connection.statusConnected": "Bağlı",
+  "connection.statusConnectedNotListening": "Bağlı, dinlemiyor",
   "connection.statusError": "Hata",
   "connection.noPeers": "Henüz bağlı uygulama yok.",
   "connectionGroup.title": "Web uygulaması köprüsü",

@@ -74,6 +74,7 @@
   "connection.statusRunning": "Servidor en ejecución",
   "connection.statusConnecting": "Conectando…",
   "connection.statusConnected": "Conectado",
+  "connection.statusConnectedNotListening": "Conectado, sin escuchar",
   "connection.statusError": "error",
   "connection.noPeers": "Aún no hay aplicaciones conectadas.",
   "connectionGroup.title": "Puente de aplicación web",

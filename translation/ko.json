@@ -74,6 +74,7 @@
   "connection.statusRunning": "서버 실행 중",
   "connection.statusConnecting": "연결 중…",
   "connection.statusConnected": "연결됨",
+  "connection.statusConnectedNotListening": "연결됨, 수신 안 함",
   "connection.statusError": "오류",
   "connection.noPeers": "아직 연결된 앱이 없습니다.",
   "connectionGroup.title": "웹앱 브리지",

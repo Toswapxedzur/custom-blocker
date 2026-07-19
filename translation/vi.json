@@ -74,6 +74,7 @@
   "connection.statusRunning": "Máy chủ đang chạy",
   "connection.statusConnecting": "Đang kết nối…",
   "connection.statusConnected": "Đã kết nối",
+  "connection.statusConnectedNotListening": "Đã kết nối, không lắng nghe",
   "connection.statusError": "Lỗi",
   "connection.noPeers": "Chưa có ứng dụng nào được kết nối.",
   "connectionGroup.title": "Cầu ứng dụng web",

@@ -74,6 +74,7 @@
   "connection.statusRunning": "Serwer działa",
   "connection.statusConnecting": "Łączę…",
   "connection.statusConnected": "Połączono",
+  "connection.statusConnectedNotListening": "Połączono, brak nasłuchu",
   "connection.statusError": "Błąd",
   "connection.noPeers": "Nie ma jeszcze połączonych aplikacji.",
   "connectionGroup.title": "Most aplikacji internetowej",

@@ -74,6 +74,7 @@
   "connection.statusRunning": "Server berjalan",
   "connection.statusConnecting": "Menghubungkan…",
   "connection.statusConnected": "Terhubung",
+  "connection.statusConnectedNotListening": "Terhubung, tidak mendengarkan",
   "connection.statusError": "Kesalahan",
   "connection.noPeers": "Belum ada aplikasi yang terhubung.",
   "connectionGroup.title": "Jembatan aplikasi web",

@@ -74,6 +74,7 @@
   "connection.statusRunning": "الخادم قيد التشغيل",
   "connection.statusConnecting": "جارٍ الاتصال…",
   "connection.statusConnected": "متصل",
+  "connection.statusConnectedNotListening": "متصل، لا يستمع",
   "connection.statusError": "خطأ",
   "connection.noPeers": "لا توجد تطبيقات متصلة حتى الآن.",
   "connectionGroup.title": "جسر تطبيقات الويب",
