@@ -3970,8 +3970,10 @@ const cbConnection = {
 const CB_CLASSIFIER_HUB_MAX_PENDING = 16;
 const CB_CLASSIFIER_HUB_TIMEOUT_MS = 6_000;
 const CB_CLASSIFIER_HUB_CONNECT_WAIT_MS = 5_000;
+const CB_CLASSIFIER_HUB_MAX_FALLBACK_REQUESTS = 4;
 const cbClassifierHub = {
   pending: new Map(),
+  fallbackRequests: 0,
 
   isReady(connection) {
     return Boolean(
@@ -4007,6 +4009,129 @@ const cbClassifierHub = {
     });
   },
 
+  responseBody(message, operation) {
+    if (!message || message.operation !== operation) {
+      throw new Error("Vault Classifier returned an invalid response.");
+    }
+    if (typeof message.error === "string" && message.error.length <= 256) {
+      throw new Error(message.error);
+    }
+    if (!message.body || typeof message.body !== "object" || Array.isArray(message.body)) {
+      throw new Error("Vault Classifier returned an invalid response.");
+    }
+    let bodyJSON;
+    try {
+      bodyJSON = JSON.stringify(message.body);
+    } catch (_) {
+      throw new Error("Vault Classifier returned an invalid response.");
+    }
+    if (typeof bodyJSON !== "string" || new TextEncoder().encode(bodyJSON).length > 88_000) {
+      throw new Error("Vault Classifier response exceeds the shared bridge limit.");
+    }
+    return message.body;
+  },
+
+  requestOnSharedSocket(connection, operation, body) {
+    if (this.pending.size >= CB_CLASSIFIER_HUB_MAX_PENDING) {
+      return Promise.reject(new Error("Vault Classifier is busy."));
+    }
+    const requestID = self.VaultClassifierExtensionContract.randomID("classifier");
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const pending = this.pending.get(requestID);
+        if (!pending) return;
+        this.pending.delete(requestID);
+        reject(new Error("Vault Classifier request timed out."));
+      }, CB_CLASSIFIER_HUB_TIMEOUT_MS);
+      this.pending.set(requestID, { operation, resolve, reject, timer });
+      if (!connection.send({ kind: "classifier-request", requestID, operation, body })) {
+        clearTimeout(timer);
+        this.pending.delete(requestID);
+        reject(new Error("The Vault Classifier bridge is unavailable."));
+      }
+    });
+  },
+
+  requestViaFallbackSocket(operation, body) {
+    if (this.fallbackRequests >= CB_CLASSIFIER_HUB_MAX_FALLBACK_REQUESTS) {
+      return Promise.reject(new Error("Vault Classifier is busy."));
+    }
+    this.fallbackRequests += 1;
+    const requestID = self.VaultClassifierExtensionContract.randomID("classifier-fallback");
+    return new Promise((resolve, reject) => {
+      let socket = null;
+      let settled = false;
+      let welcomed = false;
+      const finish = (completion, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        this.fallbackRequests = Math.max(0, this.fallbackRequests - 1);
+        if (socket) {
+          try {
+            socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
+            socket.close();
+          } catch (_) {}
+        }
+        completion(value);
+      };
+      const timeout = setTimeout(() => finish(reject, new Error("Vault Classifier request timed out.")), CB_CLASSIFIER_HUB_TIMEOUT_MS);
+      try {
+        socket = new WebSocket(CB_FIXED_ADDRESS);
+      } catch (_) {
+        finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+        return;
+      }
+      socket.onopen = () => {
+        try {
+          socket.send(JSON.stringify({
+            kind: "hello",
+            v: CB_CONNECTION_PROTOCOL_VERSION,
+            program: cbDetectProgramId()
+          }));
+        } catch (_) {
+          finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+        }
+      };
+      socket.onmessage = (event) => {
+        let message;
+        try {
+          message = typeof event?.data === "string" ? JSON.parse(event.data) : event?.data;
+        } catch (_) {
+          finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+          return;
+        }
+        if (!message || typeof message !== "object") return;
+        if (message.kind === "welcome" && !welcomed) {
+          const peers = Array.isArray(message.peers) ? message.peers : [];
+          const classifierPresent = message.hubProgram === "classifier" || peers.some((peer) => peer && peer.program === "classifier" && peer.connected !== false);
+          if (message.v !== CB_CONNECTION_PROTOCOL_VERSION || !self.CBBridgeProtocol.isHubProgram(message.hubProgram) || !classifierPresent) {
+            finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+            return;
+          }
+          welcomed = true;
+          try {
+            socket.send(JSON.stringify({ kind: "classifier-request", requestID, operation, body }));
+          } catch (_) {
+            finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+          }
+          return;
+        }
+        if (message.kind === "classifier-response" && message.requestID === requestID) {
+          try {
+            finish(resolve, this.responseBody(message, operation));
+          } catch (error) {
+            finish(reject, error);
+          }
+        }
+      };
+      socket.onerror = () => finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+      socket.onclose = () => {
+        if (!settled) finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+      };
+    });
+  },
+
   request(operation, body) {
     if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "diagnostic" && operation !== "collect" && operation !== "classify" && operation !== "correct") {
       return Promise.reject(new Error("Unsupported Vault Classifier operation."));
@@ -4024,26 +4149,17 @@ const cbClassifierHub = {
     if (typeof bodyJSON !== "string" || new TextEncoder().encode(bodyJSON).length > 88_000) {
       return Promise.reject(new Error("Vault Classifier request exceeds the shared bridge limit."));
     }
-    return this.waitForReady(connection).then(() => {
-      if (this.pending.size >= CB_CLASSIFIER_HUB_MAX_PENDING) {
-        throw new Error("Vault Classifier is busy.");
-      }
-      const requestID = self.VaultClassifierExtensionContract.randomID("classifier");
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          const pending = this.pending.get(requestID);
-          if (!pending) return;
-          this.pending.delete(requestID);
-          reject(new Error("Vault Classifier request timed out."));
-        }, CB_CLASSIFIER_HUB_TIMEOUT_MS);
-        this.pending.set(requestID, { operation, resolve, reject, timer });
-        if (!connection.send({ kind: "classifier-request", requestID, operation, body })) {
-          clearTimeout(timer);
-          this.pending.delete(requestID);
-          reject(new Error("The Vault Classifier bridge is unavailable."));
+    return this.waitForReady(connection)
+      .then(
+        () => this.requestOnSharedSocket(connection, operation, body),
+        (error) => {
+        // Respect an explicit Off choice. Otherwise a short-lived fallback
+        // socket can bridge a stale MV3 worker state without adding another
+        // durable data stream or persisting page evidence in the extension.
+        if (!connection || connection.primaryStream === "none") throw error;
+        return this.requestViaFallbackSocket(operation, body);
         }
-      });
-    });
+      );
   },
 
   receive(message) {
@@ -4052,26 +4168,11 @@ const cbClassifierHub = {
     if (!pending || !message || message.operation !== pending.operation) return;
     this.pending.delete(requestID);
     clearTimeout(pending.timer);
-    if (typeof message.error === "string" && message.error.length <= 256) {
-      pending.reject(new Error(message.error));
-      return;
-    }
-    if (!message.body || typeof message.body !== "object" || Array.isArray(message.body)) {
-      pending.reject(new Error("Vault Classifier returned an invalid response."));
-      return;
-    }
-    let bodyJSON;
     try {
-      bodyJSON = JSON.stringify(message.body);
-    } catch (_) {
-      pending.reject(new Error("Vault Classifier returned an invalid response."));
-      return;
+      pending.resolve(this.responseBody(message, pending.operation));
+    } catch (error) {
+      pending.reject(error);
     }
-    if (typeof bodyJSON !== "string" || new TextEncoder().encode(bodyJSON).length > 88_000) {
-      pending.reject(new Error("Vault Classifier response exceeds the shared bridge limit."));
-      return;
-    }
-    pending.resolve(message.body);
   },
 
   rejectAll(reason) {
