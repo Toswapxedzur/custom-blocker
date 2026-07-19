@@ -9,10 +9,10 @@ const root = path.resolve(__dirname, "..");
 const messages = [];
 const errors = [];
 
-function element({ href = null, text = "", matches = false, query = {}, queryAll = {} } = {}) {
+function element({ href = null, text = "", matches = false, attrs = {}, query = {}, queryAll = {} } = {}) {
   return {
     textContent: text,
-    getAttribute(name) { return name === "href" ? href : null; },
+    getAttribute(name) { return name === "href" ? href : (attrs[name] || null); },
     matches() { return matches; },
     closest() { return null; },
     querySelector(selector) { return query[selector] || null; },
@@ -23,6 +23,8 @@ function element({ href = null, text = "", matches = false, query = {}, queryAll
 const title = element({ text: "Visible related video" });
 const video = element({ href: "/watch?v=dQw4w9WgXcQ" });
 const creator = element({ href: "/@VisibleCreator", text: "Visible Creator" });
+const creatorImage = element({ attrs: { src: "https://yt3.ggpht.com/visible-creator-avatar=s88" } });
+const creatorAvatar = element({ href: "/@VisibleCreator", queryAll: { img: [creatorImage] } });
 const feedCard = element({
   query: { "#video-title": title },
   queryAll: {
@@ -38,7 +40,8 @@ const feedCard = element({
     "#owner a[href]": [],
     "ytd-video-owner-renderer a[href]": [],
     "a[href^='/@']": [creator],
-    "a[href*='youtube.com/@']": []
+    "a[href*='youtube.com/@']": [],
+    "a#avatar-link[href]": [creatorAvatar]
   }
 });
 
@@ -93,6 +96,7 @@ setTimeout(() => {
     && collection.entry?.sourceID === "youtube:handle:@visiblecreator"
     && collection.entry?.evidence?.metadata?.sourceName === "Visible Creator"
     && collection.entry?.evidence?.title === "Visible related video"
+    && collection.entry?.evidence?.metadata?.creatorAvatarURL === "https://yt3.ggpht.com/visible-creator-avatar=s88"
     && errors.length === 0);
   if (passes) {
     console.log("PASS collects a card that has a handle but no channel-id link");
