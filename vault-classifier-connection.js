@@ -1,4 +1,5 @@
-// Independent connection to the shared ephemeral Vault broker.
+// Legacy standalone classifier connection. The current extension routes this
+// traffic through its one shared local hub socket in background.js.
 //
 // This deliberately does not reuse the Web-app bridge socket. Both listeners
 // use the same broker protocol, but classifier requests have an independent
@@ -13,7 +14,7 @@
   if (!bridge || typeof bridge.isHubProgram !== "function" || typeof WebSocket === "undefined" || typeof chrome === "undefined" || !chrome.runtime || !chrome.storage?.local) return;
 
   const SETTINGS_KEY = "vaultClassifierSettings";
-  const ADDRESS = "wss://customblocker.com/api/vault-bridge";
+  const ADDRESS = "ws://127.0.0.1:8787";
   const PROTOCOL_VERSION = bridge.PROTOCOL_VERSION;
   const PING_INTERVAL_MS = 20_000;
   const RETRY_INTERVAL_MS = 5_000;

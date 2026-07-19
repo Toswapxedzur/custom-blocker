@@ -74,7 +74,7 @@ const context = vm.createContext({
   console,
   CBBridgeProtocol: {
     PROTOCOL_VERSION: 3,
-    isHubProgram(value) { return value === "vault-broker"; }
+    isHubProgram(value) { return value === "macapp" || value === "classifier"; }
   },
   CBClassifierHub: {
     receive(message) { received.push(message); },
@@ -103,13 +103,13 @@ function dispatch(message) {
 (async () => {
   vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-connection.js"), "utf8"), context, { filename: "vault-classifier-connection.js" });
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert("starts an independent classifier connection from classifier settings", sockets.length === 1 && sockets[0].address === "wss://customblocker.com/api/vault-bridge");
+  assert("keeps the legacy local classifier connector bounded", sockets.length === 1 && sockets[0].address === "ws://127.0.0.1:8787");
 
   const socket = sockets[0];
   socket.open();
   assert("identifies as a browser without a pairing key", socket.sent.length === 1 && socket.sent[0].kind === "hello" && socket.sent[0].program === "chrome" && !Object.hasOwn(socket.sent[0], "pairingKey"), socket.sent);
 
-  socket.message({ kind: "welcome", v: 3, hubProgram: "vault-broker", peers: [] });
+  socket.message({ kind: "welcome", v: 3, hubProgram: "classifier", peers: [] });
   assert("publishes the connected classifier status", context.CBClassifierConnection.status.state === "connected" && pushes.some((message) => message.type === "classifier-connection-status-push" && message.status.state === "connected"), pushes);
 
   socket.message({ kind: "classifier-response", requestID: "classifier-test", operation: "collect", body: { accepted: true } });

@@ -21,11 +21,11 @@ function assertEqual(name, actual, expected) {
   return false;
 }
 
-log.section("P1: public broker protocol");
+log.section("P1: fixed local hub protocol");
 assertEqual("protocol version is v3", bridge.PROTOCOL_VERSION, 3);
 assert("browser programs may connect", bridge.isRemoteProgram("firefox"));
 assert("desktop identities may not impersonate a remote peer", !bridge.isRemoteProgram("windowsapp"));
-assert("the broker is a recognised hub", bridge.isHubProgram("vault-broker"));
+assert("Mac Vault is a recognised local hub", bridge.isHubProgram("macapp"));
 
 log.section("P2: distinct desktop identities");
 assertEqual("Mac identity remains macapp", bridge.nativeProgramId("macapp"), "macapp");
@@ -33,7 +33,7 @@ assertEqual("Windows identity remains windowsapp", bridge.nativeProgramId("windo
 assertEqual("Classifier remains a desktop peer identity", bridge.nativeProgramId("classifier"), "classifier");
 assertEqual("client learns Windows hub identity", bridge.hubProgramFromStatus({ hubProgram: "windowsapp" }), "windowsapp");
 assertEqual("client learns Classifier hub identity", bridge.hubProgramFromStatus({ hubProgram: "classifier" }), "classifier");
-assertEqual("client learns broker identity", bridge.hubProgramFromStatus({ hubProgram: "vault-broker" }), "vault-broker");
+assertEqual("public broker identity is no longer accepted", bridge.hubProgramFromStatus({ hubProgram: "vault-broker" }), "");
 
 log.section("P3: pinned group identity");
 const groups = [
