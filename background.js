@@ -2003,6 +2003,20 @@ function recordVaultClassifierDiagnostic(entry) {
 }
 self.CBRecordVaultClassifierDiagnostic = recordVaultClassifierDiagnostic;
 
+// Transport diagnostics are deliberately local-only stage tokens. They help
+// distinguish an unavailable native peer from a service-worker startup race or
+// fallback socket failure without retaining page evidence or raw exception text.
+function recordVaultClassifierTransportDiagnostic(stage, outcome = "extension") {
+  if (typeof stage !== "string" || !/^[a-z0-9-]{1,48}$/.test(stage)) return;
+  if (typeof outcome !== "string" || !/^[a-z0-9-]{1,32}$/.test(outcome)) return;
+  recordVaultClassifierDiagnostic({
+    platform: "bridge",
+    event: `transport-${stage}`,
+    outcome
+  });
+}
+self.CBRecordVaultClassifierTransportDiagnostic = recordVaultClassifierTransportDiagnostic;
+
 function ingestSandboxLogs(result, descriptor) {
   if (!result) return;
   const eventType = descriptor && descriptor.type ? descriptor.type : "";
@@ -3520,6 +3534,11 @@ const cbConnection = {
   // must also accept our protocol hello with a welcome message.
   burstStartMs: 0,
   handshakeComplete: false,
+  // The service worker can be started by a collector message before its
+  // asynchronous settings read finishes. Classifier requests must wait for
+  // that read rather than treating the initial `primaryStream: none` default
+  // as an explicit user Off choice.
+  settingsReady: null,
 
   setStatus(patch) {
     this.status = { ...this.status, ...patch };
@@ -3939,27 +3958,35 @@ const cbConnection = {
     }
   },
 
-  async applyFromSettings() {
-    let conn = null;
-    let classifier = null;
-    try {
-      const r = await chrome.storage.local.get([CB_GLOBAL_SETTINGS_KEY, "vaultClassifierSettings"]);
-      const s = r && r[CB_GLOBAL_SETTINGS_KEY];
-      conn = s && typeof s === "object" ? s.connection : null;
-      classifier = r && r.vaultClassifierSettings;
-    } catch (_) {}
-    const macVaultSelected = Boolean(conn && conn.clientEnabled);
-    const classifierSelected = Boolean(classifier && classifier.connectionEnabled === true);
-    this.selectedStreams = { macapp: macVaultSelected, classifier: classifierSelected };
-    // Classifier is deliberately the efficient primary when both products are
-    // selected; turning it off immediately makes Mac Vault the sole stream.
-    this.primaryStream = classifierSelected ? "classifier" : (macVaultSelected ? "macapp" : "none");
-    if (this.primaryStream !== "none") {
-      this.burstStartMs = 0;
-      this.connect();
-    } else {
-      this.disconnect();
-    }
+  waitForSettings() {
+    return this.settingsReady || this.applyFromSettings();
+  },
+
+  applyFromSettings() {
+    const task = (async () => {
+      let conn = null;
+      let classifier = null;
+      try {
+        const r = await chrome.storage.local.get([CB_GLOBAL_SETTINGS_KEY, "vaultClassifierSettings"]);
+        const s = r && r[CB_GLOBAL_SETTINGS_KEY];
+        conn = s && typeof s === "object" ? s.connection : null;
+        classifier = r && r.vaultClassifierSettings;
+      } catch (_) {}
+      const macVaultSelected = Boolean(conn && conn.clientEnabled);
+      const classifierSelected = Boolean(classifier && classifier.connectionEnabled === true);
+      this.selectedStreams = { macapp: macVaultSelected, classifier: classifierSelected };
+      // Classifier is deliberately the efficient primary when both products are
+      // selected; turning it off immediately makes Mac Vault the sole stream.
+      this.primaryStream = classifierSelected ? "classifier" : (macVaultSelected ? "macapp" : "none");
+      if (this.primaryStream !== "none") {
+        this.burstStartMs = 0;
+        this.connect();
+      } else {
+        this.disconnect();
+      }
+    })();
+    this.settingsReady = task.catch(() => {});
+    return task;
   }
 };
 
@@ -3974,6 +4001,14 @@ const CB_CLASSIFIER_HUB_MAX_FALLBACK_REQUESTS = 4;
 const cbClassifierHub = {
   pending: new Map(),
   fallbackRequests: 0,
+
+  recordTransport(stage, outcome = "extension") {
+    try {
+      if (typeof self.CBRecordVaultClassifierTransportDiagnostic === "function") {
+        self.CBRecordVaultClassifierTransportDiagnostic(stage, outcome);
+      }
+    } catch (_) {}
+  },
 
   isReady(connection) {
     return Boolean(
@@ -4041,12 +4076,14 @@ const cbClassifierHub = {
         const pending = this.pending.get(requestID);
         if (!pending) return;
         this.pending.delete(requestID);
+        this.recordTransport("durable-timeout", "unavailable");
         reject(new Error("Vault Classifier request timed out."));
       }, CB_CLASSIFIER_HUB_TIMEOUT_MS);
       this.pending.set(requestID, { operation, resolve, reject, timer });
       if (!connection.send({ kind: "classifier-request", requestID, operation, body })) {
         clearTimeout(timer);
         this.pending.delete(requestID);
+        this.recordTransport("durable-send-failed", "unavailable");
         reject(new Error("The Vault Classifier bridge is unavailable."));
       }
     });
@@ -4054,6 +4091,7 @@ const cbClassifierHub = {
 
   requestViaFallbackSocket(operation, body) {
     if (this.fallbackRequests >= CB_CLASSIFIER_HUB_MAX_FALLBACK_REQUESTS) {
+      this.recordTransport("fallback-busy", "unavailable");
       return Promise.reject(new Error("Vault Classifier is busy."));
     }
     this.fallbackRequests += 1;
@@ -4075,11 +4113,18 @@ const cbClassifierHub = {
         }
         completion(value);
       };
-      const timeout = setTimeout(() => finish(reject, new Error("Vault Classifier request timed out.")), CB_CLASSIFIER_HUB_TIMEOUT_MS);
+      const fail = (stage, error) => {
+        this.recordTransport(stage, "unavailable");
+        finish(reject, error);
+      };
+      const timeout = setTimeout(
+        () => fail("fallback-timeout", new Error("Vault Classifier request timed out.")),
+        CB_CLASSIFIER_HUB_TIMEOUT_MS
+      );
       try {
         socket = new WebSocket(CB_FIXED_ADDRESS);
       } catch (_) {
-        finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+        fail("fallback-constructor-failed", new Error("The Vault Classifier bridge is unavailable."));
         return;
       }
       socket.onopen = () => {
@@ -4090,7 +4135,7 @@ const cbClassifierHub = {
             program: cbDetectProgramId()
           }));
         } catch (_) {
-          finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+          fail("fallback-hello-failed", new Error("The Vault Classifier bridge is unavailable."));
         }
       };
       socket.onmessage = (event) => {
@@ -4098,22 +4143,26 @@ const cbClassifierHub = {
         try {
           message = typeof event?.data === "string" ? JSON.parse(event.data) : event?.data;
         } catch (_) {
-          finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+          fail("fallback-invalid-frame", new Error("The Vault Classifier bridge is unavailable."));
           return;
         }
         if (!message || typeof message !== "object") return;
         if (message.kind === "welcome" && !welcomed) {
           const peers = Array.isArray(message.peers) ? message.peers : [];
           const classifierPresent = message.hubProgram === "classifier" || peers.some((peer) => peer && peer.program === "classifier" && peer.connected !== false);
-          if (message.v !== CB_CONNECTION_PROTOCOL_VERSION || !self.CBBridgeProtocol.isHubProgram(message.hubProgram) || !classifierPresent) {
-            finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+          if (message.v !== CB_CONNECTION_PROTOCOL_VERSION || !self.CBBridgeProtocol.isHubProgram(message.hubProgram)) {
+            fail("fallback-invalid-welcome", new Error("The Vault Classifier bridge is unavailable."));
+            return;
+          }
+          if (!classifierPresent) {
+            fail("fallback-classifier-missing", new Error("The Vault Classifier bridge is unavailable."));
             return;
           }
           welcomed = true;
           try {
             socket.send(JSON.stringify({ kind: "classifier-request", requestID, operation, body }));
           } catch (_) {
-            finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+            fail("fallback-send-failed", new Error("The Vault Classifier bridge is unavailable."));
           }
           return;
         }
@@ -4121,13 +4170,13 @@ const cbClassifierHub = {
           try {
             finish(resolve, this.responseBody(message, operation));
           } catch (error) {
-            finish(reject, error);
+            fail("fallback-invalid-response", error);
           }
         }
       };
-      socket.onerror = () => finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+      socket.onerror = () => fail("fallback-socket-error", new Error("The Vault Classifier bridge is unavailable."));
       socket.onclose = () => {
-        if (!settled) finish(reject, new Error("The Vault Classifier bridge is unavailable."));
+        if (!settled) fail("fallback-socket-closed", new Error("The Vault Classifier bridge is unavailable."));
       };
     });
   },
@@ -4136,7 +4185,6 @@ const cbClassifierHub = {
     if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "diagnostic" && operation !== "collect" && operation !== "classify" && operation !== "correct") {
       return Promise.reject(new Error("Unsupported Vault Classifier operation."));
     }
-    const connection = cbConnection;
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return Promise.reject(new Error("Invalid Vault Classifier request."));
     }
@@ -4149,14 +4197,23 @@ const cbClassifierHub = {
     if (typeof bodyJSON !== "string" || new TextEncoder().encode(bodyJSON).length > 88_000) {
       return Promise.reject(new Error("Vault Classifier request exceeds the shared bridge limit."));
     }
-    return this.waitForReady(connection)
+    const connection = cbConnection;
+    const settingsReady = connection && typeof connection.waitForSettings === "function"
+      ? connection.waitForSettings()
+      : Promise.resolve();
+    return Promise.resolve(settingsReady)
+      .then(() => this.waitForReady(connection))
       .then(
         () => this.requestOnSharedSocket(connection, operation, body),
         (error) => {
         // Respect an explicit Off choice. Otherwise a short-lived fallback
         // socket can bridge a stale MV3 worker state without adding another
         // durable data stream or persisting page evidence in the extension.
-        if (!connection || connection.primaryStream === "none") throw error;
+        if (!connection || connection.primaryStream === "none") {
+          this.recordTransport("settings-off", "unavailable");
+          throw error;
+        }
+        this.recordTransport("fallback-attempt", "extension");
         return this.requestViaFallbackSocket(operation, body);
         }
       );
