@@ -3485,7 +3485,7 @@ function cbRebaseClusterUsage(groupId, sharedMs, resetAt) {
 const cbConnection = {
   ws: null,
   pingTimer: null,
-  handshakeTimer: null,
+  connectTimer: null,
   reconnectTimer: null,
   desired: false,
   address: CB_FIXED_ADDRESS,
@@ -3498,9 +3498,10 @@ const cbConnection = {
   primaryStream: "none",
   selectedStreams: { macapp: false, classifier: false },
   // Rapid-retry burst bookkeeping. burstStartMs marks the start of the current
-  // retry window; openedThisAttempt tracks whether the live socket connected.
+  // retry window. A raw WebSocket open is not a usable connection: the hub
+  // must also accept our protocol hello with a welcome message.
   burstStartMs: 0,
-  openedThisAttempt: false,
+  handshakeComplete: false,
 
   setStatus(patch) {
     this.status = { ...this.status, ...patch };
@@ -3508,15 +3509,26 @@ const cbConnection = {
   },
 
   // There is one physical loopback socket, but the two Settings cards are
-  // separate product targets. An unselected target can see that the local
-  // server is alive without being an active listener on that target's stream.
+  // separate product targets. A target is genuinely connected only when its
+  // native app owns the hub or is listed as a currently connected peer.
+  // Otherwise the live shared server is visible as "connected, not listening".
+  targetIsPresent(target, status = this.status) {
+    if (!target || !status || typeof status !== "object") return false;
+    if (status.hubProgram === target) return true;
+    return Array.isArray(status.peers) && status.peers.some(
+      (peer) => peer && peer.program === target && peer.connected !== false
+    );
+  },
+
   statusForTarget(target) {
     const selected = Boolean(this.selectedStreams && this.selectedStreams[target]);
     const current = { ...this.status };
     if (current.state === "connected" || current.state === "running") {
       return {
         ...current,
-        state: selected ? "connected" : "connected-not-listening",
+        state: selected && this.targetIsPresent(target, current)
+          ? "connected"
+          : "connected-not-listening",
         error: ""
       };
     }
@@ -3688,9 +3700,9 @@ const cbConnection = {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
     }
-    if (this.handshakeTimer) {
-      clearTimeout(this.handshakeTimer);
-      this.handshakeTimer = null;
+    if (this.connectTimer) {
+      clearTimeout(this.connectTimer);
+      this.connectTimer = null;
     }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -3715,7 +3727,7 @@ const cbConnection = {
     this.closeSocket();
     if (this.burstStartMs === 0) this.burstStartMs = Date.now();
     this.setStatus({ state: "connecting", address: this.address, error: "", hubProgram: "" });
-    this.openedThisAttempt = false;
+    this.handshakeComplete = false;
     let socket;
     try {
       socket = new WebSocket(this.address);
@@ -3725,10 +3737,19 @@ const cbConnection = {
       return;
     }
     this.ws = socket;
+    // A connection is usable only after the protocol welcome. Give the whole
+    // socket-open + hello/welcome exchange five seconds, then visibly settle
+    // on Disconnected while retaining the user's requested slow retry.
+    this.connectTimer = setTimeout(() => {
+      if (this.ws === socket && !this.handshakeComplete) {
+        this.connectTimer = null;
+        this.closeSocket();
+        this.burstStartMs = 0;
+        this.setStatus({ state: "disconnected", error: "connection-timeout", peers: [], hubProgram: "" });
+        this.scheduleSlowRetry();
+      }
+    }, CB_CONNECTION_BURST_WINDOW_MS);
     socket.onopen = () => {
-      this.openedThisAttempt = true;
-      // Connected — close the current retry window.
-      this.burstStartMs = 0;
       try {
         socket.send(
           JSON.stringify({
@@ -3738,13 +3759,6 @@ const cbConnection = {
           })
         );
       } catch (_) {}
-      this.handshakeTimer = setTimeout(() => {
-        if (this.ws === socket && this.status.state !== "connected") {
-          this.desired = false;
-          this.closeSocket();
-          this.setStatus({ state: "error", error: "handshake-timeout", peers: [], hubProgram: "" });
-        }
-      }, 5_000);
     };
     socket.onmessage = (event) => {
       this.handleMessage(event && event.data);
@@ -3753,7 +3767,7 @@ const cbConnection = {
       // A failure before the socket ever opened means the shared broker isn't
       // reachable yet; let onclose drive the backed-off reconnect instead of
       // flapping the status to "error" on every attempt.
-      if (this.openedThisAttempt) {
+      if (this.handshakeComplete) {
         this.setStatus({ state: "error", error: "socket-error" });
       }
     };
@@ -3764,8 +3778,8 @@ const cbConnection = {
         this.setStatus({ state: "off", peers: [], hubProgram: "" });
         return;
       }
-      if (this.openedThisAttempt) {
-        // A live connection dropped — start a fresh retry burst.
+      if (this.handshakeComplete) {
+        // A welcomed hub connection dropped — start a fresh retry burst.
         this.burstStartMs = 0;
         this.setStatus({ state: "connecting", peers: [], hubProgram: "" });
         this.scheduleBurstRetry();
@@ -3833,10 +3847,12 @@ const cbConnection = {
           this.setStatus({ state: "error", error: "protocol-mismatch", peers: [], hubProgram: "" });
           break;
         }
-        if (this.handshakeTimer) {
-          clearTimeout(this.handshakeTimer);
-          this.handshakeTimer = null;
+        if (this.connectTimer) {
+          clearTimeout(this.connectTimer);
+          this.connectTimer = null;
         }
+        this.handshakeComplete = true;
+        this.burstStartMs = 0;
         this.setStatus({
           state: "connected",
           error: "",
