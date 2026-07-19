@@ -4080,7 +4080,7 @@ const cbClassifierHub = {
         reject(new Error("Vault Classifier request timed out."));
       }, CB_CLASSIFIER_HUB_TIMEOUT_MS);
       this.pending.set(requestID, { operation, resolve, reject, timer });
-      if (!connection.send({ kind: "classifier-request", requestID, operation, body })) {
+      if (!connection || typeof connection.sendWS !== "function" || !connection.sendWS({ kind: "classifier-request", requestID, operation, body })) {
         clearTimeout(timer);
         this.pending.delete(requestID);
         this.recordTransport("durable-send-failed", "unavailable");

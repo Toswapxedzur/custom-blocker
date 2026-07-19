@@ -36,7 +36,7 @@ const connection = {
   status: { state: "connected" },
   targetIsPresent(target) { return target === "classifier" && classifierPresent; },
   waitForSettings() { return settingsGate; },
-  send(message) { sent.push(message); return true; }
+  sendWS(message) { sent.push(message); return true; }
 };
 const context = vm.createContext({
   cbConnection: connection,
