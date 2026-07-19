@@ -84,7 +84,8 @@
 
   function findPostID(root) {
     const link = root.querySelector('a[href*="/post/"]');
-    const match = (link && (link.getAttribute("href") || "")).match(/\/post\/([A-Za-z0-9_-]{3,128})/);
+    const href = link ? (link.getAttribute("href") || "") : "";
+    const match = href.match(/\/post\/([A-Za-z0-9_-]{3,128})/);
     return match ? match[1] : null;
   }
 
@@ -109,13 +110,52 @@
   }
 
   function findSource(root) {
-    const channel = root.querySelector('a[href*="/channel/UC"]');
-    const channelMatch = (channel && (channel.getAttribute("href") || "")).match(/\/channel\/(UC[0-9A-Za-z_-]{22})/);
-    if (channelMatch) return { id: `youtube:channel:${channelMatch[1]}`, name: compactText(channel.textContent, 256), url: creatorURL(channel.getAttribute("href")) };
-    const handle = root.querySelector('a[href^="/@"], a[href*="youtube.com/@"]');
-    const handleMatch = (handle && (handle.getAttribute("href") || "")).match(/\/(\@[^/?#]+)/);
-    if (handleMatch) return { id: `youtube:handle:${handleMatch[1].toLowerCase()}`, name: compactText(handle.textContent, 256), url: creatorURL(handle.getAttribute("href")) };
-    return { id: null, name: selectorText(root, ["#channel-name #text", "ytd-channel-name #text", "#owner #text"], 256), url: null };
+    const fallbackName = () => selectorText(root, [
+      "#channel-name #text",
+      "ytd-channel-name #text",
+      "#owner #text",
+      "ytd-video-owner-renderer #text",
+      "#byline #text"
+    ], 256);
+    const matchLink = (selectors, pattern, idForMatch) => {
+      let firstMatch = null;
+      for (const selector of selectors) {
+        for (const link of root.querySelectorAll(selector)) {
+          const href = link.getAttribute("href") || "";
+          const match = href.match(pattern);
+          if (!match) continue;
+          const candidate = {
+            id: idForMatch(match),
+            // A generic /channel/.../videos link is often the channel-nav
+            // item "Videos", not the creator label. Prefer the nearby owner
+            // text whenever the card exposes it.
+            name: fallbackName() || compactText(link.textContent, 256),
+            url: creatorURL(href)
+          };
+          if (candidate.name) return candidate;
+          if (!firstMatch) firstMatch = candidate;
+        }
+      }
+      return firstMatch;
+    };
+    const channel = matchLink([
+      "#channel-name a[href*='/channel/UC']",
+      "ytd-channel-name a[href*='/channel/UC']",
+      "#owner a[href*='/channel/UC']",
+      "ytd-video-owner-renderer a[href*='/channel/UC']",
+      "a[href*='/channel/UC']"
+    ], /\/channel\/(UC[0-9A-Za-z_-]{22})(?:[/?#]|$)/, (match) => `youtube:channel:${match[1]}`);
+    if (channel) return channel;
+    const handle = matchLink([
+      "#channel-name a[href]",
+      "ytd-channel-name a[href]",
+      "#owner a[href]",
+      "ytd-video-owner-renderer a[href]",
+      "a[href^='/@']",
+      "a[href*='youtube.com/@']"
+    ], /\/(\@[^/?#]+)/, (match) => `youtube:handle:${match[1].toLowerCase()}`);
+    if (handle) return handle;
+    return { id: null, name: fallbackName(), url: null };
   }
 
   function creatorURL(value) {
