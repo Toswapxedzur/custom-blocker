@@ -23,7 +23,7 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://*.youtube.com/*"],
+      "matches": ["*://youtube.com/*", "*://*.youtube.com/*"],
       "js": ["vault-classifier-contract.js", "vault-classifier-youtube.js"],
       "run_at": "document_idle"
     }
