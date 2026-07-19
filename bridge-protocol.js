@@ -7,10 +7,10 @@
   "use strict";
 
   var PROTOCOL_VERSION = 3;
-  // Every product connects to the one ephemeral Vault broker. Desktop
-  // identities remain peers; the broker is the sole hub identity.
+  // A desktop Vault app owns the fixed local hub. Desktop identities can also
+  // be the hub identity when they win the loopback listener.
   var DESKTOP_PROGRAMS = ["macapp", "windowsapp", "classifier"];
-  var HUB_PROGRAMS = DESKTOP_PROGRAMS.concat(["vault-broker"]);
+  var HUB_PROGRAMS = DESKTOP_PROGRAMS.slice();
   var REMOTE_PROGRAMS = ["chrome", "edge", "firefox", "safari", "opera", "browser"];
 
   function isDesktopProgram(program) {

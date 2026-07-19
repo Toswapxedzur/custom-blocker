@@ -181,15 +181,11 @@ const cbDialog = (function () {
 
 // Extension-wide preferences. Keep these defaults in sync with the
 // placeholder text in popup.html's Settings modal.
-// Web-app bridge (connection) defaults. A native Vault app is the only endpoint
-// that can host the local hub (a browser extension cannot listen on a socket),
-// so `server*` fields are honored only on the native host and `client*` fields
-// only in the browser extension. The legacy server field is retained only for
-// migration; every live client is outbound.
+// A native Vault app hosts this fixed local hub; the extension only joins it.
 const CONNECTION_PROTOCOL_VERSION = window.CBBridgeProtocol.PROTOCOL_VERSION;
-const CONNECTION_DEFAULT_ADDRESS = "wss://customblocker.com/api/vault-bridge";
+const CONNECTION_DEFAULT_ADDRESS = "ws://127.0.0.1:8787";
 const DEFAULT_CONNECTION_SETTINGS = {
-  // Kept for migration only. No client listens locally anymore.
+  // Native hosts own this setting; the extension always remains a client.
   serverEnabled: false,
   clientEnabled: false
 };

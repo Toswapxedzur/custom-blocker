@@ -36,7 +36,6 @@ if (typeof importScripts === "function") {
   }
   try {
     if (typeof VaultClassifierExtensionContract === "undefined") importScripts("vault-classifier-contract.js");
-    importScripts("vault-classifier-connection.js");
     importScripts("vault-classifier-bridge.js");
   } catch (error) {
     console.error("[CustomBlocker] importScripts(vault classifier bridge) failed", error);
@@ -3363,8 +3362,9 @@ ensureStartupGate().catch((error) => {
 /* ------------------------------------------------------------------ *
  * Web-app bridge — extension WebSocket client.
  *
- * Every product opens an outbound WebSocket to the shared Vault broker. This
- * client does not host a socket or send a pairing key.
+ * The extension keeps one outbound socket to the fixed local Vault hub. Its
+ * selected primary stream determines whether this socket carries group-sync or
+ * classifier replies; choosing both desktop apps never creates a second stream.
  * It keeps a live status that the popup reads
  * via the "connection-status" message (and live "connection-status-push"
  * broadcasts while the popup is open).
@@ -3374,7 +3374,7 @@ ensureStartupGate().catch((error) => {
  * ------------------------------------------------------------------ */
 const CB_CONNECTION_PROTOCOL_VERSION = self.CBBridgeProtocol.PROTOCOL_VERSION;
 // Fixed public address for the ephemeral Vault broker.
-const CB_FIXED_ADDRESS = "wss://customblocker.com/api/vault-bridge";
+const CB_FIXED_ADDRESS = "ws://127.0.0.1:8787";
 const CB_CONNECTION_PING_MS = 20_000;
 // Four-state connection model (matches the UI):
 //   connecting   – actively probing; rapid burst every 100ms for a 5s window.
@@ -3495,6 +3495,7 @@ const cbConnection = {
   // a reconnect even if the popup is closed.
   clusters: [],
   lastAnnounce: null,
+  primaryStream: "none",
   // Rapid-retry burst bookkeeping. burstStartMs marks the start of the current
   // retry window; openedThisAttempt tracks whether the live socket connected.
   burstStartMs: 0,
@@ -3509,6 +3510,9 @@ const cbConnection = {
     try {
       chrome.runtime
         .sendMessage({ type: "connection-status-push", status: this.status })
+        .catch(() => {});
+      chrome.runtime
+        .sendMessage({ type: "classifier-connection-status-push", status: this.status })
         .catch(() => {});
     } catch (_) {}
   },
@@ -3816,8 +3820,9 @@ const cbConnection = {
           hubProgram: msg.hubProgram,
           peers: Array.isArray(msg.peers) ? msg.peers : this.status.peers
         });
-        // Only start normal protocol traffic after the hub authenticates us.
-        if (this.lastAnnounce) this.sendWS(this.lastAnnounce);
+        // The one local socket receives exactly one primary stream. Group
+        // roster traffic is only useful while Mac Vault is primary.
+        if (this.primaryStream === "macapp" && this.lastAnnounce) this.sendWS(this.lastAnnounce);
         this.pingTimer = setInterval(() => {
           this.sendWS({ kind: "ping", t: Date.now() });
         }, CB_CONNECTION_PING_MS);
@@ -3832,11 +3837,13 @@ const cbConnection = {
         this.setStatus({ peers: Array.isArray(msg.peers) ? msg.peers : [] });
         break;
       case "clusters":
+        if (this.primaryStream !== "macapp") break;
         this.clusters = Array.isArray(msg.clusters) ? msg.clusters : [];
         this.broadcastClusters();
         this.applySharedToStorage();
         break;
       case "cluster-updated": {
+        if (this.primaryStream !== "macapp") break;
         const next = Array.isArray(this.clusters) ? this.clusters.slice() : [];
         const idx = next.findIndex((c) => c && c.id === msg.cluster?.id);
         const members = Array.isArray(msg.cluster?.members) ? msg.cluster.members : [];
@@ -3853,6 +3860,7 @@ const cbConnection = {
         break;
       }
       case "connect-group-rejected":
+        if (this.primaryStream !== "macapp") break;
         try {
           chrome.runtime
             .sendMessage({ type: "group-rejected", reason: msg.reason || "" })
@@ -3861,6 +3869,9 @@ const cbConnection = {
         break;
       case "pong":
         break;
+      case "classifier-response":
+        if (this.primaryStream === "classifier" && self.CBClassifierHub) self.CBClassifierHub.receive(msg);
+        break;
       default:
         break;
     }
@@ -3868,12 +3879,19 @@ const cbConnection = {
 
   async applyFromSettings() {
     let conn = null;
+    let classifier = null;
     try {
-      const r = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
+      const r = await chrome.storage.local.get([CB_GLOBAL_SETTINGS_KEY, "vaultClassifierSettings"]);
       const s = r && r[CB_GLOBAL_SETTINGS_KEY];
       conn = s && typeof s === "object" ? s.connection : null;
+      classifier = r && r.vaultClassifierSettings;
     } catch (_) {}
-    if (conn && conn.clientEnabled) {
+    const macVaultSelected = Boolean(conn && conn.clientEnabled);
+    const classifierSelected = Boolean(classifier && classifier.connectionEnabled === true);
+    // Classifier is deliberately the efficient primary when both products are
+    // selected; turning it off immediately makes Mac Vault the sole stream.
+    this.primaryStream = classifierSelected ? "classifier" : (macVaultSelected ? "macapp" : "none");
+    if (this.primaryStream !== "none") {
       this.burstStartMs = 0;
       this.connect();
     } else {
@@ -3882,9 +3900,8 @@ const cbConnection = {
   }
 };
 
-// Vault Classifier is a second client of the same shared Vault broker.
-// Keep its routed request budget separate from group-sync traffic so an
-// unavailable classifier never blocks ordinary Vault synchronization.
+// Classifier requests share the one local WebSocket. A selected primary stream
+// keeps browser data on one bounded route at a time.
 const CB_CLASSIFIER_HUB_MAX_PENDING = 16;
 const CB_CLASSIFIER_HUB_TIMEOUT_MS = 6_000;
 const cbClassifierHub = {
@@ -3894,8 +3911,8 @@ const cbClassifierHub = {
     if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "collect" && operation !== "classify" && operation !== "correct") {
       return Promise.reject(new Error("Unsupported Vault Classifier operation."));
     }
-    const connection = self.CBClassifierConnection;
-    if (!connection || !connection.ws || connection.ws.readyState !== WebSocket.OPEN || connection.status.state !== "connected") {
+    const connection = cbConnection;
+    if (connection.primaryStream !== "classifier" || !connection.ws || connection.ws.readyState !== WebSocket.OPEN || connection.status.state !== "connected") {
       return Promise.reject(new Error("The Vault Classifier bridge is unavailable."));
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -3974,17 +3991,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case "connection-connect":
       cbConnection.burstStartMs = 0;
-      cbConnection.connect();
+      cbConnection.applyFromSettings();
       sendResponse({ ok: true, status: cbConnection.status });
       return false;
     case "connection-disconnect":
-      cbConnection.disconnect();
+      cbConnection.applyFromSettings();
       sendResponse({ ok: true, status: cbConnection.status });
       return false;
     case "connection-status":
       sendResponse({ ok: true, status: cbConnection.status });
       return false;
+    case "classifier-connection-connect":
+      cbConnection.burstStartMs = 0;
+      cbConnection.applyFromSettings();
+      sendResponse({ ok: true, status: cbConnection.status });
+      return false;
+    case "classifier-connection-disconnect":
+      cbConnection.applyFromSettings();
+      sendResponse({ ok: true, status: cbConnection.status });
+      return false;
+    case "classifier-connection-status":
+      sendResponse({ ok: true, status: cbConnection.status });
+      return false;
     case "group-connect":
+      if (cbConnection.primaryStream !== "macapp") { sendResponse({ ok: false, error: "macapp-not-primary" }); return false; }
       cbConnection.sendWS({
         kind: "connect-group",
         groupName: message.groupName,
@@ -3995,6 +4025,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       return false;
     case "group-disconnect":
+      if (cbConnection.primaryStream !== "macapp") { sendResponse({ ok: false, error: "macapp-not-primary" }); return false; }
       cbConnection.sendWS({
         kind: "disconnect-group",
         clusterId: message.clusterId,
@@ -4009,13 +4040,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         program: message.program,
         groups: Array.isArray(message.groups) ? message.groups : []
       };
-      cbConnection.sendWS(cbConnection.lastAnnounce);
+      if (cbConnection.primaryStream === "macapp") cbConnection.sendWS(cbConnection.lastAnnounce);
       sendResponse({ ok: true });
       return false;
     case "clusters-status":
       sendResponse({ ok: true, clusters: cbConnection.clusters });
       return false;
     case "group-sync":
+      if (cbConnection.primaryStream !== "macapp") { sendResponse({ ok: false, error: "macapp-not-primary" }); return false; }
       cbConnection.sendWS({
         kind: "group-sync",
         program: message.program,
@@ -4044,7 +4076,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Re-apply when the user toggles the client on/off or edits the address.
 if (chrome.storage && chrome.storage.onChanged) {
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes[CB_GLOBAL_SETTINGS_KEY]) return;
+    if (area !== "local" || (!changes[CB_GLOBAL_SETTINGS_KEY] && !changes.vaultClassifierSettings)) return;
     cbConnection.applyFromSettings();
   });
 }
