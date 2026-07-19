@@ -54,6 +54,12 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'local-hub-target-status' FAILED" >&2
   failed=1
 fi
+node_out=$(node tests/runner-classifier-hub-relay.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'classifier-hub-relay' FAILED" >&2
+  failed=1
+fi
 run_suite "markdown-renderer" tests/runner-markdown.js || failed=1
 run_suite "event-sandbox-stress" tests/runner-event-sandbox-stress.js || failed=1
 node scripts/documentation-audit.js || failed=1

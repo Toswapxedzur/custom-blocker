@@ -3927,7 +3927,12 @@ const cbConnection = {
       case "pong":
         break;
       case "classifier-response":
-        if (this.primaryStream === "classifier" && self.CBClassifierHub) self.CBClassifierHub.receive(msg);
+        // Classifier requests may travel over the Mac-primary stream when Mac
+        // Vault hosts the one local socket and Vault Classifier has joined it.
+        // The request map below still ignores unmatched replies, so handling
+        // this independently of the UI's primary stream cannot cross-route
+        // ordinary group-sync traffic.
+        if (self.CBClassifierHub) self.CBClassifierHub.receive(msg);
         break;
       default:
         break;
@@ -3958,21 +3963,55 @@ const cbConnection = {
   }
 };
 
-// Classifier requests share the one local WebSocket. A selected primary stream
-// keeps browser data on one bounded route at a time.
+// Classifier requests share the one local WebSocket. The UI primary stream
+// controls which app-specific surface is listening; it must not prevent a
+// live Mac-hosted socket from relaying a bounded request to a joined
+// Vault Classifier peer.
 const CB_CLASSIFIER_HUB_MAX_PENDING = 16;
 const CB_CLASSIFIER_HUB_TIMEOUT_MS = 6_000;
+const CB_CLASSIFIER_HUB_CONNECT_WAIT_MS = 5_000;
 const cbClassifierHub = {
   pending: new Map(),
+
+  isReady(connection) {
+    return Boolean(
+      connection &&
+      connection.ws &&
+      connection.ws.readyState === WebSocket.OPEN &&
+      connection.status &&
+      connection.status.state === "connected" &&
+      typeof connection.targetIsPresent === "function" &&
+      connection.targetIsPresent("classifier")
+    );
+  },
+
+  waitForReady(connection) {
+    if (this.isReady(connection)) return Promise.resolve();
+    // There is no active shared socket to wait for, or a live hub has already
+    // confirmed that it does not have a Classifier peer.
+    if (!connection || connection.primaryStream === "none" || connection.status?.state === "connected") {
+      return Promise.reject(new Error("The Vault Classifier bridge is unavailable."));
+    }
+    return new Promise((resolve, reject) => {
+      const deadline = Date.now() + CB_CLASSIFIER_HUB_CONNECT_WAIT_MS;
+      const poll = () => {
+        if (this.isReady(connection)) {
+          resolve();
+        } else if (Date.now() >= deadline || connection.primaryStream === "none") {
+          reject(new Error("The Vault Classifier bridge is unavailable."));
+        } else {
+          setTimeout(poll, 100);
+        }
+      };
+      poll();
+    });
+  },
 
   request(operation, body) {
     if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "diagnostic" && operation !== "collect" && operation !== "classify" && operation !== "correct") {
       return Promise.reject(new Error("Unsupported Vault Classifier operation."));
     }
     const connection = cbConnection;
-    if (connection.primaryStream !== "classifier" || !connection.ws || connection.ws.readyState !== WebSocket.OPEN || connection.status.state !== "connected") {
-      return Promise.reject(new Error("The Vault Classifier bridge is unavailable."));
-    }
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return Promise.reject(new Error("Invalid Vault Classifier request."));
     }
@@ -3985,23 +4024,25 @@ const cbClassifierHub = {
     if (typeof bodyJSON !== "string" || new TextEncoder().encode(bodyJSON).length > 88_000) {
       return Promise.reject(new Error("Vault Classifier request exceeds the shared bridge limit."));
     }
-    if (this.pending.size >= CB_CLASSIFIER_HUB_MAX_PENDING) {
-      return Promise.reject(new Error("Vault Classifier is busy."));
-    }
-    const requestID = self.VaultClassifierExtensionContract.randomID("classifier");
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const pending = this.pending.get(requestID);
-        if (!pending) return;
-        this.pending.delete(requestID);
-        reject(new Error("Vault Classifier request timed out."));
-      }, CB_CLASSIFIER_HUB_TIMEOUT_MS);
-      this.pending.set(requestID, { operation, resolve, reject, timer });
-      if (!connection.send({ kind: "classifier-request", requestID, operation, body })) {
-        clearTimeout(timer);
-        this.pending.delete(requestID);
-        reject(new Error("The Vault Classifier bridge is unavailable."));
+    return this.waitForReady(connection).then(() => {
+      if (this.pending.size >= CB_CLASSIFIER_HUB_MAX_PENDING) {
+        throw new Error("Vault Classifier is busy.");
       }
+      const requestID = self.VaultClassifierExtensionContract.randomID("classifier");
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          const pending = this.pending.get(requestID);
+          if (!pending) return;
+          this.pending.delete(requestID);
+          reject(new Error("Vault Classifier request timed out."));
+        }, CB_CLASSIFIER_HUB_TIMEOUT_MS);
+        this.pending.set(requestID, { operation, resolve, reject, timer });
+        if (!connection.send({ kind: "classifier-request", requestID, operation, body })) {
+          clearTimeout(timer);
+          this.pending.delete(requestID);
+          reject(new Error("The Vault Classifier bridge is unavailable."));
+        }
+      });
     });
   },
 
