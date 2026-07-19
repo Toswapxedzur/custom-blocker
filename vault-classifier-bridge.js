@@ -11,6 +11,28 @@
   if (!C || typeof C.fitEntryForNativeTransport !== "function" || typeof C.isTrustedCollectionURL !== "function" || typeof chrome === "undefined" || !chrome.runtime) return;
 
   const SETTINGS_KEY = "vaultClassifierSettings";
+  const DIAGNOSTIC_EVENTS = new Set([
+    "collector-started",
+    "collection-info-requested",
+    "collection-info-enabled",
+    "collection-info-disabled",
+    "collection-info-failed",
+    "page-evidence-ready",
+    "page-evidence-missing",
+    "collection-requested",
+    "collection-accepted",
+    "collection-rejected"
+  ]);
+  const DIAGNOSTIC_DETAILS = new Set([
+    "missing-video-id",
+    "missing-watch-root",
+    "missing-title",
+    "missing-creator",
+    "runtime-last-error",
+    "bridge-unavailable",
+    "rejected",
+    "timeout"
+  ]);
 
   function storageGet(key) {
     return new Promise((resolve) => chrome.storage.local.get(key, (result) => {
@@ -33,6 +55,36 @@
       return Promise.reject(new Error("The shared Vault bridge is unavailable."));
     }
     return hub.request(operation, body);
+  }
+
+  function publishDiagnostic(entry) {
+    try {
+      if (typeof self.CBRecordVaultClassifierDiagnostic === "function") {
+        self.CBRecordVaultClassifierDiagnostic(entry);
+      }
+    } catch (_) {}
+  }
+
+  function validDiagnostic(event, detail) {
+    return DIAGNOSTIC_EVENTS.has(event) && (detail == null || DIAGNOSTIC_DETAILS.has(detail));
+  }
+
+  async function forwardDiagnostic(platform, event, detail) {
+    if (!validDiagnostic(event, detail)) return { ok: false, accepted: false };
+    publishDiagnostic({ platform, event, detail, outcome: "extension" });
+    try {
+      const body = await hubRequest("diagnostic", {
+        platformID: platform,
+        event,
+        ...(detail ? { detail } : {})
+      });
+      const accepted = Boolean(body && body.accepted === true);
+      publishDiagnostic({ platform, event, detail, outcome: accepted ? "vault-received" : "rejected" });
+      return { ok: accepted, accepted };
+    } catch (_) {
+      publishDiagnostic({ platform, event, detail: "bridge-unavailable", outcome: "unavailable" });
+      return { ok: false, accepted: false };
+    }
   }
 
   // The adapter requests this before it reads or sends any rendered entry.
@@ -85,10 +137,26 @@
   });
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || message.type !== "vault-classifier-diagnostic") return false;
+    const platform = collectionPlatformForSender(sender, message.platform);
+    const event = typeof message.event === "string" ? message.event : "";
+    const detail = typeof message.detail === "string" ? message.detail : null;
+    if (!platform || !validDiagnostic(event, detail)) return false;
+    forwardDiagnostic(platform, event, detail)
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false, accepted: false }));
+    return true;
+  });
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const platform = message && message.entry && typeof message.entry.platform === "string" ? message.entry.platform : null;
     if (!message || message.type !== "vault-classifier-collect" || !collectionPlatformForSender(sender, platform)) return false;
+    publishDiagnostic({ platform, event: "collection-requested", detail: null, outcome: "extension" });
     collect(message.entry, platform)
-      .then(sendResponse)
+      .then((response) => {
+        publishDiagnostic({ platform, event: response.accepted ? "collection-accepted" : "collection-rejected", detail: response.accepted ? null : "rejected", outcome: response.accepted ? "vault-received" : "rejected" });
+        sendResponse(response);
+      })
       .catch(() => sendResponse({ ok: false, accepted: false }));
     return true;
   });

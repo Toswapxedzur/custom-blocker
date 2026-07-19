@@ -11,6 +11,7 @@ const storage = {
 };
 const listeners = [];
 let hubCalls = 0;
+const diagnostics = [];
 
 const hub = {
   request(operation, body) {
@@ -22,6 +23,10 @@ const hub = {
       }
       if (operation === "collect") {
         resolve(inExtensionRealm({ accepted: true, inserted: true }));
+        return;
+      }
+      if (operation === "diagnostic") {
+        resolve(inExtensionRealm({ accepted: true }));
         return;
       }
       resolve(inExtensionRealm({ accepted: false, inserted: false }));
@@ -54,7 +59,8 @@ const context = vm.createContext({
   TextEncoder,
   setTimeout,
   clearTimeout,
-  CBClassifierHub: hub
+  CBClassifierHub: hub,
+  CBRecordVaultClassifierDiagnostic(entry) { diagnostics.push(entry); }
 });
 context.self = context;
 context.globalThis = context;
@@ -128,6 +134,10 @@ function assert(name, condition, detail) {
 
   const collected = await dispatch({ type: "vault-classifier-collect", entry: entry("dQw4w9WgXcQ", "Visible non-ad card") }, trustedSender);
   assert("sends one bounded rendered entry only after opt-in", collected.waiting && collected.value && collected.value.accepted === true && hubCalls === 2, collected);
+  const diagnostic = await dispatch({ type: "vault-classifier-diagnostic", platform: "youtube", event: "collector-started" }, trustedSender);
+  assert("forwards a fixed content-collector diagnostic without page metadata", diagnostic.waiting && diagnostic.value?.accepted === true && hubCalls === 3 && diagnostics.some((entry) => entry.event === "collector-started" && entry.platform === "youtube"), { diagnostic, diagnostics });
+  const forgedDiagnostic = await dispatch({ type: "vault-classifier-diagnostic", platform: "youtube", event: "raw-page-title" }, trustedSender);
+  assert("rejects diagnostic text outside the fixed privacy-safe vocabulary", !forgedDiagnostic.waiting && hubCalls === 3, forgedDiagnostic);
   hubCalls = 0;
 
   const redditCollectionInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "reddit" }, trustedRedditSender);
