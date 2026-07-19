@@ -416,10 +416,6 @@ const connectionStatusDot = document.getElementById("connectionStatusDot");
 const connectionStatusText = document.getElementById("connectionStatusText");
 const connectionAddressReadout = document.getElementById("connectionAddressReadout");
 const connectionPeerList = document.getElementById("connectionPeerList");
-const classifierBridgeToggle = document.getElementById("classifierBridgeToggle");
-const classifierBridgePolicy = document.getElementById("classifierBridgePolicy");
-const classifierBridgeHardBlock = document.getElementById("classifierBridgeHardBlock");
-const classifierBridgeStatus = document.getElementById("classifierBridgeStatus");
 const classifierConnectionStatusDot = document.getElementById("classifierConnectionStatusDot");
 const classifierConnectionStatusText = document.getElementById("classifierConnectionStatusText");
 const classifierConnectionAddressReadout = document.getElementById("classifierConnectionAddressReadout");
@@ -505,24 +501,17 @@ const state = {
 const CLASSIFIER_BRIDGE_SETTINGS_KEY = "vaultClassifierSettings";
 const DEFAULT_CLASSIFIER_BRIDGE_SETTINGS = Object.freeze({
   connectionEnabled: false,
-  collectionEnabled: true,
-  enabled: false,
-  policyID: "",
-  feedHardBlock: false
+  collectionEnabled: true
 });
 let classifierBridgeSettings = { ...DEFAULT_CLASSIFIER_BRIDGE_SETTINGS };
-let classifierBridgePolicies = [];
-let classifierBridgeStatusKey = "classifierBridge.off";
 let classifierConnectionStatus = { running: false, state: "off", address: "", peers: [], error: "", hubProgram: "" };
 
 function sanitizeClassifierBridgeSettings(raw) {
-  const policyID = raw && typeof raw.policyID === "string" ? raw.policyID.trim() : "";
   return {
     connectionEnabled: Boolean(raw && raw.connectionEnabled === true),
-    collectionEnabled: !raw || raw.collectionEnabled !== false,
-    enabled: Boolean(raw && raw.enabled === true),
-    policyID: policyID.length <= 128 && !/[\u0000-\u001f\u007f]/.test(policyID) ? policyID : "",
-    feedHardBlock: Boolean(raw && raw.feedHardBlock === true)
+    // Existing deliberate opt-outs stay off; new extension settings collect by
+    // default once the matching local app platform is enabled.
+    collectionEnabled: !raw || raw.collectionEnabled !== false
   };
 }
 
@@ -545,41 +534,14 @@ function classifierBridgeStorageSet(next) {
 }
 
 function renderClassifierBridgeSettings() {
-  const enabled = classifierBridgeSettings.enabled;
   const connection = classifierConnectionStatus || {};
   const connected = connection.state === "connected" || connection.state === "connecting";
-  if (classifierBridgeToggle) classifierBridgeToggle.checked = enabled;
   if (classifierCollectionToggle) classifierCollectionToggle.checked = classifierBridgeSettings.collectionEnabled;
   if (classifierConnectionStatusDot) classifierConnectionStatusDot.className = "connection-dot " + (connection.state || "off");
   if (classifierConnectionStatusText) classifierConnectionStatusText.textContent = connectionStatusLabel(connection);
   if (classifierConnectionAddressReadout) classifierConnectionAddressReadout.textContent = connection.address || CONNECTION_DEFAULT_ADDRESS;
   if (classifierConnectionConnectButton) classifierConnectionConnectButton.classList.toggle("hidden", connected);
   if (classifierConnectionDisconnectButton) classifierConnectionDisconnectButton.classList.toggle("hidden", !connected);
-  if (classifierBridgeHardBlock) {
-    classifierBridgeHardBlock.checked = classifierBridgeSettings.feedHardBlock;
-    classifierBridgeHardBlock.disabled = !enabled;
-  }
-  if (classifierBridgePolicy) {
-    classifierBridgePolicy.replaceChildren();
-    for (const policy of classifierBridgePolicies) {
-      const option = document.createElement("option");
-      option.value = policy.id;
-      option.textContent = policy.name || policy.id;
-      classifierBridgePolicy.appendChild(option);
-    }
-    if (!classifierBridgePolicies.length) {
-      const option = document.createElement("option");
-      option.value = "";
-      option.textContent = t("classifierBridge.none");
-      classifierBridgePolicy.appendChild(option);
-    }
-    const selected = classifierBridgePolicies.some((policy) => policy.id === classifierBridgeSettings.policyID)
-      ? classifierBridgeSettings.policyID
-      : (classifierBridgePolicies[0] && classifierBridgePolicies[0].id) || "";
-    classifierBridgePolicy.value = selected;
-    classifierBridgePolicy.disabled = !enabled || !classifierBridgePolicies.length;
-  }
-  if (classifierBridgeStatus) classifierBridgeStatus.textContent = t(classifierBridgeStatusKey);
 }
 
 function applyClassifierConnectionStatus(raw) {
@@ -593,9 +555,6 @@ function applyClassifierConnectionStatus(raw) {
     hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
   if (state.isSettingsOpen) renderClassifierBridgeSettings();
-  if (classifierConnectionStatus.state === "connected" && classifierBridgeSettings.enabled) {
-    refreshClassifierBridgePolicies().catch(() => {});
-  }
 }
 
 function requestClassifierConnectionStatus() {
@@ -609,41 +568,9 @@ function requestClassifierConnectionStatus() {
   } catch (_) {}
 }
 
-async function refreshClassifierBridgePolicies() {
-  classifierBridgeStatusKey = "classifierBridge.loading";
-  renderClassifierBridgeSettings();
-  try {
-    const response = await chrome.runtime.sendMessage({ type: "vault-classifier-bridge-policies" });
-    if (!response || response.ok !== true || !Array.isArray(response.policies)) throw new Error("unavailable");
-    classifierBridgePolicies = response.policies
-      .filter((policy) => policy && typeof policy.id === "string" && typeof policy.name === "string" && policy.id.length > 0 && policy.id.length <= 128 && policy.name.length <= 256)
-      .slice(0, 64);
-    if (!classifierBridgePolicies.length) {
-      classifierBridgeStatusKey = "classifierBridge.none";
-      return false;
-    }
-    const selected = classifierBridgePolicies.some((policy) => policy.id === classifierBridgeSettings.policyID)
-      ? classifierBridgeSettings.policyID
-      : classifierBridgePolicies[0].id;
-    if (selected !== classifierBridgeSettings.policyID) {
-      await classifierBridgeStorageSet({ ...classifierBridgeSettings, policyID: selected });
-    }
-    classifierBridgeStatusKey = "classifierBridge.active";
-    return true;
-  } catch (_) {
-    classifierBridgePolicies = [];
-    classifierBridgeStatusKey = "classifierBridge.unavailable";
-    return false;
-  } finally {
-    renderClassifierBridgeSettings();
-  }
-}
-
 async function loadClassifierBridgeSettings() {
   classifierBridgeSettings = await classifierBridgeStorageGet();
-  classifierBridgeStatusKey = classifierBridgeSettings.enabled ? "classifierBridge.loading" : "classifierBridge.off";
   renderClassifierBridgeSettings();
-  if (classifierBridgeSettings.enabled) await refreshClassifierBridgePolicies();
 }
 
 function getAiPromptStorageKey(groupId) {
@@ -1694,10 +1621,7 @@ function openSettings() {
   syncSettingsFormFromState();
   requestConnectionStatus();
   requestClassifierConnectionStatus();
-  loadClassifierBridgeSettings().catch(() => {
-    classifierBridgeStatusKey = "classifierBridge.unavailable";
-    renderClassifierBridgeSettings();
-  });
+  loadClassifierBridgeSettings().catch(() => renderClassifierBridgeSettings());
   settingsModal.classList.remove("hidden");
   renderLocalFolderStatus().catch((error) => {
     if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
@@ -7652,41 +7576,6 @@ if (connectionDisconnectButton) {
         applyConnectionStatus({ state: "off" });
       })
       .catch(() => {});
-  });
-}
-
-if (classifierBridgeToggle) {
-  classifierBridgeToggle.addEventListener("change", async () => {
-    if (!classifierBridgeToggle.checked) {
-      await classifierBridgeStorageSet({ ...classifierBridgeSettings, enabled: false });
-      classifierBridgeStatusKey = "classifierBridge.off";
-      renderClassifierBridgeSettings();
-      return;
-    }
-    const available = await refreshClassifierBridgePolicies();
-    if (!available) {
-      await classifierBridgeStorageSet({ ...classifierBridgeSettings, enabled: false });
-      renderClassifierBridgeSettings();
-      return;
-    }
-    const selected = classifierBridgePolicy?.value || classifierBridgePolicies[0].id;
-    await classifierBridgeStorageSet({ ...classifierBridgeSettings, enabled: true, policyID: selected });
-    classifierBridgeStatusKey = "classifierBridge.active";
-    renderClassifierBridgeSettings();
-  });
-}
-
-if (classifierBridgePolicy) {
-  classifierBridgePolicy.addEventListener("change", () => {
-    const policyID = classifierBridgePolicy.value;
-    if (!classifierBridgePolicies.some((policy) => policy.id === policyID)) return;
-    classifierBridgeStorageSet({ ...classifierBridgeSettings, policyID }).catch(() => {});
-  });
-}
-
-if (classifierBridgeHardBlock) {
-  classifierBridgeHardBlock.addEventListener("change", () => {
-    classifierBridgeStorageSet({ ...classifierBridgeSettings, feedHardBlock: classifierBridgeHardBlock.checked }).catch(() => {});
   });
 }
 
