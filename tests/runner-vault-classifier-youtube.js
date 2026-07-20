@@ -8,6 +8,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const messages = [];
 const errors = [];
+const debugLogs = [];
 
 function element({ href = null, text = "", matches = false, attrs = {}, query = {}, queryAll = {} } = {}) {
   return {
@@ -69,7 +70,12 @@ const chrome = {
       callback({ ok: true, accepted: true });
     }
   },
-  storage: { onChanged: { addListener() {} } }
+  storage: {
+    local: {
+      get(_key, callback) { callback({ globalSettings: { debugMode: true } }); }
+    },
+    onChanged: { addListener() {} }
+  }
 };
 
 const mutationObservers = [];
@@ -77,7 +83,10 @@ const observedMutationOptions = [];
 
 const context = vm.createContext({
   chrome,
-  console: { error(error) { errors.push(error); } },
+  console: {
+    debug(...parts) { debugLogs.push(parts.join(" ")); },
+    error(error) { errors.push(error); }
+  },
   document,
   location: { href: "https://www.youtube.com/feed/subscriptions", pathname: "/feed/subscriptions" },
   MutationObserver: class {
@@ -114,13 +123,18 @@ setTimeout(() => {
     && enriched.entry?.evidence?.title === "Visible related video"
     && enriched.entry?.evidence?.metadata?.creatorAvatarURL === "https://yt3.ggpht.com/visible-creator-avatar=s88"
     && observedMutationOptions.some((options) => options.attributes === true && options.attributeFilter?.includes("src"))
+    && debugLogs.includes("[VaultClassifier:avatar] image-missing")
+    && debugLogs.includes("[VaultClassifier:avatar] source-ready")
+    && debugLogs.includes("[VaultClassifier:avatar] enrichment-requested")
+    && debugLogs.includes("[VaultClassifier:avatar] delivery-accepted")
+    && debugLogs.every((entry) => !/Visible Creator|dQw4w9WgXcQ|yt3\.ggpht\.com/.test(entry))
     && errors.length === 0);
   if (passes) {
     console.log("PASS refreshes a creator after its verified avatar appears late");
     console.log("__CB_TEST_RESULT__: OK");
     return;
   }
-  console.error("FAIL YouTube late-avatar collector fixture", { collections, errors, messages });
+  console.error("FAIL YouTube late-avatar collector fixture", { collections, debugLogs, errors, messages });
   console.log("__CB_TEST_RESULT__: FAIL");
   process.exitCode = 1;
 }, 900);
