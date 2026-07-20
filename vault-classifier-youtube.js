@@ -353,15 +353,20 @@
   async function collectEntry(entry) {
     if (!collectionEnabled || !entry || !entry.entryID || !entry.sourceID) return;
     const stableID = `${entry.platform}:${entry.entryID}`;
+    const hasCreatorAvatar = Boolean(entry.evidence?.metadata?.creatorAvatarURL);
     const now = Date.now();
-    for (const [candidate, timestamp] of collectedEntryIDs) {
-      if (now - timestamp > COLLECTION_DEDUPLICATION_MS) collectedEntryIDs.delete(candidate);
+    for (const [candidate, prior] of collectedEntryIDs) {
+      if (now - prior.timestamp > COLLECTION_DEDUPLICATION_MS) collectedEntryIDs.delete(candidate);
     }
-    if (collectedEntryIDs.has(stableID)) return;
+    const prior = collectedEntryIDs.get(stableID);
+    // Channel text and titles commonly render before the author avatar. Allow
+    // exactly one enrichment delivery when that verified image arrives later,
+    // while still suppressing the mutation storms caused by YouTube updates.
+    if (prior && (prior.hasCreatorAvatar || !hasCreatorAvatar)) return;
     // Mark before the asynchronous bridge call so repeated YouTube DOM
-    // mutations cannot enqueue the same visible entry. A later navigation or
-    // reload can refresh its mutable public metadata in the local dataset.
-    collectedEntryIDs.set(stableID, now);
+    // mutations cannot enqueue the same visible entry. A later avatar-only
+    // enrichment remains eligible for one deliberate metadata refresh.
+    collectedEntryIDs.set(stableID, { timestamp: now, hasCreatorAvatar });
     while (collectedEntryIDs.size > MAX_COLLECTED_ENTRY_IDS) collectedEntryIDs.delete(collectedEntryIDs.keys().next().value);
     reportDiagnostic("collection-requested");
     const accepted = await requestCollection(entry);

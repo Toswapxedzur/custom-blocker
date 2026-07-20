@@ -324,13 +324,17 @@
     }
   }
 
-  function rememberEntryID(entryID) {
+  function rememberEntryID(entryID, hasCreatorAvatar) {
     const now = Date.now();
-    for (const [candidate, timestamp] of sentEntryIDs) {
-      if (now - timestamp > COLLECTION_DEDUPLICATION_MS) sentEntryIDs.delete(candidate);
+    for (const [candidate, prior] of sentEntryIDs) {
+      if (now - prior.timestamp > COLLECTION_DEDUPLICATION_MS) sentEntryIDs.delete(candidate);
     }
-    if (sentEntryIDs.has(entryID)) return false;
-    sentEntryIDs.set(entryID, now);
+    const prior = sentEntryIDs.get(entryID);
+    // Public cards often render their textual author data before a verified
+    // avatar image. Permit one later enrichment, then go back to suppressing
+    // DOM-driven duplicate collection requests for the same visible entry.
+    if (prior && (prior.hasCreatorAvatar || !hasCreatorAvatar)) return false;
+    sentEntryIDs.set(entryID, { timestamp: now, hasCreatorAvatar });
     while (sentEntryIDs.size > MAX_SENT_ENTRY_IDS) sentEntryIDs.delete(sentEntryIDs.keys().next().value);
     return true;
   }
@@ -349,7 +353,7 @@
       creatorAvatarURL: creatorAvatarURL(card, source),
       baseURL: global.location.href
     });
-    if (!evidence || !rememberEntryID(evidence.entryID)) return;
+    if (!evidence || !rememberEntryID(evidence.entryID, Boolean(evidence.evidence?.metadata?.creatorAvatarURL))) return;
     try {
       chrome.runtime.sendMessage({ type: "vault-classifier-collect", entry: evidence }, (response) => {
         if (chrome.runtime.lastError || !response?.accepted) sentEntryIDs.delete(evidence.entryID);
