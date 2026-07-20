@@ -40,7 +40,8 @@ const feedCardQueryAll = {
   "ytd-video-owner-renderer a[href]": [],
   "a[href^='/@']": [creator],
   "a[href*='youtube.com/@']": [],
-  "a#avatar-link[href]": []
+  "a#avatar-link[href]": [],
+  "a[href]": [creator]
 };
 const feedCard = element({
   query: { "#video-title": title },
@@ -107,7 +108,9 @@ vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-contract.js"),
 vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-youtube.js"), "utf8"), context, { filename: "vault-classifier-youtube.js" });
 
 setTimeout(() => {
-  feedCardQueryAll["a#avatar-link[href]"] = [creatorAvatar];
+  // YouTube's current feed DOM supplies the avatar in a second link for the
+  // same verified handle, without the former #avatar-link identifier.
+  feedCardQueryAll["a[href]"] = [creator, creatorAvatar];
   mutationObservers.forEach((callback) => callback([{ type: "attributes", attributeName: "src" }]));
 }, 350);
 
@@ -123,6 +126,7 @@ setTimeout(() => {
     && enriched.entry?.evidence?.title === "Visible related video"
     && enriched.entry?.evidence?.metadata?.creatorAvatarURL === "https://yt3.ggpht.com/visible-creator-avatar=s88"
     && observedMutationOptions.some((options) => options.attributes === true && options.attributeFilter?.includes("src"))
+    && debugLogs.includes("[VaultClassifier:avatar] debug-ready")
     && debugLogs.includes("[VaultClassifier:avatar] image-missing")
     && debugLogs.includes("[VaultClassifier:avatar] source-ready")
     && debugLogs.includes("[VaultClassifier:avatar] enrichment-requested")

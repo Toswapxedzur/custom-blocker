@@ -36,6 +36,11 @@
   let collectionEpoch = 0;
   let lastWatchEvidenceFailure = "missing-watch-root";
   let avatarDebugEnabled = false;
+  let resolveAvatarDebugSettings;
+  let avatarDebugSettingsResolved = false;
+  const avatarDebugSettingsReady = new Promise((resolve) => {
+    resolveAvatarDebugSettings = resolve;
+  });
   // Short-lived in-page de-duplication only. The opted-in Vault Classifier
   // dataset is the sole retained collection store; these identifiers expire so
   // an open tab does not turn into a durable browser-side cache.
@@ -52,6 +57,16 @@
     avatarDebugEnabled = settings?.debugMode === true;
   }
 
+  function resolveAvatarDebugSettingsOnce(settings) {
+    if (avatarDebugSettingsResolved) return;
+    avatarDebugSettingsResolved = true;
+    applyAvatarDebugSettings(settings);
+    // This fixed token confirms that Debug mode was available before the
+    // first collection scan, without disclosing any rendered page data.
+    if (avatarDebugEnabled) reportAvatarDebug("debug-ready");
+    resolveAvatarDebugSettings();
+  }
+
   function reportAvatarDebug(stage, dedupeID = "") {
     if (!avatarDebugEnabled || typeof stage !== "string") return;
     const key = `${stage}:${dedupeID}`;
@@ -66,10 +81,18 @@
   }
 
   try {
-    chrome.storage?.local?.get("globalSettings", (stored) => {
-      applyAvatarDebugSettings(stored?.globalSettings);
-    });
-  } catch (_) {}
+    if (typeof chrome.storage?.local?.get !== "function") {
+      resolveAvatarDebugSettingsOnce();
+    } else {
+      const deadline = setTimeout(() => resolveAvatarDebugSettingsOnce(), 250);
+      chrome.storage.local.get("globalSettings", (stored) => {
+        clearTimeout(deadline);
+        resolveAvatarDebugSettingsOnce(stored?.globalSettings);
+      });
+    }
+  } catch (_) {
+    resolveAvatarDebugSettingsOnce();
+  }
 
   // Diagnostics are deliberately fixed pipeline tokens. They never carry
   // titles, URLs, creator names, IDs, or any other rendered page content.
@@ -217,6 +240,20 @@
     return firstSource || null;
   }
 
+  function creatorIDFromURL(value) {
+    const url = creatorURL(value);
+    if (!url) return null;
+    try {
+      const pathname = new URL(url).pathname;
+      const channel = pathname.match(/^\/channel\/(UC[0-9A-Za-z_-]{22})(?:\/|$)/);
+      if (channel) return `youtube:channel:${channel[1]}`;
+      const handle = pathname.match(/^\/(\@[^/?#]+)/);
+      return handle ? `youtube:handle:${handle[1].toLowerCase()}` : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   function creatorAvatarURL(root, source) {
     if (!root || !source?.id || typeof C.isTrustedCreatorAvatarURL !== "function") {
       reportAvatarDebug("source-missing");
@@ -230,6 +267,14 @@
     // link to differ from an adjacent /channel/UC creator link.
     for (const link of root.querySelectorAll?.("a#avatar-link[href]") || []) {
       if (!authorAnchors.includes(link)) authorAnchors.push(link);
+    }
+    // Current YouTube feed cards use a separate, unlabelled creator link for
+    // the image. It is usable only when it resolves to the exact creator that
+    // was already verified from the card's text/owner link.
+    for (const link of root.querySelectorAll?.("a[href]") || []) {
+      if (!authorAnchors.includes(link) && creatorIDFromURL(link.getAttribute("href")) === source.id) {
+        authorAnchors.push(link);
+      }
     }
     let sawImage = false;
     let sawUntrustedURL = false;
@@ -492,6 +537,7 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.globalSettings) {
       applyAvatarDebugSettings(changes.globalSettings.newValue);
+      if (avatarDebugEnabled) reportAvatarDebug("debug-ready");
     }
     if (area !== "local" || !changes[SETTINGS_KEY]) return;
     refreshCollectionEnabled();
@@ -523,9 +569,11 @@
   if (document.documentElement) observeRenderedEvidence(document.documentElement);
   else document.addEventListener("DOMContentLoaded", () => observeRenderedEvidence(document.documentElement), { once: true });
   reportDiagnostic("collector-started");
-  refreshCollectionEnabled();
-  // A collection toggle lives in the local Vault app rather than extension
-  // storage. This bounded status poll carries no page metadata; the app still
-  // rejects every collection request after a toggle is turned off.
-  setInterval(refreshCollectionEnabled, 15_000);
+  avatarDebugSettingsReady.then(() => {
+    refreshCollectionEnabled();
+    // A collection toggle lives in the local Vault app rather than extension
+    // storage. This bounded status poll carries no page metadata; the app still
+    // rejects every collection request after a toggle is turned off.
+    setInterval(refreshCollectionEnabled, 15_000);
+  });
 })();
