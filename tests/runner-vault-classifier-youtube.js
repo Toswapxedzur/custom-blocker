@@ -73,6 +73,7 @@ const chrome = {
 };
 
 const mutationObservers = [];
+const observedMutationOptions = [];
 
 const context = vm.createContext({
   chrome,
@@ -81,7 +82,7 @@ const context = vm.createContext({
   location: { href: "https://www.youtube.com/feed/subscriptions", pathname: "/feed/subscriptions" },
   MutationObserver: class {
     constructor(callback) { mutationObservers.push(callback); }
-    observe() {}
+    observe(_root, options) { observedMutationOptions.push(options); }
   },
   setTimeout,
   clearTimeout,
@@ -98,7 +99,7 @@ vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-youtube.js"), 
 
 setTimeout(() => {
   feedCardQueryAll["a#avatar-link[href]"] = [creatorAvatar];
-  mutationObservers.forEach((callback) => callback());
+  mutationObservers.forEach((callback) => callback([{ type: "attributes", attributeName: "src" }]));
 }, 350);
 
 setTimeout(() => {
@@ -112,6 +113,7 @@ setTimeout(() => {
     && enriched.entry?.evidence?.metadata?.sourceName === "Visible Creator"
     && enriched.entry?.evidence?.title === "Visible related video"
     && enriched.entry?.evidence?.metadata?.creatorAvatarURL === "https://yt3.ggpht.com/visible-creator-avatar=s88"
+    && observedMutationOptions.some((options) => options.attributes === true && options.attributeFilter?.includes("src"))
     && errors.length === 0);
   if (passes) {
     console.log("PASS refreshes a creator after its verified avatar appears late");
