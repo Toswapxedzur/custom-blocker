@@ -34,6 +34,12 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'manifest-routes' FAILED" >&2
   failed=1
 fi
+node_out=$(node tests/runner-service-worker-wrapper.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'service-worker-wrapper' FAILED" >&2
+  failed=1
+fi
 run_suite "bridge-protocol" tests/runner-bridge-protocol.js || failed=1
 run_suite "vault-classifier-extension-contract" tests/runner-vault-classifier.js || failed=1
 node_out=$(node tests/runner-vault-classifier-youtube.js 2>&1) || failed=1

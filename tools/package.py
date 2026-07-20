@@ -64,6 +64,13 @@ COMMON_TOP_LEVEL_FILES = [
     "translations.js",
 ]
 
+# Chromium alone uses an MV3 service-worker wrapper. It turns a synchronous
+# background import failure into a visible DevTools error instead of an
+# unregistered worker (Chrome's opaque "No SW" state).
+CHROMIUM_SERVICE_WORKER_FILES = [
+    "service-worker.js",
+]
+
 # The in-browser eval sandbox. Present on Chromium + Firefox; omitted on
 # Safari, where custom rules run natively in the macosBlocker app.
 SANDBOX_FILES = [
@@ -207,8 +214,10 @@ def validate_service_worker_imports(target: str, archive_paths: set[str]) -> Non
     """
     if target not in ("chrome", "edge"):
         return
-    background_source = (REPO_ROOT / "background.js").read_text(encoding="utf-8")
-    imports = set(re.findall(r'''\bimportScripts\(\s*["']([^"']+)["']\s*\)''', background_source))
+    imports: set[str] = set()
+    for worker_source_name in ("service-worker.js", "background.js"):
+        worker_source = (REPO_ROOT / worker_source_name).read_text(encoding="utf-8")
+        imports.update(re.findall(r'''\bimportScripts\(\s*["']([^"']+)["']\s*\)''', worker_source))
     missing = sorted(imports - archive_paths)
     if missing:
         raise RuntimeError(
@@ -237,6 +246,8 @@ def build_target(target: str) -> Path:
         entries.append((REPO_ROOT / rel, rel, None))
 
     if target in ("chrome", "edge"):
+        for rel in CHROMIUM_SERVICE_WORKER_FILES:
+            entries.append((REPO_ROOT / rel, rel, None))
         for rel in VAULT_CLASSIFIER_FILES:
             entries.append((REPO_ROOT / rel, rel, None))
 
