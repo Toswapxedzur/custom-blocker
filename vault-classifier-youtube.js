@@ -35,6 +35,7 @@
   let pageTimer = null;
   let collectionEpoch = 0;
   let lastWatchEvidenceFailure = "missing-watch-root";
+  let avatarDebugEnabled = false;
   // Short-lived in-page de-duplication only. The opted-in Vault Classifier
   // dataset is the sole retained collection store; these identifiers expire so
   // an open tab does not turn into a durable browser-side cache.
@@ -42,6 +43,33 @@
   const COLLECTION_DEDUPLICATION_MS = 5 * 60 * 1000;
   const MAX_COLLECTED_ENTRY_IDS = 128;
   const reportedDiagnostics = new Set();
+  const reportedAvatarDebugStages = new Set();
+
+  // Avatar diagnosis stays local to DevTools and is available only through
+  // the extension's existing Debug mode. The fixed stage tokens deliberately
+  // omit rendered text, creator IDs, URLs, and image data.
+  function applyAvatarDebugSettings(settings) {
+    avatarDebugEnabled = settings?.debugMode === true;
+  }
+
+  function reportAvatarDebug(stage, dedupeID = "") {
+    if (!avatarDebugEnabled || typeof stage !== "string") return;
+    const key = `${stage}:${dedupeID}`;
+    if (reportedAvatarDebugStages.has(key)) return;
+    reportedAvatarDebugStages.add(key);
+    while (reportedAvatarDebugStages.size > MAX_COLLECTED_ENTRY_IDS) {
+      reportedAvatarDebugStages.delete(reportedAvatarDebugStages.values().next().value);
+    }
+    try {
+      console.debug("[VaultClassifier:avatar]", stage);
+    } catch (_) {}
+  }
+
+  try {
+    chrome.storage?.local?.get("globalSettings", (stored) => {
+      applyAvatarDebugSettings(stored?.globalSettings);
+    });
+  } catch (_) {}
 
   // Diagnostics are deliberately fixed pipeline tokens. They never carry
   // titles, URLs, creator names, IDs, or any other rendered page content.
@@ -190,7 +218,10 @@
   }
 
   function creatorAvatarURL(root, source) {
-    if (!root || !source?.id || typeof C.isTrustedCreatorAvatarURL !== "function") return null;
+    if (!root || !source?.id || typeof C.isTrustedCreatorAvatarURL !== "function") {
+      reportAvatarDebug("source-missing");
+      return null;
+    }
     const authorAnchors = [];
     if (source.link) authorAnchors.push(source.link);
     // YouTube deliberately labels the rendered channel image with
@@ -200,17 +231,27 @@
     for (const link of root.querySelectorAll?.("a#avatar-link[href]") || []) {
       if (!authorAnchors.includes(link)) authorAnchors.push(link);
     }
+    let sawImage = false;
+    let sawUntrustedURL = false;
     for (const authorAnchor of authorAnchors) {
       for (const image of authorAnchor.querySelectorAll?.("img") || []) {
+        sawImage = true;
         const rawURL = imageURLFrom(image);
-        if (!C.isTrustedCreatorAvatarURL(PLATFORM, rawURL, location.href)) continue;
+        if (!C.isTrustedCreatorAvatarURL(PLATFORM, rawURL, location.href)) {
+          if (rawURL) sawUntrustedURL = true;
+          continue;
+        }
         try {
           const url = new URL(rawURL, location.href);
           url.hash = "";
-          if (url.href.length <= 512) return url.href;
+          if (url.href.length <= 512) {
+            reportAvatarDebug("source-ready");
+            return url.href;
+          }
         } catch (_) {}
       }
     }
+    reportAvatarDebug(sawUntrustedURL ? "source-untrusted" : (sawImage ? "source-pending" : "image-missing"));
     return null;
   }
 
@@ -368,19 +409,25 @@
     // Channel text and titles commonly render before the author avatar. Allow
     // exactly one enrichment delivery when that verified image arrives later,
     // while still suppressing the mutation storms caused by YouTube updates.
-    if (prior && (prior.hasCreatorAvatar || !hasCreatorAvatar)) return;
+    if (prior && (prior.hasCreatorAvatar || !hasCreatorAvatar)) {
+      if (hasCreatorAvatar) reportAvatarDebug("delivery-suppressed", stableID);
+      return;
+    }
     // Mark before the asynchronous bridge call so repeated YouTube DOM
     // mutations cannot enqueue the same visible entry. A later avatar-only
     // enrichment remains eligible for one deliberate metadata refresh.
     collectedEntryIDs.set(stableID, { timestamp: now, hasCreatorAvatar });
     while (collectedEntryIDs.size > MAX_COLLECTED_ENTRY_IDS) collectedEntryIDs.delete(collectedEntryIDs.keys().next().value);
+    if (hasCreatorAvatar) reportAvatarDebug(prior ? "enrichment-requested" : "initial-requested", stableID);
     reportDiagnostic("collection-requested");
     const accepted = await requestCollection(entry);
     if (!accepted) {
       collectedEntryIDs.delete(stableID);
+      if (hasCreatorAvatar) reportAvatarDebug("delivery-rejected", stableID);
       reportDiagnostic("collection-rejected", "rejected");
       return;
     }
+    if (hasCreatorAvatar) reportAvatarDebug("delivery-accepted", stableID);
     reportDiagnostic("collection-accepted");
   }
 
@@ -432,6 +479,7 @@
       } else if (collectionEnabled) {
         reportDiagnostic("collection-info-enabled");
       } else {
+        reportAvatarDebug("collection-disabled");
         reportDiagnostic("collection-info-disabled");
       }
       if (collectionEnabled) {
@@ -442,12 +490,16 @@
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.globalSettings) {
+      applyAvatarDebugSettings(changes.globalSettings.newValue);
+    }
     if (area !== "local" || !changes[SETTINGS_KEY]) return;
     refreshCollectionEnabled();
   });
   window.addEventListener("yt-navigate-finish", () => {
     collectedEntryIDs.clear();
     reportedDiagnostics.clear();
+    reportedAvatarDebugStages.clear();
     scheduleScan();
     schedulePageCheck();
   });
