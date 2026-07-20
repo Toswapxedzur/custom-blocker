@@ -260,6 +260,13 @@
       return null;
     }
     const authorAnchors = [];
+    const authorImages = [];
+    const addAuthorImages = (container) => {
+      for (const image of container?.querySelectorAll?.("img") || []) {
+        if (!authorImages.includes(image)) authorImages.push(image);
+      }
+    };
+    const linkMatchesSource = (link) => creatorIDFromURL(link?.getAttribute?.("href")) === source.id;
     if (source.link) authorAnchors.push(source.link);
     // YouTube deliberately labels the rendered channel image with
     // #avatar-link. Restricting this search to the verified item/watch root
@@ -272,29 +279,38 @@
     // the image. It is usable only when it resolves to the exact creator that
     // was already verified from the card's text/owner link.
     for (const link of root.querySelectorAll?.("a[href]") || []) {
-      if (!authorAnchors.includes(link) && creatorIDFromURL(link.getAttribute("href")) === source.id) {
+      if (!authorAnchors.includes(link) && linkMatchesSource(link)) {
         authorAnchors.push(link);
+      }
+    }
+    for (const authorAnchor of authorAnchors) addAuthorImages(authorAnchor);
+    // Modern YouTube video cards render the verified creator avatar as an
+    // unlinked yt-avatar-shape. It is still safe to collect only when the
+    // immediately owning metadata component contains a link for the exact
+    // creator we already resolved from that card.
+    for (const image of root.querySelectorAll?.("yt-lockup-metadata-view-model yt-avatar-shape img") || []) {
+      const metadata = image.closest?.("yt-lockup-metadata-view-model");
+      if ([...metadata?.querySelectorAll?.("a[href]") || []].some(linkMatchesSource) && !authorImages.includes(image)) {
+        authorImages.push(image);
       }
     }
     let sawImage = false;
     let sawUntrustedURL = false;
-    for (const authorAnchor of authorAnchors) {
-      for (const image of authorAnchor.querySelectorAll?.("img") || []) {
-        sawImage = true;
-        const rawURL = imageURLFrom(image);
-        if (!C.isTrustedCreatorAvatarURL(PLATFORM, rawURL, location.href)) {
-          if (rawURL) sawUntrustedURL = true;
-          continue;
-        }
-        try {
-          const url = new URL(rawURL, location.href);
-          url.hash = "";
-          if (url.href.length <= 512) {
-            reportAvatarDebug("source-ready");
-            return url.href;
-          }
-        } catch (_) {}
+    for (const image of authorImages) {
+      sawImage = true;
+      const rawURL = imageURLFrom(image);
+      if (!C.isTrustedCreatorAvatarURL(PLATFORM, rawURL, location.href)) {
+        if (rawURL) sawUntrustedURL = true;
+        continue;
       }
+      try {
+        const url = new URL(rawURL, location.href);
+        url.hash = "";
+        if (url.href.length <= 512) {
+          reportAvatarDebug("source-ready");
+          return url.href;
+        }
+      } catch (_) {}
     }
     reportAvatarDebug(sawUntrustedURL ? "source-untrusted" : (sawImage ? "source-pending" : "image-missing"));
     return null;

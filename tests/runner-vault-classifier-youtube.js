@@ -10,12 +10,12 @@ const messages = [];
 const errors = [];
 const debugLogs = [];
 
-function element({ href = null, text = "", matches = false, attrs = {}, query = {}, queryAll = {} } = {}) {
+function element({ href = null, text = "", matches = false, attrs = {}, query = {}, queryAll = {}, closest = {} } = {}) {
   return {
     textContent: text,
     getAttribute(name) { return name === "href" ? href : (attrs[name] || null); },
     matches() { return matches; },
-    closest() { return null; },
+    closest(selector) { return closest[selector] || null; },
     querySelector(selector) { return query[selector] || null; },
     querySelectorAll(selector) { return queryAll[selector] || []; }
   };
@@ -24,8 +24,17 @@ function element({ href = null, text = "", matches = false, attrs = {}, query = 
 const title = element({ text: "Visible related video" });
 const video = element({ href: "/watch?v=dQw4w9WgXcQ" });
 const creator = element({ href: "/@VisibleCreator", text: "Visible Creator" });
-const creatorImage = element({ attrs: { src: "https://yt3.ggpht.com/visible-creator-avatar=s88" } });
-const creatorAvatar = element({ href: "/@VisibleCreator", queryAll: { img: [creatorImage] } });
+const avatarMetadata = element({ queryAll: { "a[href]": [creator] } });
+const otherCreator = element({ href: "/@OtherCreator", text: "Other Creator" });
+const otherAvatarMetadata = element({ queryAll: { "a[href]": [otherCreator] } });
+const creatorImage = element({
+  attrs: { src: "https://yt3.ggpht.com/visible-creator-avatar=s88" },
+  closest: { "yt-lockup-metadata-view-model": avatarMetadata }
+});
+const otherCreatorImage = element({
+  attrs: { src: "https://yt3.ggpht.com/other-creator-avatar=s88" },
+  closest: { "yt-lockup-metadata-view-model": otherAvatarMetadata }
+});
 const feedCardQueryAll = {
   'a#thumbnail[href], a#video-title-link[href], a[href*="watch?v="], a[href*="/shorts/"]': [video],
   "#metadata-line span": [],
@@ -41,7 +50,8 @@ const feedCardQueryAll = {
   "a[href^='/@']": [creator],
   "a[href*='youtube.com/@']": [],
   "a#avatar-link[href]": [],
-  "a[href]": [creator]
+  "a[href]": [creator],
+  "yt-lockup-metadata-view-model yt-avatar-shape img": []
 };
 const feedCard = element({
   query: { "#video-title": title },
@@ -108,9 +118,9 @@ vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-contract.js"),
 vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-youtube.js"), "utf8"), context, { filename: "vault-classifier-youtube.js" });
 
 setTimeout(() => {
-  // YouTube's current feed DOM supplies the avatar in a second link for the
-  // same verified handle, without the former #avatar-link identifier.
-  feedCardQueryAll["a[href]"] = [creator, creatorAvatar];
+  // YouTube's current feed DOM supplies a non-link avatar shape in the same
+  // metadata component as the verified creator handle.
+  feedCardQueryAll["yt-lockup-metadata-view-model yt-avatar-shape img"] = [otherCreatorImage, creatorImage];
   mutationObservers.forEach((callback) => callback([{ type: "attributes", attributeName: "src" }]));
 }, 350);
 
