@@ -24,6 +24,12 @@
     "ytd-backstage-post-thread-renderer"
   ].join(",");
   const PLATFORM = "youtube";
+  // YouTube often inserts an author image element before assigning its source.
+  // Observe every supported lazy-image attribute so an avatar URL reaches the
+  // local cache as soon as the feed finishes rendering it.
+  const AVATAR_SOURCE_ATTRIBUTES = Object.freeze([
+    "src", "srcset", "data-src", "data-lazy-src", "data-original", "data-srcset"
+  ]);
   let collectionEnabled = false;
   let scanTimer = null;
   let pageTimer = null;
@@ -394,14 +400,17 @@
     void collectEntry(entry);
   }
 
-  function scheduleScan() {
-    if (scanTimer) return;
+  function scheduleScan(delay = 250) {
+    if (scanTimer) {
+      if (delay !== 0) return;
+      clearTimeout(scanTimer);
+    }
     scanTimer = setTimeout(() => {
       scanTimer = null;
       document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
         collectCard(card);
       });
-    }, 250);
+    }, delay);
   }
 
   function schedulePageCheck() {
@@ -442,13 +451,25 @@
     scheduleScan();
     schedulePageCheck();
   });
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver((mutations) => {
     if (!collectionEnabled) return;
-    scheduleScan();
+    // A lazy-image source is an explicit signal that the author avatar is now
+    // usable. Re-collect without the normal debounce so the local app starts
+    // its bounded icon download at feed-load time.
+    const avatarSourceChanged = mutations.some((mutation) =>
+      mutation?.type === "attributes" && AVATAR_SOURCE_ATTRIBUTES.includes(mutation.attributeName)
+    );
+    scheduleScan(avatarSourceChanged ? 0 : 250);
     schedulePageCheck();
   });
-  if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true });
-  else document.addEventListener("DOMContentLoaded", () => observer.observe(document.documentElement, { childList: true, subtree: true }), { once: true });
+  const observeRenderedEvidence = (root) => observer.observe(root, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: AVATAR_SOURCE_ATTRIBUTES
+  });
+  if (document.documentElement) observeRenderedEvidence(document.documentElement);
+  else document.addEventListener("DOMContentLoaded", () => observeRenderedEvidence(document.documentElement), { once: true });
   reportDiagnostic("collector-started");
   refreshCollectionEnabled();
   // A collection toggle lives in the local Vault app rather than extension
