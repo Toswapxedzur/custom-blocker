@@ -8,6 +8,10 @@
 
   function matchesPage(location) { return /(^|\.)reddit\.com$/i.test(location?.hostname || ""); }
   function isPost(anchor) { return /^\/r\/[^/]+\/comments\//i.test(new URL(anchor.href).pathname); }
+  function pageRoute(location) {
+    const match = String(location?.pathname || "").match(/^\/r\/([^/]+)\/comments\/([A-Za-z0-9_-]{3,128})\/?/i);
+    return match ? { subreddit: match[1], postID: match[2] } : null;
+  }
 
   core.start({
     platform: "reddit",
@@ -33,6 +37,30 @@
           entryType: "post"
         });
       }
+    },
+    scanPage({ document, collect }) {
+      const route = pageRoute(global.location);
+      if (!route) return { ready: false, reason: "missing-content-id" };
+      const root = document.querySelector("shreddit-post") || document.querySelector("article shreddit-post") || document.querySelector("article");
+      if (!root) return { ready: false, reason: "missing-content-root" };
+      const title = core.firstText(root, ['[slot="title"]', 'h1', 'h2']);
+      const body = core.firstText(root, ['[slot="text-body"]', '[slot="comment"]', '[data-testid="post-content"]'], 16000);
+      if (!title && !body) return { ready: false, reason: "missing-title" };
+      const sourceURL = `https://www.reddit.com/r/${route.subreddit}/`;
+      collect({
+        entryID: `reddit:post:${route.postID}`,
+        surface: "page",
+        sourceKind: "subreddit",
+        sourceIdentity: route.subreddit,
+        entryURL: global.location.href,
+        sourceURL,
+        sourceName: `r/${route.subreddit}`,
+        title,
+        text: body,
+        suppliedTags: [...root.querySelectorAll?.('a[href*="/r/"]') || []].map((tag) => tag.textContent),
+        entryType: "post"
+      });
+      return { ready: true };
     }
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);

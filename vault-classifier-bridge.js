@@ -26,8 +26,11 @@
   const DIAGNOSTIC_DETAILS = new Set([
     "missing-video-id",
     "missing-watch-root",
+    "missing-content-id",
+    "missing-content-root",
     "missing-title",
     "missing-creator",
+    "missing-source",
     "runtime-last-error",
     "bridge-unavailable",
     "rejected",

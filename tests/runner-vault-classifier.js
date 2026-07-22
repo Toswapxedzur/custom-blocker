@@ -160,6 +160,21 @@ const rejectedAvatarEntry = Collector.makeCollectedEntry({
 });
 assert("retains only a verified author avatar URL", avatarEntry?.evidence.metadata.creatorAvatarURL === "https://p16-sign-va.tiktokcdn.com/avatar.jpeg" && rejectedAvatarEntry?.evidence.metadata.creatorAvatarURL === undefined);
 assert("rejects a collector entry without a reviewed source identity", Collector.makeCollectedEntry({ platform: "kick", sourceKind: "creator", entryURL: "https://kick.com/example", title: "Unknown card" }) === null);
+const enrichedPageEntry = Collector.makeCollectedEntry({
+  platform: "tiktok",
+  entryID: "tiktok:video:123",
+  surface: "page",
+  sourceKind: "creator",
+  entryURL: "https://www.tiktok.com/@creator/video/123",
+  sourceURL: "https://www.tiktok.com/@creator",
+  sourceName: "Visible creator",
+  title: "Visible page title",
+  text: "Visible rendered description",
+  summary: "Visible rendered summary",
+  suppliedTags: ["gaming", "gaming", "guide"],
+  metadata: { published: "today", ignored: { nested: true } }
+});
+assert("gives every dedicated collector YouTube-style bounded page evidence", enrichedPageEntry?.entryID === "tiktok:video:123" && enrichedPageEntry?.surface === "page" && enrichedPageEntry?.evidence.text === "Visible rendered description" && enrichedPageEntry?.evidence.summary === "Visible rendered summary" && JSON.stringify(enrichedPageEntry?.evidence.suppliedTags) === JSON.stringify(["gaming", "guide"]) && enrichedPageEntry?.evidence.metadata.published === "today" && enrichedPageEntry?.evidence.metadata.ignored === undefined);
 
 const fingerprintOne = VC.entryFingerprint(VC.normalizeEvidence({
   platform: "youtube", surface: "page", evidence: { title: "A title", text: "A description", metadata: { b: "2", a: "1" } }, policyIDs: ["focus"]

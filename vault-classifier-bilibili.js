@@ -8,6 +8,10 @@
 
   function matchesPage(location) { return /(^|\.)bilibili\.com$/i.test(location?.hostname || ""); }
   function isVideo(anchor) { return /\/video\/BV/i.test(new URL(anchor.href).pathname); }
+  function pageRoute(location) {
+    const match = String(location?.pathname || "").match(/^\/video\/(BV[0-9A-Za-z_-]{3,128})\/?$/i);
+    return match ? { videoID: match[1] } : null;
+  }
 
   core.start({
     platform: "bilibili",
@@ -32,6 +36,33 @@
           entryType: "video"
         });
       }
+    },
+    scanPage({ document, collect }) {
+      const route = pageRoute(global.location);
+      if (!route) return { ready: false, reason: "missing-content-id" };
+      const root = document.querySelector("#viewbox_report") || document.querySelector(".video-info-container") || document.querySelector("main");
+      if (!root) return { ready: false, reason: "missing-content-root" };
+      const source = core.firstVerifiedSourceAnchor("bilibili", document, [
+        '#v_upinfo a[href*="space.bilibili.com/"]', '.upinfo-container a[href*="space.bilibili.com/"]', 'a[href*="space.bilibili.com/"]'
+      ], global.location.href);
+      if (!source) return { ready: false, reason: "missing-source" };
+      const description = core.firstText(document, ["#v_desc", ".desc-info-text", '[data-testid="video-desc"]'], 16000);
+      const title = core.firstText(root, ["h1", '[title]']) || core.compactText(description, 500);
+      if (!title && !description) return { ready: false, reason: "missing-title" };
+      collect({
+        entryID: `bilibili:video:${route.videoID}`,
+        surface: "page",
+        sourceKind: "creator",
+        entryURL: global.location.href,
+        sourceURL: source.href,
+        sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
+        title,
+        text: description,
+        suppliedTags: [...document.querySelectorAll?.('a[href*="/v/topic/"]') || []].map((tag) => tag.textContent),
+        creatorAvatarURL: core.avatarFromVerifiedSource("bilibili", source, global.location.href),
+        entryType: "video"
+      });
+      return { ready: true };
     }
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);

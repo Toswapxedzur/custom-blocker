@@ -8,6 +8,10 @@
 
   function matchesPage(location) { return /(^|\.)tiktok\.com$/i.test(location?.hostname || ""); }
   function isVideo(anchor) { return /\/@[^/]+\/video\//i.test(new URL(anchor.href).pathname); }
+  function pageRoute(location) {
+    const match = String(location?.pathname || "").match(/^\/@([^/]+)\/video\/([0-9]{6,32})\/?$/i);
+    return match ? { handle: match[1], videoID: match[2] } : null;
+  }
 
   core.start({
     platform: "tiktok",
@@ -33,6 +37,31 @@
           entryType: "short"
         });
       }
+    },
+    scanPage({ document, collect }) {
+      const route = pageRoute(global.location);
+      if (!route) return { ready: false, reason: "missing-content-id" };
+      const root = document.querySelector("main") || document.querySelector('[data-e2e="browse-video-desc"]')?.closest?.("main");
+      if (!root) return { ready: false, reason: "missing-content-root" };
+      const sourceURL = `https://www.tiktok.com/@${route.handle}`;
+      const source = core.matchingSourceAnchor("tiktok", root, sourceURL);
+      const description = core.firstText(root, ['[data-e2e="browse-video-desc"]', '[data-e2e*="video-desc"]', 'h1'], 16000);
+      const title = core.compactText(description, 500) || core.firstText(root, ["h1", "h2"]);
+      if (!title && !description) return { ready: false, reason: "missing-title" };
+      collect({
+        entryID: `tiktok:video:${route.videoID}`,
+        surface: "page",
+        sourceKind: "creator",
+        entryURL: global.location.href,
+        sourceURL,
+        sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source?.textContent, 256) || `@${route.handle}`,
+        title,
+        text: description,
+        suppliedTags: [...root.querySelectorAll?.('a[href*="/tag/"]') || []].map((tag) => tag.textContent),
+        creatorAvatarURL: core.avatarFromVerifiedSource("tiktok", source, global.location.href),
+        entryType: "short"
+      });
+      return { ready: true };
     }
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);
