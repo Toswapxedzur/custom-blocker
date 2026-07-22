@@ -6,6 +6,7 @@
   "use strict";
 
   const C = global.VaultClassifierExtensionContract;
+  const SETTINGS_KEY = "vaultClassifierSettings";
   const AVATAR_SOURCE_ATTRIBUTES = Object.freeze([
     "src", "srcset", "data-src", "data-lazy-src", "data-original", "data-srcset"
   ]);
@@ -15,6 +16,10 @@
   ]);
   const COLLECTION_DEDUPLICATION_MS = 5 * 60 * 1000;
   const MAX_SENT_ENTRY_IDS = 128;
+  const DIAGNOSTIC_DETAILS = new Set([
+    "missing-content-id", "missing-content-root", "missing-title", "missing-source",
+    "runtime-last-error", "bridge-unavailable", "rejected", "timeout"
+  ]);
 
   function compactText(value, maximum) {
     if (typeof value !== "string") return null;
@@ -83,7 +88,12 @@
     const platform = compactText(raw.platform, 64);
     const sourceKind = compactText(raw.sourceKind, 32);
     const title = compactText(raw.title, 500);
-    if (!platform || !sourceKind || !/^[a-z]+$/.test(sourceKind) || !title) return null;
+    const text = compactText(raw.text, 16000);
+    const summary = compactText(raw.summary, 16000);
+    const suppliedTags = Array.isArray(raw.suppliedTags)
+      ? raw.suppliedTags.map((value) => compactText(value, 256)).filter(Boolean).slice(0, 64)
+      : [];
+    if (!platform || !sourceKind || !/^[a-z]+$/.test(sourceKind) || (!title && !text && !summary && suppliedTags.length === 0)) return null;
 
     const canonicalURL = canonicalContentURL(platform, raw.entryURL, raw.baseURL);
     if (!canonicalURL) return null;
@@ -95,6 +105,7 @@
 
     const sourceName = compactText(raw.sourceName, 256) || identity || sourceID;
     const metadata = {
+      ...(raw.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata) ? raw.metadata : {}),
       sourceName,
       sourceKind,
       entryType: compactText(raw.entryType, 64) || "content",
@@ -106,12 +117,16 @@
     const creatorAvatarURL = canonicalCreatorAvatarURL(platform, raw.creatorAvatarURL, raw.baseURL);
     if (creatorAvatarURL && profileSource) metadata.creatorAvatarURL = creatorAvatarURL;
 
+    const requestedEntryID = compactText(raw.entryID, 256);
+    const entryID = requestedEntryID && requestedEntryID.startsWith(`${platform}:`)
+      ? requestedEntryID
+      : entryIdentifier(platform, canonicalURL);
     return C.normalizeEvidence({
       platform,
-      entryID: entryIdentifier(platform, canonicalURL),
+      entryID,
       sourceID,
-      surface: "feed",
-      evidence: { title, metadata }
+      surface: raw.surface === "page" ? "page" : "feed",
+      evidence: { title, text, summary, suppliedTags, metadata }
     });
   }
 
@@ -186,14 +201,69 @@
     return null;
   }
 
+  function firstVerifiedSourceAnchor(platform, root, selectors, excludedURL) {
+    for (const selector of selectors) {
+      for (const anchor of selectorElements(root, selector)) {
+        const link = anchor?.tagName === "A" && anchor.href
+          ? anchor
+          : anchor?.closest?.("a[href]") || anchor?.querySelector?.("a[href]");
+        if (!link?.href || link.href === excludedURL || !normalizedSourceIdentity(platform, link.href)) continue;
+        return link;
+      }
+    }
+    return null;
+  }
+
   function start(config) {
     if (!C || !global.document || !global.chrome?.runtime || !global.chrome?.storage || !config || typeof config.scan !== "function") return null;
     const platform = compactText(config.platform, 64);
     if (!platform || (typeof config.matchesPage === "function" && !config.matchesPage(global.location))) return null;
 
     const sentEntryIDs = new Map();
+    const reportedDiagnostics = new Set();
+    const reportedAvatarDebugStages = new Set();
     let collectionEnabled = false;
     let scanTimer = null;
+    let pageTimer = null;
+    let collectionEpoch = 0;
+    let avatarDebugEnabled = false;
+    let avatarDebugSettingsResolved = false;
+    let resolveAvatarDebugSettings;
+    const avatarDebugSettingsReady = new Promise((resolve) => {
+      resolveAvatarDebugSettings = resolve;
+    });
+
+    function reportDiagnostic(event, detail) {
+      if (detail != null && !DIAGNOSTIC_DETAILS.has(detail)) return;
+      const key = `${event}:${detail || ""}`;
+      if (reportedDiagnostics.has(key)) return;
+      reportedDiagnostics.add(key);
+      while (reportedDiagnostics.size > MAX_SENT_ENTRY_IDS) reportedDiagnostics.delete(reportedDiagnostics.values().next().value);
+      try {
+        chrome.runtime.sendMessage({
+          type: "vault-classifier-diagnostic",
+          platform,
+          event,
+          ...(detail ? { detail } : {})
+        }, () => void chrome.runtime.lastError);
+      } catch (_) {}
+    }
+
+    function reportAvatarDebug(stage) {
+      if (!avatarDebugEnabled || typeof stage !== "string") return;
+      if (reportedAvatarDebugStages.has(stage)) return;
+      reportedAvatarDebugStages.add(stage);
+      while (reportedAvatarDebugStages.size > MAX_SENT_ENTRY_IDS) reportedAvatarDebugStages.delete(reportedAvatarDebugStages.values().next().value);
+      try { console.debug("[VaultClassifier:avatar]", `${platform}:${stage}`); } catch (_) {}
+    }
+
+    function resolveAvatarDebugSettingsOnce(settings) {
+      if (avatarDebugSettingsResolved) return;
+      avatarDebugSettingsResolved = true;
+      avatarDebugEnabled = settings?.debugMode === true;
+      if (avatarDebugEnabled) reportAvatarDebug("debug-ready");
+      resolveAvatarDebugSettings();
+    }
 
     function rememberEntryID(entryID, hasCreatorAvatar) {
       const now = Date.now();
@@ -212,38 +282,95 @@
     function deliver(raw) {
       if (!collectionEnabled) return;
       const evidence = makeCollectedEntry({ ...raw, platform, baseURL: global.location.href });
-      if (!evidence || !rememberEntryID(evidence.entryID, Boolean(evidence.evidence?.metadata?.creatorAvatarURL))) return;
+      if (!evidence) {
+        if (raw.sourceKind === "creator" || raw.sourceKind === "account") reportAvatarDebug("source-missing");
+        return;
+      }
+      const hasCreatorAvatar = Boolean(evidence.evidence?.metadata?.creatorAvatarURL);
+      const profileSource = raw.sourceKind === "creator" || raw.sourceKind === "account";
+      if (profileSource && !hasCreatorAvatar) reportAvatarDebug(raw.creatorAvatarURL ? "source-untrusted" : "image-missing");
+      else if (profileSource) reportAvatarDebug("source-ready");
+      if (!rememberEntryID(evidence.entryID, hasCreatorAvatar)) {
+        if (hasCreatorAvatar) reportAvatarDebug("delivery-suppressed");
+        return;
+      }
+      if (profileSource && hasCreatorAvatar) reportAvatarDebug("enrichment-requested");
+      reportDiagnostic("collection-requested");
       try {
         chrome.runtime.sendMessage({ type: "vault-classifier-collect", entry: evidence }, (response) => {
-          if (chrome.runtime.lastError || !response?.accepted) sentEntryIDs.delete(evidence.entryID);
+          if (chrome.runtime.lastError || !response?.accepted) {
+            sentEntryIDs.delete(evidence.entryID);
+            if (profileSource && hasCreatorAvatar) reportAvatarDebug("delivery-rejected");
+            reportDiagnostic("collection-rejected", "rejected");
+            return;
+          }
+          if (profileSource && hasCreatorAvatar) reportAvatarDebug("delivery-accepted");
+          reportDiagnostic("collection-accepted");
         });
       } catch (_) {
         sentEntryIDs.delete(evidence.entryID);
+        if (profileSource && hasCreatorAvatar) reportAvatarDebug("delivery-rejected");
+        reportDiagnostic("collection-rejected", "bridge-unavailable");
       }
     }
 
-    function scheduleScan() {
-      if (!collectionEnabled || scanTimer) return;
+    function scheduleScan(delay = 250) {
+      if (!collectionEnabled) return;
+      if (scanTimer) {
+        if (delay !== 0) return;
+        clearTimeout(scanTimer);
+      }
       scanTimer = setTimeout(() => {
         scanTimer = null;
         try { config.scan({ document: global.document, collect: deliver, core: api }); } catch (_) {}
-      }, 250);
+      }, delay);
+    }
+
+    function schedulePageCheck() {
+      if (!collectionEnabled || typeof config.scanPage !== "function" || pageTimer) return;
+      pageTimer = setTimeout(() => {
+        pageTimer = null;
+        try {
+          const result = config.scanPage({ document: global.document, collect: deliver, core: api }) || {};
+          if (result.ready) reportDiagnostic("page-evidence-ready");
+          else reportDiagnostic("page-evidence-missing", result.reason || "missing-content-root");
+        } catch (_) {
+          reportDiagnostic("page-evidence-missing", "missing-content-root");
+        }
+      }, 450);
     }
 
     function refreshCollectionEnabled() {
+      const epoch = ++collectionEpoch;
+      reportDiagnostic("collection-info-requested");
       try {
         chrome.runtime.sendMessage({ type: "vault-classifier-collection-info", platform }, (response) => {
-          if (chrome.runtime.lastError) return;
+          if (epoch !== collectionEpoch) return;
+          if (chrome.runtime.lastError || !response?.ok) {
+            reportDiagnostic("collection-info-failed", "runtime-last-error");
+            return;
+          }
           collectionEnabled = Boolean(response?.ok === true && response.enabled === true);
-          if (collectionEnabled) scheduleScan();
+          if (collectionEnabled) {
+            reportDiagnostic("collection-info-enabled");
+            scheduleScan();
+            schedulePageCheck();
+          } else {
+            reportAvatarDebug("collection-disabled");
+            reportDiagnostic("collection-info-disabled");
+          }
         });
-      } catch (_) {}
+      } catch (_) {
+        reportDiagnostic("collection-info-failed", "bridge-unavailable");
+      }
     }
 
     const observer = new MutationObserver((records) => {
       // Every collector gets the late-source handling previously required by
       // YouTube, but only approved image attributes trigger an attribute scan.
-      if (records.some((record) => record.type === "childList" || (record.type === "attributes" && record.target?.matches?.("img, source")))) scheduleScan();
+      const avatarSourceChanged = records.some((record) => record.type === "attributes" && record.target?.matches?.("img, source"));
+      if (records.some((record) => record.type === "childList") || avatarSourceChanged) scheduleScan(avatarSourceChanged ? 0 : 250);
+      schedulePageCheck();
     });
     const observerOptions = {
       childList: true,
@@ -253,8 +380,44 @@
     };
     if (document.documentElement) observer.observe(document.documentElement, observerOptions);
     else document.addEventListener("DOMContentLoaded", () => observer.observe(document.documentElement, observerOptions), { once: true });
-    refreshCollectionEnabled();
-    setInterval(refreshCollectionEnabled, 15_000);
+    global.addEventListener?.("popstate", () => {
+      sentEntryIDs.clear();
+      reportedDiagnostics.clear();
+      reportedAvatarDebugStages.clear();
+      scheduleScan();
+      schedulePageCheck();
+    });
+    global.addEventListener?.("hashchange", () => {
+      sentEntryIDs.clear();
+      scheduleScan();
+      schedulePageCheck();
+    });
+    chrome.storage.onChanged?.addListener?.((changes, area) => {
+      if (area !== "local") return;
+      if (changes.globalSettings) {
+        avatarDebugEnabled = changes.globalSettings.newValue?.debugMode === true;
+        if (avatarDebugEnabled) reportAvatarDebug("debug-ready");
+      }
+      if (changes[SETTINGS_KEY]) refreshCollectionEnabled();
+    });
+    try {
+      if (typeof chrome.storage?.local?.get !== "function") {
+        resolveAvatarDebugSettingsOnce();
+      } else {
+        const deadline = setTimeout(() => resolveAvatarDebugSettingsOnce(), 250);
+        chrome.storage.local.get("globalSettings", (stored) => {
+          clearTimeout(deadline);
+          resolveAvatarDebugSettingsOnce(stored?.globalSettings);
+        });
+      }
+    } catch (_) {
+      resolveAvatarDebugSettingsOnce();
+    }
+    reportDiagnostic("collector-started");
+    avatarDebugSettingsReady.then(() => {
+      refreshCollectionEnabled();
+      setInterval(refreshCollectionEnabled, 15_000);
+    });
     return { platform, refreshCollectionEnabled, scheduleScan };
   }
 
@@ -273,6 +436,7 @@
     avatarFromVerifiedSource,
     matchingSourceAnchor,
     firstNormalizedSourceAnchor,
+    firstVerifiedSourceAnchor,
     start
   });
   global.VaultClassifierCollectorCore = api;

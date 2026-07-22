@@ -12,6 +12,11 @@
     const path = new URL(url).pathname.toLowerCase();
     return path.includes("/reel/") || path.includes("/share/r/") ? "short" : path.includes("/posts/") || path.includes("/permalink/") ? "post" : "video";
   }
+  function pageRoute(location) {
+    const path = String(location?.pathname || "");
+    const match = path.match(/\/(?:reel|watch|videos|posts|permalink|share\/r|share\/v)\/([A-Za-z0-9_-]{3,128})/i);
+    return match ? { contentID: match[1], type: entryType(location.href) } : null;
+  }
 
   core.start({
     platform: "facebook",
@@ -37,6 +42,33 @@
           entryType: entryType(entry.href)
         });
       }
+    },
+    scanPage({ document, collect }) {
+      const route = pageRoute(global.location);
+      if (!route) return { ready: false, reason: "missing-content-id" };
+      const root = document.querySelector('[role="main"] [role="article"]') || document.querySelector('[role="article"]') || document.querySelector('[role="main"]');
+      if (!root) return { ready: false, reason: "missing-content-root" };
+      const source = core.firstVerifiedSourceAnchor("facebook", root, [
+        'h2 a[href]', 'strong a[href]', '[role="heading"] a[href]', 'a[role="link"][href]'
+      ], global.location.href);
+      if (!source) return { ready: false, reason: "missing-source" };
+      const body = core.firstText(root, ['[data-ad-preview="message"]', '[data-testid*="story"]', '[dir="auto"]'], 16000);
+      const title = core.compactText(body, 500) || core.firstText(root, ["h1", "h2", "h3"]);
+      if (!title && !body) return { ready: false, reason: "missing-title" };
+      collect({
+        entryID: `facebook:${route.type}:${route.contentID}`,
+        surface: "page",
+        sourceKind: "creator",
+        entryURL: global.location.href,
+        sourceURL: source.href,
+        sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
+        title,
+        text: body,
+        suppliedTags: [...root.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent),
+        creatorAvatarURL: core.avatarFromVerifiedSource("facebook", source, global.location.href),
+        entryType: route.type
+      });
+      return { ready: true };
     }
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);

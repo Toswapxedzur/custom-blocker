@@ -8,6 +8,10 @@
 
   function matchesPage(location) { return /(^|\.)(x|twitter)\.com$/i.test(location?.hostname || ""); }
   function isStatus(anchor) { return /^\/[^/]+\/status\/[0-9]+/i.test(new URL(anchor.href).pathname); }
+  function pageRoute(location) {
+    const match = String(location?.pathname || "").match(/^\/([^/]+)\/status\/([0-9]{6,32})\/?$/i);
+    return match ? { handle: match[1], statusID: match[2] } : null;
+  }
 
   core.start({
     platform: "twitter",
@@ -31,6 +35,31 @@
           entryType: "post"
         });
       }
+    },
+    scanPage({ document, collect }) {
+      const route = pageRoute(global.location);
+      if (!route) return { ready: false, reason: "missing-content-id" };
+      const root = document.querySelector('article[data-testid="tweet"]') || document.querySelector("article") || document.querySelector("main");
+      if (!root) return { ready: false, reason: "missing-content-root" };
+      const sourceURL = `${new URL(global.location.href).origin}/${route.handle}`;
+      const source = core.matchingSourceAnchor("twitter", root, sourceURL);
+      const text = core.firstText(root, ['[data-testid="tweetText"]', '[lang]'], 16000);
+      const title = core.compactText(text, 500) || core.firstText(root, ['[data-testid="User-Name"]', "h1"]);
+      if (!title && !text) return { ready: false, reason: "missing-title" };
+      collect({
+        entryID: `twitter:status:${route.statusID}`,
+        surface: "page",
+        sourceKind: "account",
+        entryURL: global.location.href,
+        sourceURL,
+        sourceName: core.firstText(root, ['[data-testid="User-Name"]']) || core.compactText(source?.textContent, 256) || `@${route.handle}`,
+        title,
+        text,
+        suppliedTags: [...root.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent),
+        creatorAvatarURL: core.avatarFromVerifiedSource("twitter", source, global.location.href),
+        entryType: "post"
+      });
+      return { ready: true };
     }
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);

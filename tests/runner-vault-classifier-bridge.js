@@ -156,14 +156,16 @@ function assert(name, condition, detail) {
   assert("reads a non-YouTube app-owned collection opt-in only from that platform", redditCollectionInfo.waiting && redditCollectionInfo.value && redditCollectionInfo.value.enabled === true && hubCalls === 1, redditCollectionInfo);
   const redditCollected = await dispatch({ type: "vault-classifier-collect", entry: redditEntry("123", "Visible Reddit card") }, trustedRedditSender);
   assert("routes a bounded non-YouTube collected entry through the shared hub", redditCollected.waiting && redditCollected.value && redditCollected.value.accepted === true && hubCalls === 2, redditCollected);
+  const redditDiagnostic = await dispatch({ type: "vault-classifier-diagnostic", platform: "reddit", event: "page-evidence-ready" }, trustedRedditSender);
+  assert("gives non-YouTube collectors the same fixed page diagnostic route", redditDiagnostic.waiting && redditDiagnostic.value?.accepted === true && hubCalls === 3 && diagnostics.some((entry) => entry.event === "page-evidence-ready" && entry.platform === "reddit"), { redditDiagnostic, diagnostics });
   const mismatchedCollection = await dispatch({ type: "vault-classifier-collect", entry: redditEntry("124", "Forged platform") }, trustedSender);
-  assert("rejects a collection platform that does not match the sender origin", !mismatchedCollection.waiting && hubCalls === 2, mismatchedCollection);
+  assert("rejects a collection platform that does not match the sender origin", !mismatchedCollection.waiting && hubCalls === 3, mismatchedCollection);
   const discordCollectionInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "discord" }, trustedDiscordSender);
-  assert("enables Discord collection only for a server and channel route", discordCollectionInfo.waiting && discordCollectionInfo.value?.enabled === true && hubCalls === 3, discordCollectionInfo);
+  assert("enables Discord collection only for a server and channel route", discordCollectionInfo.waiting && discordCollectionInfo.value?.enabled === true && hubCalls === 4, discordCollectionInfo);
   const discordCollected = await dispatch({ type: "vault-classifier-collect", entry: discordEntry("345678", "Visible server message") }, trustedDiscordSender);
-  assert("routes a server-scoped Discord message through the local shared hub", discordCollected.waiting && discordCollected.value?.accepted === true && hubCalls === 4, discordCollected);
+  assert("routes a server-scoped Discord message through the local shared hub", discordCollected.waiting && discordCollected.value?.accepted === true && hubCalls === 5, discordCollected);
   const directMessageCollection = await dispatch({ type: "vault-classifier-collection-info", platform: "discord" }, directMessageDiscordSender);
-  assert("rejects direct-message Discord routes before collection reaches the hub", !directMessageCollection.waiting && hubCalls === 4, directMessageCollection);
+  assert("rejects direct-message Discord routes before collection reaches the hub", !directMessageCollection.waiting && hubCalls === 5, directMessageCollection);
   hubCalls = 0;
 
   const removedPolicyBridge = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "No browser policy") }, trustedSender);
