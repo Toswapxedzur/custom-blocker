@@ -19,7 +19,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["platform-profiles.js", "helpers.js", "content.js", "vault-classifier-contract.js", "vault-classifier-collector.js"],
+      "js": ["platform-profiles.js", "helpers.js", "content.js", "vault-classifier-contract.js", "vault-classifier-collector-core.js", "vault-classifier-tiktok.js", "vault-classifier-facebook.js", "vault-classifier-instagram.js", "vault-classifier-twitch.js", "vault-classifier-reddit.js", "vault-classifier-discord.js", "vault-classifier-twitter.js", "vault-classifier-bilibili.js"],
       "run_at": "document_idle"
     },
     {

@@ -326,6 +326,8 @@
       case "instagram": return host === "instagram.com" || host.endsWith(".instagram.com");
       case "twitch": return host === "twitch.tv" || host.endsWith(".twitch.tv") || host === "clips.twitch.tv";
       case "reddit": return host === "reddit.com" || host.endsWith(".reddit.com");
+      case "discord": return (host === "discord.com" || host.endsWith(".discord.com") || host === "discordapp.com" || host.endsWith(".discordapp.com"))
+        && /^\/channels\/[0-9]{6,24}\/[0-9]{6,24}(?:\/[0-9]{6,24})?\/?$/.test(parsed.pathname);
       case "twitter": return host === "twitter.com" || host.endsWith(".twitter.com") || host === "x.com" || host.endsWith(".x.com");
       case "bluesky": return host === "bsky.app" || host.endsWith(".bsky.app");
       case "threads": return host === "threads.com" || host.endsWith(".threads.com");
