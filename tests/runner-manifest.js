@@ -32,4 +32,29 @@ if (!hasWorkerWrapper) {
   console.log("PASS Chromium service worker uses the guarded background entry point");
 }
 
-console.log(`__CB_TEST_RESULT__: ${missing.length || !hasWorkerWrapper ? "FAIL" : "OK"}`);
+const genericCollectorPresent = (manifest.content_scripts || []).some((entry) =>
+  Array.isArray(entry.js) && entry.js.includes("vault-classifier-collector.js")
+);
+const dedicatedCollectorScripts = [
+  "vault-classifier-collector-core.js",
+  "vault-classifier-tiktok.js",
+  "vault-classifier-facebook.js",
+  "vault-classifier-instagram.js",
+  "vault-classifier-twitch.js",
+  "vault-classifier-reddit.js",
+  "vault-classifier-discord.js",
+  "vault-classifier-twitter.js",
+  "vault-classifier-bilibili.js"
+];
+const collectionEntry = (manifest.content_scripts || []).find((entry) =>
+  Array.isArray(entry.js) && entry.js.includes("vault-classifier-collector-core.js")
+);
+const missingDedicatedCollectors = dedicatedCollectorScripts.filter((script) => !collectionEntry?.js?.includes(script));
+if (genericCollectorPresent || missingDedicatedCollectors.length) {
+  console.error(`FAIL dedicated platform collector registration is invalid${genericCollectorPresent ? "; generic collector remains" : ""}${missingDedicatedCollectors.length ? `; missing ${missingDedicatedCollectors.join(", ")}` : ""}`);
+  process.exitCode = 1;
+} else {
+  console.log("PASS every non-YouTube classifier platform has a dedicated collector entry");
+}
+
+console.log(`__CB_TEST_RESULT__: ${missing.length || !hasWorkerWrapper || genericCollectorPresent || missingDedicatedCollectors.length ? "FAIL" : "OK"}`);
