@@ -54,7 +54,7 @@ cihazınızda ve yalnızca kendi tarayıcı profilinizin içinde.
 | --- | --- |
 | `storage` | Blok gruplarınızı, ayarlarınızı ve çalışma zamanı durumunuzu yalnızca tarayıcınıza kaydedin ve yükleyin. |
 | `favicon` | Chromium'da kuralların yanında tarayıcının yerel önbelleğindeki site simgelerini gösterir. Tarama geçmişini göndermez ve hizmetimize istek yapmaz. |
-| `nativeMessaging` | Yalnızca Safari'de özel kural sanal alanı isteklerini cihazdaki yerel uygulamaya iletir. Bulut aktarımı değildir. |
+| `nativeMessaging` | Chromium'da, kimliği doğrulanmış Vault Classifier köprüsü için cihazdaki yerel bir Native Messaging kanıtı ister; Safari'de özel kural sanal alanı isteklerini cihazdaki yerel uygulamaya iletir. Bu bir bulut aktarımı değildir. |
 | `alarms` | Bir erteleme, dondurma veya zamanlama penceresi sona erdiğinde zamana dayalı sınırları yenilemek ve kural durumunu güncellemek için arka plan hizmet çalışanını programa göre uyandırın. |
 | `offscreen` | Korumalı alana alınmış özel kurallı JavaScript'i ekran dışı bir belgede çalıştırın, böylece uzantıdan kaçamaz veya sayfalarınıza doğrudan dokunamaz. |
 | `tabs` | Araç çubuğu simgesini tıklattığınızda düzenleyiciyi tam sekme olarak açın, grup kurallarını değerlendirmek için etkin sekmenin URL'sine bakın ve düzenleyicide yaptığınız bir kural değişikliğinden sonra sekmeleri yeniden yükleyin. |

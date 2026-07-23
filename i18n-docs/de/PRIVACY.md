@@ -54,7 +54,7 @@ auf Ihrem Gerät und nur innerhalb Ihres eigenen Browserprofils.
 | --- | --- |
 | `storage` | Speichern und laden Sie Ihre Blockgruppen, Einstellungen und den Laufzeitstatus nur in Ihrem Browser. |
 | `favicon` | Zeigt in Chromium neben Regeln lokal im Browser zwischengespeicherte Website-Symbole an. Dabei werden weder Browserverlauf noch Anfragen an unseren Dienst gesendet. |
-| `nativeMessaging` | Leitet nur in Safari Sandbox-Anfragen benutzerdefinierter Regeln an die lokale Begleit-App auf dem Gerät weiter. Dies ist kein Cloud-Transport. |
+| `nativeMessaging` | Fordert in Chromium einen gerätelokalen Native-Messaging-Nachweis für die authentifizierte Vault-Classifier-Brücke an; leitet in Safari Sandbox-Anfragen benutzerdefinierter Regeln an die lokale Begleit-App auf dem Gerät weiter. Dies ist kein Cloud-Transport. |
 | `alarms` | Wecken Sie den Hintergrunddienstmitarbeiter nach Zeitplan, um zeitbasierte Grenzwerte zu aktualisieren und den Regelstatus zu aktualisieren, wenn ein Snooze-, Freeze- oder Zeitplanfenster endet. |
 | `offscreen` | Führen Sie Sandbox-JavaScript mit benutzerdefinierten Regeln in einem Offscreen-Dokument aus, damit es der Erweiterung nicht entgehen oder Ihre Seiten nicht direkt berühren kann. |
 | `tabs` | Öffnen Sie den Editor als vollständige Registerkarte, indem Sie auf das Symbolleistensymbol klicken, suchen Sie nach der URL der aktiven Registerkarte, um Gruppenregeln auszuwerten, und laden Sie Registerkarten nach einer Regeländerung, die Sie im Editor vorgenommen haben, neu. |

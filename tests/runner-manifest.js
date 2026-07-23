@@ -17,6 +17,8 @@ const collector = (manifest.content_scripts || []).find((entry) =>
 const matches = Array.isArray(collector && collector.matches) ? collector.matches : [];
 const required = ["*://youtube.com/*", "*://*.youtube.com/*"];
 const missing = required.filter((pattern) => !matches.includes(pattern));
+const hasNativeMessaging = Array.isArray(manifest.permissions)
+  && manifest.permissions.includes("nativeMessaging");
 
 if (missing.length) {
   console.error(`FAIL YouTube collector is missing: ${missing.join(", ")}`);
@@ -30,6 +32,13 @@ if (!hasWorkerWrapper) {
   process.exitCode = 1;
 } else {
   console.log("PASS Chromium service worker uses the guarded background entry point");
+}
+
+if (!hasNativeMessaging) {
+  console.error("FAIL Chromium manifest must request Native Messaging for local-hub authentication");
+  process.exitCode = 1;
+} else {
+  console.log("PASS Chromium manifest requests Native Messaging for local-hub authentication");
 }
 
 const genericCollectorPresent = (manifest.content_scripts || []).some((entry) =>
@@ -57,4 +66,4 @@ if (genericCollectorPresent || missingDedicatedCollectors.length) {
   console.log("PASS every non-YouTube classifier platform has a dedicated collector entry");
 }
 
-console.log(`__CB_TEST_RESULT__: ${missing.length || !hasWorkerWrapper || genericCollectorPresent || missingDedicatedCollectors.length ? "FAIL" : "OK"}`);
+console.log(`__CB_TEST_RESULT__: ${missing.length || !hasWorkerWrapper || !hasNativeMessaging || genericCollectorPresent || missingDedicatedCollectors.length ? "FAIL" : "OK"}`);

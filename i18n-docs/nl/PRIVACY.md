@@ -54,7 +54,7 @@ op uw apparaat, en alleen binnen uw eigen browserprofiel.
 | --- | --- |
 | `storage` | Bewaar en laad uw blokgroepen, instellingen en runtimestatus alleen in uw browser. |
 | `favicon` | Toont in Chromium naast regels sitepictogrammen die al lokaal door de browser zijn gecachet. Dit verstuurt geen browsegeschiedenis en doet geen verzoek aan onze dienst. |
-| `nativeMessaging` | Stuurt alleen in Safari sandboxverzoeken van aangepaste regels door naar de lokale app op het apparaat. Dit is geen cloudtransport. |
+| `nativeMessaging` | Vraagt in Chromium om een apparaat-lokaal Native Messaging-bewijs voor de geauthenticeerde Vault Classifier-brug; stuurt in Safari sandboxverzoeken van aangepaste regels door naar de lokale app op het apparaat. Dit is geen cloudtransport. |
 | `alarms` | Maak de achtergrondservicemedewerker op schema wakker om op tijd gebaseerde limieten te vernieuwen en de regelstatus bij te werken wanneer een snooze-, bevriezings- of planningsvenster eindigt. |
 | `offscreen` | Voer JavaScript met aangepaste regels in een sandbox uit in een document buiten het scherm, zodat het niet aan de extensie kan ontsnappen of uw pagina's rechtstreeks kan raken. |
 | `tabs` | Open de editor als een volledig tabblad wanneer u op het werkbalkpictogram klikt, zoek de URL van het actieve tabblad op om groepsregels te evalueren en laad tabbladen opnieuw na een regelwijziging die u in de editor hebt aangebracht. |

@@ -92,20 +92,6 @@ const fitted = VC.fitEntryForNativeTransport(byteHeavy);
 assert("trims byte-heavy evidence to the native frame budget", fitted && VC.nativeBodyByteLength({ entry: fitted }) <= VC.maximumNativeBodyBytes);
 assert("retains readable evidence after frame trimming", fitted && Boolean(fitted.evidence.title || fitted.evidence.text || fitted.evidence.summary || fitted.evidence.suppliedTags.length));
 
-const envelope = {
-  protocolVersion: 1,
-  kind: "classification-response",
-  requestID: "native-request-1",
-  timestampMilliseconds: Date.now(),
-  nonce: "AAAAAAAAAAAAAAAAAAAAAAAA",
-  bodyBase64: "e30=",
-  bodyHash: "0".repeat(64),
-  mac: "A".repeat(44)
-};
-assert("accepts a bounded authenticated native envelope shape", VC.isNativeEnvelope(envelope, { authenticated: true }));
-assert("rejects a native envelope with an unsafe timestamp", !VC.isNativeEnvelope({ ...envelope, timestampMilliseconds: NaN }, { authenticated: true }));
-assert("rejects a native envelope with a malformed MAC", !VC.isNativeEnvelope({ ...envelope, mac: "not-base64" }, { authenticated: true }));
-
 assert("parses canonical YouTube watch and Shorts IDs", VC.youtubeVideoIDFromURL("/watch?v=dQw4w9WgXcQ", "https://www.youtube.com/feed") === "dQw4w9WgXcQ" && VC.youtubeVideoIDFromURL("https://m.youtube.com/shorts/dQw4w9WgXcQ") === "dQw4w9WgXcQ");
 assert("rejects lookalike YouTube origins", VC.youtubeVideoIDFromURL("https://youtube.com.evil/watch?v=dQw4w9WgXcQ") === null && !VC.isTrustedYouTubeURL("https://youtube.com.evil/watch?v=dQw4w9WgXcQ"));
 assert("recognizes only YouTube sender origins", VC.isTrustedYouTubeURL("https://www.youtube.com/watch?v=dQw4w9WgXcQ") && VC.isTrustedYouTubeURL("https://m.youtube.com/feed"));

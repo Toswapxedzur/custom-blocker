@@ -42,8 +42,9 @@ const context = vm.createContext({
   cbConnection: connection,
   WebSocket: FakeWebSocket,
   CB_FIXED_ADDRESS: "ws://127.0.0.1:8787",
-  CB_CONNECTION_PROTOCOL_VERSION: 3,
+  CB_CONNECTION_PROTOCOL_VERSION: 4,
   cbDetectProgramId: () => "chrome",
+  CBLocalHubAuthentication: { proofForChallenge: async () => "a".repeat(43) },
   CBBridgeProtocol: { isHubProgram: (value) => value === "macapp" || value === "classifier" },
   TextEncoder,
   setTimeout,
@@ -113,7 +114,10 @@ function assert(name, condition, detail) {
   await new Promise((resolve) => setImmediate(resolve));
   const fallback = fallbackSockets.at(-1);
   fallback.open();
-  fallback.message({ kind: "welcome", v: 3, hubProgram: "macapp", peers: [{ program: "classifier", connected: true }] });
+  fallback.message({ kind: "challenge", v: 4, challenge: "c".repeat(43) });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert("authenticates the fallback socket with a native-host challenge proof", fallback.sent.some((message) => message.kind === "hello" && message.proof === "a".repeat(43)), fallback.sent);
+  fallback.message({ kind: "welcome", v: 4, hubProgram: "macapp", peers: [{ program: "classifier", connected: true }] });
   await new Promise((resolve) => setImmediate(resolve));
   assert(
     "uses a temporary fallback socket when the durable worker socket is stale",
@@ -134,7 +138,9 @@ function assert(name, condition, detail) {
     await new Promise((resolve) => setImmediate(resolve));
     const rejectedSocket = fallbackSockets.at(-1);
     rejectedSocket.open();
-    rejectedSocket.message({ kind: "welcome", v: 3, hubProgram: "macapp", peers: [] });
+    rejectedSocket.message({ kind: "challenge", v: 4, challenge: "d".repeat(43) });
+    await new Promise((resolve) => setImmediate(resolve));
+    rejectedSocket.message({ kind: "welcome", v: 4, hubProgram: "macapp", peers: [] });
     await noPeer;
     assert("rejects a hub that has no Classifier peer", false);
   } catch (error) {

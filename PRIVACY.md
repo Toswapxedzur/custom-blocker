@@ -1,12 +1,12 @@
 # Privacy Policy — Custom Web Blocker
 
-_Last updated: 2026-07-15_
+_Last updated: 2026-07-23_
 
 This page explains exactly what data the **Custom Web Blocker** browser
 extension collects, where it goes, and why each browser permission is
 requested. The short version is: your rules and personal browsing data are not
 saved by us. Optional Vault Classifier collection and classification stay under
-your control and use the paired local bridge.
+your control and use the authenticated local bridge.
 
 ## Summary
 
@@ -16,7 +16,7 @@ your control and use the paired local bridge.
 - **Vault Classifier is local-only.** If you explicitly enable the optional
   Vault Classifier integration, visible YouTube card/page evidence (such as a
   title, visible description, displayed tags, and public creator/video IDs) is
-  routed only through the paired local Vault bridge to Vault Classifier on your
+  routed only through the authenticated local Vault bridge to Vault Classifier on your
   Mac. It is not sent to our website, a model provider, YouTube's Data API, or
   any other server.
 - **Collection is a separate opt-in.** Vault Classifier asks the extension for
@@ -71,7 +71,7 @@ companion, or an explicitly linked local Vault bridge.
 | --- | --- |
 | `storage` | Save and load your block groups, settings, and runtime state in your browser only. |
 | `favicon` | Show browser-cached site icons beside rules in Chromium. This does not send browsing history or make a request to our service. |
-| `nativeMessaging` | In Safari only, forward custom-rule sandbox requests to the device-local containing app. It is not a cloud transport. |
+| `nativeMessaging` | In Chromium, request a device-local Native Messaging proof for the authenticated Vault Classifier bridge; in Safari, forward custom-rule sandbox requests to the device-local containing app. It is not a cloud transport. |
 | `alarms` | Wake the background service worker on schedule to refresh time-based limits and update rule state when a snooze, freeze, or schedule window ends. |
 | `offscreen` | Run sandboxed custom-rule JavaScript in an offscreen document so it cannot escape the extension or touch your pages directly. |
 | `tabs` | Open the editor as a full tab when you click the toolbar icon, look up the active tab's URL to evaluate group rules, and reload tabs after a rule change you made in the editor. |

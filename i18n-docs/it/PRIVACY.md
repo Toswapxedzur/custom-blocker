@@ -54,7 +54,7 @@ sul tuo dispositivo e solo all'interno del tuo profilo del browser.
 | --- | --- |
 | `storage` | Salva e carica i gruppi di blocco, le impostazioni e lo stato di runtime solo nel tuo browser. |
 | `favicon` | Mostra in Chromium, accanto alle regole, le icone dei siti già memorizzate nella cache del browser. Non invia la cronologia né contatta il nostro servizio. |
-| `nativeMessaging` | Solo in Safari, inoltra le richieste della sandbox delle regole personalizzate all'app locale sul dispositivo. Non è un trasporto cloud. |
+| `nativeMessaging` | In Chromium, richiede una prova Native Messaging locale al dispositivo per il bridge autenticato di Vault Classifier; in Safari inoltra le richieste della sandbox delle regole personalizzate all'app locale sul dispositivo. Non è un trasporto cloud. |
 | `alarms` | Riattiva l'operatore dei servizi in background secondo la pianificazione per aggiornare i limiti basati sul tempo e aggiornare lo stato delle regole al termine di una finestra di posticipazione, blocco o pianificazione. |
 | `offscreen` | Esegui JavaScript con regole personalizzate in modalità sandbox in un documento fuori schermo in modo che non possa sfuggire all'estensione o toccare direttamente le tue pagine. |
 | `tabs` | Apri l'editor come scheda completa quando fai clic sull'icona della barra degli strumenti, cerca l'URL della scheda attiva per valutare le regole del gruppo e ricarica le schede dopo una modifica alle regole apportata nell'editor. |

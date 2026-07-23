@@ -22,8 +22,9 @@ function assertEqual(name, actual, expected) {
 }
 
 log.section("P1: fixed local hub protocol");
-assertEqual("protocol version is v3", bridge.PROTOCOL_VERSION, 3);
-assert("browser programs may connect", bridge.isRemoteProgram("firefox"));
+assertEqual("protocol version is v4", bridge.PROTOCOL_VERSION, 4);
+assert("Chromium browsers may connect", bridge.isRemoteProgram("chrome") && bridge.isRemoteProgram("edge"));
+assert("other browsers cannot claim an unauthenticated local identity", !bridge.isRemoteProgram("firefox"));
 assert("desktop identities may not impersonate a remote peer", !bridge.isRemoteProgram("windowsapp"));
 assert("Mac Vault is a recognised local hub", bridge.isHubProgram("macapp"));
 

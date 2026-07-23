@@ -54,7 +54,7 @@ di perangkat Anda, dan hanya di dalam profil browser Anda sendiri.
 | --- | --- |
 | `storage` | Simpan dan muat grup blok, pengaturan, dan status runtime di browser Anda saja. |
 | `favicon` | Menampilkan ikon situs yang sudah disimpan di cache browser di samping aturan pada Chromium. Ini tidak mengirim riwayat penelusuran atau meminta data dari layanan kami. |
-| `nativeMessaging` | Khusus Safari, meneruskan permintaan sandbox aturan khusus ke aplikasi lokal di perangkat. Ini bukan transportasi cloud. |
+| `nativeMessaging` | Di Chromium, meminta bukti Native Messaging lokal di perangkat untuk jembatan Vault Classifier yang terautentikasi; di Safari, meneruskan permintaan sandbox aturan khusus ke aplikasi lokal di perangkat. Ini bukan transportasi cloud. |
 | `alarms` | Membangunkan pekerja layanan latar belakang sesuai jadwal untuk menyegarkan batas berbasis waktu dan memperbarui status aturan ketika jendela penundaan, pembekuan, atau jadwal berakhir. |
 | `offscreen` | Jalankan JavaScript aturan khusus yang dikotak pasir dalam dokumen di luar layar sehingga tidak dapat keluar dari ekstensi atau menyentuh halaman Anda secara langsung. |
 | `tabs` | Buka editor sebagai tab penuh saat Anda mengeklik ikon bilah alat, cari URL tab aktif untuk mengevaluasi aturan grup, dan muat ulang tab setelah perubahan aturan yang Anda buat di editor. |
