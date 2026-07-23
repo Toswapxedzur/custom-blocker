@@ -87,8 +87,17 @@ VAULT_CLASSIFIER_FILES = [
     # The service worker imports this adapter at startup; it is not declared
     # in the manifest, so it must remain explicitly listed here.
     "vault-classifier-bridge.js",
-    "vault-classifier-collector.js",
+    "local-hub-auth.js",
+    "vault-classifier-collector-core.js",
     "vault-classifier-youtube.js",
+    "vault-classifier-tiktok.js",
+    "vault-classifier-facebook.js",
+    "vault-classifier-instagram.js",
+    "vault-classifier-twitch.js",
+    "vault-classifier-reddit.js",
+    "vault-classifier-discord.js",
+    "vault-classifier-twitter.js",
+    "vault-classifier-bilibili.js",
 ]
 
 INCLUDE_DIRS = [

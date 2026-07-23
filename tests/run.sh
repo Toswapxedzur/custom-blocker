@@ -60,12 +60,6 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'vault-classifier-native-bridge' FAILED" >&2
   failed=1
 fi
-node_out=$(node tests/runner-vault-classifier-connection.js 2>&1) || failed=1
-echo "$node_out"
-if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
-  echo "[run.sh] suite 'vault-classifier-connection' FAILED" >&2
-  failed=1
-fi
 node_out=$(node tests/runner-local-hub-target-status.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
@@ -76,6 +70,12 @@ node_out=$(node tests/runner-classifier-hub-relay.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'classifier-hub-relay' FAILED" >&2
+  failed=1
+fi
+node_out=$(node tests/runner-local-hub-auth.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'local-hub-authentication' FAILED" >&2
   failed=1
 fi
 run_suite "markdown-renderer" tests/runner-markdown.js || failed=1

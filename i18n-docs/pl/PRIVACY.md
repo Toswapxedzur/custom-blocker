@@ -54,7 +54,7 @@ na Twoim urządzeniu i wyłącznie w Twoim profilu przeglądarki.
 | --- | --- |
 | `storage` | Zapisz i załaduj grupy bloków, ustawienia i stan środowiska wykonawczego tylko w przeglądarce. |
 | `favicon` | Wyświetla w Chromium obok reguł ikony witryn zapisane lokalnie w pamięci podręcznej przeglądarki. Nie wysyła historii ani żądania do naszej usługi. |
-| `nativeMessaging` | Tylko w Safari przekazuje żądania piaskownicy reguł niestandardowych do lokalnej aplikacji na urządzeniu. Nie jest to transport chmurowy. |
+| `nativeMessaging` | W Chromium żąda lokalnego na urządzeniu dowodu Native Messaging dla uwierzytelnionego mostu Vault Classifier; w Safari przekazuje żądania piaskownicy reguł niestandardowych do lokalnej aplikacji na urządzeniu. Nie jest to transport chmurowy. |
 | `alarms` | Obudź pracownika usługi działającej w tle zgodnie z harmonogramem, aby odświeżyć limity czasowe i zaktualizować stan reguły po zakończeniu okna drzemki, zawieszenia lub harmonogramu. |
 | `offscreen` | Uruchom JavaScript z niestandardową regułą w trybie piaskownicy w dokumencie poza ekranem, aby nie mógł uciec z rozszerzenia ani bezpośrednio dotknąć Twoich stron. |
 | `tabs` | Otwórz edytor w trybie pełnej karty po kliknięciu ikony na pasku narzędzi, wyszukaj adres URL aktywnej karty, aby ocenić reguły grupowe i ponownie załaduj karty po zmianie reguły wprowadzonej w edytorze. |

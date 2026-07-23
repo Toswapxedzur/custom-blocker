@@ -36,7 +36,7 @@ if (typeof importScripts === "function") {
   }
   try {
     if (typeof VaultClassifierExtensionContract === "undefined") importScripts("vault-classifier-contract.js");
-    importScripts("vault-classifier-bridge.js");
+    importScripts("vault-classifier-bridge.js", "local-hub-auth.js");
   } catch (error) {
     console.error("[CustomBlocker] importScripts(vault classifier bridge) failed", error);
   }
@@ -3405,7 +3405,7 @@ ensureStartupGate().catch((error) => {
  * the connection survives popup open/close. We also send a periodic ping.
  * ------------------------------------------------------------------ */
 const CB_CONNECTION_PROTOCOL_VERSION = self.CBBridgeProtocol.PROTOCOL_VERSION;
-// Fixed public address for the ephemeral Vault broker.
+// Fixed local address for the authenticated Vault hub.
 const CB_FIXED_ADDRESS = "ws://127.0.0.1:8787";
 const CB_CONNECTION_PING_MS = 20_000;
 // Four-state connection model (matches the UI):
@@ -3786,17 +3786,7 @@ const cbConnection = {
         this.scheduleSlowRetry();
       }
     }, CB_CONNECTION_BURST_WINDOW_MS);
-    socket.onopen = () => {
-      try {
-        socket.send(
-          JSON.stringify({
-            kind: "hello",
-            v: CB_CONNECTION_PROTOCOL_VERSION,
-            program: cbDetectProgramId()
-          })
-        );
-      } catch (_) {}
-    };
+    socket.onopen = () => {};
     socket.onmessage = (event) => {
       this.handleMessage(event && event.data);
     };
@@ -3871,8 +3861,21 @@ const cbConnection = {
       return;
     }
     if (!msg || typeof msg !== "object") return;
-    if (msg.kind !== "welcome" && msg.kind !== "rejected" && this.status.state !== "connected") return;
+    if (msg.kind !== "challenge" && msg.kind !== "welcome" && msg.kind !== "rejected" && this.status.state !== "connected") return;
     switch (msg.kind) {
+      case "challenge":
+        if (
+          msg.v !== CB_CONNECTION_PROTOCOL_VERSION ||
+          typeof msg.challenge !== "string" ||
+          !/^[A-Za-z0-9_-]{43}$/.test(msg.challenge) ||
+          !self.CBLocalHubAuthentication ||
+          typeof self.CBLocalHubAuthentication.proofForChallenge !== "function"
+        ) {
+          this.authenticationFailed();
+          break;
+        }
+        this.answerChallenge(msg.challenge);
+        break;
       case "welcome":
         if (
           msg.v !== CB_CONNECTION_PROTOCOL_VERSION ||
@@ -3956,6 +3959,32 @@ const cbConnection = {
       default:
         break;
     }
+  },
+
+  answerChallenge(challenge) {
+    const socket = this.ws;
+    if (!socket || socket.readyState !== WebSocket.OPEN || this.handshakeComplete) return;
+    const program = cbDetectProgramId();
+    self.CBLocalHubAuthentication.proofForChallenge(program, challenge)
+      .then((proof) => {
+        if (this.ws !== socket || socket.readyState !== WebSocket.OPEN || this.handshakeComplete) return;
+        socket.send(JSON.stringify({
+          kind: "hello",
+          v: CB_CONNECTION_PROTOCOL_VERSION,
+          program,
+          challenge,
+          proof
+        }));
+      })
+      .catch(() => this.authenticationFailed());
+  },
+
+  authenticationFailed() {
+    this.clearTimers();
+    this.closeSocket();
+    this.burstStartMs = 0;
+    this.setStatus({ state: "error", error: "authentication-unavailable", peers: [], hubProgram: "" });
+    this.scheduleSlowRetry();
   },
 
   waitForSettings() {
@@ -4127,17 +4156,7 @@ const cbClassifierHub = {
         fail("fallback-constructor-failed", new Error("The Vault Classifier bridge is unavailable."));
         return;
       }
-      socket.onopen = () => {
-        try {
-          socket.send(JSON.stringify({
-            kind: "hello",
-            v: CB_CONNECTION_PROTOCOL_VERSION,
-            program: cbDetectProgramId()
-          }));
-        } catch (_) {
-          fail("fallback-hello-failed", new Error("The Vault Classifier bridge is unavailable."));
-        }
-      };
+      socket.onopen = () => {};
       socket.onmessage = (event) => {
         let message;
         try {
@@ -4147,6 +4166,19 @@ const cbClassifierHub = {
           return;
         }
         if (!message || typeof message !== "object") return;
+        if (message.kind === "challenge" && !welcomed) {
+          if (message.v !== CB_CONNECTION_PROTOCOL_VERSION || typeof message.challenge !== "string" || !self.CBLocalHubAuthentication) {
+            fail("fallback-authentication-unavailable", new Error("The Vault Classifier bridge is unavailable."));
+            return;
+          }
+          self.CBLocalHubAuthentication.proofForChallenge(cbDetectProgramId(), message.challenge)
+            .then((proof) => {
+              if (settled || !socket || socket.readyState !== WebSocket.OPEN) return;
+              socket.send(JSON.stringify({ kind: "hello", v: CB_CONNECTION_PROTOCOL_VERSION, program: cbDetectProgramId(), challenge: message.challenge, proof }));
+            })
+            .catch(() => fail("fallback-authentication-unavailable", new Error("The Vault Classifier bridge is unavailable.")));
+          return;
+        }
         if (message.kind === "welcome" && !welcomed) {
           const peers = Array.isArray(message.peers) ? message.peers : [];
           const classifierPresent = message.hubProgram === "classifier" || peers.some((peer) => peer && peer.program === "classifier" && peer.connected !== false);

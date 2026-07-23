@@ -54,7 +54,7 @@ trên thiết bị của bạn và chỉ trong hồ sơ trình duyệt của ri�
 | --- | --- |
 | `storage` | Chỉ lưu và tải các nhóm khối, cài đặt và trạng thái thời gian chạy trong trình duyệt của bạn. |
 | `favicon` | Hiển thị trong Chromium biểu tượng trang đã được trình duyệt lưu đệm bên cạnh quy tắc. Việc này không gửi lịch sử duyệt web hoặc yêu cầu đến dịch vụ của chúng tôi. |
-| `nativeMessaging` | Chỉ trong Safari, chuyển yêu cầu vùng cách ly của quy tắc tùy chỉnh đến ứng dụng cục bộ trên thiết bị. Đây không phải truyền tải đám mây. |
+| `nativeMessaging` | Trong Chromium, yêu cầu bằng chứng Native Messaging cục bộ trên thiết bị cho cầu nối Vault Classifier đã xác thực; trong Safari, chuyển yêu cầu vùng cách ly của quy tắc tùy chỉnh đến ứng dụng cục bộ trên thiết bị. Đây không phải truyền tải đám mây. |
 | `alarms` | Đánh thức nhân viên dịch vụ nền theo lịch trình để làm mới các giới hạn dựa trên thời gian và cập nhật trạng thái quy tắc khi cửa sổ báo lại, đóng băng hoặc lên lịch kết thúc. |
 | `offscreen` | Chạy JavaScript quy tắc tùy chỉnh được đóng hộp cát trong tài liệu ngoài màn hình để nó không thể thoát khỏi tiện ích mở rộng hoặc chạm trực tiếp vào các trang của bạn. |
 | `tabs` | Mở trình chỉnh sửa dưới dạng tab đầy đủ khi bạn nhấp vào biểu tượng thanh công cụ, tra cứu URL của tab đang hoạt động để đánh giá các quy tắc nhóm và tải lại các tab sau khi bạn thực hiện thay đổi quy tắc trong trình chỉnh sửa. |

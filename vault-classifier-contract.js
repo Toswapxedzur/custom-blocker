@@ -258,19 +258,6 @@
     return typeof value === "string" && value.length > 0 && value.length <= maximum && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value);
   }
 
-  function isBase64(value, minimumLength, maximumLength) {
-    return typeof value === "string" && value.length >= minimumLength && value.length <= maximumLength && value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value);
-  }
-
-  function isNativeEnvelope(value, options) {
-    const authenticated = Boolean(options && options.authenticated);
-    if (!isPlainRecord(value) || value.protocolVersion !== 1 || !isBoundedText(value.kind, MAX.nativeKind) || !isBoundedText(value.requestID, MAX.nativeRequestID)) return false;
-    if (!Number.isSafeInteger(value.timestampMilliseconds) || !isBase64(value.nonce, 16, MAX.nativeNonce)) return false;
-    if (!isBase64(value.bodyBase64, 4, Math.ceil(MAX.nativeBodyBytes / 3) * 4) || typeof value.bodyHash !== "string" || !/^[0-9a-fA-F]{64}$/.test(value.bodyHash)) return false;
-    if (authenticated) return isBase64(value.mac, MAX.nativeMac, MAX.nativeMac);
-    return value.mac == null || isBase64(value.mac, MAX.nativeMac, MAX.nativeMac);
-  }
-
   function isBoundedStringList(value, maximumEntries, maximumLength) {
     return Array.isArray(value) && value.length <= maximumEntries && value.every((item) => isBoundedText(item, maximumLength));
   }
@@ -409,7 +396,6 @@
     normalizeEvidence,
     fitEntryForNativeTransport,
     nativeBodyByteLength,
-    isNativeEnvelope,
     isTrustedYouTubeURL,
     isTrustedCollectionURL,
     isTrustedCreatorAvatarURL,

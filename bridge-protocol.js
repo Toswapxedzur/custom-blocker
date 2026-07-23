@@ -6,12 +6,15 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  var PROTOCOL_VERSION = 3;
+  var PROTOCOL_VERSION = 4;
   // A desktop Vault app owns the fixed local hub. Desktop identities can also
   // be the hub identity when they win the loopback listener.
   var DESKTOP_PROGRAMS = ["macapp", "windowsapp", "classifier"];
   var HUB_PROGRAMS = DESKTOP_PROGRAMS.slice();
-  var REMOTE_PROGRAMS = ["chrome", "edge", "firefox", "safari", "opera", "browser"];
+  // The authenticated local hub is currently Chromium-only. Firefox and
+  // Safari do not have this registered host bootstrap and therefore must not
+  // fall back to an unauthenticated loopback identity.
+  var REMOTE_PROGRAMS = ["chrome", "edge"];
 
   function isDesktopProgram(program) {
     return DESKTOP_PROGRAMS.indexOf(String(program || "")) >= 0;

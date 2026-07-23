@@ -54,7 +54,7 @@ sur votre appareil, et uniquement dans votre propre profil de navigateur.
 | --- | --- |
 | `storage` | Enregistrez et chargez vos groupes de blocs, vos paramètres et votre état d'exécution dans votre navigateur uniquement. |
 | `favicon` | Affiche dans Chromium les icônes de sites déjà mises en cache par le navigateur à côté des règles. Cela n'envoie pas l'historique et ne contacte pas notre service. |
-| `nativeMessaging` | Dans Safari uniquement, transmet les requêtes du bac à sable des règles personnalisées à l'application locale de l'appareil. Ce n'est pas un transport cloud. |
+| `nativeMessaging` | Dans Chromium, demande une preuve Native Messaging locale à l’appareil pour le pont Vault Classifier authentifié ; dans Safari, transmet les requêtes du bac à sable des règles personnalisées à l’application locale de l’appareil. Ce n’est pas un transport cloud. |
 | `alarms` | Réveillez le travailleur de service en arrière-plan selon la planification pour actualiser les limites temporelles et mettre à jour l'état des règles lorsqu'une fenêtre de répétition, de gel ou de planification se termine. |
 | `offscreen` | Exécutez du JavaScript avec règles personnalisées en bac à sable dans un document hors écran afin qu'il ne puisse pas échapper à l'extension ou toucher directement vos pages. |
 | `tabs` | Ouvrez l'éditeur sous forme d'onglet complet lorsque vous cliquez sur l'icône de la barre d'outils, recherchez l'URL de l'onglet actif pour évaluer les règles de groupe et rechargez les onglets après une modification de règle que vous avez apportée dans l'éditeur. |

@@ -54,7 +54,7 @@ en su dispositivo, y sólo dentro de su propio perfil de navegador.
 | --- | --- |
 | `storage` | Guarde y cargue sus grupos de bloques, configuraciones y estado de tiempo de ejecución únicamente en su navegador. |
 | `favicon` | Muestra junto a las reglas los iconos de sitios almacenados en la caché del navegador en Chromium. No envía el historial ni hace solicitudes a nuestro servicio. |
-| `nativeMessaging` | Solo en Safari, reenvía las solicitudes del entorno aislado de reglas personalizadas a la aplicación local del dispositivo. No es un transporte en la nube. |
+| `nativeMessaging` | En Chromium, solicita una prueba de Native Messaging local al dispositivo para el puente autenticado de Vault Classifier; en Safari, reenvía las solicitudes del entorno aislado de reglas personalizadas a la aplicación local del dispositivo. No es un transporte en la nube. |
 | `alarms` | Active al trabajador del servicio en segundo plano según lo programado para actualizar los límites basados ​​en el tiempo y actualizar el estado de la regla cuando finalice una ventana de repetición, congelación o programación. |
 | `offscreen` | Ejecute JavaScript con reglas personalizadas en un espacio aislado en un documento fuera de la pantalla para que no pueda escapar de la extensión ni tocar sus páginas directamente. |
 | `tabs` | Abra el editor como una pestaña completa al hacer clic en el ícono de la barra de herramientas, busque la URL de la pestaña activa para evaluar las reglas del grupo y vuelva a cargar las pestañas después de un cambio de regla que realizó en el editor. |
