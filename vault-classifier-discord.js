@@ -38,6 +38,7 @@
         const title = core.firstText(message, ['[id^="message-content-"]', '[class*="markup"]', '[data-slate-editor="true"]']);
         if (!messageID || !title) continue;
         collect({
+          presentationRoot: message,
           sourceKind: "server",
           sourceID: `discord:server:${activeRoute.serverID}`,
           sourceName: serverName(document, activeRoute.serverID),

@@ -26,6 +26,8 @@
         if (!entry) continue;
         const source = core.matchingSourceAnchor("twitter", card, entry.href) || entry;
         collect({
+          presentationRoot: card,
+          presentationAnchor: source,
           sourceKind: "account",
           entryURL: entry.href,
           sourceURL: source.href,
@@ -47,6 +49,8 @@
       const title = core.compactText(text, 500) || core.firstText(root, ['[data-testid="User-Name"]', "h1"]);
       if (!title && !text) return { ready: false, reason: "missing-title" };
       collect({
+        presentationRoot: root,
+        presentationAnchor: source,
         entryID: `twitter:status:${route.statusID}`,
         surface: "page",
         sourceKind: "account",

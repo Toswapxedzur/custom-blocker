@@ -185,6 +185,25 @@ assert("uses the strongest local action", VC.strongestAction(result) === "block"
 assert("preserves local explanation", VC.explanation(result) === "Matched Clash Royale focus; dim this feed card.");
 assert("recognizes only structured classifier results", VC.isResult(result) && !VC.isResult({ selectedLeafTagIDs: [] }));
 assert("rejects malformed classifier actions", !VC.isResult({ selectedLeafTagIDs: [], decisions: [{ action: "erase", explanation: "bad" }] }));
+const sourceTags = VC.normalizeSourceTagsResponse({
+  platformID: "youtube",
+  sourceID: "youtube:channel:UC123",
+  tags: [
+    { id: "games", name: "Games" },
+    { id: "technology", name: "Technology" }
+  ]
+}, "youtube", "youtube:channel:UC123");
+assert("accepts bounded human-readable source-tag projections", sourceTags && sourceTags.tags.map((tag) => tag.name).join(",") === "Games,Technology");
+assert("rejects source-tag responses for a different source", VC.normalizeSourceTagsResponse({
+  platformID: "youtube",
+  sourceID: "youtube:channel:forged",
+  tags: [{ id: "games", name: "Games" }]
+}, "youtube", "youtube:channel:UC123") === null);
+assert("rejects duplicate or unbounded source tags", VC.normalizeSourceTagsResponse({
+  platformID: "youtube",
+  sourceID: "youtube:channel:UC123",
+  tags: [{ id: "games", name: "Games" }, { id: "games", name: "Duplicate" }]
+}, "youtube", "youtube:channel:UC123") === null);
 
 const failures = log.counts().fail;
 print("__CB_TEST_RESULT__: " + (failures === 0 ? "OK" : "FAIL") + " (" + failures + " failures)");

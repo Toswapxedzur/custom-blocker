@@ -122,6 +122,26 @@
     }
   }
 
+  async function sourceTags(platform, sourceID) {
+    if (typeof sourceID !== "string"
+      || sourceID.length === 0
+      || sourceID.length > 256
+      || !sourceID.startsWith(`${platform}:`)) {
+      return { ok: false, tags: [] };
+    }
+    try {
+      const current = await settings();
+      if (!current.collectionEnabled) return { ok: true, platformID: platform, sourceID, tags: [] };
+      const body = await hubRequest("source-tags", { platformID: platform, sourceID });
+      const normalized = C.normalizeSourceTagsResponse?.(body, platform, sourceID);
+      return normalized
+        ? { ok: true, platformID: normalized.platformID, sourceID: normalized.sourceID, tags: normalized.tags }
+        : { ok: false, tags: [] };
+    } catch (_) {
+      return { ok: false, tags: [] };
+    }
+  }
+
   function collectionPlatformForSender(sender, requestedPlatform) {
     if (!sender || (sender.id && sender.id !== chrome.runtime.id)) return null;
     const pageURL = typeof sender.url === "string" ? sender.url : sender.tab && sender.tab.url;
@@ -161,6 +181,23 @@
         sendResponse(response);
       })
       .catch(() => sendResponse({ ok: false, accepted: false }));
+    return true;
+  });
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const platform = message && typeof message.platform === "string" ? message.platform : null;
+    const sourceID = message && typeof message.sourceID === "string" ? message.sourceID : null;
+    if (!message
+      || message.type !== "vault-classifier-source-tags"
+      || !collectionPlatformForSender(sender, platform)
+      || !sourceID
+      || !sourceID.startsWith(`${platform}:`)
+      || sourceID.length > 256) {
+      return false;
+    }
+    sourceTags(platform, sourceID)
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false, tags: [] }));
     return true;
   });
 

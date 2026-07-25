@@ -9,7 +9,10 @@ const root = path.resolve(__dirname, "..");
 const messages = [];
 const debugLogs = [];
 const observers = [];
+const tagPresentations = [];
 let avatarURL = null;
+const feedRoot = { isConnected: true };
+const pageRoot = { isConnected: true };
 
 const chrome = {
   runtime: {
@@ -46,6 +49,10 @@ const context = vm.createContext({
   setInterval() { return 0; },
   TextEncoder,
   URL,
+  VaultClassifierTagUI: {
+    observe(value) { tagPresentations.push(value); },
+    clearPlatform() {}
+  },
   addEventListener() {}
 });
 context.window = context;
@@ -61,6 +68,7 @@ Collector.start({
   matchesPage: (location) => location.hostname === "www.tiktok.com",
   scan({ collect }) {
     collect({
+      presentationRoot: feedRoot,
       entryID: "tiktok:video:123",
       sourceKind: "creator",
       entryURL: "https://www.tiktok.com/@visible/video/123",
@@ -73,6 +81,7 @@ Collector.start({
   },
   scanPage({ collect }) {
     collect({
+      presentationRoot: pageRoot,
       entryID: "tiktok:video:456",
       surface: "page",
       sourceKind: "creator",
@@ -106,6 +115,8 @@ setTimeout(() => {
     && page?.entry?.evidence?.text === "Visible rendered description"
     && diagnostics.some((message) => message.event === "collector-started")
     && diagnostics.some((message) => message.event === "page-evidence-ready")
+    && tagPresentations.some((value) => value.root === feedRoot && value.sourceID === "tiktok:creator:visible")
+    && tagPresentations.some((value) => value.root === pageRoot && value.sourceID === "tiktok:creator:visible")
     && observers.some((observer) => observer.options?.attributeFilter?.includes("src"))
     && debugLogs.includes("[VaultClassifier:avatar] tiktok:debug-ready")
     && debugLogs.includes("[VaultClassifier:avatar] tiktok:source-ready")

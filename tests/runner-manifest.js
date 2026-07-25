@@ -59,11 +59,23 @@ const collectionEntry = (manifest.content_scripts || []).find((entry) =>
   Array.isArray(entry.js) && entry.js.includes("vault-classifier-collector-core.js")
 );
 const missingDedicatedCollectors = dedicatedCollectorScripts.filter((script) => !collectionEntry?.js?.includes(script));
-if (genericCollectorPresent || missingDedicatedCollectors.length) {
+const tagUIRegistrationInvalid = (manifest.content_scripts || []).some((entry) => {
+  if (!Array.isArray(entry.js)) return false;
+  const collectorIndex = entry.js.findIndex((script) =>
+    script === "vault-classifier-collector-core.js" || script === "vault-classifier-youtube.js"
+  );
+  return collectorIndex >= 0 && (entry.js.indexOf("vault-classifier-tag-ui.js") < 0
+    || entry.js.indexOf("vault-classifier-tag-ui.js") > collectorIndex);
+});
+const platformCollectorScripts = dedicatedCollectorScripts.slice(1).concat("vault-classifier-youtube.js");
+const missingPresentationRoots = platformCollectorScripts.filter((script) =>
+  !/\bpresentationRoot\b|TagUI\?\.observe/.test(fs.readFileSync(path.join(__dirname, "..", script), "utf8"))
+);
+if (genericCollectorPresent || missingDedicatedCollectors.length || tagUIRegistrationInvalid || missingPresentationRoots.length) {
   console.error(`FAIL dedicated platform collector registration is invalid${genericCollectorPresent ? "; generic collector remains" : ""}${missingDedicatedCollectors.length ? `; missing ${missingDedicatedCollectors.join(", ")}` : ""}`);
   process.exitCode = 1;
 } else {
-  console.log("PASS every non-YouTube classifier platform has a dedicated collector entry");
+  console.log("PASS every classifier platform loads the shared tag presenter before its dedicated collector");
 }
 
-console.log(`__CB_TEST_RESULT__: ${missing.length || !hasWorkerWrapper || !hasNativeMessaging || genericCollectorPresent || missingDedicatedCollectors.length ? "FAIL" : "OK"}`);
+console.log(`__CB_TEST_RESULT__: ${missing.length || !hasWorkerWrapper || !hasNativeMessaging || genericCollectorPresent || missingDedicatedCollectors.length || tagUIRegistrationInvalid || missingPresentationRoots.length ? "FAIL" : "OK"}`);

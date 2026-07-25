@@ -9,6 +9,7 @@
   if (window.__vaultClassifierYouTube) return;
   window.__vaultClassifierYouTube = true;
   const C = globalThis.VaultClassifierExtensionContract;
+  const TagUI = globalThis.VaultClassifierTagUI;
   if (!C || typeof C.youtubeVideoIDFromURL !== "function") return;
 
   const SETTINGS_KEY = "vaultClassifierSettings";
@@ -494,7 +495,16 @@
 
   function collectCard(card) {
     if (!collectionEnabled || isAdvertisement(card)) return;
-    void collectEntry(feedEvidence(card));
+    const entry = feedEvidence(card);
+    if (!entry) return;
+    const source = findSource(card);
+    TagUI?.observe?.({
+      platform: PLATFORM,
+      sourceID: entry.sourceID,
+      root: card,
+      anchor: source.link || null
+    });
+    void collectEntry(entry);
   }
 
   function collectPage() {
@@ -505,6 +515,17 @@
       return;
     }
     reportDiagnostic("page-evidence-ready");
+    const watchRoot = document.querySelector("ytd-watch-metadata")
+      || document.querySelector("ytd-reel-player-overlay-renderer")
+      || document.querySelector("#above-the-fold")
+      || document.querySelector("ytd-shorts");
+    const source = watchRoot ? findSource(watchRoot) : null;
+    TagUI?.observe?.({
+      platform: PLATFORM,
+      sourceID: entry.sourceID,
+      root: watchRoot || document.documentElement,
+      anchor: source?.link || null
+    });
     void collectEntry(entry);
   }
 
@@ -540,6 +561,7 @@
       } else if (collectionEnabled) {
         reportDiagnostic("collection-info-enabled");
       } else {
+        TagUI?.clearPlatform?.(PLATFORM);
         reportAvatarDebug("collection-disabled");
         reportDiagnostic("collection-info-disabled");
       }

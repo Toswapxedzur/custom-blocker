@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, "..");
 const messages = [];
 const errors = [];
 const debugLogs = [];
+const tagPresentations = [];
 
 function element({ href = null, text = "", matches = false, attrs = {}, query = {}, queryAll = {}, closest = {} } = {}) {
   return {
@@ -113,6 +114,10 @@ const context = vm.createContext({
 context.window = context;
 context.globalThis = context;
 context.window.addEventListener = () => {};
+context.VaultClassifierTagUI = {
+  observe(value) { tagPresentations.push(value); },
+  clearPlatform() {}
+};
 
 vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-contract.js"), "utf8"), context, { filename: "vault-classifier-contract.js" });
 vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-youtube.js"), "utf8"), context, { filename: "vault-classifier-youtube.js" });
@@ -141,6 +146,7 @@ setTimeout(() => {
     && debugLogs.includes("[VaultClassifier:avatar] source-ready")
     && debugLogs.includes("[VaultClassifier:avatar] enrichment-requested")
     && debugLogs.includes("[VaultClassifier:avatar] delivery-accepted")
+    && tagPresentations.some((value) => value.root === feedCard && value.sourceID === "youtube:handle:@visiblecreator" && value.anchor === creator)
     && debugLogs.every((entry) => !/Visible Creator|dQw4w9WgXcQ|yt3\.ggpht\.com/.test(entry))
     && errors.length === 0);
   if (passes) {

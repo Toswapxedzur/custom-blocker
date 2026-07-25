@@ -109,6 +109,29 @@ function assert(name, condition, detail) {
   const response = await pending;
   assert("accepts the matching relay response regardless of primary stream", response.enabledPlatformIDs?.[0] === "youtube", response);
 
+  const tagPending = hub.request("source-tags", {
+    platformID: "youtube",
+    sourceID: "youtube:channel:UC123"
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert(
+    "allows the bounded source-tag operation on the shared classifier relay",
+    sent.length === 3 && sent.at(-1).operation === "source-tags",
+    sent
+  );
+  hub.receive({
+    kind: "classifier-response",
+    requestID: "classifier-test",
+    operation: "source-tags",
+    body: {
+      platformID: "youtube",
+      sourceID: "youtube:channel:UC123",
+      tags: [{ id: "games", name: "Games" }]
+    }
+  });
+  const tagResponse = await tagPending;
+  assert("returns the matching source-tag relay response", tagResponse.tags?.[0]?.name === "Games", tagResponse);
+
   classifierPresent = false;
   const fallbackPending = hub.request("collection-info", {});
   await new Promise((resolve) => setImmediate(resolve));

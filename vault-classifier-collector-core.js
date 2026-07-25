@@ -6,6 +6,7 @@
   "use strict";
 
   const C = global.VaultClassifierExtensionContract;
+  const TagUI = global.VaultClassifierTagUI;
   const SETTINGS_KEY = "vaultClassifierSettings";
   const AVATAR_SOURCE_ATTRIBUTES = Object.freeze([
     "src", "srcset", "data-src", "data-lazy-src", "data-original", "data-srcset"
@@ -286,6 +287,14 @@
         if (raw.sourceKind === "creator" || raw.sourceKind === "account") reportAvatarDebug("source-missing");
         return;
       }
+      if (raw.presentationRoot) {
+        TagUI?.observe?.({
+          platform,
+          sourceID: evidence.sourceID,
+          root: raw.presentationRoot,
+          anchor: raw.presentationAnchor || null
+        });
+      }
       const hasCreatorAvatar = Boolean(evidence.evidence?.metadata?.creatorAvatarURL);
       const profileSource = raw.sourceKind === "creator" || raw.sourceKind === "account";
       if (profileSource && !hasCreatorAvatar) reportAvatarDebug(raw.creatorAvatarURL ? "source-untrusted" : "image-missing");
@@ -356,6 +365,7 @@
             scheduleScan();
             schedulePageCheck();
           } else {
+            TagUI?.clearPlatform?.(platform);
             reportAvatarDebug("collection-disabled");
             reportDiagnostic("collection-info-disabled");
           }

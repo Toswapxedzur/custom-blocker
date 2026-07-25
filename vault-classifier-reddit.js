@@ -29,6 +29,8 @@
         if (!source) continue;
         const subreddit = core.normalizedSourceIdentity("reddit", source.href);
         collect({
+          presentationRoot: card,
+          presentationAnchor: source,
           sourceKind: "subreddit",
           sourceIdentity: subreddit,
           entryURL: entry.href,
@@ -47,7 +49,12 @@
       const body = core.firstText(root, ['[slot="text-body"]', '[slot="comment"]', '[data-testid="post-content"]'], 16000);
       if (!title && !body) return { ready: false, reason: "missing-title" };
       const sourceURL = `https://www.reddit.com/r/${route.subreddit}/`;
+      const source = core.firstAnchor(root, ['a[href^="/r/"]'], (anchor) =>
+        core.normalizedSourceIdentity("reddit", anchor.href) === route.subreddit.toLowerCase()
+      );
       collect({
+        presentationRoot: root,
+        presentationAnchor: source,
         entryID: `reddit:post:${route.postID}`,
         surface: "page",
         sourceKind: "subreddit",

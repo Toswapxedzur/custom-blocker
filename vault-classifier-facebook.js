@@ -33,6 +33,8 @@
         const source = core.firstNormalizedSourceAnchor("facebook", card, entry.href);
         if (!source) continue;
         collect({
+          presentationRoot: card,
+          presentationAnchor: source,
           sourceKind: "creator",
           entryURL: entry.href,
           sourceURL: source.href,
@@ -56,6 +58,8 @@
       const title = core.compactText(body, 500) || core.firstText(root, ["h1", "h2", "h3"]);
       if (!title && !body) return { ready: false, reason: "missing-title" };
       collect({
+        presentationRoot: root,
+        presentationAnchor: source,
         entryID: `facebook:${route.type}:${route.contentID}`,
         surface: "page",
         sourceKind: "creator",

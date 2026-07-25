@@ -84,6 +84,7 @@ SANDBOX_FILES = [
 # but include every manifest-declared Chrome/Edge content script.
 VAULT_CLASSIFIER_FILES = [
     "vault-classifier-contract.js",
+    "vault-classifier-tag-ui.js",
     # The service worker imports this adapter at startup; it is not declared
     # in the manifest, so it must remain explicitly listed here.
     "vault-classifier-bridge.js",
