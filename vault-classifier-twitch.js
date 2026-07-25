@@ -36,6 +36,8 @@
         if (!entry) continue;
         const source = core.matchingSourceAnchor("twitch", card, entry.href) || entry;
         collect({
+          presentationRoot: card,
+          presentationAnchor: source,
           sourceKind: "creator",
           entryURL: entry.href,
           sourceURL: source.href,
@@ -67,6 +69,8 @@
       const title = core.firstText(root, ['[data-a-target="stream-title"]', 'h1', 'h2']) || core.compactText(description, 500);
       if (!title && !description) return { ready: false, reason: "missing-title" };
       collect({
+        presentationRoot: root,
+        presentationAnchor: source,
         entryID: `twitch:${route.type === "live" ? "channel" : route.type}:${route.id}`,
         surface: "page",
         sourceKind: "creator",

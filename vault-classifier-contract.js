@@ -24,7 +24,8 @@
     nativeMac: 44,
     resultTags: 512,
     resultDecisions: 128,
-    resultExplanation: 512
+    resultExplanation: 512,
+    sourceTags: 64
   });
 
   const ACTION_ORDER = Object.freeze({ allow: 0, dim: 1, block: 2 });
@@ -271,6 +272,32 @@
     });
   }
 
+  function normalizeSourceTagsResponse(value, expectedPlatform, expectedSourceID) {
+    if (!isPlainRecord(value)
+      || !isBoundedText(expectedPlatform, MAX.platform)
+      || !isBoundedText(expectedSourceID, MAX.id)
+      || expectedSourceID.indexOf(`${expectedPlatform}:`) !== 0
+      || value.platformID !== expectedPlatform
+      || value.sourceID !== expectedSourceID
+      || !Array.isArray(value.tags)
+      || value.tags.length > MAX.sourceTags) {
+      return null;
+    }
+    const tags = [];
+    const seen = new Set();
+    for (const item of value.tags) {
+      if (!isPlainRecord(item)
+        || !isBoundedText(item.id, MAX.tag)
+        || !isBoundedText(item.name, MAX.tag)
+        || seen.has(item.id)) {
+        return null;
+      }
+      seen.add(item.id);
+      tags.push({ id: item.id, name: item.name });
+    }
+    return { platformID: expectedPlatform, sourceID: expectedSourceID, tags };
+  }
+
   function parseYouTubeURL(value, base) {
     const input = cleanText(value, 2048);
     if (!input) return null;
@@ -404,6 +431,7 @@
     strongestAction,
     explanation,
     isResult,
+    normalizeSourceTagsResponse,
     randomID
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);

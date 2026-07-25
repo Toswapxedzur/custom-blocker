@@ -27,6 +27,8 @@
         const source = core.firstAnchor(card, ['a[href*="space.bilibili.com/"]'], (anchor) => Boolean(core.normalizedSourceIdentity("bilibili", anchor.href)));
         if (!source) continue;
         collect({
+          presentationRoot: card,
+          presentationAnchor: source,
           sourceKind: "creator",
           entryURL: entry.href,
           sourceURL: source.href,
@@ -50,6 +52,8 @@
       const title = core.firstText(root, ["h1", '[title]']) || core.compactText(description, 500);
       if (!title && !description) return { ready: false, reason: "missing-title" };
       collect({
+        presentationRoot: root,
+        presentationAnchor: source,
         entryID: `bilibili:video:${route.videoID}`,
         surface: "page",
         sourceKind: "creator",

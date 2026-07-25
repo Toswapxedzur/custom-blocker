@@ -28,6 +28,8 @@
         if (!entry) continue;
         const source = core.matchingSourceAnchor("tiktok", card, entry.href) || entry;
         collect({
+          presentationRoot: card,
+          presentationAnchor: source,
           sourceKind: "creator",
           entryURL: entry.href,
           sourceURL: source.href,
@@ -49,6 +51,8 @@
       const title = core.compactText(description, 500) || core.firstText(root, ["h1", "h2"]);
       if (!title && !description) return { ready: false, reason: "missing-title" };
       collect({
+        presentationRoot: root,
+        presentationAnchor: source,
         entryID: `tiktok:video:${route.videoID}`,
         surface: "page",
         sourceKind: "creator",

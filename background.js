@@ -4214,7 +4214,7 @@ const cbClassifierHub = {
   },
 
   request(operation, body) {
-    if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "diagnostic" && operation !== "collect" && operation !== "classify" && operation !== "correct") {
+    if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "diagnostic" && operation !== "collect" && operation !== "source-tags" && operation !== "classify" && operation !== "correct") {
       return Promise.reject(new Error("Unsupported Vault Classifier operation."));
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) {

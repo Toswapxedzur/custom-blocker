@@ -11,11 +11,13 @@ const storage = {
 };
 const listeners = [];
 let hubCalls = 0;
+const hubRequests = [];
 const diagnostics = [];
 
 const hub = {
   request(operation, body) {
     hubCalls++;
+    hubRequests.push({ operation, body });
     return new Promise((resolve) => setTimeout(() => {
       if (operation === "collection-info") {
         resolve(inExtensionRealm({ enabledPlatformIDs: ["youtube", "reddit", "discord"] }));
@@ -27,6 +29,14 @@ const hub = {
       }
       if (operation === "diagnostic") {
         resolve(inExtensionRealm({ accepted: true }));
+        return;
+      }
+      if (operation === "source-tags") {
+        resolve(inExtensionRealm({
+          platformID: body.platformID,
+          sourceID: body.sourceID,
+          tags: [{ id: "games", name: "Games" }]
+        }));
         return;
       }
       resolve(inExtensionRealm({ accepted: false, inserted: false }));
@@ -146,10 +156,26 @@ function assert(name, condition, detail) {
 
   const collected = await dispatch({ type: "vault-classifier-collect", entry: entry("dQw4w9WgXcQ", "Visible non-ad card") }, trustedSender);
   assert("sends one bounded rendered entry only after opt-in", collected.waiting && collected.value && collected.value.accepted === true && hubCalls === 2, collected);
+  const sourceTags = await dispatch({
+    type: "vault-classifier-source-tags",
+    platform: "youtube",
+    sourceID: "youtube:channel:UC1234567890123456789012"
+  }, trustedSender);
+  assert("routes a bounded source-tag lookup and returns human-readable tags", sourceTags.waiting
+    && sourceTags.value?.ok === true
+    && sourceTags.value?.tags?.[0]?.name === "Games"
+    && hubCalls === 3
+    && hubRequests.at(-1)?.operation === "source-tags", { sourceTags, hubRequests });
+  const forgedSourceTags = await dispatch({
+    type: "vault-classifier-source-tags",
+    platform: "reddit",
+    sourceID: "reddit:subreddit:games"
+  }, trustedSender);
+  assert("rejects a source-tag platform that does not match the sender origin", !forgedSourceTags.waiting && hubCalls === 3, forgedSourceTags);
   const diagnostic = await dispatch({ type: "vault-classifier-diagnostic", platform: "youtube", event: "collector-started" }, trustedSender);
-  assert("forwards a fixed content-collector diagnostic without page metadata", diagnostic.waiting && diagnostic.value?.accepted === true && hubCalls === 3 && diagnostics.some((entry) => entry.event === "collector-started" && entry.platform === "youtube"), { diagnostic, diagnostics });
+  assert("forwards a fixed content-collector diagnostic without page metadata", diagnostic.waiting && diagnostic.value?.accepted === true && hubCalls === 4 && diagnostics.some((entry) => entry.event === "collector-started" && entry.platform === "youtube"), { diagnostic, diagnostics });
   const forgedDiagnostic = await dispatch({ type: "vault-classifier-diagnostic", platform: "youtube", event: "raw-page-title" }, trustedSender);
-  assert("rejects diagnostic text outside the fixed privacy-safe vocabulary", !forgedDiagnostic.waiting && hubCalls === 3, forgedDiagnostic);
+  assert("rejects diagnostic text outside the fixed privacy-safe vocabulary", !forgedDiagnostic.waiting && hubCalls === 4, forgedDiagnostic);
   hubCalls = 0;
 
   const redditCollectionInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "reddit" }, trustedRedditSender);
@@ -174,6 +200,12 @@ function assert(name, condition, detail) {
   storage.vaultClassifierSettings = { collectionEnabled: false };
   const collectionDisabled = await dispatch({ type: "vault-classifier-collection-info" }, trustedSender);
   assert("browser-side collection opt-out prevents metadata routing before the shared hub", collectionDisabled.waiting && collectionDisabled.value && collectionDisabled.value.ok === true && collectionDisabled.value.enabled === false && hubCalls === 0, collectionDisabled);
+  const tagsDisabled = await dispatch({
+    type: "vault-classifier-source-tags",
+    platform: "youtube",
+    sourceID: "youtube:channel:UC1234567890123456789012"
+  }, trustedSender);
+  assert("browser-side collection opt-out also prevents source-tag metadata routing", tagsDisabled.waiting && tagsDisabled.value?.ok === true && tagsDisabled.value.tags?.length === 0 && hubCalls === 0, tagsDisabled);
 
   console.log(`__CB_TEST_RESULT__: ${failures === 0 ? "OK" : "FAIL"} (${failures} failures)`);
   if (failures !== 0) process.exitCode = 1;

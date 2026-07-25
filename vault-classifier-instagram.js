@@ -32,6 +32,8 @@
         const source = core.firstNormalizedSourceAnchor("instagram", card, entry.href);
         if (!source) continue;
         collect({
+          presentationRoot: card,
+          presentationAnchor: source,
           sourceKind: "creator",
           entryURL: entry.href,
           sourceURL: source.href,
@@ -55,6 +57,8 @@
       const title = core.compactText(caption, 500) || core.firstText(root, ["h1", "h2"]);
       if (!title && !caption) return { ready: false, reason: "missing-title" };
       collect({
+        presentationRoot: root,
+        presentationAnchor: source,
         entryID: `instagram:${route.kind}:${route.contentID}`,
         surface: "page",
         sourceKind: "creator",
