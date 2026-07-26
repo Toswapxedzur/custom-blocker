@@ -35,7 +35,12 @@ const hub = {
         resolve(inExtensionRealm({
           platformID: body.platformID,
           sourceID: body.sourceID,
-          tags: [{ id: "games", name: "Games", colorHex: "#1A4775" }]
+          tags: [{
+            id: "games",
+            name: "Games",
+            lightColorHex: "#9EC5E8",
+            darkColorHex: "#1A4775"
+          }]
         }));
         return;
       }
@@ -164,7 +169,8 @@ function assert(name, condition, detail) {
   assert("routes a bounded source-tag lookup and returns human-readable tags", sourceTags.waiting
     && sourceTags.value?.ok === true
     && sourceTags.value?.tags?.[0]?.name === "Games"
-    && sourceTags.value?.tags?.[0]?.colorHex === "#1A4775"
+    && sourceTags.value?.tags?.[0]?.lightColorHex === "#9EC5E8"
+    && sourceTags.value?.tags?.[0]?.darkColorHex === "#1A4775"
     && hubCalls === 3
     && hubRequests.at(-1)?.operation === "source-tags", { sourceTags, hubRequests });
   const forgedSourceTags = await dispatch({

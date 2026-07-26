@@ -92,7 +92,8 @@
     style.textContent = [
       ":host{all:initial;display:inline-block;max-width:100%;color-scheme:light dark;contain:content}",
       ".rail{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;max-width:100%;vertical-align:middle}",
-      ".chip{box-sizing:border-box;display:inline-flex;align-items:center;max-width:220px;min-height:18px;padding:1px 7px;border:0;border-radius:999px;background:var(--vault-tag-color);color:#fff;font:600 11px/16px -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 2px rgba(0,0,0,.18)}"
+      ".chip{box-sizing:border-box;display:inline-flex;align-items:center;max-width:220px;min-height:18px;padding:1px 7px;border:0;border-radius:999px;background:var(--vault-tag-color-light);color:#000;font:600 11px/16px -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 2px rgba(0,0,0,.18)}",
+      "@media (prefers-color-scheme:dark){.chip{background:var(--vault-tag-color-dark);color:#fff}}"
     ].join("");
     const rail = document.createElement("span");
     rail.className = "rail";
@@ -129,7 +130,9 @@
       state.rail = mount.rail;
       mountedStates.add(state);
     }
-    const signature = tags.map((tag) => `${tag.id}\u001f${tag.name}\u001f${tag.colorHex}`).join("\u001e");
+    const signature = tags.map((tag) => (
+      `${tag.id}\u001f${tag.name}\u001f${tag.lightColorHex}\u001f${tag.darkColorHex}`
+    )).join("\u001e");
     if (state.signature === signature) return;
     state.signature = signature;
     state.rail.replaceChildren?.();
@@ -139,7 +142,8 @@
       chip.className = "chip";
       chip.dir = "auto";
       chip.textContent = tag.name;
-      chip.style.setProperty("--vault-tag-color", tag.colorHex);
+      chip.style.setProperty("--vault-tag-color-light", tag.lightColorHex);
+      chip.style.setProperty("--vault-tag-color-dark", tag.darkColorHex);
       state.rail.appendChild(chip);
     }
   }

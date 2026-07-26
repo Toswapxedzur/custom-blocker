@@ -80,8 +80,8 @@ const chrome = {
         platformID: message.platform,
         sourceID: message.sourceID,
         tags: [
-          { id: "games", name: "Games", colorHex: "#1A4775" },
-          { id: "technology", name: "Technology", colorHex: "#6B246F" }
+          { id: "games", name: "Games", lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" },
+          { id: "technology", name: "Technology", lightColorHex: "#E3B4E7", darkColorHex: "#6B246F" }
         ]
       };
       setTimeout(() => {
@@ -125,8 +125,10 @@ setTimeout(() => {
   const secondShadow = closedShadows.get(secondHost);
   const firstNames = firstShadow?.children?.[1]?.children?.map((chip) => chip.textContent);
   const secondNames = secondShadow?.children?.[1]?.children?.map((chip) => chip.textContent);
-  const firstColors = firstShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color"]);
-  const secondColors = secondShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color"]);
+  const firstLightColors = firstShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color-light"]);
+  const secondLightColors = secondShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color-light"]);
+  const firstDarkColors = firstShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color-dark"]);
+  const secondDarkColors = secondShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color-dark"]);
   const pillStyle = firstShadow?.children?.[0]?.textContent || "";
   const genericHostIsPrivate = firstHost
     && firstHost.shadowRoot === null
@@ -139,10 +141,16 @@ setTimeout(() => {
     && messages[0].sourceID === sourceID;
   const renderedEveryEntry = JSON.stringify(firstNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(secondNames) === JSON.stringify(["Games", "Technology"])
-    && JSON.stringify(firstColors) === JSON.stringify(["#1A4775", "#6B246F"])
-    && JSON.stringify(secondColors) === JSON.stringify(["#1A4775", "#6B246F"])
+    && JSON.stringify(firstLightColors) === JSON.stringify(["#9EC5E8", "#E3B4E7"])
+    && JSON.stringify(secondLightColors) === JSON.stringify(["#9EC5E8", "#E3B4E7"])
+    && JSON.stringify(firstDarkColors) === JSON.stringify(["#1A4775", "#6B246F"])
+    && JSON.stringify(secondDarkColors) === JSON.stringify(["#1A4775", "#6B246F"])
     && pillStyle.includes("border-radius:999px")
-    && pillStyle.includes("background:var(--vault-tag-color)");
+    && pillStyle.includes("background:var(--vault-tag-color-light)")
+    && pillStyle.includes("color:#000")
+    && pillStyle.includes("@media (prefers-color-scheme:dark)")
+    && pillStyle.includes("background:var(--vault-tag-color-dark)")
+    && pillStyle.includes("color:#fff");
 
   context.VaultClassifierTagUI.clearPlatform("youtube");
   const cleared = firstRoot.children.length === 1 && secondRoot.children.length === 1;
@@ -155,8 +163,10 @@ setTimeout(() => {
     messages,
     firstNames,
     secondNames,
-    firstColors,
-    secondColors,
+    firstLightColors,
+    secondLightColors,
+    firstDarkColors,
+    secondDarkColors,
     pillStyle,
     genericHostIsPrivate,
     cleared
