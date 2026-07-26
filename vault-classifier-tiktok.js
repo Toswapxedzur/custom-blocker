@@ -35,7 +35,9 @@
           sourceURL: source.href,
           sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
           title: core.firstText(card, ['[data-e2e*="title"]', '[data-testid*="title"]', 'h1, h2, h3']) || core.compactText(entry.textContent, 500),
-          creatorAvatarURL: core.avatarFromVerifiedSource("tiktok", source, global.location.href),
+          text: core.firstText(card, ['[data-e2e*="desc"]', '[data-testid*="desc"]'], 16000),
+          suppliedTags: [...card.querySelectorAll?.('a[href*="/tag/"]') || []].map((tag) => tag.textContent),
+          sourceIconURL: core.sourceIconFromVerifiedSource("tiktok", source, global.location.href),
           entryType: "short"
         });
       }
@@ -43,7 +45,12 @@
     scanPage({ document, collect }) {
       const route = pageRoute(global.location);
       if (!route) return { ready: false, reason: "missing-content-id" };
-      const root = document.querySelector("main") || document.querySelector('[data-e2e="browse-video-desc"]')?.closest?.("main");
+      const root = core.matchingContentRoot("tiktok", document, [
+        '[data-e2e*="video-detail"]',
+        '[data-e2e*="feed-item"]',
+        "main"
+      ], global.location.href, global.location.href)
+        || document.querySelector('[data-e2e="browse-video-desc"]')?.closest?.("main");
       if (!root) return { ready: false, reason: "missing-content-root" };
       const sourceURL = `https://www.tiktok.com/@${route.handle}`;
       const source = core.matchingSourceAnchor("tiktok", root, sourceURL);
@@ -62,7 +69,7 @@
         title,
         text: description,
         suppliedTags: [...root.querySelectorAll?.('a[href*="/tag/"]') || []].map((tag) => tag.textContent),
-        creatorAvatarURL: core.avatarFromVerifiedSource("tiktok", source, global.location.href),
+        sourceIconURL: core.sourceIconFromVerifiedSource("tiktok", source, global.location.href),
         entryType: "short"
       });
       return { ready: true };

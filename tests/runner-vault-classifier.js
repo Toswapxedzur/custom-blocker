@@ -96,7 +96,7 @@ assert("parses canonical YouTube watch and Shorts IDs", VC.youtubeVideoIDFromURL
 assert("rejects lookalike YouTube origins", VC.youtubeVideoIDFromURL("https://youtube.com.evil/watch?v=dQw4w9WgXcQ") === null && !VC.isTrustedYouTubeURL("https://youtube.com.evil/watch?v=dQw4w9WgXcQ"));
 assert("recognizes only YouTube sender origins", VC.isTrustedYouTubeURL("https://www.youtube.com/watch?v=dQw4w9WgXcQ") && VC.isTrustedYouTubeURL("https://m.youtube.com/feed"));
 assert("recognizes only reviewed public-content collector origins", VC.isTrustedCollectionURL("tiktok", "https://www.tiktok.com/@creator/video/123") && VC.isTrustedCollectionURL("discord", "https://discord.com/channels/123456/234567/345678") && !VC.isTrustedCollectionURL("discord", "https://discord.com/channels/@me/234567") && !VC.isTrustedCollectionURL("tiktok", "https://tiktok.com.evil/@creator/video/123"));
-assert("accepts only reviewed creator-avatar asset hosts", VC.isTrustedCreatorAvatarURL("youtube", "https://yt3.ggpht.com/channel-avatar=s88") && VC.isTrustedCreatorAvatarURL("twitter", "https://pbs.twimg.com/profile_images/1/avatar.jpg") && !VC.isTrustedCreatorAvatarURL("youtube", "https://images.example/avatar.png") && !VC.isTrustedCreatorAvatarURL("youtube", "http://yt3.ggpht.com/avatar.png"));
+assert("accepts only reviewed source-icon asset hosts", VC.isTrustedSourceIconURL("youtube", "https://yt3.ggpht.com/channel-icon=s88") && VC.isTrustedSourceIconURL("twitter", "https://pbs.twimg.com/profile_images/1/icon.jpg") && VC.isTrustedSourceIconURL("reddit", "https://styles.redditmedia.com/t5_example/styles/communityIcon.png") && VC.isTrustedSourceIconURL("discord", "https://cdn.discordapp.com/icons/123456/icon.png") && !VC.isTrustedSourceIconURL("youtube", "https://images.example/icon.png") && !VC.isTrustedSourceIconURL("youtube", "http://yt3.ggpht.com/icon.png"));
 
 const collectorFixtures = [
   ["tiktok", "creator", "https://www.tiktok.com/@creator/video/123", "https://www.tiktok.com/@creator"],
@@ -106,7 +106,7 @@ const collectorFixtures = [
   ["reddit", "subreddit", "https://www.reddit.com/r/gaming/comments/123/post/", "https://www.reddit.com/r/gaming/"],
   ["twitter", "account", "https://x.com/creator/status/123", "https://x.com/creator"],
   ["bilibili", "creator", "https://www.bilibili.com/video/BV1abc", "https://space.bilibili.com/123"],
-  ["discord", "server", "https://discord.com/channels/123456/234567/345678", null]
+  ["discord", "server", "https://discord.com/channels/123456/234567/345678", "https://discord.com/channels/123456/234567"]
 ];
 const collectedEntries = collectorFixtures.map(([platform, sourceKind, entryURL, sourceURL]) => Collector.makeCollectedEntry({
   platform,
@@ -120,31 +120,31 @@ const collectedEntries = collectorFixtures.map(([platform, sourceKind, entryURL,
 const everyCollectorEntryIsBounded = collectedEntries.every(Boolean) && collectedEntries.every((entry, index) => entry.platform === collectorFixtures[index][0] && entry.sourceID.startsWith(`${entry.platform}:${collectorFixtures[index][1]}:`) && entry.evidence.title === `Visible ${entry.platform} entry` && entry.evidence.metadata.sourceKind === collectorFixtures[index][1] && entry.evidence.metadata.canonicalURL);
 assert("builds bounded source-attributed entries for every dedicated non-YouTube collector", everyCollectorEntryIsBounded, everyCollectorEntryIsBounded ? null : collectedEntries.map((entry, index) => entry ? [entry.platform, entry.sourceID, entry.evidence.metadata.canonicalURL] : collectorFixtures[index][0]));
 const sourceURLsStayAvailable = collectedEntries.every((entry, index) => {
-  const [platform, sourceKind, , sourceURL] = collectorFixtures[index];
-  return ["creator", "account"].includes(sourceKind) && sourceURL ? entry.evidence.metadata.creatorURL === sourceURL : entry.evidence.metadata.creatorURL === undefined;
+  const [, , , sourceURL] = collectorFixtures[index];
+  return entry.evidence.metadata.sourceURL === sourceURL;
 });
-assert("retains a reviewed creator-page URL only for creator-scoped collection", sourceURLsStayAvailable, sourceURLsStayAvailable ? null : collectedEntries.map((entry) => [entry.platform, entry.evidence.metadata.creatorURL]));
+assert("retains a reviewed source URL for every source kind", sourceURLsStayAvailable, sourceURLsStayAvailable ? null : collectedEntries.map((entry) => [entry.platform, entry.evidence.metadata.sourceURL]));
 const discordCollectedEntry = collectedEntries.find((entry) => entry?.platform === "discord");
-assert("keeps Discord server messages local without avatar or profile-fetch metadata", discordCollectedEntry?.sourceID === "discord:server:123456" && discordCollectedEntry?.evidence.metadata.creatorURL === undefined && discordCollectedEntry?.evidence.metadata.creatorAvatarURL === undefined);
-const avatarEntry = Collector.makeCollectedEntry({
+assert("keeps Discord server messages server-scoped without post-media metadata", discordCollectedEntry?.sourceID === "discord:server:123456" && discordCollectedEntry?.evidence.metadata.sourceURL === "https://discord.com/channels/123456/234567" && discordCollectedEntry?.evidence.metadata.sourceIconURL === undefined);
+const sourceIconEntry = Collector.makeCollectedEntry({
   platform: "tiktok",
   sourceKind: "creator",
   entryURL: "https://www.tiktok.com/@creator/video/123",
   sourceURL: "https://www.tiktok.com/@creator",
-  creatorAvatarURL: "https://p16-sign-va.tiktokcdn.com/avatar.jpeg",
+  sourceIconURL: "https://p16-sign-va.tiktokcdn.com/source-icon.jpeg",
   title: "Visible creator entry",
   sourceName: "Visible creator"
 });
-const rejectedAvatarEntry = Collector.makeCollectedEntry({
+const rejectedSourceIconEntry = Collector.makeCollectedEntry({
   platform: "tiktok",
   sourceKind: "creator",
   entryURL: "https://www.tiktok.com/@creator/video/123",
   sourceURL: "https://www.tiktok.com/@creator",
-  creatorAvatarURL: "https://images.example/avatar.jpeg",
+  sourceIconURL: "https://images.example/post-media.jpeg",
   title: "Visible creator entry",
   sourceName: "Visible creator"
 });
-assert("retains only a verified author avatar URL", avatarEntry?.evidence.metadata.creatorAvatarURL === "https://p16-sign-va.tiktokcdn.com/avatar.jpeg" && rejectedAvatarEntry?.evidence.metadata.creatorAvatarURL === undefined);
+assert("retains only a verified source icon URL", sourceIconEntry?.evidence.metadata.sourceIconURL === "https://p16-sign-va.tiktokcdn.com/source-icon.jpeg" && rejectedSourceIconEntry?.evidence.metadata.sourceIconURL === undefined);
 assert("rejects a collector entry without a reviewed source identity", Collector.makeCollectedEntry({ platform: "kick", sourceKind: "creator", entryURL: "https://kick.com/example", title: "Unknown card" }) === null);
 const enrichedPageEntry = Collector.makeCollectedEntry({
   platform: "tiktok",

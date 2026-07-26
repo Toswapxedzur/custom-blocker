@@ -31,17 +31,18 @@
   const ACTION_ORDER = Object.freeze({ allow: 0, dim: 1, block: 2 });
   const OWN = Object.prototype.hasOwnProperty;
   const UNSAFE_METADATA_KEYS = new Set(["__proto__", "prototype", "constructor"]);
-  // Creator avatars are the sole remote image type accepted by collection.
-  // These are public platform asset hosts, not arbitrary image hosts: the
-  // native app can therefore safely cache only a rendered creator avatar and
-  // never follow an untrusted page-provided URL.
-  const CREATOR_AVATAR_HOSTS = Object.freeze({
+  // A verified source icon is the sole remote image type accepted by
+  // collection. The source may be a creator, account, subreddit, or server.
+  // These reviewed public asset hosts deliberately exclude arbitrary post
+  // media, thumbnails, attachments, and comment-author images.
+  const SOURCE_ICON_HOSTS = Object.freeze({
     youtube: ["youtube.com", "yt3.ggpht.com", "yt3.googleusercontent.com", "googleusercontent.com"],
     tiktok: ["tiktok.com", "tiktokcdn.com", "tiktokcdn-us.com", "muscdn.com", "ibytedtos.com"],
     facebook: ["facebook.com", "fbcdn.net", "fbsbx.com"],
     instagram: ["instagram.com", "cdninstagram.com", "fbcdn.net"],
     twitch: ["twitch.tv", "jtvnw.net"],
     reddit: ["reddit.com", "redd.it", "redditstatic.com", "redditmedia.com"],
+    discord: ["discord.com", "discordapp.com", "discordapp.net", "discordappcdn.com"],
     twitter: ["x.com", "twitter.com", "twimg.com"],
     bluesky: ["bsky.app", "cdn.bsky.app"],
     threads: ["threads.com", "instagram.com", "cdninstagram.com", "fbcdn.net"],
@@ -71,12 +72,12 @@
     return Boolean(host && candidate && (host === candidate || host.endsWith(`.${candidate}`)));
   }
 
-  function isTrustedCreatorAvatarURL(platform, value, base) {
+  function isTrustedSourceIconURL(platform, value, base) {
     if (typeof platform !== "string" || typeof value !== "string" || value.length > MAX.metadataValue) return false;
     try {
       const url = new URL(value, base);
       if (url.protocol !== "https:" || url.username || url.password) return false;
-      return (CREATOR_AVATAR_HOSTS[platform] || []).some((host) => hostMatches(url.hostname, host));
+      return (SOURCE_ICON_HOSTS[platform] || []).some((host) => hostMatches(url.hostname, host));
     } catch (_) {
       return false;
     }
@@ -228,7 +229,15 @@
       },
       policyIDs: Array.isArray(entry.policyIDs) ? entry.policyIDs.slice() : []
     };
-    const body = () => ({ entry: result });
+    // Collection queue observation fields are added beside `entry` by the
+    // background worker. Reserve their worst-case envelope here so a fitted
+    // entry cannot become oversized only after those fields are attached.
+    const body = () => ({
+      entry: result,
+      firstObservedAtMilliseconds: Number.MAX_SAFE_INTEGER,
+      lastObservedAtMilliseconds: Number.MAX_SAFE_INTEGER,
+      observationCount: Number.MAX_SAFE_INTEGER
+    });
     const fits = () => nativeBodyByteLength(body()) <= MAX.nativeBodyBytes;
     if (fits()) return result;
 
@@ -434,7 +443,7 @@
     nativeBodyByteLength,
     isTrustedYouTubeURL,
     isTrustedCollectionURL,
-    isTrustedCreatorAvatarURL,
+    isTrustedSourceIconURL,
     youtubeVideoIDFromURL,
     entryFingerprint,
     strongestAction,

@@ -135,22 +135,22 @@ setTimeout(() => {
   const enriched = collections[1];
   const passes = Boolean(collections.length === 2
     && initial.entry?.sourceID === "youtube:handle:@visiblecreator"
-    && initial.entry?.evidence?.metadata?.creatorAvatarURL === undefined
+    && initial.entry?.evidence?.metadata?.sourceIconURL === undefined
     && enriched.entry?.sourceID === "youtube:handle:@visiblecreator"
     && enriched.entry?.evidence?.metadata?.sourceName === "Visible Creator"
     && enriched.entry?.evidence?.title === "Visible related video"
-    && enriched.entry?.evidence?.metadata?.creatorAvatarURL === "https://yt3.ggpht.com/visible-creator-avatar=s88"
+    && enriched.entry?.evidence?.metadata?.sourceIconURL === "https://yt3.ggpht.com/visible-creator-avatar=s88"
     && observedMutationOptions.some((options) => options.attributes === true && options.attributeFilter?.includes("src"))
-    && debugLogs.includes("[VaultClassifier:avatar] debug-ready")
-    && debugLogs.includes("[VaultClassifier:avatar] image-missing")
-    && debugLogs.includes("[VaultClassifier:avatar] source-ready")
-    && debugLogs.includes("[VaultClassifier:avatar] enrichment-requested")
-    && debugLogs.includes("[VaultClassifier:avatar] delivery-accepted")
+    && debugLogs.includes("[VaultClassifier:source-icon] debug-ready")
+    && debugLogs.includes("[VaultClassifier:source-icon] image-missing")
+    && debugLogs.includes("[VaultClassifier:source-icon] source-ready")
+    && debugLogs.includes("[VaultClassifier:source-icon] enrichment-requested")
+    && debugLogs.includes("[VaultClassifier:source-icon] delivery-accepted")
     && tagPresentations.some((value) => value.root === feedCard && value.sourceID === "youtube:handle:@visiblecreator" && value.anchor === creator)
     && debugLogs.every((entry) => !/Visible Creator|dQw4w9WgXcQ|yt3\.ggpht\.com/.test(entry))
     && errors.length === 0);
   if (passes) {
-    console.log("PASS refreshes a creator after its verified avatar appears late");
+    console.log("PASS refreshes a creator after its verified source icon appears late");
     console.log("__CB_TEST_RESULT__: OK");
     return;
   }

@@ -3550,6 +3550,10 @@ const cbConnection = {
     } else if (!macRouteWasReady && macRouteIsReady && this.lastAnnounce) {
       this.sendWS(this.lastAnnounce);
     }
+    if (this.routeIsReady("classifier")
+      && typeof self.CBFlushVaultClassifierCollectionQueue === "function") {
+      void self.CBFlushVaultClassifierCollectionQueue();
+    }
     this.broadcast();
   },
 

@@ -10,7 +10,7 @@ const messages = [];
 const debugLogs = [];
 const observers = [];
 const tagPresentations = [];
-let avatarURL = null;
+let sourceIconURL = null;
 const feedRoot = { isConnected: true };
 const pageRoot = { isConnected: true };
 
@@ -63,6 +63,27 @@ vm.runInContext(fs.readFileSync(path.join(root, "platform-profiles.js"), "utf8")
 vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-collector-core.js"), "utf8"), context, { filename: "vault-classifier-collector-core.js" });
 
 const Collector = context.VaultClassifierCollectorCore;
+const unrelatedStatusRoot = {
+  matches() { return false; },
+  querySelectorAll(selector) {
+    return selector === "a[href]"
+      ? [{ href: "https://x.com/other/status/111", getAttribute() { return this.href; } }]
+      : [];
+  },
+  getAttribute() { return null; }
+};
+const requestedStatusRoot = {
+  matches() { return false; },
+  querySelectorAll(selector) {
+    return selector === "a[href]"
+      ? [{ href: "https://x.com/visible/status/222", getAttribute() { return this.href; } }]
+      : [];
+  },
+  getAttribute() { return null; }
+};
+const matchingStatusRoot = Collector.matchingContentRoot("twitter", {
+  querySelectorAll(selector) { return selector === "article" ? [unrelatedStatusRoot, requestedStatusRoot] : []; }
+}, ["article"], "https://x.com/visible/status/222", "https://x.com/visible/status/222");
 Collector.start({
   platform: "tiktok",
   matchesPage: (location) => location.hostname === "www.tiktok.com",
@@ -75,7 +96,7 @@ Collector.start({
       sourceURL: "https://www.tiktok.com/@visible",
       sourceName: "Visible creator",
       title: "Visible short",
-      creatorAvatarURL: avatarURL,
+      sourceIconURL,
       entryType: "short"
     });
   },
@@ -98,32 +119,33 @@ Collector.start({
 });
 
 setTimeout(() => {
-  avatarURL = "https://p16-sign-va.tiktokcdn.com/visible-avatar.jpeg";
+  sourceIconURL = "https://p16-sign-va.tiktokcdn.com/visible-source-icon.jpeg";
   observers.forEach((observer) => observer.callback([{ type: "attributes", target: { matches: (selector) => selector === "img, source" } }]));
 }, 350);
 
 setTimeout(() => {
   const collections = messages.filter((message) => message.type === "vault-classifier-collect");
   const diagnostics = messages.filter((message) => message.type === "vault-classifier-diagnostic");
-  const initial = collections.find((message) => message.entry?.entryID === "tiktok:video:123" && !message.entry?.evidence?.metadata?.creatorAvatarURL);
-  const enriched = collections.find((message) => message.entry?.entryID === "tiktok:video:123" && message.entry?.evidence?.metadata?.creatorAvatarURL);
+  const initial = collections.find((message) => message.entry?.entryID === "tiktok:video:123" && !message.entry?.evidence?.metadata?.sourceIconURL);
+  const enriched = collections.find((message) => message.entry?.entryID === "tiktok:video:123" && message.entry?.evidence?.metadata?.sourceIconURL);
   const page = collections.find((message) => message.entry?.entryID === "tiktok:video:456");
   const passed = Boolean(
     initial
-    && enriched?.entry?.evidence?.metadata?.creatorAvatarURL === "https://p16-sign-va.tiktokcdn.com/visible-avatar.jpeg"
+    && enriched?.entry?.evidence?.metadata?.sourceIconURL === "https://p16-sign-va.tiktokcdn.com/visible-source-icon.jpeg"
     && page?.entry?.surface === "page"
     && page?.entry?.evidence?.text === "Visible rendered description"
     && diagnostics.some((message) => message.event === "collector-started")
     && diagnostics.some((message) => message.event === "page-evidence-ready")
     && tagPresentations.some((value) => value.root === feedRoot && value.sourceID === "tiktok:creator:visible")
     && tagPresentations.some((value) => value.root === pageRoot && value.sourceID === "tiktok:creator:visible")
+    && matchingStatusRoot === requestedStatusRoot
     && observers.some((observer) => observer.options?.attributeFilter?.includes("src"))
-    && debugLogs.includes("[VaultClassifier:avatar] tiktok:debug-ready")
-    && debugLogs.includes("[VaultClassifier:avatar] tiktok:source-ready")
-    && debugLogs.every((entry) => !/Visible|123|avatar\.jpeg/.test(entry))
+    && debugLogs.includes("[VaultClassifier:source-icon] tiktok:debug-ready")
+    && debugLogs.includes("[VaultClassifier:source-icon] tiktok:source-ready")
+    && debugLogs.every((entry) => !/Visible|123|source-icon\.jpeg/.test(entry))
   );
   if (passed) {
-    console.log("PASS gives every dedicated collector YouTube-style late-avatar, page-evidence, and diagnostic handling");
+    console.log("PASS gives every dedicated collector late-source-icon, route-matched page-evidence, and diagnostic handling");
     console.log("__CB_TEST_RESULT__: OK");
     return;
   }

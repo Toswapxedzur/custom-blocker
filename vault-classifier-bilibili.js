@@ -34,7 +34,8 @@
           sourceURL: source.href,
           sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
           title: core.firstText(card, ['h1, h2, h3', '[title]']) || core.compactText(entry.getAttribute("title") || entry.textContent, 500),
-          creatorAvatarURL: core.avatarFromVerifiedSource("bilibili", source, global.location.href),
+          text: core.firstText(card, ['[class*="desc"]', '[class*="description"]'], 16000),
+          sourceIconURL: core.sourceIconFromVerifiedSource("bilibili", source, global.location.href),
           entryType: "video"
         });
       }
@@ -63,7 +64,7 @@
         title,
         text: description,
         suppliedTags: [...document.querySelectorAll?.('a[href*="/v/topic/"]') || []].map((tag) => tag.textContent),
-        creatorAvatarURL: core.avatarFromVerifiedSource("bilibili", source, global.location.href),
+        sourceIconURL: core.sourceIconFromVerifiedSource("bilibili", source, global.location.href),
         entryType: "video"
       });
       return { ready: true };

@@ -30,7 +30,11 @@
       for (const card of cards) {
         const entry = core.firstAnchor(card, ['a[href*="/reel/"]', 'a[href*="/watch/"]', 'a[href*="/videos/"]', 'a[href*="/posts/"]', 'a[href*="/permalink/"]', 'a[href*="/share/r/"]', 'a[href*="/share/v/"]'], isContent);
         if (!entry) continue;
-        const source = core.firstNormalizedSourceAnchor("facebook", card, entry.href);
+        const source = core.firstVerifiedSourceAnchor("facebook", card, [
+          'h2 a[href]',
+          'strong a[href]',
+          '[role="heading"] a[href]'
+        ], entry.href);
         if (!source) continue;
         collect({
           presentationRoot: card,
@@ -40,7 +44,9 @@
           sourceURL: source.href,
           sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
           title: core.firstText(card, ['[data-ad-preview="message"]', '[data-testid*="story"]', 'h1, h2, h3']) || core.compactText(entry.textContent, 500),
-          creatorAvatarURL: core.avatarFromVerifiedSource("facebook", source, global.location.href),
+          text: core.firstText(card, ['[data-ad-preview="message"]', '[data-testid*="story"]'], 16000),
+          suppliedTags: [...card.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent),
+          sourceIconURL: core.sourceIconFromVerifiedSource("facebook", source, global.location.href),
           entryType: entryType(entry.href)
         });
       }
@@ -48,13 +54,17 @@
     scanPage({ document, collect }) {
       const route = pageRoute(global.location);
       if (!route) return { ready: false, reason: "missing-content-id" };
-      const root = document.querySelector('[role="main"] [role="article"]') || document.querySelector('[role="article"]') || document.querySelector('[role="main"]');
+      const root = core.matchingContentRoot("facebook", document, [
+        '[role="dialog"] [role="article"]',
+        '[role="main"] [role="article"]',
+        '[role="article"]'
+      ], global.location.href, global.location.href);
       if (!root) return { ready: false, reason: "missing-content-root" };
       const source = core.firstVerifiedSourceAnchor("facebook", root, [
         'h2 a[href]', 'strong a[href]', '[role="heading"] a[href]', 'a[role="link"][href]'
       ], global.location.href);
       if (!source) return { ready: false, reason: "missing-source" };
-      const body = core.firstText(root, ['[data-ad-preview="message"]', '[data-testid*="story"]', '[dir="auto"]'], 16000);
+      const body = core.firstText(root, ['[data-ad-preview="message"]', '[data-testid*="story"]'], 16000);
       const title = core.compactText(body, 500) || core.firstText(root, ["h1", "h2", "h3"]);
       if (!title && !body) return { ready: false, reason: "missing-title" };
       collect({
@@ -69,7 +79,7 @@
         title,
         text: body,
         suppliedTags: [...root.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent),
-        creatorAvatarURL: core.avatarFromVerifiedSource("facebook", source, global.location.href),
+        sourceIconURL: core.sourceIconFromVerifiedSource("facebook", source, global.location.href),
         entryType: route.type
       });
       return { ready: true };
