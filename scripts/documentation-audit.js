@@ -100,8 +100,13 @@ for (const [product, sourceDirectory, websiteDirectory] of websiteManualMirrors)
 
 const macManual = path.join(workspace, "macosBlocker", "Sources", "MacBlockerWebUI", "WebAssets", "manual", "en.md");
 const windowsManual = path.join(workspace, "windowsBlocker", "src", "WindowsBlocker", "WebAssets", "manual", "en.md");
-if (fs.readFileSync(macManual, "utf8") !== fs.readFileSync(windowsManual, "utf8")) {
-  fail("Mac and Windows desktop app manuals must share the same functional reference.");
+const withoutPlatformBridge = (markdown) =>
+  markdown.replace(/^## 9\.[\s\S]*?(?=^## 10\.)/m, "## 9. Platform bridge\n\n");
+if (
+  withoutPlatformBridge(fs.readFileSync(macManual, "utf8")) !==
+  withoutPlatformBridge(fs.readFileSync(windowsManual, "utf8"))
+) {
+  fail("Mac and Windows desktop app manuals may differ only in their platform-specific bridge section.");
 }
 
 module.exports = { locales, localizedDocumentPath, sourceDocuments };

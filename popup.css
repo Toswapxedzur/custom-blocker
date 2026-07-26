@@ -522,15 +522,6 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
-.connection-status-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 4px 0 6px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
 .connection-dot {
   width: 10px;
   height: 10px;
@@ -539,17 +530,8 @@ textarea:focus {
   background: #94a3b8;
 }
 
-.connection-dot.running,
 .connection-dot.connected {
   background: #16a34a;
-}
-
-.connection-dot.connected-not-listening {
-  background: #64748b;
-}
-
-.connection-dot.connecting {
-  background: #f59e0b;
 }
 
 .connection-dot.error {
@@ -579,21 +561,16 @@ textarea:focus {
   font-weight: 600;
 }
 
-/* Golden accent for the whole web-app bridge UI (settings section + per-group
-   connection panel), independent of whether a group is currently linked. Uses
-   the same gold palette as the custom-rule card so bridge + custom share one
-   visual language. */
-#connectionSection,
+/* Golden accent for the per-group web-app bridge UI, independent of whether a
+   group is currently linked. */
 #connectionGroupSection {
   background: var(--gold-50);
 }
 
-#connectionSection::before,
 #connectionGroupSection::before {
   background: linear-gradient(180deg, #fbbf24 0%, var(--gold-700) 100%);
 }
 
-#connectionSection .section-header h3,
 #connectionGroupSection .section-header h3 {
   color: color-mix(in srgb, var(--gold-text) 36%, #334155);
 }
@@ -1369,7 +1346,7 @@ textarea:disabled {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 

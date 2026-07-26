@@ -250,7 +250,6 @@ As configurações globais aplicam-se à extensão e não a um grupo.
 | URL substituto padrão | sobre:em branco | Usado quando um grupo de bloqueio não tem URL substituto específico do grupo. |
 | Ajude a classificar os criadores | Desativado | Aceitação explícita. Ele envia IDs de canais do YouTube encontrados apenas para o serviço de classificação configurado; não envia títulos nem histórico de exibição. |
 | Pasta de arquivos locais | Nenhum | Capacidade de pasta opcional para regras personalizadas. Consulte a seção 9. |
-| Ponte de aplicativos da Web | Desativado | Conexão opcional a um hub local do Vault compatível. Consulte a seção 11. |
 
 ### 4.1 Interface do editor e superfícies de feedback
 
@@ -850,9 +849,9 @@ Nenhuma regra personalizada recebe APIs de extensão irrestritas. Em particular:
 
 ## 11. Ponte de aplicativo da Web
 
-A ponte é opcional. Ele conecta um cliente de extensão de navegador a um hub local do Vault compatível. A extensão do navegador é um cliente; um aplicativo nativo do Vault fornece o hub. O endpoint local fixo é ws://127.0.0.1:8787 e a compatibilidade do protocolo é necessária.
+A extensão do navegador inicia automaticamente a conexão com o hub Vault local compatível em ws://127.0.0.1:8787. Não há um controle de conexão para o usuário e a compatibilidade do protocolo é obrigatória.
 
-Os estados de conexão são Desligado, Conectando, Desconectado, Conectado e Erro. Com o cliente ativado, o Vault primeiro investiga rapidamente e depois continua com tentativas mais lentas de reconexão até se conectar ou o usuário desligá-lo. A conexão por si só não mescla todos os grupos.
+O Vault primeiro verifica rapidamente e depois continua tentativas de reconexão mais lentas enquanto a extensão estiver em execução. O transporte automático não mescla grupos sozinho; vincular e desvincular grupos continua explícito.
 
 ### 11.1 Vinculando grupos
 
@@ -877,7 +876,7 @@ Use esta lista de verificação ao auditar uma versão ou reproduzir comportamen
 7. Teste cada temporizador personalizado nos limites do escopo e em zero; verifique se algum bloco está explícito na regra.
 8. Teste os painéis com cada valor de controle, estado desativado, ação de envio/cancelamento/fechamento e manipulador panelEvent.
 9. Teste a falha da pasta local antes do sucesso: nenhuma pasta selecionada, permissão revogada, caminho inválido, extensão não suportada e leitura/gravação autorizada.
-10. Teste a conexão da ponte desligada, a conexão ativada, o grupo vinculado/desvinculado e um membro de cluster off-line antes de confiar na sincronização ou na coordenação de congelamento.
+10. Teste a inicialização automática do transporte, grupos vinculados/desvinculados e um membro de cluster offline antes de confiar na sincronização ou na coordenação de congelamento.
 
 ## 13. Regra de versionamento
 

@@ -248,7 +248,6 @@ Global settings apply to the extension rather than one group.
 | Default fallback URL | about:blank | Used when a blocking group has no group-specific fallback URL. |
 | Help classify creators | Off | Explicit opt-in. It sends encountered YouTube channel ids only to the configured classification service; it does not send titles or watch history. |
 | Local File Folder | None | Optional folder capability for Custom rules. See section 9. |
-| Web-app bridge | Off | Optional connection to a compatible local Vault hub. See section 11. |
 
 ### 4.1 Editor interface and feedback surfaces
 
@@ -848,9 +847,9 @@ No Custom rule receives unrestricted extension APIs. In particular:
 
 ## 11. Web-app bridge
 
-The bridge is optional. It connects a browser extension client to a compatible local Vault hub. The browser extension is a client; a native Vault app provides the hub. The fixed local endpoint is ws://127.0.0.1:8787 and protocol compatibility is required.
+The browser extension automatically starts its connection to the compatible local Vault hub at ws://127.0.0.1:8787. There is no user connection switch, and protocol compatibility is required.
 
-Connection states are Off, Connecting, Disconnected, Connected, and Error. With the client enabled, Vault first probes rapidly and then continues slower reconnect attempts until it connects or the user turns it off. Connection does not by itself merge all groups.
+Vault probes rapidly first and then continues slower reconnect attempts for as long as the extension runs. Automatic transport does not merge groups by itself; linking and unlinking groups remain explicit.
 
 ### 11.1 Linking groups
 
@@ -875,7 +874,7 @@ Use this checklist when auditing a release or reproducing behaviour:
 7. Test each Custom timer at scope boundaries and at zero; verify that any block is explicit in the rule.
 8. Test panels with each control value, disabled state, submit/cancel/close action, and panelEvent handler.
 9. Test local-folder failure before success: no selected folder, revoked permission, invalid path, unsupported extension, then authorized read/write.
-10. Test bridge connection-off, connection-on, linked/unlinked group, and an offline cluster member before relying on synchronization or freeze coordination.
+10. Test automatic transport startup, linked/unlinked groups, and an offline cluster member before relying on synchronization or freeze coordination.
 
 ## 13. Versioning rule
 

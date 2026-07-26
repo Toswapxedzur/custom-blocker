@@ -250,7 +250,6 @@ Ustawienia globalne dotyczą rozszerzenia, a nie jednej grupy.
 | Domyślny zastępczy adres URL | o:puste | Używane, gdy grupa blokująca nie ma zastępczego adresu URL specyficznego dla grupy. |
 | Pomóż klasyfikować twórców | Wyłącz | Wyraźna zgoda. Wysyła napotkane identyfikatory kanałów YouTube tylko do skonfigurowanej usługi klasyfikacji; nie wysyła tytułów ani historii oglądania. |
 | Lokalny folder plików | Brak | Opcjonalna funkcja folderu dla reguł niestandardowych. Patrz sekcja 9. |
-| Most aplikacji internetowej | Wyłącz | Opcjonalne połączenie z kompatybilnym lokalnym koncentratorem Vault. Patrz sekcja 11. |
 
 ### 4.1 Interfejs edytora i powierzchnie opinii
 
@@ -850,9 +849,9 @@ Vault może poddać grupę niestandardową kwarantannie po wielokrotnym przekroc
 
 ## 11. Mostek z aplikacją internetową
 
-Most jest opcjonalny. Łączy klienta rozszerzenia przeglądarki z kompatybilnym lokalnym koncentratorem Vault. Rozszerzenie przeglądarki jest klientem; natywna aplikacja Vault zapewnia centrum. Stały lokalny punkt końcowy to ws://127.0.0.1:8787 i wymagana jest zgodność protokołów.
+Rozszerzenie przeglądarki automatycznie uruchamia połączenie ze zgodnym lokalnym koncentratorem Vault pod adresem ws://127.0.0.1:8787. Użytkownik nie ma przełącznika połączenia, a zgodność protokołu jest wymagana.
 
-Stany połączenia to: Wyłączony, Łączenie, Rozłączony, Połączony i Błąd. Po włączeniu klienta Vault najpierw szybko sonduje, a następnie kontynuuje wolniejsze próby ponownego nawiązania połączenia, dopóki nie nawiąże połączenia lub użytkownik go nie wyłączy. Połączenie samo w sobie nie scala wszystkich grup.
+Vault najpierw sonduje szybko, a następnie ponawia połączenie wolniej przez cały czas działania rozszerzenia. Automatyczny transport sam nie scala grup; łączenie i rozłączanie grup pozostaje jawne.
 
 ### 11.1 Łączenie grup
 
@@ -877,7 +876,7 @@ Skorzystaj z tej listy kontrolnej podczas audytu wydania lub zachowania związan
 7. Przetestuj każdy niestandardowy timer na granicach zakresu i przy zera; sprawdź, czy jakikolwiek blok jest jawny w regule.
 8. Przetestuj panele z każdą wartością kontrolną, stanem wyłączenia, akcją przesłania/anulowania/zamknięcia i obsługą zdarzenia panelEvent.
 9. Zanim się powiedzie, przetestuj awarię folderu lokalnego: brak wybranego folderu, cofnięte uprawnienia, nieprawidłowa ścieżka, nieobsługiwane rozszerzenie, następnie autoryzowany odczyt/zapis.
-10. Przetestuj wyłączenie, włączenie połączenia mostu, połączoną/rozłączoną grupę i element klastra w trybie offline, zanim zaczniesz korzystać z synchronizacji lub zamrożenia koordynacji.
+10. Przetestuj automatyczne uruchamianie transportu, grupy połączone/rozłączone i element klastra offline, zanim zaczniesz polegać na synchronizacji lub koordynacji zamrożenia.
 
 ## 13. Reguła wersjonowania
 

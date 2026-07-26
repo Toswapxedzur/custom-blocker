@@ -3394,10 +3394,10 @@ ensureStartupGate().catch((error) => {
 /* ------------------------------------------------------------------ *
  * Web-app bridge — extension WebSocket client.
  *
- * The extension keeps one outbound socket to the fixed local Vault hub. Its
- * selected primary stream determines whether this socket carries group-sync or
- * classifier replies; choosing both desktop apps never creates a second stream.
- * It keeps a live status that the popup reads
+ * The extension keeps one automatic outbound socket to the fixed local Vault
+ * hub. Group-sync is routed whenever Mac Vault is present, while classifier
+ * requests are routed whenever Vault Classifier is present; both products
+ * share this one socket. It keeps a live status that the popup reads
  * via the "connection-status" message (and live "connection-status-push"
  * broadcasts while the popup is open).
  *
@@ -3413,7 +3413,7 @@ const CB_CONNECTION_PING_MS = 20_000;
 //   disconnected – burst window elapsed without success; keep probing slowly
 //                  (every 5s) because the user still WANTS to connect.
 //   connected    – live socket.
-//   off          – user toggled the client off; no connection attempts at all.
+//   off          – transport has not started or is shutting down with the worker.
 const CB_CONNECTION_BURST_INTERVAL_MS = 100;
 const CB_CONNECTION_BURST_WINDOW_MS = 5_000;
 const CB_CONNECTION_SLOW_INTERVAL_MS = 5_000;
@@ -3472,7 +3472,7 @@ function cbReportClusterUsage(groups, timers, resets) {
   try {
     const clusters = Array.isArray(cbConnection.clusters) ? cbConnection.clusters : [];
     if (clusters.length === 0) return;
-    if (!cbConnection.ws || cbConnection.ws.readyState !== WebSocket.OPEN) return;
+    if (!cbConnection.routeIsReady("macapp")) return;
     const program = cbDetectProgramId();
     for (const g of groups) {
       if (!g || g.groupType !== "site") continue;
@@ -3527,28 +3527,28 @@ const cbConnection = {
   // a reconnect even if the popup is closed.
   clusters: [],
   lastAnnounce: null,
-  primaryStream: "none",
-  selectedStreams: { macapp: false, classifier: false },
   // Rapid-retry burst bookkeeping. burstStartMs marks the start of the current
   // retry window. A raw WebSocket open is not a usable connection: the hub
   // must also accept our protocol hello with a welcome message.
   burstStartMs: 0,
   handshakeComplete: false,
-  // The service worker can be started by a collector message before its
-  // asynchronous settings read finishes. Classifier requests must wait for
-  // that read rather than treating the initial `primaryStream: none` default
-  // as an explicit user Off choice.
-  settingsReady: null,
+  startupReady: null,
 
   setStatus(patch) {
+    const macRouteWasReady = this.routeIsReady("macapp");
     this.status = { ...this.status, ...patch };
+    const macRouteIsReady = this.routeIsReady("macapp");
+    if (!macRouteIsReady && this.clusters.length > 0) {
+      this.clusters = [];
+      this.broadcastClusters();
+    } else if (!macRouteWasReady && macRouteIsReady && this.lastAnnounce) {
+      this.sendWS(this.lastAnnounce);
+    }
     this.broadcast();
   },
 
-  // There is one physical loopback socket, but the two Settings cards are
-  // separate product targets. A target is genuinely connected only when its
-  // native app owns the hub or is listed as a currently connected peer.
-  // Otherwise the live shared server is visible as "connected, not listening".
+  // A target is present when its native app owns the authenticated hub or is a
+  // currently connected peer on that hub.
   targetIsPresent(target, status = this.status) {
     if (!target || !status || typeof status !== "object") return false;
     if (status.hubProgram === target) return true;
@@ -3557,23 +3557,24 @@ const cbConnection = {
     );
   },
 
+  routeIsReady(target) {
+    return Boolean(
+      this.ws &&
+      this.ws.readyState === WebSocket.OPEN &&
+      (this.status.state === "connected" || this.status.state === "running") &&
+      this.targetIsPresent(target)
+    );
+  },
+
   statusForTarget(target) {
-    const selected = Boolean(this.selectedStreams && this.selectedStreams[target]);
     const current = { ...this.status };
     if (current.state === "connected" || current.state === "running") {
       return {
         ...current,
-        state: selected && this.targetIsPresent(target, current)
-          ? "connected"
-          : "connected-not-listening",
+        state: this.targetIsPresent(target, current) ? "connected" : "connected-not-listening",
         error: ""
       };
     }
-    if (!selected) {
-      return { ...current, state: "off", peers: [], error: "", hubProgram: "" };
-    }
-    // The Settings surface intentionally has five states. Transport failures
-    // remain available to diagnostics, but present as Disconnected here.
     if (current.state === "error") return { ...current, state: "disconnected" };
     return current;
   },
@@ -3582,9 +3583,6 @@ const cbConnection = {
     try {
       chrome.runtime
         .sendMessage({ type: "connection-status-push", status: this.statusForTarget("macapp") })
-        .catch(() => {});
-      chrome.runtime
-        .sendMessage({ type: "classifier-connection-status-push", status: this.statusForTarget("classifier") })
         .catch(() => {});
     } catch (_) {}
   },
@@ -3846,7 +3844,7 @@ const cbConnection = {
     }, CB_CONNECTION_SLOW_INTERVAL_MS);
   },
 
-  disconnect() {
+  stop() {
     this.desired = false;
     this.clearTimers();
     this.closeSocket();
@@ -3899,9 +3897,6 @@ const cbConnection = {
           hubProgram: msg.hubProgram,
           peers: Array.isArray(msg.peers) ? msg.peers : this.status.peers
         });
-        // The one local socket receives exactly one primary stream. Group
-        // roster traffic is only useful while Mac Vault is primary.
-        if (this.primaryStream === "macapp" && this.lastAnnounce) this.sendWS(this.lastAnnounce);
         this.pingTimer = setInterval(() => {
           this.sendWS({ kind: "ping", t: Date.now() });
         }, CB_CONNECTION_PING_MS);
@@ -3916,13 +3911,13 @@ const cbConnection = {
         this.setStatus({ peers: Array.isArray(msg.peers) ? msg.peers : [] });
         break;
       case "clusters":
-        if (this.primaryStream !== "macapp") break;
+        if (!this.routeIsReady("macapp")) break;
         this.clusters = Array.isArray(msg.clusters) ? msg.clusters : [];
         this.broadcastClusters();
         this.applySharedToStorage();
         break;
       case "cluster-updated": {
-        if (this.primaryStream !== "macapp") break;
+        if (!this.routeIsReady("macapp")) break;
         const next = Array.isArray(this.clusters) ? this.clusters.slice() : [];
         const idx = next.findIndex((c) => c && c.id === msg.cluster?.id);
         const members = Array.isArray(msg.cluster?.members) ? msg.cluster.members : [];
@@ -3939,7 +3934,7 @@ const cbConnection = {
         break;
       }
       case "connect-group-rejected":
-        if (this.primaryStream !== "macapp") break;
+        if (!this.routeIsReady("macapp")) break;
         try {
           chrome.runtime
             .sendMessage({ type: "group-rejected", reason: msg.reason || "" })
@@ -3949,11 +3944,8 @@ const cbConnection = {
       case "pong":
         break;
       case "classifier-response":
-        // Classifier requests may travel over the Mac-primary stream when Mac
-        // Vault hosts the one local socket and Vault Classifier has joined it.
-        // The request map below still ignores unmatched replies, so handling
-        // this independently of the UI's primary stream cannot cross-route
-        // ordinary group-sync traffic.
+        // The request map below ignores unmatched replies, so classifier
+        // responses cannot cross-route ordinary group-sync traffic.
         if (self.CBClassifierHub) self.CBClassifierHub.receive(msg);
         break;
       default:
@@ -3987,42 +3979,22 @@ const cbConnection = {
     this.scheduleSlowRetry();
   },
 
-  waitForSettings() {
-    return this.settingsReady || this.applyFromSettings();
+  waitForStartup() {
+    return this.startupReady || this.startAutomatically();
   },
 
-  applyFromSettings() {
-    const task = (async () => {
-      let conn = null;
-      let classifier = null;
-      try {
-        const r = await chrome.storage.local.get([CB_GLOBAL_SETTINGS_KEY, "vaultClassifierSettings"]);
-        const s = r && r[CB_GLOBAL_SETTINGS_KEY];
-        conn = s && typeof s === "object" ? s.connection : null;
-        classifier = r && r.vaultClassifierSettings;
-      } catch (_) {}
-      const macVaultSelected = Boolean(conn && conn.clientEnabled);
-      const classifierSelected = Boolean(classifier && classifier.connectionEnabled === true);
-      this.selectedStreams = { macapp: macVaultSelected, classifier: classifierSelected };
-      // Classifier is deliberately the efficient primary when both products are
-      // selected; turning it off immediately makes Mac Vault the sole stream.
-      this.primaryStream = classifierSelected ? "classifier" : (macVaultSelected ? "macapp" : "none");
-      if (this.primaryStream !== "none") {
-        this.burstStartMs = 0;
-        this.connect();
-      } else {
-        this.disconnect();
-      }
-    })();
-    this.settingsReady = task.catch(() => {});
-    return task;
+  startAutomatically() {
+    if (!this.startupReady) this.startupReady = Promise.resolve();
+    if (!this.desired) {
+      this.burstStartMs = 0;
+      this.connect();
+    }
+    return this.startupReady;
   }
 };
 
-// Classifier requests share the one local WebSocket. The UI primary stream
-// controls which app-specific surface is listening; it must not prevent a
-// live Mac-hosted socket from relaying a bounded request to a joined
-// Vault Classifier peer.
+// Classifier requests share the automatic local WebSocket and are relayed only
+// while a Vault Classifier host or peer is present.
 const CB_CLASSIFIER_HUB_MAX_PENDING = 16;
 const CB_CLASSIFIER_HUB_TIMEOUT_MS = 6_000;
 const CB_CLASSIFIER_HUB_CONNECT_WAIT_MS = 5_000;
@@ -4055,7 +4027,7 @@ const cbClassifierHub = {
     if (this.isReady(connection)) return Promise.resolve();
     // There is no active shared socket to wait for, or a live hub has already
     // confirmed that it does not have a Classifier peer.
-    if (!connection || connection.primaryStream === "none" || connection.status?.state === "connected") {
+    if (!connection || connection.status?.state === "connected") {
       return Promise.reject(new Error("The Vault Classifier bridge is unavailable."));
     }
     return new Promise((resolve, reject) => {
@@ -4063,7 +4035,7 @@ const cbClassifierHub = {
       const poll = () => {
         if (this.isReady(connection)) {
           resolve();
-        } else if (Date.now() >= deadline || connection.primaryStream === "none") {
+        } else if (Date.now() >= deadline) {
           reject(new Error("The Vault Classifier bridge is unavailable."));
         } else {
           setTimeout(poll, 100);
@@ -4230,23 +4202,18 @@ const cbClassifierHub = {
       return Promise.reject(new Error("Vault Classifier request exceeds the shared bridge limit."));
     }
     const connection = cbConnection;
-    const settingsReady = connection && typeof connection.waitForSettings === "function"
-      ? connection.waitForSettings()
+    const startupReady = connection && typeof connection.waitForStartup === "function"
+      ? connection.waitForStartup()
       : Promise.resolve();
-    return Promise.resolve(settingsReady)
+    return Promise.resolve(startupReady)
       .then(() => this.waitForReady(connection))
       .then(
         () => this.requestOnSharedSocket(connection, operation, body),
-        (error) => {
-        // Respect an explicit Off choice. Otherwise a short-lived fallback
-        // socket can bridge a stale MV3 worker state without adding another
-        // durable data stream or persisting page evidence in the extension.
-        if (!connection || connection.primaryStream === "none") {
-          this.recordTransport("settings-off", "unavailable");
-          throw error;
-        }
-        this.recordTransport("fallback-attempt", "extension");
-        return this.requestViaFallbackSocket(operation, body);
+        () => {
+          // A short-lived fallback can bridge a stale MV3 worker socket without
+          // adding another durable stream or persisting page evidence.
+          this.recordTransport("fallback-attempt", "extension");
+          return this.requestViaFallbackSocket(operation, body);
         }
       );
   },
@@ -4278,32 +4245,11 @@ self.CBClassifierHub = cbClassifierHub;
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== "string") return false;
   switch (message.type) {
-    case "connection-connect":
-      cbConnection.burstStartMs = 0;
-      cbConnection.applyFromSettings();
-      sendResponse({ ok: true, status: cbConnection.statusForTarget("macapp") });
-      return false;
-    case "connection-disconnect":
-      cbConnection.applyFromSettings();
-      sendResponse({ ok: true, status: cbConnection.statusForTarget("macapp") });
-      return false;
     case "connection-status":
       sendResponse({ ok: true, status: cbConnection.statusForTarget("macapp") });
       return false;
-    case "classifier-connection-connect":
-      cbConnection.burstStartMs = 0;
-      cbConnection.applyFromSettings();
-      sendResponse({ ok: true, status: cbConnection.statusForTarget("classifier") });
-      return false;
-    case "classifier-connection-disconnect":
-      cbConnection.applyFromSettings();
-      sendResponse({ ok: true, status: cbConnection.statusForTarget("classifier") });
-      return false;
-    case "classifier-connection-status":
-      sendResponse({ ok: true, status: cbConnection.statusForTarget("classifier") });
-      return false;
     case "group-connect":
-      if (cbConnection.primaryStream !== "macapp") { sendResponse({ ok: false, error: "macapp-not-primary" }); return false; }
+      if (!cbConnection.routeIsReady("macapp")) { sendResponse({ ok: false, error: "macapp-unavailable" }); return false; }
       cbConnection.sendWS({
         kind: "connect-group",
         groupName: message.groupName,
@@ -4314,7 +4260,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       return false;
     case "group-disconnect":
-      if (cbConnection.primaryStream !== "macapp") { sendResponse({ ok: false, error: "macapp-not-primary" }); return false; }
+      if (!cbConnection.routeIsReady("macapp")) { sendResponse({ ok: false, error: "macapp-unavailable" }); return false; }
       cbConnection.sendWS({
         kind: "disconnect-group",
         clusterId: message.clusterId,
@@ -4329,14 +4275,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         program: message.program,
         groups: Array.isArray(message.groups) ? message.groups : []
       };
-      if (cbConnection.primaryStream === "macapp") cbConnection.sendWS(cbConnection.lastAnnounce);
+      if (cbConnection.routeIsReady("macapp")) cbConnection.sendWS(cbConnection.lastAnnounce);
       sendResponse({ ok: true });
       return false;
     case "clusters-status":
       sendResponse({ ok: true, clusters: cbConnection.clusters });
       return false;
     case "group-sync":
-      if (cbConnection.primaryStream !== "macapp") { sendResponse({ ok: false, error: "macapp-not-primary" }); return false; }
+      if (!cbConnection.routeIsReady("macapp")) { sendResponse({ ok: false, error: "macapp-unavailable" }); return false; }
       cbConnection.sendWS({
         kind: "group-sync",
         program: message.program,
@@ -4362,15 +4308,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Re-apply when the user toggles the client on/off or edits the address.
-if (chrome.storage && chrome.storage.onChanged) {
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || (!changes[CB_GLOBAL_SETTINGS_KEY] && !changes.vaultClassifierSettings)) return;
-    cbConnection.applyFromSettings();
-  });
-}
-
-// Auto-connect on service-worker startup if the user left the client enabled.
-cbConnection.applyFromSettings();
+// Every service-worker lifetime participates in the authenticated local hub.
+cbConnection.startAutomatically();
 
 // ===========================================================================
