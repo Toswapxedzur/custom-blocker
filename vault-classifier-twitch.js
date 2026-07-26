@@ -22,6 +22,35 @@
     const reserved = new Set(["directory", "downloads", "jobs", "login", "search", "settings", "store", "wallet"]);
     return channel && !reserved.has(channel[1].toLowerCase()) ? { id: channel[1].toLowerCase(), type: "live", handle: channel[1] } : null;
   }
+  function channelSource(root, excludedEntry) {
+    const selectors = [
+      'a[data-a-target="preview-card-channel-link"]',
+      '[data-a-target="preview-card-channel-name"] a[href]',
+      '[data-a-target="channel-header-container"] a[href]',
+      '[data-a-target*="channel-header"] a[href]'
+    ];
+    for (const selector of selectors) {
+      for (const candidate of core.selectorElements(root, selector)) {
+        const link = candidate?.tagName === "A" && candidate.href
+          ? candidate
+          : candidate?.closest?.("a[href]") || candidate?.querySelector?.("a[href]");
+        if (link?.href
+          && link !== excludedEntry
+          && core.normalizedSourceIdentity("twitch", link.href)) {
+          return link;
+        }
+      }
+    }
+    return null;
+  }
+  function channelURLFromContent(value) {
+    try {
+      const route = pageRoute(new URL(value, global.location.href));
+      return route?.handle ? `https://www.twitch.tv/${route.handle}` : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   core.start({
     platform: "twitch",
@@ -34,14 +63,16 @@
       for (const card of cards) {
         const entry = core.firstAnchor(card, ['a[data-a-target="preview-card-image-link"]', 'a[data-a-target="preview-card-title-link"]', 'a[href*="/clip/"]', 'a[href^="/videos/"]'], isPreview);
         if (!entry) continue;
-        const source = core.matchingSourceAnchor("twitch", card, entry.href) || entry;
+        const source = channelSource(card, entry);
+        const sourceURL = source?.href || channelURLFromContent(entry.href);
+        if (!sourceURL) continue;
         collect({
           presentationRoot: card,
           presentationAnchor: source,
           sourceKind: "creator",
           entryURL: entry.href,
-          sourceURL: source.href,
-          sourceName: core.firstText(card, ['[data-a-target="preview-card-channel-link"]', '[data-a-target="preview-card-channel-name"]']) || core.compactText(source.textContent, 256),
+          sourceURL,
+          sourceName: core.firstText(card, ['[data-a-target="preview-card-channel-link"]', '[data-a-target="preview-card-channel-name"]']) || core.compactText(source?.textContent, 256),
           title: core.firstText(card, ['[data-a-target="preview-card-title"]', 'h1, h2, h3']) || core.compactText(entry.textContent, 500),
           text: core.firstText(card, ['[data-a-target="preview-card-title"]', '[data-a-target*="description"]'], 16000),
           sourceIconURL: core.sourceIconFromVerifiedSource("twitch", source, global.location.href),
@@ -52,16 +83,22 @@
     scanPage({ document, collect }) {
       const route = pageRoute(global.location);
       if (!route) return { ready: false, reason: "missing-content-id" };
-      const root = document.querySelector("main") || document.querySelector('[data-a-target="channel-root"]');
+      const root = core.matchingContentRoot(
+        "twitch",
+        document,
+        ["main"],
+        global.location.href,
+        global.location.href
+      ) || core.matchingContentRoot(
+        "twitch",
+        document,
+        ['[data-a-target="channel-root"]'],
+        global.location.href,
+        global.location.href
+      );
       if (!root) return { ready: false, reason: "missing-content-root" };
       const directSourceURL = route.handle ? `https://www.twitch.tv/${route.handle}` : null;
-      const source = directSourceURL
-        ? core.matchingSourceAnchor("twitch", root, directSourceURL)
-        : core.firstVerifiedSourceAnchor("twitch", root, [
-          '[data-a-target="channel-header-container"] a[href]',
-          '[data-a-target*="channel"] a[href]',
-          'a[data-a-target="preview-card-channel-link"]'
-        ], global.location.href);
+      const source = channelSource(root, null);
       const sourceURL = source?.href || directSourceURL;
       if (!sourceURL) return { ready: false, reason: "missing-source" };
       const description = core.firstText(root, [

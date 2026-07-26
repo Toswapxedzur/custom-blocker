@@ -40,7 +40,10 @@
       for (const message of messages) {
         const match = String(message.id || "").match(/^chat-messages-([0-9]{6,24})$/);
         const messageID = match?.[1];
-        const title = core.firstText(message, ['[id^="message-content-"]', '[class*="markup"]', '[data-slate-editor="true"]']);
+        const content = messageID
+          ? message.querySelector?.(`#message-content-${messageID}`)
+          : null;
+        const title = core.compactText(content?.textContent, 500);
         if (!messageID || !title) continue;
         collect({
           presentationRoot: message,

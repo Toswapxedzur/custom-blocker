@@ -12,6 +12,15 @@
     const match = String(location?.pathname || "").match(/^\/video\/(BV[0-9A-Za-z_-]{3,128})\/?$/i);
     return match ? { videoID: match[1] } : null;
   }
+  function topicTags(root) {
+    const container = core.firstElement(root, [
+      "#v_tag",
+      ".video-tag-container",
+      ".tag-panel",
+      ".video-tag"
+    ]);
+    return [...container?.querySelectorAll?.('a[href*="/v/topic/"]') || []].map((tag) => tag.textContent);
+  }
 
   core.start({
     platform: "bilibili",
@@ -46,10 +55,12 @@
       const root = document.querySelector("#viewbox_report") || document.querySelector(".video-info-container") || document.querySelector("main");
       if (!root) return { ready: false, reason: "missing-content-root" };
       const source = core.firstVerifiedSourceAnchor("bilibili", document, [
-        '#v_upinfo a[href*="space.bilibili.com/"]', '.upinfo-container a[href*="space.bilibili.com/"]', 'a[href*="space.bilibili.com/"]'
+        '#v_upinfo a[href*="space.bilibili.com/"]',
+        '.upinfo-container a[href*="space.bilibili.com/"]'
       ], global.location.href);
       if (!source) return { ready: false, reason: "missing-source" };
-      const description = core.firstText(document, ["#v_desc", ".desc-info-text", '[data-testid="video-desc"]'], 16000);
+      const descriptionRoot = core.firstElement(document, ["#v_desc", ".desc-info-text", '[data-testid="video-desc"]']);
+      const description = core.compactText(descriptionRoot?.textContent, 16000);
       const title = core.firstText(root, ["h1", '[title]']) || core.compactText(description, 500);
       if (!title && !description) return { ready: false, reason: "missing-title" };
       collect({
@@ -63,7 +74,7 @@
         sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
         title,
         text: description,
-        suppliedTags: [...document.querySelectorAll?.('a[href*="/v/topic/"]') || []].map((tag) => tag.textContent),
+        suppliedTags: topicTags(document),
         sourceIconURL: core.sourceIconFromVerifiedSource("bilibili", source, global.location.href),
         entryType: "video"
       });

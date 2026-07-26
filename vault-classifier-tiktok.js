@@ -8,9 +8,24 @@
 
   function matchesPage(location) { return /(^|\.)tiktok\.com$/i.test(location?.hostname || ""); }
   function isVideo(anchor) { return /\/@[^/]+\/video\//i.test(new URL(anchor.href).pathname); }
-  function pageRoute(location) {
-    const match = String(location?.pathname || "").match(/^\/@([^/]+)\/video\/([0-9]{6,32})\/?$/i);
+  function videoRoute(value) {
+    let pathname;
+    try { pathname = new URL(value, global.location.href).pathname; }
+    catch (_) { return null; }
+    const match = String(pathname || "").match(/^\/@([^/]+)\/video\/([0-9]{6,32})\/?$/i);
     return match ? { handle: match[1], videoID: match[2] } : null;
+  }
+  function pageRoute(location) { return videoRoute(location?.href || location?.pathname || ""); }
+  function descriptionElement(root) {
+    return core.firstElement(root, [
+      '[data-e2e="browse-video-desc"]',
+      '[data-e2e*="video-desc"]',
+      '[data-e2e*="desc"]',
+      '[data-testid*="desc"]'
+    ]);
+  }
+  function suppliedTags(element) {
+    return [...element?.querySelectorAll?.('a[href*="/tag/"]') || []].map((tag) => tag.textContent);
   }
 
   core.start({
@@ -26,17 +41,22 @@
       for (const card of cards) {
         const entry = core.firstAnchor(card, ['a[href*="/video/"]'], isVideo);
         if (!entry) continue;
-        const source = core.matchingSourceAnchor("tiktok", card, entry.href) || entry;
+        const route = videoRoute(entry.href);
+        if (!route) continue;
+        const sourceURL = `https://www.tiktok.com/@${route.handle}`;
+        const source = core.matchingSourceAnchor("tiktok", card, sourceURL);
+        const description = descriptionElement(card);
         collect({
           presentationRoot: card,
           presentationAnchor: source,
+          entryID: `tiktok:video:${route.videoID}`,
           sourceKind: "creator",
           entryURL: entry.href,
-          sourceURL: source.href,
-          sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
+          sourceURL,
+          sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source?.textContent, 256) || `@${route.handle}`,
           title: core.firstText(card, ['[data-e2e*="title"]', '[data-testid*="title"]', 'h1, h2, h3']) || core.compactText(entry.textContent, 500),
-          text: core.firstText(card, ['[data-e2e*="desc"]', '[data-testid*="desc"]'], 16000),
-          suppliedTags: [...card.querySelectorAll?.('a[href*="/tag/"]') || []].map((tag) => tag.textContent),
+          text: core.compactText(description?.textContent, 16000),
+          suppliedTags: suppliedTags(description),
           sourceIconURL: core.sourceIconFromVerifiedSource("tiktok", source, global.location.href),
           entryType: "short"
         });
@@ -54,7 +74,8 @@
       if (!root) return { ready: false, reason: "missing-content-root" };
       const sourceURL = `https://www.tiktok.com/@${route.handle}`;
       const source = core.matchingSourceAnchor("tiktok", root, sourceURL);
-      const description = core.firstText(root, ['[data-e2e="browse-video-desc"]', '[data-e2e*="video-desc"]', 'h1'], 16000);
+      const descriptionRoot = descriptionElement(root);
+      const description = core.compactText(descriptionRoot?.textContent, 16000);
       const title = core.compactText(description, 500) || core.firstText(root, ["h1", "h2"]);
       if (!title && !description) return { ready: false, reason: "missing-title" };
       collect({
@@ -68,7 +89,7 @@
         sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source?.textContent, 256) || `@${route.handle}`,
         title,
         text: description,
-        suppliedTags: [...root.querySelectorAll?.('a[href*="/tag/"]') || []].map((tag) => tag.textContent),
+        suppliedTags: suppliedTags(descriptionRoot),
         sourceIconURL: core.sourceIconFromVerifiedSource("tiktok", source, global.location.href),
         entryType: "short"
       });

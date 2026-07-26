@@ -165,6 +165,14 @@
     return null;
   }
 
+  function firstElement(root, selectors) {
+    for (const selector of selectors) {
+      const element = selectorElements(root, selector)[0];
+      if (element) return element;
+    }
+    return null;
+  }
+
   function imageURLFrom(element) {
     if (!element?.getAttribute) return null;
     for (const attribute of ["src", "data-src", "data-lazy-src", "data-original"]) {
@@ -241,10 +249,10 @@
   }
 
   function matchingSourceAnchor(platform, card, referenceURL) {
-    const identity = normalizedSourceIdentity(platform, referenceURL);
+    const identity = contentURLIdentity(platform, referenceURL, global.location?.href);
     if (!identity) return null;
     for (const anchor of card?.querySelectorAll?.("a[href]") || []) {
-      if (normalizedSourceIdentity(platform, anchor.href) === identity) return anchor;
+      if (contentURLIdentity(platform, anchor.href, global.location?.href) === identity) return anchor;
     }
     return null;
   }
@@ -498,6 +506,7 @@
     uniqueElements,
     firstAnchor,
     firstText,
+    firstElement,
     imageURLFrom,
     sourceIconFromVerifiedSource,
     matchingContentRoot,
