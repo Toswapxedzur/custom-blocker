@@ -289,13 +289,20 @@
       if (!isPlainRecord(item)
         || !isBoundedText(item.id, MAX.tag)
         || !isBoundedText(item.name, MAX.tag)
-        || typeof item.colorHex !== "string"
-        || !/^#[0-9a-f]{6}$/i.test(item.colorHex)
+        || typeof item.lightColorHex !== "string"
+        || !/^#[0-9a-f]{6}$/i.test(item.lightColorHex)
+        || typeof item.darkColorHex !== "string"
+        || !/^#[0-9a-f]{6}$/i.test(item.darkColorHex)
         || seen.has(item.id)) {
         return null;
       }
       seen.add(item.id);
-      tags.push({ id: item.id, name: item.name, colorHex: item.colorHex.toUpperCase() });
+      tags.push({
+        id: item.id,
+        name: item.name,
+        lightColorHex: item.lightColorHex.toUpperCase(),
+        darkColorHex: item.darkColorHex.toUpperCase()
+      });
     }
     return { platformID: expectedPlatform, sourceID: expectedSourceID, tags };
   }
