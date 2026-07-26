@@ -52,7 +52,11 @@ const context = vm.createContext({
   VaultClassifierExtensionContract: { randomID: (prefix) => `${prefix}-test` }
 });
 context.self = context;
-vm.runInContext(`${source.slice(start, end)}\nself.__classifierHub = cbClassifierHub;`, context, { filename: "background.js" });
+vm.runInContext(
+  `${source.slice(start, end)}\nself.__classifierHub = cbClassifierHub;\nself.__classifierHubTimeoutMs = CB_CLASSIFIER_HUB_TIMEOUT_MS;`,
+  context,
+  { filename: "background.js" }
+);
 const hub = context.__classifierHub;
 let failures = 0;
 
@@ -65,6 +69,12 @@ function assert(name, condition, detail) {
 }
 
 (async () => {
+  assert(
+    "browser timeout leaves a response margin after the native relay expires",
+    context.__classifierHubTimeoutMs === 32_000,
+    context.__classifierHubTimeoutMs
+  );
+
   // A collector message can wake an MV3 worker while its automatic transport
   // is starting. It waits for that startup rather than creating a second
   // durable socket.

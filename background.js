@@ -4007,7 +4007,9 @@ const cbConnection = {
 // Classifier requests share the automatic local WebSocket and are relayed only
 // while a Vault Classifier host or peer is present.
 const CB_CLASSIFIER_HUB_MAX_PENDING = 16;
-const CB_CLASSIFIER_HUB_TIMEOUT_MS = 6_000;
+// The native relay expires first (30 seconds), leaving this browser deadline
+// enough margin to receive its explicit timeout without racing a late reply.
+const CB_CLASSIFIER_HUB_TIMEOUT_MS = 32_000;
 const CB_CLASSIFIER_HUB_CONNECT_WAIT_MS = 5_000;
 const CB_CLASSIFIER_HUB_MAX_FALLBACK_REQUESTS = 4;
 const cbClassifierHub = {
