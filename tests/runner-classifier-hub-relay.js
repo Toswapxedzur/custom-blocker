@@ -123,11 +123,12 @@ function assert(name, condition, detail) {
     body: {
       platformID: "youtube",
       sourceID: "youtube:channel:UC123",
-      tags: [{ id: "games", name: "Games" }]
+      tags: [{ id: "games", name: "Games", colorHex: "#1A4775" }]
     }
   });
   const tagResponse = await tagPending;
-  assert("returns the matching source-tag relay response", tagResponse.tags?.[0]?.name === "Games", tagResponse);
+  assert("returns the matching colored source-tag relay response", tagResponse.tags?.[0]?.name === "Games"
+    && tagResponse.tags?.[0]?.colorHex === "#1A4775", tagResponse);
 
   classifierPresent = false;
   const fallbackPending = hub.request("collection-info", {});

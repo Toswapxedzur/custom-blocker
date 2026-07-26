@@ -289,11 +289,13 @@
       if (!isPlainRecord(item)
         || !isBoundedText(item.id, MAX.tag)
         || !isBoundedText(item.name, MAX.tag)
+        || typeof item.colorHex !== "string"
+        || !/^#[0-9a-f]{6}$/i.test(item.colorHex)
         || seen.has(item.id)) {
         return null;
       }
       seen.add(item.id);
-      tags.push({ id: item.id, name: item.name });
+      tags.push({ id: item.id, name: item.name, colorHex: item.colorHex.toUpperCase() });
     }
     return { platformID: expectedPlatform, sourceID: expectedSourceID, tags };
   }

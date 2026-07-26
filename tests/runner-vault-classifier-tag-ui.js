@@ -16,7 +16,9 @@ class FakeElement {
     this.ownerDocument = ownerDocument;
     this.children = [];
     this.parentNode = null;
-    this.style = {};
+    this.style = {
+      setProperty(name, value) { this[name] = value; }
+    };
     this.isConnected = true;
     this.textContent = "";
     this.className = "";
@@ -78,8 +80,8 @@ const chrome = {
         platformID: message.platform,
         sourceID: message.sourceID,
         tags: [
-          { id: "games", name: "Games" },
-          { id: "technology", name: "Technology" }
+          { id: "games", name: "Games", colorHex: "#1A4775" },
+          { id: "technology", name: "Technology", colorHex: "#6B246F" }
         ]
       };
       setTimeout(() => {
@@ -123,6 +125,9 @@ setTimeout(() => {
   const secondShadow = closedShadows.get(secondHost);
   const firstNames = firstShadow?.children?.[1]?.children?.map((chip) => chip.textContent);
   const secondNames = secondShadow?.children?.[1]?.children?.map((chip) => chip.textContent);
+  const firstColors = firstShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color"]);
+  const secondColors = secondShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color"]);
+  const pillStyle = firstShadow?.children?.[0]?.textContent || "";
   const genericHostIsPrivate = firstHost
     && firstHost.shadowRoot === null
     && firstHost.textContent === ""
@@ -133,7 +138,11 @@ setTimeout(() => {
     && messages[0].type === "vault-classifier-source-tags"
     && messages[0].sourceID === sourceID;
   const renderedEveryEntry = JSON.stringify(firstNames) === JSON.stringify(["Games", "Technology"])
-    && JSON.stringify(secondNames) === JSON.stringify(["Games", "Technology"]);
+    && JSON.stringify(secondNames) === JSON.stringify(["Games", "Technology"])
+    && JSON.stringify(firstColors) === JSON.stringify(["#1A4775", "#6B246F"])
+    && JSON.stringify(secondColors) === JSON.stringify(["#1A4775", "#6B246F"])
+    && pillStyle.includes("border-radius:999px")
+    && pillStyle.includes("background:var(--vault-tag-color)");
 
   context.VaultClassifierTagUI.clearPlatform("youtube");
   const cleared = firstRoot.children.length === 1 && secondRoot.children.length === 1;
@@ -146,6 +155,9 @@ setTimeout(() => {
     messages,
     firstNames,
     secondNames,
+    firstColors,
+    secondColors,
+    pillStyle,
     genericHostIsPrivate,
     cleared
   });
