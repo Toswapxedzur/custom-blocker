@@ -60,6 +60,12 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'vault-classifier-reddit-collector' FAILED" >&2
   failed=1
 fi
+node_out=$(node tests/runner-vault-classifier-platform-safety.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-platform-safety' FAILED" >&2
+  failed=1
+fi
 node_out=$(node tests/runner-vault-classifier-bridge.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then

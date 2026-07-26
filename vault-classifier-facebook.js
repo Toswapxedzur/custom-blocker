@@ -17,6 +17,16 @@
     const match = path.match(/\/(?:reel|watch|videos|posts|permalink|share\/r|share\/v)\/([A-Za-z0-9_-]{3,128})/i);
     return match ? { contentID: match[1], type: entryType(location.href) } : null;
   }
+  function postBodyElement(root) {
+    return core.firstElement(root, [
+      '[data-ad-preview="message"]',
+      '[data-ad-comet-preview="message"]',
+      '[data-testid="post_message"]'
+    ]);
+  }
+  function suppliedTags(element) {
+    return [...element?.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent);
+  }
 
   core.start({
     platform: "facebook",
@@ -36,6 +46,8 @@
           '[role="heading"] a[href]'
         ], entry.href);
         if (!source) continue;
+        const bodyRoot = postBodyElement(card);
+        const body = core.compactText(bodyRoot?.textContent, 16000);
         collect({
           presentationRoot: card,
           presentationAnchor: source,
@@ -43,9 +55,9 @@
           entryURL: entry.href,
           sourceURL: source.href,
           sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
-          title: core.firstText(card, ['[data-ad-preview="message"]', '[data-testid*="story"]', 'h1, h2, h3']) || core.compactText(entry.textContent, 500),
-          text: core.firstText(card, ['[data-ad-preview="message"]', '[data-testid*="story"]'], 16000),
-          suppliedTags: [...card.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent),
+          title: core.compactText(body, 500) || core.firstText(card, ['h1, h2, h3']) || core.compactText(entry.textContent, 500),
+          text: body,
+          suppliedTags: suppliedTags(bodyRoot),
           sourceIconURL: core.sourceIconFromVerifiedSource("facebook", source, global.location.href),
           entryType: entryType(entry.href)
         });
@@ -64,7 +76,8 @@
         'h2 a[href]', 'strong a[href]', '[role="heading"] a[href]', 'a[role="link"][href]'
       ], global.location.href);
       if (!source) return { ready: false, reason: "missing-source" };
-      const body = core.firstText(root, ['[data-ad-preview="message"]', '[data-testid*="story"]'], 16000);
+      const bodyRoot = postBodyElement(root);
+      const body = core.compactText(bodyRoot?.textContent, 16000);
       const title = core.compactText(body, 500) || core.firstText(root, ["h1", "h2", "h3"]);
       if (!title && !body) return { ready: false, reason: "missing-title" };
       collect({
@@ -78,7 +91,7 @@
         sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
         title,
         text: body,
-        suppliedTags: [...root.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent),
+        suppliedTags: suppliedTags(bodyRoot),
         sourceIconURL: core.sourceIconFromVerifiedSource("facebook", source, global.location.href),
         entryType: route.type
       });

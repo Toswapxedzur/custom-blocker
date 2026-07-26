@@ -8,9 +8,35 @@
 
   function matchesPage(location) { return /(^|\.)(x|twitter)\.com$/i.test(location?.hostname || ""); }
   function isStatus(anchor) { return /^\/[^/]+\/status\/[0-9]+/i.test(new URL(anchor.href).pathname); }
-  function pageRoute(location) {
-    const match = String(location?.pathname || "").match(/^\/([^/]+)\/status\/([0-9]{6,32})\/?$/i);
+  function statusRoute(value) {
+    let pathname;
+    try { pathname = new URL(value, global.location.href).pathname; }
+    catch (_) { return null; }
+    const match = String(pathname || "").match(/^\/([^/]+)\/status\/([0-9]{6,32})\/?$/i);
     return match ? { handle: match[1], statusID: match[2] } : null;
+  }
+  function pageRoute(location) { return statusRoute(location?.href || location?.pathname || ""); }
+  function profileAnchor(root, handle) {
+    const expectedPath = `/${handle}`.toLowerCase();
+    return core.firstAnchor(root, [
+      '[data-testid="User-Name"] a[href]',
+      '[data-testid^="UserAvatar-Container"] a[href]',
+      'a[href]'
+    ], (anchor) => {
+      try {
+        const url = new URL(anchor.href, global.location.href);
+        return /(^|\.)(x|twitter)\.com$/i.test(url.hostname)
+          && url.pathname.replace(/\/+$/, "").toLowerCase() === expectedPath;
+      } catch (_) {
+        return false;
+      }
+    });
+  }
+  function tweetTextElement(root) {
+    return core.firstElement(root, ['[data-testid="tweetText"]']);
+  }
+  function suppliedTags(element) {
+    return [...element?.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent);
   }
 
   core.start({
@@ -24,17 +50,23 @@
       for (const card of cards) {
         const entry = core.firstAnchor(card, ['a[href*="/status/"]'], isStatus);
         if (!entry) continue;
-        const source = core.matchingSourceAnchor("twitter", card, entry.href) || entry;
+        const route = statusRoute(entry.href);
+        if (!route) continue;
+        const sourceURL = `${new URL(entry.href).origin}/${route.handle}`;
+        const source = profileAnchor(card, route.handle);
+        const textRoot = tweetTextElement(card);
+        const text = core.compactText(textRoot?.textContent, 16000);
         collect({
           presentationRoot: card,
           presentationAnchor: source,
+          entryID: `twitter:status:${route.statusID}`,
           sourceKind: "account",
           entryURL: entry.href,
-          sourceURL: source.href,
-          sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
-          title: core.firstText(card, ['[data-testid="tweetText"]', '[lang]']) || core.compactText(entry.getAttribute("aria-label") || entry.textContent, 500),
-          text: core.firstText(card, ['[data-testid="tweetText"]', '[lang]'], 16000),
-          suppliedTags: [...card.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent),
+          sourceURL,
+          sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source?.textContent, 256) || `@${route.handle}`,
+          title: core.compactText(text, 500) || core.compactText(entry.getAttribute("aria-label") || entry.textContent, 500),
+          text,
+          suppliedTags: suppliedTags(textRoot),
           sourceIconURL: core.sourceIconFromVerifiedSource("twitter", source, global.location.href),
           entryType: "post"
         });
@@ -49,8 +81,9 @@
       ], global.location.href, global.location.href);
       if (!root) return { ready: false, reason: "missing-content-root" };
       const sourceURL = `${new URL(global.location.href).origin}/${route.handle}`;
-      const source = core.matchingSourceAnchor("twitter", root, sourceURL);
-      const text = core.firstText(root, ['[data-testid="tweetText"]', '[lang]'], 16000);
+      const source = profileAnchor(root, route.handle);
+      const textRoot = tweetTextElement(root);
+      const text = core.compactText(textRoot?.textContent, 16000);
       const title = core.compactText(text, 500) || core.firstText(root, ['[data-testid="User-Name"]', "h1"]);
       if (!title && !text) return { ready: false, reason: "missing-title" };
       collect({
@@ -64,7 +97,7 @@
         sourceName: core.firstText(root, ['[data-testid="User-Name"]']) || core.compactText(source?.textContent, 256) || `@${route.handle}`,
         title,
         text,
-        suppliedTags: [...root.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent),
+        suppliedTags: suppliedTags(textRoot),
         sourceIconURL: core.sourceIconFromVerifiedSource("twitter", source, global.location.href),
         entryType: "post"
       });

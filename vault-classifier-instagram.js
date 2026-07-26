@@ -16,6 +16,22 @@
     const match = String(location?.pathname || "").match(/^\/(reel|p|tv)\/([A-Za-z0-9_-]{3,128})\/?$/i);
     return match ? { kind: match[1].toLowerCase(), contentID: match[2] } : null;
   }
+  function captionElement(root, source) {
+    const explicit = core.firstElement(root, [
+      '[data-testid*="post-caption"]',
+      '[aria-label*="caption" i]'
+    ]);
+    if (explicit) return explicit;
+    if (!source?.href) return null;
+    for (const item of core.selectorElements(root, "ul li")) {
+      if (!core.matchingSourceAnchor("instagram", item, source.href)) continue;
+      return core.firstElement(item, ['span[dir="auto"]']) || item;
+    }
+    return null;
+  }
+  function suppliedTags(element) {
+    return [...element?.querySelectorAll?.('a[href*="/explore/tags/"]') || []].map((tag) => tag.textContent);
+  }
 
   core.start({
     platform: "instagram",
@@ -34,6 +50,8 @@
           "header a[href]"
         ], entry.href);
         if (!source) continue;
+        const captionRoot = captionElement(card, source);
+        const caption = core.compactText(captionRoot?.textContent, 16000);
         collect({
           presentationRoot: card,
           presentationAnchor: source,
@@ -41,13 +59,9 @@
           entryURL: entry.href,
           sourceURL: source.href,
           sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
-          title: core.firstText(card, ['h1, h2, h3', '[aria-label*="caption" i]']) || core.compactText(entry.getAttribute("aria-label") || entry.textContent, 500),
-          text: core.firstText(card, [
-            '[data-testid*="post-caption"]',
-            '[aria-label*="caption" i]',
-            'ul > div > li:first-child span[dir="auto"]'
-          ], 16000),
-          suppliedTags: [...card.querySelectorAll?.('a[href*="/explore/tags/"]') || []].map((tag) => tag.textContent),
+          title: core.compactText(caption, 500) || core.firstText(card, ['h1, h2, h3']) || core.compactText(entry.getAttribute("aria-label") || entry.textContent, 500),
+          text: caption,
+          suppliedTags: suppliedTags(captionRoot),
           sourceIconURL: core.sourceIconFromVerifiedSource("instagram", source, global.location.href),
           entryType: entryType(entry.href)
         });
@@ -65,12 +79,8 @@
         "article header a[href]", "header a[href]", '[role="dialog"] header a[href]'
       ], global.location.href);
       if (!source) return { ready: false, reason: "missing-source" };
-      const caption = core.firstText(root, [
-        '[data-testid*="post-caption"]',
-        "h1",
-        "h2",
-        'ul > div > li:first-child span[dir="auto"]'
-      ], 16000);
+      const captionRoot = captionElement(root, source);
+      const caption = core.compactText(captionRoot?.textContent, 16000);
       const title = core.compactText(caption, 500) || core.firstText(root, ["h1", "h2"]);
       if (!title && !caption) return { ready: false, reason: "missing-title" };
       collect({
@@ -84,7 +94,7 @@
         sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
         title,
         text: caption,
-        suppliedTags: [...root.querySelectorAll?.('a[href*="/explore/tags/"]') || []].map((tag) => tag.textContent),
+        suppliedTags: suppliedTags(captionRoot),
         sourceIconURL: core.sourceIconFromVerifiedSource("instagram", source, global.location.href),
         entryType: route.kind === "reel" ? "short" : route.kind === "p" ? "post" : "video"
       });
