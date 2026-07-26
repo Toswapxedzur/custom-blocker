@@ -189,20 +189,30 @@ const sourceTags = VC.normalizeSourceTagsResponse({
   platformID: "youtube",
   sourceID: "youtube:channel:UC123",
   tags: [
-    { id: "games", name: "Games" },
-    { id: "technology", name: "Technology" }
+    { id: "games", name: "Games", colorHex: "#1a4775" },
+    { id: "technology", name: "Technology", colorHex: "#6B246F" }
   ]
 }, "youtube", "youtube:channel:UC123");
-assert("accepts bounded human-readable source-tag projections", sourceTags && sourceTags.tags.map((tag) => tag.name).join(",") === "Games,Technology");
+assert("accepts bounded colored source-tag projections", sourceTags
+  && sourceTags.tags.map((tag) => tag.name).join(",") === "Games,Technology"
+  && sourceTags.tags.map((tag) => tag.colorHex).join(",") === "#1A4775,#6B246F");
 assert("rejects source-tag responses for a different source", VC.normalizeSourceTagsResponse({
   platformID: "youtube",
   sourceID: "youtube:channel:forged",
-  tags: [{ id: "games", name: "Games" }]
+  tags: [{ id: "games", name: "Games", colorHex: "#1A4775" }]
 }, "youtube", "youtube:channel:UC123") === null);
 assert("rejects duplicate or unbounded source tags", VC.normalizeSourceTagsResponse({
   platformID: "youtube",
   sourceID: "youtube:channel:UC123",
-  tags: [{ id: "games", name: "Games" }, { id: "games", name: "Duplicate" }]
+  tags: [
+    { id: "games", name: "Games", colorHex: "#1A4775" },
+    { id: "games", name: "Duplicate", colorHex: "#6B246F" }
+  ]
+}, "youtube", "youtube:channel:UC123") === null);
+assert("rejects source tags without an assigned algorithmic color", VC.normalizeSourceTagsResponse({
+  platformID: "youtube",
+  sourceID: "youtube:channel:UC123",
+  tags: [{ id: "games", name: "Games" }]
 }, "youtube", "youtube:channel:UC123") === null);
 
 const failures = log.counts().fail;
