@@ -8,6 +8,11 @@ const source = fs.readFileSync(path.join(__dirname, "..", "local-hub-auth.js"), 
 const calls = [];
 let nativeResponse = { ok: true, proof: "p".repeat(43) };
 const context = vm.createContext({
+  CBLocalHubEnvironment: {
+    current: {
+      nativeHost: "com.adamancia.vault.local_hub.development"
+    }
+  },
   chrome: {
     runtime: {
       lastError: null,
@@ -31,7 +36,7 @@ function assert(name, ok, detail) {
 
 (async () => {
   const proof = await context.CBLocalHubAuthentication.proofForChallenge("chrome", "c".repeat(43));
-  assert("uses the named native host", calls[0]?.host === "com.adamancia.vault.local_hub", calls);
+  assert("uses the environment-specific native host", calls[0]?.host === "com.adamancia.vault.local_hub.development", calls);
   assert("sends only a fresh bounded challenge", calls[0]?.message?.kind === "local-hub-challenge" && calls[0]?.message?.v === 4 && calls[0]?.message?.challenge === "c".repeat(43) && !Object.hasOwn(calls[0]?.message || {}, "secret"), calls);
   assert("returns the native host proof", proof === "p".repeat(43));
   try {
@@ -46,6 +51,13 @@ function assert(name, ok, detail) {
     assert("rejects an unavailable host response", false);
   } catch (_) {
     assert("rejects an unavailable host response", true);
+  }
+  context.CBLocalHubEnvironment.current = null;
+  try {
+    await context.CBLocalHubAuthentication.proofForChallenge("chrome", "e".repeat(43));
+    assert("rejects an unrecognized extension environment", false);
+  } catch (_) {
+    assert("rejects an unrecognized extension environment", true);
   }
   console.log(`__CB_TEST_RESULT__: ${failures === 0 ? "OK" : "FAIL"} (${failures} failures)`);
   if (failures) process.exitCode = 1;

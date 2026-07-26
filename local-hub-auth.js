@@ -1,9 +1,8 @@
 /* Browser-side bootstrap for protocol-v4 local-hub authentication. */
 (function (root) {
   "use strict";
-  const HOST = "com.adamancia.vault.local_hub";
 
-  function nativeMessage(message) {
+  function nativeMessage(host, message) {
     return new Promise((resolve, reject) => {
       let settled = false;
       const finish = (fn, value) => {
@@ -12,7 +11,7 @@
         fn(value);
       };
       try {
-        const result = chrome.runtime.sendNativeMessage(HOST, message, (response) => {
+        const result = chrome.runtime.sendNativeMessage(host, message, (response) => {
           const error = chrome.runtime.lastError;
           if (error) finish(reject, new Error("Native host is unavailable."));
           else finish(resolve, response);
@@ -31,7 +30,9 @@
     if (typeof challenge !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(challenge)) {
       throw new Error("Invalid local-hub challenge.");
     }
-    const response = await nativeMessage({ kind: "local-hub-challenge", v: 4, program, challenge });
+    const host = root.CBLocalHubEnvironment?.current?.nativeHost;
+    if (typeof host !== "string" || !host) throw new Error("Unrecognized extension environment.");
+    const response = await nativeMessage(host, { kind: "local-hub-challenge", v: 4, program, challenge });
     if (!response || response.ok !== true || typeof response.proof !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(response.proof)) {
       throw new Error("Native host authentication failed.");
     }

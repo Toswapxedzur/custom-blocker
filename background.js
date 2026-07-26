@@ -30,6 +30,11 @@ if (typeof importScripts === "function") {
     console.error("[CustomBlocker] importScripts(bridge-protocol.js) failed", error);
   }
   try {
+    if (typeof CBLocalHubEnvironment === "undefined") importScripts("local-hub-environment.js");
+  } catch (error) {
+    console.error("[CustomBlocker] importScripts(local-hub-environment.js) failed", error);
+  }
+  try {
     if (typeof PLATFORM_PROFILES === "undefined") importScripts("platform-profiles.js");
   } catch (error) {
     console.error("[CustomBlocker] importScripts(platform-profiles.js) failed", error);
@@ -3405,8 +3410,9 @@ ensureStartupGate().catch((error) => {
  * the connection survives popup open/close. We also send a periodic ping.
  * ------------------------------------------------------------------ */
 const CB_CONNECTION_PROTOCOL_VERSION = self.CBBridgeProtocol.PROTOCOL_VERSION;
-// Fixed local address for the authenticated Vault hub.
-const CB_FIXED_ADDRESS = "ws://127.0.0.1:8787";
+// Environment-specific local address for the authenticated Vault hub. Unknown
+// extension identities fail closed rather than joining production.
+const CB_FIXED_ADDRESS = self.CBLocalHubEnvironment?.current?.address || "";
 const CB_CONNECTION_PING_MS = 20_000;
 // Four-state connection model (matches the UI):
 //   connecting   – actively probing; rapid burst every 100ms for a 5s window.
@@ -3760,6 +3766,11 @@ const cbConnection = {
     this.address = CB_FIXED_ADDRESS;
     this.clearTimers();
     this.closeSocket();
+    if (!this.address) {
+      this.desired = false;
+      this.setStatus({ state: "error", address: "", error: "unrecognized-extension-environment", peers: [], hubProgram: "" });
+      return;
+    }
     if (this.burstStartMs === 0) this.burstStartMs = Date.now();
     this.setStatus({ state: "connecting", address: this.address, error: "", hubProgram: "" });
     this.handshakeComplete = false;
