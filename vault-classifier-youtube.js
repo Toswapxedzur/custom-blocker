@@ -26,9 +26,9 @@
   ].join(",");
   const PLATFORM = "youtube";
   // YouTube often inserts an author image element before assigning its source.
-  // Observe every supported lazy-image attribute so an avatar URL reaches the
+  // Observe every supported lazy-image attribute so a source icon URL reaches the
   // local cache as soon as the feed finishes rendering it.
-  const AVATAR_SOURCE_ATTRIBUTES = Object.freeze([
+  const SOURCE_ICON_ATTRIBUTES = Object.freeze([
     "src", "srcset", "data-src", "data-lazy-src", "data-original", "data-srcset"
   ]);
   let collectionEnabled = false;
@@ -36,11 +36,11 @@
   let pageTimer = null;
   let collectionEpoch = 0;
   let lastWatchEvidenceFailure = "missing-watch-root";
-  let avatarDebugEnabled = false;
-  let resolveAvatarDebugSettings;
-  let avatarDebugSettingsResolved = false;
-  const avatarDebugSettingsReady = new Promise((resolve) => {
-    resolveAvatarDebugSettings = resolve;
+  let sourceIconDebugEnabled = false;
+  let resolveSourceIconDebugSettings;
+  let sourceIconDebugSettingsResolved = false;
+  const sourceIconDebugSettingsReady = new Promise((resolve) => {
+    resolveSourceIconDebugSettings = resolve;
   });
   // Short-lived in-page de-duplication only. The opted-in Vault Classifier
   // dataset is the sole retained collection store; these identifiers expire so
@@ -49,50 +49,50 @@
   const COLLECTION_DEDUPLICATION_MS = 5 * 60 * 1000;
   const MAX_COLLECTED_ENTRY_IDS = 128;
   const reportedDiagnostics = new Set();
-  const reportedAvatarDebugStages = new Set();
+  const reportedSourceIconDebugStages = new Set();
 
-  // Avatar diagnosis stays local to DevTools and is available only through
+  // Source-icon diagnosis stays local to DevTools and is available only through
   // the extension's existing Debug mode. The fixed stage tokens deliberately
   // omit rendered text, creator IDs, URLs, and image data.
-  function applyAvatarDebugSettings(settings) {
-    avatarDebugEnabled = settings?.debugMode === true;
+  function applySourceIconDebugSettings(settings) {
+    sourceIconDebugEnabled = settings?.debugMode === true;
   }
 
-  function resolveAvatarDebugSettingsOnce(settings) {
-    if (avatarDebugSettingsResolved) return;
-    avatarDebugSettingsResolved = true;
-    applyAvatarDebugSettings(settings);
+  function resolveSourceIconDebugSettingsOnce(settings) {
+    if (sourceIconDebugSettingsResolved) return;
+    sourceIconDebugSettingsResolved = true;
+    applySourceIconDebugSettings(settings);
     // This fixed token confirms that Debug mode was available before the
     // first collection scan, without disclosing any rendered page data.
-    if (avatarDebugEnabled) reportAvatarDebug("debug-ready");
-    resolveAvatarDebugSettings();
+    if (sourceIconDebugEnabled) reportSourceIconDebug("debug-ready");
+    resolveSourceIconDebugSettings();
   }
 
-  function reportAvatarDebug(stage, dedupeID = "") {
-    if (!avatarDebugEnabled || typeof stage !== "string") return;
+  function reportSourceIconDebug(stage, dedupeID = "") {
+    if (!sourceIconDebugEnabled || typeof stage !== "string") return;
     const key = `${stage}:${dedupeID}`;
-    if (reportedAvatarDebugStages.has(key)) return;
-    reportedAvatarDebugStages.add(key);
-    while (reportedAvatarDebugStages.size > MAX_COLLECTED_ENTRY_IDS) {
-      reportedAvatarDebugStages.delete(reportedAvatarDebugStages.values().next().value);
+    if (reportedSourceIconDebugStages.has(key)) return;
+    reportedSourceIconDebugStages.add(key);
+    while (reportedSourceIconDebugStages.size > MAX_COLLECTED_ENTRY_IDS) {
+      reportedSourceIconDebugStages.delete(reportedSourceIconDebugStages.values().next().value);
     }
     try {
-      console.debug("[VaultClassifier:avatar]", stage);
+      console.debug("[VaultClassifier:source-icon]", stage);
     } catch (_) {}
   }
 
   try {
     if (typeof chrome.storage?.local?.get !== "function") {
-      resolveAvatarDebugSettingsOnce();
+      resolveSourceIconDebugSettingsOnce();
     } else {
-      const deadline = setTimeout(() => resolveAvatarDebugSettingsOnce(), 250);
+      const deadline = setTimeout(() => resolveSourceIconDebugSettingsOnce(), 250);
       chrome.storage.local.get("globalSettings", (stored) => {
         clearTimeout(deadline);
-        resolveAvatarDebugSettingsOnce(stored?.globalSettings);
+        resolveSourceIconDebugSettingsOnce(stored?.globalSettings);
       });
     }
   } catch (_) {
-    resolveAvatarDebugSettingsOnce();
+    resolveSourceIconDebugSettingsOnce();
   }
 
   // Diagnostics are deliberately fixed pipeline tokens. They never carry
@@ -255,9 +255,9 @@
     }
   }
 
-  function creatorAvatarURL(root, source) {
-    if (!root || !source?.id || typeof C.isTrustedCreatorAvatarURL !== "function") {
-      reportAvatarDebug("source-missing");
+  function sourceIconURL(root, source) {
+    if (!root || !source?.id || typeof C.isTrustedSourceIconURL !== "function") {
+      reportSourceIconDebug("source-missing");
       return null;
     }
     const authorAnchors = [];
@@ -300,7 +300,7 @@
     for (const image of authorImages) {
       sawImage = true;
       const rawURL = imageURLFrom(image);
-      if (!C.isTrustedCreatorAvatarURL(PLATFORM, rawURL, location.href)) {
+      if (!C.isTrustedSourceIconURL(PLATFORM, rawURL, location.href)) {
         if (rawURL) sawUntrustedURL = true;
         continue;
       }
@@ -308,12 +308,12 @@
         const url = new URL(rawURL, location.href);
         url.hash = "";
         if (url.href.length <= 512) {
-          reportAvatarDebug("source-ready");
+          reportSourceIconDebug("source-ready");
           return url.href;
         }
       } catch (_) {}
     }
-    reportAvatarDebug(sawUntrustedURL ? "source-untrusted" : (sawImage ? "source-pending" : "image-missing"));
+    reportSourceIconDebug(sawUntrustedURL ? "source-untrusted" : (sawImage ? "source-pending" : "image-missing"));
     return null;
   }
 
@@ -335,9 +335,9 @@
       metadata: metadataLine.join(" · "),
       canonicalURL: videoID ? `https://www.youtube.com/watch?v=${videoID}` : (postID ? `https://www.youtube.com/post/${postID}` : "")
     };
-    if (source.url) metadata.creatorURL = source.url;
-    const avatarURL = creatorAvatarURL(card, source);
-    if (avatarURL) metadata.creatorAvatarURL = avatarURL;
+    if (source.url) metadata.sourceURL = source.url;
+    const iconURL = sourceIconURL(card, source);
+    if (iconURL) metadata.sourceIconURL = iconURL;
     return {
       platform: "youtube",
       entryID,
@@ -411,9 +411,9 @@
       viewCount: viewCount || "",
       canonicalURL: `https://www.youtube.com/watch?v=${videoID}`
     };
-    if (source.url) metadata.creatorURL = source.url;
-    const avatarURL = creatorAvatarURL(watchRoot, source);
-    if (avatarURL) metadata.creatorAvatarURL = avatarURL;
+    if (source.url) metadata.sourceURL = source.url;
+    const iconURL = sourceIconURL(watchRoot, source);
+    if (iconURL) metadata.sourceIconURL = iconURL;
     lastWatchEvidenceFailure = "";
     return {
       platform: PLATFORM,
@@ -450,11 +450,14 @@
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage({ type: "vault-classifier-collect", entry }, (response) => {
-          if (chrome.runtime.lastError) return resolve(false);
-          resolve(Boolean(response && response.ok === true && response.accepted === true));
+          if (chrome.runtime.lastError) return resolve({ accepted: false, queued: false });
+          resolve({
+            accepted: Boolean(response && response.ok === true && response.accepted === true),
+            queued: Boolean(response && response.queued === true)
+          });
         });
       } catch (_) {
-        resolve(false);
+        resolve({ accepted: false, queued: false });
       }
     });
   }
@@ -462,35 +465,35 @@
   async function collectEntry(entry) {
     if (!collectionEnabled || !entry || !entry.entryID || !entry.sourceID) return;
     const stableID = `${entry.platform}:${entry.entryID}`;
-    const hasCreatorAvatar = Boolean(entry.evidence?.metadata?.creatorAvatarURL);
+    const hasSourceIcon = Boolean(entry.evidence?.metadata?.sourceIconURL);
+    const fingerprint = C.entryFingerprint?.(entry) || entry.requestID || stableID;
     const now = Date.now();
     for (const [candidate, prior] of collectedEntryIDs) {
       if (now - prior.timestamp > COLLECTION_DEDUPLICATION_MS) collectedEntryIDs.delete(candidate);
     }
     const prior = collectedEntryIDs.get(stableID);
-    // Channel text and titles commonly render before the author avatar. Allow
-    // exactly one enrichment delivery when that verified image arrives later,
-    // while still suppressing the mutation storms caused by YouTube updates.
-    if (prior && (prior.hasCreatorAvatar || !hasCreatorAvatar)) {
-      if (hasCreatorAvatar) reportAvatarDebug("delivery-suppressed", stableID);
+    // Channel text, descriptions, and source icons commonly arrive in stages.
+    // Deliver each distinct bounded evidence state once while suppressing
+    // unchanged mutation storms.
+    if (prior?.fingerprint === fingerprint) {
+      if (hasSourceIcon) reportSourceIconDebug("delivery-suppressed", stableID);
       return;
     }
     // Mark before the asynchronous bridge call so repeated YouTube DOM
-    // mutations cannot enqueue the same visible entry. A later avatar-only
-    // enrichment remains eligible for one deliberate metadata refresh.
-    collectedEntryIDs.set(stableID, { timestamp: now, hasCreatorAvatar });
+    // mutations cannot enqueue the same visible entry.
+    collectedEntryIDs.set(stableID, { timestamp: now, fingerprint });
     while (collectedEntryIDs.size > MAX_COLLECTED_ENTRY_IDS) collectedEntryIDs.delete(collectedEntryIDs.keys().next().value);
-    if (hasCreatorAvatar) reportAvatarDebug(prior ? "enrichment-requested" : "initial-requested", stableID);
+    if (hasSourceIcon) reportSourceIconDebug(prior ? "enrichment-requested" : "initial-requested", stableID);
     reportDiagnostic("collection-requested");
-    const accepted = await requestCollection(entry);
-    if (!accepted) {
+    const response = await requestCollection(entry);
+    if (!response.accepted) {
       collectedEntryIDs.delete(stableID);
-      if (hasCreatorAvatar) reportAvatarDebug("delivery-rejected", stableID);
+      if (hasSourceIcon) reportSourceIconDebug("delivery-rejected", stableID);
       reportDiagnostic("collection-rejected", "rejected");
       return;
     }
-    if (hasCreatorAvatar) reportAvatarDebug("delivery-accepted", stableID);
-    reportDiagnostic("collection-accepted");
+    if (hasSourceIcon) reportSourceIconDebug("delivery-accepted", stableID);
+    if (!response.queued) reportDiagnostic("collection-accepted");
   }
 
   function collectCard(card) {
@@ -562,7 +565,7 @@
         reportDiagnostic("collection-info-enabled");
       } else {
         TagUI?.clearPlatform?.(PLATFORM);
-        reportAvatarDebug("collection-disabled");
+        reportSourceIconDebug("collection-disabled");
         reportDiagnostic("collection-info-disabled");
       }
       if (collectionEnabled) {
@@ -574,8 +577,8 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.globalSettings) {
-      applyAvatarDebugSettings(changes.globalSettings.newValue);
-      if (avatarDebugEnabled) reportAvatarDebug("debug-ready");
+      applySourceIconDebugSettings(changes.globalSettings.newValue);
+      if (sourceIconDebugEnabled) reportSourceIconDebug("debug-ready");
     }
     if (area !== "local" || !changes[SETTINGS_KEY]) return;
     refreshCollectionEnabled();
@@ -583,7 +586,7 @@
   window.addEventListener("yt-navigate-finish", () => {
     collectedEntryIDs.clear();
     reportedDiagnostics.clear();
-    reportedAvatarDebugStages.clear();
+    reportedSourceIconDebugStages.clear();
     scheduleScan();
     schedulePageCheck();
   });
@@ -592,22 +595,22 @@
     // A lazy-image source is an explicit signal that the author avatar is now
     // usable. Re-collect without the normal debounce so the local app starts
     // its bounded icon download at feed-load time.
-    const avatarSourceChanged = mutations.some((mutation) =>
-      mutation?.type === "attributes" && AVATAR_SOURCE_ATTRIBUTES.includes(mutation.attributeName)
+    const sourceIconChanged = mutations.some((mutation) =>
+      mutation?.type === "attributes" && SOURCE_ICON_ATTRIBUTES.includes(mutation.attributeName)
     );
-    scheduleScan(avatarSourceChanged ? 0 : 250);
+    scheduleScan(sourceIconChanged ? 0 : 250);
     schedulePageCheck();
   });
   const observeRenderedEvidence = (root) => observer.observe(root, {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: AVATAR_SOURCE_ATTRIBUTES
+    attributeFilter: SOURCE_ICON_ATTRIBUTES
   });
   if (document.documentElement) observeRenderedEvidence(document.documentElement);
   else document.addEventListener("DOMContentLoaded", () => observeRenderedEvidence(document.documentElement), { once: true });
   reportDiagnostic("collector-started");
-  avatarDebugSettingsReady.then(() => {
+  sourceIconDebugSettingsReady.then(() => {
     refreshCollectionEnabled();
     // A collection toggle lives in the local Vault app rather than extension
     // storage. This bounded status poll carries no page metadata; the app still

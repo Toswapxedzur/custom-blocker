@@ -22,6 +22,10 @@
       || `Discord server ${serverID}`;
   }
 
+  function serverElement(document, serverID) {
+    return document.querySelector(`[data-list-item-id="guildsnav___${serverID}"]`);
+  }
+
   core.start({
     platform: "discord",
     matchesPage,
@@ -32,6 +36,7 @@
         ...core.selectorElements(document, 'li[id^="chat-messages-"]'),
         ...core.selectorElements(document, '[role="listitem"][id^="chat-messages-"]')
       ]).slice(0, 80);
+      const server = serverElement(document, activeRoute.serverID);
       for (const message of messages) {
         const match = String(message.id || "").match(/^chat-messages-([0-9]{6,24})$/);
         const messageID = match?.[1];
@@ -42,8 +47,11 @@
           sourceKind: "server",
           sourceID: `discord:server:${activeRoute.serverID}`,
           sourceName: serverName(document, activeRoute.serverID),
+          sourceURL: `https://discord.com/channels/${activeRoute.serverID}/${activeRoute.channelID}`,
           entryURL: `https://discord.com/channels/${activeRoute.serverID}/${activeRoute.channelID}/${messageID}`,
           title,
+          text: title,
+          sourceIconURL: core.sourceIconFromVerifiedSource("discord", server, global.location.href),
           entryType: "message"
         });
       }

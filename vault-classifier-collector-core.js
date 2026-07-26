@@ -8,7 +8,7 @@
   const C = global.VaultClassifierExtensionContract;
   const TagUI = global.VaultClassifierTagUI;
   const SETTINGS_KEY = "vaultClassifierSettings";
-  const AVATAR_SOURCE_ATTRIBUTES = Object.freeze([
+  const SOURCE_ICON_ATTRIBUTES = Object.freeze([
     "src", "srcset", "data-src", "data-lazy-src", "data-original", "data-srcset"
   ]);
   const TRACKING_QUERY_KEYS = new Set([
@@ -76,8 +76,8 @@
     return sourceIdentity(platform, value, null);
   }
 
-  function canonicalCreatorAvatarURL(platform, value, base) {
-    if (!C?.isTrustedCreatorAvatarURL?.(platform, value, base)) return null;
+  function canonicalSourceIconURL(platform, value, base) {
+    if (!C?.isTrustedSourceIconURL?.(platform, value, base)) return null;
     const url = safeURL(value, base);
     if (!url) return null;
     url.hash = "";
@@ -112,11 +112,10 @@
       entryType: compactText(raw.entryType, 64) || "content",
       canonicalURL
     };
-    const profileSource = sourceKind === "creator" || sourceKind === "account";
     const sourceURL = raw.sourceURL ? canonicalContentURL(platform, raw.sourceURL, raw.baseURL) : null;
-    if (sourceURL && profileSource) metadata.creatorURL = sourceURL;
-    const creatorAvatarURL = canonicalCreatorAvatarURL(platform, raw.creatorAvatarURL, raw.baseURL);
-    if (creatorAvatarURL && profileSource) metadata.creatorAvatarURL = creatorAvatarURL;
+    if (sourceURL) metadata.sourceURL = sourceURL;
+    const sourceIconURL = canonicalSourceIconURL(platform, raw.sourceIconURL, raw.baseURL);
+    if (sourceIconURL) metadata.sourceIconURL = sourceIconURL;
 
     const requestedEntryID = compactText(raw.entryID, 256);
     const entryID = requestedEntryID && requestedEntryID.startsWith(`${platform}:`)
@@ -176,13 +175,69 @@
     return srcset?.split(",")[0]?.trim().split(/\s+/)[0] || null;
   }
 
-  function avatarFromVerifiedSource(platform, sourceAnchor, baseURL) {
-    if (!sourceAnchor) return null;
-    for (const image of sourceAnchor.querySelectorAll?.("img") || []) {
-      const imageURL = canonicalCreatorAvatarURL(platform, imageURLFrom(image), baseURL);
+  function sourceIconFromVerifiedSource(platform, sourceElement, baseURL) {
+    if (!sourceElement) return null;
+    const images = [
+      ...(sourceElement.matches?.("img") ? [sourceElement] : []),
+      ...(sourceElement.querySelectorAll?.("img") || [])
+    ];
+    for (const image of images) {
+      const imageURL = canonicalSourceIconURL(platform, imageURLFrom(image), baseURL);
+      if (imageURL) return imageURL;
+    }
+    const styledElements = [
+      ...(sourceElement.getAttribute?.("style") ? [sourceElement] : []),
+      ...(sourceElement.querySelectorAll?.('[style*="background-image"]') || [])
+    ];
+    for (const element of styledElements) {
+      const backgroundImage = element.style?.backgroundImage || element.getAttribute?.("style") || "";
+      const match = String(backgroundImage).match(/url\(\s*["']?([^"')]+)["']?\s*\)/i);
+      const imageURL = canonicalSourceIconURL(platform, match?.[1], baseURL);
       if (imageURL) return imageURL;
     }
     return null;
+  }
+
+  function contentURLIdentity(platform, value, baseURL) {
+    const canonical = canonicalContentURL(platform, value, baseURL);
+    if (!canonical) return null;
+    try {
+      const url = new URL(canonical);
+      const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") : url.pathname;
+      return `${url.hostname.toLowerCase()}${pathname}`;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Detail overlays on several platforms leave feed cards mounted behind the
+  // active item. Select a root only when its own permalink/id or a descendant
+  // link resolves to the requested route; never accept the document's first
+  // article merely because it is rendered.
+  function matchingContentRoot(platform, root, selectors, referenceURL, baseURL) {
+    const identity = contentURLIdentity(platform, referenceURL, baseURL);
+    if (!identity) return null;
+    const candidates = [];
+    for (const selector of selectors) {
+      for (const candidate of selectorElements(root, selector)) {
+        if (!candidates.includes(candidate)) candidates.push(candidate);
+        const values = [
+          candidate?.href,
+          candidate?.getAttribute?.("href"),
+          candidate?.getAttribute?.("permalink"),
+          candidate?.getAttribute?.("content-href")
+        ].filter(Boolean);
+        for (const anchor of candidate?.querySelectorAll?.("a[href]") || []) {
+          values.push(anchor.href || anchor.getAttribute?.("href"));
+        }
+        if (values.some((value) => contentURLIdentity(platform, value, baseURL) === identity)) {
+          return candidate;
+        }
+      }
+    }
+    // A single dedicated detail root is safe even when the platform omits a
+    // self-link. Ambiguous multi-card documents must match the requested URL.
+    return candidates.length === 1 ? candidates[0] : null;
   }
 
   function matchingSourceAnchor(platform, card, referenceURL) {
@@ -222,16 +277,16 @@
 
     const sentEntryIDs = new Map();
     const reportedDiagnostics = new Set();
-    const reportedAvatarDebugStages = new Set();
+    const reportedSourceIconDebugStages = new Set();
     let collectionEnabled = false;
     let scanTimer = null;
     let pageTimer = null;
     let collectionEpoch = 0;
-    let avatarDebugEnabled = false;
-    let avatarDebugSettingsResolved = false;
-    let resolveAvatarDebugSettings;
-    const avatarDebugSettingsReady = new Promise((resolve) => {
-      resolveAvatarDebugSettings = resolve;
+    let sourceIconDebugEnabled = false;
+    let sourceIconDebugSettingsResolved = false;
+    let resolveSourceIconDebugSettings;
+    const sourceIconDebugSettingsReady = new Promise((resolve) => {
+      resolveSourceIconDebugSettings = resolve;
     });
 
     function reportDiagnostic(event, detail) {
@@ -250,32 +305,33 @@
       } catch (_) {}
     }
 
-    function reportAvatarDebug(stage) {
-      if (!avatarDebugEnabled || typeof stage !== "string") return;
-      if (reportedAvatarDebugStages.has(stage)) return;
-      reportedAvatarDebugStages.add(stage);
-      while (reportedAvatarDebugStages.size > MAX_SENT_ENTRY_IDS) reportedAvatarDebugStages.delete(reportedAvatarDebugStages.values().next().value);
-      try { console.debug("[VaultClassifier:avatar]", `${platform}:${stage}`); } catch (_) {}
+    function reportSourceIconDebug(stage) {
+      if (!sourceIconDebugEnabled || typeof stage !== "string") return;
+      if (reportedSourceIconDebugStages.has(stage)) return;
+      reportedSourceIconDebugStages.add(stage);
+      while (reportedSourceIconDebugStages.size > MAX_SENT_ENTRY_IDS) reportedSourceIconDebugStages.delete(reportedSourceIconDebugStages.values().next().value);
+      try { console.debug("[VaultClassifier:source-icon]", `${platform}:${stage}`); } catch (_) {}
     }
 
-    function resolveAvatarDebugSettingsOnce(settings) {
-      if (avatarDebugSettingsResolved) return;
-      avatarDebugSettingsResolved = true;
-      avatarDebugEnabled = settings?.debugMode === true;
-      if (avatarDebugEnabled) reportAvatarDebug("debug-ready");
-      resolveAvatarDebugSettings();
+    function resolveSourceIconDebugSettingsOnce(settings) {
+      if (sourceIconDebugSettingsResolved) return;
+      sourceIconDebugSettingsResolved = true;
+      sourceIconDebugEnabled = settings?.debugMode === true;
+      if (sourceIconDebugEnabled) reportSourceIconDebug("debug-ready");
+      resolveSourceIconDebugSettings();
     }
 
-    function rememberEntryID(entryID, hasCreatorAvatar) {
+    function rememberEntryID(entryID, fingerprint) {
       const now = Date.now();
       for (const [candidate, prior] of sentEntryIDs) {
         if (now - prior.timestamp > COLLECTION_DEDUPLICATION_MS) sentEntryIDs.delete(candidate);
       }
       const prior = sentEntryIDs.get(entryID);
-      // A card may render text before its verified profile image URL. One
-      // later enriched delivery is allowed; all other mutation churn is local.
-      if (prior && (prior.hasCreatorAvatar || !hasCreatorAvatar)) return false;
-      sentEntryIDs.set(entryID, { timestamp: now, hasCreatorAvatar });
+      // Rendered records often gain a caption, source icon, or detail text
+      // after their first paint. Deliver each distinct bounded evidence state
+      // once while suppressing unchanged mutation churn.
+      if (prior?.fingerprint === fingerprint) return false;
+      sentEntryIDs.set(entryID, { timestamp: now, fingerprint });
       while (sentEntryIDs.size > MAX_SENT_ENTRY_IDS) sentEntryIDs.delete(sentEntryIDs.keys().next().value);
       return true;
     }
@@ -284,7 +340,7 @@
       if (!collectionEnabled) return;
       const evidence = makeCollectedEntry({ ...raw, platform, baseURL: global.location.href });
       if (!evidence) {
-        if (raw.sourceKind === "creator" || raw.sourceKind === "account") reportAvatarDebug("source-missing");
+        reportSourceIconDebug("source-missing");
         return;
       }
       if (raw.presentationRoot) {
@@ -295,30 +351,30 @@
           anchor: raw.presentationAnchor || null
         });
       }
-      const hasCreatorAvatar = Boolean(evidence.evidence?.metadata?.creatorAvatarURL);
-      const profileSource = raw.sourceKind === "creator" || raw.sourceKind === "account";
-      if (profileSource && !hasCreatorAvatar) reportAvatarDebug(raw.creatorAvatarURL ? "source-untrusted" : "image-missing");
-      else if (profileSource) reportAvatarDebug("source-ready");
-      if (!rememberEntryID(evidence.entryID, hasCreatorAvatar)) {
-        if (hasCreatorAvatar) reportAvatarDebug("delivery-suppressed");
+      const hasSourceIcon = Boolean(evidence.evidence?.metadata?.sourceIconURL);
+      if (!hasSourceIcon) reportSourceIconDebug(raw.sourceIconURL ? "source-untrusted" : "image-missing");
+      else reportSourceIconDebug("source-ready");
+      const fingerprint = C.entryFingerprint?.(evidence) || evidence.requestID;
+      if (!rememberEntryID(evidence.entryID, fingerprint)) {
+        if (hasSourceIcon) reportSourceIconDebug("delivery-suppressed");
         return;
       }
-      if (profileSource && hasCreatorAvatar) reportAvatarDebug("enrichment-requested");
+      if (hasSourceIcon) reportSourceIconDebug("enrichment-requested");
       reportDiagnostic("collection-requested");
       try {
         chrome.runtime.sendMessage({ type: "vault-classifier-collect", entry: evidence }, (response) => {
           if (chrome.runtime.lastError || !response?.accepted) {
             sentEntryIDs.delete(evidence.entryID);
-            if (profileSource && hasCreatorAvatar) reportAvatarDebug("delivery-rejected");
+            if (hasSourceIcon) reportSourceIconDebug("delivery-rejected");
             reportDiagnostic("collection-rejected", "rejected");
             return;
           }
-          if (profileSource && hasCreatorAvatar) reportAvatarDebug("delivery-accepted");
-          reportDiagnostic("collection-accepted");
+          if (hasSourceIcon) reportSourceIconDebug("delivery-accepted");
+          if (!response.queued) reportDiagnostic("collection-accepted");
         });
       } catch (_) {
         sentEntryIDs.delete(evidence.entryID);
-        if (profileSource && hasCreatorAvatar) reportAvatarDebug("delivery-rejected");
+        if (hasSourceIcon) reportSourceIconDebug("delivery-rejected");
         reportDiagnostic("collection-rejected", "bridge-unavailable");
       }
     }
@@ -366,7 +422,7 @@
             schedulePageCheck();
           } else {
             TagUI?.clearPlatform?.(platform);
-            reportAvatarDebug("collection-disabled");
+            reportSourceIconDebug("collection-disabled");
             reportDiagnostic("collection-info-disabled");
           }
         });
@@ -378,22 +434,22 @@
     const observer = new MutationObserver((records) => {
       // Every collector gets the late-source handling previously required by
       // YouTube, but only approved image attributes trigger an attribute scan.
-      const avatarSourceChanged = records.some((record) => record.type === "attributes" && record.target?.matches?.("img, source"));
-      if (records.some((record) => record.type === "childList") || avatarSourceChanged) scheduleScan(avatarSourceChanged ? 0 : 250);
+      const sourceIconChanged = records.some((record) => record.type === "attributes" && record.target?.matches?.("img, source"));
+      if (records.some((record) => record.type === "childList") || sourceIconChanged) scheduleScan(sourceIconChanged ? 0 : 250);
       schedulePageCheck();
     });
     const observerOptions = {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: AVATAR_SOURCE_ATTRIBUTES
+      attributeFilter: SOURCE_ICON_ATTRIBUTES
     };
     if (document.documentElement) observer.observe(document.documentElement, observerOptions);
     else document.addEventListener("DOMContentLoaded", () => observer.observe(document.documentElement, observerOptions), { once: true });
     global.addEventListener?.("popstate", () => {
       sentEntryIDs.clear();
       reportedDiagnostics.clear();
-      reportedAvatarDebugStages.clear();
+      reportedSourceIconDebugStages.clear();
       scheduleScan();
       schedulePageCheck();
     });
@@ -405,26 +461,26 @@
     chrome.storage.onChanged?.addListener?.((changes, area) => {
       if (area !== "local") return;
       if (changes.globalSettings) {
-        avatarDebugEnabled = changes.globalSettings.newValue?.debugMode === true;
-        if (avatarDebugEnabled) reportAvatarDebug("debug-ready");
+        sourceIconDebugEnabled = changes.globalSettings.newValue?.debugMode === true;
+        if (sourceIconDebugEnabled) reportSourceIconDebug("debug-ready");
       }
       if (changes[SETTINGS_KEY]) refreshCollectionEnabled();
     });
     try {
       if (typeof chrome.storage?.local?.get !== "function") {
-        resolveAvatarDebugSettingsOnce();
+        resolveSourceIconDebugSettingsOnce();
       } else {
-        const deadline = setTimeout(() => resolveAvatarDebugSettingsOnce(), 250);
+        const deadline = setTimeout(() => resolveSourceIconDebugSettingsOnce(), 250);
         chrome.storage.local.get("globalSettings", (stored) => {
           clearTimeout(deadline);
-          resolveAvatarDebugSettingsOnce(stored?.globalSettings);
+          resolveSourceIconDebugSettingsOnce(stored?.globalSettings);
         });
       }
     } catch (_) {
-      resolveAvatarDebugSettingsOnce();
+      resolveSourceIconDebugSettingsOnce();
     }
     reportDiagnostic("collector-started");
-    avatarDebugSettingsReady.then(() => {
+    sourceIconDebugSettingsReady.then(() => {
       refreshCollectionEnabled();
       setInterval(refreshCollectionEnabled, 15_000);
     });
@@ -432,7 +488,7 @@
   }
 
   const api = Object.freeze({
-    AVATAR_SOURCE_ATTRIBUTES,
+    SOURCE_ICON_ATTRIBUTES,
     compactText,
     safeURL,
     canonicalContentURL,
@@ -443,7 +499,8 @@
     firstAnchor,
     firstText,
     imageURLFrom,
-    avatarFromVerifiedSource,
+    sourceIconFromVerifiedSource,
+    matchingContentRoot,
     matchingSourceAnchor,
     firstNormalizedSourceAnchor,
     firstVerifiedSourceAnchor,

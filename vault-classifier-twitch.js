@@ -43,7 +43,8 @@
           sourceURL: source.href,
           sourceName: core.firstText(card, ['[data-a-target="preview-card-channel-link"]', '[data-a-target="preview-card-channel-name"]']) || core.compactText(source.textContent, 256),
           title: core.firstText(card, ['[data-a-target="preview-card-title"]', 'h1, h2, h3']) || core.compactText(entry.textContent, 500),
-          creatorAvatarURL: core.avatarFromVerifiedSource("twitch", source, global.location.href),
+          text: core.firstText(card, ['[data-a-target="preview-card-title"]', '[data-a-target*="description"]'], 16000),
+          sourceIconURL: core.sourceIconFromVerifiedSource("twitch", source, global.location.href),
           entryType: entryType(entry.href)
         });
       }
@@ -79,7 +80,7 @@
         sourceName: core.firstText(root, ['[data-a-target="channel-header-container"] h1', '[data-a-target="channel-header-container"] h2']) || core.compactText(source?.textContent, 256) || route.handle,
         title,
         text: description,
-        creatorAvatarURL: core.avatarFromVerifiedSource("twitch", source, global.location.href),
+        sourceIconURL: core.sourceIconFromVerifiedSource("twitch", source, global.location.href),
         entryType: route.type
       });
       return { ready: true };

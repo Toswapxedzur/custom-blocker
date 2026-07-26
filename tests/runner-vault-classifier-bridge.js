@@ -1,4 +1,4 @@
-/* Shared-localhost-hub integration tests for the Vault Classifier adapter. */
+/* Shared-localhost-hub and bounded session-queue tests. */
 "use strict";
 
 const fs = require("node:fs");
@@ -6,32 +6,27 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
-const storage = {
-  vaultClassifierSettings: {}
-};
+const localStorage = { vaultClassifierSettings: {} };
+const sessionStorage = {};
 const listeners = [];
-let hubCalls = 0;
+const storageListeners = [];
 const hubRequests = [];
 const diagnostics = [];
+let hubAvailable = false;
+let enabledPlatformIDs = ["youtube", "reddit", "discord"];
 
 const hub = {
   request(operation, body) {
-    hubCalls++;
+    if (!hubAvailable) return Promise.reject(new Error("hub unavailable"));
     hubRequests.push({ operation, body });
     return new Promise((resolve) => setTimeout(() => {
       if (operation === "collection-info") {
-        resolve(inExtensionRealm({ enabledPlatformIDs: ["youtube", "reddit", "discord"] }));
-        return;
-      }
-      if (operation === "collect") {
+        resolve(inExtensionRealm({ enabledPlatformIDs }));
+      } else if (operation === "collect") {
         resolve(inExtensionRealm({ accepted: true, inserted: true }));
-        return;
-      }
-      if (operation === "diagnostic") {
+      } else if (operation === "diagnostic") {
         resolve(inExtensionRealm({ accepted: true }));
-        return;
-      }
-      if (operation === "source-tags") {
+      } else if (operation === "source-tags") {
         resolve(inExtensionRealm({
           platformID: body.platformID,
           sourceID: body.sourceID,
@@ -42,12 +37,30 @@ const hub = {
             darkColorHex: "#1A4775"
           }]
         }));
-        return;
+      } else {
+        resolve(inExtensionRealm({ accepted: false, inserted: false }));
       }
-      resolve(inExtensionRealm({ accepted: false, inserted: false }));
-    }, 8));
+    }, 5));
   }
 };
+
+function storageArea(values) {
+  return {
+    get(keys, callback) {
+      const defaults = keys && typeof keys === "object" && !Array.isArray(keys) ? keys : {};
+      const requested = Array.isArray(keys) ? keys : typeof keys === "string" ? [keys] : Object.keys(defaults);
+      const result = { ...defaults };
+      for (const key of requested) {
+        if (Object.prototype.hasOwnProperty.call(values, key)) result[key] = values[key];
+      }
+      callback(result);
+    },
+    set(next, callback) {
+      Object.assign(values, JSON.parse(JSON.stringify(next)));
+      callback?.();
+    }
+  };
+}
 
 const chrome = {
   runtime: {
@@ -56,15 +69,9 @@ const chrome = {
     onMessage: { addListener(listener) { listeners.push(listener); } }
   },
   storage: {
-    local: {
-      get(keys, callback) {
-        const result = {};
-        const requested = Array.isArray(keys) ? keys : [keys];
-        for (const key of requested) result[key] = storage[key];
-        callback(result);
-      }
-    },
-    onChanged: { addListener() {} }
+    local: storageArea(localStorage),
+    session: storageArea(sessionStorage),
+    onChanged: { addListener(listener) { storageListeners.push(listener); } }
   }
 };
 
@@ -99,8 +106,10 @@ function dispatch(message, sender) {
       clearTimeout(timer);
       resolve({ waiting, value });
     };
+    const bridgedMessage = inExtensionRealm(message);
+    const bridgedSender = inExtensionRealm(sender);
     for (const listener of listeners) {
-      if (listener(message, sender, respond) === true) waiting = true;
+      if (listener(bridgedMessage, bridgedSender, respond) === true) waiting = true;
     }
     if (!waiting) {
       settled = true;
@@ -110,33 +119,66 @@ function dispatch(message, sender) {
   });
 }
 
-function entry(id, title) {
+async function waitFor(predicate, timeoutMilliseconds = 1_500) {
+  const deadline = Date.now() + timeoutMilliseconds;
+  while (Date.now() < deadline) {
+    if (await predicate()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return false;
+}
+
+function entry(id, title, extras = {}) {
   return {
     platform: "youtube",
     entryID: `youtube:video:${id}`,
     sourceID: "youtube:channel:UC1234567890123456789012",
-    surface: "feed",
-    evidence: { title, metadata: { sourceName: "Local test channel" } }
+    surface: extras.surface || "feed",
+    evidence: {
+      title,
+      text: extras.text || null,
+      suppliedTags: extras.suppliedTags || [],
+      metadata: {
+        sourceName: "Local test channel",
+        ...(extras.sourceIconURL ? { sourceIconURL: extras.sourceIconURL } : {})
+      }
+    }
   };
 }
 
 function redditEntry(id, title) {
   return {
     platform: "reddit",
-    entryID: `reddit:content:${id}`,
-    sourceID: "reddit:creator:gaming",
+    entryID: `reddit:post:${id}`,
+    sourceID: "reddit:subreddit:gaming",
     surface: "feed",
-    evidence: { title, metadata: { sourceName: "r/gaming", entryType: "post", canonicalURL: `https://www.reddit.com/r/gaming/comments/${id}/post/` } }
+    evidence: {
+      title,
+      metadata: {
+        sourceName: "r/gaming",
+        sourceKind: "subreddit",
+        entryType: "post",
+        canonicalURL: `https://www.reddit.com/r/gaming/comments/${id}/post/`
+      }
+    }
   };
 }
 
 function discordEntry(id, title) {
   return {
     platform: "discord",
-    entryID: `discord:content:${id}`,
+    entryID: `discord:message:${id}`,
     sourceID: "discord:server:123456",
     surface: "feed",
-    evidence: { title, metadata: { sourceName: "Testing server", sourceKind: "server", entryType: "message", canonicalURL: `https://discord.com/channels/123456/234567/${id}` } }
+    evidence: {
+      title,
+      metadata: {
+        sourceName: "Testing server",
+        sourceKind: "server",
+        entryType: "message",
+        canonicalURL: `https://discord.com/channels/123456/234567/${id}`
+      }
+    }
   };
 }
 
@@ -149,70 +191,153 @@ let failures = 0;
 
 function assert(name, condition, detail) {
   if (condition) console.log(`PASS ${name}`);
-  else { failures++; console.error(`FAIL ${name}${detail ? ` ${JSON.stringify(detail)}` : ""}`); }
+  else {
+    failures++;
+    console.error(`FAIL ${name}${detail ? ` ${JSON.stringify(detail)}` : ""}`);
+  }
 }
 
 (async () => {
-  const untrustedCollection = await dispatch({ type: "vault-classifier-collect", entry: entry("dQw4w9WgXcQ", "Untrusted collection") }, untrustedSender);
-  assert("rejects collection from a non-YouTube runtime sender", !untrustedCollection.waiting && hubCalls === 0);
+  const untrustedCollection = await dispatch({
+    type: "vault-classifier-collect",
+    entry: entry("dQw4w9WgXcQ", "Untrusted collection")
+  }, untrustedSender);
+  assert("rejects collection from a non-YouTube runtime sender", !untrustedCollection.waiting && hubRequests.length === 0);
 
+  hubAvailable = true;
   const collectionInfo = await dispatch({ type: "vault-classifier-collection-info" }, trustedSender);
-  assert("browser collection defaults on when the app enables YouTube", collectionInfo.waiting && collectionInfo.value && collectionInfo.value.ok === true && collectionInfo.value.enabled === true && hubCalls === 1, collectionInfo);
+  assert("browser collection defaults on when the app enables YouTube", collectionInfo.waiting && collectionInfo.value?.ok === true && collectionInfo.value.enabled === true, collectionInfo);
 
-  const collected = await dispatch({ type: "vault-classifier-collect", entry: entry("dQw4w9WgXcQ", "Visible non-ad card") }, trustedSender);
-  assert("sends one bounded rendered entry only after opt-in", collected.waiting && collected.value && collected.value.accepted === true && hubCalls === 2, collected);
+  hubAvailable = false;
+  const queuedInitial = await dispatch({
+    type: "vault-classifier-collect",
+    entry: entry("dQw4w9WgXcQ", "Visible non-ad card")
+  }, trustedSender);
+  const queuedEnriched = await dispatch({
+    type: "vault-classifier-collect",
+    entry: entry("dQw4w9WgXcQ", "Visible non-ad card", {
+      surface: "page",
+      text: "Full rendered description",
+      suppliedTags: ["guide"],
+      sourceIconURL: "https://yt3.ggpht.com/source-icon=s88"
+    })
+  }, trustedSender);
+  const offlineStatus = await context.CBVaultClassifierCollectionQueueStatus();
+  assert("queues authorized rendered evidence in session storage while disconnected", queuedInitial.value?.accepted === true
+    && queuedInitial.value?.queued === true
+    && queuedEnriched.value?.accepted === true
+    && offlineStatus.pendingCount === 1
+    && Object.keys(sessionStorage).length === 1, { queuedInitial, queuedEnriched, offlineStatus, sessionStorage });
+
+  hubAvailable = true;
+  await context.CBFlushVaultClassifierCollectionQueue();
+  const flushedRequest = hubRequests.filter((request) => request.operation === "collect").at(-1);
+  const flushedStatus = await context.CBVaultClassifierCollectionQueueStatus();
+  assert("flushes oldest-first with merged evidence and preserved observations only after acknowledgement", flushedRequest?.body?.entry?.surface === "page"
+    && flushedRequest?.body?.entry?.evidence?.text === "Full rendered description"
+    && flushedRequest?.body?.entry?.evidence?.metadata?.sourceIconURL === "https://yt3.ggpht.com/source-icon=s88"
+    && flushedRequest?.body?.observationCount === 2
+    && flushedRequest?.body?.firstObservedAtMilliseconds <= flushedRequest?.body?.lastObservedAtMilliseconds
+    && flushedStatus.pendingCount === 0, { flushedRequest, flushedStatus });
+
   const sourceTags = await dispatch({
     type: "vault-classifier-source-tags",
     platform: "youtube",
     sourceID: "youtube:channel:UC1234567890123456789012"
   }, trustedSender);
-  assert("routes a bounded source-tag lookup and returns human-readable tags", sourceTags.waiting
-    && sourceTags.value?.ok === true
+  assert("routes a bounded source-tag lookup and returns human-readable tags", sourceTags.value?.ok === true
     && sourceTags.value?.tags?.[0]?.name === "Games"
     && sourceTags.value?.tags?.[0]?.lightColorHex === "#9EC5E8"
-    && sourceTags.value?.tags?.[0]?.darkColorHex === "#1A4775"
-    && hubCalls === 3
-    && hubRequests.at(-1)?.operation === "source-tags", { sourceTags, hubRequests });
+    && sourceTags.value?.tags?.[0]?.darkColorHex === "#1A4775", sourceTags);
   const forgedSourceTags = await dispatch({
     type: "vault-classifier-source-tags",
     platform: "reddit",
     sourceID: "reddit:subreddit:games"
   }, trustedSender);
-  assert("rejects a source-tag platform that does not match the sender origin", !forgedSourceTags.waiting && hubCalls === 3, forgedSourceTags);
-  const diagnostic = await dispatch({ type: "vault-classifier-diagnostic", platform: "youtube", event: "collector-started" }, trustedSender);
-  assert("forwards a fixed content-collector diagnostic without page metadata", diagnostic.waiting && diagnostic.value?.accepted === true && hubCalls === 4 && diagnostics.some((entry) => entry.event === "collector-started" && entry.platform === "youtube"), { diagnostic, diagnostics });
-  const forgedDiagnostic = await dispatch({ type: "vault-classifier-diagnostic", platform: "youtube", event: "raw-page-title" }, trustedSender);
-  assert("rejects diagnostic text outside the fixed privacy-safe vocabulary", !forgedDiagnostic.waiting && hubCalls === 4, forgedDiagnostic);
-  hubCalls = 0;
+  assert("rejects a source-tag platform that does not match the sender origin", !forgedSourceTags.waiting, forgedSourceTags);
 
-  const redditCollectionInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "reddit" }, trustedRedditSender);
-  assert("reads a non-YouTube app-owned collection opt-in only from that platform", redditCollectionInfo.waiting && redditCollectionInfo.value && redditCollectionInfo.value.enabled === true && hubCalls === 1, redditCollectionInfo);
-  const redditCollected = await dispatch({ type: "vault-classifier-collect", entry: redditEntry("123", "Visible Reddit card") }, trustedRedditSender);
-  assert("routes a bounded non-YouTube collected entry through the shared hub", redditCollected.waiting && redditCollected.value && redditCollected.value.accepted === true && hubCalls === 2, redditCollected);
-  const redditDiagnostic = await dispatch({ type: "vault-classifier-diagnostic", platform: "reddit", event: "page-evidence-ready" }, trustedRedditSender);
-  assert("gives non-YouTube collectors the same fixed page diagnostic route", redditDiagnostic.waiting && redditDiagnostic.value?.accepted === true && hubCalls === 3 && diagnostics.some((entry) => entry.event === "page-evidence-ready" && entry.platform === "reddit"), { redditDiagnostic, diagnostics });
-  const mismatchedCollection = await dispatch({ type: "vault-classifier-collect", entry: redditEntry("124", "Forged platform") }, trustedSender);
-  assert("rejects a collection platform that does not match the sender origin", !mismatchedCollection.waiting && hubCalls === 3, mismatchedCollection);
-  const discordCollectionInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "discord" }, trustedDiscordSender);
-  assert("enables Discord collection only for a server and channel route", discordCollectionInfo.waiting && discordCollectionInfo.value?.enabled === true && hubCalls === 4, discordCollectionInfo);
-  const discordCollected = await dispatch({ type: "vault-classifier-collect", entry: discordEntry("345678", "Visible server message") }, trustedDiscordSender);
-  assert("routes a server-scoped Discord message through the local shared hub", discordCollected.waiting && discordCollected.value?.accepted === true && hubCalls === 5, discordCollected);
-  const directMessageCollection = await dispatch({ type: "vault-classifier-collection-info", platform: "discord" }, directMessageDiscordSender);
-  assert("rejects direct-message Discord routes before collection reaches the hub", !directMessageCollection.waiting && hubCalls === 5, directMessageCollection);
-  hubCalls = 0;
+  const diagnostic = await dispatch({
+    type: "vault-classifier-diagnostic",
+    platform: "youtube",
+    event: "collector-started"
+  }, trustedSender);
+  assert("forwards fixed diagnostics without page metadata", diagnostic.value?.accepted === true
+    && diagnostics.some((item) => item.event === "collector-started" && item.platform === "youtube"), { diagnostic, diagnostics });
+  const forgedDiagnostic = await dispatch({
+    type: "vault-classifier-diagnostic",
+    platform: "youtube",
+    event: "raw-page-title"
+  }, trustedSender);
+  assert("rejects diagnostic text outside the fixed privacy-safe vocabulary", !forgedDiagnostic.waiting, forgedDiagnostic);
 
-  const removedPolicyBridge = await dispatch({ type: "vault-classifier-classify", entry: entry("dQw4w9WgXcQ", "No browser policy") }, trustedSender);
-  assert("does not expose browser-side classifier policy actions", !removedPolicyBridge.waiting && hubCalls === 0, removedPolicyBridge);
+  const redditCollectionInfo = await dispatch({
+    type: "vault-classifier-collection-info",
+    platform: "reddit"
+  }, trustedRedditSender);
+  const redditCollected = await dispatch({
+    type: "vault-classifier-collect",
+    entry: redditEntry("123", "Visible Reddit card")
+  }, trustedRedditSender);
+  assert("gives subreddit-scoped collection the same queue lifecycle", redditCollectionInfo.value?.enabled === true
+    && redditCollected.value?.accepted === true
+    && redditCollected.value?.queued === true, { redditCollectionInfo, redditCollected });
 
-  storage.vaultClassifierSettings = { collectionEnabled: false };
+  const mismatchedCollection = await dispatch({
+    type: "vault-classifier-collect",
+    entry: redditEntry("124", "Forged platform")
+  }, trustedSender);
+  assert("rejects a collection platform that does not match the sender origin", !mismatchedCollection.waiting, mismatchedCollection);
+
+  const discordCollectionInfo = await dispatch({
+    type: "vault-classifier-collection-info",
+    platform: "discord"
+  }, trustedDiscordSender);
+  const discordCollected = await dispatch({
+    type: "vault-classifier-collect",
+    entry: discordEntry("345678", "Visible server message")
+  }, trustedDiscordSender);
+  const directMessageCollection = await dispatch({
+    type: "vault-classifier-collection-info",
+    platform: "discord"
+  }, directMessageDiscordSender);
+  assert("enables server collection but rejects direct-message Discord routes", discordCollectionInfo.value?.enabled === true
+    && discordCollected.value?.accepted === true
+    && !directMessageCollection.waiting, { discordCollectionInfo, discordCollected, directMessageCollection });
+
+  hubAvailable = false;
+  await dispatch({
+    type: "vault-classifier-collect",
+    entry: entry("offline00001", "Queued before platform disable")
+  }, trustedSender);
+  enabledPlatformIDs = ["reddit", "discord"];
+  hubAvailable = true;
+  await context.CBFlushVaultClassifierCollectionQueue();
+  const disabledStatus = await context.CBVaultClassifierCollectionQueueStatus();
+  assert("drops queued evidence when the app no longer enables its platform and exposes the drop count", disabledStatus.pendingCount === 0
+    && disabledStatus.droppedCount >= 1
+    && diagnostics.some((item) => item.event === "collection-dropped" && item.outcome === "disabled"), { disabledStatus, diagnostics });
+
+  const removedPolicyBridge = await dispatch({
+    type: "vault-classifier-classify",
+    entry: entry("dQw4w9WgXcQ", "No browser policy")
+  }, trustedSender);
+  assert("does not expose browser-side classifier policy actions", !removedPolicyBridge.waiting, removedPolicyBridge);
+
+  localStorage.vaultClassifierSettings = { collectionEnabled: false };
+  storageListeners.forEach((listener) => listener({
+    vaultClassifierSettings: { newValue: localStorage.vaultClassifierSettings }
+  }, "local"));
   const collectionDisabled = await dispatch({ type: "vault-classifier-collection-info" }, trustedSender);
-  assert("browser-side collection opt-out prevents metadata routing before the shared hub", collectionDisabled.waiting && collectionDisabled.value && collectionDisabled.value.ok === true && collectionDisabled.value.enabled === false && hubCalls === 0, collectionDisabled);
   const tagsDisabled = await dispatch({
     type: "vault-classifier-source-tags",
     platform: "youtube",
     sourceID: "youtube:channel:UC1234567890123456789012"
   }, trustedSender);
-  assert("browser-side collection opt-out also prevents source-tag metadata routing", tagsDisabled.waiting && tagsDisabled.value?.ok === true && tagsDisabled.value.tags?.length === 0 && hubCalls === 0, tagsDisabled);
+  await waitFor(async () => (await context.CBVaultClassifierCollectionQueueStatus()).pendingCount === 0);
+  assert("browser-side collection opt-out clears queued data and prevents routing", collectionDisabled.value?.ok === true
+    && collectionDisabled.value?.enabled === false
+    && tagsDisabled.value?.ok === true
+    && tagsDisabled.value?.tags?.length === 0, { collectionDisabled, tagsDisabled });
 
   console.log(`__CB_TEST_RESULT__: ${failures === 0 ? "OK" : "FAIL"} (${failures} failures)`);
   if (failures !== 0) process.exitCode = 1;

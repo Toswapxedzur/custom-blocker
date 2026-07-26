@@ -33,7 +33,9 @@
           sourceURL: source.href,
           sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
           title: core.firstText(card, ['[data-testid="tweetText"]', '[lang]']) || core.compactText(entry.getAttribute("aria-label") || entry.textContent, 500),
-          creatorAvatarURL: core.avatarFromVerifiedSource("twitter", source, global.location.href),
+          text: core.firstText(card, ['[data-testid="tweetText"]', '[lang]'], 16000),
+          suppliedTags: [...card.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent),
+          sourceIconURL: core.sourceIconFromVerifiedSource("twitter", source, global.location.href),
           entryType: "post"
         });
       }
@@ -41,7 +43,10 @@
     scanPage({ document, collect }) {
       const route = pageRoute(global.location);
       if (!route) return { ready: false, reason: "missing-content-id" };
-      const root = document.querySelector('article[data-testid="tweet"]') || document.querySelector("article") || document.querySelector("main");
+      const root = core.matchingContentRoot("twitter", document, [
+        'article[data-testid="tweet"]',
+        "article"
+      ], global.location.href, global.location.href);
       if (!root) return { ready: false, reason: "missing-content-root" };
       const sourceURL = `${new URL(global.location.href).origin}/${route.handle}`;
       const source = core.matchingSourceAnchor("twitter", root, sourceURL);
@@ -60,7 +65,7 @@
         title,
         text,
         suppliedTags: [...root.querySelectorAll?.('a[href*="/hashtag/"]') || []].map((tag) => tag.textContent),
-        creatorAvatarURL: core.avatarFromVerifiedSource("twitter", source, global.location.href),
+        sourceIconURL: core.sourceIconFromVerifiedSource("twitter", source, global.location.href),
         entryType: "post"
       });
       return { ready: true };
