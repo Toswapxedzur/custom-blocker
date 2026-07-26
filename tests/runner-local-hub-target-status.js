@@ -1,4 +1,4 @@
-/* Per-target status tests for the one-socket local Vault hub. */
+/* Automatic one-socket local Vault hub routing tests. */
 "use strict";
 
 const fs = require("node:fs");
@@ -11,15 +11,12 @@ const start = source.indexOf("const cbConnection = {");
 const end = source.indexOf("\n};\n\n// Classifier requests share", start);
 if (start < 0 || end < 0) throw new Error("Could not locate cbConnection.");
 
-const storage = {
-  globalSettings: { connection: { clientEnabled: false } },
-  vaultClassifierSettings: { connectionEnabled: false }
-};
 const pushes = [];
 const sockets = [];
 const timers = new Map();
 let nextTimerID = 1;
 let failures = 0;
+let storageReads = 0;
 
 class FakeWebSocket {
   static OPEN = 1;
@@ -72,10 +69,9 @@ const chrome = {
   },
   storage: {
     local: {
-      get(keys) {
-        const response = {};
-        for (const key of Array.isArray(keys) ? keys : [keys]) response[key] = storage[key];
-        return Promise.resolve(response);
+      get() {
+        storageReads += 1;
+        throw new Error("Automatic transport must not read retired connection settings.");
       }
     }
   }
@@ -84,11 +80,10 @@ const chrome = {
 const context = vm.createContext({
   chrome,
   CB_FIXED_ADDRESS: "ws://127.0.0.1:8787",
-  CB_CONNECTION_PROTOCOL_VERSION: 3,
+  CB_CONNECTION_PROTOCOL_VERSION: 4,
   CB_CONNECTION_BURST_INTERVAL_MS: 100,
   CB_CONNECTION_BURST_WINDOW_MS: 5_000,
   CB_CONNECTION_SLOW_INTERVAL_MS: 5_000,
-  CB_GLOBAL_SETTINGS_KEY: "globalSettings",
   cbDetectProgramId: () => "chrome",
   WebSocket: FakeWebSocket,
   clearInterval: () => {},
@@ -101,78 +96,91 @@ context.self = context;
 vm.runInContext(`${source.slice(start, end + 3)}\nself.__targetConnection = cbConnection;`, context, { filename: "background.js" });
 const connection = context.__targetConnection;
 const liveConnect = connection.connect.bind(connection);
-const liveDisconnect = connection.disconnect.bind(connection);
-connection.connect = () => {};
-connection.disconnect = () => {};
+let automaticConnects = 0;
+connection.connect = () => {
+  automaticConnects += 1;
+  connection.desired = true;
+};
 
 function assert(name, condition, detail) {
   if (condition) console.log(`PASS ${name}`);
   else {
-    failures++;
+    failures += 1;
     console.error(`FAIL ${name}${detail ? ` ${JSON.stringify(detail)}` : ""}`);
   }
 }
 
-async function select(macVault, classifier) {
-  storage.globalSettings = { connection: { clientEnabled: macVault } };
-  storage.vaultClassifierSettings = { connectionEnabled: classifier };
-  await connection.applyFromSettings();
-}
-
-function publishedStates(state, { hubProgram = "macapp", peers = [{ program: "macapp", connected: true }] } = {}) {
-  pushes.length = 0;
-  connection.setStatus({
-    state,
-    address: "ws://127.0.0.1:8787",
-    peers,
-    error: state === "error" ? "socket-error" : "",
-    hubProgram
-  });
-  const mac = pushes.find((message) => message.type === "connection-status-push")?.status;
-  const classifier = pushes.find((message) => message.type === "classifier-connection-status-push")?.status;
-  return { mac, classifier };
+function targetStates() {
+  return {
+    mac: connection.statusForTarget("macapp"),
+    classifier: connection.statusForTarget("classifier")
+  };
 }
 
 (async () => {
-  await select(false, false);
-  let states = publishedStates("off");
-  assert("neither target selected stays off", connection.primaryStream === "none" && states.mac?.state === "off" && states.classifier?.state === "off", states);
+  await connection.startAutomatically();
+  assert(
+    "startup always requests one durable connection without reading retired settings",
+    automaticConnects === 1 && connection.desired === true && storageReads === 0,
+    { automaticConnects, desired: connection.desired, storageReads }
+  );
 
-  await select(true, false);
-  states = publishedStates("connecting");
-  assert("the selected Mac target reports connecting", connection.primaryStream === "macapp" && states.mac?.state === "connecting" && states.classifier?.state === "off", states);
-  states = publishedStates("connected");
-  assert("Mac-only selection leaves Classifier connected but not listening", states.mac?.state === "connected" && states.classifier?.state === "connected-not-listening", states);
+  connection.ws = { readyState: FakeWebSocket.OPEN, send() {} };
+  connection.setStatus({ state: "connected", hubProgram: "classifier", peers: [] });
+  let states = targetStates();
+  assert(
+    "Classifier-only presence routes classifier work while Mac group sync stays unavailable",
+    connection.routeIsReady("classifier") &&
+      !connection.routeIsReady("macapp") &&
+      states.classifier.state === "connected" &&
+      states.mac.state === "connected-not-listening",
+    states
+  );
 
-  await select(false, true);
-  states = publishedStates("connected", { hubProgram: "classifier", peers: [] });
-  assert("Classifier-only selection leaves Mac connected but not listening", connection.primaryStream === "classifier" && states.mac?.state === "connected-not-listening" && states.classifier?.state === "connected", states);
-  states = publishedStates("error");
-  assert("a selected transport failure is presented as disconnected", states.mac?.state === "off" && states.classifier?.state === "disconnected", states);
-
-  await select(true, true);
-  states = publishedStates("connected", {
+  connection.setStatus({
+    state: "connected",
     hubProgram: "macapp",
     peers: [{ program: "classifier", connected: true }]
   });
-  assert("both selected targets report connected on the one shared socket", connection.primaryStream === "classifier" && states.mac?.state === "connected" && states.classifier?.state === "connected", states);
+  states = targetStates();
+  assert(
+    "Mac Vault and Classifier are simultaneously routable on one socket",
+    connection.routeIsReady("macapp") &&
+      connection.routeIsReady("classifier") &&
+      states.mac.state === "connected" &&
+      states.classifier.state === "connected",
+    states
+  );
 
-  states = publishedStates("connected", { hubProgram: "macapp", peers: [] });
-  assert("a selected target absent from the live hub reports connected but not listening", states.mac?.state === "connected" && states.classifier?.state === "connected-not-listening", states);
+  connection.clusters = [{ id: "cluster" }];
+  connection.setStatus({ state: "connected", hubProgram: "classifier", peers: [] });
+  assert(
+    "losing the Mac route clears runtime cluster state without stopping classifier transport",
+    connection.clusters.length === 0 &&
+      connection.routeIsReady("classifier") &&
+      pushes.some((message) => message.type === "clusters-push" && message.clusters.length === 0),
+    { clusters: connection.clusters, pushes }
+  );
 
-  await select(false, true);
+  assert(
+    "transport publishes only contextual Mac group status, not user-facing classifier connection controls",
+    pushes.some((message) => message.type === "connection-status-push") &&
+      !pushes.some((message) => message.type === "classifier-connection-status-push"),
+    pushes
+  );
+
+  connection.stop();
   connection.connect = liveConnect;
-  connection.connect();
+  connection.startAutomatically();
   const socket = sockets.at(-1);
   socket.open();
   runTimersWithDelay(5_000);
   assert(
-    "an incomplete socket welcome settles to disconnected after five seconds",
+    "an incomplete automatic handshake settles to disconnected and keeps retry intent",
     connection.status.state === "disconnected" && connection.desired === true && connection.ws === null,
     connection.status
   );
-  connection.disconnect = liveDisconnect;
-  connection.disconnect();
+  connection.stop();
 
   console.log(`__CB_TEST_RESULT__: ${failures === 0 ? "OK" : "FAIL"} (${failures} failures)`);
   if (failures !== 0) process.exitCode = 1;

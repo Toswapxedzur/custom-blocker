@@ -807,66 +807,13 @@
             </section>
 
             <section class="settings-col">
-              <h4 class="settings-col-title" data-i18n="settings.colConnections">Connections &amp; files</h4>
-        <section id="connectionSection" class="section-card settings-section-card">
-          <div class="section-header">
-            <div>
-              <h3 data-i18n="connection.title">Web-app bridge</h3>
-              <p class="section-copy" data-i18n="connection.copy">
-                Link Default and Custom groups between a browser extension and Mac Vault or Windows Vault.
-              </p>
-            </div>
-          </div>
-
-          <div class="connection-status-row">
-            <span id="connectionStatusDot" class="connection-dot off"></span>
-            <span id="connectionStatusText" data-i18n="connection.statusOff">Off</span>
-          </div>
-          <p class="field-help">
-            <span data-i18n="connection.addressLabel">Address</span>:
-            <code id="connectionAddressReadout">—</code>
-          </p>
-
-          <div id="connectionClientControls" class="hidden">
-            <p class="field-help" data-i18n="connection.clientHelp">
-              Connect to the shared Vault server. It shows every currently connected Vault app.
-            </p>
-            <div id="connectionPeerList" class="connection-peer-list"></div>
-            <div class="field-actions">
-              <button id="connectionConnectButton" type="button" class="secondary" data-i18n="connection.connect">
-                Connect
-              </button>
-              <button id="connectionDisconnectButton" type="button" class="secondary danger hidden" data-i18n="connection.disconnect">
-                Disconnect
-              </button>
-            </div>
-          </div>
-        </section>
+              <h4 class="settings-col-title" data-i18n="settings.colConnections">Data &amp; files</h4>
 
         <section id="classifierBridgeSection" class="section-card settings-section-card">
           <div class="section-header">
             <div>
-              <h3 data-i18n="classifierBridge.title">Vault Classifier bridge</h3>
+              <h3 data-i18n="classifierBridge.title">Vault Classifier</h3>
             </div>
-          </div>
-          <div class="connection-status-row">
-            <span id="classifierConnectionStatusDot" class="connection-dot off"></span>
-            <span id="classifierConnectionStatusText" data-i18n="connection.statusOff">Off</span>
-          </div>
-          <p class="field-help">
-            <span data-i18n="connection.addressLabel">Address</span>:
-            <code id="classifierConnectionAddressReadout">—</code>
-          </p>
-          <p class="field-help" data-i18n="classifierBridge.connectionHelp">
-            Connect this browser to the shared Vault broker. Its status lists Mac Vault and Vault Classifier when available.
-          </p>
-          <div class="field-actions">
-            <button id="classifierConnectionConnectButton" type="button" class="secondary" data-i18n="connection.connect">
-              Connect
-            </button>
-            <button id="classifierConnectionDisconnectButton" type="button" class="secondary danger hidden" data-i18n="connection.disconnect">
-              Disconnect
-            </button>
           </div>
           <label class="checkbox-row compact" for="classifierCollectionToggle">
             <input id="classifierCollectionToggle" type="checkbox" checked />

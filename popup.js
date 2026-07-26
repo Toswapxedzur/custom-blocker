@@ -181,15 +181,6 @@ const cbDialog = (function () {
 
 // Extension-wide preferences. Keep these defaults in sync with the
 // placeholder text in popup.html's Settings modal.
-// A native Vault app hosts this fixed local hub; the extension only joins it.
-const CONNECTION_PROTOCOL_VERSION = window.CBBridgeProtocol.PROTOCOL_VERSION;
-const CONNECTION_DEFAULT_ADDRESS = "ws://127.0.0.1:8787";
-const DEFAULT_CONNECTION_SETTINGS = {
-  // Native hosts own this setting; the extension always remains a client.
-  serverEnabled: false,
-  clientEnabled: false
-};
-
 const DEFAULT_GLOBAL_SETTINGS = {
   tickRateMs: 1000,
   autosaveDebounceMs: 400,
@@ -200,8 +191,7 @@ const DEFAULT_GLOBAL_SETTINGS = {
   debugMode: false,
   showOnPageLogToasts: true,
   defaultSnoozeMinutes: 30,
-  defaultFallbackUrl: "about:blank",
-  connection: { ...DEFAULT_CONNECTION_SETTINGS }
+  defaultFallbackUrl: "about:blank"
 };
 const TICK_RATE_MIN_MS = 250;
 const TICK_RATE_MAX_MS = 60_000;
@@ -407,20 +397,6 @@ const localFolderStatus = document.getElementById("localFolderStatus");
 let localFolderHandle = null;
 const settingsResetButton = document.getElementById("settingsResetButton");
 const settingsStatus = document.getElementById("settingsStatus");
-const connectionSection = document.getElementById("connectionSection");
-const connectionServerControls = document.getElementById("connectionServerControls");
-const connectionClientControls = document.getElementById("connectionClientControls");
-const connectionConnectButton = document.getElementById("connectionConnectButton");
-const connectionDisconnectButton = document.getElementById("connectionDisconnectButton");
-const connectionStatusDot = document.getElementById("connectionStatusDot");
-const connectionStatusText = document.getElementById("connectionStatusText");
-const connectionAddressReadout = document.getElementById("connectionAddressReadout");
-const connectionPeerList = document.getElementById("connectionPeerList");
-const classifierConnectionStatusDot = document.getElementById("classifierConnectionStatusDot");
-const classifierConnectionStatusText = document.getElementById("classifierConnectionStatusText");
-const classifierConnectionAddressReadout = document.getElementById("classifierConnectionAddressReadout");
-const classifierConnectionConnectButton = document.getElementById("classifierConnectionConnectButton");
-const classifierConnectionDisconnectButton = document.getElementById("classifierConnectionDisconnectButton");
 const classifierCollectionToggle = document.getElementById("classifierCollectionToggle");
 const connectionGroupSection = document.getElementById("connectionGroupSection");
 const connectionGroupHint = document.getElementById("connectionGroupHint");
@@ -500,15 +476,12 @@ const state = {
 // requests share the public broker but never receive a group definition.
 const CLASSIFIER_BRIDGE_SETTINGS_KEY = "vaultClassifierSettings";
 const DEFAULT_CLASSIFIER_BRIDGE_SETTINGS = Object.freeze({
-  connectionEnabled: false,
   collectionEnabled: true
 });
 let classifierBridgeSettings = { ...DEFAULT_CLASSIFIER_BRIDGE_SETTINGS };
-let classifierConnectionStatus = { running: false, state: "off", address: "", peers: [], error: "", hubProgram: "" };
 
 function sanitizeClassifierBridgeSettings(raw) {
   return {
-    connectionEnabled: Boolean(raw && raw.connectionEnabled === true),
     // Existing deliberate opt-outs stay off; new extension settings collect by
     // default once the matching local app platform is enabled.
     collectionEnabled: !raw || raw.collectionEnabled !== false
@@ -534,38 +507,7 @@ function classifierBridgeStorageSet(next) {
 }
 
 function renderClassifierBridgeSettings() {
-  const connection = classifierConnectionStatus || {};
-  const connected = connection.state === "connected" || connection.state === "connecting";
   if (classifierCollectionToggle) classifierCollectionToggle.checked = classifierBridgeSettings.collectionEnabled;
-  if (classifierConnectionStatusDot) classifierConnectionStatusDot.className = "connection-dot " + (connection.state || "off");
-  if (classifierConnectionStatusText) classifierConnectionStatusText.textContent = connectionStatusLabel(connection);
-  if (classifierConnectionAddressReadout) classifierConnectionAddressReadout.textContent = connection.address || CONNECTION_DEFAULT_ADDRESS;
-  if (classifierConnectionConnectButton) classifierConnectionConnectButton.classList.toggle("hidden", connected);
-  if (classifierConnectionDisconnectButton) classifierConnectionDisconnectButton.classList.toggle("hidden", !connected);
-}
-
-function applyClassifierConnectionStatus(raw) {
-  const incoming = raw && typeof raw === "object" ? raw : {};
-  classifierConnectionStatus = {
-    running: Boolean(incoming.running),
-    state: typeof incoming.state === "string" ? incoming.state : "off",
-    address: typeof incoming.address === "string" ? incoming.address : "",
-    peers: Array.isArray(incoming.peers) ? incoming.peers : [],
-    error: typeof incoming.error === "string" ? incoming.error : "",
-    hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
-  };
-  if (state.isSettingsOpen) renderClassifierBridgeSettings();
-}
-
-function requestClassifierConnectionStatus() {
-  try {
-    chrome.runtime
-      .sendMessage({ type: "classifier-connection-status" })
-      .then((response) => {
-        if (response && response.status) applyClassifierConnectionStatus(response.status);
-      })
-      .catch(() => {});
-  } catch (_) {}
 }
 
 async function loadClassifierBridgeSettings() {
@@ -890,96 +832,6 @@ async function revokeLocalFolder() {
   await renderLocalFolderStatus();
 }
 
-function getConnectionSettings() {
-  const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
-  return sanitizeConnectionSettings(s.connection);
-}
-
-// Persist a partial change to the connection block of globalSettings, then ask
-// the transport layer to apply it. Used by the server toggle / connect buttons.
-async function updateConnectionSettings(patch) {
-  const current = getConnectionSettings();
-  const next = sanitizeConnectionSettings({ ...current, ...patch });
-  state.globalSettings = sanitizeGlobalSettings({
-    ...(state.globalSettings || DEFAULT_GLOBAL_SETTINGS),
-    connection: next
-  });
-  try {
-    await chrome.storage.local.set({ [GLOBAL_SETTINGS_KEY]: state.globalSettings });
-  } catch (_) {}
-  return next;
-}
-
-function connectionStatusLabel(status) {
-  switch (status && status.state) {
-    case "running":
-      return t("connection.statusRunning");
-    case "connected":
-      return t("connection.statusConnected");
-    case "connected-not-listening":
-      return t("connection.statusConnectedNotListening");
-    case "connecting":
-      return t("connection.statusConnecting");
-    case "error":
-      if (!status.error) return t("connection.statusError");
-      return t("connection.statusError") + ": " + ({
-        "protocol-mismatch": t("connection.errorProtocolMismatch"),
-        "handshake-timeout": t("connection.errorSecureConnection"),
-        "socket-error": t("connection.errorSecureConnection")
-      }[status.error] || status.error);
-    case "disconnected":
-      return t("connection.statusDisconnected");
-    default:
-      return t("connection.statusOff");
-  }
-}
-
-function renderConnectionSettings() {
-  if (!connectionSection) return;
-  const conn = getConnectionSettings();
-  const status = state.connectionStatus || {};
-
-  if (connectionServerControls) connectionServerControls.classList.add("hidden");
-  if (connectionClientControls) connectionClientControls.classList.remove("hidden");
-  const connected = status.state === "connected" || status.state === "connecting";
-  if (connectionConnectButton) connectionConnectButton.classList.toggle("hidden", connected);
-  if (connectionDisconnectButton) connectionDisconnectButton.classList.toggle("hidden", !connected);
-
-  const activeState = status.state || "off";
-  if (connectionStatusDot) {
-    connectionStatusDot.className = "connection-dot " + activeState;
-  }
-  if (connectionStatusText) {
-    connectionStatusText.textContent = connectionStatusLabel(status);
-  }
-  if (connectionAddressReadout) {
-    connectionAddressReadout.textContent = status.address || CONNECTION_DEFAULT_ADDRESS;
-  }
-
-  if (connectionPeerList) {
-    connectionPeerList.textContent = "";
-    const peers = Array.isArray(status.peers) ? status.peers : [];
-    if (peers.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "field-help";
-      empty.textContent = t("connection.noPeers");
-      connectionPeerList.appendChild(empty);
-    } else {
-      for (const peer of peers) {
-        const row = document.createElement("div");
-        row.className = "connection-peer";
-        const dot = document.createElement("span");
-        dot.className = "connection-dot " + (peer.connected ? "connected" : "off");
-        const label = document.createElement("span");
-        label.textContent = peer.program || peer.id || "?";
-        row.appendChild(dot);
-        row.appendChild(label);
-        connectionPeerList.appendChild(row);
-      }
-    }
-  }
-}
-
 // The transport layer pushes the live connection status here (native server on
 // macOS via window.__cbConnectionState, background worker in the browser).
 function applyConnectionStatus(raw) {
@@ -993,7 +845,6 @@ function applyConnectionStatus(raw) {
     error: typeof incoming.error === "string" ? incoming.error : "",
     hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
-  if (state.isSettingsOpen) renderConnectionSettings();
   // The per-group panel lives in the editor (always visible), so keep it fresh.
   refreshConnectionGroupPanel();
   if (!wasOnline && bridgeIsOnline()) {
@@ -1606,7 +1457,6 @@ function syncAllClusters() {
 
 function syncSettingsFormFromState() {
   const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
-  renderConnectionSettings();
   if (settingsTickRateField) settingsTickRateField.value = String(s.tickRateMs);
   if (settingsAutosaveDebounceField) settingsAutosaveDebounceField.value = String(s.autosaveDebounceMs);
   if (settingsDebugModeField) settingsDebugModeField.checked = Boolean(s.debugMode);
@@ -1620,7 +1470,6 @@ function openSettings() {
   state.isSettingsOpen = true;
   syncSettingsFormFromState();
   requestConnectionStatus();
-  requestClassifierConnectionStatus();
   loadClassifierBridgeSettings().catch(() => renderClassifierBridgeSettings());
   settingsModal.classList.remove("hidden");
   renderLocalFolderStatus().catch((error) => {
@@ -2209,14 +2058,6 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, parsed));
 }
 
-function sanitizeConnectionSettings(raw) {
-  const src = raw && typeof raw === "object" ? raw : {};
-  return {
-    serverEnabled: false,
-    clientEnabled: src.clientEnabled === true
-  };
-}
-
 function sanitizeGlobalSettings(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
   const tickRateMs = Math.round(
@@ -2245,8 +2086,7 @@ function sanitizeGlobalSettings(raw) {
     debugMode,
     showOnPageLogToasts,
     defaultSnoozeMinutes,
-    defaultFallbackUrl,
-    connection: sanitizeConnectionSettings(src.connection)
+    defaultFallbackUrl
   };
   return out;
 }
@@ -7556,52 +7396,6 @@ if (settingsModal) {
   }
 }
 
-if (connectionConnectButton) {
-  connectionConnectButton.addEventListener("click", async () => {
-    try {
-      await updateConnectionSettings({ clientEnabled: true });
-      chrome.runtime.sendMessage({ type: "connection-connect" });
-      applyConnectionStatus({ ...state.connectionStatus, state: "connecting", error: "" });
-    } catch (_) {}
-  });
-}
-
-if (connectionDisconnectButton) {
-  connectionDisconnectButton.addEventListener("click", () => {
-    updateConnectionSettings({ clientEnabled: false })
-      .then(() => {
-        try {
-          chrome.runtime.sendMessage({ type: "connection-disconnect" });
-        } catch (_) {}
-        applyConnectionStatus({ state: "off" });
-      })
-      .catch(() => {});
-  });
-}
-
-if (classifierConnectionConnectButton) {
-  classifierConnectionConnectButton.addEventListener("click", async () => {
-    try {
-      await classifierBridgeStorageSet({ ...classifierBridgeSettings, connectionEnabled: true });
-      chrome.runtime.sendMessage({ type: "classifier-connection-connect" });
-      applyClassifierConnectionStatus({ ...classifierConnectionStatus, state: "connecting", address: CONNECTION_DEFAULT_ADDRESS, error: "" });
-    } catch (_) {}
-  });
-}
-
-if (classifierConnectionDisconnectButton) {
-  classifierConnectionDisconnectButton.addEventListener("click", () => {
-    classifierBridgeStorageSet({ ...classifierBridgeSettings, connectionEnabled: false })
-      .then(() => {
-        try {
-          chrome.runtime.sendMessage({ type: "classifier-connection-disconnect" });
-        } catch (_) {}
-        applyClassifierConnectionStatus({ state: "off" });
-      })
-      .catch(() => {});
-  });
-}
-
 if (classifierCollectionToggle) {
   classifierCollectionToggle.addEventListener("change", () => {
     classifierBridgeStorageSet({ ...classifierBridgeSettings, collectionEnabled: classifierCollectionToggle.checked }).catch(() => {});
@@ -7972,10 +7766,6 @@ if (chrome.runtime && chrome.runtime.onMessage) {
     }
     if (message.type === "connection-status-push") {
       applyConnectionStatus(message.status);
-      return;
-    }
-    if (message.type === "classifier-connection-status-push") {
-      applyClassifierConnectionStatus(message.status);
       return;
     }
     if (message.type === "clusters-push") {

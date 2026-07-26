@@ -250,7 +250,6 @@ Cài đặt chung áp dụng cho tiện ích mở rộng thay vì một nhóm.
 | URL dự phòng mặc định | về:trống | Được sử dụng khi nhóm chặn không có URL dự phòng dành riêng cho nhóm. |
 | Giúp phân loại người sáng tạo | Tắt | Chọn tham gia rõ ràng. Nó chỉ gửi các id kênh YouTube gặp phải đến dịch vụ phân loại đã định cấu hình; nó không gửi tiêu đề hoặc lịch sử xem. |
 | Thư mục tệp cục bộ | Không có | Khả năng thư mục tùy chọn cho các quy tắc Tùy chỉnh. Xem phần 9. |
-| Cầu ứng dụng web | Tắt | Kết nối tùy chọn với trung tâm Vault cục bộ tương thích. Xem phần 11. |
 
 ### 4.1 Giao diện soạn thảo và bề mặt phản hồi
 
@@ -850,9 +849,9 @@ Không có quy tắc tùy chỉnh nào nhận được API tiện ích mở rộ
 
 ## 11. Cầu nối ứng dụng web
 
-Cây cầu là tùy chọn. Nó kết nối ứng dụng khách mở rộng trình duyệt với trung tâm Vault cục bộ tương thích. Phần mở rộng của trình duyệt là một ứng dụng khách; một ứng dụng Vault gốc cung cấp trung tâm. Điểm cuối cục bộ cố định là ws://127.0.0.1:8787 và cần có khả năng tương thích giao thức.
+Tiện ích trình duyệt tự động bắt đầu kết nối với trung tâm Vault cục bộ tương thích tại ws://127.0.0.1:8787. Không có công tắc kết nối cho người dùng và giao thức phải tương thích.
 
-Các trạng thái kết nối là Tắt, Đang kết nối, Đã ngắt kết nối, Đã kết nối và Lỗi. Khi ứng dụng khách được bật, đầu tiên Vault sẽ thăm dò nhanh chóng, sau đó tiếp tục các nỗ lực kết nối lại chậm hơn cho đến khi kết nối hoặc người dùng tắt nó. Kết nối không tự nó hợp nhất tất cả các nhóm.
+Vault thăm dò nhanh trước rồi tiếp tục thử kết nối lại chậm hơn trong suốt thời gian tiện ích chạy. Truyền tải tự động không tự hợp nhất các nhóm; việc liên kết và hủy liên kết nhóm vẫn là thao tác rõ ràng.
 
 ### 11.1 Liên kết các nhóm
 
@@ -877,7 +876,7 @@ Sử dụng danh sách kiểm tra này khi kiểm tra hành vi phát hành hoặ
 7. Kiểm tra từng bộ đếm thời gian Tùy chỉnh ở ranh giới phạm vi và ở mức 0; xác minh rằng bất kỳ khối nào là rõ ràng trong quy tắc.
 8. Kiểm tra các bảng với từng giá trị điều khiển, trạng thái vô hiệu hóa, hành động gửi/hủy/đóng và trình xử lý panelEvent.
 9. Kiểm tra lỗi thư mục cục bộ trước khi thành công: không có thư mục nào được chọn, quyền bị thu hồi, đường dẫn không hợp lệ, tiện ích mở rộng không được hỗ trợ, sau đó được phép đọc/ghi.
-10. Kiểm tra việc tắt kết nối cầu nối, bật kết nối, nhóm được liên kết/không liên kết và thành viên cụm ngoại tuyến trước khi dựa vào sự phối hợp đồng bộ hóa hoặc đóng băng.
+10. Kiểm tra khởi động truyền tải tự động, nhóm đã liên kết/chưa liên kết và thành viên cụm ngoại tuyến trước khi dựa vào đồng bộ hóa hoặc phối hợp đóng băng.
 
 ## 13. Quy tắc lập phiên bản
 

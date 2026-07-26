@@ -14,7 +14,7 @@ if (start < 0 || end < 0) throw new Error("Could not locate classifier hub.");
 const sent = [];
 const fallbackSockets = [];
 let classifierPresent = true;
-let settingsGate = Promise.resolve();
+let startupGate = Promise.resolve();
 class FakeWebSocket {
   static OPEN = 1;
 
@@ -31,11 +31,10 @@ class FakeWebSocket {
   message(value) { this.onmessage?.({ data: JSON.stringify(value) }); }
 }
 const connection = {
-  primaryStream: "macapp",
   ws: { readyState: FakeWebSocket.OPEN },
   status: { state: "connected" },
   targetIsPresent(target) { return target === "classifier" && classifierPresent; },
-  waitForSettings() { return settingsGate; },
+  waitForStartup() { return startupGate; },
   sendWS(message) { sent.push(message); return true; }
 };
 const context = vm.createContext({
@@ -66,24 +65,22 @@ function assert(name, condition, detail) {
 }
 
 (async () => {
-  // A collector message can wake an MV3 worker before its asynchronous
-  // settings read resolves. It must wait rather than mistaking the initial
-  // primaryStream `none` default for the user's explicit Off choice.
-  let releaseSettings;
-  settingsGate = new Promise((resolve) => { releaseSettings = resolve; });
-  connection.primaryStream = "none";
+  // A collector message can wake an MV3 worker while its automatic transport
+  // is starting. It waits for that startup rather than creating a second
+  // durable socket.
+  let releaseStartup;
+  startupGate = new Promise((resolve) => { releaseStartup = resolve; });
   connection.ws = null;
-  connection.status = { state: "off" };
+  connection.status = { state: "connecting" };
   const startupPending = hub.request("collection-info", {});
   await new Promise((resolve) => setImmediate(resolve));
-  assert("waits for service-worker settings before checking the bridge", sent.length === 0 && fallbackSockets.length === 0, { sent, fallbackSockets });
-  connection.primaryStream = "macapp";
+  assert("waits for automatic service-worker transport startup", sent.length === 0 && fallbackSockets.length === 0, { sent, fallbackSockets });
   connection.ws = { readyState: FakeWebSocket.OPEN };
   connection.status = { state: "connected" };
   classifierPresent = true;
-  releaseSettings();
+  releaseStartup();
   await new Promise((resolve) => setImmediate(resolve));
-  assert("uses the shared relay after service-worker settings resolve", sent.length === 1 && sent[0].kind === "classifier-request", sent);
+  assert("uses the shared relay after automatic transport starts", sent.length === 1 && sent[0].kind === "classifier-request", sent);
   hub.receive({
     kind: "classifier-response",
     requestID: "classifier-test",
@@ -91,12 +88,12 @@ function assert(name, condition, detail) {
     body: { enabledPlatformIDs: ["youtube"] }
   });
   const startupResponse = await startupPending;
-  assert("accepts the post-settings relay response", startupResponse.enabledPlatformIDs?.[0] === "youtube", startupResponse);
+  assert("accepts the post-startup relay response", startupResponse.enabledPlatformIDs?.[0] === "youtube", startupResponse);
 
   const pending = hub.request("collection-info", {});
   await new Promise((resolve) => setImmediate(resolve));
   assert(
-    "relays a Classifier request while Mac Vault is the primary stream",
+    "relays a Classifier request while Mac Vault hosts the shared socket",
     sent.length === 2 && sent.at(-1).kind === "classifier-request" && sent.at(-1).operation === "collection-info",
     sent
   );
@@ -107,7 +104,7 @@ function assert(name, condition, detail) {
     body: { enabledPlatformIDs: ["youtube"] }
   });
   const response = await pending;
-  assert("accepts the matching relay response regardless of primary stream", response.enabledPlatformIDs?.[0] === "youtube", response);
+  assert("accepts the matching shared relay response", response.enabledPlatformIDs?.[0] === "youtube", response);
 
   const tagPending = hub.request("source-tags", {
     platformID: "youtube",

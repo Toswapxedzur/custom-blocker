@@ -250,7 +250,6 @@ Les paramètres globaux s'appliquent à l'extension plutôt qu'à un groupe.
 | URL de secours par défaut | à propos de:vierge | Utilisé lorsqu'un groupe bloquant n'a pas d'URL de secours spécifique au groupe. |
 | Aidez à classer les créateurs | Désactivé | Opt-in explicite. Il envoie les identifiants de chaîne YouTube rencontrés uniquement au service de classification configuré ; il n'envoie pas de titres ni d'historique de surveillance. |
 | Dossier de fichiers local | Aucun | Capacité de dossier facultative pour les règles personnalisées. Voir le point 9. |
-| Pont d'application Web | Désactivé | Connexion facultative à un hub Vault local compatible. Voir l'article 11. |
 
 ### 4.1 Interface de l'éditeur et surfaces de commentaires
 
@@ -850,9 +849,9 @@ Aucune règle personnalisée ne reçoit d'API d'extension sans restriction. En p
 
 ## 11. Pont d'application Web
 
-Le pont est facultatif. Il connecte un client d'extension de navigateur à un hub Vault local compatible. L'extension du navigateur est un client ; une application Vault native fournit le hub. Le point de terminaison local fixe est ws://127.0.0.1:8787 et la compatibilité des protocoles est requise.
+L’extension de navigateur démarre automatiquement sa connexion au hub Vault local compatible sur ws://127.0.0.1:8787. Il n’existe aucun interrupteur de connexion utilisateur et la compatibilité du protocole est requise.
 
-Les états de connexion sont Désactivé, En cours de connexion, Déconnecté, Connecté et Erreur. Une fois le client activé, Vault sonde d'abord rapidement, puis poursuit ses tentatives de reconnexion plus lentes jusqu'à ce qu'il se connecte ou que l'utilisateur le désactive. La connexion ne fusionne pas en elle-même tous les groupes.
+Vault effectue d’abord des sondes rapides, puis poursuit des tentatives de reconnexion plus lentes tant que l’extension fonctionne. Le transport automatique ne fusionne pas les groupes ; leur liaison et leur séparation restent explicites.
 
 ### 11.1 Lier des groupes
 
@@ -877,7 +876,7 @@ Utilisez cette liste de contrôle lors de l'audit d'une version ou de la reprodu
 7. Testez chaque minuterie personnalisée aux limites de la portée et à zéro ; vérifiez que tout bloc est explicite dans la règle.
 8. Testez les panneaux avec chaque valeur de contrôle, état désactivé, action de soumission/annulation/fermeture et gestionnaire panelEvent.
 9. Testez l'échec du dossier local avant de réussir : aucun dossier sélectionné, autorisation révoquée, chemin invalide, extension non prise en charge, puis lecture/écriture autorisée.
-10. Testez la connexion du pont, la connexion, le groupe lié/non lié et un membre du cluster hors ligne avant de vous fier à la synchronisation ou au gel de la coordination.
+10. Testez le démarrage automatique du transport, les groupes liés/non liés et un membre de cluster hors ligne avant de compter sur la synchronisation ou la coordination du gel.
 
 ## 13. Règle de gestion des versions
 
