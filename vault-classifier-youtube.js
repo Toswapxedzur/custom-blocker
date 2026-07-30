@@ -204,7 +204,6 @@
       "ytd-video-owner-renderer a[href*='/channel/UC']",
       "a[href*='/channel/UC']"
     ], /\/channel\/(UC[0-9A-Za-z_-]{22})(?:[/?#]|$)/, (match) => `youtube:channel:${match[1]}`);
-    if (channel) return channel;
     const handle = matchLink([
       "#channel-name a[href]",
       "ytd-channel-name a[href]",
@@ -213,8 +212,16 @@
       "a[href^='/@']",
       "a[href*='youtube.com/@']"
     ], /\/(\@[^/?#]+)/, (match) => `youtube:handle:${match[1].toLowerCase()}`);
-    if (handle) return handle;
-    return { id: null, name: fallbackName(), url: null };
+    const primary = channel || handle;
+    if (!primary) return { id: null, name: fallbackName(), url: null, aliases: [] };
+    // The same owner exposes both a channel/UC and an @handle link. Record the
+    // non-primary form as an alias so the native side can union a creator's
+    // identity forms and resolve its tags no matter which surface is viewed.
+    const aliases = [];
+    if (channel && handle && channel.id !== handle.id) {
+      aliases.push(primary === channel ? handle.id : channel.id);
+    }
+    return { ...primary, aliases };
   }
 
   function creatorURL(value) {
@@ -342,6 +349,7 @@
       platform: "youtube",
       entryID,
       sourceID: source.id,
+      sourceAliases: source.aliases || [],
       surface: "feed",
       evidence: {
         title,
@@ -419,6 +427,7 @@
       platform: PLATFORM,
       entryID: `youtube:video:${videoID}`,
       sourceID: source.id,
+      sourceAliases: source.aliases || [],
       surface: "page",
       evidence: {
         title,
@@ -501,16 +510,19 @@
     const entry = feedEvidence(card);
     if (!entry) return;
     const source = findSource(card);
+    // Anchor the pills right after the video title so they read as a list
+    // following the title; fall back to the creator link if no title element.
+    const titleElement = selectorElement(card, ["#video-title", "a#video-title-link", "a#video-title", "h3 a", "#content-text", "#content #content-text"]);
     TagUI?.observe?.({
       platform: PLATFORM,
       sourceID: entry.sourceID,
       root: card,
-      anchor: source.link || null
+      anchor: titleElement || source.link || null
     });
     void collectEntry(entry);
   }
 
-  function collectPage() {
+  async function collectPage() {
     if (!collectionEnabled) return;
     const entry = watchEvidence();
     if (!entry) {
@@ -523,13 +535,18 @@
       || document.querySelector("#above-the-fold")
       || document.querySelector("ytd-shorts");
     const source = watchRoot ? findSource(watchRoot) : null;
+    const titleElement = watchRoot ? selectorElement(watchRoot, ["h1.ytd-watch-metadata", "h1", "h2", ".title"]) : null;
+    // A watch page's primary source ID is often the channel/UC form, while the
+    // creator was classified from a feed under its @handle. Collect first so the
+    // handle<->channel alias is stored, then request tags — so the pill resolves
+    // on the very first visit rather than only after a later collection.
+    await collectEntry(entry);
     TagUI?.observe?.({
       platform: PLATFORM,
       sourceID: entry.sourceID,
       root: watchRoot || document.documentElement,
-      anchor: source?.link || null
+      anchor: titleElement || source?.link || null
     });
-    void collectEntry(entry);
   }
 
   function scheduleScan(delay = 250) {
@@ -549,7 +566,7 @@
     if (pageTimer) return;
     pageTimer = setTimeout(() => {
       pageTimer = null;
-      collectPage();
+      void collectPage();
     }, 450);
   }
 
