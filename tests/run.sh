@@ -48,6 +48,12 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'vault-classifier-youtube-collector' FAILED" >&2
   failed=1
 fi
+node_out=$(node tests/runner-vault-classifier-youtube-alias.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-youtube-alias' FAILED" >&2
+  failed=1
+fi
 node_out=$(node tests/runner-vault-classifier-generic-collector.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then

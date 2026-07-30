@@ -146,7 +146,7 @@ setTimeout(() => {
     && debugLogs.includes("[VaultClassifier:source-icon] source-ready")
     && debugLogs.includes("[VaultClassifier:source-icon] enrichment-requested")
     && debugLogs.includes("[VaultClassifier:source-icon] delivery-accepted")
-    && tagPresentations.some((value) => value.root === feedCard && value.sourceID === "youtube:handle:@visiblecreator" && value.anchor === creator)
+    && tagPresentations.some((value) => value.root === feedCard && value.sourceID === "youtube:handle:@visiblecreator" && value.anchor === title)
     && debugLogs.every((entry) => !/Visible Creator|dQw4w9WgXcQ|yt3\.ggpht\.com/.test(entry))
     && errors.length === 0);
   if (passes) {

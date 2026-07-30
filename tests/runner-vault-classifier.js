@@ -57,6 +57,14 @@ const valid = VC.normalizeEvidence({
   platform: "youtube",
   entryID: "youtube:video:abcdefghijk",
   sourceID: "youtube:channel:UC123",
+  sourceAliases: [
+    "youtube:handle:@abc",       // kept: same-platform alternate identity
+    "youtube:handle:@abc",       // dropped: duplicate
+    "youtube:channel:UC123",     // dropped: equals the primary sourceID
+    "reddit:subreddit:cats",     // dropped: different platform
+    "",                          // dropped: empty
+    12345                         // dropped: non-string
+  ],
   surface: "feed",
   evidence: {
     title: "  Clash   Royale deck gameplay  ",
@@ -68,6 +76,10 @@ const valid = VC.normalizeEvidence({
 assert("normalizes compact bounded entry evidence", valid && valid.evidence.title === "Clash Royale deck gameplay");
 assert("deduplicates creator-provided tags", valid && JSON.stringify(valid.evidence.suppliedTags) === JSON.stringify(["clash royale", "guide"]));
 assert("drops non-scalar metadata", valid && valid.evidence.metadata.ignored === undefined);
+assert("keeps only same-platform aliases distinct from the primary source",
+  valid && JSON.stringify(valid.sourceAliases) === JSON.stringify(["youtube:handle:@abc"]));
+assert("carries source aliases through native-transport fitting",
+  (() => { const fitted = VC.fitEntryForNativeTransport(valid); return fitted && JSON.stringify(fitted.sourceAliases) === JSON.stringify(["youtube:handle:@abc"]); })());
 assert("does not coerce object IDs into evidence", VC.normalizeEvidence({
   platform: "youtube",
   entryID: { forged: true },

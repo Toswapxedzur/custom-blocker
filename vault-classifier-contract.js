@@ -25,7 +25,8 @@
     resultTags: 512,
     resultDecisions: 128,
     resultExplanation: 512,
-    sourceTags: 64
+    sourceTags: 64,
+    sourceAliases: 8
   });
 
   const ACTION_ORDER = Object.freeze({ allow: 0, dim: 1, block: 2 });
@@ -105,6 +106,25 @@
     return `${prefix}-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
   }
 
+  // Other identity forms of the same source, each scoped to the platform and
+  // distinct from the primary sourceID. The app unions these to link a
+  // creator's forms; hostile or malformed values are dropped here and re-checked
+  // by the app.
+  function cleanSourceAliases(value, platform, sourceID) {
+    if (!Array.isArray(value) || !platform) return [];
+    const seen = new Set();
+    const output = [];
+    for (const candidate of value) {
+      const alias = cleanText(candidate, MAX.id);
+      if (!alias || alias === sourceID || seen.has(alias)) continue;
+      if (!alias.startsWith(`${platform}:`)) continue;
+      seen.add(alias);
+      output.push(alias);
+      if (output.length >= MAX.sourceAliases) break;
+    }
+    return output;
+  }
+
   function normalizeEvidence(raw) {
     if (!raw || typeof raw !== "object") return null;
     const platform = cleanText(raw.platform, MAX.platform);
@@ -116,12 +136,14 @@
     if (!platform || !surface || (!title && !text && !summary && suppliedTags.length === 0)) return null;
     const entryID = cleanOptional(raw.entryID, MAX.id);
     const sourceID = cleanOptional(raw.sourceID, MAX.id);
+    const sourceAliases = cleanSourceAliases(raw.sourceAliases, platform, sourceID);
     const policies = cleanTags(raw.policyIDs).filter((policy) => policy.length <= MAX.policy);
     return {
       requestID: cleanOptional(raw.requestID, MAX.id) || randomID("vault"),
       platform,
       entryID,
       sourceID,
+      sourceAliases,
       surface,
       evidence: {
         title,
@@ -219,6 +241,7 @@
       platform: entry.platform,
       entryID: entry.entryID,
       sourceID: entry.sourceID,
+      sourceAliases: Array.isArray(entry.sourceAliases) ? entry.sourceAliases.slice(0, MAX.sourceAliases) : [],
       surface: entry.surface,
       evidence: {
         title: entry.evidence.title,
