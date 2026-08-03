@@ -97,13 +97,14 @@
     batchTimer = null;
     const entries = [...pendingBatch.values()];
     pendingBatch.clear();
-    if (!entries.length || !global.chrome?.runtime?.sendMessage || !C?.normalizeSourceTagsBatchResponse) return;
+    if (!entries.length || !global.chrome?.runtime?.sendMessage) return;
     const platform = entries[0].platform;
     const items = [];
     const resolvers = new Map();
     for (const entry of entries) {
       const key = boundedIdentity(entry.platform, entry.sourceID);
       if (!key) continue;
+      entry.key = key;
       items.push((entry.creatorNames && entry.creatorNames.length)
         ? { sourceID: entry.sourceID, creatorNames: entry.creatorNames }
         : { sourceID: entry.sourceID });
@@ -114,24 +115,41 @@
       }));
       sourceCache.set(key, { tags: sourceCache.get(key)?.tags || [], expiresAt: 0, pending });
     }
-    const settle = (results) => {
+    const deliver = (entry, tags) => {
+      const resolve = resolvers.get(entry.key);
+      if (resolve) resolve(tags);
+      for (const state of entry.states) render(state, tags);
+    };
+    // A stale service worker (or old contract) may not know the batch op; resolve
+    // each creator with a single request, which every build handles. Keeps pills
+    // working across a partial reload rather than silently blanking them.
+    const runFallback = () => {
       for (const entry of entries) {
-        const key = boundedIdentity(entry.platform, entry.sourceID);
-        const tags = (results && results.get(entry.sourceID)) || [];
-        const resolve = resolvers.get(key);
-        if (resolve) resolve(tags);
-        for (const state of entry.states) render(state, tags);
+        if (!entry.key) continue;
+        const message = { type: "vault-classifier-source-tags", platform: entry.platform, sourceID: entry.sourceID };
+        if (entry.creatorNames && entry.creatorNames.length) message.creatorNames = entry.creatorNames;
+        try {
+          chrome.runtime.sendMessage(message, (response) => {
+            const tags = (!chrome.runtime.lastError && response?.ok === true)
+              ? (C.normalizeSourceTagsResponse?.(response, entry.platform, entry.sourceID)?.tags || [])
+              : [];
+            deliver(entry, tags);
+          });
+        } catch (_) { deliver(entry, []); }
       }
       prune();
     };
+    if (!C?.normalizeSourceTagsBatchResponse) { runFallback(); return; }
     try {
       chrome.runtime.sendMessage({ type: "vault-classifier-source-tags-batch", platform, items }, (response) => {
-        if (chrome.runtime.lastError || response?.ok !== true) return settle(null);
+        if (chrome.runtime.lastError || response?.ok !== true) return runFallback();
         const normalized = C.normalizeSourceTagsBatchResponse(response, platform);
-        settle(normalized ? normalized.results : null);
+        if (!normalized) return runFallback();
+        for (const entry of entries) if (entry.key) deliver(entry, normalized.results.get(entry.sourceID) || []);
+        prune();
       });
     } catch (_) {
-      settle(null);
+      runFallback();
     }
   }
 
