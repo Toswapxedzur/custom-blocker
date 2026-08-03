@@ -66,24 +66,30 @@ class FakeElement {
   }
 }
 
+class FakeMutationObserver {
+  constructor(callback) { this.callback = callback; FakeMutationObserver.instances.push(this); }
+  observe() {}
+  disconnect() {}
+  static emit(records) { FakeMutationObserver.instances.forEach((observer) => observer.callback(records)); }
+}
+FakeMutationObserver.instances = [];
+
 const document = {
   createElement(tagName) { return new FakeElement(tagName, document); }
 };
+document.documentElement = new FakeElement("html", document);
 
 const chrome = {
   runtime: {
     lastError: null,
     sendMessage(message, callback) {
       messages.push(message);
-      const response = {
-        ok: true,
-        platformID: message.platform,
-        sourceID: message.sourceID,
-        tags: [
-          { id: "games", name: "Games", lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" },
-          { id: "technology", name: "Technology", lightColorHex: "#E3B4E7", darkColorHex: "#6B246F" }
-        ]
-      };
+      const tags = [
+        { id: "games", name: "Games", lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" },
+        { id: "technology", name: "Technology", lightColorHex: "#E3B4E7", darkColorHex: "#6B246F" }
+      ];
+      const items = Array.isArray(message.items) ? message.items : [];
+      const response = { ok: true, platformID: message.platform, results: items.map((item) => ({ sourceID: item.sourceID, tags })) };
       setTimeout(() => {
         context.__tagResponse = JSON.stringify(response);
         callback(vm.runInContext("JSON.parse(__tagResponse)", context));
@@ -100,7 +106,8 @@ context = vm.createContext({
   clearTimeout,
   Date,
   TextEncoder,
-  URL
+  URL,
+  MutationObserver: FakeMutationObserver
 });
 context.window = context;
 context.self = context;
@@ -137,8 +144,10 @@ setTimeout(() => {
     && firstHost.children.length === 0
     && !Object.values(firstHost.style).join(" ").includes("Games");
   const coalesced = messages.length === 1
-    && messages[0].type === "vault-classifier-source-tags"
-    && messages[0].sourceID === sourceID;
+    && messages[0].type === "vault-classifier-source-tags-batch"
+    && Array.isArray(messages[0].items)
+    && messages[0].items.length === 1
+    && messages[0].items[0].sourceID === sourceID;
   const renderedEveryEntry = JSON.stringify(firstNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(secondNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(firstLightColors) === JSON.stringify(["#9EC5E8", "#E3B4E7"])
@@ -152,24 +161,32 @@ setTimeout(() => {
     && pillStyle.includes("background:var(--vault-tag-color-dark)")
     && pillStyle.includes("color:#fff");
 
+  const firstRenderOK = coalesced && renderedEveryEntry && genericHostIsPrivate;
+
+  // Reattach regression: the page detaches our host as it re-renders/recycles a
+  // row. The reattach observer must re-mount it immediately from cache — not
+  // wait for a scan — with the chips repopulated (not an empty host).
+  const detachedHost = firstHost;
+  detachedHost.remove();
+  FakeMutationObserver.emit([{ removedNodes: [detachedHost] }]);
+  const remountedHost = firstRoot.children[firstRoot.children.length - 1];
+  const remountedShadow = closedShadows.get(remountedHost);
+  const remountedNames = remountedShadow?.children?.[1]?.children?.map((chip) => chip.textContent);
+  const reattached = remountedHost !== detachedHost
+    && JSON.stringify(remountedNames) === JSON.stringify(["Games", "Technology"]);
+
   context.VaultClassifierTagUI.clearPlatform("youtube");
   const cleared = firstRoot.children.length === 1 && secondRoot.children.length === 1;
-  if (coalesced && renderedEveryEntry && genericHostIsPrivate && cleared) {
-    console.log("PASS coalesces source lookups and renders private closed-shadow tags on every entry");
+
+  if (firstRenderOK && reattached && cleared) {
+    console.log("PASS coalesces lookups, renders closed-shadow tags, and reattaches a detached pill");
     console.log("__CB_TEST_RESULT__: OK");
     return;
   }
   console.error("FAIL source tag presenter", {
-    messages,
-    firstNames,
-    secondNames,
-    firstLightColors,
-    secondLightColors,
-    firstDarkColors,
-    secondDarkColors,
-    pillStyle,
-    genericHostIsPrivate,
-    cleared
+    messages, firstNames, secondNames, firstLightColors, secondLightColors,
+    firstDarkColors, secondDarkColors, pillStyle, genericHostIsPrivate,
+    remountedNames, reattached, cleared
   });
   console.log("__CB_TEST_RESULT__: FAIL");
   process.exitCode = 1;

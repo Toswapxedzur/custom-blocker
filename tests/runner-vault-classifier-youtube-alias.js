@@ -41,10 +41,26 @@ const cardQueryAll = {
 };
 const card = element({ query: { "#video-title": title }, queryAll: cardQueryAll });
 
+// A card with an inferable creator and a title but no collectable video link:
+// it must still get a tag pill even though it is not a collectable entry.
+const creatorOnlyTitle = element({ text: "A creator-only lockup" });
+const creatorOnlyHandle = element({ href: "/@CreatorOnly", text: "Creator Only" });
+const creatorOnlyCard = element({
+  query: { "#video-title": creatorOnlyTitle },
+  queryAll: {
+    'a#thumbnail[href], a#video-title-link[href], a[href*="watch?v="], a[href*="/shorts/"]': [],
+    "#metadata-line span": [],
+    "a[href^='/@']": [creatorOnlyHandle],
+    "a[href]": [creatorOnlyHandle],
+    "#channel-name #text": [],
+    "yt-lockup-metadata-view-model yt-avatar-shape img": []
+  }
+});
+
 const document = {
   documentElement: {},
   querySelector() { return null; },
-  querySelectorAll() { return [card]; },
+  querySelectorAll() { return [card, creatorOnlyCard]; },
   addEventListener() {}
 };
 
@@ -93,10 +109,14 @@ setTimeout(() => {
     && entry.sourceAliases[0] === "youtube:handle:@visiblecreator"
     // The tag lookup is requested under that same primary identity.
     && observed && observed.sourceID === "youtube:channel:UCabcdefghijklmnopqrstuv"
+    // Only the card with a video link is collected; the creator-only card is not.
+    && collected.length === 1
+    // But the creator-only card still gets a tag pill (creator inferred).
+    && tagPresentations.some((value) => value.sourceID === "youtube:handle:@creatoronly")
     && errors.length === 0
   );
   if (passes) {
-    console.log("PASS records the creator's channel and @handle forms together as aliases");
+    console.log("PASS records aliases and renders tags for any card with an inferable creator");
     console.log("__CB_TEST_RESULT__: OK");
     return;
   }

@@ -54,6 +54,36 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'vault-classifier-youtube-alias' FAILED" >&2
   failed=1
 fi
+node_out=$(node tests/runner-vault-classifier-youtube-channel-page.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-youtube-channel-page' FAILED" >&2
+  failed=1
+fi
+node_out=$(node tests/runner-vault-classifier-youtube-hydration.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-youtube-hydration' FAILED" >&2
+  failed=1
+fi
+node_out=$(node tests/runner-vault-classifier-youtube-nested.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-youtube-nested' FAILED" >&2
+  failed=1
+fi
+node_out=$(node tests/runner-vault-classifier-youtube-collab.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-youtube-collab' FAILED" >&2
+  failed=1
+fi
+node_out=$(node tests/runner-vault-classifier-youtube-yorder.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-youtube-yorder' FAILED" >&2
+  failed=1
+fi
 node_out=$(node tests/runner-vault-classifier-generic-collector.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
@@ -82,6 +112,12 @@ node_out=$(node tests/runner-vault-classifier-tag-ui.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'vault-classifier-tag-ui' FAILED" >&2
+  failed=1
+fi
+node_out=$(node tests/runner-vault-classifier-tag-ui-batch.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-tag-ui-batch' FAILED" >&2
   failed=1
 fi
 node_out=$(node tests/runner-local-hub-target-status.js 2>&1) || failed=1

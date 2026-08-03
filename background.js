@@ -4016,8 +4016,14 @@ const CB_CLASSIFIER_HUB_MAX_PENDING = 16;
 const CB_CLASSIFIER_HUB_TIMEOUT_MS = 32_000;
 const CB_CLASSIFIER_HUB_CONNECT_WAIT_MS = 5_000;
 const CB_CLASSIFIER_HUB_MAX_FALLBACK_REQUESTS = 4;
+// The cap bounds CONCURRENCY (in-flight requests), not total work. Overflow waits
+// in this bounded queue for a free slot instead of being dropped, so a dense feed
+// never loses a request. The queue bound is a far higher backstop against a true
+// runaway; normal feeds sit well under it.
+const CB_CLASSIFIER_HUB_MAX_QUEUE = 512;
 const cbClassifierHub = {
   pending: new Map(),
+  waitQueue: [],
   fallbackRequests: 0,
 
   recordTransport(stage, outcome = "extension") {
@@ -4085,26 +4091,44 @@ const cbClassifierHub = {
   },
 
   requestOnSharedSocket(connection, operation, body) {
-    if (this.pending.size >= CB_CLASSIFIER_HUB_MAX_PENDING) {
-      return Promise.reject(new Error("Vault Classifier is busy."));
-    }
-    const requestID = self.VaultClassifierExtensionContract.randomID("classifier");
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const pending = this.pending.get(requestID);
-        if (!pending) return;
-        this.pending.delete(requestID);
-        this.recordTransport("durable-timeout", "unavailable");
-        reject(new Error("Vault Classifier request timed out."));
-      }, CB_CLASSIFIER_HUB_TIMEOUT_MS);
-      this.pending.set(requestID, { operation, resolve, reject, timer });
-      if (!connection || typeof connection.sendWS !== "function" || !connection.sendWS({ kind: "classifier-request", requestID, operation, body })) {
-        clearTimeout(timer);
-        this.pending.delete(requestID);
-        this.recordTransport("durable-send-failed", "unavailable");
-        reject(new Error("The Vault Classifier bridge is unavailable."));
+      const job = { connection, operation, body, resolve, reject };
+      if (this.pending.size < CB_CLASSIFIER_HUB_MAX_PENDING) {
+        this.dispatchClassifierJob(job);
+      } else if (this.waitQueue.length < CB_CLASSIFIER_HUB_MAX_QUEUE) {
+        this.waitQueue.push(job);
+      } else {
+        reject(new Error("Vault Classifier is busy."));
       }
     });
+  },
+
+  dispatchClassifierJob(job) {
+    const { connection, operation, body, resolve, reject } = job;
+    const requestID = self.VaultClassifierExtensionContract.randomID("classifier");
+    const timer = setTimeout(() => {
+      if (!this.pending.has(requestID)) return;
+      this.pending.delete(requestID);
+      this.recordTransport("durable-timeout", "unavailable");
+      reject(new Error("Vault Classifier request timed out."));
+      this.drainWaitQueue();
+    }, CB_CLASSIFIER_HUB_TIMEOUT_MS);
+    this.pending.set(requestID, { operation, resolve, reject, timer });
+    if (!connection || typeof connection.sendWS !== "function" || !connection.sendWS({ kind: "classifier-request", requestID, operation, body })) {
+      clearTimeout(timer);
+      this.pending.delete(requestID);
+      this.recordTransport("durable-send-failed", "unavailable");
+      reject(new Error("The Vault Classifier bridge is unavailable."));
+      this.drainWaitQueue();
+    }
+  },
+
+  // A slot just freed (a response arrived, or a send failed/timed out): dispatch
+  // as many queued requests as the concurrency cap now allows.
+  drainWaitQueue() {
+    while (this.pending.size < CB_CLASSIFIER_HUB_MAX_PENDING && this.waitQueue.length > 0) {
+      this.dispatchClassifierJob(this.waitQueue.shift());
+    }
   },
 
   requestViaFallbackSocket(operation, body) {
@@ -4203,7 +4227,7 @@ const cbClassifierHub = {
   },
 
   request(operation, body) {
-    if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "diagnostic" && operation !== "collect" && operation !== "source-tags" && operation !== "classify" && operation !== "correct") {
+    if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "diagnostic" && operation !== "collect" && operation !== "source-tags" && operation !== "source-tags-batch" && operation !== "classify" && operation !== "correct") {
       return Promise.reject(new Error("Unsupported Vault Classifier operation."));
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -4246,6 +4270,7 @@ const cbClassifierHub = {
     } catch (error) {
       pending.reject(error);
     }
+    this.drainWaitQueue();
   },
 
   rejectAll(reason) {
@@ -4255,9 +4280,59 @@ const cbClassifierHub = {
       pending.reject(error);
     }
     this.pending.clear();
+    const queued = this.waitQueue.splice(0);
+    for (const job of queued) job.reject(error);
   }
 };
 self.CBClassifierHub = cbClassifierHub;
+
+// ── DEBUG: measure classifier-bridge round-trip latency ──────────────────────
+// Run from the extension's service-worker console
+// (chrome://extensions → "Inspect views: service worker"):
+//   await CBVaultMeasureBridge()                       // ~pure connection (bridge-info)
+//   await CBVaultMeasureBridge({ op: "source-tags" })  // connection + pill compute
+// The delta between the two medians ≈ app-side compute. `coldFirstMs` is the
+// cold path (connect + hello/welcome handshake) only when `warmAtStart` is false.
+async function cbMeasureBridge({ op = "bridge-info", count = 20, gapMs = 50, body } = {}) {
+  const requestBody = body || (op === "source-tags"
+    ? { platformID: "youtube", sourceID: "youtube:handle:@__probe__" }
+    : {});
+  const warmAtStart = cbClassifierHub.isReady(cbConnection);
+  const round2 = (value) => Math.round(value * 100) / 100;
+  const samples = [];
+  for (let i = 0; i < count; i += 1) {
+    const started = performance.now();
+    let ok = true;
+    let error = null;
+    try {
+      await cbClassifierHub.request(op, requestBody);
+    } catch (thrown) {
+      ok = false;
+      error = String((thrown && thrown.message) || thrown);
+    }
+    samples.push({ i, ms: round2(performance.now() - started), ok, error });
+    if (gapMs > 0 && i < count - 1) await new Promise((resolve) => setTimeout(resolve, gapMs));
+  }
+  // Exclude the first sample from the warm stats: it carries any connect cost.
+  const warm = samples.slice(1).filter((sample) => sample.ok).map((sample) => sample.ms).sort((a, b) => a - b);
+  const at = (p) => (warm.length ? warm[Math.min(warm.length - 1, Math.floor(p * warm.length))] : null);
+  const summary = {
+    op,
+    count,
+    warmAtStart,
+    failed: samples.filter((sample) => !sample.ok).length,
+    coldFirstMs: samples[0] ? samples[0].ms : null,
+    warmMin: warm[0] ?? null,
+    warmMedian: at(0.5),
+    warmP95: at(0.95),
+    warmMax: warm[warm.length - 1] ?? null,
+    warmMean: warm.length ? round2(warm.reduce((a, b) => a + b, 0) / warm.length) : null
+  };
+  console.table(samples);
+  console.log(`[CBVaultMeasureBridge] ${op}`, summary);
+  return summary;
+}
+self.CBVaultMeasureBridge = cbMeasureBridge;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== "string") return false;

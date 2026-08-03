@@ -11,11 +11,15 @@ const errors = [];
 const debugLogs = [];
 const tagPresentations = [];
 
-function element({ href = null, text = "", matches = false, attrs = {}, query = {}, queryAll = {}, closest = {} } = {}) {
+function element({ href = null, text = "", matchTags = [], attrs = {}, query = {}, queryAll = {}, closest = {}, parentElement = null } = {}) {
   return {
+    nodeType: 1,
+    parentElement,
     textContent: text,
     getAttribute(name) { return name === "href" ? href : (attrs[name] || null); },
-    matches() { return matches; },
+    // Selector-aware: a card element "matches" CARD_SELECTOR because that joined
+    // selector string contains the element's renderer tag.
+    matches(selector) { return typeof selector === "string" && matchTags.some((tag) => selector.indexOf(tag) !== -1); },
     closest(selector) { return closest[selector] || null; },
     querySelector(selector) { return query[selector] || null; },
     querySelectorAll(selector) { return queryAll[selector] || []; }
@@ -55,9 +59,13 @@ const feedCardQueryAll = {
   "yt-lockup-metadata-view-model yt-avatar-shape img": []
 };
 const feedCard = element({
+  matchTags: ["ytd-video-renderer"],
   query: { "#video-title": title },
   queryAll: feedCardQueryAll
 });
+// The late-arriving avatar image lives inside the card; a src mutation on it
+// must resolve (via closestCard) back to the card so only that card re-collects.
+creatorImage.parentElement = feedCard;
 
 const document = {
   documentElement: {},
@@ -126,7 +134,7 @@ setTimeout(() => {
   // YouTube's current feed DOM supplies a non-link avatar shape in the same
   // metadata component as the verified creator handle.
   feedCardQueryAll["yt-lockup-metadata-view-model yt-avatar-shape img"] = [otherCreatorImage, creatorImage];
-  mutationObservers.forEach((callback) => callback([{ type: "attributes", attributeName: "src" }]));
+  mutationObservers.forEach((callback) => callback([{ type: "attributes", attributeName: "src", target: creatorImage }]));
 }, 350);
 
 setTimeout(() => {
