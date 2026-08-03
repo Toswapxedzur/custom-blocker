@@ -76,81 +76,41 @@
     }
   }
 
-  // Cache misses are collected across the current tick — which coincides with the
-  // collector's Y-ordered flush burst — and resolved in ONE batched request, so a
-  // whole screenful of creators costs a single hub slot instead of one per card.
-  const pendingBatch = new Map();
-  let batchTimer = null;
-
-  function enqueueBatch(state, creatorNames) {
-    let entry = pendingBatch.get(state.key);
-    if (!entry) {
-      entry = { platform: state.platform, sourceID: state.sourceID, creatorNames: creatorNames || null, states: new Set() };
-      pendingBatch.set(state.key, entry);
+  function request(platform, sourceID, creatorNames = null) {
+    const key = boundedIdentity(platform, sourceID);
+    if (!key || !C?.normalizeSourceTagsResponse || !global.chrome?.runtime?.sendMessage) {
+      return Promise.resolve(null);
     }
-    if (Array.isArray(creatorNames) && creatorNames.length) entry.creatorNames = creatorNames;
-    entry.states.add(state);
-    if (!batchTimer) batchTimer = setTimeout(drainBatch, 0);
-  }
+    prune();
+    const cached = sourceCache.get(key);
+    if (cached?.pending) return cached.pending;
+    if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.tags);
 
-  function drainBatch() {
-    batchTimer = null;
-    const entries = [...pendingBatch.values()];
-    pendingBatch.clear();
-    if (!entries.length || !global.chrome?.runtime?.sendMessage) return;
-    const platform = entries[0].platform;
-    const items = [];
-    const resolvers = new Map();
-    for (const entry of entries) {
-      const key = boundedIdentity(entry.platform, entry.sourceID);
-      if (!key) continue;
-      entry.key = key;
-      items.push((entry.creatorNames && entry.creatorNames.length)
-        ? { sourceID: entry.sourceID, creatorNames: entry.creatorNames }
-        : { sourceID: entry.sourceID });
-      // Mark each key pending so observes arriving before the response coalesce.
-      const pending = new Promise((resolve) => resolvers.set(key, resolve));
-      pending.then((tags) => sourceCache.set(key, {
-        tags: Array.isArray(tags) ? tags : [], expiresAt: Date.now() + CACHE_TTL_MS, pending: null
-      }));
-      sourceCache.set(key, { tags: sourceCache.get(key)?.tags || [], expiresAt: 0, pending });
-    }
-    const deliver = (entry, tags) => {
-      const resolve = resolvers.get(entry.key);
-      if (resolve) resolve(tags);
-      for (const state of entry.states) render(state, tags);
-    };
-    // A stale service worker (or old contract) may not know the batch op; resolve
-    // each creator with a single request, which every build handles. Keeps pills
-    // working across a partial reload rather than silently blanking them.
-    const runFallback = () => {
-      for (const entry of entries) {
-        if (!entry.key) continue;
-        const message = { type: "vault-classifier-source-tags", platform: entry.platform, sourceID: entry.sourceID };
-        if (entry.creatorNames && entry.creatorNames.length) message.creatorNames = entry.creatorNames;
-        try {
-          chrome.runtime.sendMessage(message, (response) => {
-            const tags = (!chrome.runtime.lastError && response?.ok === true)
-              ? (C.normalizeSourceTagsResponse?.(response, entry.platform, entry.sourceID)?.tags || [])
-              : [];
-            deliver(entry, tags);
-          });
-        } catch (_) { deliver(entry, []); }
+    const message = { type: "vault-classifier-source-tags", platform, sourceID };
+    // Collaboration cards expose no creator link; forward the byline names so the
+    // native side can match them to an approved classification by name.
+    if (Array.isArray(creatorNames) && creatorNames.length) message.creatorNames = creatorNames;
+    const pending = new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(message, (response) => {
+          if (chrome.runtime.lastError || response?.ok !== true) return resolve(null);
+          const normalized = C.normalizeSourceTagsResponse(response, platform, sourceID);
+          resolve(normalized?.tags || null);
+        });
+      } catch (_) {
+        resolve(null);
       }
-      prune();
-    };
-    if (!C?.normalizeSourceTagsBatchResponse) { runFallback(); return; }
-    try {
-      chrome.runtime.sendMessage({ type: "vault-classifier-source-tags-batch", platform, items }, (response) => {
-        if (chrome.runtime.lastError || response?.ok !== true) return runFallback();
-        const normalized = C.normalizeSourceTagsBatchResponse(response, platform);
-        if (!normalized) return runFallback();
-        for (const entry of entries) if (entry.key) deliver(entry, normalized.results.get(entry.sourceID) || []);
-        prune();
+    }).then((tags) => {
+      sourceCache.set(key, {
+        tags: Array.isArray(tags) ? tags : [],
+        expiresAt: Date.now() + CACHE_TTL_MS,
+        pending: null
       });
-    } catch (_) {
-      runFallback();
-    }
+      prune();
+      return tags;
+    });
+    sourceCache.set(key, { tags: cached?.tags || [], expiresAt: 0, pending });
+    return pending;
   }
 
   function makeHost(root, anchor) {
@@ -250,11 +210,7 @@
       state.anchor = anchor;
     }
     state.epoch = platformEpochs.get(platform) || 0;
-    prune();
-    const cached = sourceCache.get(key);
-    if (cached?.pending) { cached.pending.then((tags) => render(state, tags)); return; }
-    if (cached && cached.expiresAt > Date.now()) { render(state, cached.tags); return; }
-    enqueueBatch(state, creatorNames);
+    request(platform, sourceID, creatorNames).then((tags) => render(state, tags));
   }
 
   function clearPlatform(platform) {
