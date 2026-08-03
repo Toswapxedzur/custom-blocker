@@ -37,14 +37,6 @@ const hub = {
             darkColorHex: "#1A4775"
           }]
         }));
-      } else if (operation === "source-tags-batch") {
-        resolve(inExtensionRealm({
-          platformID: body.platformID,
-          results: (body.items || []).map((item) => ({
-            sourceID: item.sourceID,
-            tags: [{ id: "games", name: "Games", lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" }]
-          }))
-        }));
       } else {
         resolve(inExtensionRealm({ accepted: false, inserted: false }));
       }
@@ -263,23 +255,6 @@ function assert(name, condition, detail) {
     sourceID: "reddit:subreddit:games"
   }, trustedSender);
   assert("rejects a source-tag platform that does not match the sender origin", !forgedSourceTags.waiting, forgedSourceTags);
-
-  const sourceTagsBatch = await dispatch({
-    type: "vault-classifier-source-tags-batch",
-    platform: "youtube",
-    items: [{ sourceID: "youtube:channel:UC1234567890123456789012" }, { sourceID: "youtube:handle:@another" }]
-  }, trustedSender);
-  assert("routes a batched source-tag lookup and returns per-source tags", sourceTagsBatch.value?.ok === true
-    && Array.isArray(sourceTagsBatch.value?.results)
-    && sourceTagsBatch.value.results.length === 2
-    && sourceTagsBatch.value.results[0]?.sourceID === "youtube:channel:UC1234567890123456789012"
-    && sourceTagsBatch.value.results[0]?.tags?.[0]?.name === "Games", sourceTagsBatch);
-  const forgedSourceTagsBatch = await dispatch({
-    type: "vault-classifier-source-tags-batch",
-    platform: "reddit",
-    items: [{ sourceID: "reddit:subreddit:games" }]
-  }, trustedSender);
-  assert("rejects a batched lookup whose platform does not match the sender origin", !forgedSourceTagsBatch.waiting, forgedSourceTagsBatch);
 
   const diagnostic = await dispatch({
     type: "vault-classifier-diagnostic",

@@ -28,8 +28,7 @@
     sourceTags: 64,
     sourceAliases: 8,
     creatorNames: 4,
-    creatorNameLength: 120,
-    sourceTagsBatchItems: 128
+    creatorNameLength: 120
   });
 
   const ACTION_ORDER = Object.freeze({ allow: 0, dim: 1, block: 2 });
@@ -366,30 +365,6 @@
     return tags === null ? null : { platformID: expectedPlatform, sourceID: expectedSourceID, tags };
   }
 
-  // A batched response: platform-scoped, each entry a source id (of that platform)
-  // mapped to its normalized tag list. Returns a Map keyed by source id.
-  function normalizeSourceTagsBatchResponse(value, expectedPlatform) {
-    if (!isPlainRecord(value)
-      || !isBoundedText(expectedPlatform, MAX.platform)
-      || value.platformID !== expectedPlatform
-      || !Array.isArray(value.results)
-      || value.results.length > MAX.sourceTagsBatchItems) {
-      return null;
-    }
-    const results = new Map();
-    for (const entry of value.results) {
-      if (!isPlainRecord(entry)
-        || !isBoundedText(entry.sourceID, MAX.id)
-        || entry.sourceID.indexOf(`${expectedPlatform}:`) !== 0) {
-        return null;
-      }
-      const tags = normalizeTagList(entry.tags);
-      if (tags === null) return null;
-      results.set(entry.sourceID, tags);
-    }
-    return { platformID: expectedPlatform, results };
-  }
-
   function parseYouTubeURL(value, base) {
     const input = cleanText(value, 2048);
     if (!input) return null;
@@ -524,7 +499,6 @@
     explanation,
     isResult,
     normalizeSourceTagsResponse,
-    normalizeSourceTagsBatchResponse,
     cleanCreatorNames,
     randomID
   });
