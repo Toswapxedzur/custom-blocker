@@ -8,7 +8,9 @@ const path = require("node:path");
 
 const workspace = path.resolve(__dirname, "..", "..");
 const locales = ["ar", "bn", "de", "es", "fr", "hi", "id", "it", "ja", "ko", "nl", "pa", "pl", "pt", "ru", "th", "tr", "vi", "zh"];
-const skippedDirectories = new Set([".build", ".git", "DerivedData", "bin", "build", "dist", "i18n-docs", "node_modules", "obj", "release", "tests"]);
+// `docs/` holds internal engineering documentation (not user-facing manuals), so
+// it is exempt from localization — mirroring how other products use their docs/.
+const skippedDirectories = new Set([".build", ".git", "DerivedData", "bin", "build", "dist", "docs", "i18n-docs", "node_modules", "obj", "release", "tests"]);
 
 function walkMarkdown(directory, files = []) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {

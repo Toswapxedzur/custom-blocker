@@ -474,7 +474,7 @@
     return { ok: Boolean(queued.accepted), ...queued };
   }
 
-  async function sourceTags(platform, sourceID) {
+  async function sourceTags(platform, sourceID, creatorNames = []) {
     if (typeof sourceID !== "string"
       || sourceID.length === 0
       || sourceID.length > 256
@@ -484,13 +484,47 @@
     try {
       const current = await settings();
       if (!current.collectionEnabled) return { ok: true, platformID: platform, sourceID, tags: [] };
-      const body = await hubRequest("source-tags", { platformID: platform, sourceID });
+      const names = C.cleanCreatorNames?.(creatorNames) || [];
+      const body = await hubRequest("source-tags", names.length
+        ? { platformID: platform, sourceID, creatorNames: names }
+        : { platformID: platform, sourceID });
       const normalized = C.normalizeSourceTagsResponse?.(body, platform, sourceID);
       return normalized
         ? { ok: true, platformID: normalized.platformID, sourceID: normalized.sourceID, tags: normalized.tags }
         : { ok: false, tags: [] };
     } catch (_) {
       return { ok: false, tags: [] };
+    }
+  }
+
+  // Resolve many creators in one round trip. De-duplicates and bounds the items,
+  // then returns a normalized results list the content script re-checks.
+  async function sourceTagsBatch(platform, items) {
+    if (!Array.isArray(items)) return { ok: false, results: [] };
+    const cleaned = [];
+    const seen = new Set();
+    for (const item of items) {
+      const sourceID = item && typeof item.sourceID === "string" ? item.sourceID : null;
+      if (!sourceID || sourceID.length > 256 || !sourceID.startsWith(`${platform}:`) || seen.has(sourceID)) continue;
+      seen.add(sourceID);
+      const names = C.cleanCreatorNames?.(item.creatorNames) || [];
+      cleaned.push(names.length ? { sourceID, creatorNames: names } : { sourceID });
+      if (cleaned.length >= 128) break;
+    }
+    if (!cleaned.length) return { ok: true, platformID: platform, results: [] };
+    try {
+      const current = await settings();
+      if (!current.collectionEnabled) return { ok: true, platformID: platform, results: [] };
+      const body = await hubRequest("source-tags-batch", { platformID: platform, items: cleaned });
+      const normalized = C.normalizeSourceTagsBatchResponse?.(body, platform);
+      if (!normalized) return { ok: false, results: [] };
+      return {
+        ok: true,
+        platformID: platform,
+        results: [...normalized.results].map(([sourceID, tags]) => ({ sourceID, tags }))
+      };
+    } catch (_) {
+      return { ok: false, results: [] };
     }
   }
 
@@ -549,9 +583,23 @@
       || sourceID.length > 256) {
       return false;
     }
-    sourceTags(platform, sourceID)
+    sourceTags(platform, sourceID, Array.isArray(message.creatorNames) ? message.creatorNames : [])
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, tags: [] }));
+    return true;
+  });
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const platform = message && typeof message.platform === "string" ? message.platform : null;
+    if (!message
+      || message.type !== "vault-classifier-source-tags-batch"
+      || !collectionPlatformForSender(sender, platform)
+      || !Array.isArray(message.items)) {
+      return false;
+    }
+    sourceTagsBatch(platform, message.items)
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false, results: [] }));
     return true;
   });
 

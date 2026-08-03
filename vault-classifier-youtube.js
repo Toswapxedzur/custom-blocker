@@ -22,8 +22,23 @@
     "ytd-reel-item-renderer",
     "ytm-shorts-lockup-view-model",
     "ytd-rich-grid-media",
-    "ytd-backstage-post-thread-renderer"
+    "ytd-backstage-post-thread-renderer",
+    // Newer unified lockup used across home, search, and watch-next/related.
+    "yt-lockup-view-model"
   ].join(",");
+  // Title element across the old renderers and the new lockup components. The
+  // pill anchors after whichever matches first.
+  const TITLE_SELECTORS = [
+    "#video-title",
+    "a#video-title-link",
+    "a#video-title",
+    ".yt-lockup-metadata-view-model__title",
+    "h3.yt-lockup-metadata-view-model__heading a",
+    "yt-lockup-metadata-view-model h3",
+    "h3 a",
+    "#content-text",
+    "#content #content-text"
+  ];
   const PLATFORM = "youtube";
   // YouTube often inserts an author image element before assigning its source.
   // Observe every supported lazy-image attribute so a source icon URL reaches the
@@ -32,7 +47,6 @@
     "src", "srcset", "data-src", "data-lazy-src", "data-original", "data-srcset"
   ]);
   let collectionEnabled = false;
-  let scanTimer = null;
   let pageTimer = null;
   let collectionEpoch = 0;
   let lastWatchEvidenceFailure = "missing-watch-root";
@@ -324,11 +338,68 @@
     return null;
   }
 
+  function isChannelPage() {
+    return /^\/(@|channel\/|c\/|user\/)/.test(location.pathname || "");
+  }
+
+  // On a channel/author page every listed video is by the page owner, whose
+  // identity is in the URL and canonical link (cards there omit the redundant
+  // per-card channel link). Prefer the channel/UC form to match findSource, and
+  // record the @handle as an alias when both are known.
+  function pageChannelSource() {
+    if (!isChannelPage()) return null;
+    const canonical = document.querySelector('link[rel="canonical"]');
+    const values = [location.pathname, location.href, canonical && canonical.getAttribute("href")];
+    let handleID = null;
+    let channelID = null;
+    for (const value of values) {
+      if (typeof value !== "string") continue;
+      if (!handleID) { const match = value.match(/\/(@[^/?#]+)/); if (match) handleID = `youtube:handle:${match[1].toLowerCase()}`; }
+      if (!channelID) { const match = value.match(/\/channel\/(UC[0-9A-Za-z_-]{22})/); if (match) channelID = `youtube:channel:${match[1]}`; }
+    }
+    const id = channelID || handleID;
+    if (!id) return null;
+    const aliases = [];
+    if (channelID && handleID) aliases.push(id === channelID ? handleID : channelID);
+    return { id, name: "", url: creatorURL(location.href), link: null, aliases };
+  }
+
+  // The creator for a card: its own owner link, or the page owner on a channel
+  // page where the card omits the redundant channel link.
+  function resolveCardSource(card) {
+    const source = findSource(card);
+    return source.id ? source : (pageChannelSource() || source);
+  }
+
+  // Collaboration cards expose NO creator link — YouTube renders the collaborators
+  // as unlinked text in the content-metadata component's first row ("A and B",
+  // "A, B and C"). There is no @handle or channel/UC id anywhere in the card, so
+  // we extract the display names as a best-effort fallback for name matching.
+  function collabCreatorNames(card) {
+    let text = "";
+    const metadata = card.querySelector?.("yt-content-metadata-view-model");
+    if (metadata) {
+      const row = metadata.querySelector?.(".ytContentMetadataViewModelMetadataRow");
+      text = row ? compactText(row.textContent, 200) : "";
+    }
+    if (!text) {
+      text = compactText(selectorText(card, ["#channel-name #text", "ytd-channel-name #text", "#byline"], 200) || "", 200);
+    }
+    // Only a multi-creator byline qualifies — never a stats ("… views • … ago")
+    // or single-creator row, which name matching should not touch.
+    if (!text || /\bviews?\b|\bwatching\b|\bago\b/i.test(text) || !/\sand\s|[,·]/i.test(text)) return [];
+    return text
+      .split(/\s*[,·]\s*|\s+and\s+/i)
+      .map((name) => compactText(name, 120))
+      .filter(Boolean)
+      .slice(0, 4);
+  }
+
   function feedEvidence(card) {
     if (isAdvertisement(card)) return null;
-    const title = selectorText(card, ["#video-title", "a#video-title-link", "a#video-title", "h3 a", "#content-text", "#content #content-text"], 500);
+    const title = selectorText(card, TITLE_SELECTORS, 500);
     if (!title) return null;
-    const source = findSource(card);
+    const source = resolveCardSource(card);
     const videoID = findVideoID(card);
     const postID = videoID ? null : findPostID(card);
     const entryID = videoID ? `youtube:video:${videoID}` : (postID ? `youtube:post:${postID}` : null);
@@ -507,19 +578,42 @@
 
   function collectCard(card) {
     if (!collectionEnabled || isAdvertisement(card)) return;
+    // Only the outermost card renders a pill. A stale timer (or a nested inner
+    // renderer that slipped through) must never draw a second pill next to the
+    // one the outer card already owns.
+    if (!isOutermostCard(card)) return;
+    // Render the tag pill whenever a creator can be inferred, independent of
+    // whether the card is a fully collectable content entry — so every card
+    // type (feed, search, watch-next, shorts, lockups, and channel-page grids)
+    // shows tags. Anchor after the title, then the creator link, then the card.
+    const source = resolveCardSource(card);
+    if (source.id) {
+      const titleElement = selectorElement(card, TITLE_SELECTORS);
+      TagUI?.observe?.({
+        platform: PLATFORM,
+        sourceID: source.id,
+        root: card,
+        anchor: titleElement || source.link || null
+      });
+    } else {
+      // No linked creator (a collaboration card). Fall back to the byline names:
+      // key the pill by the video so it stays stable per card, and send the names
+      // for the app to match against an approved classification.
+      const names = collabCreatorNames(card);
+      const videoID = names.length ? findVideoID(card) : null;
+      if (videoID) {
+        const titleElement = selectorElement(card, TITLE_SELECTORS);
+        TagUI?.observe?.({
+          platform: PLATFORM,
+          sourceID: `${PLATFORM}:collab:${videoID}`,
+          root: card,
+          anchor: titleElement || null,
+          creatorNames: names
+        });
+      }
+    }
     const entry = feedEvidence(card);
-    if (!entry) return;
-    const source = findSource(card);
-    // Anchor the pills right after the video title so they read as a list
-    // following the title; fall back to the creator link if no title element.
-    const titleElement = selectorElement(card, ["#video-title", "a#video-title-link", "a#video-title", "h3 a", "#content-text", "#content #content-text"]);
-    TagUI?.observe?.({
-      platform: PLATFORM,
-      sourceID: entry.sourceID,
-      root: card,
-      anchor: titleElement || source.link || null
-    });
-    void collectEntry(entry);
+    if (entry) void collectEntry(entry);
   }
 
   async function collectPage() {
@@ -549,17 +643,102 @@
     });
   }
 
-  function scheduleScan(delay = 250) {
-    if (scanTimer) {
-      if (delay !== 0) return;
-      clearTimeout(scanTimer);
+  const cardsToProcess = new Set();
+  const registeredCards = new WeakSet();
+  let processTimer = null;
+  let processDeadline = Infinity;
+
+  function isCardElement(node) {
+    return Boolean(node) && node.nodeType === 1 && typeof node.matches === "function" && node.matches(CARD_SELECTOR);
+  }
+
+  function closestCard(node) {
+    let current = node;
+    while (current && current.nodeType === 1) {
+      if (isCardElement(current)) return current;
+      current = current.parentElement;
     }
-    scanTimer = setTimeout(() => {
-      scanTimer = null;
-      document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
-        collectCard(card);
-      });
-    }, delay);
+    return null;
+  }
+
+  // A lockup nested inside a covered renderer is not its own unit — the
+  // outermost card owns it, so we never process both and render a duplicate.
+  function isOutermostCard(card) {
+    return Boolean(card) && !(card.parentElement && closestCard(card.parentElement));
+  }
+
+  // The outermost card ancestor of a node. Feed cards nest a covered renderer
+  // (e.g. ytd-rich-grid-media / yt-lockup-view-model) inside another covered
+  // renderer (ytd-rich-item-renderer), and creators, titles, and avatars all
+  // live in the INNER one. The pill belongs to the outermost card, so every
+  // mutation must resolve to it — not the nearest card, which would be the inner
+  // renderer (pilling it as a duplicate, and leaving the registered outer card
+  // un-refreshed so its own pill never appears).
+  function outermostCardOf(node) {
+    let current = node;
+    let outermost = null;
+    while (current && current.nodeType === 1) {
+      if (isCardElement(current)) outermost = current;
+      current = current.parentElement;
+    }
+    return outermost;
+  }
+
+  // Queue a card for processing and inject in FEED (Y) ORDER: cards scheduled in
+  // the same window are processed top-of-feed first, so pills fill top-to-bottom
+  // where the reader is looking — not in discovery/scheduling order, where a card
+  // lower down can pop in before one higher up. A card whose author is not
+  // resolvable yet injects no pill here; the per-card mutation observer re-queues
+  // it the moment the creator link hydrates.
+  function scheduleCardProcess(card, delay = 150) {
+    if (!card) return;
+    cardsToProcess.add(card);
+    const deadline = Date.now() + Math.max(0, delay);
+    if (processTimer && deadline >= processDeadline) return;
+    if (processTimer) clearTimeout(processTimer);
+    processDeadline = deadline;
+    processTimer = setTimeout(flushCardProcessing, Math.max(0, delay));
+  }
+
+  function cardTop(card) {
+    if (!card || typeof card.getBoundingClientRect !== "function") return 0;
+    try { return card.getBoundingClientRect().top; } catch (_) { return 0; }
+  }
+
+  function flushCardProcessing() {
+    processTimer = null;
+    processDeadline = Infinity;
+    const cards = [...cardsToProcess];
+    cardsToProcess.clear();
+    // Read every queued card's vertical position in one layout pass, then inject
+    // top-to-bottom so the fill follows the feed's visual order.
+    const ranked = cards
+      .map((card) => ({ card, top: cardTop(card) }))
+      .sort((lhs, rhs) => lhs.top - rhs.top);
+    for (const { card } of ranked) {
+      if (collectionEnabled && card.isConnected !== false) collectCard(card);
+    }
+  }
+
+  // Register a card once and attempt to process it now. If its author is not yet
+  // known the attempt is a no-op for the pill, but the card stays registered so
+  // the mutation observer re-processes it as soon as the creator hydrates.
+  function registerCard(card) {
+    if (!card || !isOutermostCard(card) || registeredCards.has(card)) return;
+    registeredCards.add(card);
+    scheduleCardProcess(card);
+  }
+
+  function discoverCards(root) {
+    if (!root || root.nodeType !== 1) return;
+    if (isCardElement(root)) registerCard(root);
+    if (typeof root.querySelectorAll === "function") root.querySelectorAll(CARD_SELECTOR).forEach(registerCard);
+  }
+
+  // One-time full sweep of the current DOM (start and navigation). Steady-state
+  // updates are surgical, handled by the mutation observer below.
+  function sweepCards() {
+    document.querySelectorAll(CARD_SELECTOR).forEach(registerCard);
   }
 
   function schedulePageCheck() {
@@ -586,7 +765,7 @@
         reportDiagnostic("collection-info-disabled");
       }
       if (collectionEnabled) {
-        scheduleScan();
+        sweepCards();
         schedulePageCheck();
       }
     });
@@ -604,18 +783,42 @@
     collectedEntryIDs.clear();
     reportedDiagnostics.clear();
     reportedSourceIconDebugStages.clear();
-    scheduleScan();
+    sweepCards();
     schedulePageCheck();
   });
   const observer = new MutationObserver((mutations) => {
     if (!collectionEnabled) return;
-    // A lazy-image source is an explicit signal that the author avatar is now
-    // usable. Re-collect without the normal debounce so the local app starts
-    // its bounded icon download at feed-load time.
-    const sourceIconChanged = mutations.some((mutation) =>
-      mutation?.type === "attributes" && SOURCE_ICON_ATTRIBUTES.includes(mutation.attributeName)
-    );
-    scheduleScan(sourceIconChanged ? 0 : 250);
+    for (const mutation of mutations) {
+      if (!mutation) continue;
+      if (mutation.type === "attributes") {
+        // A lazy-image source is an explicit signal that the author avatar is now
+        // usable. Re-collect just that card without the normal debounce, so the
+        // local app starts its bounded icon download at feed-load time. Resolve
+        // to the outermost card so the avatar (which lives in a nested renderer)
+        // refreshes the pilled card rather than duplicating a pill on the inner.
+        const card = outermostCardOf(mutation.target);
+        if (card) {
+          scheduleCardProcess(card, SOURCE_ICON_ATTRIBUTES.indexOf(mutation.attributeName) !== -1 ? 0 : 150);
+        }
+        continue;
+      }
+      // New rows arriving during infinite scroll: register just the added cards.
+      const added = mutation.addedNodes;
+      if (added && added.length) {
+        for (const node of added) discoverCards(node);
+      }
+      // A hydrated or recycled card mutates in place (its creator link appears,
+      // or YouTube reuses the element for a different video). Re-process that one
+      // card so its pill catches up — no full-page rescan. This is the path that
+      // makes the pill appear "once the author is known" for cards whose creator
+      // link had not yet rendered when the card was first registered. Resolve to
+      // the OUTERMOST card: the mutation usually lands inside a nested renderer,
+      // and only the outer card is registered/pilled.
+      const card = outermostCardOf(mutation.target);
+      if (!card) continue;
+      if (registeredCards.has(card)) scheduleCardProcess(card);
+      else registerCard(card);
+    }
     schedulePageCheck();
   });
   const observeRenderedEvidence = (root) => observer.observe(root, {

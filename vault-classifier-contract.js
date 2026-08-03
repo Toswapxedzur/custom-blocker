@@ -26,7 +26,10 @@
     resultDecisions: 128,
     resultExplanation: 512,
     sourceTags: 64,
-    sourceAliases: 8
+    sourceAliases: 8,
+    creatorNames: 4,
+    creatorNameLength: 120,
+    sourceTagsBatchItems: 128
   });
 
   const ACTION_ORDER = Object.freeze({ allow: 0, dim: 1, block: 2 });
@@ -121,6 +124,26 @@
       seen.add(alias);
       output.push(alias);
       if (output.length >= MAX.sourceAliases) break;
+    }
+    return output;
+  }
+
+  // Best-effort display names for a card with no creator link (YouTube
+  // collaboration cards). Bounded and de-duplicated; the native side matches
+  // them against approved classifications only when the linked id resolves
+  // nothing, so these never widen what a normal, linked card can resolve.
+  function cleanCreatorNames(value) {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set();
+    const output = [];
+    for (const candidate of value) {
+      const name = cleanText(candidate, MAX.creatorNameLength);
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      output.push(name);
+      if (output.length >= MAX.creatorNames) break;
     }
     return output;
   }
@@ -304,20 +327,11 @@
     });
   }
 
-  function normalizeSourceTagsResponse(value, expectedPlatform, expectedSourceID) {
-    if (!isPlainRecord(value)
-      || !isBoundedText(expectedPlatform, MAX.platform)
-      || !isBoundedText(expectedSourceID, MAX.id)
-      || expectedSourceID.indexOf(`${expectedPlatform}:`) !== 0
-      || value.platformID !== expectedPlatform
-      || value.sourceID !== expectedSourceID
-      || !Array.isArray(value.tags)
-      || value.tags.length > MAX.sourceTags) {
-      return null;
-    }
+  function normalizeTagList(value) {
+    if (!Array.isArray(value) || value.length > MAX.sourceTags) return null;
     const tags = [];
     const seen = new Set();
-    for (const item of value.tags) {
+    for (const item of value) {
       if (!isPlainRecord(item)
         || !isBoundedText(item.id, MAX.tag)
         || !isBoundedText(item.name, MAX.tag)
@@ -336,7 +350,44 @@
         darkColorHex: item.darkColorHex.toUpperCase()
       });
     }
-    return { platformID: expectedPlatform, sourceID: expectedSourceID, tags };
+    return tags;
+  }
+
+  function normalizeSourceTagsResponse(value, expectedPlatform, expectedSourceID) {
+    if (!isPlainRecord(value)
+      || !isBoundedText(expectedPlatform, MAX.platform)
+      || !isBoundedText(expectedSourceID, MAX.id)
+      || expectedSourceID.indexOf(`${expectedPlatform}:`) !== 0
+      || value.platformID !== expectedPlatform
+      || value.sourceID !== expectedSourceID) {
+      return null;
+    }
+    const tags = normalizeTagList(value.tags);
+    return tags === null ? null : { platformID: expectedPlatform, sourceID: expectedSourceID, tags };
+  }
+
+  // A batched response: platform-scoped, each entry a source id (of that platform)
+  // mapped to its normalized tag list. Returns a Map keyed by source id.
+  function normalizeSourceTagsBatchResponse(value, expectedPlatform) {
+    if (!isPlainRecord(value)
+      || !isBoundedText(expectedPlatform, MAX.platform)
+      || value.platformID !== expectedPlatform
+      || !Array.isArray(value.results)
+      || value.results.length > MAX.sourceTagsBatchItems) {
+      return null;
+    }
+    const results = new Map();
+    for (const entry of value.results) {
+      if (!isPlainRecord(entry)
+        || !isBoundedText(entry.sourceID, MAX.id)
+        || entry.sourceID.indexOf(`${expectedPlatform}:`) !== 0) {
+        return null;
+      }
+      const tags = normalizeTagList(entry.tags);
+      if (tags === null) return null;
+      results.set(entry.sourceID, tags);
+    }
+    return { platformID: expectedPlatform, results };
   }
 
   function parseYouTubeURL(value, base) {
@@ -473,6 +524,8 @@
     explanation,
     isResult,
     normalizeSourceTagsResponse,
+    normalizeSourceTagsBatchResponse,
+    cleanCreatorNames,
     randomID
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);
