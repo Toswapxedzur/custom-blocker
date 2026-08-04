@@ -1,123 +1,95 @@
 # Gizlilik Politikası — Özel Web Engelleyici
 
-_Son güncelleme: 2026-07-13_
+_Son güncelleme: 2026-08-04_
 
-Bu sayfada **Özel Web Engelleyici** tarayıcısının tam olarak hangi verileri açıkladığı açıklanmaktadır
-uzantı toplanıyor, nereye gidiyor ve her tarayıcı izninin neden
-talep edildiğini açıklar. Kısaca: kurallarınızı veya kişisel gezinme verilerinizi
-kaydetmeyiz. Etiket kuralları herkese açık YouTube kanal kimliklerini sorgulayabilir,
-ancak bu sorgular saklanmaz veya sizinle ilişkilendirilmez.
+Bu sayfa, **Özel Web Engelleyici** tarayıcı uzantısının tam olarak hangi verileri topladığını, bunların nereye gittiğini ve her tarayıcı izninin neden istendiğini açıklar. Kısacası: kurallarınızı ve kişisel gezinme verilerinizi saklamıyoruz. İsteğe bağlı Vault Classifier toplama ve sınıflandırması sizin denetiminizde kalır ve kimliği doğrulanmış yerel köprüyü kullanır. Ayrı ve isteğe bağlı bir yerel yapay zekâ (MCP) entegrasyonu da varsayılan olarak kapalıdır ve verileri yalnızca sizin bizzat bağlayıp onayladığınız bir asistana açar.
 
 ## Özet
 
-- **Yapılandırma tarayıcıda kalır.** Gruplar, programlar, kurallar, günlükler,
-  sayaçlar ve tercihler yalnızca `chrome.storage.local` içinde tutulur.
-- **Etiket sorgusu yalnızca herkese açık kanal kimliğini içerir.** URL, video
-  başlığı, arama, zaman, hesap veya uzantı ayarı gönderilmez.
-- **Sorgular kaydedilmez.** Uç nokta salt okunurdur, bilinmeyen kanalları eklemez
-  ve isteği bir kişiyle ilişkilendirmez.
-- **Analitik, telemetri, reklam veya çökme raporu yoktur.**
-- Kesinlikle gerekli olanın ötesinde tarama etkinliği **takip edilmez**
-  Kendi yapılandırdığınız engelleme kurallarını uygulamak için.
+- **Yapılandırmanız tarayıcınızda kalır.** Engelleme grupları, zamanlamalar, özel kurallar, günlükler, sayaçlar ve tercihler yalnızca Chrome'un yerel uzantı depolamasında (`chrome.storage.local`) tutulur.
+- **Vault Classifier yalnızca yereldir.** İsteğe bağlı Vault Classifier entegrasyonunu açıkça etkinleştirirseniz, YouTube kart/sayfa üzerindeki görünür kanıtlar (başlık, görünür açıklama, gösterilen etiketler ve herkese açık oluşturucu/video kimlikleri gibi) yalnızca kimliği doğrulanmış yerel Vault köprüsü aracılığıyla Mac'inizdeki Vault Classifier'a yönlendirilir. Bunlar web sitemize, bir model sağlayıcısına, YouTube Data API'sine veya başka herhangi bir sunucuya gönderilmez.
+- **Toplama ayrı bir tercihtir (opt-in).** Vault Classifier, uzantıdan işlenmiş ve reklamsız YouTube meta verilerini yalnızca siz onun Sınıflandırma verileri çalışma alanında YouTube toplamayı açtıktan sonra ister. Kapalıyken uzantı, toplama için hiçbir başlık veya oluşturucu meta verisi göndermez. Açıkken saklanan yerel alanlar; görünür bir başlığı, oluşturucu adını/tanımlayıcısını, video türünü, süreyi, görünür abone/görüntülenme/yayınlanma metnini ve kanonik URL'yi içerebilir.
+- **İsteğe bağlı yerel yapay zekâ (MCP) entegrasyonu.** Bunu açıp kendi yapay zekâ asistanınızı bağlarsanız, bu asistan — sizin açık talimatınızla — cihazınızdaki yerel bir Vault sunucusu aracılığıyla seçili verileri (yapılandırmanız, etkinliğiniz, kullanım süreniz, etkin/açık sekmelerin URL'leri, yapılandırdığınız sitelerdeki görünür sayfa içeriği ve her türlü Classifier kanıtı) okuyabilir. Varsayılan olarak kapalıdır, her bağlantı sizin tarafınızdan onaylanır ve parolalar ile API anahtarları bunun aracılığıyla asla okunamaz. Aşağıdaki "İsteğe bağlı yerel yapay zekâ (MCP) entegrasyonu" bölümüne bakın.
+- **Analiz, reklam profili, telemetri veya çökme raporlaması yoktur.**
+- Kendi yapılandırdığınız engelleme kurallarını uygulamak için kesinlikle gerekli olanın ötesinde gezinme etkinliğinizin **hiçbir izlemesi yapılmaz.**
 
-## Yerel olarak depolananlar
+## Yerelde neler saklanır
 
-Uzantı, tarayıcınızın yerel uzantısında aşağıdakileri saklar
-oturumlar arasında işini yapabilmesi için depolama:
+Uzantı, oturumlar arasında işini yapabilmek için aşağıdakileri tarayıcınızın yerel uzantı depolamasında saklar:
 
-- Oluşturduğunuz blok grupları: adları, kural türleri, listeleri
-  engellenen siteler, programlar, erteleme ayarları, dondurma durumu ve
-  yazdığınız özel kurallı JavaScript.
-- Sınırları uygulamak için gereken grup başına çalışma zamanı durumu (ör. kaç tane)
-  Erteleme gerçekleştiğinde, bugün bir dakikalık gecikmeli ödenek bütçesi kalıyor
-  tam dondurma dönemi sona erdiğinde sona erer).
-- **Ayarlar**'da belirlenen kendi tercihleriniz (onay oranı, otomatik kaydetme)
-  geri dönme, varsayılan erteleme süresi, varsayılan geri dönüş URL'si, hata ayıklama modu
-  geçiş yapın, seçilen kullanıcı arayüzü dili).
-- Uygulama içi **Günlük** panelinde gösterilen etkinlik günlüğü girişleri;
-  kullanıcı arayüzünden temizleyin.
+- Oluşturduğunuz engelleme grupları: adları, kural türleri, engellenen site listeleri, zamanlamalar, erteleme (snooze) ayarları, dondurma durumu ve yazdığınız her türlü özel kural JavaScript'i.
+- Sınırları uygulamak için gereken grup başına çalışma zamanı durumu (ör. ertelenmiş bir ödenek bütçesinden bugün kaç dakika kaldığı, bir ertelemenin ne zaman biteceği, katı bir dondurma döneminin ne zaman sona ereceği).
+- **Ayarlar**'da belirlediğiniz kendi tercihleriniz (tık hızı, otomatik kaydetme gecikmesi, varsayılan erteleme süresi, varsayılan yedek URL, hata ayıklama modu düğmesi, seçili arayüz dili).
+- Uygulama içi **Günlük** panelinde gösterilen ve arayüzden temizleyebileceğiniz etkinlik günlüğü kayıtları.
+- Vault Classifier'ı açıkça etkinleştirdiğinizde, yerel uygulaması; girdileri sınıflandırmak ve açıklamak için gereken görünür kanıtların, yerel puanların, kararların ve düzeltmelerin kullanıcı tarafından sınırlandırılmış bir yerel önbelleğini tutar. Bu önbellek Mac'inizde kalır ve uzantı ile sunucu arasındaki normal trafiğin parçası değildir.
 
-Bu veriler yalnızca uzantının kendi komut dosyaları tarafından okunur ve yazılır.
-cihazınızda ve yalnızca kendi tarayıcı profilinizin içinde.
+Yapılandırmanız, çalışma zamanı durumu ve etkinlik günlüğü cihazınızda kalır ve hizmetimiz tarafından kaydedilmez. Tarayıcı sürümüne ve etkinleştirdiğiniz özelliklere bağlı olarak bunlar; uzantı, onun cihaz yerelindeki Safari eşlik uygulaması ya da açıkça bağlanmış bir yerel Vault köprüsü tarafından işlenebilir.
 
-## Neler TOPLANMAZ veya İLETİLMEZ
+## Neler toplanmaz veya iletilmez
 
-- Tarama geçmişi kaydedilmez, özetlenmez veya iletilmez.
-- Sayfa içeriği dışarı aktarılmaz, ekran görüntüsü alınmaz veya günlüğe kaydedilmez.
-- Form girişleri, şifreler ve kişisel bilgiler kesinlikle okunmaz.
-- Sizinle, cihazınızla veya kullanımınızla ilgili hiçbir bilgi
-  Uzantı yazarı veya herhangi bir üçüncü taraf.
+Aşağıdakiler uzantının kendi başına nasıl davrandığını anlatır. Tek istisna, kendiniz etkinleştirip bağlayabileceğiniz ve bir sonraki bölümde açıklanan isteğe bağlı yerel yapay zekâ (MCP) entegrasyonudur.
 
-## Her izin neden isteniyor?
+- Gezinme geçmişi uzantının kendisi tarafından kaydedilmez, özetlenmez veya iletilmez; yalnızca yapılandırdığınız kuralları uygulamak için kullanılır.
+- Sayfa içeriği uzantının kendisi tarafından sızdırılmaz, ekran görüntüsü alınmaz veya günlüğe kaydedilmez.
+- Vault Classifier kanıtları uzantı tarafından cihaz dışına iletilmez. Bunlar yalnızca bu entegrasyonu açıkça etkinleştirdiğinizde eşleştirilmiş yerel köprü ve uygulama tarafından işlenir.
+- Form girişleri ve parolalar uzantı tarafından asla okunmaz; parolalar ve API anahtarları yerel yapay zekâ (MCP) entegrasyonu aracılığıyla da okunamaz.
+- Normal kural uygulaması için hiçbir uzantı tanımlayıcısı, hesap tanımlayıcısı, cihaz tanımlayıcısı veya kural yapılandırmanız iletilmez.
+
+## İsteğe bağlı yerel yapay zekâ (MCP) entegrasyonu
+
+Uzantı, isteğe bağlı olarak, kendi cihazınızdaki Vault masaüstü uygulamalarının içinde çalışan yerel bir **Vault MCP sunucusundan** gelen istekleri yanıtlayabilir; böylece kendi yapay zekâ asistanınızı (bir "MCP istemcisi") bağlayıp Vault kurulumunuzu sizin adınıza okumasını veya üzerinde işlem yapmasını sağlayabilirsiniz. Bu entegrasyon **varsayılan olarak kapalıdır** ve siz bilerek açmadıkça hiçbir şeyi değiştirmez.
+
+- **Onu siz başlatırsınız.** Entegrasyonu etkinleştirip bir MCP istemcisi bağlayana kadar hiçbir şey açığa çıkmaz ve her istemci bağlantısı sizin tarafınızdan onaylanır. Kapatmak erişimi anında iptal eder.
+- **Sunucu yereldir.** Uzantının sağladığı veriler, aynı kimliği doğrulanmış cihaz içi köprü aracılığıyla Mac'inizdeki bir Vault MCP sunucusuna teslim edilir — web sitemize veya herhangi bir Vault sunucusuna değil. Uzantının kendisi verilerinizi üçüncü bir tarafa göndermez.
+- **Sonrasında asistanınız karar verir.** Bağlı bir MCP istemcisi sizin isteğinizle veriyi aldıktan sonra, ona ne olacağı **o istemciye** ve onun kendi gizlilik koşullarına tabidir. Seçtiğiniz asistan uzaktaki bir hizmete dayanıyorsa, o asistan verilerinizi sizin talimatınızla iletebilir — herhangi bir yapay zekâ aracına bilgi yapıştırmanızla aynı şekilde. Güvendiğiniz bir istemci seçin.
+- **Neler açığa çıkabilir.** Talimatınızla, bağlı bir asistan; engelleme gruplarınızı, zamanlamalarınızı, özel kurallarınızı, etkinlik günlüğünü, kullanım süresi sayaçlarını, etkin sekmenin veya açık sekmelerin URL'sini, yapılandırdığınız sitelerdeki görünür sayfa içeriğini ve her türlü Vault Classifier kanıtını ve kararını okuyabilir. Durumu değiştiren eylemler (grupları düzenlemek, bir erteleme başlatmak, kaydedilmiş bir kuralı çalıştırmak, bir sınıflandırmayı tetiklemek) tek tek onaylanır.
+- **Sırlar sır olarak kalır.** Parolalar (ebeveyn denetimi parolası gibi) ve sağlayıcı API anahtarları bu entegrasyon aracılığıyla **yalnızca yazılabilir**: ayarlanabilirler ama hiçbir asistan tarafından geri okunamazlar.
+- **Yalnızca Chromium.** Classifier köprüsü gibi bu entegrasyon da yalnızca cihaz yerelindeki ana bilgisayara sahip Chromium tarayıcılarında bulunur; Firefox ve Safari onu sunmaz.
+
+## Her izin neden isteniyor
 
 | İzin | Ne için kullanılır |
 | --- | --- |
-| `storage` | Blok gruplarınızı, ayarlarınızı ve çalışma zamanı durumunuzu yalnızca tarayıcınıza kaydedin ve yükleyin. |
-| `favicon` | Chromium'da kuralların yanında tarayıcının yerel önbelleğindeki site simgelerini gösterir. Tarama geçmişini göndermez ve hizmetimize istek yapmaz. |
-| `nativeMessaging` | Chromium'da, kimliği doğrulanmış Vault Classifier köprüsü için cihazdaki yerel bir Native Messaging kanıtı ister; Safari'de özel kural sanal alanı isteklerini cihazdaki yerel uygulamaya iletir. Bu bir bulut aktarımı değildir. |
-| `alarms` | Bir erteleme, dondurma veya zamanlama penceresi sona erdiğinde zamana dayalı sınırları yenilemek ve kural durumunu güncellemek için arka plan hizmet çalışanını programa göre uyandırın. |
-| `offscreen` | Korumalı alana alınmış özel kurallı JavaScript'i ekran dışı bir belgede çalıştırın, böylece uzantıdan kaçamaz veya sayfalarınıza doğrudan dokunamaz. |
-| `tabs` | Araç çubuğu simgesini tıklattığınızda düzenleyiciyi tam sekme olarak açın, grup kurallarını değerlendirmek için etkin sekmenin URL'sine bakın ve düzenleyicide yaptığınız bir kural değişikliğinden sonra sekmeleri yeniden yükleyin. |
-| `webNavigation` | SPA URL değişikliklerini (push-state navigasyonu) tespit ederek platform başına feed gizleyenlerin ve olay odaklı kuralların yalnızca tam sayfa yüklemelerine değil, sayfa içi navigasyona da tepki vermesini sağlayın. |
-| `<all_urls>` ana bilgisayar erişimi | Engelleme kurallarınızı ve platform başına yayın gizleyicilerinizi, engellemeyi seçtiğiniz sitelere uygulayın. Uzantı, yalnızca aktif olarak kural yapılandırdığınız URL'lerdeki sayfaları okur/değiştirir ve yalnızca bu kuralı uygulamak için kullanılır. |
+| `storage` | Engelleme gruplarınızı, ayarlarınızı ve çalışma zamanı durumunu yalnızca tarayıcınızda kaydetmek ve yüklemek. |
+| `favicon` | Chromium'da kuralların yanında tarayıcının önbelleğe aldığı site simgelerini göstermek. Bu, gezinme geçmişini göndermez ve hizmetimize istek yapmaz. |
+| `nativeMessaging` | Chromium'da, kimliği doğrulanmış Vault Classifier köprüsü için cihazdan yerel bir Native Messaging kanıtı istemek; Safari'de, özel kural sanal alanı isteklerini cihaz yerelindeki kapsayıcı uygulamaya iletmek. Bu bir bulut aktarımı değildir. |
+| `alarms` | Bir erteleme, dondurma veya zamanlama penceresi sona erdiğinde zamana dayalı sınırları ve kural durumunu yenilemek için arka plandaki service worker'ı zamanlamaya göre uyandırmak. |
+| `offscreen` | Özel kural JavaScript'ini ekran dışı bir belgede sanal alanda çalıştırmak; böylece uzantıdan kaçamaz veya sayfalarınıza doğrudan dokunamaz. |
+| `tabs` | Araç çubuğu simgesine tıkladığınızda düzenleyiciyi tam bir sekme olarak açmak, grup kurallarını değerlendirmek için etkin sekmenin URL'sine bakmak ve düzenleyicide yaptığınız bir kural değişikliğinden sonra sekmeleri yeniden yüklemek. |
+| `webNavigation` | SPA URL değişikliklerini (push-state gezinme) algılamak; böylece platforma özgü akış gizleyiciler ve olay güdümlü kurallar yalnızca tam sayfa yüklemelerine değil, sayfa içi gezinmeye de tepki verebilir. |
+| `<all_urls>` ana bilgisayar erişimi | Engellemeyi seçtiğiniz sitelerde engelleme kurallarınızı ve platforma özgü akış gizleyicileri uygulamak. Uzantı, sayfaları yalnızca etkin olarak bir kural yapılandırdığınız URL'lerde ve yalnızca o kuralı uygulamak için okur/değiştirir; isteğe bağlı Vault Classifier bağdaştırıcısı YouTube ile sınırlıdır. |
 
 ## Özel kurallar
 
-Özel JavaScript kuralları yazarsanız bu kod:
+Özel JavaScript kuralları yazarsanız, bu kod:
 
-- Korumalı alana alınmış ekran dışı bir belgede çalışır; doğrudan ulaşamıyor
-  ağınız, sayfalarınız veya diğer uzantılarınız.
-- İçerik komut dosyalarıyla yalnızca sabit bir mesaj köprüsü aracılığıyla iletişim kurar
-  Uzantının yardımcı API'si tarafından tanımlanır.
-- Otomatik olarak karantinaya alınır (bir günlük girişi ile devre dışı bırakılır),
-  yerleşik CPU, günlük, mesaj sonrası veya DOM mutasyon sınırlarını aşıyor.
+- Ekran dışı bir belgede sanal alanda çalışır; ağa, sayfalarınıza veya diğer uzantılara doğrudan erişemez.
+- İçerik betikleriyle yalnızca uzantının yardımcı API'si tarafından tanımlanan sabit bir mesaj köprüsü aracılığıyla iletişim kurar.
+- Yerleşik CPU, günlük, post-message veya DOM değişikliği sınırlarını aşarsa otomatik olarak karantinaya alınır (bir günlük kaydıyla devre dışı bırakılır).
 
-Özel kurallarınız, diğer ayarlarınızla birlikte yerel olarak depolanır
-ve asla cihazdan aktarılmaz.
+Özel kurallarınız ayarlarınızın geri kalanıyla birlikte yerelde saklanır ve asla cihaz dışına iletilmez.
 
-## Web sitesi ve içerik oluşturucu etiketi hizmet istatistikleri
+## Web sitesi istatistikleri
 
-Bu bölüm **web sitesi ve içerik oluşturucu etiketi hizmeti** ile ilgilidir.
-Uzantı herkese açık kanal kimliklerini salt okunur biçimde sorgulayabilir; bu
-istekler kaydedilmez. **İstatistik** paneli yalnızca kişiyle bağlantısız sayımları tutar:
+Bu bölüm **web sitesiyle** ilgilidir. Web sitesi küçük bir **İstatistikler** paneli yayımlar ve bunu doldurmak için sunucu birkaç toplu sayım tutar:
 
-- **İndirme sayısı** — her bir ürünün indirme düğmesine kaç kez basıldığı
-  tıklandı (macOS, Windows, tarayıcı uzantısı, Safari).
-- **İçerik oluşturucular sınıflandırıldı** — kaç YouTube içerik oluşturucusunun etiketlendiği.
-- **Hesaplar** — kaç tane hesabın mevcut olduğu.
-- **Soru-Cevap etkinliği** — forum gönderilerinin ve yorumlarının toplam sayısı.
+- **İndirme sayıları** — her ürünün indirme düğmesine kaç kez tıklandığı (macOS, Windows, tarayıcı uzantısı, Safari).
+- **Hesaplar** — kaç hesabın var olduğu.
+- **Soru-cevap etkinliği** — forum gönderileri ve yorumlarının toplam sayısı.
 
-Saatte bir sunucu bu sayımların her birinin geçerli değerini kaydeder ve
-başka bir şey değil. Etkinlik başına kayıt yok, tıklama akışı yok ve oturum yok
-tarih.
+Sunucu saatte bir kez her toplu sayımın güncel değerini kaydeder. Bu anlık görüntüler ziyaretçi başına olay, tıklama akışı veya oturum geçmişi içermez.
 
-- **Tamamen anonim / kimliği gizlenmiş.** Bunlar açık toplamlardır. onlar
-  adınıza, hesabınıza, e-postanıza, IP adresinize, cihazınıza veya herhangi bir şeye **bağlı değildir**
-  diğer tanımlayıcı - bir kişiye geri sayım atfetmenin bir yolu yoktur.
-- **Asla ticari değildir.** Bu veriler yalnızca genel istatistikleri göstermek için mevcuttur.
-  paneli. **Asla satılmaz, üçüncü şahıslarla paylaşılmaz, reklam amacıyla kullanılmaz,
-  veya başka herhangi bir ticari amaç için kullanılır.**
-- **İsteğe bağlı kanal kimliği katkıları.** Yalnızca ve yalnızca katılmayı tercih ederseniz,
-  uzantı/web sitesi YouTube **kanal kimliklerini** paylaşabilir (asla video başlıklarını,
-  yaratıcıları herkes için sınıflandırmaya yardımcı olmak için geçmişi veya kişisel herhangi bir şeyi izleyin.
-- **Elle katkı.** Oturum açmış kullanıcının bilinçli gönderiminde e-posta–kanal
-  bağlantısı yalnızca 24 saatlik kota için tutulur ve saatlik temizlenir.
-- **Herkese açık kuyruk.** Kanal kimliğini ve durumu gösterebilir; zamanı veya katkıda bulunanı göstermez.
+- **Tamamen anonim / kimliksizleştirilmiş.** Bunlar basit çalışan toplamlardır. Adınıza, hesabınıza, e-postanıza, IP adresinize, cihazınıza veya başka herhangi bir tanımlayıcıya **bağlı değildir** — bir sayımı bir kişiye atfetmenin bir yolu yoktur.
+- **Asla ticari değil.** Bu veriler yalnızca herkese açık İstatistikler panelini göstermek için vardır. **Asla satılmaz, üçüncü taraflarla paylaşılmaz, reklam için veya başka herhangi bir ticari amaçla kullanılmaz.**
 
 ## Çocuklar
 
-Uzantı genel amaçlı bir üretkenlik aracıdır. öyle değil
-çocuklara yöneliktir, bilerek kimseden veri toplamaz ve
-hiçbir reklam göstermez.
+Uzantı, genel amaçlı bir üretkenlik aracıdır. Çocuklara yönelik değildir, hiç kimseden bilerek veri toplamaz ve reklam göstermez.
 
-## Bu politikada yapılan değişiklikler
+## Bu politikadaki değişiklikler
 
-Gelecekteki bir sürümde veri uygulamaları değişirse bu dosya
-güncellenecek ve değişiklik sürüm notlarında özetlenecektir.
-bu sürüm.
+Gelecekteki bir sürümde veri uygulamaları değişirse, bu dosya güncellenir ve değişiklik o sürümün sürüm notlarında özetlenir.
 
 ## İletişim
 
-Sorular, endişeler veya hata raporları: lütfen şu adreste bir sorun açın:
-uzantının kaynak deposunu kullanın veya listelenen destek e-postasını kullanın.
-Chrome Web Mağazası girişi.
+Sorular, endişeler veya hata raporları: lütfen uzantının kaynak deposunda bir issue açın ya da Chrome Web Store sayfasında listelenen destek e-posta adresini kullanın.
