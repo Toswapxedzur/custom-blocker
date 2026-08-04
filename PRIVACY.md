@@ -1,12 +1,14 @@
 # Privacy Policy — Custom Web Blocker
 
-_Last updated: 2026-07-23_
+_Last updated: 2026-08-04_
 
 This page explains exactly what data the **Custom Web Blocker** browser
 extension collects, where it goes, and why each browser permission is
 requested. The short version is: your rules and personal browsing data are not
 saved by us. Optional Vault Classifier collection and classification stay under
-your control and use the authenticated local bridge.
+your control and use the authenticated local bridge. A separate optional local
+AI (MCP) integration is likewise off by default and exposes data only to an
+assistant that you connect and approve yourself.
 
 ## Summary
 
@@ -25,6 +27,13 @@ your control and use the authenticated local bridge.
   title or creator metadata for collection. When it is on, retained local
   fields can include a visible title, creator name/identifier, video type,
   duration, visible subscriber/view/published text, and canonical URL.
+- **Optional local AI (MCP) integration.** If you turn it on and connect your
+  own AI assistant, that assistant can — at your explicit direction — read
+  selected data (your configuration, activity, time usage, active/open-tab URLs,
+  visible page content on sites you have configured, and any Classifier
+  evidence) through a local Vault server on your device. It is off by default,
+  every connection is approved by you, and passwords and API keys are never
+  readable through it. See "Optional local AI (MCP) integration" below.
 - **There is no analytics, advertising profile, telemetry, or crash reporter.**
 - **No tracking** of browsing activity beyond what is strictly necessary
   to apply the blocking rules you yourself configured.
@@ -57,13 +66,54 @@ companion, or an explicitly linked local Vault bridge.
 
 ## What is NOT collected or transmitted
 
-- Browsing history is not recorded, summarised, or transmitted.
-- Page content is not exfiltrated, screenshotted, or logged.
-- Vault Classifier evidence is not transmitted off-device. It is processed by
-  the paired local bridge and app only when you explicitly enable that integration.
-- Form input, passwords, and personal information are never read.
+These describe how the extension behaves on its own. The single exception is the
+optional local AI (MCP) integration you can enable and connect yourself, which is
+described in the next section.
+
+- Browsing history is not recorded, summarised, or transmitted by the extension
+  itself; it is used only to apply the rules you configured.
+- Page content is not exfiltrated, screenshotted, or logged by the extension
+  itself.
+- Vault Classifier evidence is not transmitted off-device by the extension. It is
+  processed by the paired local bridge and app only when you explicitly enable
+  that integration.
+- Form input and passwords are never read by the extension; passwords and API
+  keys are never readable through the local AI (MCP) integration either.
 - No extension identifier, account identifier, device identifier, or rule
   configuration is transmitted for normal rule enforcement.
+
+## Optional local AI (MCP) integration
+
+The extension can optionally answer requests from a local **Vault MCP server**
+running inside the Vault desktop apps on your own device, so you can connect your
+own AI assistant (an "MCP client") and have it read or act on your Vault setup
+for you. This integration is **off by default** and changes nothing unless you
+deliberately turn it on.
+
+- **You initiate it.** Nothing is exposed until you enable the integration and
+  connect an MCP client, and each client connection is approved by you. Turning
+  it off immediately revokes access.
+- **The server is local.** Data the extension provides is handed over the same
+  authenticated on-device bridge to a Vault MCP server on your Mac — not to our
+  website or any Vault server. The extension itself does not send your data to a
+  third party.
+- **Your assistant then decides.** Once a connected MCP client receives data at
+  your request, what happens to it is governed by **that client** and its own
+  privacy terms. If the assistant you chose is backed by a remote service, your
+  data may be transmitted by that assistant under your direction — the same as
+  when you paste information into any AI tool. Choose a client you trust.
+- **What can be exposed.** At your direction, a connected assistant may read your
+  block groups, schedules, custom rules, activity log, time-usage counters, the
+  active or open tab URLs, visible page content on sites you have configured, and
+  any Vault Classifier evidence and decisions. Actions that change state (editing
+  groups, starting a snooze, running a saved rule, triggering classification) are
+  confirmed individually.
+- **Secrets stay secret.** Passwords (such as a parental-control password) and
+  provider API keys are **write-only** through this integration: they can be set
+  but can never be read back by any assistant.
+- **Chromium only.** Like the Classifier bridge, this integration exists only on
+  Chromium browsers with the device-local host; Firefox and Safari do not expose
+  it.
 
 ## Why each permission is requested
 
