@@ -1,126 +1,95 @@
 # Datenschutzrichtlinie – Benutzerdefinierter Webblocker
 
-_Letzte Aktualisierung: 13.07.2026_
+_Letzte Aktualisierung: 04.08.2026_
 
-Auf dieser Seite wird genau erklärt, welche Daten der **Custom Web Blocker**-Browser benötigt
-Die Erweiterung erfasst, wohin sie geht und warum die jeweilige Browserberechtigung vorliegt
-angefordert. Kurz gesagt: Ihre Regeln und persönlichen Browserdaten werden von
-uns nicht gespeichert. Creator-Tag-Regeln können öffentliche YouTube-Kanal-IDs
-schreibgeschützt abfragen; diese Anfragen werden nicht aufbewahrt oder Ihnen zugeordnet.
+Diese Seite erläutert genau, welche Daten die Browsererweiterung **Benutzerdefinierter Webblocker** erfasst, wohin sie gelangen und warum jede Browserberechtigung angefordert wird. Kurz gesagt: Wir speichern weder Ihre Regeln noch Ihre persönlichen Browserdaten. Die optionale Erfassung und Klassifizierung durch Vault Classifier bleibt unter Ihrer Kontrolle und nutzt die authentifizierte lokale Brücke. Eine gesonderte optionale lokale KI-Integration (MCP) ist ebenfalls standardmäßig deaktiviert und legt Daten nur einem Assistenten offen, den Sie selbst verbinden und freigeben.
 
 ## Zusammenfassung
 
-- **Ihre Konfiguration bleibt im Browser.** Gruppen, Zeitpläne, Regeln, Protokolle,
-  Timer und Einstellungen werden nur in `chrome.storage.local` gespeichert.
-- **Tag-Abfragen enthalten nur öffentliche Kanal-IDs.** Es werden keine URL,
-  Videotitel, Suchanfrage, Zeitangabe, Konto-ID oder Einstellungen mitgesendet.
-- **Abfragen werden nicht gespeichert.** Der Endpunkt ist schreibgeschützt,
-  speichert unbekannte Kanäle nicht und ordnet Anfragen keiner Person zu.
-- **Es gibt keine Analyse, Telemetrie, Werbung oder Absturzberichte.**
-- **Keine Nachverfolgung** der Browsing-Aktivitäten, die über das unbedingt Notwendige hinausgehen
-  um die von Ihnen selbst konfigurierten Sperrregeln anzuwenden.
+- **Ihre Konfiguration bleibt in Ihrem Browser.** Blockgruppen, Zeitpläne, benutzerdefinierte Regeln, Protokolle, Timer und Einstellungen werden ausschließlich im lokalen Erweiterungsspeicher von Chrome (`chrome.storage.local`) gespeichert.
+- **Vault Classifier ist rein lokal.** Wenn Sie die optionale Vault-Classifier-Integration ausdrücklich aktivieren, werden sichtbare YouTube-Karten-/Seiteninhalte (etwa ein Titel, die sichtbare Beschreibung, angezeigte Tags sowie öffentliche Ersteller-/Video-IDs) ausschließlich über die authentifizierte lokale Vault-Brücke an Vault Classifier auf Ihrem Mac weitergeleitet. Sie werden nicht an unsere Website, einen Modellanbieter, die YouTube Data API oder einen anderen Server gesendet.
+- **Die Erfassung ist eine separate Zustimmung.** Vault Classifier fordert von der Erweiterung gerenderte, werbefreie YouTube-Metadaten erst an, nachdem Sie in seinem Arbeitsbereich für Klassifizierungsdaten die YouTube-Erfassung eingeschaltet haben. Ist sie aus, sendet die Erweiterung keinerlei Titel- oder Ersteller-Metadaten zur Erfassung. Ist sie ein, können die lokal gespeicherten Felder einen sichtbaren Titel, den Namen/die Kennung des Erstellers, den Videotyp, die Dauer, den sichtbaren Abonnenten-/Aufruf-/Veröffentlichungstext und die kanonische URL umfassen.
+- **Optionale lokale KI-Integration (MCP).** Wenn Sie sie einschalten und Ihren eigenen KI-Assistenten verbinden, kann dieser Assistent – auf Ihre ausdrückliche Anweisung hin – ausgewählte Daten (Ihre Konfiguration, Aktivität, Nutzungszeit, die URLs des aktiven/geöffneten Tabs, sichtbare Seiteninhalte auf von Ihnen konfigurierten Websites sowie sämtliche Classifier-Nachweise) über einen lokalen Vault-Server auf Ihrem Gerät lesen. Sie ist standardmäßig deaktiviert, jede Verbindung wird von Ihnen freigegeben, und Passwörter sowie API-Schlüssel sind darüber niemals lesbar. Siehe „Optionale lokale KI-Integration (MCP)“ weiter unten.
+- **Es gibt keine Analyse, kein Werbeprofil, keine Telemetrie und keinen Absturzbericht.**
+- **Kein Tracking** der Browseraktivität über das hinaus, was zur Anwendung der von Ihnen selbst konfigurierten Blockierregeln unbedingt erforderlich ist.
 
 ## Was lokal gespeichert wird
 
-Die Erweiterung speichert Folgendes in der lokalen Erweiterung Ihres Browsers
-Speicher, damit er seine Arbeit sitzungsübergreifend erledigen kann:
+Die Erweiterung speichert Folgendes im lokalen Erweiterungsspeicher Ihres Browsers, damit sie sitzungsübergreifend funktionieren kann:
 
-- Die von Ihnen erstellten Blockgruppen: ihre Namen, Regeltypen, Listen von
-  blockierte Websites, Zeitpläne, Schlummereinstellungen, Einfrierstatus usw
-  benutzerdefiniertes JavaScript, das Sie schreiben.
-– Laufzeitstatus pro Gruppe, der zur Durchsetzung von Grenzwerten erforderlich ist (z. B. wie viele).
-  Minuten eines verspäteten Zuschussbudgets verbleiben heute, wenn ein Nickerchen gemacht wird
-  endet, wenn eine strikte Sperrfrist endet).
-- Ihre eigenen Präferenzen werden in den **Einstellungen** festgelegt (Tickrate, automatische Speicherung).
-  Entprellen, Standard-Schlummerdauer, Standard-Fallback-URL, Debug-Modus
-  umschalten, ausgewählte UI-Sprache).
-- Aktivitätsprotokolleinträge werden im In-App-Bereich **Protokoll** angezeigt, was Sie tun können
-  klar aus der Benutzeroberfläche.
+- Die von Ihnen erstellten Blockgruppen: ihre Namen, Regeltypen, Listen blockierter Websites, Zeitpläne, Schlummereinstellungen (Snooze), Einfrierstatus sowie jedes von Ihnen geschriebene benutzerdefinierte Regel-JavaScript.
+- Den pro Gruppe erforderlichen Laufzeitzustand zur Durchsetzung von Limits (z. B. wie viele Minuten eines aufgeschobenen Zeitkontingents heute noch übrig sind, wann ein Schlummern endet, wann eine Phase des strikten Einfrierens endet).
+- Ihre eigenen unter **Einstellungen** festgelegten Präferenzen (Taktrate, Verzögerung des automatischen Speicherns, Standard-Schlummerdauer, Standard-Ausweich-URL, Umschalter für den Debugmodus, gewählte Oberflächensprache).
+- Die im **Protokoll**-Bereich der App angezeigten Aktivitätsprotokolleinträge, die Sie über die Oberfläche löschen können.
+- Wenn Sie Vault Classifier ausdrücklich aktivieren, führt seine lokale App einen benutzerbegrenzten lokalen Zwischenspeicher der sichtbaren Nachweise, lokalen Bewertungen, Entscheidungen und Korrekturen, die zum Klassifizieren und Erläutern von Einträgen nötig sind. Dieser Zwischenspeicher verbleibt auf Ihrem Mac und ist nicht Teil des normalen Datenverkehrs zwischen Erweiterung und Server.
 
-Diese Daten werden nur von den eigenen Skripten der Erweiterung gelesen und geschrieben
-auf Ihrem Gerät und nur innerhalb Ihres eigenen Browserprofils.
+Ihre Konfiguration, der Laufzeitzustand und das Aktivitätsprotokoll verbleiben auf Ihrem Gerät und werden von unserem Dienst nicht gespeichert. Je nach Browser-Build und den von Ihnen aktivierten Funktionen können sie von der Erweiterung, ihrer gerätelokalen Safari-Begleit-App oder einer ausdrücklich verknüpften lokalen Vault-Brücke verarbeitet werden.
 
-## Was NICHT erfasst oder übermittelt wird
+## Was NICHT erfasst oder übertragen wird
 
-- Der Browserverlauf wird nicht aufgezeichnet, zusammengefasst oder übermittelt.
-- Der Seiteninhalt wird nicht exfiltriert, per Screenshot erstellt oder protokolliert.
-- Formulareingaben, Passwörter und persönliche Informationen werden niemals gelesen.
-- Es werden keine Informationen über Sie, Ihr Gerät oder Ihre Nutzung an die gesendet
-  Erweiterungsautor oder ein Dritter.
+Dies beschreibt das Verhalten der Erweiterung für sich genommen. Die einzige Ausnahme ist die optionale lokale KI-Integration (MCP), die Sie selbst aktivieren und verbinden können und die im nächsten Abschnitt beschrieben wird.
+
+- Der Browserverlauf wird von der Erweiterung selbst weder aufgezeichnet noch zusammengefasst oder übertragen; er dient nur der Anwendung der von Ihnen konfigurierten Regeln.
+- Seiteninhalte werden von der Erweiterung selbst weder abgezogen noch als Screenshot erfasst oder protokolliert.
+- Vault-Classifier-Nachweise werden von der Erweiterung nicht vom Gerät übertragen. Sie werden nur dann von der gekoppelten lokalen Brücke und der App verarbeitet, wenn Sie diese Integration ausdrücklich aktivieren.
+- Formulareingaben und Passwörter werden von der Erweiterung niemals gelesen; Passwörter und API-Schlüssel sind auch über die lokale KI-Integration (MCP) nicht lesbar.
+- Für die normale Regeldurchsetzung werden keine Erweiterungs-, Konto- oder Gerätekennungen und keine Regelkonfiguration übertragen.
+
+## Optionale lokale KI-Integration (MCP)
+
+Die Erweiterung kann optional Anfragen eines lokalen **Vault-MCP-Servers** beantworten, der innerhalb der Vault-Desktop-Apps auf Ihrem eigenen Gerät läuft, sodass Sie Ihren eigenen KI-Assistenten (einen „MCP-Client“) verbinden und ihn Ihre Vault-Einrichtung für Sie lesen oder darauf handeln lassen können. Diese Integration ist **standardmäßig deaktiviert** und ändert nichts, solange Sie sie nicht bewusst einschalten.
+
+- **Sie starten sie.** Nichts wird offengelegt, bis Sie die Integration aktivieren und einen MCP-Client verbinden, und jede Client-Verbindung wird von Ihnen freigegeben. Das Ausschalten widerruft den Zugriff sofort.
+- **Der Server ist lokal.** Von der Erweiterung bereitgestellte Daten werden über dieselbe authentifizierte geräteinterne Brücke an einen Vault-MCP-Server auf Ihrem Mac übergeben – nicht an unsere Website oder einen Vault-Server. Die Erweiterung selbst sendet Ihre Daten an keinen Dritten.
+- **Danach entscheidet Ihr Assistent.** Sobald ein verbundener MCP-Client auf Ihre Anforderung hin Daten erhält, richtet sich der weitere Umgang damit nach **diesem Client** und dessen eigenen Datenschutzbedingungen. Wenn der von Ihnen gewählte Assistent auf einen entfernten Dienst gestützt ist, kann dieser Assistent Ihre Daten auf Ihre Anweisung hin übertragen – genauso, wie wenn Sie Informationen in ein beliebiges KI-Tool einfügen. Wählen Sie einen Client, dem Sie vertrauen.
+- **Was offengelegt werden kann.** Auf Ihre Anweisung hin kann ein verbundener Assistent Ihre Blockgruppen, Zeitpläne, benutzerdefinierten Regeln, das Aktivitätsprotokoll, die Nutzungszeitzähler, die URL des aktiven oder der geöffneten Tabs, sichtbare Seiteninhalte auf von Ihnen konfigurierten Websites sowie sämtliche Vault-Classifier-Nachweise und -Entscheidungen lesen. Zustandsändernde Aktionen (Gruppen bearbeiten, ein Schlummern starten, eine gespeicherte Regel ausführen, eine Klassifizierung auslösen) werden einzeln bestätigt.
+- **Geheimnisse bleiben geheim.** Passwörter (etwa ein Passwort der Kindersicherung) und Anbieter-API-Schlüssel sind über diese Integration **nur schreibbar**: Sie können gesetzt, aber von keinem Assistenten wieder gelesen werden.
+- **Nur Chromium.** Wie die Classifier-Brücke existiert diese Integration nur in Chromium-Browsern mit dem geräteinternen Host; Firefox und Safari legen sie nicht offen.
 
 ## Warum jede Berechtigung angefordert wird
 
-| Erlaubnis | Wofür wird es verwendet |
+| Berechtigung | Wofür sie verwendet wird |
 | --- | --- |
-| `storage` | Speichern und laden Sie Ihre Blockgruppen, Einstellungen und den Laufzeitstatus nur in Ihrem Browser. |
-| `favicon` | Zeigt in Chromium neben Regeln lokal im Browser zwischengespeicherte Website-Symbole an. Dabei werden weder Browserverlauf noch Anfragen an unseren Dienst gesendet. |
-| `nativeMessaging` | Fordert in Chromium einen gerätelokalen Native-Messaging-Nachweis für die authentifizierte Vault-Classifier-Brücke an; leitet in Safari Sandbox-Anfragen benutzerdefinierter Regeln an die lokale Begleit-App auf dem Gerät weiter. Dies ist kein Cloud-Transport. |
-| `alarms` | Wecken Sie den Hintergrunddienstmitarbeiter nach Zeitplan, um zeitbasierte Grenzwerte zu aktualisieren und den Regelstatus zu aktualisieren, wenn ein Snooze-, Freeze- oder Zeitplanfenster endet. |
-| `offscreen` | Führen Sie Sandbox-JavaScript mit benutzerdefinierten Regeln in einem Offscreen-Dokument aus, damit es der Erweiterung nicht entgehen oder Ihre Seiten nicht direkt berühren kann. |
-| `tabs` | Öffnen Sie den Editor als vollständige Registerkarte, indem Sie auf das Symbolleistensymbol klicken, suchen Sie nach der URL der aktiven Registerkarte, um Gruppenregeln auszuwerten, und laden Sie Registerkarten nach einer Regeländerung, die Sie im Editor vorgenommen haben, neu. |
-| `webNavigation` | Erkennen Sie SPA-URL-Änderungen (Push-State-Navigation), damit plattformspezifische Feed-Hider und ereignisgesteuerte Regeln auf die In-Page-Navigation und nicht nur auf das Laden ganzer Seiten reagieren können. |
-| `<all_urls>` Hostzugriff | Wenden Sie Ihre Blockierungsregeln und plattformspezifischen Feed-Hider auf alle Websites an, die Sie blockieren möchten. Die Erweiterung liest/ändert Seiten nur auf URLs, für die Sie aktiv eine Regel konfiguriert haben, und nur, um diese Regel durchzusetzen. |
+| `storage` | Ihre Blockgruppen, Einstellungen und den Laufzeitzustand nur in Ihrem Browser speichern und laden. |
+| `favicon` | In Chromium browsergecachte Website-Symbole neben den Regeln anzeigen. Dabei werden weder der Browserverlauf gesendet noch Anfragen an unseren Dienst gestellt. |
+| `nativeMessaging` | Unter Chromium einen gerätelokalen Native-Messaging-Nachweis für die authentifizierte Vault-Classifier-Brücke anfordern; unter Safari Sandbox-Anfragen benutzerdefinierter Regeln an die gerätelokale Container-App weiterleiten. Es handelt sich nicht um einen Cloud-Transport. |
+| `alarms` | Den Hintergrund-Service-Worker planmäßig aufwecken, um zeitbasierte Limits und den Regelstatus zu aktualisieren, wenn ein Schlummer-, Einfrier- oder Zeitplanfenster endet. |
+| `offscreen` | Das JavaScript benutzerdefinierter Regeln in einem Sandbox-Offscreen-Dokument ausführen, damit es weder aus der Erweiterung ausbrechen noch Ihre Seiten direkt berühren kann. |
+| `tabs` | Den Editor als vollständigen Tab öffnen, wenn Sie auf das Symbolleistensymbol klicken, die URL des aktiven Tabs zur Auswertung der Gruppenregeln abrufen und Tabs nach einer von Ihnen im Editor vorgenommenen Regeländerung neu laden. |
+| `webNavigation` | SPA-URL-Änderungen (Push-State-Navigation) erkennen, damit plattformspezifische Feed-Ausblender und ereignisgesteuerte Regeln auf die Navigation innerhalb der Seite reagieren können, nicht nur auf vollständige Seitenladungen. |
+| Host-Zugriff `<all_urls>` | Ihre Blockierregeln und plattformspezifischen Feed-Ausblender auf den von Ihnen gewählten Websites anwenden. Die Erweiterung liest/ändert Seiten nur auf URLs, für die Sie aktiv eine Regel konfiguriert haben, und nur zur Durchsetzung dieser Regel; der optionale Vault-Classifier-Adapter ist auf YouTube beschränkt. |
 
 ## Benutzerdefinierte Regeln
 
-Wenn Sie benutzerdefinierte JavaScript-Regeln schreiben, ist dieser Code:
+Wenn Sie benutzerdefinierte JavaScript-Regeln schreiben, gilt für diesen Code:
 
-– Läuft in einem Sandbox-Offscreen-Dokument; es kann das nicht direkt erreichen
-  Netzwerk, Ihre Seiten oder andere Erweiterungen.
-– Kommuniziert mit Inhaltsskripten nur über eine feste Nachrichtenbrücke
-  definiert durch die Hilfs-API der Erweiterung.
-- Wird automatisch unter Quarantäne gestellt (mit einem Protokolleintrag deaktiviert), wenn dies der Fall ist
-  überschreitet die integrierten CPU-, Protokoll-, Post-Message- oder DOM-Mutations-Obergrenzen.
+- Er läuft in einem Sandbox-Offscreen-Dokument; er kann weder das Netzwerk noch Ihre Seiten oder andere Erweiterungen direkt erreichen.
+- Er kommuniziert mit Content-Skripten ausschließlich über eine feste Nachrichtenbrücke, die durch die Hilfs-API der Erweiterung definiert ist.
+- Er wird automatisch unter Quarantäne gestellt (mit einem Protokolleintrag deaktiviert), wenn er die integrierten Grenzwerte für CPU, Protokoll, Post-Message oder DOM-Mutationen überschreitet.
 
-Ihre benutzerdefinierten Regeln werden lokal zusammen mit den übrigen Einstellungen gespeichert
-und werden niemals außerhalb des Geräts übertragen.
+Ihre benutzerdefinierten Regeln werden lokal zusammen mit Ihren übrigen Einstellungen gespeichert und niemals vom Gerät übertragen.
 
-## Statistiken zu Websites und Ersteller-Tag-Diensten
+## Website-Statistiken
 
-In diesem Abschnitt geht es um die **Website und den Creator-Tag-Dienst**.
-Die Erweiterung kann öffentliche Kanal-IDs schreibgeschützt abfragen; diese
-Abfragen werden nicht gespeichert. Die Website veröffentlicht eine kleine **Statistik**
-Panel, und um es zu füllen, speichert der Server einige aggregierte Zählungen:
+Dieser Abschnitt betrifft die **Website**. Die Website veröffentlicht ein kleines **Statistik**-Panel; um es zu befüllen, führt der Server einige aggregierte Zählwerte:
 
-- **Download-Anzahl** – wie oft der Download-Button jedes Produkts war
-  angeklickt (macOS, Windows, Browsererweiterung, Safari).
-- **Klassifizierte YouTuber** – wie viele YouTube-Ersteller getaggt wurden.
+- **Downloadzahlen** – wie oft die Download-Schaltfläche jedes Produkts angeklickt wurde (macOS, Windows, Browsererweiterung, Safari).
 - **Konten** – wie viele Konten existieren.
-- **Q&A-Aktivität** – die Gesamtzahl der Forumbeiträge und Kommentare.
+- **F&A-Aktivität** – die Gesamtzahl der Forenbeiträge und Kommentare.
 
-Einmal pro Stunde zeichnet der Server den aktuellen Wert jeder dieser Zählungen auf und
-nichts anderes. Es gibt keine Aufzeichnungen pro Ereignis, keine Clickstreams und keine Sitzung
-Geschichte.
+Einmal pro Stunde erfasst der Server den aktuellen Wert jedes aggregierten Zählwerts. Diese Momentaufnahmen enthalten kein Ereignis pro Besucher, keinen Klickpfad und keinen Sitzungsverlauf.
 
-- **Vollständig anonym/de-identifiziert.** Dies sind einfache laufende Summen. Sie
-  sind **nicht** mit Ihrem Namen, Ihrem Konto, Ihrer E-Mail-Adresse, Ihrer IP-Adresse, Ihrem Gerät oder Ähnlichem verknüpft
-  andere Kennung – es gibt keine Möglichkeit, eine Zählung einer Person zuzuordnen.
-- **Niemals kommerziell.** Diese Daten dienen nur zur Darstellung öffentlicher Statistiken
-  Panel. Es wird niemals verkauft, an Dritte weitergegeben, für Werbung verwendet,
-  oder für andere kommerzielle Zwecke verwendet werden.**
-- **Optionale Kanal-ID-Beiträge.** Wenn – und nur wenn – Sie sich dafür entscheiden, wird die
-  Erweiterung/Website darf YouTube-**Kanal-IDs** teilen (niemals Videotitel,
-  B. den Uhrenverlauf oder etwas Persönliches), um die Klassifizierung der Urheber für alle zu erleichtern.
-- **Manuelle Beiträge.** Bei absichtlichen Beiträgen auf der Website wird die
-  Zuordnung zwischen E-Mail und Kanal-ID höchstens für das rollierende
-  24-Stunden-Kontingent aufbewahrt und stündlich bereinigt.
-- **Öffentliche Warteschlange.** Sie kann öffentliche Kanal-IDs und den
-  Bearbeitungsstatus zeigen, aber keine Übermittlungszeit und keinen Einreicher.
+- **Vollständig anonym / de-identifiziert.** Es handelt sich um einfache laufende Summen. Sie sind **nicht** mit Ihrem Namen, Konto, Ihrer E-Mail, IP-Adresse, Ihrem Gerät oder einer sonstigen Kennung verknüpft – es gibt keine Möglichkeit, eine Zählung einer Person zuzuordnen.
+- **Niemals kommerziell.** Diese Daten existieren nur, um das öffentliche Statistik-Panel anzuzeigen. Sie werden **niemals verkauft, an Dritte weitergegeben, für Werbung oder für einen anderen kommerziellen Zweck verwendet.**
 
 ## Kinder
 
-Die Erweiterung ist ein universelles Produktivitätstool. Das ist es nicht
-richtet sich an Kinder, sammelt nicht wissentlich Daten von irgendjemandem und
-Zeigt keine Werbung an.
+Die Erweiterung ist ein Allzweck-Produktivitätswerkzeug. Sie richtet sich nicht an Kinder, erfasst wissentlich von niemandem Daten und zeigt keine Werbung.
 
 ## Änderungen an dieser Richtlinie
 
-Sollten sich die Datenpraktiken in einer zukünftigen Version jemals ändern, wird dies auch in dieser Datei der Fall sein
-aktualisiert werden und die Änderung wird in den Versionshinweisen für zusammengefasst
-diese Veröffentlichung.
+Sollten sich die Datenpraktiken in einer künftigen Version ändern, wird diese Datei aktualisiert und die Änderung in den Versionshinweisen jener Veröffentlichung zusammengefasst.
 
 ## Kontakt
 
-Fragen, Bedenken oder Fehlerberichte: Bitte öffnen Sie ein Problem auf der
-Quell-Repository der Erweiterung oder verwenden Sie die auf der aufgeführte Support-E-Mail-Adresse
-Eintrag im Chrome Web Store.
+Fragen, Anliegen oder Fehlerberichte: Bitte öffnen Sie ein Issue im Quell-Repository der Erweiterung oder verwenden Sie die im Chrome Web Store-Eintrag angegebene Support-E-Mail.

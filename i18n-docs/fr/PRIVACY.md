@@ -1,126 +1,95 @@
 # Politique de confidentialité — Bloqueur Web personnalisé
 
-_Dernière mise à jour : 2026-07-13_
+_Dernière mise à jour : 2026-08-04_
 
-Cette page explique exactement quelles données le navigateur **Custom Web Blocker**
-l'extension collecte, où elle va et pourquoi chaque autorisation du navigateur est
-demandée. En bref : nous ne conservons ni vos règles ni vos données personnelles
-de navigation. Les règles par tag peuvent interroger des identifiants publics de
-chaînes YouTube, mais ces requêtes ne sont ni conservées ni rattachées à vous.
+Cette page explique précisément quelles données l'extension de navigateur **Bloqueur Web personnalisé** collecte, où elles vont et pourquoi chaque autorisation de navigateur est demandée. En résumé : nous ne conservons ni vos règles ni vos données de navigation personnelles. La collecte et la classification facultatives de Vault Classifier restent sous votre contrôle et utilisent le pont local authentifié. Une intégration facultative et distincte d'IA locale (MCP) est elle aussi désactivée par défaut et n'expose des données qu'à un assistant que vous connectez et approuvez vous-même.
 
 ## Résumé
 
-- **Votre configuration reste dans le navigateur.** Groupes, horaires, règles,
-  journaux, minuteurs et préférences sont stockés uniquement dans `chrome.storage.local`.
-- **Une requête de tag ne contient qu'un identifiant public de chaîne.** Elle
-  n'inclut ni URL, ni titre, ni recherche, ni heure, ni compte, ni réglage.
-- **Les requêtes ne sont pas enregistrées.** Le point d'accès est en lecture
-  seule, n'ajoute pas les chaînes inconnues et n'associe personne à la requête.
-- **Aucune analyse, télémétrie, publicité ni remontée de panne.**
-- **Aucun suivi** de l'activité de navigation au-delà de ce qui est strictement nécessaire
-  pour appliquer les règles de blocage que vous avez vous-même configurées.
+- **Votre configuration reste dans votre navigateur.** Les groupes de blocage, les plannings, les règles personnalisées, les journaux, les minuteurs et les préférences ne sont conservés que dans le stockage local de l'extension Chrome (`chrome.storage.local`).
+- **Vault Classifier est strictement local.** Si vous activez explicitement l'intégration facultative de Vault Classifier, les éléments visibles des cartes/pages YouTube (comme un titre, la description visible, les étiquettes affichées et les identifiants publics de créateur/vidéo) sont acheminés uniquement via le pont local authentifié de Vault vers Vault Classifier sur votre Mac. Ils ne sont envoyés ni à notre site web, ni à un fournisseur de modèle, ni à l'API Data de YouTube, ni à aucun autre serveur.
+- **La collecte est un consentement distinct.** Vault Classifier ne demande à l'extension des métadonnées YouTube rendues et sans publicité qu'après que vous avez activé la collecte YouTube dans son espace de travail de données de classification. Lorsqu'elle est désactivée, l'extension n'envoie aucun titre ni métadonnée de créateur pour la collecte. Lorsqu'elle est activée, les champs locaux conservés peuvent inclure un titre visible, le nom/identifiant du créateur, le type de vidéo, la durée, le texte visible d'abonnés/vues/date de publication et l'URL canonique.
+- **Intégration facultative d'IA locale (MCP).** Si vous l'activez et connectez votre propre assistant IA, cet assistant peut — sur votre instruction explicite — lire des données sélectionnées (votre configuration, votre activité, votre temps d'utilisation, les URL des onglets actifs/ouverts, le contenu visible des pages sur les sites que vous avez configurés et toute donnée probante de Classifier) via un serveur Vault local sur votre appareil. Elle est désactivée par défaut, chaque connexion est approuvée par vous, et les mots de passe et clés d'API ne sont jamais lisibles par ce biais. Voir « Intégration facultative d'IA locale (MCP) » ci-dessous.
+- **Il n'y a ni analyse d'audience, ni profil publicitaire, ni télémétrie, ni rapport de plantage.**
+- **Aucun suivi** de l'activité de navigation au-delà de ce qui est strictement nécessaire pour appliquer les règles de blocage que vous avez vous-même configurées.
 
 ## Ce qui est stocké localement
 
-L'extension stocke les éléments suivants dans l'extension locale de votre navigateur
-stockage afin qu'il puisse faire son travail au fil des sessions :
+L'extension stocke les éléments suivants dans le stockage local de l'extension de votre navigateur afin de pouvoir fonctionner d'une session à l'autre :
 
-- Les groupes de blocs que vous créez : leurs noms, types de règles, listes de
-  sites bloqués, calendriers, paramètres de répétition, état de gel et tout autre
-  JavaScript de règle personnalisée que vous écrivez.
-- État d'exécution par groupe nécessaire pour appliquer les limites (par exemple, combien
-  il reste aujourd'hui quelques minutes d'un budget à allocation différée, lorsqu'une répétition
-  se termine, à la fin d’une période de gel strict).
-- Vos propres préférences définies dans **Paramètres** (taux de tick, sauvegarde automatique
-  anti-rebond, durée de répétition par défaut, URL de secours par défaut, mode débogage
-  bascule, langue d'interface utilisateur choisie).
-- Entrées du journal d'activité affichées dans le panneau **Journal** de l'application, que vous pouvez
-  clair de l’interface utilisateur.
+- Les groupes de blocage que vous créez : leurs noms, types de règles, listes de sites bloqués, plannings, paramètres de report (snooze), état de gel et tout JavaScript de règle personnalisée que vous écrivez.
+- L'état d'exécution par groupe nécessaire à l'application des limites (par ex. combien de minutes d'un budget d'autorisation différée restent aujourd'hui, quand un report se termine, quand une période de gel strict prend fin).
+- Vos propres préférences définies dans **Paramètres** (fréquence de rafraîchissement, délai d'enregistrement automatique, durée de report par défaut, URL de repli par défaut, bascule du mode de débogage, langue d'interface choisie).
+- Les entrées du journal d'activité affichées dans le panneau **Journal** de l'application, que vous pouvez effacer depuis l'interface.
+- Lorsque vous activez explicitement Vault Classifier, son application locale conserve un cache local, borné par l'utilisateur, des éléments visibles, des scores locaux, des décisions et des corrections nécessaires pour classer et expliquer les entrées. Ce cache reste sur votre Mac et ne fait pas partie du trafic habituel entre l'extension et le serveur.
 
-Ces données sont lues et écrites uniquement par les propres scripts de l'extension, uniquement
-sur votre appareil, et uniquement dans votre propre profil de navigateur.
+Votre configuration, l'état d'exécution et le journal d'activité restent sur votre appareil et ne sont pas enregistrés par notre service. Selon la version du navigateur et les fonctionnalités que vous activez, ils peuvent être traités par l'extension, par son application compagnon locale pour Safari, ou par un pont Vault local explicitement lié.
 
-## Ce qui n'est PAS collecté ou transmis
+## Ce qui n'est PAS collecté ni transmis
 
-- L'historique de navigation n'est ni enregistré, ni résumé, ni transmis.
-- Le contenu de la page n'est pas exfiltré, capturé ou enregistré.
-- La saisie du formulaire, les mots de passe et les informations personnelles ne sont jamais lus.
-- Aucune information sur vous, votre appareil ou votre utilisation n'est envoyée au
-  l'auteur de l'extension ou tout tiers.
+Ceci décrit le comportement de l'extension par elle-même. La seule exception est l'intégration facultative d'IA locale (MCP) que vous pouvez activer et connecter vous-même, décrite dans la section suivante.
+
+- L'historique de navigation n'est ni enregistré, ni résumé, ni transmis par l'extension elle-même ; il sert uniquement à appliquer les règles que vous avez configurées.
+- Le contenu des pages n'est ni exfiltré, ni capturé en image, ni journalisé par l'extension elle-même.
+- Les données probantes de Vault Classifier ne sont pas transmises hors de l'appareil par l'extension. Elles sont traitées par le pont local apparié et l'application uniquement lorsque vous activez explicitement cette intégration.
+- Les saisies de formulaire et les mots de passe ne sont jamais lus par l'extension ; les mots de passe et les clés d'API ne sont pas non plus lisibles via l'intégration d'IA locale (MCP).
+- Aucun identifiant d'extension, de compte ou d'appareil, ni votre configuration de règles, n'est transmis pour l'application normale des règles.
+
+## Intégration facultative d'IA locale (MCP)
+
+L'extension peut, de manière facultative, répondre aux requêtes d'un **serveur MCP Vault** local exécuté au sein des applications de bureau Vault sur votre propre appareil, afin que vous puissiez connecter votre propre assistant IA (un « client MCP ») et lui faire lire votre configuration Vault ou agir dessus pour vous. Cette intégration est **désactivée par défaut** et ne change rien tant que vous ne l'activez pas délibérément.
+
+- **C'est vous qui l'initiez.** Rien n'est exposé tant que vous n'avez pas activé l'intégration et connecté un client MCP, et chaque connexion de client est approuvée par vous. La désactiver révoque immédiatement l'accès.
+- **Le serveur est local.** Les données fournies par l'extension sont remises, via le même pont authentifié de l'appareil, à un serveur MCP Vault sur votre Mac — pas à notre site web ni à aucun serveur Vault. L'extension elle-même n'envoie pas vos données à un tiers.
+- **Votre assistant décide ensuite.** Une fois qu'un client MCP connecté reçoit des données à votre demande, leur sort est régi par **ce client** et ses propres conditions de confidentialité. Si l'assistant que vous avez choisi s'appuie sur un service distant, cet assistant peut transmettre vos données sur votre instruction — comme lorsque vous collez des informations dans n'importe quel outil d'IA. Choisissez un client en qui vous avez confiance.
+- **Ce qui peut être exposé.** Sur votre instruction, un assistant connecté peut lire vos groupes de blocage, vos plannings, vos règles personnalisées, le journal d'activité, les compteurs de temps d'utilisation, l'URL de l'onglet actif ou des onglets ouverts, le contenu visible des pages sur les sites que vous avez configurés, ainsi que toute donnée probante et décision de Vault Classifier. Les actions qui modifient l'état (modifier des groupes, lancer un report, exécuter une règle enregistrée, déclencher une classification) sont confirmées individuellement.
+- **Les secrets restent secrets.** Les mots de passe (comme un mot de passe de contrôle parental) et les clés d'API des fournisseurs sont en **écriture seule** via cette intégration : ils peuvent être définis, mais aucun assistant ne peut les relire.
+- **Chromium uniquement.** Comme le pont Classifier, cette intégration n'existe que sur les navigateurs Chromium dotés de l'hôte local de l'appareil ; Firefox et Safari ne l'exposent pas.
 
 ## Pourquoi chaque autorisation est demandée
 
-| Autorisation | À quoi sert-il |
+| Autorisation | À quoi elle sert |
 | --- | --- |
-| `storage` | Enregistrez et chargez vos groupes de blocs, vos paramètres et votre état d'exécution dans votre navigateur uniquement. |
-| `favicon` | Affiche dans Chromium les icônes de sites déjà mises en cache par le navigateur à côté des règles. Cela n'envoie pas l'historique et ne contacte pas notre service. |
-| `nativeMessaging` | Dans Chromium, demande une preuve Native Messaging locale à l’appareil pour le pont Vault Classifier authentifié ; dans Safari, transmet les requêtes du bac à sable des règles personnalisées à l’application locale de l’appareil. Ce n’est pas un transport cloud. |
-| `alarms` | Réveillez le travailleur de service en arrière-plan selon la planification pour actualiser les limites temporelles et mettre à jour l'état des règles lorsqu'une fenêtre de répétition, de gel ou de planification se termine. |
-| `offscreen` | Exécutez du JavaScript avec règles personnalisées en bac à sable dans un document hors écran afin qu'il ne puisse pas échapper à l'extension ou toucher directement vos pages. |
-| `tabs` | Ouvrez l'éditeur sous forme d'onglet complet lorsque vous cliquez sur l'icône de la barre d'outils, recherchez l'URL de l'onglet actif pour évaluer les règles de groupe et rechargez les onglets après une modification de règle que vous avez apportée dans l'éditeur. |
-| `webNavigation` | Détectez les modifications d'URL SPA (navigation par état push) afin que les cacheurs de flux par plate-forme et les règles basées sur les événements puissent réagir à la navigation dans la page, et pas seulement au chargement de pages entières. |
-| `<all_urls>` accès hôte | Appliquez vos règles de blocage et vos cacheurs de flux par plateforme sur les sites que vous choisissez de bloquer. L'extension lit/modifie les pages uniquement sur les URL pour lesquelles vous avez activement configuré une règle, et uniquement pour appliquer cette règle. |
+| `storage` | Enregistrer et charger vos groupes de blocage, vos paramètres et l'état d'exécution uniquement dans votre navigateur. |
+| `favicon` | Afficher les icônes de sites mises en cache par le navigateur à côté des règles dans Chromium. Cela n'envoie pas l'historique de navigation et n'effectue aucune requête vers notre service. |
+| `nativeMessaging` | Sous Chromium, demander une preuve Native Messaging locale à l'appareil pour le pont authentifié de Vault Classifier ; sous Safari, transmettre les requêtes du bac à sable des règles personnalisées à l'application conteneur locale de l'appareil. Ce n'est pas un transport dans le cloud. |
+| `alarms` | Réveiller le service worker d'arrière-plan selon le planning pour actualiser les limites basées sur le temps et l'état des règles à la fin d'une fenêtre de report, de gel ou de planning. |
+| `offscreen` | Exécuter le JavaScript des règles personnalisées dans un bac à sable au sein d'un document hors écran afin qu'il ne puisse ni s'échapper de l'extension ni toucher directement vos pages. |
+| `tabs` | Ouvrir l'éditeur dans un onglet complet lorsque vous cliquez sur l'icône de la barre d'outils, consulter l'URL de l'onglet actif pour évaluer les règles de groupe et recharger les onglets après une modification de règle effectuée dans l'éditeur. |
+| `webNavigation` | Détecter les changements d'URL des applications monopages (navigation par push-state) afin que les masqueurs de fils par plateforme et les règles événementielles puissent réagir à la navigation intra-page, et pas seulement aux chargements de page complets. |
+| Accès hôte `<all_urls>` | Appliquer vos règles de blocage et les masqueurs de fils par plateforme sur les sites que vous choisissez de bloquer. L'extension ne lit/modifie les pages que sur les URL pour lesquelles vous avez activement configuré une règle, et uniquement pour appliquer cette règle ; l'adaptateur facultatif de Vault Classifier est limité à YouTube. |
 
 ## Règles personnalisées
 
-Si vous écrivez des règles JavaScript personnalisées, ce code :
+Si vous écrivez des règles JavaScript personnalisées, ce code :
 
-- S'exécute dans un document hors écran en bac à sable ; il ne peut pas atteindre directement le
-  réseau, vos pages ou d’autres extensions.
-- Communique avec les scripts de contenu uniquement via un pont de messages fixe
-  défini par l'API d'assistance de l'extension.
-- Est automatiquement mis en quarantaine (désactivé avec une entrée de journal) s'il
-  dépasse les limites intégrées du processeur, du journal, du message post-message ou de la mutation DOM.
+- S'exécute dans un document hors écran en bac à sable ; il ne peut pas atteindre directement le réseau, vos pages ou d'autres extensions.
+- Ne communique avec les scripts de contenu qu'à travers un pont de messages fixe défini par l'API auxiliaire de l'extension.
+- Est automatiquement mis en quarantaine (désactivé avec une entrée de journal) s'il dépasse les limites intégrées de CPU, de journal, de messages ou de mutations du DOM.
 
-Vos règles personnalisées sont stockées localement avec le reste de vos paramètres
-et ne sont jamais transmis depuis l'appareil.
+Vos règles personnalisées sont stockées localement avec le reste de vos paramètres et ne sont jamais transmises hors de l'appareil.
 
-## Statistiques du site Web et du service de balise de créateur
+## Statistiques du site web
 
-Cette section concerne le **site Web et le service de tags de créateurs**.
-L'extension peut interroger en lecture seule des identifiants publics de chaîne ;
-ces requêtes ne sont pas conservées. Le site publie un petit panneau de **statistiques**
-panneau, et pour le remplir, le serveur conserve quelques comptes globaux :
+Cette section concerne le **site web**. Le site web publie un petit panneau **Statistiques** et, pour le renseigner, le serveur conserve quelques totaux agrégés :
 
-- **Les téléchargements comptent** : combien de fois le bouton de téléchargement de chaque produit a été actionné
-  cliqué (macOS, Windows, extension de navigateur, Safari).
-- **Créateurs classés** : combien de créateurs YouTube ont été tagués.
-- **Comptes** : combien de comptes existent.
-- **Activité questions-réponses** — le nombre total de publications et de commentaires sur le forum.
+- **Nombres de téléchargements** — combien de fois le bouton de téléchargement de chaque produit a été cliqué (macOS, Windows, extension de navigateur, Safari).
+- **Comptes** — combien de comptes existent.
+- **Activité de questions-réponses** — le nombre total de publications et de commentaires du forum.
 
-Une fois par heure, le serveur enregistre la valeur actuelle de chacun de ces comptes et
-rien d'autre. Il n'y a pas d'enregistrements par événement, pas de flux de clics et pas de session
-histoire.
+Une fois par heure, le serveur enregistre la valeur actuelle de chaque total agrégé. Ces instantanés ne contiennent aucun événement par visiteur, aucun parcours de clics ni historique de session.
 
-- **Entièrement anonyme / anonymisé.** Il s'agit de totaux cumulés simples. Ils
-  ne sont **pas** liés à votre nom, compte, e-mail, adresse IP, appareil ou tout autre
-  autre identifiant - il n'y a aucun moyen d'attribuer un compte à rebours à une personne.
-- **Jamais commercial.** Ces données existent uniquement pour montrer les statistiques publiques
-  panneau. Il n'est **jamais vendu, partagé avec des tiers, utilisé à des fins publicitaires,
-  ou utilisé à toute autre fin commerciale.**
-- **Contributions facultatives à l'identifiant de chaîne.** Si — et seulement si — vous vous inscrivez, le
-  l'extension/le site Web peut partager des **identifiants de chaîne** YouTube (jamais de titres de vidéo,
-  regarder l'historique ou quoi que ce soit de personnel) pour aider à classer les créateurs pour tout le monde.
-- **Contributions manuelles.** Lorsqu'un utilisateur connecté envoie volontairement
-  des chaînes, l'association e-mail/chaîne n'est conservée que pendant la fenêtre
-  glissante de 24 heures puis supprimée par le nettoyage horaire.
-- **File publique.** Elle peut afficher l'identifiant public et l'état du
-  classement, jamais l'heure d'envoi ni l'identité du contributeur.
+- **Entièrement anonyme / dépersonnalisé.** Ce sont de simples totaux cumulés. Ils ne sont **pas** liés à votre nom, compte, e-mail, adresse IP, appareil ou tout autre identifiant : il n'existe aucun moyen de rattacher un total à une personne.
+- **Jamais commercial.** Ces données n'existent que pour afficher le panneau public Statistiques. Elles ne sont **jamais vendues, partagées avec des tiers, utilisées à des fins publicitaires ni pour aucun autre objectif commercial.**
 
 ## Enfants
 
-L'extension est un outil de productivité à usage général. Ce n'est pas
-destiné aux enfants, ne collecte sciemment aucune donnée auprès de qui que ce soit, et
-n'affiche aucune publicité.
+L'extension est un outil de productivité à usage général. Elle n'est pas destinée aux enfants, ne collecte sciemment les données de personne et n'affiche aucune publicité.
 
-## Modifications apportées à cette politique
+## Modifications de cette politique
 
-Si jamais les pratiques en matière de données changent dans une version future, ce fichier sera
-sera mis à jour et le changement sera résumé dans les notes de version pour
-cette version.
+Si les pratiques en matière de données changent dans une version future, ce fichier sera mis à jour et la modification sera résumée dans les notes de version de cette publication.
 
-## Contacter
+## Contact
 
-Questions, préoccupations ou rapports de bogues : veuillez ouvrir un problème sur le
-le référentiel source de l'extension, ou utilisez l'e-mail d'assistance répertorié sur le
-Liste du Chrome Web Store.
+Questions, préoccupations ou rapports de bogue : veuillez ouvrir un ticket sur le dépôt source de l'extension, ou utiliser l'e-mail d'assistance indiqué sur la fiche du Chrome Web Store.
