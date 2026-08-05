@@ -28,7 +28,8 @@
     sourceTags: 64,
     sourceAliases: 8,
     creatorNames: 4,
-    creatorNameLength: 120
+    creatorNameLength: 120,
+    sourceTagsBatchItems: 64
   });
 
   const ACTION_ORDER = Object.freeze({ allow: 0, dim: 1, block: 2 });
@@ -362,7 +363,39 @@
       return null;
     }
     const tags = normalizeTagList(value.tags);
-    return tags === null ? null : { platformID: expectedPlatform, sourceID: expectedSourceID, tags };
+    return tags === null ? null : { platformID: expectedPlatform, sourceID: expectedSourceID, tags, predicted: value.predicted === true };
+  }
+
+  // Validates a batched source-tags reply against the exact set of sourceIDs the
+  // caller asked for, returning a Map sourceID -> tags. Any structural problem
+  // (wrong platform, unknown/duplicate sourceID, malformed tag) rejects the whole
+  // batch with null, so the caller can fall back to per-source requests rather
+  // than render a partially-validated response.
+  function normalizeSourceTagsBatchResponse(value, expectedPlatform, expectedSourceIDs) {
+    if (!isPlainRecord(value)
+      || !isBoundedText(expectedPlatform, MAX.platform)
+      || value.platformID !== expectedPlatform
+      || !Array.isArray(value.items)
+      || value.items.length > MAX.sourceTagsBatchItems) {
+      return null;
+    }
+    const expected = expectedSourceIDs instanceof Set
+      ? expectedSourceIDs
+      : new Set(Array.isArray(expectedSourceIDs) ? expectedSourceIDs : []);
+    const results = new Map();
+    for (const item of value.items) {
+      if (!isPlainRecord(item)
+        || !isBoundedText(item.sourceID, MAX.id)
+        || item.sourceID.indexOf(`${expectedPlatform}:`) !== 0
+        || !expected.has(item.sourceID)
+        || results.has(item.sourceID)) {
+        return null;
+      }
+      const tags = normalizeTagList(item.tags);
+      if (tags === null) return null;
+      results.set(item.sourceID, { tags, predicted: item.predicted === true });
+    }
+    return results;
   }
 
   function parseYouTubeURL(value, base) {
@@ -499,6 +532,7 @@
     explanation,
     isResult,
     normalizeSourceTagsResponse,
+    normalizeSourceTagsBatchResponse,
     cleanCreatorNames,
     randomID
   });

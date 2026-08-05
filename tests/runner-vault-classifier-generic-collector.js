@@ -136,8 +136,9 @@ setTimeout(() => {
     && page?.entry?.evidence?.text === "Visible rendered description"
     && diagnostics.some((message) => message.event === "collector-started")
     && diagnostics.some((message) => message.event === "page-evidence-ready")
-    && tagPresentations.some((value) => value.root === feedRoot && value.sourceID === "tiktok:creator:visible")
-    && tagPresentations.some((value) => value.root === pageRoot && value.sourceID === "tiktok:creator:visible")
+    // TikTok is not on the pill allowlist, so the shared collector must NOT inject
+    // a source-tag pill even though it delivered collection + page evidence above.
+    && tagPresentations.length === 0
     && matchingStatusRoot === requestedStatusRoot
     && observers.some((observer) => observer.options?.attributeFilter?.includes("src"))
     && debugLogs.includes("[VaultClassifier:source-icon] tiktok:debug-ready")

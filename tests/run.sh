@@ -114,6 +114,12 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'vault-classifier-tag-ui' FAILED" >&2
   failed=1
 fi
+node_out=$(node tests/runner-vault-classifier-tag-ui-none.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-tag-ui-none' FAILED" >&2
+  failed=1
+fi
 node_out=$(node tests/runner-local-hub-target-status.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then

@@ -63,11 +63,18 @@
     platform: "reddit",
     matchesPage,
     scan({ document, collect }) {
-      const cards = core.uniqueElements([
+      const candidates = core.uniqueElements([
         ...core.selectorElements(document, "shreddit-post"),
         ...core.selectorElements(document, "article:has(shreddit-post)"),
         ...core.selectorElements(document, "div.thing[data-subreddit]")
       ]).slice(0, 80);
+      // One post matches more than one selector — an <article> wraps its
+      // <shreddit-post> — so both appear here and each would inject its own pill.
+      // Keep only the innermost of any nested pair; the <shreddit-post> is where
+      // the post's data attributes live.
+      const cards = candidates.filter(
+        (card) => !candidates.some((other) => other !== card && card.contains?.(other))
+      );
       for (const card of cards) {
         const entry = core.firstAnchor(card, ['a[href*="/comments/"]'], isPost);
         if (!entry) continue;
