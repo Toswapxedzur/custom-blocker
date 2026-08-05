@@ -47,6 +47,9 @@
         if (!messageID || !title) continue;
         collect({
           presentationRoot: message,
+          // Anchor the pill just after the message text; the content element is a
+          // child of the message root, so the shared mount logic accepts it.
+          presentationAnchor: content,
           sourceKind: "server",
           sourceID: `discord:server:${activeRoute.serverID}`,
           sourceName: serverName(document, activeRoute.serverID),

@@ -7,6 +7,11 @@
 
   const C = global.VaultClassifierExtensionContract;
   const TagUI = global.VaultClassifierTagUI;
+  // Platforms whose feed cards render a source-tag pill. Collection is unaffected
+  // by this list — only the pill is gated. Deferred platforms keep their
+  // presentation wiring, so enabling one later is a single addition here.
+  // (YouTube renders pills through its own dedicated collector, not this core.)
+  const PILL_PLATFORMS = new Set(["reddit", "bilibili"]);
   const SETTINGS_KEY = "vaultClassifierSettings";
   const SOURCE_ICON_ATTRIBUTES = Object.freeze([
     "src", "srcset", "data-src", "data-lazy-src", "data-original", "data-srcset"
@@ -351,12 +356,16 @@
         reportSourceIconDebug("source-missing");
         return;
       }
-      if (raw.presentationRoot) {
+      if (raw.presentationRoot && PILL_PLATFORMS.has(platform)) {
         TagUI?.observe?.({
           platform,
           sourceID: evidence.sourceID,
           root: raw.presentationRoot,
-          anchor: raw.presentationAnchor || null
+          anchor: raw.presentationAnchor || null,
+          // Byline names for a card with no creator link, so the native side can
+          // match by name (as YouTube collaboration cards do). Adapters that
+          // always resolve a linked source simply omit this.
+          creatorNames: Array.isArray(raw.creatorNames) && raw.creatorNames.length ? raw.creatorNames : null
         });
       }
       const hasSourceIcon = Boolean(evidence.evidence?.metadata?.sourceIconURL);

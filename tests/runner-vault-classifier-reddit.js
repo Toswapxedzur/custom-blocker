@@ -16,7 +16,8 @@ function element({
   attrs = {},
   matches = [],
   query = {},
-  queryAll = {}
+  queryAll = {},
+  descendants = []
 } = {}) {
   return {
     tagName,
@@ -29,12 +30,13 @@ function element({
     },
     matches(selector) { return matches.includes(selector); },
     closest() { return null; },
+    contains(node) { return node === this || descendants.includes(node); },
     querySelector(selector) { return query[selector] || null; },
     querySelectorAll(selector) { return queryAll[selector] || []; }
   };
 }
 
-function redditPost({ subreddit, postID, title, body, sourceIconURL, commentText }) {
+function redditPost({ subreddit, postID, title, body, sourceIconURL, commentText, matches = ["shreddit-post"], descendants = [] }) {
   const permalink = `https://www.reddit.com/r/${subreddit}/comments/${postID}/post-title/`;
   const sourceIcon = element({ tagName: "IMG", attrs: { src: sourceIconURL } });
   const source = element({
@@ -67,7 +69,8 @@ function redditPost({ subreddit, postID, title, body, sourceIconURL, commentText
       "post-language": "en",
       domain: "self.reddit"
     },
-    matches: ["shreddit-post"],
+    matches,
+    descendants,
     query: {
       '[slot="title"]': titleElement,
       '[slot="text-body"]': bodyElement,
@@ -101,6 +104,19 @@ const requested = redditPost({
   sourceIconURL: "https://styles.redditmedia.com/t5_openai/styles/communityIcon_openai.png",
   commentText: "COMMENT MUST NOT BE COLLECTED"
 });
+// The same post also appears as an <article> wrapping its <shreddit-post>. Both
+// match the scan's selectors; the collector must inject only one pill (on the
+// inner, data-bearing <shreddit-post>), never a second on the wrapper.
+const requestedArticle = redditPost({
+  subreddit: "OpenAI",
+  postID: "right222",
+  title: "Requested post title",
+  body: "Requested rendered post body",
+  sourceIconURL: "https://styles.redditmedia.com/t5_openai/styles/communityIcon_openai.png",
+  commentText: "COMMENT MUST NOT BE COLLECTED",
+  matches: ["article:has(shreddit-post)"],
+  descendants: [requested]
+});
 
 const document = {
   documentElement: {},
@@ -108,6 +124,7 @@ const document = {
   querySelector() { return null; },
   querySelectorAll(selector) {
     if (selector === "shreddit-post") return [unrelated, requested];
+    if (selector === "article:has(shreddit-post)") return [requestedArticle];
     return [];
   }
 };
@@ -188,6 +205,9 @@ setTimeout(() => {
     && !serialized.includes("i.redd.it/post-media.png")
     && !serialized.includes("Unrelated background title")
     && observations.some((value) => value.root === requested && value.sourceID === "reddit:subreddit:openai")
+    // The wrapping <article> must be deduped away — only the inner <shreddit-post>
+    // gets a pill, never the wrapper (which would double-inject on the feed).
+    && observations.every((value) => value.root !== requestedArticle)
   );
   if (passed) {
     console.log("PASS derives subreddit identity from the post route, selects the matching overlay root, and excludes comments/post media");
