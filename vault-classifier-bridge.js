@@ -540,6 +540,32 @@
     }
   }
 
+  // Local-LLM rework: resolves ONE video's tags, keyed by the video's entryID +
+  // evidence (the pill is now per-video). Returns pending:true when the app has
+  // queued classification and the caller should re-request shortly.
+  async function videoTags(platform, entryID, creatorID, title, summary, text) {
+    if (typeof entryID !== "string" || entryID.length === 0 || entryID.length > 256 || !entryID.startsWith(`${platform}:`)
+      || typeof creatorID !== "string" || creatorID.length === 0 || creatorID.length > 256 || !creatorID.startsWith(`${platform}:`)
+      || typeof title !== "string" || title.length === 0 || title.length > 500) {
+      return { ok: false, tags: [], pending: false };
+    }
+    try {
+      const current = await settings();
+      if (!current.collectionEnabled) return { ok: true, platformID: platform, entryID, tags: [], pending: false };
+      const body = await hubRequest("video-tags", {
+        platformID: platform, entryID, creatorID, title,
+        ...(typeof summary === "string" && summary ? { summary: summary.slice(0, 4000) } : {}),
+        ...(typeof text === "string" && text ? { text: text.slice(0, 4000) } : {})
+      });
+      const normalized = C.normalizeVideoTagsResponse?.(body, platform, entryID);
+      return normalized
+        ? { ok: true, platformID: normalized.platformID, entryID: normalized.entryID, tags: normalized.tags, predicted: normalized.predicted, pending: normalized.pending }
+        : { ok: false, tags: [], pending: false };
+    } catch (_) {
+      return { ok: false, tags: [], pending: false };
+    }
+  }
+
   function collectionPlatformForSender(sender, requestedPlatform) {
     if (!sender || (sender.id && sender.id !== chrome.runtime.id)) return null;
     const pageURL = typeof sender.url === "string" ? sender.url : sender.tab && sender.tab.url;
@@ -612,6 +638,24 @@
     sourceTagsBatch(platform, message.items)
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, items: [] }));
+    return true;
+  });
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const platform = message && typeof message.platform === "string" ? message.platform : null;
+    const entryID = message && typeof message.entryID === "string" ? message.entryID : null;
+    const creatorID = message && typeof message.creatorID === "string" ? message.creatorID : null;
+    if (!message
+      || message.type !== "vault-classifier-video-tags"
+      || !collectionPlatformForSender(sender, platform)
+      || !entryID
+      || !entryID.startsWith(`${platform}:`)
+      || entryID.length > 256) {
+      return false;
+    }
+    videoTags(platform, entryID, creatorID, typeof message.title === "string" ? message.title : "", message.summary, message.text)
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false, tags: [], pending: false }));
     return true;
   });
 

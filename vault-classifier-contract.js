@@ -366,6 +366,28 @@
     return tags === null ? null : { platformID: expectedPlatform, sourceID: expectedSourceID, tags, predicted: value.predicted === true };
   }
 
+  // Local-LLM rework: validates a per-video tags reply, keyed by the video's
+  // entryID (not the creator). `pending` is true when the app has queued
+  // classification and the caller should re-request shortly.
+  function normalizeVideoTagsResponse(value, expectedPlatform, expectedEntryID) {
+    if (!isPlainRecord(value)
+      || !isBoundedText(expectedPlatform, MAX.platform)
+      || !isBoundedText(expectedEntryID, MAX.id)
+      || expectedEntryID.indexOf(`${expectedPlatform}:`) !== 0
+      || value.platformID !== expectedPlatform
+      || value.entryID !== expectedEntryID) {
+      return null;
+    }
+    const tags = normalizeTagList(value.tags);
+    return tags === null ? null : {
+      platformID: expectedPlatform,
+      entryID: expectedEntryID,
+      tags,
+      predicted: value.predicted === true,
+      pending: value.pending === true
+    };
+  }
+
   // Validates a batched source-tags reply against the exact set of sourceIDs the
   // caller asked for, returning a Map sourceID -> tags. Any structural problem
   // (wrong platform, unknown/duplicate sourceID, malformed tag) rejects the whole
@@ -532,6 +554,7 @@
     explanation,
     isResult,
     normalizeSourceTagsResponse,
+    normalizeVideoTagsResponse,
     normalizeSourceTagsBatchResponse,
     cleanCreatorNames,
     randomID

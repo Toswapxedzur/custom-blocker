@@ -228,6 +228,27 @@ assert("rejects source tags without both assigned theme colors", VC.normalizeSou
   tags: [{ id: "games", name: "Games", lightColorHex: "#9EC5E8" }]
 }, "youtube", "youtube:channel:UC123") === null);
 
+// Local-LLM rework: per-video tags validator (keyed by entryID, carries pending).
+const videoTags = VC.normalizeVideoTagsResponse({
+  platformID: "youtube",
+  entryID: "youtube:video:v1",
+  tags: [{ id: "games", name: "Games", lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" }],
+  pending: false
+}, "youtube", "youtube:video:v1");
+assert("accepts a per-video tags response keyed by entryID", videoTags
+  && videoTags.entryID === "youtube:video:v1"
+  && videoTags.tags.map((tag) => tag.name).join(",") === "Games"
+  && videoTags.pending === false);
+assert("carries the pending flag on per-video responses", VC.normalizeVideoTagsResponse({
+  platformID: "youtube", entryID: "youtube:video:v2", tags: [], pending: true
+}, "youtube", "youtube:video:v2").pending === true);
+assert("rejects per-video responses for a different entry", VC.normalizeVideoTagsResponse({
+  platformID: "youtube", entryID: "youtube:video:forged", tags: []
+}, "youtube", "youtube:video:v1") === null);
+assert("rejects per-video entryID without the platform prefix", VC.normalizeVideoTagsResponse({
+  platformID: "youtube", entryID: "vimeo:video:v1", tags: []
+}, "youtube", "vimeo:video:v1") === null);
+
 const failures = log.counts().fail;
 print("__CB_TEST_RESULT__: " + (failures === 0 ? "OK" : "FAIL") + " (" + failures + " failures)");
 if (failures !== 0) throw new Error("Vault Classifier extension contract tests failed");
