@@ -250,7 +250,6 @@ Globale Einstellungen gelten für die Erweiterung und nicht für eine Gruppe.
 | Standard-Fallback-URL | about:blank | Wird verwendet, wenn eine blockierende Gruppe keine gruppenspezifische Fallback-URL hat. |
 | Helfen Sie bei der Klassifizierung von Erstellern | Aus | Explizites Opt-in. Es sendet gefundene YouTube-Kanal-IDs nur an den konfigurierten Klassifizierungsdienst; Es werden weder Titel noch der Wiedergabeverlauf gesendet. |
 | Lokaler Dateiordner | Keine | Optionale Ordnerfunktion für benutzerdefinierte Regeln. Siehe Abschnitt 9. |
-| Web-App-Brücke | Aus | Optionale Verbindung zu einem kompatiblen lokalen Vault-Hub. Siehe Abschnitt 11. |
 
 ### 4.1 Editoroberfläche und Feedbackoberflächen
 
@@ -850,9 +849,9 @@ Keine benutzerdefinierte Regel erhält uneingeschränkte Erweiterungs-APIs. Insb
 
 ## 11. Web-App-Brücke
 
-Die Brücke ist optional. Es verbindet einen Browser-Erweiterungs-Client mit einem kompatiblen lokalen Vault-Hub. Die Browsererweiterung ist ein Client; Eine native Vault-App stellt den Hub bereit. Der feste lokale Endpunkt ist ws://127.0.0.1:8787 und Protokollkompatibilität ist erforderlich.
+Die Browsererweiterung startet automatisch ihre Verbindung zum kompatiblen lokalen Vault-Hub unter ws://127.0.0.1:8787. Es gibt keinen Verbindungsschalter; Protokollkompatibilität ist erforderlich.
 
-Die Verbindungsstatus sind „Aus“, „Verbindung wird hergestellt“, „Getrennt“, „Verbunden“ und „Fehler“. Wenn der Client aktiviert ist, prüft Vault zunächst schnell und setzt dann langsamere Versuche zur erneuten Verbindung fort, bis eine Verbindung hergestellt wird oder der Benutzer sie deaktiviert. Die Verbindung führt nicht automatisch alle Gruppen zusammen.
+Vault prüft zuerst schnell und versucht danach langsamer weiter, solange die Erweiterung läuft. Der automatische Transport führt Gruppen nicht selbst zusammen; Gruppen werden weiterhin ausdrücklich verknüpft oder getrennt.
 
 ### 11.1 Gruppen verknüpfen
 
@@ -877,7 +876,7 @@ Verwenden Sie diese Checkliste, wenn Sie eine Version prüfen oder Verhalten rep
 7. Testen Sie jeden benutzerdefinierten Timer an den Scope-Grenzen und bei Null; Überprüfen Sie, ob jeder Block in der Regel explizit ist.
 8. Testen Sie Panels mit jedem Steuerwert, jedem deaktivierten Status, jeder Aktion zum Senden/Abbrechen/Schließen und jedem PanelEvent-Handler.
 9. Testen Sie den Fehler des lokalen Ordners vor dem Erfolg: kein ausgewählter Ordner, widerrufene Berechtigung, ungültiger Pfad, nicht unterstützte Erweiterung, dann autorisiertes Lesen/Schreiben.
-10. Testen Sie die ausgeschaltete Bridge-Verbindung, die eingeschaltete Verbindung, die verbundene/nicht verknüpfte Gruppe und ein Offline-Clustermitglied, bevor Sie sich auf die Synchronisierung oder die Freeze-Koordination verlassen.
+10. Testen Sie den automatischen Transportstart, verknüpfte/nicht verknüpfte Gruppen und ein Offline-Clustermitglied, bevor Sie sich auf Synchronisierung oder Freeze-Koordination verlassen.
 
 ## 13. Versionierungsregel
 

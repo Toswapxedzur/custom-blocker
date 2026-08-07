@@ -250,7 +250,6 @@ La configuración global se aplica a la extensión en lugar de a un grupo.
 | URL de reserva predeterminada | acerca de:en blanco | Se utiliza cuando un grupo de bloqueo no tiene una URL alternativa específica del grupo. |
 | Ayuda a clasificar a los creadores | Apagado | Opción explícita. Envía los identificadores de canales de YouTube encontrados solo al servicio de clasificación configurado; no envía títulos ni historial de visualización. |
 | Carpeta de archivos locales | Ninguno | Capacidad de carpeta opcional para reglas personalizadas. Ver sección 9. |
-| Puente de aplicaciones web | Apagado | Conexión opcional a un centro Vault local compatible. Ver sección 11. |
 
 ### 4.1 Interfaz del editor y superficies de retroalimentación
 
@@ -850,9 +849,9 @@ Ninguna regla personalizada recibe API de extensión sin restricciones. En parti
 
 ## 11. Puente de aplicación web
 
-El puente es opcional. Conecta un cliente de extensión del navegador a un centro de Vault local compatible. La extensión del navegador es un cliente; una aplicación nativa de Vault proporciona el centro. El punto final local fijo es ws://127.0.0.1:8787 y se requiere compatibilidad de protocolo.
+La extensión del navegador inicia automáticamente su conexión con el centro Vault local compatible en ws://127.0.0.1:8787. No hay un interruptor de conexión para el usuario y se requiere compatibilidad de protocolo.
 
-Los estados de conexión son Apagado, Conectando, Desconectado, Conectado y Error. Con el cliente habilitado, Vault primero prueba rápidamente y luego continúa con intentos de reconexión más lentos hasta que se conecta o el usuario lo apaga. La conexión por sí sola no fusiona todos los grupos.
+Vault prueba primero rápidamente y luego continúa con intentos de reconexión más lentos mientras se ejecuta la extensión. El transporte automático no fusiona grupos por sí solo; vincularlos y desvincularlos sigue siendo explícito.
 
 ### 11.1 Vinculación de grupos
 
@@ -877,7 +876,7 @@ Utilice esta lista de verificación cuando audite una publicación o reproduzca 
 7. Pruebe cada temporizador personalizado en los límites del alcance y en cero; Verifique que cualquier bloque sea explícito en la regla.
 8. Pruebe los paneles con cada valor de control, estado deshabilitado, acción de envío/cancelación/cierre y controlador de panelEvent.
 9. Pruebe el error de la carpeta local antes del éxito: no hay carpeta seleccionada, permiso revocado, ruta no válida, extensión no compatible y luego lectura/escritura autorizada.
-10. Pruebe la conexión desactivada, la conexión activada, el grupo vinculado/desvinculado y un miembro del clúster fuera de línea antes de confiar en la sincronización o congelar la coordinación.
+10. Pruebe el inicio automático del transporte, los grupos vinculados/desvinculados y un miembro del clúster fuera de línea antes de confiar en la sincronización o la coordinación de congelación.
 
 ## 13. Regla de versiones
 

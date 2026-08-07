@@ -250,7 +250,6 @@ Genel ayarlar tek bir grup yerine uzantıya uygulanır.
 | Varsayılan geri dönüş URL'si | hakkında:boş | Engelleyen bir grubun gruba özel bir yedek URL'si olmadığında kullanılır. |
 | Yaratıcıların sınıflandırılmasına yardımcı olun | Kapalı | Açık katılım. Karşılaşılan YouTube kanal kimliklerini yalnızca yapılandırılmış sınıflandırma hizmetine gönderir; başlıkları veya izleme geçmişini göndermez. |
 | Yerel Dosya Klasörü | Yok | Özel kurallar için isteğe bağlı klasör özelliği. Bölüm 9'a bakınız. |
-| Web uygulaması köprüsü | Kapalı | Uyumlu bir yerel Vault hub'ına isteğe bağlı bağlantı. Bölüm 11'e bakınız. |
 
 ### 4.1 Düzenleyici arayüzü ve geri bildirim yüzeyleri
 
@@ -850,9 +849,9 @@ Hiçbir Özel kural, kısıtlanmamış uzantı API'lerini almaz. Özellikle:
 
 ## 11. Web uygulaması köprüsü
 
-Köprü isteğe bağlıdır. Bir tarayıcı uzantısı istemcisini uyumlu bir yerel Vault hub'ına bağlar. Tarayıcı uzantısı bir istemcidir; yerel bir Vault uygulaması hub'ı sağlar. Sabit yerel uç nokta ws://127.0.0.1:8787'dir ve protokol uyumluluğu gereklidir.
+Tarayıcı uzantısı ws://127.0.0.1:8787 adresindeki uyumlu yerel Vault hub’ına bağlantıyı otomatik olarak başlatır. Kullanıcı bağlantı anahtarı yoktur ve protokol uyumluluğu gerekir.
 
-Bağlantı durumları Kapalı, Bağlanıyor, Bağlantı Kesildi, Bağlandı ve Hata'dır. İstemci etkinleştirildiğinde, Vault ilk önce hızlı bir şekilde araştırma yapar ve ardından bağlanana veya kullanıcı onu kapatana kadar daha yavaş yeniden bağlanma denemelerine devam eder. Bağlantı tek başına tüm grupları birleştirmez.
+Vault önce hızlı yoklama yapar, ardından uzantı çalıştığı sürece daha yavaş yeniden bağlanma denemelerini sürdürür. Otomatik aktarım grupları kendiliğinden birleştirmez; grupları bağlama ve ayırma açık işlemler olarak kalır.
 
 ### 11.1 Grupları bağlama
 
@@ -877,7 +876,7 @@ Bir sürümü veya çoğaltma davranışını denetlerken bu kontrol listesini k
 7. Her Özel zamanlayıcıyı kapsam sınırlarında ve sıfırda test edin; herhangi bir bloğun kuralda açık olduğunu doğrulayın.
 8. Panelleri her bir kontrol değeri, devre dışı durumu, gönderme/iptal etme/kapatma eylemi ve panelEvent işleyicisi ile test edin.
 9. Başarıdan önce yerel klasör hatasını test edin: seçili klasör yok, iptal edilen izin, geçersiz yol, desteklenmeyen uzantı, ardından yetkili okuma/yazma.
-10. Senkronizasyona güvenmeden veya koordinasyonu dondurmadan önce köprü bağlantısının kapalı olduğunu, bağlantının açık olduğunu, bağlantılı/bağlantısız grubu ve çevrimdışı bir küme üyesini test edin.
+10. Senkronizasyona veya dondurma koordinasyonuna güvenmeden önce otomatik aktarım başlangıcını, bağlı/bağlantısız grupları ve çevrimdışı küme üyesini test edin.
 
 ## 13. Sürüm oluşturma kuralı
 

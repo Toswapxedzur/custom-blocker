@@ -70,6 +70,7 @@ function normalizeHostname(hostname) {
 //   normalizeYouTubeCreatorInput, normalizePlatformAuthorInput,
 //   normalizeRedditSubredditInput, normalizeDiscordTargetInput,
 //   isYouTubeHost, isRedditHost, isDiscordHost, isTwitterHost,
+//   getPlatformGroupTypeForHost,
 //   parseRedditSubredditFromPath, parseDiscordServerIdFromPath,
 //   parseDiscordChannelIdFromPath, detectVideoSiteContext.
 
@@ -450,8 +451,7 @@ function getCurrentFeedSite() {
   const videoCtx = detectVideoSiteContext(hostname, location.pathname);
   if (videoCtx.site) return videoCtx.site;
   if (isRedditHost(hostname)) return "reddit";
-  if (isTwitterHost(hostname)) return "twitter";
-  return null;
+  return getPlatformGroupTypeForHost(hostname);
 }
 
 function getFeedCardData(card) {
@@ -485,14 +485,20 @@ function getFeedCardData(card) {
     return { videoForm: videoContext.form, creators };
   }
   if (isPostCard(card)) {
-    return { videoForm: "post", creators: getFeedCardCreators(card) };
+    return {
+      videoForm: "post",
+      creators: getFeedCardCreators(card)
+    };
   }
   const href = getFeedCardHref(card, "youtube");
   if (!href) return null;
   let url;
   try { url = new URL(href, location.origin); } catch { return null; }
   const videoContext = detectVideoSiteContext(normalizeHostname(url.hostname), url.pathname);
-  return { videoForm: videoContext.form, creators: getFeedCardCreators(card) };
+  return {
+    videoForm: videoContext.form,
+    creators: getFeedCardCreators(card)
+  };
 }
 
 function matchesFeedFilter(cardData, filter) {
@@ -508,7 +514,7 @@ function matchesFeedFilter(cardData, filter) {
     if (cardData.videoForm !== filter.videoMode) return false;
   }
   if (filter.authorMode === "all") return true;
-  // "nobody" / tag stubs never trim by author (and aren't emitted as filters).
+  // "nobody" never trims by author (and isn't emitted as a filter).
   if (filter.authorMode !== "include" && filter.authorMode !== "exclude") return false;
   const authors = Array.isArray(filter.authors) ? filter.authors : [];
   if (authors.length === 0) return false;
@@ -848,6 +854,11 @@ function applySurfaceHides() {
   // a `:has()` variant an older engine rejects) can't throw away every other
   // hide — previously a single bad selector left ALL widgets visible.
   for (const selector of latestSurfaceHides) {
+    const surfaceCardSite = parseSurfaceFeedCardsDirective(selector);
+    if (surfaceCardSite) {
+      for (const card of getFeedCardElements(surfaceCardSite)) hideSurfaceElement(card);
+      continue;
+    }
     let nodes = [];
     try { nodes = document.querySelectorAll(selector); } catch { continue; }
     for (const el of nodes) hideSurfaceElement(el);
@@ -957,46 +968,6 @@ function collectPlatformAuthors(pathname, isYouTubePage) {
   return map;
 }
 
-// Exact-case UC channel id of the page's primary channel (watch / channel
-// pages). Case matters: tag-cache keys are case-sensitive UC ids, so unlike
-// the author axis we must NOT lowercase. Best-effort, multiple DOM sources;
-// returns null when the channel can't be resolved (callers fail open).
-const CB_UC_RE = /(UC[0-9A-Za-z_-]{22})/;
-function collectPageChannelId() {
-  // Channel pages carry the exact id directly in the path.
-  let m = location.pathname.match(/\/channel\/(UC[0-9A-Za-z_-]{22})/);
-  if (m) return m[1];
-  // Preferred source: yt-block.js shares our isolated world and resolves the
-  // page's primary channel using ytInitialData / ytInitialPlayerResponse maps
-  // (handle→UC, videoId→UC) that aren't available from the DOM alone. It is the
-  // only reliable way to get a watch page's channel, since the owner byline is
-  // a /@handle link, not /channel/UC.
-  try {
-    const shared = window.__cbPageChannelId;
-    if (typeof shared === "string" && /^UC[0-9A-Za-z_-]{22}$/.test(shared)) return shared;
-  } catch (_) {}
-  const canonical = document.querySelector('link[rel="canonical"]');
-  if (canonical) {
-    m = (canonical.getAttribute("href") || "").match(/\/channel\/(UC[0-9A-Za-z_-]{22})/);
-    if (m) return m[1];
-  }
-  const meta = document.querySelector('meta[itemprop="channelId"]');
-  if (meta) {
-    m = (meta.getAttribute("content") || "").match(CB_UC_RE);
-    if (m) return m[1];
-  }
-  // Scoped to the owner byline only — never the #related sidebar — so we can't
-  // accidentally resolve to a recommended video's channel.
-  const owner = document.querySelector(
-    'ytd-watch-metadata #owner a[href*="/channel/UC"], ytd-video-owner-renderer a[href*="/channel/UC"]'
-  );
-  if (owner) {
-    m = (owner.getAttribute("href") || "").match(/\/channel\/(UC[0-9A-Za-z_-]{22})/);
-    if (m) return m[1];
-  }
-  return null;
-}
-
 function buildPageContext() {
   const hostname = normalizeHostname(location.hostname);
   const isYouTubePage = isYouTubeHost(hostname);
@@ -1020,8 +991,7 @@ function buildPageContext() {
     discordChannelId: isDiscordPage ? parseDiscordChannelIdFromPath(location.pathname) : null,
     isTwitterPage,
     videoSite: videoContext.site,
-    videoForm: videoContext.form,
-    pageChannelId: isYouTubePage ? collectPageChannelId() : null
+    videoForm: videoContext.form
   };
 }
 
@@ -1294,16 +1264,8 @@ function scheduleRefreshSession(delayMs = 100) {
   }, delayMs);
 }
 
-// A watch/channel page's owner identity (owner byline for the author axis,
-// window.__cbPageChannelId + tag verdicts for the tag axis) lands a beat AFTER
-// the navigation event that triggers refreshSession(). Without re-evaluating,
-// author/tag groups hide the feed but never block the page, because the
-// one-shot session ran before the channel was known. These bounded retries
-// re-run the evaluation as the identity resolves. The cb-page-channel-resolved
-// event covers the tag axis precisely; the retries also cover the author
-// byline and the tag cache's stale-while-revalidate second pass. They use
-// independent timers (not the single debounced refresh) so several spaced
-// passes survive, and are cancelled/restarted on each navigation.
+// A watch/channel page's owner identity can land a beat after navigation. These
+// bounded retries re-run the evaluation as the author byline resolves.
 let sessionResolveRetryTimers = [];
 function clearSessionResolveRetries() {
   for (const id of sessionResolveRetryTimers) {
@@ -1392,8 +1354,7 @@ function refreshPanels(extraPanelGroups = []) {
 
 if (/^https?:$/i.test(location.protocol)) {
   refreshSession();
-  // The page's channel identity resolves after initial load — re-evaluate so
-  // author/tag groups can block the page, not just hide the feed.
+  // Author bylines may resolve after initial load, so refresh the page matcher.
   scheduleSessionResolveRetries();
 
   document.addEventListener("visibilitychange", () => {
@@ -1405,10 +1366,6 @@ if (/^https?:$/i.test(location.protocol)) {
   window.addEventListener("pageshow", () => scheduleRefreshSession(0));
   window.addEventListener("popstate", refreshSession);
   window.addEventListener("hashchange", refreshSession);
-  // yt-block.js publishes the page's primary channel id a beat after the SPA
-  // settles; re-run the session the moment that resolves so the tag/author
-  // page block fires (the feed hider already reacts continuously).
-  window.addEventListener("cb-page-channel-resolved", () => scheduleRefreshSession(0));
   document.addEventListener("yt-navigate-finish", () => {
     refreshSession();
     scheduleSessionResolveRetries();
@@ -3139,33 +3096,6 @@ function __cb_currentPlatform() {
   return null;
 }
 
-// Best-effort UC channel id for a feed card (YouTube only). yt-block.js already
-// resolves every on-screen card to its channel and stamps `data-cb-channel`, so
-// we reuse that single resolver instead of duplicating its handle->UC maps; a
-// direct /channel/UC link in the card is the fallback. Returns null when the
-// channel can't be resolved yet (fail open: the card just carries no creator
-// info this pass and re-resolves once yt-block.js stamps it).
-const CB_CARD_UC_RE = /^UC[0-9A-Za-z_-]{22}$/;
-function __cb_resolveCardChannelId(card, platform) {
-  if (platform !== "youtube" || !card) return null;
-  try {
-    let stamped = null;
-    if (card.matches && card.matches("[data-cb-channel]")) stamped = card;
-    else if (card.closest) stamped = card.closest("[data-cb-channel]");
-    if (!stamped && card.querySelector) stamped = card.querySelector("[data-cb-channel]");
-    if (stamped) {
-      const v = stamped.getAttribute("data-cb-channel");
-      if (v && CB_CARD_UC_RE.test(v)) return v;
-    }
-    const a = card.querySelector && card.querySelector('a[href*="/channel/UC"]');
-    if (a) {
-      const m = (a.getAttribute("href") || "").match(/(UC[0-9A-Za-z_-]{22})/);
-      if (m) return m[1];
-    }
-  } catch (_) {}
-  return null;
-}
-
 // The page's own channel identity when we're on a channel/author page, in the
 // same normalized shape getFeedCardCreators() produces (a bare handle, or a
 // channel:/c:/user: prefixed id). On a channel's OWN page the individual video
@@ -3259,7 +3189,6 @@ function __cb_extractCardItem(card, platform) {
     name,
     title: name,
     author,
-    channelId: __cb_resolveCardChannelId(card, platform),
     length: null,
     views: null,
     publishedAt: null,
@@ -3283,10 +3212,7 @@ function cbResetCustomSigCache() {
 }
 
 function cbCardSignature(item) {
-  // channelId is part of the signature so a card re-evaluates once yt-block.js
-  // resolves its channel (null -> UC), letting creator-based predicates
-  // (e.g. subscriber-count filters) run on the next pass.
-  return [item.url || "", item.title || "", item.videoForm || "", item.channelId || ""].join("\n");
+  return [item.url || "", item.title || "", item.videoForm || ""].join("\n");
 }
 
 // Returns the full sandbox reply { results, evaluatedGroups } (or null). The

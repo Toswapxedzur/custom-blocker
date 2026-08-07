@@ -250,7 +250,6 @@ Setelan global berlaku untuk ekstensi, bukan satu grup.
 | URL pengganti bawaan | tentang:kosong | Digunakan ketika grup pemblokiran tidak memiliki URL cadangan khusus grup. |
 | Membantu mengklasifikasikan pembuat konten | Mati | Keikutsertaan secara eksplisit. Ini mengirimkan id saluran YouTube yang ditemukan hanya ke layanan klasifikasi yang dikonfigurasi; itu tidak mengirimkan judul atau riwayat tontonan. |
 | Folder File Lokal | Tidak ada | Kemampuan folder opsional untuk aturan Kustom. Lihat bagian 9. |
-| Jembatan aplikasi web | Mati | Koneksi opsional ke hub Vault lokal yang kompatibel. Lihat bagian 11. |
 
 ### 4.1 Antarmuka editor dan permukaan umpan balik
 
@@ -850,9 +849,9 @@ Tidak ada aturan Kustom yang menerima API ekstensi tidak terbatas. Khususnya:
 
 ## 11. Jembatan aplikasi web
 
-Jembatan itu opsional. Ini menghubungkan klien ekstensi browser ke hub Vault lokal yang kompatibel. Ekstensi browser adalah klien; aplikasi Vault asli menyediakan hub. Titik akhir lokal tetap adalah ws://127.0.0.1:8787 dan kompatibilitas protokol diperlukan.
+Ekstensi browser secara otomatis memulai koneksi ke hub Vault lokal yang kompatibel di ws://127.0.0.1:8787. Tidak ada sakelar koneksi pengguna dan kompatibilitas protokol diperlukan.
 
-Status koneksi adalah Mati, Tersambung, Terputus, Tersambung, dan Error. Saat klien diaktifkan, Vault akan melakukan pemeriksaan dengan cepat terlebih dahulu, lalu melanjutkan upaya penyambungan kembali yang lebih lambat hingga klien tersambung atau pengguna mematikannya. Koneksi tidak dengan sendirinya menggabungkan semua grup.
+Vault mula-mula memeriksa dengan cepat lalu melanjutkan upaya penyambungan ulang yang lebih lambat selama ekstensi berjalan. Transport otomatis tidak menggabungkan grup dengan sendirinya; penautan dan pelepasan grup tetap eksplisit.
 
 ### 11.1 Menghubungkan grup
 
@@ -877,7 +876,7 @@ Gunakan daftar periksa ini saat mengaudit rilis atau perilaku reproduksi:
 7. Uji setiap pengatur waktu Kustom pada batas cakupan dan nol; verifikasi bahwa blok mana pun eksplisit dalam aturan.
 8. Uji panel dengan masing-masing nilai kontrol, status nonaktif, tindakan kirim/batalkan/tutup, dan pengendali acara panel.
 9. Uji kegagalan folder lokal sebelum berhasil: tidak ada folder yang dipilih, izin dicabut, jalur tidak valid, ekstensi tidak didukung, lalu izin baca/tulis.
-10. Uji koneksi-off jembatan, koneksi-on, grup tertaut/tidak tertaut, dan anggota klaster offline sebelum mengandalkan sinkronisasi atau koordinasi pembekuan.
+10. Uji startup transport otomatis, grup tertaut/tidak tertaut, dan anggota klaster offline sebelum mengandalkan sinkronisasi atau koordinasi pembekuan.
 
 ## 13. Aturan pembuatan versi
 

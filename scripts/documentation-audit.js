@@ -8,7 +8,9 @@ const path = require("node:path");
 
 const workspace = path.resolve(__dirname, "..", "..");
 const locales = ["ar", "bn", "de", "es", "fr", "hi", "id", "it", "ja", "ko", "nl", "pa", "pl", "pt", "ru", "th", "tr", "vi", "zh"];
-const skippedDirectories = new Set([".build", ".git", "DerivedData", "bin", "build", "dist", "i18n-docs", "node_modules", "obj", "release", "tests"]);
+// `docs/` holds internal engineering documentation (not user-facing manuals), so
+// it is exempt from localization — mirroring how other products use their docs/.
+const skippedDirectories = new Set([".build", ".git", "DerivedData", "bin", "build", "dist", "docs", "i18n-docs", "node_modules", "obj", "release", "tests"]);
 
 function walkMarkdown(directory, files = []) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -100,8 +102,13 @@ for (const [product, sourceDirectory, websiteDirectory] of websiteManualMirrors)
 
 const macManual = path.join(workspace, "macosBlocker", "Sources", "MacBlockerWebUI", "WebAssets", "manual", "en.md");
 const windowsManual = path.join(workspace, "windowsBlocker", "src", "WindowsBlocker", "WebAssets", "manual", "en.md");
-if (fs.readFileSync(macManual, "utf8") !== fs.readFileSync(windowsManual, "utf8")) {
-  fail("Mac and Windows desktop app manuals must share the same functional reference.");
+const withoutPlatformBridge = (markdown) =>
+  markdown.replace(/^## 9\.[\s\S]*?(?=^## 10\.)/m, "## 9. Platform bridge\n\n");
+if (
+  withoutPlatformBridge(fs.readFileSync(macManual, "utf8")) !==
+  withoutPlatformBridge(fs.readFileSync(windowsManual, "utf8"))
+) {
+  fail("Mac and Windows desktop app manuals may differ only in their platform-specific bridge section.");
 }
 
 module.exports = { locales, localizedDocumentPath, sourceDocuments };

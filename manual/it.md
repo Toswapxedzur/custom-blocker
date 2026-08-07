@@ -250,7 +250,6 @@ Le impostazioni globali si applicano all'interno anziché a un gruppo.
 | URL di riserva predefinito | informazioni su:vuoto | Utilizzato quando un gruppo di blocco non dispone di un URL di fallback specifico del gruppo. |
 | Aiuta a classificare i creatori | Spento | Accettazione esplicita. Invia gli ID dei canali YouTube rilevati solo al servizio di classificazione configurato; non invia titoli né cronologia visualizzazioni. |
 | Cartella file locale | Nessuno | Funzionalità di cartella opzionale per regole personalizzate. Vedere la sezione 9. |
-| Ponte dell'app Web | Spento | Connessione opzionale a un hub Vault locale compatibile. Vedere la sezione 11. |
 
 ### 4.1 Interfaccia dell'editor e superfici di feedback
 
@@ -850,9 +849,9 @@ Nessuna regola personalizzata riceve API di estensione illimitate. In particolar
 
 ## 11. Bridge tra app Web
 
-Il ponte è facoltativo. Connette un client di estensione del browser a un hub Vault locale compatibile. L'estensione del browser è un client; un'app Vault nativa fornisce l'hub. L'endpoint locale fisso è ws://127.0.0.1:8787 ed è richiesta la compatibilità del protocollo.
+L’estensione del browser avvia automaticamente la connessione all’hub Vault locale compatibile su ws://127.0.0.1:8787. Non esiste un interruttore di connessione per l’utente ed è richiesta la compatibilità del protocollo.
 
-Gli stati di connessione sono Disattivato, Connessione in corso, Disconnesso, Connesso ed Errore. Con il client abilitato, Vault esegue prima la scansione rapidamente e poi continua i tentativi di riconnessione più lenti finché non si connette o finché l'utente non lo spegne. La connessione da sola non unisce tutti i gruppi.
+Vault esegue prima controlli rapidi, quindi continua con tentativi di riconnessione più lenti finché l’estensione è in esecuzione. Il trasporto automatico non unisce i gruppi da solo; collegamento e scollegamento restano espliciti.
 
 ### 11.1 Collegamento di gruppi
 
@@ -877,7 +876,7 @@ Utilizza questa lista di controllo quando controlli un rilascio o riproduci un c
 7. Testare ciascun timer personalizzato ai limiti dell'ambito e a zero; verificare che qualsiasi blocco sia esplicito nella regola.
 8. Testare i pannelli con ciascun valore di controllo, stato disabilitato, azione di invio/annullamento/chiusura e gestore panelEvent.
 9. Testare l'errore della cartella locale prima del successo: nessuna cartella selezionata, autorizzazione revocata, percorso non valido, estensione non supportata, quindi lettura/scrittura autorizzata.
-10. Testare la connessione bridge disattivata, la connessione attivata, il gruppo collegato/scollegato e un membro del cluster offline prima di affidarsi alla sincronizzazione o al blocco del coordinamento.
+10. Verificare l’avvio automatico del trasporto, i gruppi collegati/scollegati e un membro del cluster offline prima di fare affidamento sulla sincronizzazione o sul coordinamento del blocco.
 
 ## 13. Regola di versione
 

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 import zipfile
@@ -48,6 +49,7 @@ DIST_DIR = REPO_ROOT / "dist"
 # renamed/synthesised during the copy.
 COMMON_TOP_LEVEL_FILES = [
     "background.js",
+    "bridge-protocol.js",
     "content.js",
     "platform-profiles.js",
     "helpers.js",
@@ -62,6 +64,13 @@ COMMON_TOP_LEVEL_FILES = [
     "translations.js",
 ]
 
+# Chromium alone uses an MV3 service-worker wrapper. It turns a synchronous
+# background import failure into a visible DevTools error instead of an
+# unregistered worker (Chrome's opaque "No SW" state).
+CHROMIUM_SERVICE_WORKER_FILES = [
+    "service-worker.js",
+]
+
 # The in-browser eval sandbox. Present on Chromium + Firefox; omitted on
 # Safari, where custom rules run natively in the macosBlocker app.
 SANDBOX_FILES = [
@@ -70,15 +79,27 @@ SANDBOX_FILES = [
     "offscreen.js",
 ]
 
-# YouTube creator-tag feature, shared by every target: the feed hider
-# (yt-block.js), the consent-gated channel-id collector (yt-collect.js), the
-# page-world continuation harvester (yt-harvest-main.js, a MAIN-world content
-# script that lets every scrolled-in card resolve its channel id). Consent is
-# part of the popup, so it has no standalone page to package.
-YOUTUBE_FILES = [
-    "yt-collect.js",
-    "yt-block.js",
-    "yt-harvest-main.js",
+# The opt-in Vault Classifier adapter is currently Chromium-only. Keep it out
+# of Firefox and Safari packages until their native transport contracts exist,
+# but include every manifest-declared Chrome/Edge content script.
+VAULT_CLASSIFIER_FILES = [
+    "vault-classifier-contract.js",
+    "vault-classifier-tag-ui.js",
+    "local-hub-environment.js",
+    # The service worker imports this adapter at startup; it is not declared
+    # in the manifest, so it must remain explicitly listed here.
+    "vault-classifier-bridge.js",
+    "local-hub-auth.js",
+    "vault-classifier-collector-core.js",
+    "vault-classifier-youtube.js",
+    "vault-classifier-tiktok.js",
+    "vault-classifier-facebook.js",
+    "vault-classifier-instagram.js",
+    "vault-classifier-twitch.js",
+    "vault-classifier-reddit.js",
+    "vault-classifier-discord.js",
+    "vault-classifier-twitter.js",
+    "vault-classifier-bilibili.js",
 ]
 
 INCLUDE_DIRS = [
@@ -146,6 +167,76 @@ def collect_dir_files() -> list[Path]:
     return files
 
 
+def manifest_file_references(manifest: dict[str, object]) -> set[str]:
+    """Return every packaged file path directly named by the manifest."""
+    references: set[str] = set()
+
+    background = manifest.get("background")
+    if isinstance(background, dict):
+        service_worker = background.get("service_worker")
+        if isinstance(service_worker, str):
+            references.add(service_worker)
+        scripts = background.get("scripts")
+        if isinstance(scripts, list):
+            references.update(script for script in scripts if isinstance(script, str))
+
+    content_scripts = manifest.get("content_scripts")
+    if isinstance(content_scripts, list):
+        for definition in content_scripts:
+            if not isinstance(definition, dict):
+                continue
+            scripts = definition.get("js")
+            if isinstance(scripts, list):
+                references.update(script for script in scripts if isinstance(script, str))
+
+    sandbox = manifest.get("sandbox")
+    if isinstance(sandbox, dict):
+        pages = sandbox.get("pages")
+        if isinstance(pages, list):
+            references.update(page for page in pages if isinstance(page, str))
+
+    return references
+
+
+def validate_manifest_files(target: str, manifest_path: Path, archive_paths: set[str]) -> None:
+    """Fail before release if a manifest points at a file absent from the ZIP."""
+    with manifest_path.open("r", encoding="utf-8") as f:
+        manifest = json.load(f)
+
+    if not isinstance(manifest, dict):
+        raise ValueError(f"{manifest_path.name} must contain a JSON object")
+
+    missing = sorted(manifest_file_references(manifest) - archive_paths)
+    if missing:
+        raise RuntimeError(
+            f"ERROR [{target}]: manifest references files missing from the package:\n  - "
+            + "\n  - ".join(missing)
+        )
+
+
+def validate_service_worker_imports(target: str, archive_paths: set[str]) -> None:
+    """Reject Chromium packages whose worker imports an omitted local script.
+
+    Manifest validation cannot see classic-worker ``importScripts`` calls. The
+    Vault Classifier bridge is one such dependency; omitting it makes a fresh
+    Chrome/Edge service worker fail before it can receive extension messages.
+    Only Chromium runs this branch: Firefox and Safari preload their background
+    dependencies through their manifest-specific script lists.
+    """
+    if target not in ("chrome", "edge"):
+        return
+    imports: set[str] = set()
+    for worker_source_name in ("service-worker.js", "background.js"):
+        worker_source = (REPO_ROOT / worker_source_name).read_text(encoding="utf-8")
+        imports.update(re.findall(r'''\bimportScripts\(\s*["']([^"']+)["']\s*\)''', worker_source))
+    missing = sorted(imports - archive_paths)
+    if missing:
+        raise RuntimeError(
+            f"ERROR [{target}]: background service-worker imports missing from the package:\n  - "
+            + "\n  - ".join(missing)
+        )
+
+
 def build_target(target: str) -> Path:
     """Build one target. Returns the path to the written zip.
 
@@ -165,8 +256,11 @@ def build_target(target: str) -> Path:
     for rel in COMMON_TOP_LEVEL_FILES:
         entries.append((REPO_ROOT / rel, rel, None))
 
-    for rel in YOUTUBE_FILES:
-        entries.append((REPO_ROOT / rel, rel, None))
+    if target in ("chrome", "edge"):
+        for rel in CHROMIUM_SERVICE_WORKER_FILES:
+            entries.append((REPO_ROOT / rel, rel, None))
+        for rel in VAULT_CLASSIFIER_FILES:
+            entries.append((REPO_ROOT / rel, rel, None))
 
     if target != "safari":
         for rel in SANDBOX_FILES:
@@ -221,6 +315,12 @@ def build_target(target: str) -> Path:
             else:
                 z.write(src, arc)
                 total_bytes += src.stat().st_size
+
+    # Validate the actual archive layout, rather than trusting the source tree.
+    with zipfile.ZipFile(zip_path, "r") as z:
+        archive_paths = set(z.namelist())
+        validate_manifest_files(target, REPO_ROOT / manifest_name, archive_paths)
+        validate_service_worker_imports(target, archive_paths)
 
     print(
         f"[{target}] packaged {len(seen)} files "

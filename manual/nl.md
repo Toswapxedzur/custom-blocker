@@ -191,8 +191,6 @@ Keuzes voor oppervlaktehuid zijn onafhankelijk van blokkering op het hoogste niv
 | Instagram | Rollen en verken navigatie/oppervlakken. |
 | Trek | Blader door navigatie. |
 
-Bij het matchen van YouTube-creatortags wordt gebruik gemaakt van lokale/beschikbare kanaalclassificaties. Een ontbrekende classificatie wordt niet louter een blok omdat er een tagmodus is geselecteerd.
-
 ### 3.3 Reddit
 
 Een Reddit-groep is alleen van toepassing op Reddit. De entiteit ervan is een subreddit. Subreddit-invoer accepteert de gewone communityvorm en normaliseert deze voordat deze wordt gematcht.
@@ -250,7 +248,6 @@ Algemene instellingen zijn van toepassing op de extensie in plaats van op één 
 | Standaard reserve-URL | over:leeg | Wordt gebruikt wanneer een blokkerende groep geen groepsspecifieke reserve-URL heeft. |
 | Help makers te classificeren | Uit | Expliciete aanmelding. Het stuurt gevonden YouTube-kanaal-ID's alleen naar de geconfigureerde classificatieservice; het verzendt geen titels of kijkgeschiedenis. |
 | Lokale bestandsmap | Geen | Optionele mapmogelijkheid voor aangepaste regels. Zie sectie 9. |
-| Web-app-bridge | Uit | Optionele verbinding met een compatibele lokale Vault-hub. Zie paragraaf 11. |
 
 ### 4.1 Editorinterface en feedbackoppervlakken
 
@@ -850,9 +847,9 @@ Geen enkele aangepaste regel ontvangt onbeperkte uitbreidings-API's. In het bijz
 
 ## 11. Web-app-bridge
 
-De brug is optioneel. Het verbindt een browserextensieclient met een compatibele lokale Vault-hub. De browserextensie is een client; een native Vault-app biedt de hub. Het vaste lokale eindpunt is ws://127.0.0.1:8787 en protocolcompatibiliteit is vereist.
+De browserextensie start automatisch de verbinding met de compatibele lokale Vault-hub op ws://127.0.0.1:8787. Er is geen verbindingsschakelaar voor de gebruiker en protocolcompatibiliteit is vereist.
 
-Verbindingsstatussen zijn Uit, Verbinden, Verbinding verbroken, Verbonden en Fout. Als de client is ingeschakeld, onderzoekt Vault eerst snel en gaat vervolgens door met langzamere pogingen om opnieuw verbinding te maken totdat er verbinding wordt gemaakt of de gebruiker de verbinding uitschakelt. Connection voegt niet zelf alle groepen samen.
+Vault controleert eerst snel en blijft daarna trager opnieuw verbinden zolang de extensie actief is. Automatisch transport voegt groepen niet vanzelf samen; koppelen en ontkoppelen blijft expliciet.
 
 ### 11.1 Groepen koppelen
 
@@ -877,7 +874,7 @@ Gebruik deze checklist bij het controleren van een uitstoot of het reproduceren 
 7. Test elke aangepaste timer op de grenzen van het bereik en op nul; controleer of elk blok expliciet is in de regel.
 8. Test panelen met elke controlewaarde, uitgeschakelde status, actie verzenden/annuleren/sluiten en panelEvent-handler.
 9. Test het falen van de lokale map vóór succes: geen geselecteerde map, toestemming ingetrokken, ongeldig pad, niet-ondersteunde extensie, daarna geautoriseerd lezen/schrijven.
-10. Test de brugverbinding-uit, verbinding-aan, gekoppelde/ontkoppelde groep en een offline clusterlid voordat u vertrouwt op synchronisatie of bevriezing van de coördinatie.
+10. Test de automatische transportstart, gekoppelde/ontkoppelde groepen en een offline clusterlid voordat u vertrouwt op synchronisatie of bevriezingscoördinatie.
 
 ## 13. Versiebeheerregel
 
