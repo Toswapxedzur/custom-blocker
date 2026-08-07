@@ -13,24 +13,13 @@
     "128": "icons/adamancia-vault-lock-v3-128.png"
   },
   "background": {
-    "scripts": ["browser-compat.js", "sandbox-transport.js", "platform-profiles.js", "helpers.js", "background.js"],
+    "scripts": ["browser-compat.js", "sandbox-transport.js", "bridge-protocol.js", "platform-profiles.js", "helpers.js", "background.js"],
     "persistent": false
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
       "js": ["browser-compat.js", "platform-profiles.js", "helpers.js", "content.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["yt-harvest-main.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["browser-compat.js", "yt-collect.js", "yt-block.js"],
       "run_at": "document_idle"
     }
   ],

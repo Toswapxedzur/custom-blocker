@@ -25,9 +25,25 @@
 // manifest.background.scripts, so it is already loaded by this point.
 if (typeof importScripts === "function") {
   try {
+    if (typeof CBBridgeProtocol === "undefined") importScripts("bridge-protocol.js");
+  } catch (error) {
+    console.error("[CustomBlocker] importScripts(bridge-protocol.js) failed", error);
+  }
+  try {
+    if (typeof CBLocalHubEnvironment === "undefined") importScripts("local-hub-environment.js");
+  } catch (error) {
+    console.error("[CustomBlocker] importScripts(local-hub-environment.js) failed", error);
+  }
+  try {
     if (typeof PLATFORM_PROFILES === "undefined") importScripts("platform-profiles.js");
   } catch (error) {
     console.error("[CustomBlocker] importScripts(platform-profiles.js) failed", error);
+  }
+  try {
+    if (typeof VaultClassifierExtensionContract === "undefined") importScripts("vault-classifier-contract.js");
+    importScripts("vault-classifier-bridge.js", "local-hub-auth.js");
+  } catch (error) {
+    console.error("[CustomBlocker] importScripts(vault classifier bridge) failed", error);
   }
   try {
     importScripts("helpers.js");
@@ -174,7 +190,6 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     platformVideoMode: "all",
     platformAuthorMode: "none",
     platformAuthors: [],
-    platformAuthorTags: [],
     redditMode: "all",
     redditSubreddits: [],
     discordMode: "all",
@@ -374,17 +389,6 @@ function sanitizeGroups(groups) {
           ...new Set(
             rawAuthors
               .map((author) => normalizePlatformAuthorInput(author, normalizedGroupType))
-              .filter(Boolean)
-          )
-        ],
-        // Per-group YouTube tag slugs. MUST be preserved here: getState()
-        // rewrites sanitized groups to storage whenever applyRuntimeNormalizations
-        // reports a change (e.g. a timed-blocking reset elapses), so omitting
-        // this field silently wiped the user's tags "after a certain time".
-        platformAuthorTags: [
-          ...new Set(
-            (Array.isArray(group?.platformAuthorTags) ? group.platformAuthorTags : [])
-              .map((tag) => String(tag ?? "").trim())
               .filter(Boolean)
           )
         ],
@@ -602,38 +606,9 @@ function normalizePageContext(input) {
       input?.videoForm === "post"
         ? input.videoForm
         : videoContext.form,
-    // Exact-case UC id of the page's primary channel (YouTube watch/channel
-    // pages), used by the tag axis. Tags themselves are resolved server-side in
-    // attachChannelTags() just before the page predicate runs.
-    pageChannelId:
-      typeof input?.pageChannelId === "string" &&
-      /^UC[0-9A-Za-z_-]{22}$/.test(input.pageChannelId)
-        ? input.pageChannelId
-        : null,
-    channelTags: [],
-    channelTagsKnown: false
+    // The local Vault Classifier receives rendered evidence through its own
+    // dedicated adapter; page matching contains no remote classification state.
   };
-}
-
-// Resolve the page channel's tags (hybrid cache) onto the pageContext so the
-// tag axis in matchesPlatformVideoGroup can block. Fail-open: a miss/error
-// leaves channelTagsKnown=false so we never block on an unresolved channel.
-async function attachChannelTags(pageContext) {
-  if (!pageContext || !pageContext.isYouTubePage || !pageContext.pageChannelId) {
-    return pageContext;
-  }
-  try {
-    // The page's own channel is the strongest activity signal (you opened it).
-    const out = await cbYtResolve([pageContext.pageChannelId], CB_YT_ACT_WEIGHT_WATCH);
-    const tags = out && out.tags ? out.tags[pageContext.pageChannelId] : undefined;
-    if (Array.isArray(tags)) {
-      pageContext.channelTags = tags;
-      pageContext.channelTagsKnown = true;
-    }
-  } catch (_) {
-    // leave channelTagsKnown=false → fail-open
-  }
-  return pageContext;
 }
 
 // Native network-level blocking (declarativeNetRequest) has been removed.
@@ -1068,7 +1043,7 @@ function isPlatformBlockEnforcing(group, usageTimersMs) {
 
 function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnoozes, now) {
   const filters = [];
-  const currentSite = pageContext.videoSite;
+  const currentSite = pageContext.videoSite || getPlatformGroupTypeForHost(pageContext.hostname);
   const orderedGroups = reversed(groups);
 
   if (currentSite) {
@@ -1083,7 +1058,6 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
         continue;
       }
       const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
-      // "nobody" and the YouTube tag stubs don't trim the feed by author.
       if (authorMode !== "all" && authorMode !== "include" && authorMode !== "exclude") {
         continue;
       }
@@ -1128,10 +1102,10 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
     }
   }
 
-  if (pageContext.isTwitterPage) {
+  if (currentSite && isPlatformFeedGroupType(currentSite)) {
     for (const group of orderedGroups) {
       if (
-        group.groupType !== "twitter" ||
+        group.groupType !== currentSite ||
         !group.enabled ||
         !isGroupActiveNow(group, now) ||
         getActiveSnooze(group.id, groupSnoozes, now)
@@ -1139,13 +1113,13 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
         continue;
       }
       const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
-      // mode "all" blocks the whole page (handled by the matcher); "nobody"
-      // blocks nothing. Only include/exclude trim the feed per-account.
+      // Mode "all" blocks the whole page (handled by the matcher); "nobody"
+      // blocks nothing. Only include/exclude trim individual feed cards.
       if (authorMode !== "include" && authorMode !== "exclude") continue;
       const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
       filters.push({
         id: group.id,
-        site: "twitter",
+        site: currentSite,
         authorMode,
         authors: [...group.platformAuthors],
         enforce
@@ -1392,8 +1366,6 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
 
   if (didApplyResets) await syncBlockingRules();
 
-  await attachChannelTags(pageContext);
-
   const relevantGroups = getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now);
   const relevantTimedGroups = relevantGroups.filter((group) => isTimedBlockingMode(group.mode));
   // Platform groups also accrue while the user is "exposed" to targeted feed
@@ -1487,8 +1459,6 @@ async function getPageSession(pageContextInput) {
   } = await getState();
 
   if (didApplyResets) await syncBlockingRules();
-
-  await attachChannelTags(pageContext);
 
   return buildPageSession(
     pageContext,
@@ -2020,6 +1990,38 @@ function pushLogFeedEntry(entry) {
   } catch (_) {}
 }
 
+// Collection diagnostics never include page text, titles, creator identities,
+// URLs, or entry IDs. They make the local collection hops inspectable in the
+// existing extension Activity Log without creating browser-side browsing data.
+function recordVaultClassifierDiagnostic(entry) {
+  if (!entry || typeof entry !== "object") return;
+  const event = typeof entry.event === "string" && /^[a-z0-9-]{1,64}$/.test(entry.event) ? entry.event : "invalid-event";
+  const platform = typeof entry.platform === "string" && /^[a-z0-9-]{1,64}$/.test(entry.platform) ? entry.platform : "unknown";
+  const detail = typeof entry.detail === "string" && /^[a-z0-9-]{1,64}$/.test(entry.detail) ? entry.detail : "";
+  const outcome = typeof entry.outcome === "string" && /^[a-z0-9-]{1,32}$/.test(entry.outcome) ? entry.outcome : "unknown";
+  const isFailure = event.endsWith("failed") || event.endsWith("rejected") || outcome === "unavailable" || outcome === "rejected";
+  pushLogFeedEntry({
+    level: isFailure ? "warn" : "log",
+    eventType: "vault-collection",
+    message: [platform, event, detail, outcome].filter(Boolean).join(" · ")
+  });
+}
+self.CBRecordVaultClassifierDiagnostic = recordVaultClassifierDiagnostic;
+
+// Transport diagnostics are deliberately local-only stage tokens. They help
+// distinguish an unavailable native peer from a service-worker startup race or
+// fallback socket failure without retaining page evidence or raw exception text.
+function recordVaultClassifierTransportDiagnostic(stage, outcome = "extension") {
+  if (typeof stage !== "string" || !/^[a-z0-9-]{1,48}$/.test(stage)) return;
+  if (typeof outcome !== "string" || !/^[a-z0-9-]{1,32}$/.test(outcome)) return;
+  recordVaultClassifierDiagnostic({
+    platform: "bridge",
+    event: `transport-${stage}`,
+    outcome
+  });
+}
+self.CBRecordVaultClassifierTransportDiagnostic = recordVaultClassifierTransportDiagnostic;
+
 function ingestSandboxLogs(result, descriptor) {
   if (!result) return;
   const eventType = descriptor && descriptor.type ? descriptor.type : "";
@@ -2265,9 +2267,13 @@ async function sendToEventSandbox(payload) {
   }
 }
 
-async function loadCustomGroupSource(group) {
+async function loadCustomGroupSource(group, { resetHostBlocks = false } = {}) {
   if (!group || group.groupType !== "custom") return null;
+  if (resetHostBlocks) {
+    await clearWindowBlockGroup(group.id);
+  }
   if (!group.enabled) {
+    await clearWindowBlockGroup(group.id);
     await sendToEventSandbox({
       kind: "unload-group",
       groupId: group.id,
@@ -2280,6 +2286,7 @@ async function loadCustomGroupSource(group) {
   }
   const source = typeof group.activeEventSource === "string" ? group.activeEventSource : "";
   if (!source.trim()) {
+    await clearWindowBlockGroup(group.id);
     await sendToEventSandbox({
       kind: "unload-group",
       groupId: group.id,
@@ -2318,7 +2325,9 @@ async function loadCustomGroupSource(group) {
 }
 
 async function unloadCustomGroupHandlers(groupId) {
-  return await sendToEventSandbox({ kind: "unload-group", groupId });
+  const result = await sendToEventSandbox({ kind: "unload-group", groupId });
+  await clearWindowBlockGroup(groupId);
+  return result;
 }
 
 let lastReconcileSnapshot = new Map();
@@ -2354,7 +2363,7 @@ async function reconcileCustomGroupHandlers(change) {
       before.activeEventSource !== snapshot.activeEventSource
     ) {
       const group = newGroups.find((g) => g.id === groupId);
-      await loadCustomGroupSource(group);
+      await loadCustomGroupSource(group, { resetHostBlocks: true });
     }
   }
   lastReconcileSnapshot = next;
@@ -2370,8 +2379,14 @@ async function loadAllCustomGroupsAtStartup() {
     await hydrateTabStateFromSession();
   } catch (_) {}
   try {
+    await hydrateWindowBlockGroups();
+  } catch (_) {}
+  try {
     const result = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
     const groups = Array.isArray(result[BLOCKED_GROUPS_KEY]) ? result[BLOCKED_GROUPS_KEY] : [];
+    await pruneWindowBlockGroups(new Set(
+      groups.filter((group) => group && group.groupType === "custom").map((group) => String(group.id || ""))
+    ));
     lastReconcileSnapshot = new Map();
     let attempted = 0;
     let withSource = 0;
@@ -2740,7 +2755,65 @@ async function applySandboxResultToTab(tabId, result, descriptor) {
 // Window helper: dynamic site blocklist + tab management
 // ────────────────────────────────────────────────────────────────────────
 
-const __windowBlockedSites = new Set();
+const SESSION_WINDOW_BLOCKS_KEY = "__cb_window_blocks_by_group__";
+const __windowBlockedSitesByGroup = new Map();
+let windowBlockPersistChain = Promise.resolve();
+
+function windowBlockSetForGroup(groupId, create = false) {
+  const id = String(groupId || "");
+  if (!id) return null;
+  let set = __windowBlockedSitesByGroup.get(id) || null;
+  if (!set && create) {
+    set = new Set();
+    __windowBlockedSitesByGroup.set(id, set);
+  }
+  return set;
+}
+
+async function persistWindowBlockGroups() {
+  if (!chrome?.storage?.session?.set) return;
+  const serialized = {};
+  for (const [groupId, patterns] of __windowBlockedSitesByGroup.entries()) {
+    if (patterns.size > 0) serialized[groupId] = Array.from(patterns);
+  }
+  windowBlockPersistChain = windowBlockPersistChain
+    .catch(() => {})
+    .then(() => chrome.storage.session.set({ [SESSION_WINDOW_BLOCKS_KEY]: serialized }));
+  try { await windowBlockPersistChain; } catch (_) {}
+}
+
+async function hydrateWindowBlockGroups() {
+  if (!chrome?.storage?.session?.get) return;
+  try {
+    const stored = await chrome.storage.session.get({ [SESSION_WINDOW_BLOCKS_KEY]: {} });
+    const groups = stored[SESSION_WINDOW_BLOCKS_KEY];
+    if (!groups || typeof groups !== "object") return;
+    __windowBlockedSitesByGroup.clear();
+    for (const [groupId, patterns] of Object.entries(groups)) {
+      if (!Array.isArray(patterns)) continue;
+      const set = new Set(
+        patterns.map(windowBlocklistNormalize).filter(Boolean)
+      );
+      if (set.size > 0) __windowBlockedSitesByGroup.set(groupId, set);
+    }
+  } catch (_) {}
+}
+
+async function clearWindowBlockGroup(groupId) {
+  if (!__windowBlockedSitesByGroup.delete(String(groupId || ""))) return;
+  await persistWindowBlockGroups();
+}
+
+async function pruneWindowBlockGroups(validGroupIds) {
+  let changed = false;
+  for (const groupId of Array.from(__windowBlockedSitesByGroup.keys())) {
+    if (!validGroupIds.has(groupId)) {
+      __windowBlockedSitesByGroup.delete(groupId);
+      changed = true;
+    }
+  }
+  if (changed) await persistWindowBlockGroups();
+}
 
 function windowBlocklistNormalize(pattern) {
   let p = String(pattern || "").trim().toLowerCase();
@@ -2753,12 +2826,14 @@ function windowBlocklistNormalize(pattern) {
 }
 
 function windowBlocklistMatches(url) {
-  if (__windowBlockedSites.size === 0) return false;
+  if (__windowBlockedSitesByGroup.size === 0) return false;
   try {
     let hostname = new URL(url).hostname.toLowerCase();
     if (hostname.startsWith("www.")) hostname = hostname.slice(4);
-    for (const pattern of __windowBlockedSites) {
-      if (hostname === pattern || hostname.endsWith("." + pattern)) return true;
+    for (const patterns of __windowBlockedSitesByGroup.values()) {
+      for (const pattern of patterns) {
+        if (hostname === pattern || hostname.endsWith("." + pattern)) return true;
+      }
     }
   } catch {}
   return false;
@@ -2792,16 +2867,26 @@ async function processWindowIntents(intents, originTabId) {
         break;
       }
       case "blockSite": {
+        const groupId = String(intent.groupId || "");
+        if (!groupId) break;
         const p = windowBlocklistNormalize(intent.pattern);
         if (p) {
-          __windowBlockedSites.add(p);
-          closeTabsMatchingBlocklist();
+          windowBlockSetForGroup(groupId, true).add(p);
+          await persistWindowBlockGroups();
+          await closeTabsMatchingBlocklist();
         }
         break;
       }
       case "unblockSite": {
+        const groupId = String(intent.groupId || "");
+        if (!groupId) break;
         const p = windowBlocklistNormalize(intent.pattern);
-        __windowBlockedSites.delete(p);
+        const patterns = windowBlockSetForGroup(groupId);
+        if (patterns) {
+          patterns.delete(p);
+          if (patterns.size === 0) __windowBlockedSitesByGroup.delete(groupId);
+          await persistWindowBlockGroups();
+        }
         break;
       }
     }
@@ -2809,7 +2894,7 @@ async function processWindowIntents(intents, originTabId) {
 }
 
 async function closeTabsMatchingBlocklist() {
-  if (__windowBlockedSites.size === 0) return;
+  if (__windowBlockedSitesByGroup.size === 0) return;
   try {
     const tabs = await chrome.tabs.query({});
     for (const tab of tabs) {
@@ -3067,7 +3152,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       groups[idx] = next;
       suppressReconcileLoadByGroup.add(groupId);
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
-      const loadResult = await loadCustomGroupSource(next);
+      const loadResult = await loadCustomGroupSource(next, { resetHostBlocks: true });
       sendResponse({ ok: true, loadResult });
     })();
     return true;
@@ -3239,10 +3324,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       await ensureStartupGate();
       const items = Array.isArray(message.items) ? message.items : [];
-      // Attach per-card creator info (subscriber count, tags, name, handle)
-      // resolved from the YouTube verdict cache, so custom predicates can read
-      // video.creator.subCount etc. Best-effort + fail-open; no-op off YouTube.
-      await cbEnrichItemsWithCreator(message.platform, items);
       const r = await sendToEventSandbox({
         kind: "evaluate-platform-items",
         platform: message.platform,
@@ -3318,25 +3399,27 @@ ensureStartupGate().catch((error) => {
 /* ------------------------------------------------------------------ *
  * Web-app bridge — extension WebSocket client.
  *
- * The macOS app hosts the hub (a browser extension cannot listen on a
- * socket). This client connects out to that hub over a fixed loopback
- * address (no pairing code), and keeps a live status that the popup reads
+ * The extension keeps one automatic outbound socket to the fixed local Vault
+ * hub. Group-sync is routed whenever Mac Vault is present, while classifier
+ * requests are routed whenever Vault Classifier is present; both products
+ * share this one socket. It keeps a live status that the popup reads
  * via the "connection-status" message (and live "connection-status-push"
  * broadcasts while the popup is open).
  *
  * WebSocket activity keeps the MV3 service worker alive (Chrome 116+), so
  * the connection survives popup open/close. We also send a periodic ping.
  * ------------------------------------------------------------------ */
-const CB_CONNECTION_PROTOCOL_VERSION = 1;
-// Fixed loopback address for the macOS hub (port is no longer configurable).
-const CB_FIXED_ADDRESS = "ws://127.0.0.1:8787";
+const CB_CONNECTION_PROTOCOL_VERSION = self.CBBridgeProtocol.PROTOCOL_VERSION;
+// Environment-specific local address for the authenticated Vault hub. Unknown
+// extension identities fail closed rather than joining production.
+const CB_FIXED_ADDRESS = self.CBLocalHubEnvironment?.current?.address || "";
 const CB_CONNECTION_PING_MS = 20_000;
 // Four-state connection model (matches the UI):
 //   connecting   – actively probing; rapid burst every 100ms for a 5s window.
 //   disconnected – burst window elapsed without success; keep probing slowly
 //                  (every 5s) because the user still WANTS to connect.
 //   connected    – live socket.
-//   off          – user toggled the client off; no connection attempts at all.
+//   off          – transport has not started or is shutting down with the worker.
 const CB_CONNECTION_BURST_INTERVAL_MS = 100;
 const CB_CONNECTION_BURST_WINDOW_MS = 5_000;
 const CB_CONNECTION_SLOW_INTERVAL_MS = 5_000;
@@ -3395,16 +3478,12 @@ function cbReportClusterUsage(groups, timers, resets) {
   try {
     const clusters = Array.isArray(cbConnection.clusters) ? cbConnection.clusters : [];
     if (clusters.length === 0) return;
-    if (!cbConnection.ws || cbConnection.ws.readyState !== WebSocket.OPEN) return;
+    if (!cbConnection.routeIsReady("macapp")) return;
     const program = cbDetectProgramId();
     for (const g of groups) {
       if (!g || g.groupType !== "site") continue;
       const inCluster = clusters.some(
-        (c) =>
-          c &&
-          c.groupName === g.name &&
-          Array.isArray(c.members) &&
-          c.members.some((m) => m && m.program === program)
+        (cluster) => self.CBBridgeProtocol.clusterForGroup([cluster], g, program) === cluster
       );
       if (!inCluster) continue;
       const current = Number(timers && timers[g.id]) || 0;
@@ -3444,29 +3523,76 @@ function cbRebaseClusterUsage(groupId, sharedMs, resetAt) {
 const cbConnection = {
   ws: null,
   pingTimer: null,
+  connectTimer: null,
   reconnectTimer: null,
   desired: false,
   address: CB_FIXED_ADDRESS,
-  status: { running: false, state: "off", address: "", peers: [], error: "" },
+  status: { running: false, state: "off", address: "", peers: [], error: "", hubProgram: "" },
   // Latest web-app bridge clusters that involve this endpoint (hub is the source
   // of truth) and the last groups-announce we sent, so we can re-announce after
   // a reconnect even if the popup is closed.
   clusters: [],
   lastAnnounce: null,
   // Rapid-retry burst bookkeeping. burstStartMs marks the start of the current
-  // retry window; openedThisAttempt tracks whether the live socket connected.
+  // retry window. A raw WebSocket open is not a usable connection: the hub
+  // must also accept our protocol hello with a welcome message.
   burstStartMs: 0,
-  openedThisAttempt: false,
+  handshakeComplete: false,
+  startupReady: null,
 
   setStatus(patch) {
+    const macRouteWasReady = this.routeIsReady("macapp");
     this.status = { ...this.status, ...patch };
+    const macRouteIsReady = this.routeIsReady("macapp");
+    if (!macRouteIsReady && this.clusters.length > 0) {
+      this.clusters = [];
+      this.broadcastClusters();
+    } else if (!macRouteWasReady && macRouteIsReady && this.lastAnnounce) {
+      this.sendWS(this.lastAnnounce);
+    }
+    if (this.routeIsReady("classifier")
+      && typeof self.CBFlushVaultClassifierCollectionQueue === "function") {
+      void self.CBFlushVaultClassifierCollectionQueue();
+    }
     this.broadcast();
+  },
+
+  // A target is present when its native app owns the authenticated hub or is a
+  // currently connected peer on that hub.
+  targetIsPresent(target, status = this.status) {
+    if (!target || !status || typeof status !== "object") return false;
+    if (status.hubProgram === target) return true;
+    return Array.isArray(status.peers) && status.peers.some(
+      (peer) => peer && peer.program === target && peer.connected !== false
+    );
+  },
+
+  routeIsReady(target) {
+    return Boolean(
+      this.ws &&
+      this.ws.readyState === WebSocket.OPEN &&
+      (this.status.state === "connected" || this.status.state === "running") &&
+      this.targetIsPresent(target)
+    );
+  },
+
+  statusForTarget(target) {
+    const current = { ...this.status };
+    if (current.state === "connected" || current.state === "running") {
+      return {
+        ...current,
+        state: this.targetIsPresent(target, current) ? "connected" : "connected-not-listening",
+        error: ""
+      };
+    }
+    if (current.state === "error") return { ...current, state: "disconnected" };
+    return current;
   },
 
   broadcast() {
     try {
       chrome.runtime
-        .sendMessage({ type: "connection-status-push", status: this.status })
+        .sendMessage({ type: "connection-status-push", status: this.statusForTarget("macapp") })
         .catch(() => {});
     } catch (_) {}
   },
@@ -3503,7 +3629,8 @@ const cbConnection = {
     for (const cluster of relevant) {
       const scalars = cluster.shared.scalars;
       if (!scalars || typeof scalars !== "object") continue;
-      const idx = groups.findIndex((g) => g && g.name === cluster.groupName);
+      const localGroup = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
+      const idx = localGroup ? groups.findIndex((g) => g && g.id === localGroup.id) : -1;
       if (idx < 0) continue;
       for (const field of CB_SYNC_SCALAR_FIELDS) {
         if (
@@ -3541,7 +3668,7 @@ const cbConnection = {
         const shared = cluster.shared;
         if (!shared || (cluster.groupType && cluster.groupType !== "site")) continue;
         if (!Number.isFinite(shared.usageMs)) continue;
-        const grp = groups.find((g) => g && g.name === cluster.groupName);
+        const grp = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
         if (!grp || !grp.id) continue;
         const incoming = Math.max(0, Number(shared.usageMs) || 0);
         if ((Number(timers[grp.id]) || 0) !== incoming) {
@@ -3585,7 +3712,7 @@ const cbConnection = {
         if (!shared) continue;
         const sharedSnoozeTs = Number(shared.snoozeTs) || 0;
         if (sharedSnoozeTs <= 0 || !shared.snooze || typeof shared.snooze !== "object") continue;
-        const grp = groups.find((g) => g && g.name === cluster.groupName);
+        const grp = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
         if (!grp || !grp.id) continue;
         const localEntry = snoozes[grp.id];
         const localTs = localEntry ? Number(localEntry.startsAtMs) || 0 : 0;
@@ -3618,6 +3745,10 @@ const cbConnection = {
       clearInterval(this.pingTimer);
       this.pingTimer = null;
     }
+    if (this.connectTimer) {
+      clearTimeout(this.connectTimer);
+      this.connectTimer = null;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -3639,80 +3770,71 @@ const cbConnection = {
     this.address = CB_FIXED_ADDRESS;
     this.clearTimers();
     this.closeSocket();
+    if (!this.address) {
+      this.desired = false;
+      this.setStatus({ state: "error", address: "", error: "unrecognized-extension-environment", peers: [], hubProgram: "" });
+      return;
+    }
     if (this.burstStartMs === 0) this.burstStartMs = Date.now();
-    this.setStatus({ state: "connecting", address: this.address, error: "" });
-    this.openedThisAttempt = false;
+    this.setStatus({ state: "connecting", address: this.address, error: "", hubProgram: "" });
+    this.handshakeComplete = false;
     let socket;
     try {
       socket = new WebSocket(this.address);
     } catch (error) {
-      this.setStatus({ state: "error", error: String(error && error.message ? error.message : error) });
+      this.setStatus({ state: "error", error: "socket-error" });
       this.scheduleSlowRetry();
       return;
     }
     this.ws = socket;
-    socket.onopen = () => {
-      this.openedThisAttempt = true;
-      // Connected — close the current retry window.
-      this.burstStartMs = 0;
-      try {
-        socket.send(
-          JSON.stringify({
-            kind: "hello",
-            v: CB_CONNECTION_PROTOCOL_VERSION,
-            program: cbDetectProgramId()
-          })
-        );
-      } catch (_) {}
-      // Re-announce our group roster so the hub can validate name-based links.
-      if (this.lastAnnounce) {
-        try {
-          socket.send(JSON.stringify(this.lastAnnounce));
-        } catch (_) {}
+    // A connection is usable only after the protocol welcome. Give the whole
+    // socket-open + hello/welcome exchange five seconds, then visibly settle
+    // on Disconnected while retaining the user's requested slow retry.
+    this.connectTimer = setTimeout(() => {
+      if (this.ws === socket && !this.handshakeComplete) {
+        this.connectTimer = null;
+        this.closeSocket();
+        this.burstStartMs = 0;
+        this.setStatus({ state: "disconnected", error: "connection-timeout", peers: [], hubProgram: "" });
+        this.scheduleSlowRetry();
       }
-      this.pingTimer = setInterval(() => {
-        try {
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ kind: "ping", t: Date.now() }));
-          }
-        } catch (_) {}
-      }, CB_CONNECTION_PING_MS);
-    };
+    }, CB_CONNECTION_BURST_WINDOW_MS);
+    socket.onopen = () => {};
     socket.onmessage = (event) => {
       this.handleMessage(event && event.data);
     };
     socket.onerror = () => {
-      // A failure before the socket ever opened just means the Mac server isn't
+      // A failure before the socket ever opened means the shared broker isn't
       // reachable yet; let onclose drive the backed-off reconnect instead of
       // flapping the status to "error" on every attempt.
-      if (this.openedThisAttempt) {
-        this.setStatus({ state: "error", error: "socket error" });
+      if (this.handshakeComplete) {
+        this.setStatus({ state: "error", error: "socket-error" });
       }
     };
     socket.onclose = () => {
       this.clearTimers();
       this.ws = null;
       if (!this.desired) {
-        this.setStatus({ state: "off", peers: [] });
+        this.setStatus({ state: "off", peers: [], hubProgram: "" });
         return;
       }
-      if (this.openedThisAttempt) {
-        // A live connection dropped — start a fresh retry burst.
+      if (this.handshakeComplete) {
+        // A welcomed hub connection dropped — start a fresh retry burst.
         this.burstStartMs = 0;
-        this.setStatus({ state: "connecting", peers: [] });
+        this.setStatus({ state: "connecting", peers: [], hubProgram: "" });
         this.scheduleBurstRetry();
         return;
       }
       // Still trying to establish the first connection of this burst.
       if (Date.now() - this.burstStartMs < CB_CONNECTION_BURST_WINDOW_MS) {
-        this.setStatus({ state: "connecting", peers: [] });
+        this.setStatus({ state: "connecting", peers: [], hubProgram: "" });
         this.scheduleBurstRetry();
       } else {
         // Burst window elapsed without connecting. We still WANT to connect, so
-        // fall back to the slow retry cadence (every 5s) until the Mac server
+        // fall back to the slow retry cadence (every 5s) until the desktop hub
         // comes up. The user only stops attempts by toggling the client off.
         this.burstStartMs = 0;
-        this.setStatus({ state: "disconnected", peers: [] });
+        this.setStatus({ state: "disconnected", peers: [], hubProgram: "" });
         this.scheduleSlowRetry();
       }
     };
@@ -3737,11 +3859,11 @@ const cbConnection = {
     }, CB_CONNECTION_SLOW_INTERVAL_MS);
   },
 
-  disconnect() {
+  stop() {
     this.desired = false;
     this.clearTimers();
     this.closeSocket();
-    this.setStatus({ state: "off", peers: [], error: "" });
+    this.setStatus({ state: "off", peers: [], error: "", hubProgram: "" });
   },
 
   handleMessage(raw) {
@@ -3752,29 +3874,65 @@ const cbConnection = {
       return;
     }
     if (!msg || typeof msg !== "object") return;
+    if (msg.kind !== "challenge" && msg.kind !== "welcome" && msg.kind !== "rejected" && this.status.state !== "connected") return;
     switch (msg.kind) {
+      case "challenge":
+        if (
+          msg.v !== CB_CONNECTION_PROTOCOL_VERSION ||
+          typeof msg.challenge !== "string" ||
+          !/^[A-Za-z0-9_-]{43}$/.test(msg.challenge) ||
+          !self.CBLocalHubAuthentication ||
+          typeof self.CBLocalHubAuthentication.proofForChallenge !== "function"
+        ) {
+          this.authenticationFailed();
+          break;
+        }
+        this.answerChallenge(msg.challenge);
+        break;
       case "welcome":
+        if (
+          msg.v !== CB_CONNECTION_PROTOCOL_VERSION ||
+          !self.CBBridgeProtocol.isHubProgram(msg.hubProgram)
+        ) {
+          this.desired = false;
+          this.clearTimers();
+          this.closeSocket();
+          this.setStatus({ state: "error", error: "protocol-mismatch", peers: [], hubProgram: "" });
+          break;
+        }
+        if (this.connectTimer) {
+          clearTimeout(this.connectTimer);
+          this.connectTimer = null;
+        }
+        this.handshakeComplete = true;
+        this.burstStartMs = 0;
         this.setStatus({
           state: "connected",
           error: "",
+          hubProgram: msg.hubProgram,
           peers: Array.isArray(msg.peers) ? msg.peers : this.status.peers
         });
+        this.pingTimer = setInterval(() => {
+          this.sendWS({ kind: "ping", t: Date.now() });
+        }, CB_CONNECTION_PING_MS);
         break;
       case "rejected":
         this.desired = false;
         this.clearTimers();
         this.closeSocket();
-        this.setStatus({ state: "error", error: msg.reason || "rejected", peers: [] });
+        this.setStatus({ state: "error", error: msg.reason || "rejected", peers: [], hubProgram: "" });
         break;
       case "peers":
         this.setStatus({ peers: Array.isArray(msg.peers) ? msg.peers : [] });
         break;
       case "clusters":
+        if (!this.routeIsReady("macapp")) break;
         this.clusters = Array.isArray(msg.clusters) ? msg.clusters : [];
         this.broadcastClusters();
         this.applySharedToStorage();
         break;
       case "cluster-updated": {
+        if (!this.routeIsReady("macapp")) break;
         const next = Array.isArray(this.clusters) ? this.clusters.slice() : [];
         const idx = next.findIndex((c) => c && c.id === msg.cluster?.id);
         const members = Array.isArray(msg.cluster?.members) ? msg.cluster.members : [];
@@ -3791,6 +3949,7 @@ const cbConnection = {
         break;
       }
       case "connect-group-rejected":
+        if (!this.routeIsReady("macapp")) break;
         try {
           chrome.runtime
             .sendMessage({ type: "group-rejected", reason: msg.reason || "" })
@@ -3799,43 +3958,390 @@ const cbConnection = {
         break;
       case "pong":
         break;
+      case "classifier-response":
+        // The request map below ignores unmatched replies, so classifier
+        // responses cannot cross-route ordinary group-sync traffic.
+        if (self.CBClassifierHub) self.CBClassifierHub.receive(msg);
+        break;
       default:
         break;
     }
   },
 
-  async applyFromSettings() {
-    let conn = null;
-    try {
-      const r = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
-      const s = r && r[CB_GLOBAL_SETTINGS_KEY];
-      conn = s && typeof s === "object" ? s.connection : null;
-    } catch (_) {}
-    if (conn && conn.clientEnabled) {
+  answerChallenge(challenge) {
+    const socket = this.ws;
+    if (!socket || socket.readyState !== WebSocket.OPEN || this.handshakeComplete) return;
+    const program = cbDetectProgramId();
+    self.CBLocalHubAuthentication.proofForChallenge(program, challenge)
+      .then((proof) => {
+        if (this.ws !== socket || socket.readyState !== WebSocket.OPEN || this.handshakeComplete) return;
+        socket.send(JSON.stringify({
+          kind: "hello",
+          v: CB_CONNECTION_PROTOCOL_VERSION,
+          program,
+          challenge,
+          proof
+        }));
+      })
+      .catch(() => this.authenticationFailed());
+  },
+
+  authenticationFailed() {
+    this.clearTimers();
+    this.closeSocket();
+    this.burstStartMs = 0;
+    this.setStatus({ state: "error", error: "authentication-unavailable", peers: [], hubProgram: "" });
+    this.scheduleSlowRetry();
+  },
+
+  waitForStartup() {
+    return this.startupReady || this.startAutomatically();
+  },
+
+  startAutomatically() {
+    if (!this.startupReady) this.startupReady = Promise.resolve();
+    if (!this.desired) {
       this.burstStartMs = 0;
       this.connect();
-    } else {
-      this.disconnect();
     }
+    return this.startupReady;
   }
 };
+
+// Classifier requests share the automatic local WebSocket and are relayed only
+// while a Vault Classifier host or peer is present.
+const CB_CLASSIFIER_HUB_MAX_PENDING = 16;
+// The native relay expires first (30 seconds), leaving this browser deadline
+// enough margin to receive its explicit timeout without racing a late reply.
+const CB_CLASSIFIER_HUB_TIMEOUT_MS = 32_000;
+const CB_CLASSIFIER_HUB_CONNECT_WAIT_MS = 5_000;
+const CB_CLASSIFIER_HUB_MAX_FALLBACK_REQUESTS = 4;
+// The cap bounds CONCURRENCY (in-flight requests), not total work. Overflow waits
+// in this bounded queue for a free slot instead of being dropped, so a dense feed
+// never loses a request. The queue bound is a far higher backstop against a true
+// runaway; normal feeds sit well under it.
+const CB_CLASSIFIER_HUB_MAX_QUEUE = 512;
+const cbClassifierHub = {
+  pending: new Map(),
+  waitQueue: [],
+  fallbackRequests: 0,
+
+  recordTransport(stage, outcome = "extension") {
+    try {
+      if (typeof self.CBRecordVaultClassifierTransportDiagnostic === "function") {
+        self.CBRecordVaultClassifierTransportDiagnostic(stage, outcome);
+      }
+    } catch (_) {}
+  },
+
+  isReady(connection) {
+    return Boolean(
+      connection &&
+      connection.ws &&
+      connection.ws.readyState === WebSocket.OPEN &&
+      connection.status &&
+      connection.status.state === "connected" &&
+      typeof connection.targetIsPresent === "function" &&
+      connection.targetIsPresent("classifier")
+    );
+  },
+
+  waitForReady(connection) {
+    if (this.isReady(connection)) return Promise.resolve();
+    // There is no active shared socket to wait for, or a live hub has already
+    // confirmed that it does not have a Classifier peer.
+    if (!connection || connection.status?.state === "connected") {
+      return Promise.reject(new Error("The Vault Classifier bridge is unavailable."));
+    }
+    return new Promise((resolve, reject) => {
+      const deadline = Date.now() + CB_CLASSIFIER_HUB_CONNECT_WAIT_MS;
+      const poll = () => {
+        if (this.isReady(connection)) {
+          resolve();
+        } else if (Date.now() >= deadline) {
+          reject(new Error("The Vault Classifier bridge is unavailable."));
+        } else {
+          setTimeout(poll, 100);
+        }
+      };
+      poll();
+    });
+  },
+
+  responseBody(message, operation) {
+    if (!message || message.operation !== operation) {
+      throw new Error("Vault Classifier returned an invalid response.");
+    }
+    if (typeof message.error === "string" && message.error.length <= 256) {
+      throw new Error(message.error);
+    }
+    if (!message.body || typeof message.body !== "object" || Array.isArray(message.body)) {
+      throw new Error("Vault Classifier returned an invalid response.");
+    }
+    let bodyJSON;
+    try {
+      bodyJSON = JSON.stringify(message.body);
+    } catch (_) {
+      throw new Error("Vault Classifier returned an invalid response.");
+    }
+    if (typeof bodyJSON !== "string" || new TextEncoder().encode(bodyJSON).length > 88_000) {
+      throw new Error("Vault Classifier response exceeds the shared bridge limit.");
+    }
+    return message.body;
+  },
+
+  requestOnSharedSocket(connection, operation, body) {
+    return new Promise((resolve, reject) => {
+      const job = { connection, operation, body, resolve, reject };
+      if (this.pending.size < CB_CLASSIFIER_HUB_MAX_PENDING) {
+        this.dispatchClassifierJob(job);
+      } else if (this.waitQueue.length < CB_CLASSIFIER_HUB_MAX_QUEUE) {
+        this.waitQueue.push(job);
+      } else {
+        reject(new Error("Vault Classifier is busy."));
+      }
+    });
+  },
+
+  dispatchClassifierJob(job) {
+    const { connection, operation, body, resolve, reject } = job;
+    const requestID = self.VaultClassifierExtensionContract.randomID("classifier");
+    const timer = setTimeout(() => {
+      if (!this.pending.has(requestID)) return;
+      this.pending.delete(requestID);
+      this.recordTransport("durable-timeout", "unavailable");
+      reject(new Error("Vault Classifier request timed out."));
+      this.drainWaitQueue();
+    }, CB_CLASSIFIER_HUB_TIMEOUT_MS);
+    this.pending.set(requestID, { operation, resolve, reject, timer });
+    if (!connection || typeof connection.sendWS !== "function" || !connection.sendWS({ kind: "classifier-request", requestID, operation, body })) {
+      clearTimeout(timer);
+      this.pending.delete(requestID);
+      this.recordTransport("durable-send-failed", "unavailable");
+      reject(new Error("The Vault Classifier bridge is unavailable."));
+      this.drainWaitQueue();
+    }
+  },
+
+  // A slot just freed (a response arrived, or a send failed/timed out): dispatch
+  // as many queued requests as the concurrency cap now allows.
+  drainWaitQueue() {
+    while (this.pending.size < CB_CLASSIFIER_HUB_MAX_PENDING && this.waitQueue.length > 0) {
+      this.dispatchClassifierJob(this.waitQueue.shift());
+    }
+  },
+
+  requestViaFallbackSocket(operation, body) {
+    if (this.fallbackRequests >= CB_CLASSIFIER_HUB_MAX_FALLBACK_REQUESTS) {
+      this.recordTransport("fallback-busy", "unavailable");
+      return Promise.reject(new Error("Vault Classifier is busy."));
+    }
+    this.fallbackRequests += 1;
+    const requestID = self.VaultClassifierExtensionContract.randomID("classifier-fallback");
+    return new Promise((resolve, reject) => {
+      let socket = null;
+      let settled = false;
+      let welcomed = false;
+      const finish = (completion, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        this.fallbackRequests = Math.max(0, this.fallbackRequests - 1);
+        if (socket) {
+          try {
+            socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
+            socket.close();
+          } catch (_) {}
+        }
+        completion(value);
+      };
+      const fail = (stage, error) => {
+        this.recordTransport(stage, "unavailable");
+        finish(reject, error);
+      };
+      const timeout = setTimeout(
+        () => fail("fallback-timeout", new Error("Vault Classifier request timed out.")),
+        CB_CLASSIFIER_HUB_TIMEOUT_MS
+      );
+      try {
+        socket = new WebSocket(CB_FIXED_ADDRESS);
+      } catch (_) {
+        fail("fallback-constructor-failed", new Error("The Vault Classifier bridge is unavailable."));
+        return;
+      }
+      socket.onopen = () => {};
+      socket.onmessage = (event) => {
+        let message;
+        try {
+          message = typeof event?.data === "string" ? JSON.parse(event.data) : event?.data;
+        } catch (_) {
+          fail("fallback-invalid-frame", new Error("The Vault Classifier bridge is unavailable."));
+          return;
+        }
+        if (!message || typeof message !== "object") return;
+        if (message.kind === "challenge" && !welcomed) {
+          if (message.v !== CB_CONNECTION_PROTOCOL_VERSION || typeof message.challenge !== "string" || !self.CBLocalHubAuthentication) {
+            fail("fallback-authentication-unavailable", new Error("The Vault Classifier bridge is unavailable."));
+            return;
+          }
+          self.CBLocalHubAuthentication.proofForChallenge(cbDetectProgramId(), message.challenge)
+            .then((proof) => {
+              if (settled || !socket || socket.readyState !== WebSocket.OPEN) return;
+              socket.send(JSON.stringify({ kind: "hello", v: CB_CONNECTION_PROTOCOL_VERSION, program: cbDetectProgramId(), challenge: message.challenge, proof }));
+            })
+            .catch(() => fail("fallback-authentication-unavailable", new Error("The Vault Classifier bridge is unavailable.")));
+          return;
+        }
+        if (message.kind === "welcome" && !welcomed) {
+          const peers = Array.isArray(message.peers) ? message.peers : [];
+          const classifierPresent = message.hubProgram === "classifier" || peers.some((peer) => peer && peer.program === "classifier" && peer.connected !== false);
+          if (message.v !== CB_CONNECTION_PROTOCOL_VERSION || !self.CBBridgeProtocol.isHubProgram(message.hubProgram)) {
+            fail("fallback-invalid-welcome", new Error("The Vault Classifier bridge is unavailable."));
+            return;
+          }
+          if (!classifierPresent) {
+            fail("fallback-classifier-missing", new Error("The Vault Classifier bridge is unavailable."));
+            return;
+          }
+          welcomed = true;
+          try {
+            socket.send(JSON.stringify({ kind: "classifier-request", requestID, operation, body }));
+          } catch (_) {
+            fail("fallback-send-failed", new Error("The Vault Classifier bridge is unavailable."));
+          }
+          return;
+        }
+        if (message.kind === "classifier-response" && message.requestID === requestID) {
+          try {
+            finish(resolve, this.responseBody(message, operation));
+          } catch (error) {
+            fail("fallback-invalid-response", error);
+          }
+        }
+      };
+      socket.onerror = () => fail("fallback-socket-error", new Error("The Vault Classifier bridge is unavailable."));
+      socket.onclose = () => {
+        if (!settled) fail("fallback-socket-closed", new Error("The Vault Classifier bridge is unavailable."));
+      };
+    });
+  },
+
+  request(operation, body) {
+    if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "diagnostic" && operation !== "collect" && operation !== "source-tags" && operation !== "source-tags-batch" && operation !== "classify" && operation !== "correct") {
+      return Promise.reject(new Error("Unsupported Vault Classifier operation."));
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return Promise.reject(new Error("Invalid Vault Classifier request."));
+    }
+    let bodyJSON;
+    try {
+      bodyJSON = JSON.stringify(body);
+    } catch (_) {
+      return Promise.reject(new Error("Invalid Vault Classifier request."));
+    }
+    if (typeof bodyJSON !== "string" || new TextEncoder().encode(bodyJSON).length > 88_000) {
+      return Promise.reject(new Error("Vault Classifier request exceeds the shared bridge limit."));
+    }
+    const connection = cbConnection;
+    const startupReady = connection && typeof connection.waitForStartup === "function"
+      ? connection.waitForStartup()
+      : Promise.resolve();
+    return Promise.resolve(startupReady)
+      .then(() => this.waitForReady(connection))
+      .then(
+        () => this.requestOnSharedSocket(connection, operation, body),
+        () => {
+          // A short-lived fallback can bridge a stale MV3 worker socket without
+          // adding another durable stream or persisting page evidence.
+          this.recordTransport("fallback-attempt", "extension");
+          return this.requestViaFallbackSocket(operation, body);
+        }
+      );
+  },
+
+  receive(message) {
+    const requestID = message && typeof message.requestID === "string" ? message.requestID : "";
+    const pending = requestID && this.pending.get(requestID);
+    if (!pending || !message || message.operation !== pending.operation) return;
+    this.pending.delete(requestID);
+    clearTimeout(pending.timer);
+    try {
+      pending.resolve(this.responseBody(message, pending.operation));
+    } catch (error) {
+      pending.reject(error);
+    }
+    this.drainWaitQueue();
+  },
+
+  rejectAll(reason) {
+    const error = new Error(reason || "The shared Vault bridge disconnected.");
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.pending.clear();
+    const queued = this.waitQueue.splice(0);
+    for (const job of queued) job.reject(error);
+  }
+};
+self.CBClassifierHub = cbClassifierHub;
+
+// ── DEBUG: measure classifier-bridge round-trip latency ──────────────────────
+// Run from the extension's service-worker console
+// (chrome://extensions → "Inspect views: service worker"):
+//   await CBVaultMeasureBridge()                       // ~pure connection (bridge-info)
+//   await CBVaultMeasureBridge({ op: "source-tags" })  // connection + pill compute
+// The delta between the two medians ≈ app-side compute. `coldFirstMs` is the
+// cold path (connect + hello/welcome handshake) only when `warmAtStart` is false.
+async function cbMeasureBridge({ op = "bridge-info", count = 20, gapMs = 50, body } = {}) {
+  const requestBody = body || (op === "source-tags"
+    ? { platformID: "youtube", sourceID: "youtube:handle:@__probe__" }
+    : {});
+  const warmAtStart = cbClassifierHub.isReady(cbConnection);
+  const round2 = (value) => Math.round(value * 100) / 100;
+  const samples = [];
+  for (let i = 0; i < count; i += 1) {
+    const started = performance.now();
+    let ok = true;
+    let error = null;
+    try {
+      await cbClassifierHub.request(op, requestBody);
+    } catch (thrown) {
+      ok = false;
+      error = String((thrown && thrown.message) || thrown);
+    }
+    samples.push({ i, ms: round2(performance.now() - started), ok, error });
+    if (gapMs > 0 && i < count - 1) await new Promise((resolve) => setTimeout(resolve, gapMs));
+  }
+  // Exclude the first sample from the warm stats: it carries any connect cost.
+  const warm = samples.slice(1).filter((sample) => sample.ok).map((sample) => sample.ms).sort((a, b) => a - b);
+  const at = (p) => (warm.length ? warm[Math.min(warm.length - 1, Math.floor(p * warm.length))] : null);
+  const summary = {
+    op,
+    count,
+    warmAtStart,
+    failed: samples.filter((sample) => !sample.ok).length,
+    coldFirstMs: samples[0] ? samples[0].ms : null,
+    warmMin: warm[0] ?? null,
+    warmMedian: at(0.5),
+    warmP95: at(0.95),
+    warmMax: warm[warm.length - 1] ?? null,
+    warmMean: warm.length ? round2(warm.reduce((a, b) => a + b, 0) / warm.length) : null
+  };
+  console.table(samples);
+  console.log(`[CBVaultMeasureBridge] ${op}`, summary);
+  return summary;
+}
+self.CBVaultMeasureBridge = cbMeasureBridge;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== "string") return false;
   switch (message.type) {
-    case "connection-connect":
-      cbConnection.burstStartMs = 0;
-      cbConnection.connect();
-      sendResponse({ ok: true, status: cbConnection.status });
-      return false;
-    case "connection-disconnect":
-      cbConnection.disconnect();
-      sendResponse({ ok: true, status: cbConnection.status });
-      return false;
     case "connection-status":
-      sendResponse({ ok: true, status: cbConnection.status });
+      sendResponse({ ok: true, status: cbConnection.statusForTarget("macapp") });
       return false;
     case "group-connect":
+      if (!cbConnection.routeIsReady("macapp")) { sendResponse({ ok: false, error: "macapp-unavailable" }); return false; }
       cbConnection.sendWS({
         kind: "connect-group",
         groupName: message.groupName,
@@ -3846,6 +4352,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       return false;
     case "group-disconnect":
+      if (!cbConnection.routeIsReady("macapp")) { sendResponse({ ok: false, error: "macapp-unavailable" }); return false; }
       cbConnection.sendWS({
         kind: "disconnect-group",
         clusterId: message.clusterId,
@@ -3860,13 +4367,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         program: message.program,
         groups: Array.isArray(message.groups) ? message.groups : []
       };
-      cbConnection.sendWS(cbConnection.lastAnnounce);
+      if (cbConnection.routeIsReady("macapp")) cbConnection.sendWS(cbConnection.lastAnnounce);
       sendResponse({ ok: true });
       return false;
     case "clusters-status":
       sendResponse({ ok: true, clusters: cbConnection.clusters });
       return false;
     case "group-sync":
+      if (!cbConnection.routeIsReady("macapp")) { sendResponse({ ok: false, error: "macapp-unavailable" }); return false; }
       cbConnection.sendWS({
         kind: "group-sync",
         program: message.program,
@@ -3892,599 +4400,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Re-apply when the user toggles the client on/off or edits the address.
-if (chrome.storage && chrome.storage.onChanged) {
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes[CB_GLOBAL_SETTINGS_KEY]) return;
-    cbConnection.applyFromSettings();
-  });
-}
-
-// Auto-connect on service-worker startup if the user left the client enabled.
-cbConnection.applyFromSettings();
+// Every service-worker lifetime participates in the authenticated local hub.
+cbConnection.startAutomatically();
 
 // ===========================================================================
-//  YouTube creator contribution (opt-in)
-//
-//  The yt-collect.js content script forwards channel ids it sees on YouTube.
-//  When the user has opted in (globalSettings.contributeChannels), we dedupe
-//  against a local cache and batch-POST the ids — and nothing else — to the
-//  tag server's /api/yt/contribute endpoint, which hydrates sub counts and
-//  enqueues eligible channels for classification. Off by default; toggled in
-//  Settings or in the first-open popup consent dialog.
-// ===========================================================================
-const CB_YT_API_BASE = "http://127.0.0.1:8000";
-const CB_YT_SENT_KEY = "ytSentIds"; // local cache of ids already contributed
-const CB_YT_STATS_KEY = "ytContribStats";
-const CB_YT_SENT_CAP = 8000; // bound the cache so storage can't grow forever
-const CB_YT_BATCH_MAX = 50; // one YouTube Data API page == one quota unit
-const CB_YT_FLUSH_MS = 4000;
-
-const cbYtPending = new Set();
-let cbYtFlushTimer = null;
-
-async function cbYtConsentOn() {
-  try {
-    const r = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
-    const s = r && r[CB_GLOBAL_SETTINGS_KEY];
-    return !!(s && typeof s === "object" && s.contributeChannels === true);
-  } catch (_) {
-    return false;
-  }
-}
-
-async function cbYtGetApiBase() {
-  try {
-    const r = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
-    const s = r && r[CB_GLOBAL_SETTINGS_KEY];
-    const custom = s && typeof s === "object" ? s.contributeApiBase : "";
-    if (typeof custom === "string" && /^https?:\/\//.test(custom.trim())) {
-      return custom.trim().replace(/\/$/, "");
-    }
-  } catch (_) {}
-  return CB_YT_API_BASE;
-}
-
-async function cbYtLoadSent() {
-  try {
-    const r = await chrome.storage.local.get(CB_YT_SENT_KEY);
-    const arr = r && r[CB_YT_SENT_KEY];
-    return new Set(Array.isArray(arr) ? arr : []);
-  } catch (_) {
-    return new Set();
-  }
-}
-
-async function cbYtSaveSent(set) {
-  // Keep only the most-recent ids when over the cap (Set preserves order).
-  let arr = Array.from(set);
-  if (arr.length > CB_YT_SENT_CAP) arr = arr.slice(arr.length - CB_YT_SENT_CAP);
-  try {
-    await chrome.storage.local.set({ [CB_YT_SENT_KEY]: arr });
-  } catch (_) {}
-}
-
-async function cbYtBumpStats(delta) {
-  try {
-    const r = await chrome.storage.local.get(CB_YT_STATS_KEY);
-    const prev = (r && r[CB_YT_STATS_KEY]) || {};
-    const next = {
-      sent: (Number(prev.sent) || 0) + (Number(delta.sent) || 0),
-      queued: (Number(prev.queued) || 0) + (Number(delta.queued) || 0),
-      belowFloor: (Number(prev.belowFloor) || 0) + (Number(delta.belowFloor) || 0),
-      lastAt: Date.now()
-    };
-    await chrome.storage.local.set({ [CB_YT_STATS_KEY]: next });
-  } catch (_) {}
-}
-
-async function cbYtFlush() {
-  cbYtFlushTimer = null;
-  if (!cbYtPending.size) return;
-  if (!(await cbYtConsentOn())) {
-    cbYtPending.clear();
-    return;
-  }
-  const sent = await cbYtLoadSent();
-  const fresh = [];
-  for (const id of cbYtPending) {
-    if (!sent.has(id)) fresh.push(id);
-    if (fresh.length >= CB_YT_BATCH_MAX) break;
-  }
-  // Drop the ones we're about to send (and any already-sent dupes) from pending.
-  fresh.forEach((id) => cbYtPending.delete(id));
-  for (const id of Array.from(cbYtPending)) {
-    if (sent.has(id)) cbYtPending.delete(id);
-  }
-  if (!fresh.length) {
-    if (cbYtPending.size) cbYtScheduleFlush();
-    return;
-  }
-
-  const base = await cbYtGetApiBase();
-  try {
-    const resp = await fetch(`${base}/api/yt/contribute`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channel_ids: fresh })
-    });
-    if (resp.ok) {
-      const data = await resp.json().catch(() => ({}));
-      fresh.forEach((id) => sent.add(id));
-      await cbYtSaveSent(sent);
-      await cbYtBumpStats({
-        sent: fresh.length,
-        queued: Number(data.queued) || 0,
-        belowFloor: Number(data.below_floor) || 0
-      });
-      cbDebugLog(
-        "[CustomBlocker] yt-contribute sent", fresh.length,
-        "queued", data.queued, "below_floor", data.below_floor
-      );
-    } else {
-      cbDebugWarn("[CustomBlocker] yt-contribute HTTP", resp.status);
-    }
-  } catch (error) {
-    // Server down / offline — keep the ids pending for a later flush.
-    fresh.forEach((id) => cbYtPending.add(id));
-    cbDebugWarn("[CustomBlocker] yt-contribute failed", error);
-  }
-  if (cbYtPending.size) cbYtScheduleFlush();
-}
-
-function cbYtScheduleFlush() {
-  if (cbYtFlushTimer) return;
-  cbYtFlushTimer = setTimeout(() => {
-    cbYtFlush().catch((e) => cbDebugWarn("[CustomBlocker] yt flush error", e));
-  }, CB_YT_FLUSH_MS);
-}
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || message.type !== "cb-yt-observe") return false;
-  const ids = Array.isArray(message.ids) ? message.ids : [];
-  // Cheap consent gate up front; cbYtFlush re-checks before any network call.
-  cbYtConsentOn().then((on) => {
-    if (!on) return;
-    for (const id of ids) {
-      if (typeof id === "string" && id.length === 24 && id.startsWith("UC")) {
-        cbYtPending.add(id);
-      }
-    }
-    if (cbYtPending.size) cbYtScheduleFlush();
-  });
-  return false;
-});
-
-// ===========================================================================
-//  YouTube tag READ path — ONE cache, retention by activity only.
-//
-//  This path has nothing to do with consent — it never sends browsing data.
-//  It only *reads* the public channel→tags map so the content script can hide
-//  videos whose channel carries a blocked tag.
-//
-//  There is a SINGLE pool (cbYtVerdicts.items). Entries are added ONLY when you
-//  actually encounter a creator while browsing: the channel id resolves via
-//  /api/yt/lookup and the verdict is cached. There is NO bulk "seed" dictionary
-//  — nothing is pre-downloaded, so the cache only ever holds channels you have
-//  really seen. Every entry competes purely on YOUR activity (a segmented-LRU):
-//  repeated engagement promotes "probation" → "protected" (evicted last); unused
-//  entries are evicted first under cap pressure. Sub count NEVER affects
-//  retention.
-//
-//  Resolution: read the single store (O(1)); on a genuine miss, POST
-//  /api/yt/lookup. Fail-open everywhere: if the server is unreachable, unknown
-//  channels resolve to "no tags" and are never hidden, and we back off so we
-//  don't hammer a down server.
-// ===========================================================================
-const CB_YT_VERDICT_KEY = "ytVerdicts";
-const CB_YT_LEGACY_BUNDLE_KEY = "ytBundle"; // removed structure — cleaned up on load
-const CB_YT_CACHE_VERSION = 4; // bump to force a one-time clean wipe of yt local memory
-// Stale-while-revalidate freshness windows. A cached verdict is ALWAYS served
-// (it stays authoritative even when stale); once past its freshness window we
-// kick a background re-lookup and swap the value in when it arrives. Transient
-// states are about to change, so they revalidate fast; stable ones rarely do.
-const CB_YT_FRESH_TRANSIENT_MS = 10 * 1000; // unknown / pending
-const CB_YT_FRESH_STABLE_MS = 60 * 1000;    // tagged / below_floor
-const CB_YT_VERDICT_MAX_AGE_MS = 24 * 60 * 60 * 1000; // drop unused non-seed entries after 24h
-const CB_YT_VERDICT_CAP = 20000; // single-pool size cap (evict lowest-activity first)
-const CB_YT_LOOKUP_MAX = 50;
-const CB_YT_NET_COOLDOWN_MS = 60 * 1000; // back off this long after a network failure
-
-// Retention is decided ONLY by user activity (a segmented-LRU), NEVER by sub
-// count. A creator you engage with repeatedly is promoted to the "protected"
-// tier and evicted last; one-off / passively-scrolled channels stay in
-// "probation" and are evicted first. `score` is a decayed frequency (watching a
-// video weighs more than a feed impression). `subs` is display-only and is
-// never read by the eviction comparator.
-const CB_YT_ACT_HALFLIFE_MS = 3 * 24 * 60 * 60 * 1000; // frequency decay half-life
-const CB_YT_ACT_WEIGHT_WATCH = 3; // opening/watching a video (strong intent)
-const CB_YT_ACT_WEIGHT_FEED = 1;  // feed / channel-page impression
-const CB_YT_PROMOTE_SCORE = 2;    // probation → protected at/above this score
-
-// {rev, items:{id:{t:[slugs], s:state, n, h, subs, f:freshUntilMs,
-//   tier:"probation"|"protected", last:ms, score:number}}}
-let cbYtVerdicts = null;
-let cbYtMigrated = false; // one-time version-gated wipe guard
-let cbYtVerdictSaveTimer = null;
-const cbYtLookupInFlight = new Map(); // id -> Promise<void> (dedupe concurrent lookups)
-let cbYtNetCooldownUntil = 0;
-
-// Map a server verdict state to its client-side freshness window.
-function cbYtFreshMs(state) {
-  return state === "tagged" || state === "below_floor"
-    ? CB_YT_FRESH_STABLE_MS
-    : CB_YT_FRESH_TRANSIENT_MS;
-}
-
-// One-time clean wipe when the cache format/version changes: drops the whole
-// local YouTube footprint (verdicts, legacy bundle, contributed-id dedupe cache,
-// contribution stats) so a new format starts from a clean slate.
-async function cbYtMigrate() {
-  if (cbYtMigrated) return;
-  cbYtMigrated = true;
-  try {
-    const r = await chrome.storage.local.get("ytCacheVer");
-    if (!r || r.ytCacheVer !== CB_YT_CACHE_VERSION) {
-      await chrome.storage.local.remove([
-        CB_YT_VERDICT_KEY,
-        CB_YT_LEGACY_BUNDLE_KEY,
-        CB_YT_SENT_KEY,
-        CB_YT_STATS_KEY
-      ]);
-      await chrome.storage.local.set({ ytCacheVer: CB_YT_CACHE_VERSION });
-      cbYtVerdicts = null; // force a fresh load below
-    }
-  } catch (_) {}
-}
-
-async function cbYtLoadVerdicts() {
-  await cbYtMigrate();
-  if (cbYtVerdicts) return cbYtVerdicts;
-  try {
-    const r = await chrome.storage.local.get(CB_YT_VERDICT_KEY);
-    cbYtVerdicts = (r && r[CB_YT_VERDICT_KEY]) || { rev: null, items: {} };
-  } catch (_) {
-    cbYtVerdicts = { rev: null, items: {} };
-  }
-  if (!cbYtVerdicts.items) cbYtVerdicts.items = {};
-  return cbYtVerdicts;
-}
-
-function cbYtScheduleVerdictSave() {
-  if (cbYtVerdictSaveTimer) return;
-  cbYtVerdictSaveTimer = setTimeout(async () => {
-    cbYtVerdictSaveTimer = null;
-    if (!cbYtVerdicts) return;
-    // ONE pool, retention by activity only (segmented-LRU). Keep anything you've
-    // used within the max-age window; an unused entry past max-age is dropped.
-    // Then — only if over the cap — evict by tier + activity (probation before
-    // protected; within a tier the lowest decayed-frequency, then oldest access,
-    // goes first). Sub count is NEVER consulted.
-    const now = Date.now();
-    let entries = Object.entries(cbYtVerdicts.items).filter(
-      ([, v]) => v && now - (v.last || 0) < CB_YT_VERDICT_MAX_AGE_MS
-    );
-    if (entries.length > CB_YT_VERDICT_CAP) {
-      entries.sort((a, b) => {
-        const pa = a[1].tier === "protected" ? 1 : 0;
-        const pb = b[1].tier === "protected" ? 1 : 0;
-        if (pa !== pb) return pa - pb; // probation (evict first) before protected
-        const sa = a[1].score || 0;
-        const sb = b[1].score || 0;
-        if (sa !== sb) return sa - sb; // lower decayed-frequency first
-        return (a[1].last || 0) - (b[1].last || 0); // older access first
-      });
-      entries = entries.slice(entries.length - CB_YT_VERDICT_CAP); // keep top by activity
-    }
-    cbYtVerdicts.items = Object.fromEntries(entries);
-    try {
-      await chrome.storage.local.set({ [CB_YT_VERDICT_KEY]: cbYtVerdicts });
-    } catch (_) {}
-  }, 2000);
-}
-
-// If the server's taxonomy revision moved, our cached slugs may be stale —
-// clear the items so the next lookup re-resolves against the new taxonomy.
-function cbYtInvalidateIfRev(rev) {
-  if (rev == null) return;
-  if (!cbYtVerdicts) return;
-  if (cbYtVerdicts.rev != null && cbYtVerdicts.rev !== rev) {
-    cbYtVerdicts.rev = rev;
-    cbYtVerdicts.items = {};
-  } else if (cbYtVerdicts.rev == null) {
-    cbYtVerdicts.rev = rev;
-  }
-}
-
-// Record a user encounter for retention ranking. Updates recency + decayed
-// frequency and promotes to the protected tier once the score crosses the
-// threshold. Inputs are activity only — sub count is deliberately not touched.
-function cbYtBumpActivity(id, weight) {
-  if (!cbYtVerdicts) return;
-  const v = cbYtVerdicts.items[id];
-  if (!v) return;
-  const now = Date.now();
-  const dt = Math.max(0, now - (v.last || now));
-  const decay = Math.pow(0.5, dt / CB_YT_ACT_HALFLIFE_MS);
-  v.score = (typeof v.score === "number" ? v.score : 0) * decay +
-    (typeof weight === "number" ? weight : CB_YT_ACT_WEIGHT_FEED);
-  v.last = now;
-  if (v.score >= CB_YT_PROMOTE_SCORE) v.tier = "protected";
-  else if (!v.tier) v.tier = "probation";
-}
-
-// Surface a freshly-discovered channel as "pending" the instant we see it —
-// pending here means *we are waiting for the server's first response*, not a
-// server-side classification. A local placeholder is created (inflight:true,
-// f:0 so SWR keeps retrying until the server answers) so the popup shows the
-// channel in the pending tier right away. cbYtLookup clears `inflight` and fills
-// in the real verdict once the server responds, moving it to probation/protected.
-// No-op if the channel already has any entry (resolved or already pending).
-function cbYtMarkInflight(id) {
-  if (!cbYtVerdicts) return;
-  if (cbYtVerdicts.items[id]) return;
-  cbYtVerdicts.items[id] = {
-    t: [],
-    s: "pending",
-    n: null,
-    h: null,
-    subs: null,
-    f: 0,
-    tier: "probation",
-    last: Date.now(),
-    score: 0,
-    inflight: true
-  };
-}
-
-// Fire-and-forget background re-lookup (dedup concurrent requests for the same
-// id). Used by SWR to refresh stale entries without blocking the response.
-function cbYtKickLookup(ids) {
-  const toFetch = ids.filter((id) => !cbYtLookupInFlight.has(id));
-  if (!toFetch.length) return;
-  const p = cbYtLookup(toFetch).finally(() => {
-    toFetch.forEach((id) => cbYtLookupInFlight.delete(id));
-  });
-  toFetch.forEach((id) => cbYtLookupInFlight.set(id, p));
-}
-
-async function cbYtLookup(ids) {
-  if (!ids.length || Date.now() < cbYtNetCooldownUntil) return;
-  await cbYtLoadVerdicts();
-  const base = await cbYtGetApiBase();
-  for (let i = 0; i < ids.length; i += CB_YT_LOOKUP_MAX) {
-    const slice = ids.slice(i, i + CB_YT_LOOKUP_MAX);
-    try {
-      const resp = await fetch(`${base}/api/yt/lookup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel_ids: slice })
-      });
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      const data = await resp.json();
-      cbYtInvalidateIfRev(data.taxonomy_rev);
-      for (const res of data.results || []) {
-        if (!res || !res.channel_id) continue;
-        const slugs = (res.tags || []).map((t) => t.slug).filter(Boolean);
-        // Stale-while-revalidate: the value is always served (even when stale);
-        // `f` is just when we next revalidate. Transient states (unknown /
-        // pending) refresh in 10s so a creator flowing through the pipeline
-        // picks up its tags quickly; stable states (tagged / below_floor)
-        // refresh in 60s since they rarely change.
-        // Preserve activity fields (tier/last/score) across revalidation — a
-        // re-lookup updates the verdict, not how much you've used it.
-        const prev = cbYtVerdicts.items[res.channel_id] || {};
-        // Server is the source of truth for tags/state; preserve the seed marker
-        // and activity (tier/last/score) — a re-lookup updates the verdict, not
-        // how much you've used it.
-        const next = {
-          t: slugs,
-          s: res.state,
-          n: res.display_name || prev.n || null,
-          h: res.handle || prev.h || null,
-          subs: typeof res.subscriber_count === "number" ? res.subscriber_count : prev.subs ?? null,
-          f: Date.now() + cbYtFreshMs(res.state),
-          tier: prev.tier || "probation",
-          last: prev.last || Date.now(),
-          score: typeof prev.score === "number" ? prev.score : 0
-        };
-        cbYtVerdicts.items[res.channel_id] = next;
-      }
-      // A successful round-trip answers every id in the slice. Clear the
-      // in-flight flag on any placeholder the server omitted (resolve it as
-      // "unknown") so it leaves the pending tier instead of waiting forever.
-      for (const id of slice) {
-        const v = cbYtVerdicts.items[id];
-        if (v && v.inflight) {
-          v.inflight = false;
-          if (v.s == null || v.s === "pending") v.s = "unknown";
-          v.f = Date.now() + cbYtFreshMs(v.s);
-        }
-      }
-      cbYtScheduleVerdictSave();
-    } catch (error) {
-      cbYtNetCooldownUntil = Date.now() + CB_YT_NET_COOLDOWN_MS;
-      cbDebugWarn("[CustomBlocker] yt lookup failed", error);
-      return; // fail-open: leave the rest unresolved (won't be blocked)
-    }
-  }
-}
-
-// Resolve a set of ids to {id: [slugs]} from the SINGLE cache,
-// stale-while-revalidate:
-//   * entry present    → serve it ALWAYS. Entries past their freshness window
-//                        kick a background re-lookup. Does not block the response.
-//   * no cached value  → genuine miss: fetch and wait, so the first resolution
-//                        isn't perpetually empty.
-async function cbYtResolve(ids, weight) {
-  const w = typeof weight === "number" ? weight : CB_YT_ACT_WEIGHT_FEED;
-  await cbYtLoadVerdicts();
-  const known = Object.create(null);
-  const misses = [];
-  const stale = [];
-  const now = Date.now();
-  for (const id of ids) {
-    const v = cbYtVerdicts.items[id];
-    if (v) {
-      known[id] = v.t || [];
-      cbYtBumpActivity(id, w);
-      if ((v.f || 0) <= now) stale.push(id); // serve stale, revalidate below
-    } else {
-      misses.push(id);
-    }
-  }
-
-  // Revalidate stale entries in the background — never block the response.
-  if (stale.length) cbYtKickLookup(stale);
-
-  if (misses.length) {
-    // Show newly-discovered channels as "pending" (awaiting the server's first
-    // response) immediately — before the network round-trip — so they appear in
-    // the popup's pending tier the moment they're seen in the feed.
-    for (const id of misses) cbYtMarkInflight(id);
-    // Dedupe concurrent lookups for the same id across messages.
-    const toFetch = misses.filter((id) => !cbYtLookupInFlight.has(id));
-    if (toFetch.length) {
-      const p = cbYtLookup(toFetch).finally(() => {
-        toFetch.forEach((id) => cbYtLookupInFlight.delete(id));
-      });
-      toFetch.forEach((id) => cbYtLookupInFlight.set(id, p));
-    }
-    // Wait for whatever lookups cover our misses, then re-read the cache.
-    const waits = misses
-      .map((id) => cbYtLookupInFlight.get(id))
-      .filter(Boolean);
-    if (waits.length) {
-      try {
-        await Promise.all(waits);
-      } catch (_) {}
-      for (const id of misses) {
-        const v = cbYtVerdicts.items[id];
-        if (v) {
-          known[id] = v.t || [];
-          cbYtBumpActivity(id, w);
-        }
-      }
-    }
-  }
-  // Persist the activity bumps / bundle-seen records (debounced; also runs
-  // eviction). Cheap because saves are coalesced on a timer.
-  cbYtScheduleVerdictSave();
-  return { tags: known, rev: cbYtVerdicts ? cbYtVerdicts.rev : null };
-}
-
-// Build the `creator` object exposed to custom feed predicates from the YouTube
-// verdict cache. Always returns an object when a channel id is present (so
-// `video.creator` exists for the predicate); fields are null/empty when the
-// channel hasn't resolved yet — predicates must null-check and fail open.
-function cbCreatorFromCache(channelId) {
-  if (!channelId) return null;
-  const v = cbYtVerdicts && cbYtVerdicts.items ? cbYtVerdicts.items[channelId] : null;
-  return {
-    id: channelId,
-    subCount: v && typeof v.subs === "number" ? v.subs : null,
-    tags: v && Array.isArray(v.t) ? v.t.slice() : [],
-    name: v && typeof v.n === "string" ? v.n : "",
-    handle: v && typeof v.h === "string" ? v.h : ""
-  };
-}
-
-// Enrich evaluate-platform-items batches in place with `item.creator`. Resolves
-// any cache misses through cbYtResolve (same path yt-block.js uses: serve
-// cached, SWR-revalidate stale, fetch-and-wait genuine misses), so the first
-// pass where a card's channel is known already carries its subscriber count.
-async function cbEnrichItemsWithCreator(platform, items) {
-  if (platform !== "youtube" || !Array.isArray(items) || items.length === 0) return items;
-  const ids = [];
-  for (const it of items) {
-    const cid = it && typeof it.channelId === "string" ? it.channelId : null;
-    if (cid && /^UC[0-9A-Za-z_-]{22}$/.test(cid)) ids.push(cid);
-  }
-  if (ids.length) {
-    try {
-      await cbYtResolve(Array.from(new Set(ids)), CB_YT_ACT_WEIGHT_FEED);
-    } catch (_) {
-      // fail open: leave creators with whatever (if anything) is cached
-    }
-  }
-  for (const it of items) {
-    if (!it) continue;
-    const cid =
-      typeof it.channelId === "string" && /^UC[0-9A-Za-z_-]{22}$/.test(it.channelId)
-        ? it.channelId
-        : null;
-    it.creator = cbCreatorFromCache(cid);
-  }
-  // Diagnostics: with debug mode on, log what each card resolved to so it's
-  // obvious WHY a creator predicate did or didn't match (null channelId =
-  // the card's UC id wasn't resolvable from the DOM yet; null subCount = the
-  // channel isn't in cache / the lookup server didn't return a count).
-  if (typeof cbDebugLog === "function") {
-    try {
-      cbDebugLog(
-        "[CustomBlocker:yt] creator enrichment",
-        items.map((it) => ({
-          channelId: (it && it.channelId) || null,
-          subCount: it && it.creator ? it.creator.subCount : null,
-          name: (it && it.creator && it.creator.name) || null,
-          url: (it && it.url) || null
-        }))
-      );
-    } catch (_) {}
-  }
-  return items;
-}
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || message.type !== "cb-yt-tags") return false;
-  const ids = (Array.isArray(message.ids) ? message.ids : []).filter(
-    (id) => typeof id === "string" && id.length === 24 && id.startsWith("UC")
-  );
-  if (!ids.length) {
-    sendResponse({ tags: {}, rev: null });
-    return false;
-  }
-  // Feed/related items count as impressions; the watch page's own channel is
-  // weighted higher and resolved separately (attachChannelTags).
-  const weight = message.ctx === "watch" ? CB_YT_ACT_WEIGHT_WATCH : CB_YT_ACT_WEIGHT_FEED;
-  cbYtResolve(ids, weight)
-    .then((out) => sendResponse(out))
-    .catch((error) => {
-      cbDebugWarn("[CustomBlocker] yt resolve error", error);
-      sendResponse({ tags: {}, rev: null }); // fail-open
-    });
-  return true; // async response
-});
-
-// Clear the entire local YouTube footprint — including this worker's IN-MEMORY
-// cache. The popup "Clear cache" button MUST route through here: wiping
-// chrome.storage alone never worked because the worker keeps cbYtVerdicts in
-// memory and re-persists it on the next activity (lookup / seed / activity
-// bump), so cleared entries reappeared and the cache looked undeletable.
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || message.type !== "cb-yt-clear") return false;
-  (async () => {
-    try {
-      if (cbYtVerdictSaveTimer) {
-        clearTimeout(cbYtVerdictSaveTimer);
-        cbYtVerdictSaveTimer = null;
-      }
-      // Reset in-memory state so nothing repopulates storage after the wipe.
-      cbYtVerdicts = { rev: null, items: {} };
-      cbYtLookupInFlight.clear();
-      cbYtPending.clear();
-      cbYtNetCooldownUntil = 0;
-      await chrome.storage.local.remove([
-        CB_YT_VERDICT_KEY,
-        CB_YT_LEGACY_BUNDLE_KEY,
-        CB_YT_SENT_KEY,
-        CB_YT_STATS_KEY
-      ]);
-      sendResponse({ ok: true });
-    } catch (error) {
-      cbDebugWarn("[CustomBlocker] yt clear failed", error);
-      sendResponse({ ok: false, error: String((error && error.message) || error) });
-    }
-  })();
-  return true; // async response
-});

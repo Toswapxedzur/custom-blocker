@@ -19,9 +19,8 @@ it's open source, use it freely, and it comes with no warranty.
 - By default nothing about your browsing leaves your device.
 - We will never share your data with third parties or generate revenue from
   it. See the Privacy policy for the full detail.
-- The only optional exception is the channel-id classification opt-in, which
-  shares anonymous channel ids (never titles or watch history) to help label
-  creators for everyone. It is off unless you turn it on.
+- Optional Vault Classifier collection stays on your device and only runs when
+  you explicitly enable it.
 
 ## Accounts
 

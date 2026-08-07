@@ -34,3 +34,16 @@ venv/
 # Environment
 .env
 .env.local
+# build & env artifacts
+.build/
+DerivedData/
+*.xcuserstate
+.swiftpm/xcode/
+node_modules/
+dist/
+.next/
+.venv/
+.venv-*/
+__pycache__/
+.DS_Store
+spike/.build/

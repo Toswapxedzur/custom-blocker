@@ -5,7 +5,7 @@
   "description": "__MSG_appDescription__",
   "default_locale": "en",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "alarms", "offscreen", "tabs", "webNavigation", "favicon"],
+  "permissions": ["storage", "alarms", "offscreen", "tabs", "webNavigation", "favicon", "nativeMessaging"],
   "host_permissions": ["<all_urls>"],
   "icons": {
     "16": "icons/adamancia-vault-lock-v3-16.png",
@@ -14,23 +14,17 @@
     "128": "icons/adamancia-vault-lock-v3-128.png"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "service-worker.js"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["platform-profiles.js", "helpers.js", "content.js"],
+      "js": ["platform-profiles.js", "helpers.js", "content.js", "vault-classifier-contract.js", "vault-classifier-tag-ui.js", "vault-classifier-collector-core.js", "vault-classifier-tiktok.js", "vault-classifier-facebook.js", "vault-classifier-instagram.js", "vault-classifier-twitch.js", "vault-classifier-reddit.js", "vault-classifier-discord.js", "vault-classifier-twitter.js", "vault-classifier-bilibili.js"],
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["yt-harvest-main.js"],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": ["*://*.youtube.com/*"],
-      "js": ["yt-collect.js", "yt-block.js"],
+      "matches": ["*://youtube.com/*", "*://*.youtube.com/*"],
+      "js": ["vault-classifier-contract.js", "vault-classifier-tag-ui.js", "vault-classifier-youtube.js"],
       "run_at": "document_idle"
     }
   ],

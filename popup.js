@@ -181,21 +181,6 @@ const cbDialog = (function () {
 
 // Extension-wide preferences. Keep these defaults in sync with the
 // placeholder text in popup.html's Settings modal.
-// Web-app bridge (connection) defaults. The macOS app is the only endpoint
-// that can host the local hub (a browser extension cannot listen on a socket),
-// so `server*` fields are honored only on the native host and `client*` fields
-// only in the browser extensions. Both are persisted in globalSettings so the
-// transport layer (background service worker / native server) can read them.
-const CONNECTION_PROTOCOL_VERSION = 1;
-const CONNECTION_DEFAULT_PORT = 8787;
-const CONNECTION_DEFAULT_ADDRESS = `ws://127.0.0.1:${CONNECTION_DEFAULT_PORT}`;
-const DEFAULT_CONNECTION_SETTINGS = {
-  // macOS hub
-  serverEnabled: false,
-  // browser client
-  clientEnabled: false
-};
-
 const DEFAULT_GLOBAL_SETTINGS = {
   tickRateMs: 1000,
   autosaveDebounceMs: 400,
@@ -206,19 +191,13 @@ const DEFAULT_GLOBAL_SETTINGS = {
   debugMode: false,
   showOnPageLogToasts: true,
   defaultSnoozeMinutes: 30,
-  defaultFallbackUrl: "about:blank",
-  // Opt-in: when on, the YouTube collector shares encountered channel ids
-  // (and nothing else) with the tag server to help classify creators.
-  contributeChannels: false,
-  connection: { ...DEFAULT_CONNECTION_SETTINGS }
+  defaultFallbackUrl: "about:blank"
 };
 const TICK_RATE_MIN_MS = 250;
 const TICK_RATE_MAX_MS = 60_000;
 const AUTOSAVE_DEBOUNCE_MAX_MS = 5_000;
 
-// True when running inside the macOS app's WKWebView (the native chrome shim),
-// false in a real browser extension. Used to decide whether this endpoint is
-// the connection HUB (macOS, hosts the server) or a CLIENT (browser).
+// Native and browser clients both connect out to the shared broker.
 function isNativeHost() {
   try {
     return !!(window.chrome && window.chrome.__cbShim);
@@ -230,7 +209,7 @@ function isNativeHost() {
 // Stable identifier for this endpoint's "program", shown in the per-group
 // connection panel's program picker (macapp / chrome / edge / firefox / ...).
 function detectProgramId() {
-  if (isNativeHost()) return "macapp";
+  if (isNativeHost()) return window.CBBridgeProtocol.nativeProgramId(window.__CB_DESKTOP_PROGRAM_ID);
   let ua = "";
   try {
     ua = navigator.userAgent || "";
@@ -244,7 +223,7 @@ function detectProgramId() {
 }
 
 const LOCAL_PROGRAM_ID = detectProgramId();
-const IS_CONNECTION_HUB = isNativeHost();
+const IS_NATIVE_DESKTOP = isNativeHost();
 
 const DEFAULT_ALLOWED_MINUTES = 15;
 const DEFAULT_RESET_INTERVAL_HOURS = 24;
@@ -253,6 +232,7 @@ const DEFAULT_SNOOZE_MINUTES = 30;
 const DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES = 0;
 const DEFAULT_SNOOZE_COOLDOWN_MINUTES = 0;
 const DEFAULT_GROUP_TYPE = "site";
+const DEFAULT_PLATFORM_RULE_GROUP_TYPE = "youtube";
 const MAX_STRICT_FREEZE_HOURS = 72;
 const MAX_SNOOZE_COOLDOWN_MINUTES = 5;
 const MS_PER_SECOND = 1000;
@@ -309,6 +289,7 @@ const blockingRulesField = document.getElementById("blockingRules");
 const blockingRulesLint = document.getElementById("blockingRulesLint");
 const openRuleTemplatesButton = document.getElementById("openRuleTemplatesButton");
 const platformRulesCard = document.getElementById("platformRulesCard");
+const platformRulePlatformField = document.getElementById("platformRulePlatform");
 const platformVideoCard = document.getElementById("platformVideoFields");
 const platformVideoTitle = document.getElementById("platformRulesTitle");
 const platformVideoCopy = document.getElementById("platformRulesCopy");
@@ -327,10 +308,6 @@ const platformAuthorsBlock = document.getElementById("platformAuthorsBlock");
 const platformAuthorsLabel = document.getElementById("platformAuthorsLabel");
 const platformAuthorsField = document.getElementById("platformAuthors");
 const platformVideoHelp = document.getElementById("platformVideoHelp");
-const platformAuthorTagsBlock = document.getElementById("platformAuthorTagsBlock");
-const platformAuthorTagsLabel = document.getElementById("platformAuthorTagsLabel");
-const platformAuthorTagsField = document.getElementById("platformAuthorTags");
-const platformAuthorTagsHelp = document.getElementById("platformAuthorTagsHelp");
 const platformBlockHomePageField = document.getElementById("platformBlockHomePage");
 const skipToNextOnBlockRow = document.getElementById("skipToNextOnBlockRow");
 const skipToNextOnBlockField = document.getElementById("skipToNextOnBlock");
@@ -344,6 +321,8 @@ const discordTargetsField = document.getElementById("discordTargets");
 const discordBlockHomePageField = document.getElementById("discordBlockHomePage");
 const surfaceHidesSection = document.getElementById("surfaceHidesSection");
 const surfaceHidesList = document.getElementById("surfaceHidesList");
+const surfaceHidesTitle = document.getElementById("surfaceHidesTitle");
+const surfaceHidesHelp = document.getElementById("surfaceHidesHelp");
 const fallbackUrlSection = document.getElementById("fallbackUrlSection");
 const fallbackUrlField = document.getElementById("fallbackUrl");
 const groupEffectSection = document.getElementById("groupEffectSection");
@@ -410,27 +389,6 @@ const settingsTickRateField = document.getElementById("settingsTickRate");
 const settingsAutosaveDebounceField = document.getElementById("settingsAutosaveDebounce");
 const settingsDebugModeField = document.getElementById("settingsDebugMode");
 const settingsShowOnPageLogToastsField = document.getElementById("settingsShowOnPageLogToasts");
-const settingsContributeChannelsField = document.getElementById("settingsContributeChannels");
-const contributionConsentModal = document.getElementById("contributionConsentModal");
-const contributionConsentAcceptButton = document.getElementById("contributionConsentAcceptButton");
-const contributionConsentDeclineButton = document.getElementById("contributionConsentDeclineButton");
-const platformAuthorTagsList = document.getElementById("platformAuthorTagsList");
-const tagPickerModal = document.getElementById("tagPickerModal");
-const tagPickerSearch = document.getElementById("tagPickerSearch");
-const tagPickerResults = document.getElementById("tagPickerResults");
-const tagPickerEmpty = document.getElementById("tagPickerEmpty");
-const tagPickerError = document.getElementById("tagPickerError");
-const tagPickerCloseButton = document.getElementById("tagPickerCloseButton");
-const ytCacheRefreshButton = document.getElementById("ytCacheRefresh");
-const ytCacheClearButton = document.getElementById("ytCacheClear");
-const ytCacheBoxPending = document.getElementById("ytCachePending");
-const ytCacheBoxProtected = document.getElementById("ytCacheProtected");
-const ytCacheBoxProbation = document.getElementById("ytCacheProbation");
-const ytTierCountPending = document.getElementById("ytTierPendingCount");
-const ytTierCountProtected = document.getElementById("ytTierProtectedCount");
-const ytTierCountProbation = document.getElementById("ytTierProbationCount");
-const ytCacheSearchInput = document.getElementById("ytCacheSearch");
-let ytCacheSearchTimer = null;
 const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
 const settingsDefaultFallbackUrlField = document.getElementById("settingsDefaultFallbackUrl");
 const localFolderChooseButton = document.getElementById("localFolderChooseButton");
@@ -439,16 +397,7 @@ const localFolderStatus = document.getElementById("localFolderStatus");
 let localFolderHandle = null;
 const settingsResetButton = document.getElementById("settingsResetButton");
 const settingsStatus = document.getElementById("settingsStatus");
-const connectionSection = document.getElementById("connectionSection");
-const connectionServerControls = document.getElementById("connectionServerControls");
-const connectionClientControls = document.getElementById("connectionClientControls");
-const connectionServerToggle = document.getElementById("connectionServerToggle");
-const connectionConnectButton = document.getElementById("connectionConnectButton");
-const connectionDisconnectButton = document.getElementById("connectionDisconnectButton");
-const connectionStatusDot = document.getElementById("connectionStatusDot");
-const connectionStatusText = document.getElementById("connectionStatusText");
-const connectionAddressReadout = document.getElementById("connectionAddressReadout");
-const connectionPeerList = document.getElementById("connectionPeerList");
+const classifierCollectionToggle = document.getElementById("classifierCollectionToggle");
 const connectionGroupSection = document.getElementById("connectionGroupSection");
 const connectionGroupHint = document.getElementById("connectionGroupHint");
 const connectionGroupDisconnected = document.getElementById("connectionGroupDisconnected");
@@ -522,6 +471,49 @@ const state = {
   // hub re-pushes every second) don't trigger needless re-renders.
   clustersLastJSON: ""
 };
+
+// This remains separate from the group-sync connection. Its browser evidence
+// requests share the public broker but never receive a group definition.
+const CLASSIFIER_BRIDGE_SETTINGS_KEY = "vaultClassifierSettings";
+const DEFAULT_CLASSIFIER_BRIDGE_SETTINGS = Object.freeze({
+  collectionEnabled: true
+});
+let classifierBridgeSettings = { ...DEFAULT_CLASSIFIER_BRIDGE_SETTINGS };
+
+function sanitizeClassifierBridgeSettings(raw) {
+  return {
+    // Existing deliberate opt-outs stay off; new extension settings collect by
+    // default once the matching local app platform is enabled.
+    collectionEnabled: !raw || raw.collectionEnabled !== false
+  };
+}
+
+function classifierBridgeStorageGet() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([CLASSIFIER_BRIDGE_SETTINGS_KEY], (result) => {
+      resolve(sanitizeClassifierBridgeSettings(result && result[CLASSIFIER_BRIDGE_SETTINGS_KEY]));
+    });
+  });
+}
+
+function classifierBridgeStorageSet(next) {
+  classifierBridgeSettings = sanitizeClassifierBridgeSettings(next);
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set({ [CLASSIFIER_BRIDGE_SETTINGS_KEY]: classifierBridgeSettings }, () => {
+      const error = chrome.runtime.lastError;
+      error ? reject(new Error(error.message)) : resolve(classifierBridgeSettings);
+    });
+  });
+}
+
+function renderClassifierBridgeSettings() {
+  if (classifierCollectionToggle) classifierCollectionToggle.checked = classifierBridgeSettings.collectionEnabled;
+}
+
+async function loadClassifierBridgeSettings() {
+  classifierBridgeSettings = await classifierBridgeStorageGet();
+  renderClassifierBridgeSettings();
+}
 
 function getAiPromptStorageKey(groupId) {
   return `${AI_PROMPT_STORAGE_PREFIX}${groupId}`;
@@ -840,101 +832,6 @@ async function revokeLocalFolder() {
   await renderLocalFolderStatus();
 }
 
-function getConnectionSettings() {
-  const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
-  return sanitizeConnectionSettings(s.connection);
-}
-
-// Persist a partial change to the connection block of globalSettings, then ask
-// the transport layer to apply it. Used by the server toggle / connect buttons.
-async function updateConnectionSettings(patch) {
-  const current = getConnectionSettings();
-  const next = sanitizeConnectionSettings({ ...current, ...patch });
-  state.globalSettings = sanitizeGlobalSettings({
-    ...(state.globalSettings || DEFAULT_GLOBAL_SETTINGS),
-    connection: next
-  });
-  try {
-    await chrome.storage.local.set({ [GLOBAL_SETTINGS_KEY]: state.globalSettings });
-  } catch (_) {}
-  return next;
-}
-
-function connectionStatusLabel(status) {
-  switch (status && status.state) {
-    case "running":
-      return t("connection.statusRunning");
-    case "connected":
-      return t("connection.statusConnected");
-    case "connecting":
-      return t("connection.statusConnecting");
-    case "error":
-      return status.error
-        ? t("connection.statusError") + ": " + status.error
-        : t("connection.statusError");
-    case "disconnected":
-      return t("connection.statusDisconnected");
-    default:
-      return t("connection.statusOff");
-  }
-}
-
-function renderConnectionSettings() {
-  if (!connectionSection) return;
-  const conn = getConnectionSettings();
-  const status = state.connectionStatus || {};
-
-  if (connectionServerControls) {
-    connectionServerControls.classList.toggle("hidden", !IS_CONNECTION_HUB);
-  }
-  if (connectionClientControls) {
-    connectionClientControls.classList.toggle("hidden", IS_CONNECTION_HUB);
-  }
-
-  if (IS_CONNECTION_HUB) {
-    if (connectionServerToggle) connectionServerToggle.checked = Boolean(conn.serverEnabled);
-  } else {
-    const connected = status.state === "connected" || status.state === "connecting";
-    if (connectionConnectButton) connectionConnectButton.classList.toggle("hidden", connected);
-    if (connectionDisconnectButton)
-      connectionDisconnectButton.classList.toggle("hidden", !connected);
-  }
-
-  const activeState = status.state || "off";
-  if (connectionStatusDot) {
-    connectionStatusDot.className = "connection-dot " + activeState;
-  }
-  if (connectionStatusText) {
-    connectionStatusText.textContent = connectionStatusLabel(status);
-  }
-  if (connectionAddressReadout) {
-    connectionAddressReadout.textContent = status.address || CONNECTION_DEFAULT_ADDRESS;
-  }
-
-  if (connectionPeerList) {
-    connectionPeerList.textContent = "";
-    const peers = Array.isArray(status.peers) ? status.peers : [];
-    if (peers.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "field-help";
-      empty.textContent = t("connection.noPeers");
-      connectionPeerList.appendChild(empty);
-    } else {
-      for (const peer of peers) {
-        const row = document.createElement("div");
-        row.className = "connection-peer";
-        const dot = document.createElement("span");
-        dot.className = "connection-dot " + (peer.connected ? "connected" : "off");
-        const label = document.createElement("span");
-        label.textContent = peer.program || peer.id || "?";
-        row.appendChild(dot);
-        row.appendChild(label);
-        connectionPeerList.appendChild(row);
-      }
-    }
-  }
-}
-
 // The transport layer pushes the live connection status here (native server on
 // macOS via window.__cbConnectionState, background worker in the browser).
 function applyConnectionStatus(raw) {
@@ -945,9 +842,9 @@ function applyConnectionStatus(raw) {
     state: typeof incoming.state === "string" ? incoming.state : "off",
     address: typeof incoming.address === "string" ? incoming.address : "",
     peers: Array.isArray(incoming.peers) ? incoming.peers : [],
-    error: typeof incoming.error === "string" ? incoming.error : ""
+    error: typeof incoming.error === "string" ? incoming.error : "",
+    hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
-  if (state.isSettingsOpen) renderConnectionSettings();
   // The per-group panel lives in the editor (always visible), so keep it fresh.
   refreshConnectionGroupPanel();
   if (!wasOnline && bridgeIsOnline()) {
@@ -982,7 +879,8 @@ function requestConnectionStatus() {
 // ---------------------------------------------------------------------------
 
 const CONNECTION_PROGRAM_LABELS = {
-  macapp: "Mac app",
+  macapp: "Mac Vault",
+  windowsapp: "Windows Vault",
   chrome: "Chrome",
   edge: "Edge",
   firefox: "Firefox",
@@ -1034,36 +932,17 @@ function clusterOfflineMembers(cluster) {
 // re-creating one with the same name does NOT re-adopt the old cluster. Falls
 // back to the saved name for pre-id-pinning hubs that don't send a groupId.
 function groupConnectionCluster(group) {
-  if (!group) return null;
-  const clusters = Array.isArray(state.clusters) ? state.clusters : [];
-  return (
-    clusters.find((cluster) =>
-      Array.isArray(cluster.members) &&
-      cluster.members.some(
-        (m) =>
-          m &&
-          m.program === LOCAL_PROGRAM_ID &&
-          (m.groupId ? m.groupId === group.id : m.groupName === group.name)
-      )
-    ) || null
-  );
+  return window.CBBridgeProtocol.clusterForGroup(state.clusters, group, LOCAL_PROGRAM_ID);
 }
 
 // This endpoint's local group for a cluster, resolved via the member's pinned
 // group id (falling back to the saved name for pre-id-pinning hubs).
 function clusterLocalGroup(cluster) {
-  if (!cluster || !Array.isArray(cluster.members)) return null;
-  const self = cluster.members.find((m) => m && m.program === LOCAL_PROGRAM_ID);
-  if (!self) return null;
-  if (self.groupId) {
-    const byId = state.groups.find((g) => g.id === self.groupId);
-    if (byId) return byId;
-  }
-  return state.groups.find((g) => g.name === (self.groupName || cluster.groupName)) || null;
+  return window.CBBridgeProtocol.groupForCluster(state.groups, cluster, LOCAL_PROGRAM_ID);
 }
 
 // Programs the user can link to right now (other connected endpoints). A client
-// is always implicitly connected to the Mac hub; the hub sees its peers.
+// is implicitly connected to the authenticated native hub; the hub sees peers.
 function bridgeConnectablePrograms() {
   if (!bridgeIsOnline()) return [];
   const status = state.connectionStatus || {};
@@ -1072,8 +951,14 @@ function bridgeConnectablePrograms() {
   for (const peer of peers) {
     if (peer && peer.connected !== false && peer.program) programs.add(peer.program);
   }
-  if (!IS_CONNECTION_HUB) programs.add("macapp");
+  if (!IS_NATIVE_DESKTOP) {
+    const hubProgram = window.CBBridgeProtocol.hubProgramFromStatus(status);
+    if (hubProgram) programs.add(hubProgram);
+  }
   programs.delete(LOCAL_PROGRAM_ID);
+  // Vault Classifier shares this hub for routed decisions only. It never owns
+  // a block-group roster, so it is not a valid group-link destination.
+  programs.delete("classifier");
   programs.delete("browser");
   programs.delete("");
   return Array.from(programs);
@@ -1416,7 +1301,7 @@ const SYNC_SCALAR_FIELDS = [
 // This endpoint owns (can edit + contributes) one blocked-list type: the Mac
 // owns apps, browsers own domains. The other type is a read-only mirror.
 function bridgeOwnsApps() {
-  return IS_CONNECTION_HUB;
+  return IS_NATIVE_DESKTOP;
 }
 
 function buildSyncContribution(group) {
@@ -1572,505 +1457,20 @@ function syncAllClusters() {
 
 function syncSettingsFormFromState() {
   const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
-  renderConnectionSettings();
   if (settingsTickRateField) settingsTickRateField.value = String(s.tickRateMs);
   if (settingsAutosaveDebounceField) settingsAutosaveDebounceField.value = String(s.autosaveDebounceMs);
   if (settingsDebugModeField) settingsDebugModeField.checked = Boolean(s.debugMode);
   if (settingsShowOnPageLogToastsField) settingsShowOnPageLogToastsField.checked = s.showOnPageLogToasts !== false;
-  if (settingsContributeChannelsField) settingsContributeChannelsField.checked = s.contributeChannels === true;
-  renderYtCache();
   if (settingsDefaultSnoozeMinutesField) settingsDefaultSnoozeMinutesField.value = String(s.defaultSnoozeMinutes);
   if (settingsDefaultFallbackUrlField) settingsDefaultFallbackUrlField.value = s.defaultFallbackUrl ?? "";
   if (settingsStatus) settingsStatus.textContent = "";
 }
 
-// --- YouTube tag targeting picker (per group) --------------------------
-let ytBlockPickerWired = false;
-let tagPickerSearchTimer = null;
-let ytAllTags = null; // full validated tag list, fetched once: [{slug,name,dimension,color}]
-let ytAllTagsLoading = null;
-let ytTagBySlug = new Map(); // slug -> {slug,name,dimension,color} for chip labels
-const YT_BLOCK_MAX_RESULTS = 60;
-
-function ytBlockApiBase() {
-  const custom = state.globalSettings?.contributeApiBase;
-  if (typeof custom === "string" && /^https?:\/\//.test(custom.trim())) {
-    return custom.trim().replace(/\/$/, "");
-  }
-  return "http://127.0.0.1:8000";
-}
-
-// Fetch every tag once so the picker filters a known-valid list locally — the
-// user can only ever add a real tag (like the app's selection panel).
-function loadAllTags(force) {
-  if (ytAllTags && !force) return Promise.resolve(ytAllTags);
-  if (ytAllTagsLoading) return ytAllTagsLoading;
-  ytAllTagsLoading = (async () => {
-    try {
-      // Localize the picker: the API LEFT JOINs tag_names and falls back to the
-      // canonical literal_name, so an untranslated locale is safe.
-      let locale = "en";
-      try { locale = loadLanguage() || "en"; } catch (_) {}
-      const resp = await fetch(
-        `${ytBlockApiBase()}/api/tags/all?locale=${encodeURIComponent(locale)}`
-      );
-      if (!resp.ok) throw new Error("HTTP " + resp.status);
-      const rows = await resp.json();
-      ytAllTags = (rows || [])
-        .filter((r) => r && r.slug)
-        .map((r) => ({
-          slug: r.slug,
-          name: r.name || r.literal_name || r.slug,
-          dimension: r.dimension || "",
-          color: r.color || ""
-        }));
-      ytTagBySlug = new Map(ytAllTags.map((t) => [t.slug, t]));
-      return ytAllTags;
-    } catch (_) {
-      ytAllTags = null; // allow a later retry
-      throw new Error("unreachable");
-    } finally {
-      ytAllTagsLoading = null;
-    }
-  })();
-  return ytAllTagsLoading;
-}
-
-// The per-group Tags field is backed by a hidden textarea of newline-separated
-// tag *slugs*; the chip list is the editable surface. This keeps the existing
-// draft / autosave / save pipeline (which reads platformAuthorTags.value)
-// working unchanged, while guaranteeing only server-validated slugs get in.
-function getPlatformTagSlugs() {
-  if (!platformAuthorTagsField) return [];
-  return [
-    ...new Set(
-      String(platformAuthorTagsField.value || "")
-        .split(/[\n,]+/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-    )
-  ];
-}
-
-function commitPlatformTagSlugs(slugs) {
-  if (!platformAuthorTagsField) return;
-  const unique = [...new Set(slugs.map((s) => s.trim()).filter(Boolean))];
-  platformAuthorTagsField.value = unique.join("\n");
-  renderPlatformTagChips();
-  // Tags ride the normal draft -> autosave pipeline (no special direct write).
-  // Because the picker is a click-then-close gesture, we flush *immediately and
-  // awaited* instead of via the debounced timer, so closing the popup right
-  // after a tag edit can't drop it. Non-strict autosave guarantees the tags
-  // commit even if a sibling field is mid-edit/invalid.
-  stashCurrentDraft();
-  renderGroupList();
-  if (state.autosaveTimeoutId !== null) {
-    window.clearTimeout(state.autosaveTimeoutId);
-    state.autosaveTimeoutId = null;
-  }
-  return autosaveSelectedGroup().catch((error) => {
-    console.error("Failed to save tag edit.", error);
-    setStatus(t("status.errorSaveGroup"), true);
-  });
-}
-
-function tagLabelForSlug(slug) {
-  const tag = ytTagBySlug.get(slug);
-  return tag ? tag.name : slug;
-}
-
-// Union of tag slugs across enabled groups targeting "creators with a certain
-// tag" — mirrors the logic the content blocker uses, for the cache inspector.
-function blockedTagSlugsFromGroups() {
-  const out = new Set();
-  for (const g of state.groups || []) {
-    if (!g || g.enabled !== true) continue;
-    if (normalizePlatformAuthorMode(g.platformAuthorMode) !== "tagInclude") continue;
-    for (const s of g.platformAuthorTags || []) {
-      if (typeof s === "string" && s.trim()) out.add(s.trim());
-    }
-  }
-  return out;
-}
-
-function filterLocalTags(term) {
-  const q = term.trim().toLowerCase();
-  if (!ytAllTags) return [];
-  if (!q) return ytAllTags;
-  return ytAllTags.filter(
-    (t) => t.name.toLowerCase().includes(q) || t.slug.toLowerCase().includes(q)
-  );
-}
-
-function renderPlatformTagChips() {
-  if (!platformAuthorTagsList) return;
-  const editable = !(platformAuthorTagsField && platformAuthorTagsField.disabled);
-  platformAuthorTagsList.classList.toggle("tag-chip-list-disabled", !editable);
-  platformAuthorTagsList.innerHTML = "";
-
-  for (const slug of getPlatformTagSlugs()) {
-    const tag = ytTagBySlug.get(slug);
-    const chip = document.createElement("span");
-    chip.className = "tag-chip";
-    chip.setAttribute("role", "listitem");
-    chip.title = slug;
-
-    const sw = document.createElement("span");
-    sw.className = "swatch";
-    if (tag && tag.color) sw.style.background = tag.color;
-    chip.appendChild(sw);
-
-    const label = document.createElement("span");
-    label.textContent = tagLabelForSlug(slug);
-    chip.appendChild(label);
-
-    if (editable) {
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "tag-chip-remove";
-      remove.setAttribute("aria-label", t("tagPicker.removeAria", { name: tagLabelForSlug(slug) }));
-      remove.textContent = "\u00d7";
-      remove.addEventListener("click", () => {
-        commitPlatformTagSlugs(getPlatformTagSlugs().filter((s) => s !== slug));
-      });
-      chip.appendChild(remove);
-    }
-    platformAuthorTagsList.appendChild(chip);
-  }
-
-  // Trailing "+" tile opens the validated picker (like the app's app picker).
-  const add = document.createElement("button");
-  add.type = "button";
-  add.className = "tag-chip-add";
-  add.setAttribute("aria-label", t("tagPicker.addAria"));
-  add.textContent = "+";
-  add.disabled = !editable;
-  add.addEventListener("click", () => openTagPicker());
-  platformAuthorTagsList.appendChild(add);
-
-  // Upgrade slug-only labels to names once the tag list finishes loading.
-  if (!ytAllTags && getPlatformTagSlugs().length) {
-    loadAllTags(false).then(() => renderPlatformTagChips()).catch(() => {});
-  }
-}
-
-function openTagPicker() {
-  if (!tagPickerModal || (platformAuthorTagsField && platformAuthorTagsField.disabled)) return;
-  if (tagPickerSearch) tagPickerSearch.value = "";
-  tagPickerModal.classList.remove("hidden");
-  renderTagPickerResults("");
-  if (tagPickerSearch) window.setTimeout(() => tagPickerSearch.focus(), 0);
-}
-
-function closeTagPicker() {
-  if (tagPickerModal) tagPickerModal.classList.add("hidden");
-}
-
-async function renderTagPickerResults(query) {
-  if (!tagPickerResults) return;
-  if (tagPickerError) tagPickerError.classList.add("hidden");
-
-  if (!ytAllTags) {
-    tagPickerResults.innerHTML = "";
-    if (tagPickerEmpty) {
-      tagPickerEmpty.classList.add("hidden");
-    }
-    try {
-      await loadAllTags(false);
-    } catch (_) {
-      tagPickerResults.innerHTML = "";
-      if (tagPickerError) tagPickerError.classList.remove("hidden");
-      return;
-    }
-  }
-
-  const have = new Set(getPlatformTagSlugs());
-  const matches = filterLocalTags(query || "").filter((tag) => !have.has(tag.slug));
-  tagPickerResults.innerHTML = "";
-
-  for (const tag of matches.slice(0, YT_BLOCK_MAX_RESULTS)) {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "tag-picker-row";
-    row.setAttribute("role", "option");
-
-    const sw = document.createElement("span");
-    sw.className = "swatch";
-    if (tag.color) sw.style.background = tag.color;
-    row.appendChild(sw);
-
-    const text = document.createElement("span");
-    text.className = "tag-picker-row-text";
-    const name = document.createElement("span");
-    name.className = "tag-picker-row-name";
-    name.textContent = tag.name;
-    const slug = document.createElement("span");
-    slug.className = "tag-picker-row-slug";
-    slug.textContent = tag.slug;
-    text.appendChild(name);
-    text.appendChild(slug);
-    row.appendChild(text);
-
-    const dim = document.createElement("span");
-    dim.className = "tag-picker-row-dim";
-    dim.textContent = tag.dimension || "";
-    row.appendChild(dim);
-
-    row.addEventListener("click", () => {
-      commitPlatformTagSlugs([...getPlatformTagSlugs(), tag.slug]);
-      closeTagPicker();
-    });
-    tagPickerResults.appendChild(row);
-  }
-
-  if (matches.length > YT_BLOCK_MAX_RESULTS) {
-    const more = document.createElement("div");
-    more.className = "field-help";
-    more.style.padding = "6px 11px";
-    more.textContent = t("tagPicker.more", {
-      shown: YT_BLOCK_MAX_RESULTS,
-      total: matches.length
-    });
-    tagPickerResults.appendChild(more);
-  }
-
-  if (tagPickerEmpty) {
-    tagPickerEmpty.classList.toggle("hidden", matches.length > 0);
-  }
-}
-
-function ytAgeLabel(ms) {
-  if (!ms) return "never";
-  const d = Date.now() - ms;
-  if (d < 60000) return Math.round(d / 1000) + "s ago";
-  if (d < 3600000) return Math.round(d / 60000) + "m ago";
-  if (d < 86400000) return Math.round(d / 3600000) + "h ago";
-  return Math.round(d / 86400000) + "d ago";
-}
-
-function formatSubsShort(n) {
-  if (typeof n !== "number" || !isFinite(n)) return "?";
-  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
-  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
-  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(n);
-}
-
-// Render the extension's local YouTube tag state straight from storage, so the
-// user can see exactly what's cached and why a video is / isn't blocked.
-// A rounded tag pill (colored dot + literal name), mirroring the picker chip.
-function ytTagChipEl(slug, blocked) {
-  const tag = ytTagBySlug.get(slug);
-  const chip = document.createElement("span");
-  chip.className = "tag-chip" + (blocked && blocked.has(slug) ? " blocked" : "");
-  chip.title = slug;
-  const sw = document.createElement("span");
-  sw.className = "swatch";
-  if (tag && tag.color) sw.style.background = tag.color;
-  chip.appendChild(sw);
-  const label = document.createElement("span");
-  label.textContent = tagLabelForSlug(slug);
-  chip.appendChild(label);
-  return chip;
-}
-
-// A grey, display-only pill for non-topic states (e.g. "below floor").
-function ytDisplayChipEl(text) {
-  const chip = document.createElement("span");
-  chip.className = "tag-chip display";
-  const sw = document.createElement("span");
-  sw.className = "swatch";
-  chip.appendChild(sw);
-  const label = document.createElement("span");
-  label.textContent = text;
-  chip.appendChild(label);
-  return chip;
-}
-
-// One row: name + id/subs + activity meta, with tag pills stacked underneath.
-function ytCacheRowEl(cid, v, blocked) {
-  const slugs = Array.isArray(v.t) ? v.t : [];
-  const isBlocked = slugs.some((s) => blocked.has(s));
-  const row = document.createElement("div");
-  row.className = "yt-cache-row" + (isBlocked ? " blocked" : "");
-
-  const nameCol = document.createElement("span");
-  nameCol.className = "yt-cache-name";
-
-  const title = document.createElement("span");
-  title.className = "yt-cache-title";
-  title.textContent = v.n || cid;
-  nameCol.appendChild(title);
-
-  const sub = document.createElement("code");
-  sub.className = "yt-cache-id";
-  sub.textContent =
-    cid + (typeof v.subs === "number" ? ` · ${formatSubsShort(v.subs)} subs` : "");
-  nameCol.appendChild(sub);
-
-  const meta = document.createElement("span");
-  meta.className = "yt-cache-meta";
-  const bits = [];
-  bits.push(v.last ? "seen " + ytAgeLabel(v.last) : "not visited");
-  if (typeof v.score === "number" && v.score > 0) bits.push("freq " + v.score.toFixed(1));
-  meta.textContent = bits.join(" · ");
-  nameCol.appendChild(meta);
-
-  row.appendChild(nameCol);
-
-  // Tags stacked under the name. below_floor renders as a grey display pill.
-  const tagsBox = document.createElement("span");
-  tagsBox.className = "yt-cache-tags";
-  if (slugs.length) {
-    for (const slug of slugs) tagsBox.appendChild(ytTagChipEl(slug, blocked));
-  } else if (v.s === "below_floor") {
-    tagsBox.appendChild(ytDisplayChipEl("below floor"));
-  }
-  if (tagsBox.childNodes.length) row.appendChild(tagsBox);
-
-  return row;
-}
-
-// Tier of an entry for the three-box view. "pending" means exactly one thing:
-// we're still WAITING FOR THE SERVER'S FIRST RESPONSE for this channel
-// (inflight). The moment the lookup returns — with tags, a sub count, or even
-// just "unknown"/"pending" classification — the flag is cleared and the entry is
-// a normal cached verdict, ranked by its activity tier (protected vs probation).
-// This keeps the pending box showing only genuinely-unanswered channels.
-function ytTierOf(v) {
-  if (v && v.inflight === true) return "pending";
-  return v && v.tier === "protected" ? "protected" : "probation";
-}
-
-function ytRenderTierBox(box, countEl, entries, blocked) {
-  if (countEl) countEl.textContent = String(entries.length);
-  if (!box) return;
-  box.textContent = "";
-  if (!entries.length) {
-    const empty = document.createElement("div");
-    empty.className = "yt-cache-empty";
-    empty.textContent = "—";
-    box.appendChild(empty);
-    return;
-  }
-  const CAP = 200;
-  const shown = entries.slice(0, CAP);
-  for (const [cid, v] of shown) box.appendChild(ytCacheRowEl(cid, v, blocked));
-  if (entries.length > shown.length) {
-    const more = document.createElement("div");
-    more.className = "yt-cache-empty";
-    more.textContent = t("meta.moreResults", { count: entries.length - shown.length });
-    box.appendChild(more);
-  }
-}
-
-async function renderYtCache() {
-  if (!ytCacheBoxPending && !ytCacheBoxProtected && !ytCacheBoxProbation) return;
-  // Make sure tag names/colors are available so chips read nicely.
-  if (!ytAllTags) loadAllTags(false).then(() => renderYtCache()).catch(() => {});
-
-  let store = {};
-  try {
-    store = await chrome.storage.local.get(["ytVerdicts"]);
-  } catch (_) {}
-
-  const cache = store.ytVerdicts || { rev: null, items: {} };
-  const verdicts = cache.items || {};
-  const blocked = blockedTagSlugsFromGroups();
-
-  // Shared free-text filter (name, channel id, or tag slug) across all boxes.
-  const q = (ytCacheSearchInput ? ytCacheSearchInput.value : "").trim().toLowerCase();
-  const match = ([cid, v]) => {
-    if (!q) return true;
-    if (cid.toLowerCase().includes(q)) return true;
-    if (v.n && v.n.toLowerCase().includes(q)) return true;
-    return (Array.isArray(v.t) ? v.t : []).some((s) => s.toLowerCase().includes(q));
-  };
-
-  // Within each box, rank by activity: decayed frequency then recency.
-  const byActivity = (a, b) => {
-    const sa = a[1].score || 0;
-    const sb = b[1].score || 0;
-    if (sa !== sb) return sb - sa;
-    return (b[1].last || 0) - (a[1].last || 0);
-  };
-
-  const buckets = { pending: [], protected: [], probation: [] };
-  for (const entry of Object.entries(verdicts)) {
-    if (!entry[1] || !match(entry)) continue;
-    buckets[ytTierOf(entry[1])].push(entry);
-  }
-  buckets.pending.sort(byActivity);
-  buckets.protected.sort(byActivity);
-  buckets.probation.sort(byActivity);
-
-  ytRenderTierBox(ytCacheBoxPending, ytTierCountPending, buckets.pending, blocked);
-  ytRenderTierBox(ytCacheBoxProtected, ytTierCountProtected, buckets.protected, blocked);
-  ytRenderTierBox(ytCacheBoxProbation, ytTierCountProbation, buckets.probation, blocked);
-}
-
-function setupYtTagUi() {
-  if (ytBlockPickerWired) return;
-  ytBlockPickerWired = true;
-
-  // Tag picker modal (used by the per-group Tags field).
-  if (tagPickerSearch) {
-    tagPickerSearch.addEventListener("input", () => {
-      if (tagPickerSearchTimer) clearTimeout(tagPickerSearchTimer);
-      const q = tagPickerSearch.value;
-      tagPickerSearchTimer = setTimeout(() => renderTagPickerResults(q), 120);
-    });
-  }
-  if (tagPickerCloseButton) {
-    tagPickerCloseButton.addEventListener("click", () => closeTagPicker());
-  }
-  if (tagPickerModal) {
-    tagPickerModal.addEventListener("click", (event) => {
-      if (event.target === tagPickerModal) closeTagPicker();
-    });
-  }
-
-  // Local cache inspector (Settings → debug).
-  if (ytCacheRefreshButton) {
-    ytCacheRefreshButton.addEventListener("click", () => renderYtCache());
-  }
-  if (ytCacheSearchInput) {
-    ytCacheSearchInput.addEventListener("input", () => {
-      if (ytCacheSearchTimer) clearTimeout(ytCacheSearchTimer);
-      ytCacheSearchTimer = setTimeout(() => renderYtCache(), 120);
-    });
-  }
-  if (ytCacheClearButton) {
-    ytCacheClearButton.addEventListener("click", async () => {
-      // Full clean slate. Route through the background worker so its IN-MEMORY
-      // cbYtVerdicts is reset too — otherwise the worker re-persists the cache
-      // on the next activity and the entries reappear (the "can't be deleted"
-      // bug). Fall back to a direct storage wipe only if the worker is asleep.
-      let cleared = false;
-      try {
-        const resp = await chrome.runtime.sendMessage({ type: "cb-yt-clear" });
-        cleared = !!(resp && resp.ok);
-      } catch (_) {}
-      if (!cleared) {
-        try {
-          await chrome.storage.local.remove([
-            "ytBundle",
-            "ytVerdicts",
-            "ytSentIds",
-            "ytContribStats"
-          ]);
-        } catch (_) {}
-      }
-      renderYtCache();
-    });
-  }
-}
-
 function openSettings() {
   state.isSettingsOpen = true;
-  setupYtTagUi();
   syncSettingsFormFromState();
   requestConnectionStatus();
+  loadClassifierBridgeSettings().catch(() => renderClassifierBridgeSettings());
   settingsModal.classList.remove("hidden");
   renderLocalFolderStatus().catch((error) => {
     if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
@@ -2084,17 +1484,11 @@ function closeSettings() {
 }
 
 async function saveSettingsFromForm() {
-  const contributionChoiceChanged =
-    Boolean(settingsContributeChannelsField) &&
-    Boolean(settingsContributeChannelsField.checked) !== Boolean(state.globalSettings?.contributeChannels);
   const draft = {
     tickRateMs: settingsTickRateField?.value,
     autosaveDebounceMs: settingsAutosaveDebounceField?.value,
     debugMode: settingsDebugModeField?.checked ?? false,
     showOnPageLogToasts: settingsShowOnPageLogToastsField?.checked ?? true,
-    contributeChannels: settingsContributeChannelsField?.checked ?? false,
-    contributeAsked: state.globalSettings?.contributeAsked === true || contributionChoiceChanged,
-    contributeApiBase: state.globalSettings?.contributeApiBase,
     defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
     defaultFallbackUrl: settingsDefaultFallbackUrlField?.value
   };
@@ -2115,28 +1509,6 @@ async function saveSettingsFromForm() {
       settingsStatus.classList.add("error");
     }
   }
-}
-
-function showContributionConsentIfNeeded() {
-  if (!contributionConsentModal) return;
-  contributionConsentModal.classList.toggle(
-    "hidden",
-    state.globalSettings?.contributeAsked === true
-  );
-}
-
-async function saveContributionConsent(enabled) {
-  const sanitized = sanitizeGlobalSettings({
-    ...(state.globalSettings || DEFAULT_GLOBAL_SETTINGS),
-    contributeChannels: enabled === true,
-    contributeAsked: true
-  });
-  state.globalSettings = sanitized;
-  if (settingsContributeChannelsField) {
-    settingsContributeChannelsField.checked = sanitized.contributeChannels;
-  }
-  await chrome.storage.local.set({ [GLOBAL_SETTINGS_KEY]: sanitized });
-  showContributionConsentIfNeeded();
 }
 
 function resetSettingsToDefaults() {
@@ -2686,14 +2058,6 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, parsed));
 }
 
-function sanitizeConnectionSettings(raw) {
-  const src = raw && typeof raw === "object" ? raw : {};
-  return {
-    serverEnabled: src.serverEnabled === true,
-    clientEnabled: src.clientEnabled === true
-  };
-}
-
 function sanitizeGlobalSettings(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
   const tickRateMs = Math.round(
@@ -2721,17 +2085,9 @@ function sanitizeGlobalSettings(raw) {
     autosaveDebounceMs,
     debugMode,
     showOnPageLogToasts,
-    contributeChannels: src.contributeChannels === true,
     defaultSnoozeMinutes,
-    defaultFallbackUrl,
-    connection: sanitizeConnectionSettings(src.connection)
+    defaultFallbackUrl
   };
-  // Preserve the first-open popup consent decision when later Settings saves
-  // update other preferences.
-  if (src.contributeAsked === true) out.contributeAsked = true;
-  if (typeof src.contributeApiBase === "string" && src.contributeApiBase.trim()) {
-    out.contributeApiBase = src.contributeApiBase.trim();
-  }
   return out;
 }
 
@@ -2823,6 +2179,9 @@ function isTimedBlockingMode(mode) {
 }
 
 function getGroupTypeLabel(groupType) {
+  const profile = PLATFORM_PROFILES?.[normalizeGroupType(groupType)];
+  if (profile?.displayName) return profile.displayName;
+
   if (groupType === "youtube") {
     return t("groupType.youtube");
   }
@@ -2863,6 +2222,10 @@ function getGroupTypeLabel(groupType) {
 }
 
 function getEditorTypeSummary(groupType) {
+  if (isPlatformFeedGroupType(groupType) && normalizeGroupType(groupType) !== "twitter") {
+    return t("platform.rulesCopy", { platform: getPlatformDisplayName(groupType) });
+  }
+
   if (groupType === "youtube") {
     return t("editor.typeSummaryYouTube");
   }
@@ -2903,6 +2266,9 @@ function getEditorTypeSummary(groupType) {
 }
 
 function getPlatformDisplayName(groupType) {
+  const profile = PLATFORM_PROFILES?.[normalizeGroupType(groupType)];
+  if (profile?.displayName) return profile.displayName;
+
   if (groupType === "youtube") {
     return t("groupType.youtube");
   }
@@ -2991,7 +2357,9 @@ function getPlatformTypeLabel(groupType, type) {
 }
 
 function getPlatformAuthorsPlaceholder(groupType) {
-  return t(`platform.placeholder.${normalizeGroupType(groupType)}`);
+  const key = `platform.placeholder.${normalizeGroupType(groupType)}`;
+  const translated = t(key);
+  return translated === key ? "" : translated;
 }
 
 // Sets the unified "Platform rules" card header (title + one-line copy). Runs
@@ -3004,15 +2372,29 @@ function applyPlatformRulesHeader(groupType) {
   if (platformVideoCopy) platformVideoCopy.textContent = t("platform.rulesCopy", { platform });
 }
 
-// Builds the author/account mode dropdown for the current platform. Video
-// platforms + Twitter share these modes; YouTube additionally offers the
-// (visual-only) tag modes.
+// A Platform rule has one platform at a time. Populate the selector from the
+// same registry that drives its capabilities so adding a platform never creates
+// a second editor or a stale hard-coded option list.
+function applyPlatformRuleSelection(groupType) {
+  if (!platformRulePlatformField) return;
+
+  const selectedType = normalizeGroupType(groupType);
+  platformRulePlatformField.innerHTML = "";
+  for (const type of PLATFORM_GROUP_TYPES) {
+    const option = document.createElement("option");
+    option.value = type;
+    option.textContent = getPlatformDisplayName(type);
+    option.selected = type === selectedType;
+    platformRulePlatformField.appendChild(option);
+  }
+  platformRulePlatformField.value = selectedType;
+}
+
+// Builds the author/account mode dropdown for the current platform.
 function rebuildAuthorModeOptions(type) {
   const isTwitter = type === "twitter";
-  const isYouTube = type === "youtube";
   const noun = isTwitter ? t("platform.nounAccounts") : t("platform.nounAuthors");
   const modes = ["all", "include", "exclude", "nobody"];
-  if (isYouTube) modes.push("tagInclude", "tagExclude");
 
   const previous = platformAuthorModeField.value;
   platformAuthorModeField.innerHTML = "";
@@ -3034,9 +2416,11 @@ function applyPlatformVideoUi(groupType) {
   const isYouTube = type === "youtube";
   const isTwitter = type === "twitter";
 
-  // Twitter/X has no video-form axis — hide the content-type selector and
-  // present account (handle) controls only.
-  platformVideoModeRow.classList.toggle("hidden", isTwitter);
+  const isFeedPlatform = isPlatformFeedGroupType(type);
+
+  // Feed platforms have no video-form axis. Twitter/X retains its account
+  // wording; the other feeds use the generic author wording.
+  platformVideoModeRow.classList.toggle("hidden", isFeedPlatform);
 
   platformVideoModeLabel.textContent = t("platform.videoMode");
   if (platformVideoModeHelp) platformVideoModeHelp.textContent = t("platform.videoModeHelp");
@@ -3057,18 +2441,14 @@ function applyPlatformVideoUi(groupType) {
     ? t("platform.help.youtube", { platform })
     : isTwitter
       ? t("platform.help.twitter", { platform })
+      : isFeedPlatform
+        ? t("platform.rulesCopy", { platform })
       : t("platform.help.generic", { platform, shortLabel, longLabel, postLabel });
 
-  // YouTube-only tag stubs.
-  platformAuthorTagsLabel.textContent = t("platform.authorTags");
-  platformAuthorTagsField.setAttribute("placeholder", t("platform.authorTagsPlaceholder"));
-  platformAuthorTagsHelp.textContent = t("platform.authorTagsHelp");
 }
 
 function getProfileSurfaceHideEntries(groupType) {
-  const profile =
-    typeof PLATFORM_PROFILES !== "undefined" ? PLATFORM_PROFILES[normalizeGroupType(groupType)] : null;
-  return Array.isArray(profile?.surfaceHides) ? profile.surfaceHides : [];
+  return getSurfaceHideEntries(groupType);
 }
 
 function getDraftSurfaceHides(group, draft) {
@@ -3084,9 +2464,8 @@ function readSurfaceHidesFromForm() {
     .map((input) => input.value);
 }
 
-// Render the opt-in "Hide elements" checklist for the selected platform group.
-// Each entry maps to a registry surfaceHides id; toggling persists into the
-// group's draft (same auto-save path as the other platform fields).
+// Render the platform's verified content-control matrix. Each entry maps to a
+// registry surfaceHides id; toggling persists into the group's draft.
 function renderSurfaceHides(group, draft, editable) {
   if (!surfaceHidesSection || !surfaceHidesList) {
     return;
@@ -3101,6 +2480,8 @@ function renderSurfaceHides(group, draft, editable) {
   }
 
   surfaceHidesSection.classList.remove("hidden");
+  if (surfaceHidesTitle) surfaceHidesTitle.textContent = t("surfaceHide.contentTitle");
+  if (surfaceHidesHelp) surfaceHidesHelp.textContent = t("surfaceHide.contentHelp");
   const enabled = new Set(getDraftSurfaceHides(group, draft));
 
   for (const entry of entries) {
@@ -3233,10 +2614,6 @@ function describePlatformVideoScope(groupLike) {
     scopes.push(t("meta.allExceptCreators", { count: authors.length }));
   } else if (authorMode === "nobody") {
     scopes.push(t("meta.noAuthors"));
-  } else if (authorMode === "tagInclude") {
-    scopes.push(t("meta.tagAuthors"));
-  } else if (authorMode === "tagExclude") {
-    scopes.push(t("meta.tagAuthorsExcept"));
   }
 
   if (scopes.length > 0) {
@@ -3267,6 +2644,15 @@ function describeTwitterScope(groupLike) {
     return t("meta.noAuthors");
   }
   return t("meta.allTwitter");
+}
+
+function describeFeedPlatformScope(groupLike) {
+  const authors = Array.isArray(groupLike.platformAuthors) ? groupLike.platformAuthors : [];
+  const mode = normalizePlatformAuthorMode(groupLike.platformAuthorMode);
+  if (mode === "include") return `${authors.length} ${t("meta.creators")}`;
+  if (mode === "exclude") return t("meta.allExceptCreators", { count: authors.length });
+  if (mode === "nobody") return t("meta.noAuthors");
+  return getPlatformDisplayName(groupLike.groupType);
 }
 
 function describeRedditScope(groupLike) {
@@ -4015,7 +3401,11 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
   const twitterCount = state.groups.filter((group) => group.groupType === "twitter").length + 1;
   const customCount = state.groups.filter((group) => group.groupType === "custom").length + 1;
   const siteCount = state.groups.filter((group) => group.groupType === "site").length + 1;
-  const normalizedGroupType = normalizeGroupType(groupType);
+  // The add menu offers one unified Platform rule. It starts with YouTube only
+  // as a safe first profile; the cyan Rule box owns the actual platform choice.
+  const normalizedGroupType = normalizeGroupType(
+    groupType === "platform" ? DEFAULT_PLATFORM_RULE_GROUP_TYPE : groupType
+  );
 
   return {
     id: createGroupId(),
@@ -4057,7 +3447,6 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     platformVideoMode: "all",
     platformAuthorMode: "all",
     platformAuthors: [],
-    platformAuthorTags: [],
     redditMode: "all",
     redditSubreddits: [],
     discordMode: "all",
@@ -4136,7 +3525,6 @@ function sanitizeGroups(groups) {
       .map((day) => String(day).trim().toLowerCase())
       .filter((day, index, array) => DAY_NAMES.includes(day) && array.indexOf(day) === index);
     const rawAuthors = Array.isArray(group?.platformAuthors) ? group.platformAuthors : [];
-    const rawAuthorTags = Array.isArray(group?.platformAuthorTags) ? group.platformAuthorTags : [];
     const rawRedditSubreddits = Array.isArray(group?.redditSubreddits) ? group.redditSubreddits : [];
     const rawDiscordTargets = Array.isArray(group?.discordTargets) ? group.discordTargets : [];
     const ownsSiteList = normalizedGroupType === "site";
@@ -4177,10 +3565,6 @@ function sanitizeGroups(groups) {
             .map((author) => normalizePlatformAuthorInput(author, normalizedGroupType))
             .filter(Boolean)
         )
-      ],
-      // Visual-only stub: free-form tags for the YouTube tag author modes.
-      platformAuthorTags: [
-        ...new Set(rawAuthorTags.map((tag) => String(tag ?? "").trim()).filter(Boolean))
       ],
       redditSubreddits: [
         ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
@@ -4333,7 +3717,6 @@ function getSerializableGroupSnapshot(group) {
     platformVideoMode: group.platformVideoMode,
     platformAuthorMode: group.platformAuthorMode,
     platformAuthors: [...group.platformAuthors],
-    platformAuthorTags: [...(group.platformAuthorTags ?? [])],
     redditMode: group.redditMode,
     redditSubreddits: [...group.redditSubreddits],
     discordMode: group.discordMode,
@@ -4457,7 +3840,6 @@ function groupToDraft(group) {
     platformVideoMode: normalizeVideoMode(group.platformVideoMode),
     platformAuthorMode: normalizePlatformAuthorMode(group.platformAuthorMode),
     platformAuthorsText: group.platformAuthors.join("\n"),
-    platformAuthorTagsText: (group.platformAuthorTags ?? []).join("\n"),
     redditMode: normalizeRedditMode(group.redditMode, group.redditSubreddits),
     redditSubredditsText: group.redditSubreddits.join("\n"),
     discordMode: normalizeDiscordMode(group.discordMode, group.discordTargets),
@@ -4976,16 +4358,20 @@ function getGroupMetaText(group, draft, now = Date.now()) {
         discordTargets: draftTargets.length > 0 ? draftTargets : group.discordTargets
       })
     );
-  } else if (group.groupType === "twitter") {
-    const draftAccounts = parsePlatformAuthorsTextarea(
+  } else if (isPlatformFeedGroupType(group.groupType)) {
+    const draftAuthors = parsePlatformAuthorsTextarea(
       group.groupType,
       draft?.platformAuthorsText ?? ""
     ).validAuthors;
-    pieces.push(
-      describeTwitterScope({
+    const scopeGroup = {
+      groupType: group.groupType,
         platformAuthorMode: draft?.platformAuthorMode ?? group.platformAuthorMode,
-        platformAuthors: draftAccounts.length > 0 ? draftAccounts : group.platformAuthors
-      })
+        platformAuthors: draftAuthors.length > 0 ? draftAuthors : group.platformAuthors
+    };
+    pieces.push(
+      group.groupType === "twitter"
+        ? describeTwitterScope(scopeGroup)
+        : describeFeedPlatformScope(scopeGroup)
     );
   } else if (group.groupType === "custom") {
     pieces.push(t("meta.customRules"));
@@ -5385,6 +4771,7 @@ function renderEditor(now = Date.now()) {
     timedSettings.classList.add("hidden");
     customSettingsCard.classList.add("hidden");
     if (platformRulesCard) platformRulesCard.classList.add("hidden");
+    if (platformRulePlatformField) platformRulePlatformField.disabled = true;
     platformVideoCard.classList.add("hidden");
     redditSettingsCard.classList.add("hidden");
     discordSettingsCard.classList.add("hidden");
@@ -5456,9 +4843,7 @@ function renderEditor(now = Date.now()) {
   const selectedMode = normalizeBlockingMode(draft?.mode ?? group.mode);
   const isTimedMode = isTimedBlockingMode(selectedMode);
   const isPlatformVideoGroup = isPlatformVideoGroupType(group.groupType);
-  const isTwitterGroup = normalizeGroupType(group.groupType) === "twitter";
-  // Twitter/X reuses the account (author) controls, minus the video-form axis.
-  const usesAuthorAxis = isPlatformVideoGroup || isTwitterGroup;
+  const usesAuthorAxis = isPlatformAuthorGroupType(group.groupType);
   const isRedditGroup = group.groupType === "reddit";
   const isDiscordGroup = group.groupType === "discord";
   const isCustomGroup = group.groupType === "custom";
@@ -5478,6 +4863,7 @@ function renderEditor(now = Date.now()) {
 
   if (isPlatformProfileGroup) {
     applyPlatformRulesHeader(group.groupType);
+    applyPlatformRuleSelection(group.groupType);
   }
   if (usesAuthorAxis) {
     applyPlatformVideoUi(group.groupType);
@@ -5507,8 +4893,6 @@ function renderEditor(now = Date.now()) {
   blockedSitesField.value = draft?.sitesText ?? group.sites.join("\n");
   blockingRulesField.value = draft?.blockingRulesText ?? group.blockingRulesText;
   platformAuthorsField.value = draft?.platformAuthorsText ?? group.platformAuthors.join("\n");
-  platformAuthorTagsField.value =
-    draft?.platformAuthorTagsText ?? (group.platformAuthorTags ?? []).join("\n");
   platformVideoModeField.value = draft?.platformVideoMode ?? group.platformVideoMode;
   platformAuthorModeField.value = normalizePlatformAuthorMode(
     draft?.platformAuthorMode ?? group.platformAuthorMode
@@ -5560,6 +4944,9 @@ function renderEditor(now = Date.now()) {
   if (platformRulesCard) {
     platformRulesCard.classList.toggle("hidden", !isPlatformProfileGroup);
   }
+  if (platformRulePlatformField) {
+    platformRulePlatformField.disabled = !editable || !isPlatformProfileGroup;
+  }
   platformVideoCard.classList.toggle("hidden", !usesAuthorAxis);
   redditSettingsCard.classList.toggle("hidden", !isRedditGroup);
   discordSettingsCard.classList.toggle("hidden", !isDiscordGroup);
@@ -5602,13 +4989,9 @@ function renderEditor(now = Date.now()) {
   blockingRulesField.disabled = !editable || !isCustomGroup;
   const currentAuthorMode = normalizePlatformAuthorMode(platformAuthorModeField.value);
   const authorModeUsesList = platformAuthorModeUsesList(currentAuthorMode); // include/exclude
-  const authorModeUsesTags = isPlatformAuthorTagMode(currentAuthorMode); // youtube tag stubs
-  // Show the author list only for include/exclude; show the tag box only for the
-  // YouTube tag modes; show neither for "all"/"no authors".
+  // Show the author list only for include/exclude.
   platformAuthorsBlock.classList.toggle("hidden", !usesAuthorAxis || !authorModeUsesList);
-  platformAuthorTagsBlock.classList.toggle("hidden", !usesAuthorAxis || !authorModeUsesTags);
   platformAuthorsField.disabled = !editable || !usesAuthorAxis || !authorModeUsesList;
-  platformAuthorTagsField.disabled = !editable || !usesAuthorAxis || !authorModeUsesTags;
   platformVideoModeField.disabled = !editable || !isPlatformVideoGroup;
   platformAuthorModeField.disabled = !editable || !usesAuthorAxis;
   redditModeField.disabled = !editable || !isRedditGroup;
@@ -5620,7 +5003,6 @@ function renderEditor(now = Date.now()) {
     !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
   renderBlockedSites();
   refreshChipField(platformAuthorsField);
-  renderPlatformTagChips();
   refreshChipField(redditSubredditsField);
   refreshChipField(discordTargetsField);
   deleteGroupButton.disabled = !editable;
@@ -5773,8 +5155,7 @@ function stashCurrentDraft() {
   }
 
   const isPlatformVideoGroup = isPlatformVideoGroupType(group.groupType);
-  const isTwitterGroup = normalizeGroupType(group.groupType) === "twitter";
-  const usesAuthorAxis = isPlatformVideoGroup || isTwitterGroup;
+  const usesAuthorAxis = isPlatformAuthorGroupType(group.groupType);
   const isRedditGroup = group.groupType === "reddit";
   const isDiscordGroup = group.groupType === "discord";
 
@@ -5797,7 +5178,6 @@ function stashCurrentDraft() {
     platformVideoMode: platformVideoModeField.value,
     platformAuthorMode: platformAuthorModeField.value,
     platformAuthorsText: platformAuthorsField.value,
-    platformAuthorTagsText: platformAuthorTagsField.value,
     redditMode: redditModeField.value,
     redditSubredditsText: redditSubredditsField.value,
     discordMode: discordModeField.value,
@@ -5988,6 +5368,78 @@ async function addGroup(groupType = DEFAULT_GROUP_TYPE) {
   render();
   groupNameField.focus();
   groupNameField.select();
+}
+
+function resetPlatformCriteriaFor(group, groupType) {
+  const defaults = createDefaultGroup(groupType);
+  return {
+    ...group,
+    groupType: defaults.groupType,
+    platformVideoMode: defaults.platformVideoMode,
+    platformAuthorMode: defaults.platformAuthorMode,
+    platformAuthors: defaults.platformAuthors,
+    redditMode: defaults.redditMode,
+    redditSubreddits: defaults.redditSubreddits,
+    discordMode: defaults.discordMode,
+    discordTargets: defaults.discordTargets,
+    surfaceHides: defaults.surfaceHides,
+    blockHomePage: defaults.blockHomePage,
+    skipToNextOnBlock: defaults.skipToNextOnBlock
+  };
+}
+
+async function changeSelectedPlatformRule(groupType) {
+  const requestedType = normalizeGroupType(groupType);
+  if (!isPlatformProfileGroupType(requestedType)) {
+    render();
+    return;
+  }
+
+  const currentGroup = getSelectedGroup();
+  if (
+    !currentGroup ||
+    !isPlatformProfileGroupType(currentGroup.groupType) ||
+    !isGroupEditable(currentGroup)
+  ) {
+    render();
+    return;
+  }
+  if (currentGroup.groupType === requestedType) return;
+
+  // Prevent a second change event from racing the confirmation and draft flush.
+  if (platformRulePlatformField) platformRulePlatformField.disabled = true;
+  const confirmed = await cbDialog.confirm(
+    t("platform.changeWarning", {
+      from: getPlatformDisplayName(currentGroup.groupType),
+      to: getPlatformDisplayName(requestedType)
+    }),
+    { danger: true, confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
+  );
+  if (!confirmed) {
+    render();
+    return;
+  }
+
+  stashCurrentDraft();
+  await flushAutosave();
+  const group = getSelectedGroup();
+  if (!group || !isPlatformProfileGroupType(group.groupType) || !isGroupEditable(group)) {
+    render();
+    return;
+  }
+  if (group.groupType === requestedType) {
+    render();
+    return;
+  }
+
+  // Every platform parses different identifiers and exposes different surface
+  // controls. Start those criteria fresh instead of retaining invisible rules
+  // that could accidentally become active on the newly selected platform.
+  const updatedGroup = resetPlatformCriteriaFor(group, requestedType);
+  state.groups = state.groups.map((item) => (item.id === group.id ? updatedGroup : item));
+  state.drafts[group.id] = groupToDraft(updatedGroup);
+  await persistState();
+  render();
 }
 
 async function deleteAllGroups() {
@@ -6188,15 +5640,6 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
   const siteResults = parseSiteTextareaValue(draft.sitesText);
   const authorResults = parsePlatformAuthorsTextarea(group.groupType, draft.platformAuthorsText);
   const authorMode = normalizePlatformAuthorMode(draft.platformAuthorMode);
-  // Visual-only stub: tags are free-form, so every non-empty entry is kept.
-  const authorTags = [
-    ...new Set(
-      String(draft.platformAuthorTagsText ?? "")
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-    )
-  ];
   const redditResults = parseRedditSubredditsTextarea(draft.redditSubredditsText);
   const redditMode = normalizeRedditMode(draft.redditMode, redditResults.validSubreddits);
   const discordResults = parseDiscordTargetsTextarea(draft.discordTargetsText);
@@ -6242,8 +5685,7 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
     fail(new Error(t("status.invalidSites", { list: siteResults.invalidSites.join(", ") })));
   }
 
-  const usesAuthorAxis =
-    isPlatformVideoGroupType(group.groupType) || normalizeGroupType(group.groupType) === "twitter";
+  const usesAuthorAxis = isPlatformAuthorGroupType(group.groupType);
 
   // Invalid platform entries are surfaced inline as red chips in the editor, so
   // we no longer abort the save — valid entries persist and the bad chips stay
@@ -6281,7 +5723,6 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
       platformVideoMode: normalizeVideoMode(draft.platformVideoMode),
       platformAuthorMode: authorMode,
       platformAuthors: usesAuthorAxis ? authorResults.validAuthors : group.platformAuthors,
-      platformAuthorTags: usesAuthorAxis ? authorTags : (group.platformAuthorTags ?? []),
       surfaceHides: normalizeSurfaceHides(
         Array.isArray(draft.surfaceHides) ? draft.surfaceHides : group.surfaceHides,
         group.groupType
@@ -7782,16 +7223,8 @@ if (templateGrid) {
 }
 
 setupPlatformChipInputs();
-setupYtTagUi();
-loadAllTags(false).catch(() => {});
 
 platformAuthorsField.addEventListener("input", () => {
-  stashCurrentDraft();
-  renderGroupList();
-  scheduleAutosave();
-});
-
-platformAuthorTagsField.addEventListener("input", () => {
   stashCurrentDraft();
   renderGroupList();
   scheduleAutosave();
@@ -7802,6 +7235,16 @@ platformVideoModeField.addEventListener("change", () => {
   renderGroupList();
   scheduleAutosave();
 });
+
+if (platformRulePlatformField) {
+  platformRulePlatformField.addEventListener("change", () => {
+    changeSelectedPlatformRule(platformRulePlatformField.value).catch((error) => {
+      console.error("Failed to change the platform rule.", error);
+      setStatus(t("status.errorSaveGroup"), true);
+      render();
+    });
+  });
+}
 
 platformAuthorModeField.addEventListener("change", () => {
   if (platformAuthorModeField.value === "exclude") {
@@ -7939,7 +7382,6 @@ if (settingsModal) {
     settingsAutosaveDebounceField,
     settingsDebugModeField,
     settingsShowOnPageLogToastsField,
-    settingsContributeChannelsField,
     settingsDefaultSnoozeMinutesField,
     settingsDefaultFallbackUrlField
   ];
@@ -7954,60 +7396,9 @@ if (settingsModal) {
   }
 }
 
-if (contributionConsentAcceptButton) {
-  contributionConsentAcceptButton.addEventListener("click", () => {
-    saveContributionConsent(true).catch((error) => {
-      console.error("Failed to save contribution consent.", error);
-    });
-  });
-}
-
-if (contributionConsentDeclineButton) {
-  contributionConsentDeclineButton.addEventListener("click", () => {
-    saveContributionConsent(false).catch((error) => {
-      console.error("Failed to save contribution consent.", error);
-    });
-  });
-}
-
-if (connectionServerToggle) {
-  connectionServerToggle.addEventListener("change", () => {
-    const enabled = connectionServerToggle.checked;
-    updateConnectionSettings({ serverEnabled: enabled })
-      .then(() => {
-        try {
-          chrome.runtime.sendMessage({
-            type: enabled ? "connection-server-start" : "connection-server-stop"
-          });
-        } catch (_) {}
-      })
-      .catch(() => {});
-  });
-}
-
-if (connectionConnectButton) {
-  connectionConnectButton.addEventListener("click", () => {
-    updateConnectionSettings({ clientEnabled: true })
-      .then(() => {
-        try {
-          chrome.runtime.sendMessage({ type: "connection-connect" });
-        } catch (_) {}
-        applyConnectionStatus({ ...state.connectionStatus, state: "connecting" });
-      })
-      .catch(() => {});
-  });
-}
-
-if (connectionDisconnectButton) {
-  connectionDisconnectButton.addEventListener("click", () => {
-    updateConnectionSettings({ clientEnabled: false })
-      .then(() => {
-        try {
-          chrome.runtime.sendMessage({ type: "connection-disconnect" });
-        } catch (_) {}
-        applyConnectionStatus({ state: "off" });
-      })
-      .catch(() => {});
+if (classifierCollectionToggle) {
+  classifierCollectionToggle.addEventListener("change", () => {
+    classifierBridgeStorageSet({ ...classifierBridgeSettings, collectionEnabled: classifierCollectionToggle.checked }).catch(() => {});
   });
 }
 
@@ -8486,7 +7877,10 @@ async function initializePopupApp() {
   applyPanelWidth(loadPanelWidth());
 
   await loadGroups();
-  showContributionConsentIfNeeded();
+  await chrome.storage.local.set({
+    [BLOCKED_GROUPS_KEY]: state.groups,
+    [GLOBAL_SETTINGS_KEY]: state.globalSettings
+  });
   await loadLogFeedSnapshot();
   // Banner runs after translations are applied so the labels read in
   // the user's language, and runs after loadGroups so the popup is in a
