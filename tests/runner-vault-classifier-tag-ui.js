@@ -88,13 +88,13 @@ const chrome = {
         { id: "games", name: "Games", lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" },
         { id: "technology", name: "Technology", lightColorHex: "#E3B4E7", darkColorHex: "#6B246F" }
       ];
-      const response = message.type === "vault-classifier-source-tags-batch"
+      const response = message.type === "vault-classifier-video-tags-batch"
         ? {
             ok: true,
             platformID: message.platform,
-            items: (Array.isArray(message.items) ? message.items : []).map((item) => ({ sourceID: item.sourceID, tags }))
+            items: (Array.isArray(message.items) ? message.items : []).map((item) => ({ entryID: item.entryID, tags, predicted: false, pending: false }))
           }
-        : { ok: true, platformID: message.platform, sourceID: message.sourceID, tags };
+        : { ok: true, platformID: message.platform, entryID: message.entryID, tags, predicted: false, pending: false };
       setTimeout(() => {
         context.__tagResponse = JSON.stringify(response);
         callback(vm.runInContext("JSON.parse(__tagResponse)", context));
@@ -125,10 +125,12 @@ const firstRoot = new FakeElement("article", document);
 const secondRoot = new FakeElement("article", document);
 const firstAnchor = firstRoot.appendChild(new FakeElement("a", document));
 const secondAnchor = secondRoot.appendChild(new FakeElement("a", document));
-const sourceID = "youtube:channel:UC123";
+const entryID = "youtube:video:v123";
+const creatorID = "youtube:channel:UC123";
+const title = "A great video";
 
-context.VaultClassifierTagUI.observe({ platform: "youtube", sourceID, root: firstRoot, anchor: firstAnchor });
-context.VaultClassifierTagUI.observe({ platform: "youtube", sourceID, root: secondRoot, anchor: secondAnchor });
+context.VaultClassifierTagUI.observe({ platform: "youtube", entryID, creatorID, title, root: firstRoot, anchor: firstAnchor });
+context.VaultClassifierTagUI.observe({ platform: "youtube", entryID, creatorID, title, root: secondRoot, anchor: secondAnchor });
 
 setTimeout(() => {
   const firstHost = firstRoot.children[1];
@@ -148,13 +150,13 @@ setTimeout(() => {
     && firstHost.className === ""
     && firstHost.children.length === 0
     && !Object.values(firstHost.style).join(" ").includes("Games");
-  // Two observes of the same source coalesce onto one queued request, which the
-  // drain sends as a single batch carrying exactly that one source.
+  // Two observes of the same video coalesce onto one queued request, which the
+  // drain sends as a single batch carrying exactly that one video.
   const coalesced = messages.length === 1
-    && messages[0].type === "vault-classifier-source-tags-batch"
+    && messages[0].type === "vault-classifier-video-tags-batch"
     && Array.isArray(messages[0].items)
     && messages[0].items.length === 1
-    && messages[0].items[0].sourceID === sourceID;
+    && messages[0].items[0].entryID === entryID;
   const renderedEveryEntry = JSON.stringify(firstNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(secondNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(firstLightColors) === JSON.stringify(["#9EC5E8", "#E3B4E7"])

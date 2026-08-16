@@ -99,7 +99,7 @@ vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-youtube.js"), 
 setTimeout(() => {
   const collected = messages.filter((message) => message.type === "vault-classifier-collect").map((message) => message.entry);
   const entry = collected[0];
-  const observed = tagPresentations.find((value) => value.sourceID);
+  const observed = tagPresentations.find((value) => value.creatorID);
   const passes = Boolean(
     entry
     // Channel-first primary identity, with the @handle recorded as an alias.
@@ -107,12 +107,12 @@ setTimeout(() => {
     && Array.isArray(entry.sourceAliases)
     && entry.sourceAliases.length === 1
     && entry.sourceAliases[0] === "youtube:handle:@visiblecreator"
-    // The tag lookup is requested under that same primary identity.
-    && observed && observed.sourceID === "youtube:channel:UCabcdefghijklmnopqrstuv"
+    // The tag lookup is requested under that same primary identity (creator prior).
+    && observed && observed.creatorID === "youtube:channel:UCabcdefghijklmnopqrstuv"
     // Only the card with a video link is collected; the creator-only card is not.
     && collected.length === 1
-    // But the creator-only card still gets a tag pill (creator inferred).
-    && tagPresentations.some((value) => value.sourceID === "youtube:handle:@creatoronly")
+    // Per-video: a creator-only card (no video → no entryID/title) gets NO pill.
+    && !tagPresentations.some((value) => value.creatorID === "youtube:handle:@creatoronly")
     && errors.length === 0
   );
   if (passes) {

@@ -76,11 +76,11 @@ vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-contract.js"),
 vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-youtube.js"), "utf8"), context, { filename: "vault-classifier-youtube.js" });
 
 setTimeout(() => {
-  const observed = tagPresentations.find((value) => value.sourceID);
+  const observed = tagPresentations.find((value) => value.creatorID);
   const passes = Boolean(
     observed
     // Channel-first page identity from the canonical link, anchored to the title.
-    && observed.sourceID === "youtube:channel:UCchannelpage1234567890a"
+    && observed.creatorID === "youtube:channel:UCchannelpage1234567890a"
     && observed.anchor === title
     && errors.length === 0
   );

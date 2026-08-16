@@ -357,15 +357,16 @@
         return;
       }
       if (raw.presentationRoot && PILL_PLATFORMS.has(platform)) {
+        // Per-video pill: keyed by the video's entryID, with its title as the
+        // evidence the on-device model classifies. The creatorID rides along only
+        // so the app can weigh the derived creator prior.
         TagUI?.observe?.({
           platform,
-          sourceID: evidence.sourceID,
+          entryID: evidence.entryID,
+          creatorID: evidence.sourceID,
+          title: evidence.evidence?.title || "",
           root: raw.presentationRoot,
-          anchor: raw.presentationAnchor || null,
-          // Byline names for a card with no creator link, so the native side can
-          // match by name (as YouTube collaboration cards do). Adapters that
-          // always resolve a linked source simply omit this.
-          creatorNames: Array.isArray(raw.creatorNames) && raw.creatorNames.length ? raw.creatorNames : null
+          anchor: raw.presentationAnchor || null
         });
       }
       const hasSourceIcon = Boolean(evidence.evidence?.metadata?.sourceIconURL);

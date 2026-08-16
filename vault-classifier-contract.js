@@ -420,6 +420,66 @@
     return results;
   }
 
+  // Local-LLM rework: batched per-video reply, keyed by entryID, each item
+  // carrying a `pending` flag. Same all-or-nothing validation as the source-tags
+  // batch: any structural problem rejects the whole batch with null.
+  function normalizeVideoTagsBatchResponse(value, expectedPlatform, expectedEntryIDs) {
+    if (!isPlainRecord(value)
+      || !isBoundedText(expectedPlatform, MAX.platform)
+      || value.platformID !== expectedPlatform
+      || !Array.isArray(value.items)
+      || value.items.length > MAX.sourceTagsBatchItems) {
+      return null;
+    }
+    const expected = expectedEntryIDs instanceof Set
+      ? expectedEntryIDs
+      : new Set(Array.isArray(expectedEntryIDs) ? expectedEntryIDs : []);
+    const results = new Map();
+    for (const item of value.items) {
+      if (!isPlainRecord(item)
+        || !isBoundedText(item.entryID, MAX.id)
+        || item.entryID.indexOf(`${expectedPlatform}:`) !== 0
+        || !expected.has(item.entryID)
+        || results.has(item.entryID)) {
+        return null;
+      }
+      const tags = normalizeTagList(item.tags);
+      if (tags === null) return null;
+      results.set(item.entryID, { tags, predicted: item.predicted === true, pending: item.pending === true });
+    }
+    return results;
+  }
+
+  // Validates an unsolicited hub push of freshly resolved video tags. Unlike
+  // the batch response there is no expected-entryID set — the push announces
+  // completions the browser did not just ask for — but every other bound is the
+  // same all-or-nothing check, so a malformed frame drops entirely.
+  function normalizeVideoTagsBroadcast(value) {
+    if (!isPlainRecord(value)
+      || !isBoundedText(value.platformID, MAX.platform)
+      || !Array.isArray(value.items)
+      || value.items.length === 0
+      || value.items.length > MAX.sourceTagsBatchItems) {
+      return null;
+    }
+    const platform = value.platformID;
+    const items = [];
+    const seen = new Set();
+    for (const item of value.items) {
+      if (!isPlainRecord(item)
+        || !isBoundedText(item.entryID, MAX.id)
+        || item.entryID.indexOf(`${platform}:`) !== 0
+        || seen.has(item.entryID)) {
+        return null;
+      }
+      const tags = normalizeTagList(item.tags);
+      if (tags === null) return null;
+      seen.add(item.entryID);
+      items.push({ entryID: item.entryID, tags, predicted: item.predicted === true });
+    }
+    return { platformID: platform, items };
+  }
+
   function parseYouTubeURL(value, base) {
     const input = cleanText(value, 2048);
     if (!input) return null;
@@ -555,6 +615,8 @@
     isResult,
     normalizeSourceTagsResponse,
     normalizeVideoTagsResponse,
+    normalizeVideoTagsBatchResponse,
+    normalizeVideoTagsBroadcast,
     normalizeSourceTagsBatchResponse,
     cleanCreatorNames,
     randomID

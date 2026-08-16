@@ -85,13 +85,11 @@ setTimeout(() => {
   const observed = tagPresentations.find((value) => value.root === card);
   const passes = Boolean(
     observed
-    // Keyed by the video (stable per card), not by a creator id we cannot form.
-    && observed.sourceID === "youtube:collab:SUP7x_DiyXw"
-    // Both collaborator names forwarded for name matching.
-    && Array.isArray(observed.creatorNames)
-    && observed.creatorNames.length === 2
-    && observed.creatorNames[0] === "Atlas Arcade"
-    && observed.creatorNames[1] === "Animated Subtitles"
+    // Per-video: keyed by the video's entryID; no linked channel, so the derived
+    // creator is keyed by the video itself.
+    && observed.entryID === "youtube:video:SUP7x_DiyXw"
+    && observed.creatorID === "youtube:collab:SUP7x_DiyXw"
+    && typeof observed.title === "string" && observed.title.length > 0
     && observed.anchor === title
     && errors.length === 0
   );

@@ -589,12 +589,23 @@
     const source = resolveCardSource(card);
     if (source.id) {
       const titleElement = selectorElement(card, TITLE_SELECTORS);
-      TagUI?.observe?.({
-        platform: PLATFORM,
-        sourceID: source.id,
-        root: card,
-        anchor: titleElement || source.link || null
-      });
+      const videoID = findVideoID(card);
+      // Use selectorText (not the first element's textContent): YouTube's
+      // #video-title is often an empty wrapper, with the real text under a later
+      // selector — exactly what feedEvidence relies on to collect a title.
+      const title = selectorText(card, TITLE_SELECTORS, 500);
+      // Per-video pill: keyed by the video's entryID + title; the creator rides
+      // along only as the derived weak prior.
+      if (videoID && title) {
+        TagUI?.observe?.({
+          platform: PLATFORM,
+          entryID: `${PLATFORM}:video:${videoID}`,
+          creatorID: source.id,
+          title,
+          root: card,
+          anchor: titleElement || source.link || null
+        });
+      }
     } else {
       // No linked creator (a collaboration card). Fall back to the byline names:
       // key the pill by the video so it stays stable per card, and send the names
@@ -603,13 +614,19 @@
       const videoID = names.length ? findVideoID(card) : null;
       if (videoID) {
         const titleElement = selectorElement(card, TITLE_SELECTORS);
-        TagUI?.observe?.({
-          platform: PLATFORM,
-          sourceID: `${PLATFORM}:collab:${videoID}`,
-          root: card,
-          anchor: titleElement || null,
-          creatorNames: names
-        });
+        const title = selectorText(card, TITLE_SELECTORS, 500);
+        // Collaboration card: no linked channel, so key the derived creator by the
+        // video itself; the per-video model classifies from the title.
+        if (title) {
+          TagUI?.observe?.({
+            platform: PLATFORM,
+            entryID: `${PLATFORM}:video:${videoID}`,
+            creatorID: `${PLATFORM}:collab:${videoID}`,
+            title,
+            root: card,
+            anchor: titleElement || null
+          });
+        }
       }
     }
     const entry = feedEvidence(card);
@@ -635,12 +652,17 @@
     // handle<->channel alias is stored, then request tags — so the pill resolves
     // on the very first visit rather than only after a later collection.
     await collectEntry(entry);
-    TagUI?.observe?.({
-      platform: PLATFORM,
-      sourceID: entry.sourceID,
-      root: watchRoot || document.documentElement,
-      anchor: titleElement || source?.link || null
-    });
+    const watchTitle = (entry.evidence && entry.evidence.title) || compactText(titleElement && titleElement.textContent, 500);
+    if (entry.entryID && entry.sourceID && watchTitle) {
+      TagUI?.observe?.({
+        platform: PLATFORM,
+        entryID: entry.entryID,
+        creatorID: entry.sourceID,
+        title: watchTitle,
+        root: watchRoot || document.documentElement,
+        anchor: titleElement || source?.link || null
+      });
+    }
   }
 
   const cardsToProcess = new Set();

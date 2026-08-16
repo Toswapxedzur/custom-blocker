@@ -85,7 +85,7 @@ vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-contract.js"),
 vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-youtube.js"), "utf8"), context, { filename: "vault-classifier-youtube.js" });
 
 setTimeout(() => {
-  const order = tagPresentations.map((value) => value.sourceID);
+  const order = tagPresentations.map((value) => value.creatorID);
   // Top-of-feed first: B (50), then C (150), then A (300) — NOT DOM order A,B,C.
   const passes = JSON.stringify(order) === JSON.stringify([
     "youtube:handle:@creatorb",

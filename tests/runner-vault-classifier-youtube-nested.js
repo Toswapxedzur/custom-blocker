@@ -114,7 +114,7 @@ setTimeout(() => {
   const afterSweepRoots = tagPresentations.map((value) => value.root);
   const onlyOuterAfterSweep = afterSweepRoots.length === 1
     && afterSweepRoots[0] === outer
-    && tagPresentations[0].sourceID === "youtube:handle:@nested";
+    && tagPresentations[0].creatorID === "youtube:handle:@nested";
 
   // The avatar's src loads late — a src mutation on an element INSIDE the inner
   // renderer. This previously pilled the inner card as a duplicate.
