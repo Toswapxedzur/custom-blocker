@@ -186,48 +186,6 @@ const fingerprintChanged = VC.entryFingerprint(VC.normalizeEvidence({
 assert("keeps evidence fingerprints stable across metadata ordering", fingerprintOne && fingerprintOne === fingerprintTwo);
 assert("changes evidence fingerprints when page enrichment changes", fingerprintOne && fingerprintOne !== fingerprintChanged);
 
-const result = {
-  selectedLeafTagIDs: ["content.entities.clash-royale"],
-  decisions: [
-    { action: "dim", explanation: "Matched Clash Royale focus; dim this feed card." },
-    { action: "block", explanation: "Hard block enabled." }
-  ]
-};
-assert("uses the strongest local action", VC.strongestAction(result) === "block");
-assert("preserves local explanation", VC.explanation(result) === "Matched Clash Royale focus; dim this feed card.");
-assert("recognizes only structured classifier results", VC.isResult(result) && !VC.isResult({ selectedLeafTagIDs: [] }));
-assert("rejects malformed classifier actions", !VC.isResult({ selectedLeafTagIDs: [], decisions: [{ action: "erase", explanation: "bad" }] }));
-const sourceTags = VC.normalizeSourceTagsResponse({
-  platformID: "youtube",
-  sourceID: "youtube:channel:UC123",
-  tags: [
-    { id: "games", name: "Games", lightColorHex: "#9ec5e8", darkColorHex: "#1a4775" },
-    { id: "technology", name: "Technology", lightColorHex: "#e3b4e7", darkColorHex: "#6B246F" }
-  ]
-}, "youtube", "youtube:channel:UC123");
-assert("accepts bounded paired-color source-tag projections", sourceTags
-  && sourceTags.tags.map((tag) => tag.name).join(",") === "Games,Technology"
-  && sourceTags.tags.map((tag) => tag.lightColorHex).join(",") === "#9EC5E8,#E3B4E7"
-  && sourceTags.tags.map((tag) => tag.darkColorHex).join(",") === "#1A4775,#6B246F");
-assert("rejects source-tag responses for a different source", VC.normalizeSourceTagsResponse({
-  platformID: "youtube",
-  sourceID: "youtube:channel:forged",
-  tags: [{ id: "games", name: "Games", lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" }]
-}, "youtube", "youtube:channel:UC123") === null);
-assert("rejects duplicate or unbounded source tags", VC.normalizeSourceTagsResponse({
-  platformID: "youtube",
-  sourceID: "youtube:channel:UC123",
-  tags: [
-    { id: "games", name: "Games", lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" },
-    { id: "games", name: "Duplicate", lightColorHex: "#E3B4E7", darkColorHex: "#6B246F" }
-  ]
-}, "youtube", "youtube:channel:UC123") === null);
-assert("rejects source tags without both assigned theme colors", VC.normalizeSourceTagsResponse({
-  platformID: "youtube",
-  sourceID: "youtube:channel:UC123",
-  tags: [{ id: "games", name: "Games", lightColorHex: "#9EC5E8" }]
-}, "youtube", "youtube:channel:UC123") === null);
-
 // Local-LLM rework: per-video tags validator (keyed by entryID, carries pending).
 const videoTags = VC.normalizeVideoTagsResponse({
   platformID: "youtube",

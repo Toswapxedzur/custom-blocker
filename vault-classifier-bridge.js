@@ -477,72 +477,6 @@
     return { ok: Boolean(queued.accepted), ...queued };
   }
 
-  async function sourceTags(platform, sourceID, creatorNames = []) {
-    if (typeof sourceID !== "string"
-      || sourceID.length === 0
-      || sourceID.length > 256
-      || !sourceID.startsWith(`${platform}:`)) {
-      return { ok: false, tags: [] };
-    }
-    try {
-      const current = await settings();
-      if (!current.collectionEnabled) return { ok: true, platformID: platform, sourceID, tags: [] };
-      const names = C.cleanCreatorNames?.(creatorNames) || [];
-      const body = await hubRequest("source-tags", names.length
-        ? { platformID: platform, sourceID, creatorNames: names }
-        : { platformID: platform, sourceID });
-      const normalized = C.normalizeSourceTagsResponse?.(body, platform, sourceID);
-      return normalized
-        ? { ok: true, platformID: normalized.platformID, sourceID: normalized.sourceID, tags: normalized.tags }
-        : { ok: false, tags: [] };
-    } catch (_) {
-      return { ok: false, tags: [] };
-    }
-  }
-
-  // Resolves tags for many sources in one hub round-trip. The content collector
-  // flushes a viewport of cards together, so batching turns N requests into one
-  // WebSocket exchange and one @MainActor hop on the app. A malformed reply, a
-  // disabled platform, or an unavailable hub yields ok:false so the caller can
-  // fall back to per-source requests.
-  async function sourceTagsBatch(platform, rawItems) {
-    if (typeof platform !== "string" || !Array.isArray(rawItems) || rawItems.length === 0) {
-      return { ok: false, items: [] };
-    }
-    const items = [];
-    const seen = new Set();
-    for (const raw of rawItems) {
-      const sourceID = raw && typeof raw.sourceID === "string" ? raw.sourceID : null;
-      if (!sourceID
-        || sourceID.length === 0
-        || sourceID.length > 256
-        || !sourceID.startsWith(`${platform}:`)
-        || seen.has(sourceID)) {
-        continue;
-      }
-      seen.add(sourceID);
-      const names = C.cleanCreatorNames?.(raw.creatorNames) || [];
-      items.push(names.length ? { sourceID, creatorNames: names } : { sourceID });
-      if (items.length >= 64) break;
-    }
-    if (!items.length) return { ok: true, platformID: platform, items: [] };
-    try {
-      const current = await settings();
-      if (!current.collectionEnabled) return { ok: true, platformID: platform, items: [] };
-      const body = await hubRequest("source-tags-batch", { platformID: platform, items });
-      const expected = new Set(items.map((item) => item.sourceID));
-      const results = C.normalizeSourceTagsBatchResponse?.(body, platform, expected);
-      if (!results) return { ok: false, items: [] };
-      return {
-        ok: true,
-        platformID: platform,
-        items: [...results.entries()].map(([sourceID, tags]) => ({ sourceID, tags }))
-      };
-    } catch (_) {
-      return { ok: false, items: [] };
-    }
-  }
-
   // Local-LLM rework: resolves ONE video's tags, keyed by the video's entryID +
   // evidence (the pill is now per-video). Returns pending:true when the app has
   // queued classification and the caller should re-request shortly.
@@ -682,37 +616,6 @@
         sendResponse(response);
       })
       .catch(() => sendResponse({ ok: false, accepted: false }));
-    return true;
-  });
-
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    const platform = message && typeof message.platform === "string" ? message.platform : null;
-    const sourceID = message && typeof message.sourceID === "string" ? message.sourceID : null;
-    if (!message
-      || message.type !== "vault-classifier-source-tags"
-      || !collectionPlatformForSender(sender, platform)
-      || !sourceID
-      || !sourceID.startsWith(`${platform}:`)
-      || sourceID.length > 256) {
-      return false;
-    }
-    sourceTags(platform, sourceID, Array.isArray(message.creatorNames) ? message.creatorNames : [])
-      .then(sendResponse)
-      .catch(() => sendResponse({ ok: false, tags: [] }));
-    return true;
-  });
-
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    const platform = message && typeof message.platform === "string" ? message.platform : null;
-    if (!message
-      || message.type !== "vault-classifier-source-tags-batch"
-      || !collectionPlatformForSender(sender, platform)
-      || !Array.isArray(message.items)) {
-      return false;
-    }
-    sourceTagsBatch(platform, message.items)
-      .then(sendResponse)
-      .catch(() => sendResponse({ ok: false, items: [] }));
     return true;
   });
 
