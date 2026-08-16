@@ -22,18 +22,11 @@
     nativeRequestID: 128,
     nativeNonce: 128,
     nativeMac: 44,
-    resultTags: 512,
-    resultDecisions: 128,
-    resultExplanation: 512,
-    sourceTags: 64,
+    returnedTags: 64,
     sourceAliases: 8,
-    creatorNames: 4,
-    creatorNameLength: 120,
-    sourceTagsBatchItems: 64
+    videoTagsBatchItems: 64
   });
 
-  const ACTION_ORDER = Object.freeze({ allow: 0, dim: 1, block: 2 });
-  const OWN = Object.prototype.hasOwnProperty;
   const UNSAFE_METADATA_KEYS = new Set(["__proto__", "prototype", "constructor"]);
   // A verified source icon is the sole remote image type accepted by
   // collection. The source may be a creator, account, subreddit, or server.
@@ -124,26 +117,6 @@
       seen.add(alias);
       output.push(alias);
       if (output.length >= MAX.sourceAliases) break;
-    }
-    return output;
-  }
-
-  // Best-effort display names for a card with no creator link (YouTube
-  // collaboration cards). Bounded and de-duplicated; the native side matches
-  // them against approved classifications only when the linked id resolves
-  // nothing, so these never widen what a normal, linked card can resolve.
-  function cleanCreatorNames(value) {
-    if (!Array.isArray(value)) return [];
-    const seen = new Set();
-    const output = [];
-    for (const candidate of value) {
-      const name = cleanText(candidate, MAX.creatorNameLength);
-      if (!name) continue;
-      const key = name.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      output.push(name);
-      if (output.length >= MAX.creatorNames) break;
     }
     return output;
   }
@@ -314,21 +287,8 @@
     return typeof value === "string" && value.length > 0 && value.length <= maximum && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value);
   }
 
-  function isBoundedStringList(value, maximumEntries, maximumLength) {
-    return Array.isArray(value) && value.length <= maximumEntries && value.every((item) => isBoundedText(item, maximumLength));
-  }
-
-  function isResult(value) {
-    if (!isPlainRecord(value) || !isBoundedStringList(value.selectedLeafTagIDs, MAX.resultTags, MAX.tag) || !Array.isArray(value.decisions) || value.decisions.length > MAX.resultDecisions) return false;
-    return value.decisions.every((decision) => {
-      if (!isPlainRecord(decision) || !OWN.call(ACTION_ORDER, decision.action) || typeof decision.explanation !== "string" || decision.explanation.length > MAX.resultExplanation) return false;
-      if (decision.policyID !== undefined && !isBoundedText(decision.policyID, MAX.policy)) return false;
-      return decision.matchedTagIDs === undefined || isBoundedStringList(decision.matchedTagIDs, MAX.resultTags, MAX.tag);
-    });
-  }
-
   function normalizeTagList(value) {
-    if (!Array.isArray(value) || value.length > MAX.sourceTags) return null;
+    if (!Array.isArray(value) || value.length > MAX.returnedTags) return null;
     const tags = [];
     const seen = new Set();
     for (const item of value) {
@@ -353,19 +313,6 @@
     return tags;
   }
 
-  function normalizeSourceTagsResponse(value, expectedPlatform, expectedSourceID) {
-    if (!isPlainRecord(value)
-      || !isBoundedText(expectedPlatform, MAX.platform)
-      || !isBoundedText(expectedSourceID, MAX.id)
-      || expectedSourceID.indexOf(`${expectedPlatform}:`) !== 0
-      || value.platformID !== expectedPlatform
-      || value.sourceID !== expectedSourceID) {
-      return null;
-    }
-    const tags = normalizeTagList(value.tags);
-    return tags === null ? null : { platformID: expectedPlatform, sourceID: expectedSourceID, tags, predicted: value.predicted === true };
-  }
-
   // Local-LLM rework: validates a per-video tags reply, keyed by the video's
   // entryID (not the creator). `pending` is true when the app has queued
   // classification and the caller should re-request shortly.
@@ -388,47 +335,15 @@
     };
   }
 
-  // Validates a batched source-tags reply against the exact set of sourceIDs the
-  // caller asked for, returning a Map sourceID -> tags. Any structural problem
-  // (wrong platform, unknown/duplicate sourceID, malformed tag) rejects the whole
-  // batch with null, so the caller can fall back to per-source requests rather
-  // than render a partially-validated response.
-  function normalizeSourceTagsBatchResponse(value, expectedPlatform, expectedSourceIDs) {
-    if (!isPlainRecord(value)
-      || !isBoundedText(expectedPlatform, MAX.platform)
-      || value.platformID !== expectedPlatform
-      || !Array.isArray(value.items)
-      || value.items.length > MAX.sourceTagsBatchItems) {
-      return null;
-    }
-    const expected = expectedSourceIDs instanceof Set
-      ? expectedSourceIDs
-      : new Set(Array.isArray(expectedSourceIDs) ? expectedSourceIDs : []);
-    const results = new Map();
-    for (const item of value.items) {
-      if (!isPlainRecord(item)
-        || !isBoundedText(item.sourceID, MAX.id)
-        || item.sourceID.indexOf(`${expectedPlatform}:`) !== 0
-        || !expected.has(item.sourceID)
-        || results.has(item.sourceID)) {
-        return null;
-      }
-      const tags = normalizeTagList(item.tags);
-      if (tags === null) return null;
-      results.set(item.sourceID, { tags, predicted: item.predicted === true });
-    }
-    return results;
-  }
-
   // Local-LLM rework: batched per-video reply, keyed by entryID, each item
-  // carrying a `pending` flag. Same all-or-nothing validation as the source-tags
-  // batch: any structural problem rejects the whole batch with null.
+  // carrying a `pending` flag. Any structural problem rejects the whole batch
+  // with null.
   function normalizeVideoTagsBatchResponse(value, expectedPlatform, expectedEntryIDs) {
     if (!isPlainRecord(value)
       || !isBoundedText(expectedPlatform, MAX.platform)
       || value.platformID !== expectedPlatform
       || !Array.isArray(value.items)
-      || value.items.length > MAX.sourceTagsBatchItems) {
+      || value.items.length > MAX.videoTagsBatchItems) {
       return null;
     }
     const expected = expectedEntryIDs instanceof Set
@@ -459,7 +374,7 @@
       || !isBoundedText(value.platformID, MAX.platform)
       || !Array.isArray(value.items)
       || value.items.length === 0
-      || value.items.length > MAX.sourceTagsBatchItems) {
+      || value.items.length > MAX.videoTagsBatchItems) {
       return null;
     }
     const platform = value.platformID;
@@ -584,21 +499,6 @@
     return `vc1-${(hash >>> 0).toString(16).padStart(8, "0")}`;
   }
 
-  function strongestAction(result) {
-    const decisions = result && Array.isArray(result.decisions) ? result.decisions : [];
-    return decisions.reduce((best, decision) => {
-      const action = decision && typeof decision.action === "string" ? decision.action : "allow";
-      return OWN.call(ACTION_ORDER, action) && ACTION_ORDER[action] > ACTION_ORDER[best] ? action : best;
-    }, "allow");
-  }
-
-  function explanation(result) {
-    const first = result && Array.isArray(result.decisions) ? result.decisions[0] : null;
-    if (first && typeof first.explanation === "string" && first.explanation.length <= 512) return first.explanation;
-    const tags = result && Array.isArray(result.selectedLeafTagIDs) ? result.selectedLeafTagIDs.slice(0, 3) : [];
-    return tags.length ? `Matched local tags: ${tags.join(", ")}.` : "No local policy matched.";
-  }
-
   global.VaultClassifierExtensionContract = Object.freeze({
     protocolVersion: 1,
     maximumNativeBodyBytes: MAX.nativeBodyBytes,
@@ -610,15 +510,9 @@
     isTrustedSourceIconURL,
     youtubeVideoIDFromURL,
     entryFingerprint,
-    strongestAction,
-    explanation,
-    isResult,
-    normalizeSourceTagsResponse,
     normalizeVideoTagsResponse,
     normalizeVideoTagsBatchResponse,
     normalizeVideoTagsBroadcast,
-    normalizeSourceTagsBatchResponse,
-    cleanCreatorNames,
     randomID
   });
 })(typeof globalThis !== "undefined" ? globalThis : this);

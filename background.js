@@ -4235,7 +4235,7 @@ const cbClassifierHub = {
   // Every operation the extension may send over the shared classifier route.
   // Keep in sync with LocalClassifierHub.swift and ConnectionHub.swift — the
   // parity suite (tests/runner-hub-op-parity.js) fails if the copies drift.
-  operations: ["bridge-info", "collection-info", "diagnostic", "collect", "source-tags", "source-tags-batch", "video-tags", "video-tags-batch", "dev-log", "classify", "correct"],
+  operations: ["bridge-info", "collection-info", "diagnostic", "collect", "video-tags", "video-tags-batch", "dev-log"],
 
   request(operation, body) {
     if (!this.operations.includes(operation)) {
@@ -4304,13 +4304,10 @@ self.CBClassifierHub = cbClassifierHub;
 // Run from the extension's service-worker console
 // (chrome://extensions → "Inspect views: service worker"):
 //   await CBVaultMeasureBridge()                       // ~pure connection (bridge-info)
-//   await CBVaultMeasureBridge({ op: "source-tags" })  // connection + pill compute
-// The delta between the two medians ≈ app-side compute. `coldFirstMs` is the
-// cold path (connect + hello/welcome handshake) only when `warmAtStart` is false.
+// `coldFirstMs` is the cold path (connect + hello/welcome handshake) only when
+// `warmAtStart` is false.
 async function cbMeasureBridge({ op = "bridge-info", count = 20, gapMs = 50, body } = {}) {
-  const requestBody = body || (op === "source-tags"
-    ? { platformID: "youtube", sourceID: "youtube:handle:@__probe__" }
-    : {});
+  const requestBody = body || {};
   const warmAtStart = cbClassifierHub.isReady(cbConnection);
   const round2 = (value) => Math.round(value * 100) / 100;
   const samples = [];

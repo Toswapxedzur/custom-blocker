@@ -116,23 +116,25 @@ function assert(name, condition, detail) {
   const response = await pending;
   assert("accepts the matching shared relay response", response.enabledPlatformIDs?.[0] === "youtube", response);
 
-  const tagPending = hub.request("source-tags", {
+  const tagPending = hub.request("video-tags", {
     platformID: "youtube",
-    sourceID: "youtube:channel:UC123"
+    entryID: "youtube:video:abc123",
+    creatorID: "youtube:channel:UC123",
+    title: "A classified video"
   });
   await new Promise((resolve) => setImmediate(resolve));
   assert(
-    "allows the bounded source-tag operation on the shared classifier relay",
-    sent.length === 3 && sent.at(-1).operation === "source-tags",
+    "allows the bounded per-video tag operation on the shared classifier relay",
+    sent.length === 3 && sent.at(-1).operation === "video-tags",
     sent
   );
   hub.receive({
     kind: "classifier-response",
     requestID: "classifier-test",
-    operation: "source-tags",
+    operation: "video-tags",
     body: {
       platformID: "youtube",
-      sourceID: "youtube:channel:UC123",
+      entryID: "youtube:video:abc123",
       tags: [{
         id: "games",
         name: "Games",
@@ -142,7 +144,7 @@ function assert(name, condition, detail) {
     }
   });
   const tagResponse = await tagPending;
-  assert("returns the matching paired-color source-tag relay response", tagResponse.tags?.[0]?.name === "Games"
+  assert("returns the matching paired-color video-tag relay response", tagResponse.tags?.[0]?.name === "Games"
     && tagResponse.tags?.[0]?.lightColorHex === "#9EC5E8"
     && tagResponse.tags?.[0]?.darkColorHex === "#1A4775", tagResponse);
 

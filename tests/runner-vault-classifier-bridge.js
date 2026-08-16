@@ -26,10 +26,10 @@ const hub = {
         resolve(inExtensionRealm({ accepted: true, inserted: true }));
       } else if (operation === "diagnostic") {
         resolve(inExtensionRealm({ accepted: true }));
-      } else if (operation === "source-tags") {
+      } else if (operation === "video-tags") {
         resolve(inExtensionRealm({
           platformID: body.platformID,
-          sourceID: body.sourceID,
+          entryID: body.entryID,
           tags: [{
             id: "games",
             name: "Games",
@@ -240,21 +240,25 @@ function assert(name, condition, detail) {
     && flushedRequest?.body?.firstObservedAtMilliseconds <= flushedRequest?.body?.lastObservedAtMilliseconds
     && flushedStatus.pendingCount === 0, { flushedRequest, flushedStatus });
 
-  const sourceTags = await dispatch({
-    type: "vault-classifier-source-tags",
+  const videoTags = await dispatch({
+    type: "vault-classifier-video-tags",
     platform: "youtube",
-    sourceID: "youtube:channel:UC1234567890123456789012"
+    entryID: "youtube:video:abc123",
+    creatorID: "youtube:channel:UC1234567890123456789012",
+    title: "A classified video"
   }, trustedSender);
-  assert("routes a bounded source-tag lookup and returns human-readable tags", sourceTags.value?.ok === true
-    && sourceTags.value?.tags?.[0]?.name === "Games"
-    && sourceTags.value?.tags?.[0]?.lightColorHex === "#9EC5E8"
-    && sourceTags.value?.tags?.[0]?.darkColorHex === "#1A4775", sourceTags);
-  const forgedSourceTags = await dispatch({
-    type: "vault-classifier-source-tags",
+  assert("routes a bounded per-video lookup and returns human-readable tags", videoTags.value?.ok === true
+    && videoTags.value?.tags?.[0]?.name === "Games"
+    && videoTags.value?.tags?.[0]?.lightColorHex === "#9EC5E8"
+    && videoTags.value?.tags?.[0]?.darkColorHex === "#1A4775", videoTags);
+  const forgedVideoTags = await dispatch({
+    type: "vault-classifier-video-tags",
     platform: "reddit",
-    sourceID: "reddit:subreddit:games"
+    entryID: "reddit:post:abc123",
+    creatorID: "reddit:subreddit:games",
+    title: "Forged platform"
   }, trustedSender);
-  assert("rejects a source-tag platform that does not match the sender origin", !forgedSourceTags.waiting, forgedSourceTags);
+  assert("rejects a video-tag platform that does not match the sender origin", !forgedVideoTags.waiting, forgedVideoTags);
 
   const diagnostic = await dispatch({
     type: "vault-classifier-diagnostic",
@@ -317,27 +321,24 @@ function assert(name, condition, detail) {
     && disabledStatus.droppedCount >= 1
     && diagnostics.some((item) => item.event === "collection-dropped" && item.outcome === "disabled"), { disabledStatus, diagnostics });
 
-  const removedPolicyBridge = await dispatch({
-    type: "vault-classifier-classify",
-    entry: entry("dQw4w9WgXcQ", "No browser policy")
-  }, trustedSender);
-  assert("does not expose browser-side classifier policy actions", !removedPolicyBridge.waiting, removedPolicyBridge);
-
   localStorage.vaultClassifierSettings = { collectionEnabled: false };
   storageListeners.forEach((listener) => listener({
     vaultClassifierSettings: { newValue: localStorage.vaultClassifierSettings }
   }, "local"));
   const collectionDisabled = await dispatch({ type: "vault-classifier-collection-info" }, trustedSender);
   const tagsDisabled = await dispatch({
-    type: "vault-classifier-source-tags",
+    type: "vault-classifier-video-tags",
     platform: "youtube",
-    sourceID: "youtube:channel:UC1234567890123456789012"
+    entryID: "youtube:video:disabled",
+    creatorID: "youtube:channel:UC1234567890123456789012",
+    title: "Collection disabled"
   }, trustedSender);
   await waitFor(async () => (await context.CBVaultClassifierCollectionQueueStatus()).pendingCount === 0);
   assert("browser-side collection opt-out clears queued data and prevents routing", collectionDisabled.value?.ok === true
     && collectionDisabled.value?.enabled === false
     && tagsDisabled.value?.ok === true
-    && tagsDisabled.value?.tags?.length === 0, { collectionDisabled, tagsDisabled });
+    && tagsDisabled.value?.tags?.length === 0
+    && tagsDisabled.value?.pending === false, { collectionDisabled, tagsDisabled });
 
   console.log(`__CB_TEST_RESULT__: ${failures === 0 ? "OK" : "FAIL"} (${failures} failures)`);
   if (failures !== 0) process.exitCode = 1;
