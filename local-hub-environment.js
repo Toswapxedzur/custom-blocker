@@ -8,7 +8,7 @@
   "use strict";
 
   const PRODUCTION_EXTENSION_ID = "mcbmcmephdaapjepopobikobjmfdeamm";
-  const DEVELOPMENT_EXTENSION_ID = "opjogfpcmllpgplgofionfejkjeanhkc";
+  const DEVELOPMENT_EXTENSION_ID = "fjichnkbaoilbfbjcjkggllmbicmeegk";
   const configurations = Object.freeze({
     [PRODUCTION_EXTENSION_ID]: Object.freeze({
       name: "production",

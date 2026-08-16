@@ -110,7 +110,7 @@ const observedFor = (card) => tagPresentations.find((value) => value.root === ca
 setTimeout(() => {
   const scansAfterSweep = documentScans;
   const knownProcessedOnDiscovery = Boolean(observedFor(existingCard)
-    && observedFor(existingCard).sourceID === "youtube:handle:@existing");
+    && observedFor(existingCard).creatorID === "youtube:handle:@existing");
 
   // Stage 2: a card with no author link yet arrives. It is registered but, with
   // the author still unknown, injects no pill.
@@ -131,7 +131,7 @@ setTimeout(() => {
 
     setTimeout(() => {
       const pillAfterAuthorKnown = Boolean(observedFor(hydratingCard)
-        && observedFor(hydratingCard).sourceID === "youtube:handle:@arrived");
+        && observedFor(hydratingCard).creatorID === "youtube:handle:@arrived");
       const noFullRescan = documentScans === scansAfterSweep;
 
       const passes = knownProcessedOnDiscovery && noPillWhileAuthorUnknown

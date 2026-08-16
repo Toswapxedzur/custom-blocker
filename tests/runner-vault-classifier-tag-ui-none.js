@@ -1,5 +1,5 @@
-/* A creator that resolves but carries no approved tags renders a "None" pill;
- * a lookup that fails renders nothing (and never a misleading "None"). */
+/* A video that resolves but carries no tags renders a "None" pill; a lookup that
+ * fails renders nothing (and never a misleading "None"). */
 "use strict";
 
 const fs = require("node:fs");
@@ -75,16 +75,23 @@ const chrome = {
     lastError: null,
     sendMessage(message, callback) {
       let response;
-      if (batchOutcome === "empty" && message.type === "vault-classifier-source-tags-batch") {
-        // The creator resolved; the app simply has no approved tags for it.
+      if (batchOutcome === "empty" && message.type === "vault-classifier-video-tags-batch") {
+        // The video was classified; the app simply produced no tags for it.
         response = {
           ok: true,
           platformID: message.platform,
-          items: (Array.isArray(message.items) ? message.items : []).map((item) => ({ sourceID: item.sourceID, tags: [] }))
+          items: (Array.isArray(message.items) ? message.items : []).map((item) => ({ entryID: item.entryID, tags: [], predicted: false, pending: false }))
+        };
+      } else if (batchOutcome === "pending" && message.type === "vault-classifier-video-tags-batch") {
+        // The app has queued classification and reports the video as pending.
+        response = {
+          ok: true,
+          platformID: message.platform,
+          items: (Array.isArray(message.items) ? message.items : []).map((item) => ({ entryID: item.entryID, tags: [], predicted: false, pending: true }))
         };
       } else {
         // Batch unavailable + single fallback both fail (bridge down).
-        response = { ok: false, tags: [] };
+        response = { ok: false, items: [], tags: [] };
       }
       setTimeout(() => {
         context.__noneResponse = JSON.stringify(response);
@@ -111,11 +118,11 @@ function chipNamesFor(hostRoot) {
   return shadow?.children?.[1]?.children?.map((chip) => chip.textContent);
 }
 
-// Phase 1: an unclassified creator renders exactly one "None" chip.
+// Phase 1: a classified video with no tags renders exactly one "None" chip.
 const noneRoot = new FakeElement("article", document);
 const noneAnchor = noneRoot.appendChild(new FakeElement("a", document));
 batchOutcome = "empty";
-context.VaultClassifierTagUI.observe({ platform: "youtube", sourceID: "youtube:channel:UCnone", root: noneRoot, anchor: noneAnchor });
+context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: "youtube:video:vnone", creatorID: "youtube:channel:UCnone", title: "A video title", root: noneRoot, anchor: noneAnchor });
 
 setTimeout(() => {
   const noneNames = chipNamesFor(noneRoot);
@@ -125,19 +132,31 @@ setTimeout(() => {
   const failRoot = new FakeElement("article", document);
   const failAnchor = failRoot.appendChild(new FakeElement("a", document));
   batchOutcome = "fail";
-  context.VaultClassifierTagUI.observe({ platform: "youtube", sourceID: "youtube:channel:UCfail", root: failRoot, anchor: failAnchor });
+  context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: "youtube:video:vfail", creatorID: "youtube:channel:UCfail", title: "A video title", root: failRoot, anchor: failAnchor });
 
   setTimeout(() => {
     // Only the anchor remains; no pill host was appended.
     const failBlank = failRoot.children.length === 1;
 
-    if (rendersNone && failBlank) {
-      console.log("PASS unclassified creator renders a None pill; a failed lookup stays blank");
-      console.log("__CB_TEST_RESULT__: OK");
-      return;
-    }
-    console.error("FAIL none pill", { noneNames, rendersNone, failChildren: failRoot.children.length });
-    console.log("__CB_TEST_RESULT__: FAIL");
-    process.exitCode = 1;
+    // Phase 3: a video the app is still classifying (pending) shows exactly one
+    // temporary "Tagging" placeholder chip.
+    const pendingRoot = new FakeElement("article", document);
+    const pendingAnchor = pendingRoot.appendChild(new FakeElement("a", document));
+    batchOutcome = "pending";
+    context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: "youtube:video:vpending", creatorID: "youtube:channel:UCpending", title: "A video title", root: pendingRoot, anchor: pendingAnchor });
+
+    setTimeout(() => {
+      const pendingNames = chipNamesFor(pendingRoot);
+      const rendersTagging = JSON.stringify(pendingNames) === JSON.stringify(["Tagging"]);
+
+      if (rendersNone && failBlank && rendersTagging) {
+        console.log("PASS tagless video -> None; failed lookup -> blank; pending video -> Tagging placeholder");
+        console.log("__CB_TEST_RESULT__: OK");
+        return;
+      }
+      console.error("FAIL none/tagging pill", { noneNames, rendersNone, failChildren: failRoot.children.length, pendingNames, rendersTagging });
+      console.log("__CB_TEST_RESULT__: FAIL");
+      process.exitCode = 1;
+    }, 40);
   }, 40);
 }, 40);

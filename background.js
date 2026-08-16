@@ -3963,6 +3963,12 @@ const cbConnection = {
         // responses cannot cross-route ordinary group-sync traffic.
         if (self.CBClassifierHub) self.CBClassifierHub.receive(msg);
         break;
+      case "classifier-broadcast":
+        // Unsolicited classifier push (a completed classification). No pending
+        // correlation: the vault bridge validates the body and fans it out to
+        // the platform's tabs.
+        if (self.CBClassifierBroadcastReceive) self.CBClassifierBroadcastReceive(msg);
+        break;
       default:
         break;
     }
@@ -4226,8 +4232,16 @@ const cbClassifierHub = {
     });
   },
 
+  // Every operation the extension may send over the shared classifier route.
+  // Keep in sync with LocalClassifierHub.swift and ConnectionHub.swift — the
+  // parity suite (tests/runner-hub-op-parity.js) fails if the copies drift.
+  operations: ["bridge-info", "collection-info", "diagnostic", "collect", "source-tags", "source-tags-batch", "video-tags", "video-tags-batch", "dev-log", "classify", "correct"],
+
   request(operation, body) {
-    if (operation !== "bridge-info" && operation !== "collection-info" && operation !== "diagnostic" && operation !== "collect" && operation !== "source-tags" && operation !== "source-tags-batch" && operation !== "classify" && operation !== "correct") {
+    if (!this.operations.includes(operation)) {
+      // Loud on purpose: a silent rejection here once blackholed the pill
+      // pipeline AND its own dev-log diagnostics for days.
+      console.error("[CustomBlocker] Vault Classifier operation rejected by the extension allowlist:", operation);
       return Promise.reject(new Error("Unsupported Vault Classifier operation."));
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) {

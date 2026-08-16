@@ -31,7 +31,7 @@ assert(
   production.current
 );
 
-const development = load("opjogfpcmllpgplgofionfejkjeanhkc");
+const development = load("fjichnkbaoilbfbjcjkggllmbicmeegk");
 assert(
   "development identity uses only the development hub and native host",
   development.current?.name === "development"

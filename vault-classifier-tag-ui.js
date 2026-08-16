@@ -1,25 +1,42 @@
-// Display-only creator/source tags projected by the local Vault Classifier.
-// Tag values are rendered inside closed shadow roots so the host page cannot
-// scrape the user's private taxonomy from ordinary DOM attributes or text.
+// Display-only per-video tags projected by the local Vault Classifier. Tag values
+// render inside closed shadow roots so the host page cannot scrape the user's
+// private taxonomy from ordinary DOM attributes or text.
+//
+// Local-LLM rework: the pill is now PER-VIDEO. Identity is the video's `entryID`
+// (not the creator); each card requests its own tags with its title as evidence.
+// While the app is still classifying a video it replies `pending`, and we show a
+// temporary "Tagging" placeholder pill that is replaced when the tags arrive.
 (function (global) {
   "use strict";
   if (global.VaultClassifierTagUI) return;
 
   const C = global.VaultClassifierExtensionContract;
   const CACHE_TTL_MS = 15_000;
-  const MAX_SOURCES = 128;
+  // Provisional ("Tagging") results re-check soon so the pill upgrades quickly
+  // once background classification finishes, rather than waiting a full TTL.
+  const PENDING_TTL_MS = 2_500;
+  // A quiet page produces no mutations to re-trigger observe, so provisional
+  // pills re-check on their own timer — bounded, then mutation-driven again.
+  const MAX_PENDING_RECHECKS = 20;
+  const MAX_SOURCES = 512;
   // A single flush of the feed is answered in one hub round-trip. Chunk larger
   // flushes so each request stays comfortably inside the shared bridge frame.
   const MAX_BATCH_ITEMS = 32;
   const pendingBatch = [];
   let drainScheduled = false;
   const sourceCache = new Map();
-  // Shown when a creator resolves but carries no approved tags, so an
-  // unclassified creator reads as "seen, nothing applies" rather than looking
-  // like the extension simply failed. A neutral pair, muted in both themes.
+  // Shown when a video resolves but carries no tags, so it reads as "seen,
+  // nothing applies" rather than looking like the extension simply failed.
   const NONE_TAGS = Object.freeze([Object.freeze({
     id: "vault:none",
     name: "None",
+    lightColorHex: "#E5E7EB",
+    darkColorHex: "#3F3F46"
+  })]);
+  // The temporary placeholder shown while the app classifies this video.
+  const TAGGING_TAGS = Object.freeze([Object.freeze({
+    id: "vault:tagging",
+    name: "Tagging",
     lightColorHex: "#E5E7EB",
     darkColorHex: "#3F3F46"
   })]);
@@ -37,10 +54,38 @@
   const hostState = new WeakMap();
   let reattachObserver = null;
 
-  // The host page (YouTube) re-templates and recycles rows as it lazily renders,
-  // detaching our injected pill. Rather than wait for the next scan, watch for
-  // our own host being removed and re-mount it immediately from the cached tags,
-  // so the pill never visibly disappears.
+  // Dev-only unified logging: forward pill-pipeline events to the native log.
+  // Auto-on when the connected app is in its development env (`vaultDevMode`,
+  // mirrored by the bridge), or when the user explicitly enables debug mode.
+  // Cached so it is a cheap no-op otherwise.
+  let devDebugMode = false;
+  let devEnvMode = false;
+  try {
+    global.chrome?.storage?.local?.get?.(["globalSettings", "vaultDevMode"], (stored) => {
+      devDebugMode = stored?.globalSettings?.debugMode === true;
+      devEnvMode = stored?.vaultDevMode === true;
+    });
+    global.chrome?.storage?.onChanged?.addListener?.((changes, area) => {
+      if (area !== "local") return;
+      if (changes.globalSettings) devDebugMode = changes.globalSettings.newValue?.debugMode === true;
+      if (changes.vaultDevMode) devEnvMode = changes.vaultDevMode.newValue === true;
+    });
+  } catch (_) {}
+  function devLog(event, fields) {
+    if (!(devDebugMode || devEnvMode) || !global.chrome?.runtime?.sendMessage) return;
+    // Callback form (+ consume lastError) so a send to an asleep/unreachable
+    // service worker never surfaces as an uncaught "No SW" promise rejection.
+    try {
+      global.chrome.runtime.sendMessage(
+        { type: "vault-classifier-dev-log", layer: "tag-ui", event, fields: fields || {} },
+        () => { void global.chrome.runtime.lastError; }
+      );
+    } catch (_) {}
+  }
+
+  // The host page re-templates and recycles rows as it lazily renders, detaching
+  // our injected pill. Rather than wait for the next scan, watch for our own host
+  // being removed and re-mount it immediately from the cached tags.
   function startReattachObserver() {
     if (reattachObserver || typeof global.MutationObserver !== "function") return;
     const target = global.document && global.document.documentElement;
@@ -68,19 +113,24 @@
     reattachObserver.observe(target, { childList: true, subtree: true });
   }
 
-  function boundedIdentity(platform, sourceID) {
+  // Both entryIDs and creatorIDs are platform-prefixed; this validates either.
+  function boundedIdentity(platform, id) {
     return typeof platform === "string"
       && /^[a-z0-9-]{1,64}$/.test(platform)
-      && typeof sourceID === "string"
-      && sourceID.length > platform.length + 1
-      && sourceID.length <= 256
-      && sourceID.startsWith(`${platform}:`)
-      ? `${platform}${sourceID}`
+      && typeof id === "string"
+      && id.length > platform.length + 1
+      && id.length <= 256
+      && id.startsWith(`${platform}:`)
+      ? `${platform}${id}`
       : null;
   }
 
   function removeState(state) {
     if (!state) return;
+    if (state.recheckTimer) {
+      clearTimeout(state.recheckTimer);
+      state.recheckTimer = null;
+    }
     try { state.host?.remove?.(); } catch (_) {}
     mountedStates.delete(state);
   }
@@ -98,35 +148,37 @@
     }
   }
 
-  function request(platform, sourceID, creatorNames = null) {
-    const key = boundedIdentity(platform, sourceID);
-    if (!key || !C?.normalizeSourceTagsResponse || !global.chrome?.runtime?.sendMessage) {
+  // Resolves one video's tags by entryID, carrying its title as evidence.
+  function request(platform, entryID, creatorID, title) {
+    const key = boundedIdentity(platform, entryID);
+    if (!key || !C?.normalizeVideoTagsResponse || !global.chrome?.runtime?.sendMessage) {
       return Promise.resolve(null);
     }
     prune();
     const cached = sourceCache.get(key);
     if (cached?.pending) return cached.pending;
-    if (cached && cached.expiresAt > Date.now()) return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true });
+    if (cached && cached.expiresAt > Date.now()) {
+      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true });
+    }
 
-    // Queue this source and settle when the next drain answers it. The cache's
-    // pending marker (set below) coalesces repeat observes of the same key onto
-    // this one promise, so a key is never enqueued twice concurrently.
     const pending = new Promise((resolve) => {
-      pendingBatch.push({ platform, sourceID, key, creatorNames, resolve });
+      pendingBatch.push({ platform, entryID, creatorID, title, key, resolve });
       scheduleDrain();
     }).then((result) => {
+      // The app is still classifying this video: show the "Tagging" placeholder
+      // and re-check soon so the real tags replace it quickly.
+      if (result && result.pending) {
+        sourceCache.set(key, { tags: TAGGING_TAGS, predicted: false, provisional: true, expiresAt: Date.now() + PENDING_TTL_MS, pending: null });
+        prune();
+        return { tags: TAGGING_TAGS, predicted: false, provisional: true };
+      }
       const display = displayTags(result && result.tags);
       const predicted = Boolean(result && result.predicted);
-      sourceCache.set(key, {
-        tags: display,
-        predicted,
-        expiresAt: Date.now() + CACHE_TTL_MS,
-        pending: null
-      });
+      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
       prune();
-      return { tags: display, predicted };
+      return { tags: display, predicted, provisional: false };
     });
-    sourceCache.set(key, { tags: cached?.tags || [], predicted: cached?.predicted === true, expiresAt: 0, pending });
+    sourceCache.set(key, { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending });
     return pending;
   }
 
@@ -156,34 +208,30 @@
   }
 
   function dispatchBatch(platform, jobs) {
-    const items = jobs.map((job) => {
-      const item = { sourceID: job.sourceID };
-      if (Array.isArray(job.creatorNames) && job.creatorNames.length) item.creatorNames = job.creatorNames;
-      return item;
-    });
+    const items = jobs.map((job) => ({ entryID: job.entryID, creatorID: job.creatorID, title: job.title }));
     sendBatch(platform, items).then((resultMap) => {
       for (const job of jobs) {
         if (resultMap) {
-          job.resolve(resultMap.has(job.sourceID) ? resultMap.get(job.sourceID) : null);
+          job.resolve(resultMap.has(job.entryID) ? resultMap.get(job.entryID) : null);
         } else {
           // The batch route is unavailable (e.g. a worker still on the old build).
           // Fall back to a single request so a rollout skew never blanks the feed.
-          sendSingle(job.platform, job.sourceID, job.creatorNames).then(job.resolve);
+          sendSingle(job.platform, job.entryID, job.creatorID, job.title).then(job.resolve);
         }
       }
     });
   }
 
   function sendBatch(platform, items) {
-    if (!C?.normalizeSourceTagsBatchResponse) return Promise.resolve(null);
+    if (!C?.normalizeVideoTagsBatchResponse) return Promise.resolve(null);
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage(
-          { type: "vault-classifier-source-tags-batch", platform, items },
+          { type: "vault-classifier-video-tags-batch", platform, items },
           (response) => {
             if (chrome.runtime.lastError || response?.ok !== true) return resolve(null);
-            const expected = new Set(items.map((item) => item.sourceID));
-            resolve(C.normalizeSourceTagsBatchResponse(response, platform, expected) || null);
+            const expected = new Set(items.map((item) => item.entryID));
+            resolve(C.normalizeVideoTagsBatchResponse(response, platform, expected) || null);
           }
         );
       } catch (_) {
@@ -192,18 +240,17 @@
     });
   }
 
-  function sendSingle(platform, sourceID, creatorNames) {
-    const message = { type: "vault-classifier-source-tags", platform, sourceID };
-    // Collaboration cards expose no creator link; forward the byline names so the
-    // native side can match them to an approved classification by name.
-    if (Array.isArray(creatorNames) && creatorNames.length) message.creatorNames = creatorNames;
+  function sendSingle(platform, entryID, creatorID, title) {
     return new Promise((resolve) => {
       try {
-        chrome.runtime.sendMessage(message, (response) => {
-          if (chrome.runtime.lastError || response?.ok !== true) return resolve(null);
-          const normalized = C.normalizeSourceTagsResponse(response, platform, sourceID);
-          resolve(normalized ? { tags: normalized.tags, predicted: normalized.predicted === true } : null);
-        });
+        chrome.runtime.sendMessage(
+          { type: "vault-classifier-video-tags", platform, entryID, creatorID, title },
+          (response) => {
+            if (chrome.runtime.lastError || response?.ok !== true) return resolve(null);
+            const normalized = C.normalizeVideoTagsResponse(response, platform, entryID);
+            resolve(normalized ? { tags: normalized.tags, predicted: normalized.predicted === true, pending: normalized.pending === true } : null);
+          }
+        );
       } catch (_) {
         resolve(null);
       }
@@ -223,11 +270,15 @@
       ":host{all:initial;display:inline-block;max-width:100%;color-scheme:light dark;contain:content}",
       ".rail{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;max-width:100%;vertical-align:middle}",
       ".chip{box-sizing:border-box;display:inline-flex;align-items:center;max-width:220px;min-height:18px;padding:1px 7px;border:0;border-radius:999px;background:var(--vault-tag-color-light);color:#000;font:600 11px/16px -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 2px rgba(0,0,0,.18)}",
-      // A local-model prediction (no confirmed human/LLM decision) reads as a
-      // hollow, dashed chip in the tag's own color so it is visibly a guess.
+      // A local-model prediction (no confirmed decision) reads as a hollow, dashed
+      // chip in the tag's own color so it is visibly a guess.
       ".chip.predicted{background:transparent;color:var(--vault-tag-color-dark);border:1px dashed var(--vault-tag-color-dark);box-shadow:none}",
+      // The temporary "Tagging" placeholder: muted, dashed, gently pulsing.
+      ".chip.tagging{background:transparent;color:var(--vault-tag-color-dark);border:1px dashed var(--vault-tag-color-dark);box-shadow:none;animation:vault-tagging 1.2s ease-in-out infinite}",
+      "@keyframes vault-tagging{0%,100%{opacity:.45}50%{opacity:.9}}",
       "@media (prefers-color-scheme:dark){.chip{background:var(--vault-tag-color-dark);color:#fff}}",
-      "@media (prefers-color-scheme:dark){.chip.predicted{background:transparent;color:var(--vault-tag-color-light);border-color:var(--vault-tag-color-light)}}"
+      "@media (prefers-color-scheme:dark){.chip.predicted{background:transparent;color:var(--vault-tag-color-light);border-color:var(--vault-tag-color-light)}}",
+      "@media (prefers-color-scheme:dark){.chip.tagging{color:var(--vault-tag-color-light);border-color:var(--vault-tag-color-light)}}"
     ].join("");
     const rail = document.createElement("span");
     rail.className = "rail";
@@ -271,15 +322,15 @@
       mountedStates.add(state);
     }
     const signature = (predicted ? "P" : "C") + tags.map((tag) => (
-      `${tag.id}${tag.name}${tag.lightColorHex}${tag.darkColorHex}`
-    )).join("");
+      `${tag.id}${tag.name}${tag.lightColorHex}${tag.darkColorHex}`
+    )).join("");
     if (state.signature === signature) return;
     state.signature = signature;
     state.rail.replaceChildren?.();
     const document = state.root.ownerDocument || global.document;
     for (const tag of tags) {
       const chip = document.createElement("span");
-      chip.className = predicted ? "chip predicted" : "chip";
+      chip.className = tag.id === "vault:tagging" ? "chip tagging" : (predicted ? "chip predicted" : "chip");
       chip.dir = "auto";
       chip.textContent = tag.name;
       chip.style.setProperty("--vault-tag-color-light", tag.lightColorHex);
@@ -288,9 +339,30 @@
     }
   }
 
-  function observe({ platform, sourceID, root, anchor = null, creatorNames = null } = {}) {
-    const key = boundedIdentity(platform, sourceID);
-    if (!key || !root || root.isConnected === false) return;
+  // A provisional ("Tagging") pill upgrades by re-requesting once its short
+  // cache entry expires. Mutations normally re-trigger observe, but a quiet
+  // page never mutates — so drive a bounded re-check from a timer instead.
+  function scheduleProvisionalRecheck(state) {
+    if (state.recheckTimer || state.recheckAttempts >= MAX_PENDING_RECHECKS) return;
+    state.recheckAttempts += 1;
+    state.recheckTimer = setTimeout(() => {
+      state.recheckTimer = null;
+      if (stateByRoot.get(state.root) !== state
+        || state.epoch !== (platformEpochs.get(state.platform) || 0)
+        || state.root.isConnected === false) {
+        return;
+      }
+      request(state.platform, state.entryID, state.creatorID, state.title).then((result) => {
+        render(state, result && result.tags, Boolean(result && result.predicted));
+        if (result && result.provisional) scheduleProvisionalRecheck(state);
+      });
+    }, PENDING_TTL_MS + 200);
+  }
+
+  function observe({ platform, entryID, creatorID, title, root, anchor = null } = {}) {
+    const key = boundedIdentity(platform, entryID);
+    if (!key || !boundedIdentity(platform, creatorID) || typeof title !== "string" || !title
+      || !root || root.isConnected === false) return;
     startReattachObserver();
     let state = stateByRoot.get(root);
     if (!state || state.key !== key) {
@@ -298,21 +370,69 @@
       state = {
         key,
         platform,
-        sourceID,
+        entryID,
+        creatorID,
+        title,
         root,
         anchor,
         epoch: platformEpochs.get(platform) || 0,
         host: null,
         rail: null,
-        signature: ""
+        signature: "",
+        recheckTimer: null,
+        recheckAttempts: 0
       };
       stateByRoot.set(root, state);
-    } else if (anchor) {
-      state.anchor = anchor;
+    } else {
+      if (anchor) state.anchor = anchor;
+      // A card may hydrate its title/creator after first paint.
+      if (title) state.title = title;
+      if (creatorID) state.creatorID = creatorID;
     }
     state.epoch = platformEpochs.get(platform) || 0;
-    request(platform, sourceID, creatorNames).then((result) => render(state, result && result.tags, Boolean(result && result.predicted)));
+    devLog("observe", { platform, entry: entryID, creator: creatorID });
+    request(platform, entryID, state.creatorID, state.title).then((result) => {
+      devLog("result", {
+        entry: entryID,
+        state: result ? (result.provisional ? "tagging" : ((result.tags && result.tags.length) ? "tags" : "none")) : "null"
+      });
+      render(state, result && result.tags, Boolean(result && result.predicted));
+      if (result && result.provisional) scheduleProvisionalRecheck(state);
+    });
   }
+
+  // Push path: the app broadcasts each resolved classification through the hub,
+  // so a provisional pill swaps to real tags the moment the result exists. The
+  // timer re-check above remains as the fallback for a missed push. Items were
+  // already contract-validated by the bridge before fan-out.
+  function applyPushedTags(platform, items) {
+    for (const item of items) {
+      if (!item || typeof item.entryID !== "string") continue;
+      const key = boundedIdentity(platform, item.entryID);
+      const display = displayTags(item && item.tags);
+      if (!key || !display) continue;
+      const predicted = item.predicted === true;
+      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
+      for (const state of [...mountedStates]) {
+        if (state.key === key) render(state, display, predicted);
+      }
+    }
+    prune();
+  }
+
+  try {
+    global.chrome?.runtime?.onMessage?.addListener?.((message, sender) => {
+      if (!message
+        || message.type !== "vault-classifier-video-tags-updated"
+        || (sender && sender.id && sender.id !== global.chrome.runtime.id)
+        || typeof message.platform !== "string"
+        || !Array.isArray(message.items)) {
+        return false;
+      }
+      applyPushedTags(message.platform, message.items);
+      return false;
+    });
+  } catch (_) {}
 
   function clearPlatform(platform) {
     platformEpochs.set(platform, (platformEpochs.get(platform) || 0) + 1);
@@ -323,7 +443,7 @@
         state.rail = null;
       }
     }
-    const prefix = `${platform}`;
+    const prefix = `${platform}`;
     for (const key of sourceCache.keys()) {
       if (key.startsWith(prefix)) sourceCache.delete(key);
     }

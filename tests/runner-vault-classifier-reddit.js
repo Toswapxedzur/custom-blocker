@@ -204,7 +204,7 @@ setTimeout(() => {
     && !serialized.includes("COMMENT MUST NOT BE COLLECTED")
     && !serialized.includes("i.redd.it/post-media.png")
     && !serialized.includes("Unrelated background title")
-    && observations.some((value) => value.root === requested && value.sourceID === "reddit:subreddit:openai")
+    && observations.some((value) => value.root === requested && value.creatorID === "reddit:subreddit:openai" && value.entryID === "reddit:post:right222" && typeof value.title === "string")
     // The wrapping <article> must be deduped away — only the inner <shreddit-post>
     // gets a pill, never the wrapper (which would double-inject on the feed).
     && observations.every((value) => value.root !== requestedArticle)

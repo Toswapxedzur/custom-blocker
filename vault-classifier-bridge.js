@@ -450,6 +450,9 @@
         ? body.enabledPlatformIDs.filter((id) => typeof id === "string" && id.length > 0 && id.length <= 64)
         : [];
       await replaceAuthorizedPlatforms(enabledPlatformIDs);
+      // Mirror the app's dev-env flag so content scripts auto-enable dev logging
+      // (no manual "debug mode" toggle needed when talking to a dev app).
+      await syncDevMode(body && body.developmentMode === true);
       scheduleCollectionQueueFlush();
       return { ok: true, enabled: enabledPlatformIDs.includes(platform) };
     } catch (error) {
@@ -566,6 +569,78 @@
     }
   }
 
+  // Batched per-video tags: a viewport of cards resolved in one hub round-trip.
+  // Each item may come back pending:true (classification queued); the caller
+  // re-requests shortly and the pill fills in from the decision cache.
+  async function videoTagsBatch(platform, rawItems) {
+    if (typeof platform !== "string" || !Array.isArray(rawItems) || rawItems.length === 0) {
+      return { ok: false, items: [] };
+    }
+    const items = [];
+    const seen = new Set();
+    for (const raw of rawItems) {
+      const entryID = raw && typeof raw.entryID === "string" ? raw.entryID : null;
+      const creatorID = raw && typeof raw.creatorID === "string" ? raw.creatorID : null;
+      const title = raw && typeof raw.title === "string" ? raw.title : null;
+      if (!entryID || entryID.length === 0 || entryID.length > 256 || !entryID.startsWith(`${platform}:`)
+        || !creatorID || creatorID.length === 0 || creatorID.length > 256 || !creatorID.startsWith(`${platform}:`)
+        || !title || title.length === 0 || title.length > 500
+        || seen.has(entryID)) {
+        continue;
+      }
+      seen.add(entryID);
+      const item = { entryID, creatorID, title };
+      if (typeof raw.summary === "string" && raw.summary) item.summary = raw.summary.slice(0, 4000);
+      if (typeof raw.text === "string" && raw.text) item.text = raw.text.slice(0, 4000);
+      items.push(item);
+      if (items.length >= 64) break;
+    }
+    if (!items.length) return { ok: true, platformID: platform, items: [] };
+    try {
+      const current = await settings();
+      if (!current.collectionEnabled) return { ok: true, platformID: platform, items: [] };
+      const body = await hubRequest("video-tags-batch", { platformID: platform, items });
+      const expected = new Set(items.map((item) => item.entryID));
+      const results = C.normalizeVideoTagsBatchResponse?.(body, platform, expected);
+      if (!results) return { ok: false, items: [] };
+      return {
+        ok: true,
+        platformID: platform,
+        items: [...results.entries()].map(([entryID, value]) => ({ entryID, tags: value.tags, predicted: value.predicted, pending: value.pending }))
+      };
+    } catch (_) {
+      return { ok: false, items: [] };
+    }
+  }
+
+  // Mirrors the native app's dev-env flag into local storage so content scripts
+  // (tag-ui, collector) auto-enable dev logging without a manual "debug mode"
+  // toggle. Only writes on change.
+  let cbVaultDevMode = false;
+  async function syncDevMode(dev) {
+    const next = dev === true;
+    if (next === cbVaultDevMode) return;
+    cbVaultDevMode = next;
+    try {
+      await new Promise((resolve) => {
+        chrome.storage.local.set({ vaultDevMode: next }, () => { void chrome.runtime.lastError; resolve(); });
+      });
+    } catch (_) {}
+  }
+
+  // Dev-only: forward a structured log line from an extension layer into the
+  // native unified dev log. Fire-and-forget; the native side only persists it in
+  // the development environment.
+  async function forwardDevLog(layer, event, fields) {
+    try {
+      await hubRequest("dev-log", {
+        layer: String(layer || "ext").slice(0, 32),
+        event: String(event || "").slice(0, 200),
+        fields: fields && typeof fields === "object" && !Array.isArray(fields) ? fields : {}
+      });
+    } catch (_) {}
+  }
+
   function collectionPlatformForSender(sender, requestedPlatform) {
     if (!sender || (sender.id && sender.id !== chrome.runtime.id)) return null;
     const pageURL = typeof sender.url === "string" ? sender.url : sender.tab && sender.tab.url;
@@ -657,6 +732,57 @@
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, tags: [], pending: false }));
     return true;
+  });
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const platform = message && typeof message.platform === "string" ? message.platform : null;
+    if (!message
+      || message.type !== "vault-classifier-video-tags-batch"
+      || !collectionPlatformForSender(sender, platform)
+      || !Array.isArray(message.items)) {
+      return false;
+    }
+    videoTagsBatch(platform, message.items)
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false, items: [] }));
+    return true;
+  });
+
+  // Unsolicited hub push: classification finished for one or more videos.
+  // After contract validation, fan the resolved tags out to every tab trusted
+  // for the platform; tag-ui swaps provisional pills in place without another
+  // request round-trip.
+  function handleClassifierBroadcast(frame) {
+    if (!frame || frame.operation !== "video-tags-updated") return;
+    const normalized = C.normalizeVideoTagsBroadcast?.(frame.body);
+    if (!normalized || typeof chrome.tabs?.query !== "function") return;
+    chrome.tabs.query({}, (tabs) => {
+      if (chrome.runtime.lastError) return;
+      for (const tab of tabs || []) {
+        if (!tab || typeof tab.id !== "number" || typeof tab.url !== "string"
+          || !C.isTrustedCollectionURL(normalized.platformID, tab.url)) {
+          continue;
+        }
+        try {
+          chrome.tabs.sendMessage(
+            tab.id,
+            { type: "vault-classifier-video-tags-updated", platform: normalized.platformID, items: normalized.items },
+            () => { void chrome.runtime.lastError; }
+          );
+        } catch (_) {}
+      }
+    });
+  }
+  self.CBClassifierBroadcastReceive = handleClassifierBroadcast;
+
+  // Dev-only unified log forwarding from content-script layers. Fire-and-forget.
+  chrome.runtime.onMessage.addListener((message, sender) => {
+    if (!message || message.type !== "vault-classifier-dev-log"
+      || (sender && sender.id && sender.id !== chrome.runtime.id)) {
+      return false;
+    }
+    forwardDevLog(message.layer, message.event, message.fields);
+    return false;
   });
 
   chrome.storage.onChanged?.addListener?.((changes, area) => {

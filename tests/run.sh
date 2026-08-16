@@ -41,6 +41,18 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   failed=1
 fi
 run_suite "bridge-protocol" tests/runner-bridge-protocol.js || failed=1
+node_out=$(node tests/runner-hub-op-parity.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'hub-op-parity' FAILED" >&2
+  failed=1
+fi
+node_out=$(node tests/runner-vault-classifier-push.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'vault-classifier-push' FAILED" >&2
+  failed=1
+fi
 run_suite "vault-classifier-extension-contract" tests/runner-vault-classifier.js || failed=1
 node_out=$(node tests/runner-vault-classifier-youtube.js 2>&1) || failed=1
 echo "$node_out"
