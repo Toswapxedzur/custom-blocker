@@ -448,13 +448,20 @@
       const del = target.closest(".chip-del");
       if (del) { event.preventDefault(); event.stopPropagation(); applyCorrection(state, { remove: del.dataset.tagId }); return; }
       if (target.closest(".add-btn")) { event.preventDefault(); event.stopPropagation(); openAddPanel(state, panel); return; }
-      if (target.closest(".panel-close")) { event.preventDefault(); event.stopPropagation(); panel.classList.remove("open"); return; }
-      const item = target.closest(".panel-item");
-      if (item) {
-        event.preventDefault(); event.stopPropagation();
-        const tagID = item.dataset.tagId;
-        item.remove();
-        applyCorrection(state, { add: tagID });
+      // The pill host is injected inside the card's own link; any click within
+      // the panel (search box, list, backdrop) must be swallowed so it never
+      // navigates the underlying video. Focus/typing still work (they fire on
+      // mousedown/keydown, which this does not touch).
+      if (target.closest(".panel")) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (target.closest(".panel-close")) { panel.classList.remove("open"); return; }
+        const item = target.closest(".panel-item");
+        if (item) {
+          const tagID = item.dataset.tagId;
+          item.remove();
+          applyCorrection(state, { add: tagID });
+        }
       }
     });
     shadow.addEventListener("input", (event) => {
