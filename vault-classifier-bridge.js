@@ -547,6 +547,53 @@
     }
   }
 
+  // The predictable tag choices for a platform's classifier types — used by the
+  // in-page pill UI to offer add-a-tag options. Read-only.
+  function validTag(tag) {
+    return tag && typeof tag.id === "string" && tag.id.length > 0 && tag.id.length <= 256
+      && typeof tag.name === "string" && tag.name.length > 0 && tag.name.length <= 200
+      && typeof tag.lightColorHex === "string" && typeof tag.darkColorHex === "string";
+  }
+  async function classifierTaxonomy(platform) {
+    try {
+      const current = await settings();
+      if (!current.collectionEnabled) return { ok: true, platformID: platform, types: [] };
+      const body = await hubRequest("classifier-taxonomy", { platformID: platform });
+      if (!body || body.platformID !== platform || !Array.isArray(body.types)) return { ok: false, types: [] };
+      const types = body.types.map((type) => ({
+        typeID: typeof type.typeID === "string" ? type.typeID : "",
+        name: typeof type.name === "string" ? type.name.slice(0, 200) : "",
+        tags: Array.isArray(type.tags) ? type.tags.filter(validTag).slice(0, 64) : []
+      })).filter((type) => type.typeID && type.tags.length).slice(0, 16);
+      return { ok: true, platformID: platform, types };
+    } catch (_) {
+      return { ok: false, types: [] };
+    }
+  }
+
+  // Apply a user correction: the authoritative tag set for one video under one
+  // classifier type. Returns the resolved tags; the app also broadcasts the
+  // update so every open tab's pill for this video refreshes.
+  async function submitCorrection(platform, entryID, creatorID, typeID, correctTagIDs) {
+    if (typeof entryID !== "string" || !entryID.startsWith(`${platform}:`) || entryID.length > 256
+      || typeof creatorID !== "string" || !creatorID.startsWith(`${platform}:`) || creatorID.length > 256
+      || typeof typeID !== "string" || typeID.length === 0 || typeID.length > 256
+      || !Array.isArray(correctTagIDs) || correctTagIDs.length > 32
+      || !correctTagIDs.every((id) => typeof id === "string" && id.length > 0 && id.length <= 256)) {
+      return { ok: false };
+    }
+    try {
+      const current = await settings();
+      if (!current.collectionEnabled) return { ok: false };
+      const uniqueTagIDs = [...new Set(correctTagIDs)];
+      const body = await hubRequest("submit-correction", { platformID: platform, entryID, creatorID, typeID, correctTagIDs: uniqueTagIDs });
+      if (!body || body.platformID !== platform || body.entryID !== entryID || !Array.isArray(body.tags)) return { ok: false };
+      return { ok: true, platformID: platform, entryID, tags: body.tags.filter(validTag).slice(0, 16) };
+    } catch (_) {
+      return { ok: false };
+    }
+  }
+
   // Mirrors the native app's dev-env flag into local storage so content scripts
   // (tag-ui, collector) auto-enable dev logging without a manual "debug mode"
   // toggle. Only writes on change.
@@ -648,6 +695,30 @@
     videoTagsBatch(platform, message.items)
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, items: [] }));
+    return true;
+  });
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const platform = message && typeof message.platform === "string" ? message.platform : null;
+    if (!message || message.type !== "vault-classifier-classifier-taxonomy" || !collectionPlatformForSender(sender, platform)) return false;
+    classifierTaxonomy(platform)
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false, types: [] }));
+    return true;
+  });
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const platform = message && typeof message.platform === "string" ? message.platform : null;
+    if (!message || message.type !== "vault-classifier-submit-correction" || !collectionPlatformForSender(sender, platform)) return false;
+    submitCorrection(
+      platform,
+      typeof message.entryID === "string" ? message.entryID : "",
+      typeof message.creatorID === "string" ? message.creatorID : "",
+      typeof message.typeID === "string" ? message.typeID : "",
+      Array.isArray(message.correctTagIDs) ? message.correctTagIDs : []
+    )
+      .then(sendResponse)
+      .catch(() => sendResponse({ ok: false }));
     return true;
   });
 
