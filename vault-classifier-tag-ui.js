@@ -257,6 +257,136 @@
     });
   }
 
+  // --- Live correction: taxonomy (add choices) + submit-correction ----------
+  const SYNTHETIC_IDS = new Set(["vault:none", "vault:tagging"]);
+  const taxonomyCache = new Map(); // platform -> { value, expiresAt, pending }
+
+  // The predictable tag choices per classifier type, cached briefly. `tagToType`
+  // maps a tag id to its owning classifier type so a corrected chip can be
+  // attributed to the right type.
+  function fetchTaxonomy(platform) {
+    if (!global.chrome?.runtime?.sendMessage) return Promise.resolve(null);
+    const cached = taxonomyCache.get(platform);
+    if (cached?.pending) return cached.pending;
+    if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value);
+    const pending = new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "vault-classifier-classifier-taxonomy", platform }, (response) => {
+          if (chrome.runtime.lastError || !response || response.ok !== true || !Array.isArray(response.types)) return resolve(null);
+          const tagToType = new Map();
+          const tagByID = new Map();
+          for (const type of response.types) {
+            for (const tag of type.tags) {
+              tagToType.set(tag.id, type.typeID);
+              tagByID.set(tag.id, tag);
+            }
+          }
+          resolve({ types: response.types, tagToType, tagByID });
+        });
+      } catch (_) { resolve(null); }
+    }).then((value) => {
+      taxonomyCache.set(platform, { value, expiresAt: Date.now() + 60_000, pending: null });
+      return value;
+    });
+    taxonomyCache.set(platform, { value: cached?.value || null, expiresAt: 0, pending });
+    return pending;
+  }
+
+  function sendCorrection(platform, entryID, creatorID, typeID, correctTagIDs) {
+    if (!global.chrome?.runtime?.sendMessage) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { type: "vault-classifier-submit-correction", platform, entryID, creatorID, typeID, correctTagIDs },
+          (response) => resolve(chrome.runtime.lastError || response?.ok !== true ? null : response)
+        );
+      } catch (_) { resolve(null); }
+    });
+  }
+
+  // Real (correctable) tag ids currently on this video, i.e. excluding the
+  // synthetic None/Tagging placeholders.
+  function realTagIDs(state) {
+    return (state.currentTags || []).filter((tag) => !SYNTHETIC_IDS.has(tag.id)).map((tag) => tag.id);
+  }
+
+  // The corrected set for one type after adding/removing a tag id. When the
+  // taxonomy can't attribute a tag to a type but there is exactly one type, that
+  // single type owns everything.
+  function typeForTag(taxonomy, tagID) {
+    if (!taxonomy) return null;
+    return taxonomy.tagToType.get(tagID)
+      || (taxonomy.types.length === 1 ? taxonomy.types[0].typeID : null);
+  }
+
+  function correctedSet(state, taxonomy, typeID, { add, remove } = {}) {
+    const set = new Set(realTagIDs(state).filter((id) => typeForTag(taxonomy, id) === typeID));
+    if (remove) set.delete(remove);
+    if (add) set.add(add);
+    return [...set];
+  }
+
+  async function applyCorrection(state, { add, remove }) {
+    const taxonomy = await fetchTaxonomy(state.platform);
+    const typeID = typeForTag(taxonomy, add || remove);
+    if (!typeID) return;
+    await sendCorrection(state.platform, state.entryID, state.creatorID, typeID, correctedSet(state, taxonomy, typeID, { add, remove }));
+    // The app broadcasts video-tags-updated; applyPushedTags re-renders the pills.
+  }
+
+  // Builds the small add-a-tag panel: a search box + the addable tags (all
+  // predictable tags not already applied), each of which corrects on click.
+  async function openAddPanel(state, panel) {
+    const document = panel.ownerDocument || global.document;
+    panel.classList.add("open");
+    panel.replaceChildren();
+    const head = document.createElement("div");
+    head.className = "panel-head";
+    const title = document.createElement("span");
+    title.textContent = "Add tag";
+    const close = document.createElement("button");
+    close.className = "panel-close";
+    close.type = "button";
+    close.textContent = "×";
+    close.setAttribute("aria-label", "Close");
+    head.append(title, close);
+    const search = document.createElement("input");
+    search.className = "panel-search";
+    search.type = "text";
+    search.placeholder = "Search tags";
+    const list = document.createElement("div");
+    list.className = "panel-list";
+    panel.append(head, search, list);
+
+    const taxonomy = await fetchTaxonomy(state.platform);
+    if (!panel.classList.contains("open")) return;
+    const applied = new Set(realTagIDs(state));
+    const items = taxonomy ? [...taxonomy.tagByID.values()].filter((tag) => !applied.has(tag.id)) : [];
+    items.sort((a, b) => a.name.localeCompare(b.name));
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "panel-empty";
+      empty.textContent = taxonomy ? "No more tags" : "No tags available";
+      list.append(empty);
+    } else {
+      for (const tag of items) {
+        const item = document.createElement("button");
+        item.className = "panel-item";
+        item.type = "button";
+        item.dataset.tagId = tag.id;
+        item.dataset.name = tag.name.toLowerCase();
+        const dot = document.createElement("span");
+        dot.className = "panel-dot";
+        dot.style.background = tag.lightColorHex;
+        const label = document.createElement("span");
+        label.textContent = tag.name;
+        item.append(dot, label);
+        list.append(item);
+      }
+    }
+    try { search.focus(); } catch (_) {}
+  }
+
   function makeHost(root, anchor) {
     const document = root?.ownerDocument || global.document;
     if (!document?.createElement) return null;
@@ -267,7 +397,9 @@
 
     const style = document.createElement("style");
     style.textContent = [
-      ":host{all:initial;display:inline-block;max-width:100%;color-scheme:light dark;contain:content}",
+      // layout+style containment (not paint) so the hover delete affordance and
+      // the add panel can overflow the host without being clipped.
+      ":host{all:initial;display:inline-block;max-width:100%;color-scheme:light dark;contain:layout style}",
       ".rail{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;max-width:100%;vertical-align:middle}",
       ".chip{box-sizing:border-box;display:inline-flex;align-items:center;max-width:220px;min-height:18px;padding:1px 7px;border:0;border-radius:999px;background:var(--vault-tag-color-light);color:#000;font:600 11px/16px -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 2px rgba(0,0,0,.18)}",
       // A local-model prediction (no confirmed decision) reads as a hollow, dashed
@@ -278,11 +410,62 @@
       "@keyframes vault-tagging{0%,100%{opacity:.45}50%{opacity:.9}}",
       "@media (prefers-color-scheme:dark){.chip{background:var(--vault-tag-color-dark);color:#fff}}",
       "@media (prefers-color-scheme:dark){.chip.predicted{background:transparent;color:var(--vault-tag-color-light);border-color:var(--vault-tag-color-light)}}",
-      "@media (prefers-color-scheme:dark){.chip.tagging{color:var(--vault-tag-color-light);border-color:var(--vault-tag-color-light)}}"
+      "@media (prefers-color-scheme:dark){.chip.tagging{color:var(--vault-tag-color-light);border-color:var(--vault-tag-color-light)}}",
+      // Live correction: a delete affordance on hover, an add button, and a small panel.
+      ".chip-wrap{position:relative;display:inline-flex;align-items:center}",
+      ".chip-del{position:absolute;top:-6px;right:-6px;width:14px;height:14px;padding:0;display:none;align-items:center;justify-content:center;border:0;border-radius:999px;background:#111;color:#fff;font:700 10px/1 -apple-system,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.35)}",
+      ".chip-wrap:hover .chip-del{display:inline-flex}",
+      ".add-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-height:18px;padding:1px 8px;border:1px dashed rgba(120,120,120,.75);border-radius:999px;background:transparent;color:inherit;font:600 11px/16px -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;cursor:pointer;opacity:.7}",
+      ".add-btn:hover{opacity:1}",
+      ".panel{position:absolute;top:calc(100% + 4px);left:0;z-index:2147483647;width:190px;max-height:230px;display:none;flex-direction:column;background:#fff;color:#111;border:1px solid rgba(0,0,0,.15);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.22);overflow:hidden;font:500 12px/1.3 -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}",
+      ".panel.open{display:flex}",
+      ".panel-head{display:flex;align-items:center;justify-content:space-between;padding:7px 9px 4px;font-weight:700}",
+      ".panel-close{border:0;background:transparent;cursor:pointer;font-size:14px;line-height:1;color:#666;padding:0 2px}",
+      ".panel-search{margin:0 9px 6px;padding:5px 8px;border:1px solid rgba(0,0,0,.15);border-radius:7px;font:inherit;outline:none}",
+      ".panel-list{overflow-y:auto;max-height:158px;padding:0 5px 6px}",
+      ".panel-item{display:flex;align-items:center;gap:7px;width:100%;padding:5px 7px;border:0;border-radius:6px;background:transparent;cursor:pointer;font:inherit;text-align:left;color:#111}",
+      ".panel-item:hover{background:rgba(0,0,0,.06)}",
+      ".panel-dot{flex:0 0 auto;width:9px;height:9px;border-radius:999px}",
+      ".panel-empty{padding:8px 10px;color:#888}",
+      "@media (prefers-color-scheme:dark){.panel{background:#1c1c1e;color:#eee;border-color:rgba(255,255,255,.15)}.panel-item{color:#eee}.panel-item:hover{background:rgba(255,255,255,.08)}.panel-search{background:#2c2c2e;color:#eee;border-color:rgba(255,255,255,.15)}.panel-close{color:#aaa}}"
     ].join("");
+    // The host anchors the absolutely-positioned panel.
+    host.style.position = "relative";
     const rail = document.createElement("span");
     rail.className = "rail";
-    shadow.append(style, rail);
+    const panel = document.createElement("div");
+    panel.className = "panel";
+    shadow.append(style, rail, panel);
+
+    // One delegated listener drives every correction affordance; the rail is
+    // re-populated on each render but the shadow root (and this listener) persist.
+    if (typeof shadow.addEventListener === "function") {
+    shadow.addEventListener("click", (event) => {
+      const state = hostState.get(host);
+      if (!state) return;
+      const target = event.target;
+      if (typeof target?.closest !== "function") return;
+      const del = target.closest(".chip-del");
+      if (del) { event.preventDefault(); event.stopPropagation(); applyCorrection(state, { remove: del.dataset.tagId }); return; }
+      if (target.closest(".add-btn")) { event.preventDefault(); event.stopPropagation(); openAddPanel(state, panel); return; }
+      if (target.closest(".panel-close")) { event.preventDefault(); event.stopPropagation(); panel.classList.remove("open"); return; }
+      const item = target.closest(".panel-item");
+      if (item) {
+        event.preventDefault(); event.stopPropagation();
+        const tagID = item.dataset.tagId;
+        item.remove();
+        applyCorrection(state, { add: tagID });
+      }
+    });
+    shadow.addEventListener("input", (event) => {
+      const search = event.target?.closest?.(".panel-search");
+      if (!search) return;
+      const query = search.value.trim().toLowerCase();
+      panel.querySelectorAll(".panel-item").forEach((el) => {
+        el.style.display = !query || (el.dataset.name || "").includes(query) ? "flex" : "none";
+      });
+    });
+    }
 
     try {
       if (anchor?.parentNode && root.contains?.(anchor) && typeof anchor.insertAdjacentElement === "function") {
@@ -327,15 +510,40 @@
     if (state.signature === signature) return;
     state.signature = signature;
     state.rail.replaceChildren?.();
+    state.currentTags = tags;
     const document = state.root.ownerDocument || global.document;
+    const isTagging = tags.length === 1 && tags[0].id === "vault:tagging";
     for (const tag of tags) {
+      const wrap = document.createElement("span");
+      wrap.className = "chip-wrap";
       const chip = document.createElement("span");
       chip.className = tag.id === "vault:tagging" ? "chip tagging" : (predicted ? "chip predicted" : "chip");
       chip.dir = "auto";
       chip.textContent = tag.name;
       chip.style.setProperty("--vault-tag-color-light", tag.lightColorHex);
       chip.style.setProperty("--vault-tag-color-dark", tag.darkColorHex);
-      state.rail.appendChild(chip);
+      wrap.appendChild(chip);
+      // Real tags carry a hover delete affordance; the None/Tagging placeholders do not.
+      if (!SYNTHETIC_IDS.has(tag.id)) {
+        const del = document.createElement("button");
+        del.className = "chip-del";
+        del.type = "button";
+        del.textContent = "×";
+        del.dataset.tagId = tag.id;
+        del.setAttribute("aria-label", "Remove tag");
+        wrap.appendChild(del);
+      }
+      state.rail.appendChild(wrap);
+    }
+    // An add-a-tag button always sits at the end of the queue (except while the
+    // video is still being classified).
+    if (!isTagging) {
+      const add = document.createElement("button");
+      add.className = "add-btn";
+      add.type = "button";
+      add.textContent = "+ tag";
+      add.setAttribute("aria-label", "Add tag");
+      state.rail.appendChild(add);
     }
   }
 

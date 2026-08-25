@@ -23,7 +23,11 @@ class FakeElement {
     this.textContent = "";
     this.className = "";
     this.dir = "";
+    this.dataset = {};
+    this.attributes = {};
   }
+  setAttribute(name, value) { this.attributes[name] = value; }
+  getAttribute(name) { return this.attributes[name]; }
   append(...children) {
     for (const child of children) this.appendChild(child);
   }
@@ -137,12 +141,17 @@ setTimeout(() => {
   const secondHost = secondRoot.children[1];
   const firstShadow = closedShadows.get(firstHost);
   const secondShadow = closedShadows.get(secondHost);
-  const firstNames = firstShadow?.children?.[1]?.children?.map((chip) => chip.textContent);
-  const secondNames = secondShadow?.children?.[1]?.children?.map((chip) => chip.textContent);
-  const firstLightColors = firstShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color-light"]);
-  const secondLightColors = secondShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color-light"]);
-  const firstDarkColors = firstShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color-dark"]);
-  const secondDarkColors = secondShadow?.children?.[1]?.children?.map((chip) => chip.style["--vault-tag-color-dark"]);
+  // Chips are wrapped in .chip-wrap (for the hover delete affordance), followed
+  // by the trailing "+ tag" add button. Reach into the wrap for the chip.
+  const chipsOf = (shadow) => (shadow?.children?.[1]?.children || [])
+    .filter((el) => el.className === "chip-wrap")
+    .map((wrap) => wrap.children[0]);
+  const firstNames = chipsOf(firstShadow).map((chip) => chip.textContent);
+  const secondNames = chipsOf(secondShadow).map((chip) => chip.textContent);
+  const firstLightColors = chipsOf(firstShadow).map((chip) => chip.style["--vault-tag-color-light"]);
+  const secondLightColors = chipsOf(secondShadow).map((chip) => chip.style["--vault-tag-color-light"]);
+  const firstDarkColors = chipsOf(firstShadow).map((chip) => chip.style["--vault-tag-color-dark"]);
+  const secondDarkColors = chipsOf(secondShadow).map((chip) => chip.style["--vault-tag-color-dark"]);
   const pillStyle = firstShadow?.children?.[0]?.textContent || "";
   const genericHostIsPrivate = firstHost
     && firstHost.shadowRoot === null
@@ -180,7 +189,7 @@ setTimeout(() => {
   FakeMutationObserver.emit([{ removedNodes: [detachedHost] }]);
   const remountedHost = firstRoot.children[firstRoot.children.length - 1];
   const remountedShadow = closedShadows.get(remountedHost);
-  const remountedNames = remountedShadow?.children?.[1]?.children?.map((chip) => chip.textContent);
+  const remountedNames = chipsOf(remountedShadow).map((chip) => chip.textContent);
   const reattached = remountedHost !== detachedHost
     && JSON.stringify(remountedNames) === JSON.stringify(["Games", "Technology"]);
 

@@ -22,7 +22,11 @@ class FakeElement {
     this.textContent = "";
     this.className = "";
     this.dir = "";
+    this.dataset = {};
+    this.attributes = {};
   }
+  setAttribute(name, value) { this.attributes[name] = value; }
+  getAttribute(name) { return this.attributes[name]; }
   append(...children) { for (const child of children) this.appendChild(child); }
   appendChild(child) {
     child.parentNode = this;
@@ -115,7 +119,10 @@ vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-tag-ui.js"), "
 function chipNamesFor(hostRoot) {
   const host = hostRoot.children[hostRoot.children.length - 1];
   const shadow = closedShadows.get(host);
-  return shadow?.children?.[1]?.children?.map((chip) => chip.textContent);
+  // Chips are wrapped in .chip-wrap; the trailing "+ tag" add button is excluded.
+  return (shadow?.children?.[1]?.children || [])
+    .filter((el) => el.className === "chip-wrap")
+    .map((wrap) => wrap.children[0].textContent);
 }
 
 // Phase 1: a classified video with no tags renders exactly one "None" chip.
