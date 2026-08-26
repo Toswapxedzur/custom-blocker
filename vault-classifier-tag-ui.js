@@ -319,19 +319,46 @@
       || (taxonomy.types.length === 1 ? taxonomy.types[0].typeID : null);
   }
 
-  function correctedSet(state, taxonomy, typeID, { add, remove } = {}) {
-    const set = new Set(realTagIDs(state).filter((id) => typeForTag(taxonomy, id) === typeID));
-    if (remove) set.delete(remove);
-    if (add) set.add(add);
-    return [...set];
+  // Repaints this pill's chips immediately and pins the cache so a stray
+  // re-request can't momentarily revert the optimistic view. The authoritative
+  // broadcast lands right after with the same signature — no flicker.
+  function applyLocalTags(state, realTags) {
+    const display = realTags.length ? realTags : NONE_TAGS;
+    state.signature = "";
+    render(state, display, false);
+    const key = boundedIdentity(state.platform, state.entryID);
+    if (key) {
+      sourceCache.set(key, { tags: display, predicted: false, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
+    }
   }
 
-  async function applyCorrection(state, { add, remove }) {
-    const taxonomy = await fetchTaxonomy(state.platform);
-    const typeID = typeForTag(taxonomy, add || remove);
-    if (!typeID) return;
-    await sendCorrection(state.platform, state.entryID, state.creatorID, typeID, correctedSet(state, taxonomy, typeID, { add, remove }));
-    // The app broadcasts video-tags-updated; applyPushedTags re-renders the pills.
+  // Optimistic tag edit: update the pill NOW, then send the correction in the
+  // background and revert only if it fails. `addTag` is a full display tag
+  // {id,name,lightColorHex,darkColorHex}; `removeID` is a tag id.
+  function editTags(state, { addTag, removeID }) {
+    const before = (state.currentTags || []).filter((tag) => !SYNTHETIC_IDS.has(tag.id));
+    let next;
+    if (removeID) {
+      next = before.filter((tag) => tag.id !== removeID);
+    } else if (addTag) {
+      if (before.some((tag) => tag.id === addTag.id)) return;
+      next = [...before, addTag];
+    } else {
+      return;
+    }
+    applyLocalTags(state, next);   // instant
+
+    (async () => {
+      const taxonomy = await fetchTaxonomy(state.platform);
+      const typeID = typeForTag(taxonomy, removeID || addTag.id);
+      if (!typeID) { applyLocalTags(state, before); return; }
+      const correctTagIDs = next.filter((tag) => typeForTag(taxonomy, tag.id) === typeID).map((tag) => tag.id);
+      const result = await sendCorrection(state.platform, state.entryID, state.creatorID, typeID, correctTagIDs);
+      if (!result || result.ok !== true) {
+        applyLocalTags(state, before);   // revert on failure
+      }
+      // success → the video-tags-updated broadcast confirms (same signature).
+    })();
   }
 
   // Builds the small add-a-tag panel: a search box + the addable tags (all
@@ -375,6 +402,10 @@
         item.type = "button";
         item.dataset.tagId = tag.id;
         item.dataset.name = tag.name.toLowerCase();
+        // Full display data so an add can paint the chip instantly on click.
+        item.dataset.label = tag.name;
+        item.dataset.light = tag.lightColorHex;
+        item.dataset.dark = tag.darkColorHex;
         const dot = document.createElement("span");
         dot.className = "panel-dot";
         dot.style.background = tag.lightColorHex;
@@ -446,7 +477,7 @@
       const target = event.target;
       if (typeof target?.closest !== "function") return;
       const del = target.closest(".chip-del");
-      if (del) { event.preventDefault(); event.stopPropagation(); applyCorrection(state, { remove: del.dataset.tagId }); return; }
+      if (del) { event.preventDefault(); event.stopPropagation(); editTags(state, { removeID: del.dataset.tagId }); return; }
       if (target.closest(".add-btn")) { event.preventDefault(); event.stopPropagation(); openAddPanel(state, panel); return; }
       // The pill host is injected inside the card's own link; any click within
       // the panel (search box, list, backdrop) must be swallowed so it never
@@ -458,9 +489,13 @@
         if (target.closest(".panel-close")) { panel.classList.remove("open"); return; }
         const item = target.closest(".panel-item");
         if (item) {
-          const tagID = item.dataset.tagId;
           item.remove();
-          applyCorrection(state, { add: tagID });
+          editTags(state, { addTag: {
+            id: item.dataset.tagId,
+            name: item.dataset.label,
+            lightColorHex: item.dataset.light,
+            darkColorHex: item.dataset.dark
+          } });
         }
       }
     });
