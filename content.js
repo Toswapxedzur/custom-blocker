@@ -577,22 +577,43 @@ function cbFindMedia(card) {
 // link (/watch, /shorts/) from navigating, while leaving author/channel links,
 // tags and the pill clickable. Avoids pointer-events:none, which would also
 // kill the pill nested inside the card's title link.
+// Vault pill hosts, registered by the tag pipeline. Kept in a private WeakSet
+// (not a DOM marker — the host must stay unfingerprintable) so the interceptor
+// can let the correction pill's clicks through.
+const cbPillHosts = new WeakSet();
+if (typeof window !== "undefined") window.cbRegisterPillHost = (el) => { if (el) cbPillHosts.add(el); };
+function cbIsInPillHost(el) {
+  for (let p = el; p; p = p.parentElement) if (cbPillHosts.has(p)) return true;
+  return false;
+}
+
 let cbClickInterceptorInstalled = false;
+function cbBlockNavEvent(e) {
+  const t = e.target;
+  if (!t || typeof t.closest !== "function") return;
+  const card = t.closest('[data-cb-content-blocked="true"]');
+  if (!card || card.dataset.cbRevealed === "true") return;
+  // Our controls and the correction pill (a closed shadow retargets clicks to
+  // its host) must keep working; author/channel links and tags stay live too.
+  if (t.closest(".cb-block-flip, .cb-block-reblock") || cbIsInPillHost(t)) return;
+  // Neutralize the video's own links (thumbnail + title → /watch, /shorts/) and
+  // any event that lands on the black panel. Covers pointerdown/mousedown, since
+  // YouTube's lockup can start navigation before `click`.
+  const inPanel = !!t.closest(".cb-block-panel");
+  const link = t.closest("a[href]");
+  const href = link ? (link.getAttribute("href") || "") : "";
+  if (inPanel || /\/watch|\/shorts\//.test(href)) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
+  }
+}
 function cbInstallClickInterceptor() {
   if (cbClickInterceptorInstalled || typeof document === "undefined") return;
   cbClickInterceptorInstalled = true;
-  document.addEventListener("click", (e) => {
-    const t = e.target;
-    if (!t || typeof t.closest !== "function") return;
-    const card = t.closest('[data-cb-content-blocked="true"]');
-    if (!card || card.dataset.cbRevealed === "true") return;
-    if (t.closest(".cb-block-panel, .cb-block-flip, .cb-block-reblock")) return; // our controls
-    const link = t.closest("a[href]");
-    if (link && /\/watch|\/shorts\//.test(link.getAttribute("href") || "")) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  }, true);
+  for (const type of ["pointerdown", "mousedown", "click", "auxclick"]) {
+    document.addEventListener(type, cbBlockNavEvent, true);
+  }
 }
 
 function cbControlStyle(kind) {
@@ -617,13 +638,8 @@ function cbRenderBlockedPanel(card) {
   const panel = document.createElement("div");
   panel.className = "cb-block-panel";
   panel.setAttribute("style", "position:absolute;inset:0;z-index:60;background:#000;display:flex;align-items:center;justify-content:center;");
-  // Swallow clicks on the black area so they never reach a thumbnail link — but
-  // let the "Show" button's own click through (else the flip never fires).
-  panel.addEventListener("click", (e) => {
-    if (e.target.closest && e.target.closest(".cb-block-flip")) return;
-    e.preventDefault();
-    e.stopPropagation();
-  }, true);
+  // (Panel clicks are neutralized by the document-level interceptor, which also
+  // covers pointerdown/mousedown; the "Show" button is excluded there.)
   const btn = document.createElement("button");
   btn.className = "cb-block-flip";
   btn.type = "button";
