@@ -496,7 +496,7 @@
       });
       const normalized = C.normalizeVideoTagsResponse?.(body, platform, entryID);
       return normalized
-        ? { ok: true, platformID: normalized.platformID, entryID: normalized.entryID, tags: normalized.tags, predicted: normalized.predicted, pending: normalized.pending }
+        ? { ok: true, platformID: normalized.platformID, entryID: normalized.entryID, tags: normalized.tags, predicted: normalized.predicted, pending: normalized.pending, feedAction: normalized.feedAction, pageAction: normalized.pageAction }
         : { ok: false, tags: [], pending: false };
     } catch (_) {
       return { ok: false, tags: [], pending: false };
@@ -540,7 +540,7 @@
       return {
         ok: true,
         platformID: platform,
-        items: [...results.entries()].map(([entryID, value]) => ({ entryID, tags: value.tags, predicted: value.predicted, pending: value.pending }))
+        items: [...results.entries()].map(([entryID, value]) => ({ entryID, tags: value.tags, predicted: value.predicted, pending: value.pending, feedAction: value.feedAction, pageAction: value.pageAction }))
       };
     } catch (_) {
       return { ok: false, items: [] };

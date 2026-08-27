@@ -284,7 +284,7 @@
           (response) => {
             if (chrome.runtime.lastError || response?.ok !== true) return resolve(null);
             const normalized = C.normalizeVideoTagsResponse(response, platform, entryID);
-            resolve(normalized ? { tags: normalized.tags, predicted: normalized.predicted === true, pending: normalized.pending === true } : null);
+            resolve(normalized ? { tags: normalized.tags, predicted: normalized.predicted === true, pending: normalized.pending === true, feedAction: normalized.feedAction, pageAction: normalized.pageAction } : null);
           }
         );
       } catch (_) {
