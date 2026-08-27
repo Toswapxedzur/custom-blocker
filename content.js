@@ -558,11 +558,12 @@ function showElement(element) {
   element.removeAttribute("aria-hidden");
 }
 
-// Content-tag block = a FLIPPABLE "content blocked" state (not a whole-card
-// fade). The card's thumbnail/preview is blacked out and its click-to-watch is
-// disabled, while title, author, tags and the Vault pill stay visible and
-// interactive — so the card is legible and correctable. A "Show" control flips
-// one card to revealed; a corner "Hide" flips it back. Per-card, in-memory.
+// Content-tag block = a "content blocked" state that is a LIVE function of the
+// card's tags. The thumbnail is blacked out and its click-to-watch disabled,
+// while title, author, tags and the Vault pill stay visible and interactive.
+// There is no manual toggle — correcting the tag (via the pill) recomputes the
+// block, so the blacked state clears instantly the moment the tag no longer
+// qualifies (the tag pipeline re-applies the verdict on every tag change).
 
 // The media (thumbnail) element to black out, per card. Covers YouTube's older
 // ytd-thumbnail (grid + search) AND the newer lockup layout
@@ -573,10 +574,6 @@ function cbFindMedia(card) {
   try { return card.querySelector(CB_MEDIA_SELECTORS); } catch { return null; }
 }
 
-// One capture-phase interceptor stops a blocked (non-revealed) card's video
-// link (/watch, /shorts/) from navigating, while leaving author/channel links,
-// tags and the pill clickable. Avoids pointer-events:none, which would also
-// kill the pill nested inside the card's title link.
 // Vault pill hosts, registered by the tag pipeline. Kept in a private WeakSet
 // (not a DOM marker — the host must stay unfingerprintable) so the interceptor
 // can let the correction pill's clicks through.
@@ -587,18 +584,16 @@ function cbIsInPillHost(el) {
   return false;
 }
 
+// One capture-phase interceptor stops a blocked card's video link (/watch,
+// /shorts/) and any black-panel click from navigating, across pointerdown/
+// mousedown/click/auxclick (YouTube's lockup can navigate before `click`).
+// Author/channel links, tags and the pill stay live.
 let cbClickInterceptorInstalled = false;
 function cbBlockNavEvent(e) {
   const t = e.target;
   if (!t || typeof t.closest !== "function") return;
   const card = t.closest('[data-cb-content-blocked="true"]');
-  if (!card || card.dataset.cbRevealed === "true") return;
-  // Our controls and the correction pill (a closed shadow retargets clicks to
-  // its host) must keep working; author/channel links and tags stay live too.
-  if (t.closest(".cb-block-flip, .cb-block-reblock") || cbIsInPillHost(t)) return;
-  // Neutralize the video's own links (thumbnail + title → /watch, /shorts/) and
-  // any event that lands on the black panel. Covers pointerdown/mousedown, since
-  // YouTube's lockup can start navigation before `click`.
+  if (!card || cbIsInPillHost(t)) return;
   const inPanel = !!t.closest(".cb-block-panel");
   const link = t.closest("a[href]");
   const href = link ? (link.getAttribute("href") || "") : "";
@@ -616,92 +611,41 @@ function cbInstallClickInterceptor() {
   }
 }
 
-function cbControlStyle(kind) {
-  return kind === "flip"
-    ? "all:unset;cursor:pointer;color:#fff;font:600 12px/1 system-ui,-apple-system,sans-serif;padding:7px 14px;border:1px solid rgba(255,255,255,.35);border-radius:999px;background:rgba(255,255,255,.10);"
-    : "position:absolute;top:6px;left:6px;z-index:61;all:unset;cursor:pointer;color:#fff;font:600 11px/1 system-ui,-apple-system,sans-serif;padding:4px 9px;border-radius:999px;background:rgba(0,0,0,.62);";
-}
-
 function cbEnsureRelative(el) {
   if (!el) return;
   if (el.dataset.cbPrevPos === undefined) el.dataset.cbPrevPos = el.style.position || "";
   try { if (getComputedStyle(el).position === "static") el.style.position = "relative"; } catch {}
 }
 
-// Paint (or repaint) the blacked-out panel over a card's media.
-function cbRenderBlockedPanel(card) {
+// Black out a card's thumbnail (idempotent; re-renders if the host recycled the
+// panel away). No controls — the block is driven purely by the tags.
+function dimElement(card) {
+  if (!card) return;
   const media = cbFindMedia(card);
-  if (!media) return; // no thumbnail found → never black the whole card
+  if (!media) return; // no thumbnail to black → skip, never black the whole card
+  const hasPanel = !!media.querySelector(":scope > .cb-block-panel");
+  if (card.dataset.cbContentBlocked === "true" && hasPanel) return;
+  card.dataset.cbContentBlocked = "true";
   cbInstallClickInterceptor();
   cbEnsureRelative(media);
   media.querySelector(":scope > .cb-block-panel")?.remove();
   const panel = document.createElement("div");
   panel.className = "cb-block-panel";
-  panel.setAttribute("style", "position:absolute;inset:0;z-index:60;background:#000;display:flex;align-items:center;justify-content:center;");
-  // (Panel clicks are neutralized by the document-level interceptor, which also
-  // covers pointerdown/mousedown; the "Show" button is excluded there.)
-  const btn = document.createElement("button");
-  btn.className = "cb-block-flip";
-  btn.type = "button";
-  btn.textContent = "Show";
-  btn.setAttribute("style", cbControlStyle("flip"));
-  btn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); cbRevealCard(card); });
-  panel.appendChild(btn);
+  panel.setAttribute("style", "position:absolute;inset:0;z-index:60;background:#000;");
   media.appendChild(panel);
 }
 
-// Flip to revealed: drop the panel, restore the media, add a corner "Hide".
-function cbRevealCard(card) {
-  card.dataset.cbRevealed = "true";
-  const media = cbFindMedia(card) || card;
-  media.querySelector(":scope > .cb-block-panel")?.remove();
-  if (!media.querySelector(":scope > .cb-block-reblock")) {
-    cbEnsureRelative(media);
-    const re = document.createElement("button");
-    re.className = "cb-block-reblock";
-    re.type = "button";
-    re.textContent = "Hide";
-    re.setAttribute("style", cbControlStyle("reblock"));
-    re.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); cbReblockCard(card); });
-    media.appendChild(re);
-  }
-}
-
-function cbReblockCard(card) {
-  delete card.dataset.cbRevealed;
-  const media = cbFindMedia(card) || card;
-  media.querySelector(":scope > .cb-block-reblock")?.remove();
-  cbRenderBlockedPanel(card);
-}
-
-// dim verdict → block the card's content (idempotent; re-renders if the host
-// recycled the panel away, and honors a prior manual reveal).
-function dimElement(card) {
-  if (!card) return;
-  const media = cbFindMedia(card);
-  if (!media) return; // no thumbnail to black → skip, never black the whole card
-  if (card.dataset.cbRevealed === "true") { card.dataset.cbContentBlocked = "true"; cbRevealCard(card); return; }
-  const hasPanel = !!media.querySelector(":scope > .cb-block-panel");
-  if (card.dataset.cbContentBlocked === "true" && hasPanel) return;
-  card.dataset.cbContentBlocked = "true";
-  cbRenderBlockedPanel(card);
-}
-
-// show/allow verdict → fully restore the card.
+// allow verdict (or the tag no longer qualifies) → restore the card instantly.
 function undimElement(card) {
   if (!card || card.dataset.cbContentBlocked !== "true") return;
   const media = cbFindMedia(card) || card;
   media.querySelector(":scope > .cb-block-panel")?.remove();
-  media.querySelector(":scope > .cb-block-reblock")?.remove();
-  for (const el of [media, card]) {
-    if (el && el.dataset.cbPrevPos !== undefined) {
-      if (el.dataset.cbPrevPos) el.style.position = el.dataset.cbPrevPos;
-      else el.style.removeProperty("position");
-      delete el.dataset.cbPrevPos;
-    }
+  if (media.dataset.cbPrevPos !== undefined) {
+    if (media.dataset.cbPrevPos) media.style.position = media.dataset.cbPrevPos;
+    else media.style.removeProperty("position");
+    delete media.dataset.cbPrevPos;
   }
   delete card.dataset.cbContentBlocked;
-  delete card.dataset.cbRevealed;
 }
 
 // ────────────────────────────────────────────────────────────────────────

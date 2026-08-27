@@ -382,19 +382,33 @@
     } else {
       return;
     }
+    const wasBlocked = !!(state.root && state.root.dataset && state.root.dataset.cbContentBlocked === "true");
     applyLocalTags(state, next);   // instant
+
+    // Instant reactive block: correcting a tag away on a blocked card lifts the
+    // blacked-out state NOW, without waiting for the re-classification round-trip.
+    // The server confirms via the broadcast (or re-blocks if it still qualifies).
+    if (removeID && wasBlocked) setContentBlock(state.root, "allow");
 
     (async () => {
       const taxonomy = await fetchTaxonomy(state.platform);
       const typeID = typeForTag(taxonomy, removeID || addTag.id);
-      if (!typeID) { applyLocalTags(state, before); return; }
+      if (!typeID) { applyLocalTags(state, before); if (wasBlocked) setContentBlock(state.root, "dim"); return; }
       const correctTagIDs = next.filter((tag) => typeForTag(taxonomy, tag.id) === typeID).map((tag) => tag.id);
       const result = await sendCorrection(state.platform, state.entryID, state.creatorID, typeID, correctTagIDs);
       if (!result || result.ok !== true) {
         applyLocalTags(state, before);   // revert on failure
+        if (wasBlocked) setContentBlock(state.root, "dim");   // re-block: the correction did not persist
       }
       // success → the video-tags-updated broadcast confirms (same signature).
     })();
+  }
+
+  // Apply a content-block verdict to a card via content.js's ledger (a global).
+  function setContentBlock(root, action) {
+    if (!root) return;
+    const apply = global.cbApplyTagPolicy;
+    if (typeof apply === "function") { try { apply(root, action); } catch (_) {} }
   }
 
   // Builds the small add-a-tag panel: a search box + the addable tags (all
