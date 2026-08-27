@@ -148,7 +148,12 @@ const sentToTabs = [];
       this.textContent = "";
       this.className = "";
       this.dir = "";
+      this.dataset = {};
+      this._attrs = {};
     }
+    setAttribute(name, value) { this._attrs[name] = String(value); }
+    getAttribute(name) { return Object.prototype.hasOwnProperty.call(this._attrs, name) ? this._attrs[name] : null; }
+    removeAttribute(name) { delete this._attrs[name]; }
     append(...children) { for (const child of children) this.appendChild(child); }
     appendChild(child) {
       child.parentNode = this;
@@ -232,7 +237,10 @@ const sentToTabs = [];
 
   const chipNames = () => {
     const host = cardRoot.children[cardRoot.children.length - 1];
-    return closedShadows.get(host)?.children?.[1]?.children?.map((chip) => chip.textContent);
+    // Chips live inside .chip-wrap spans (followed by the "+ tag" add button).
+    return (closedShadows.get(host)?.children?.[1]?.children || [])
+      .filter((el) => el.className === "chip-wrap")
+      .map((wrap) => wrap.children[0].textContent);
   };
 
   setTimeout(() => {
@@ -273,7 +281,9 @@ const sentToTabs = [];
     });
     setTimeout(() => {
       const host = prefetchedRoot.children[prefetchedRoot.children.length - 1];
-      const names = closedShadows.get(host)?.children?.[1]?.children?.map((chip) => chip.textContent);
+      const names = (closedShadows.get(host)?.children?.[1]?.children || [])
+        .filter((el) => el.className === "chip-wrap")
+        .map((wrap) => wrap.children[0].textContent);
       check("pushed cache serves a later observe", JSON.stringify(names) === JSON.stringify(["Games"]), names);
       check("cache hit skips the request round-trip", messages.length === requestsBeforeObserve, messages);
       finish();

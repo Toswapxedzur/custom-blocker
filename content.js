@@ -558,6 +558,34 @@ function showElement(element) {
   element.removeAttribute("aria-hidden");
 }
 
+// DIM (not hide) for content-tag policy: a wrong tag block must stay visible and
+// CORRECTABLE. The card is greyed + faded but keeps `pointer-events`, so the
+// Vault pill on top is still clickable — one correction re-classifies and lifts
+// the dim. Deliberately gentler than hideElement's display:none.
+function dimElement(element) {
+  if (!element || element.dataset.customBlockerFeedDimmed === "true") return;
+  element.dataset.customBlockerFeedDimmed = "true";
+  element.dataset.customBlockerFeedPrevOpacity = element.style.opacity || "";
+  element.dataset.customBlockerFeedPrevFilter = element.style.filter || "";
+  element.style.opacity = "0.32";
+  element.style.filter = `${element.style.filter ? element.style.filter + " " : ""}grayscale(0.85)`.trim();
+}
+
+function undimElement(element) {
+  if (!element || element.dataset.customBlockerFeedDimmed !== "true") return;
+  if (element.dataset.customBlockerFeedPrevOpacity !== undefined) {
+    if (element.dataset.customBlockerFeedPrevOpacity) element.style.opacity = element.dataset.customBlockerFeedPrevOpacity;
+    else element.style.removeProperty("opacity");
+    delete element.dataset.customBlockerFeedPrevOpacity;
+  }
+  if (element.dataset.customBlockerFeedPrevFilter !== undefined) {
+    if (element.dataset.customBlockerFeedPrevFilter) element.style.filter = element.dataset.customBlockerFeedPrevFilter;
+    else element.style.removeProperty("filter");
+    delete element.dataset.customBlockerFeedPrevFilter;
+  }
+  element.removeAttribute("data-custom-blocker-feed-dimmed");
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // Shared feed-hide engine (default / platform rules AND custom rules)
 //
@@ -655,10 +683,11 @@ function cbClearSourceEverywhere(source) {
 }
 
 // Resolve from the ordered ledger: the lowest-index (top-most) group with an
-// opinion decides. Returns true if the card should be hidden.
-function cbResolveCardHidden(card) {
+// opinion decides. Returns the winning verdict — "hide" | "dim" | "show".
+// ("allow" rescues resolve to "show"; no opinion → "show".)
+function cbResolveCardVerdict(card) {
   const entry = cbVerdictLedger.get(card);
-  if (!entry || entry.size === 0) return false;
+  if (!entry || entry.size === 0) return "show";
   let bestIndex = Infinity;
   let bestVerdict = null;
   for (const [groupId, value] of entry) {
@@ -670,13 +699,45 @@ function cbResolveCardHidden(card) {
       bestVerdict = value.v;
     }
   }
-  return bestVerdict === "hide";
+  if (bestVerdict === "hide") return "hide";
+  if (bestVerdict === "dim") return "dim";
+  return "show";
+}
+
+// Back-compat boolean wrapper (some callers only ask "is it hidden?").
+function cbResolveCardHidden(card) {
+  return cbResolveCardVerdict(card) === "hide";
 }
 
 function cbApplyCard(card) {
-  if (cbResolveCardHidden(card)) hideElement(card);
-  else showElement(card);
+  const verdict = cbResolveCardVerdict(card);
+  if (verdict === "hide") {
+    undimElement(card);
+    hideElement(card);
+  } else if (verdict === "dim") {
+    showElement(card);
+    dimElement(card);
+  } else {
+    undimElement(card);
+    showElement(card);
+  }
 }
+
+// ── Content-tag policy verdict source ──────────────────────────────────────
+// The app resolves each classified entry's platform policy (allow/dim/block on
+// content tags) and ships a per-entry `feedAction`. The tag pipeline calls this
+// with the card + that action. It's a first-class verdict source ("tag") in the
+// same ledger, so it composes with creator/custom rules: an explicit user
+// "allow" rescue or "hide" still wins (the tag group has no feedOrder index, so
+// it sits at lowest priority). DIM is the intended default — correctable.
+const CB_TAG_POLICY_GROUP_ID = "__vault_tag_policy__";
+function cbApplyTagPolicy(card, feedAction) {
+  if (!card) return;
+  const verdict = feedAction === "block" ? "hide" : feedAction === "dim" ? "dim" : null;
+  cbSetCardVerdict(card, CB_TAG_POLICY_GROUP_ID, verdict, "tag");
+  cbApplyCard(card);
+}
+if (typeof window !== "undefined") window.cbApplyTagPolicy = cbApplyTagPolicy;
 
 function collectNavElementsToHide(filter) {
   if (!filter || filter.authorMode !== "all") return [];
@@ -3184,6 +3245,22 @@ function __cb_extractCardItem(card, platform) {
     if (fallback) author = fallback;
   }
 
+  // Content-classifier tags for this card (from the Vault tag pipeline), so a
+  // custom content-block rule can match on WHAT the content is, not just its
+  // creator. Empty until the pill resolves; a resolved change re-evaluates via
+  // the signature below.
+  let tags = [];
+  try {
+    if (typeof window !== "undefined" && typeof window.vaultTagsForCard === "function") {
+      const resolved = window.vaultTagsForCard(card);
+      if (Array.isArray(resolved)) {
+        tags = resolved
+          .filter((t) => t && typeof t.name === "string")
+          .map((t) => ({ id: t.id, name: t.name, confidence: Number.isInteger(t.confidence) ? t.confidence : 0 }));
+      }
+    }
+  } catch {}
+
   return {
     url,
     name,
@@ -3196,7 +3273,8 @@ function __cb_extractCardItem(card, platform) {
     live: null,
     sponsored: null,
     algorithmic: null,
-    videoForm
+    videoForm,
+    tags
   };
 }
 
@@ -3212,7 +3290,10 @@ function cbResetCustomSigCache() {
 }
 
 function cbCardSignature(item) {
-  return [item.url || "", item.title || "", item.videoForm || ""].join("\n");
+  const tagSig = Array.isArray(item.tags)
+    ? item.tags.map((t) => `${t.id || t.name}:${t.confidence || 0}`).sort().join(",")
+    : "";
+  return [item.url || "", item.title || "", item.videoForm || "", tagSig].join("\n");
 }
 
 // Returns the full sandbox reply { results, evaluatedGroups } (or null). The

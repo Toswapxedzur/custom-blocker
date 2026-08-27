@@ -307,10 +307,20 @@
         id: item.id,
         name: item.name,
         lightColorHex: item.lightColorHex.toUpperCase(),
-        darkColorHex: item.darkColorHex.toUpperCase()
+        darkColorHex: item.darkColorHex.toUpperCase(),
+        // Model confidence 1..5 (0 = unknown). Lets custom content-block rules
+        // gate on confidence; absent/invalid coerces to 0.
+        confidence: Number.isInteger(item.confidence) && item.confidence >= 0 && item.confidence <= 5 ? item.confidence : 0
       });
     }
     return tags;
+  }
+
+  // Per-entry content-block verdict from the app's bound platform policy. Only
+  // the three known PresentationAction values pass; anything else → "allow"
+  // (fail-open: never hide/dim on a malformed or unknown action).
+  function normalizeAction(value) {
+    return value === "block" || value === "dim" ? value : "allow";
   }
 
   // Local-LLM rework: validates a per-video tags reply, keyed by the video's
@@ -331,7 +341,9 @@
       entryID: expectedEntryID,
       tags,
       predicted: value.predicted === true,
-      pending: value.pending === true
+      pending: value.pending === true,
+      feedAction: normalizeAction(value.feedAction),
+      pageAction: normalizeAction(value.pageAction)
     };
   }
 
@@ -360,7 +372,10 @@
       }
       const tags = normalizeTagList(item.tags);
       if (tags === null) return null;
-      results.set(item.entryID, { tags, predicted: item.predicted === true, pending: item.pending === true });
+      results.set(item.entryID, {
+        tags, predicted: item.predicted === true, pending: item.pending === true,
+        feedAction: normalizeAction(item.feedAction), pageAction: normalizeAction(item.pageAction)
+      });
     }
     return results;
   }
@@ -390,7 +405,10 @@
       const tags = normalizeTagList(item.tags);
       if (tags === null) return null;
       seen.add(item.entryID);
-      items.push({ entryID: item.entryID, tags, predicted: item.predicted === true });
+      items.push({
+        entryID: item.entryID, tags, predicted: item.predicted === true,
+        feedAction: normalizeAction(item.feedAction), pageAction: normalizeAction(item.pageAction)
+      });
     }
     return { platformID: platform, items };
   }

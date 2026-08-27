@@ -131,9 +131,42 @@
       clearTimeout(state.recheckTimer);
       state.recheckTimer = null;
     }
+    clearContentBlock(state.root);
     try { state.host?.remove?.(); } catch (_) {}
     mountedStates.delete(state);
   }
+
+  // Content-tag block enforcement: hand the card + its resolved feedAction to
+  // content.js's verdict ledger (a global). DIM keeps the card visible and
+  // correctable — the Vault pill stays clickable, so one correction re-classifies
+  // and lifts the verdict. A provisional/"allow"/absent result clears any prior
+  // verdict (un-dim). Safe no-op if content.js isn't present in this world.
+  function applyContentBlock(state, result) {
+    if (!state || !state.root) return;
+    const apply = global.cbApplyTagPolicy;
+    if (typeof apply !== "function") return;
+    const action = (result && !result.provisional) ? (result.feedAction || "allow") : "allow";
+    try { apply(state.root, action); } catch (_) {}
+  }
+
+  function clearContentBlock(root) {
+    if (!root) return;
+    const apply = global.cbApplyTagPolicy;
+    if (typeof apply === "function") { try { apply(root, "allow"); } catch (_) {} }
+  }
+
+  // Expose a card's resolved tags (with confidence) to custom content-block
+  // rules, which run in content.js and only hold the card element. Returns the
+  // display tag list for the card's current entryID, or [] if unknown.
+  function tagsForCard(root) {
+    const state = root && stateByRoot.get(root);
+    if (!state) return [];
+    const cached = sourceCache.get(state.key);
+    if (!cached || cached.provisional || !Array.isArray(cached.tags)) return [];
+    // Drop the "None"/"Tagging" placeholder pills — custom rules only see real tags.
+    return cached.tags.filter((t) => t && t.id !== "vault:none" && t.id !== "vault:tagging");
+  }
+  if (global) global.vaultTagsForCard = tagsForCard;
 
   function prune() {
     for (const state of [...mountedStates]) {
@@ -158,7 +191,7 @@
     const cached = sourceCache.get(key);
     if (cached?.pending) return cached.pending;
     if (cached && cached.expiresAt > Date.now()) {
-      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true });
+      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true, feedAction: cached.feedAction || "allow", pageAction: cached.pageAction || "allow" });
     }
 
     const pending = new Promise((resolve) => {
@@ -166,19 +199,22 @@
       scheduleDrain();
     }).then((result) => {
       // The app is still classifying this video: show the "Tagging" placeholder
-      // and re-check soon so the real tags replace it quickly.
+      // and re-check soon so the real tags replace it quickly. Never dim/hide
+      // while provisional — a card is only ever acted on by a resolved verdict.
       if (result && result.pending) {
-        sourceCache.set(key, { tags: TAGGING_TAGS, predicted: false, provisional: true, expiresAt: Date.now() + PENDING_TTL_MS, pending: null });
+        sourceCache.set(key, { tags: TAGGING_TAGS, predicted: false, provisional: true, expiresAt: Date.now() + PENDING_TTL_MS, pending: null, feedAction: "allow", pageAction: "allow" });
         prune();
-        return { tags: TAGGING_TAGS, predicted: false, provisional: true };
+        return { tags: TAGGING_TAGS, predicted: false, provisional: true, feedAction: "allow", pageAction: "allow" };
       }
       const display = displayTags(result && result.tags);
       const predicted = Boolean(result && result.predicted);
-      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
+      const feedAction = (result && result.feedAction) || "allow";
+      const pageAction = (result && result.pageAction) || "allow";
+      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null, feedAction, pageAction });
       prune();
-      return { tags: display, predicted, provisional: false };
+      return { tags: display, predicted, provisional: false, feedAction, pageAction };
     });
-    sourceCache.set(key, { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending });
+    sourceCache.set(key, { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending, feedAction: cached?.feedAction || "allow", pageAction: cached?.pageAction || "allow" });
     return pending;
   }
 
@@ -604,6 +640,7 @@
       }
       request(state.platform, state.entryID, state.creatorID, state.title).then((result) => {
         render(state, result && result.tags, Boolean(result && result.predicted));
+        applyContentBlock(state, result);
         if (result && result.provisional) scheduleProvisionalRecheck(state);
       });
     }, PENDING_TTL_MS + 200);
@@ -647,6 +684,7 @@
         state: result ? (result.provisional ? "tagging" : ((result.tags && result.tags.length) ? "tags" : "none")) : "null"
       });
       render(state, result && result.tags, Boolean(result && result.predicted));
+      applyContentBlock(state, result);
       if (result && result.provisional) scheduleProvisionalRecheck(state);
     });
   }
@@ -662,9 +700,14 @@
       const display = displayTags(item && item.tags);
       if (!key || !display) continue;
       const predicted = item.predicted === true;
-      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
+      const feedAction = item.feedAction || "allow";
+      const pageAction = item.pageAction || "allow";
+      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null, feedAction, pageAction });
       for (const state of [...mountedStates]) {
-        if (state.key === key) render(state, display, predicted);
+        if (state.key === key) {
+          render(state, display, predicted);
+          applyContentBlock(state, { provisional: false, feedAction, pageAction });
+        }
       }
     }
     prune();
