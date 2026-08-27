@@ -459,6 +459,10 @@
     if (!document?.createElement) return null;
     const host = document.createElement("span");
     host.style.cssText = "all:initial;display:inline-block;vertical-align:middle;margin-inline-start:6px;max-width:100%;";
+    // Register the host in the content-block interceptor's private WeakSet (not a
+    // DOM class — the host must stay unfingerprintable) so a click retargeted to
+    // it from the closed shadow is never treated as a blocked video click.
+    try { global.cbRegisterPillHost?.(host); } catch (_) {}
     const shadow = host.attachShadow?.({ mode: "closed" });
     if (!shadow) return null;
 
