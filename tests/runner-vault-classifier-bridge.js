@@ -30,6 +30,8 @@ const hub = {
         resolve(inExtensionRealm({
           platformID: body.platformID,
           entryID: body.entryID,
+          feedAction: "dim",
+          pageAction: "block",
           tags: [{
             id: "games",
             name: "Games",
@@ -251,6 +253,10 @@ function assert(name, condition, detail) {
     && videoTags.value?.tags?.[0]?.name === "Games"
     && videoTags.value?.tags?.[0]?.lightColorHex === "#9EC5E8"
     && videoTags.value?.tags?.[0]?.darkColorHex === "#1A4775", videoTags);
+  // Content-block verdict must survive the bridge passthrough (regression: the
+  // mapper once copied only tags/predicted/pending and dropped feedAction).
+  assert("passes the content-block feedAction/pageAction through the bridge",
+    videoTags.value?.feedAction === "dim" && videoTags.value?.pageAction === "block", videoTags);
   const forgedVideoTags = await dispatch({
     type: "vault-classifier-video-tags",
     platform: "reddit",
