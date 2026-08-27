@@ -564,9 +564,10 @@ function showElement(element) {
 // interactive — so the card is legible and correctable. A "Show" control flips
 // one card to revealed; a corner "Hide" flips it back. Per-card, in-memory.
 
-// The media (thumbnail) element to black out, per card. YouTube uses
-// ytd-thumbnail across grid + search; other platforms extend this later.
-const CB_MEDIA_SELECTORS = "ytd-thumbnail, ytm-thumbnail-cover";
+// The media (thumbnail) element to black out, per card. Covers YouTube's older
+// ytd-thumbnail (grid + search) AND the newer lockup layout
+// (yt-thumbnail-view-model) used on the home feed; other platforms extend this.
+const CB_MEDIA_SELECTORS = "ytd-thumbnail, yt-thumbnail-view-model, yt-collection-thumbnail-view-model, ytd-playlist-thumbnail, ytm-thumbnail-cover";
 
 function cbFindMedia(card) {
   try { return card.querySelector(CB_MEDIA_SELECTORS); } catch { return null; }
@@ -608,11 +609,11 @@ function cbEnsureRelative(el) {
 
 // Paint (or repaint) the blacked-out panel over a card's media.
 function cbRenderBlockedPanel(card) {
-  cbInstallClickInterceptor();
   const media = cbFindMedia(card);
-  const host = media || card;
-  cbEnsureRelative(host);
-  host.querySelector(":scope > .cb-block-panel")?.remove();
+  if (!media) return; // no thumbnail found → never black the whole card
+  cbInstallClickInterceptor();
+  cbEnsureRelative(media);
+  media.querySelector(":scope > .cb-block-panel")?.remove();
   const panel = document.createElement("div");
   panel.className = "cb-block-panel";
   panel.setAttribute("style", "position:absolute;inset:0;z-index:60;background:#000;display:flex;align-items:center;justify-content:center;");
@@ -630,7 +631,7 @@ function cbRenderBlockedPanel(card) {
   btn.setAttribute("style", cbControlStyle("flip"));
   btn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); cbRevealCard(card); });
   panel.appendChild(btn);
-  host.appendChild(panel);
+  media.appendChild(panel);
 }
 
 // Flip to revealed: drop the panel, restore the media, add a corner "Hide".
@@ -661,8 +662,9 @@ function cbReblockCard(card) {
 // recycled the panel away, and honors a prior manual reveal).
 function dimElement(card) {
   if (!card) return;
+  const media = cbFindMedia(card);
+  if (!media) return; // no thumbnail to black → skip, never black the whole card
   if (card.dataset.cbRevealed === "true") { card.dataset.cbContentBlocked = "true"; cbRevealCard(card); return; }
-  const media = cbFindMedia(card) || card;
   const hasPanel = !!media.querySelector(":scope > .cb-block-panel");
   if (card.dataset.cbContentBlocked === "true" && hasPanel) return;
   card.dataset.cbContentBlocked = "true";
