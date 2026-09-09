@@ -796,6 +796,37 @@ function cbApplyTagPolicy(card, feedAction) {
 }
 if (typeof window !== "undefined") window.cbApplyTagPolicy = cbApplyTagPolicy;
 
+// ── Content-tag PAGE verdict ───────────────────────────────────────────────
+// The watch/short page's own entry gets the policy's `pageAction`. "block"
+// leaves the page the same way a platform page block does (session fallback
+// URL → skip-to-next on scroll feeds → the platform's main page → about:blank),
+// at most once per URL. Only the entry that IS this page may block it: its
+// video id must match the location, so a stale watch-root observation from a
+// previous SPA navigation can never exit the page the user moved on to.
+let cbTagPageBlockedHref = "";
+function cbTagPageEntryMatchesLocation(entryID, loc) {
+  if (typeof entryID !== "string" || !loc) return false;
+  const id = entryID.slice(entryID.lastIndexOf(":") + 1);
+  if (!id) return false;
+  try {
+    const params = new URLSearchParams(String(loc.search || ""));
+    if (params.get("v") === id) return true;
+  } catch {}
+  const pathname = String(loc.pathname || "");
+  return pathname.endsWith("/" + id) || pathname.includes("/" + id + "/");
+}
+function cbApplyTagPagePolicy(root, pageAction, meta) {
+  if (pageAction !== "block" || typeof location === "undefined") return false;
+  const entryID = meta && typeof meta.entryID === "string" ? meta.entryID : "";
+  if (!cbTagPageEntryMatchesLocation(entryID, location)) return false;
+  if (cbTagPageBlockedHref === location.href) return false;
+  cbTagPageBlockedHref = location.href;
+  exitAttempted = false; // a platform exit on this URL must not swallow ours
+  attemptExitPage();
+  return true;
+}
+if (typeof window !== "undefined") window.cbApplyTagPagePolicy = cbApplyTagPagePolicy;
+
 function collectNavElementsToHide(filter) {
   if (!filter || filter.authorMode !== "all") return [];
   const containers = new Set();

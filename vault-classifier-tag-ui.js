@@ -131,7 +131,7 @@
       clearTimeout(state.recheckTimer);
       state.recheckTimer = null;
     }
-    clearContentBlock(state.root);
+    if (state.kind !== "page") clearContentBlock(state.root);
     try { state.host?.remove?.(); } catch (_) {}
     mountedStates.delete(state);
   }
@@ -141,8 +141,20 @@
   // correctable — the Vault pill stays clickable, so one correction re-classifies
   // and lifts the verdict. A provisional/"allow"/absent result clears any prior
   // verdict (un-dim). Safe no-op if content.js isn't present in this world.
+  //
+  // A kind:"page" state is the page's OWN entry (watch/short page): it takes the
+  // policy's pageAction instead, via cbApplyTagPagePolicy — "block" leaves the
+  // page. Only a settled (non-provisional) verdict may do that.
   function applyContentBlock(state, result) {
     if (!state || !state.root) return;
+    if (state.kind === "page") {
+      const applyPage = global.cbApplyTagPagePolicy;
+      if (typeof applyPage !== "function") return;
+      const pageAction = (result && !result.provisional) ? (result.pageAction || "allow") : "allow";
+      devLog("page-verdict", { entry: state.entryID, action: pageAction });
+      try { applyPage(state.root, pageAction, { entryID: state.entryID, platform: state.platform }); } catch (_) {}
+      return;
+    }
     const apply = global.cbApplyTagPolicy;
     if (typeof apply !== "function") return;
     const action = (result && !result.provisional) ? (result.feedAction || "allow") : "allow";
@@ -664,7 +676,7 @@
     }, PENDING_TTL_MS + 200);
   }
 
-  function observe({ platform, entryID, creatorID, title, root, anchor = null } = {}) {
+  function observe({ platform, entryID, creatorID, title, root, anchor = null, kind = "card" } = {}) {
     const key = boundedIdentity(platform, entryID);
     if (!key || !boundedIdentity(platform, creatorID) || typeof title !== "string" || !title
       || !root || root.isConnected === false) return;
@@ -680,6 +692,7 @@
         title,
         root,
         anchor,
+        kind: kind === "page" ? "page" : "card",
         epoch: platformEpochs.get(platform) || 0,
         host: null,
         rail: null,
@@ -690,6 +703,7 @@
       stateByRoot.set(root, state);
     } else {
       if (anchor) state.anchor = anchor;
+      if (kind === "page") state.kind = "page";
       // A card may hydrate its title/creator after first paint.
       if (title) state.title = title;
       if (creatorID) state.creatorID = creatorID;

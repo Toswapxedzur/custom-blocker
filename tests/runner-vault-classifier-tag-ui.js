@@ -83,6 +83,11 @@ const document = {
 };
 document.documentElement = new FakeElement("html", document);
 
+const PAGE_ENTRY_ID = "youtube:video:page1";
+// content.js verdict seams, stubbed: record every call.
+const feedPolicyCalls = [];
+const pagePolicyCalls = [];
+
 const chrome = {
   runtime: {
     lastError: null,
@@ -92,13 +97,15 @@ const chrome = {
         { id: "games", name: "Games", lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" },
         { id: "technology", name: "Technology", lightColorHex: "#E3B4E7", darkColorHex: "#6B246F" }
       ];
+      // The page entry carries a settled block verdict (feed dim, page block).
+      const verdictFor = (id) => (id === PAGE_ENTRY_ID ? { feedAction: "dim", pageAction: "block" } : {});
       const response = message.type === "vault-classifier-video-tags-batch"
         ? {
             ok: true,
             platformID: message.platform,
-            items: (Array.isArray(message.items) ? message.items : []).map((item) => ({ entryID: item.entryID, tags, predicted: false, pending: false }))
+            items: (Array.isArray(message.items) ? message.items : []).map((item) => ({ entryID: item.entryID, tags, predicted: false, pending: false, ...verdictFor(item.entryID) }))
           }
-        : { ok: true, platformID: message.platform, entryID: message.entryID, tags, predicted: false, pending: false };
+        : { ok: true, platformID: message.platform, entryID: message.entryID, tags, predicted: false, pending: false, ...verdictFor(message.entryID) };
       setTimeout(() => {
         context.__tagResponse = JSON.stringify(response);
         callback(vm.runInContext("JSON.parse(__tagResponse)", context));
@@ -108,6 +115,8 @@ const chrome = {
 };
 
 context = vm.createContext({
+  cbApplyTagPolicy(root, action) { feedPolicyCalls.push({ root, action }); },
+  cbApplyTagPagePolicy(root, action, meta) { pagePolicyCalls.push({ root, action, meta }); },
   chrome,
   console,
   document,
@@ -135,6 +144,11 @@ const title = "A great video";
 
 context.VaultClassifierTagUI.observe({ platform: "youtube", entryID, creatorID, title, root: firstRoot, anchor: firstAnchor });
 context.VaultClassifierTagUI.observe({ platform: "youtube", entryID, creatorID, title, root: secondRoot, anchor: secondAnchor });
+// The watch page's own entry: kind "page" must route the pageAction (block) to
+// the page seam and never hand the watch root to the feed (thumbnail) seam.
+const pageRoot = new FakeElement("ytd-watch-metadata", document);
+const pageAnchor = pageRoot.appendChild(new FakeElement("h1", document));
+context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: PAGE_ENTRY_ID, creatorID, title: "Page video", root: pageRoot, anchor: pageAnchor, kind: "page" });
 
 setTimeout(() => {
   const firstHost = firstRoot.children[1];
@@ -164,8 +178,19 @@ setTimeout(() => {
   const coalesced = messages.length === 1
     && messages[0].type === "vault-classifier-video-tags-batch"
     && Array.isArray(messages[0].items)
-    && messages[0].items.length === 1
-    && messages[0].items[0].entryID === entryID;
+    && messages[0].items.length === 2
+    && messages[0].items[0].entryID === entryID
+    && messages[0].items[1].entryID === PAGE_ENTRY_ID;
+  // Page verdict routing: exactly one page-seam call, with "block" + the entry
+  // id (so content.js can prove the entry IS the current page); the watch root
+  // never reaches the feed seam, while both cards got their (allow) feed verdict.
+  const pageVerdictRouted = pagePolicyCalls.length === 1
+    && pagePolicyCalls[0].root === pageRoot
+    && pagePolicyCalls[0].action === "block"
+    && pagePolicyCalls[0].meta && pagePolicyCalls[0].meta.entryID === PAGE_ENTRY_ID
+    && !feedPolicyCalls.some((call) => call.root === pageRoot)
+    && feedPolicyCalls.some((call) => call.root === firstRoot && call.action === "allow")
+    && feedPolicyCalls.some((call) => call.root === secondRoot && call.action === "allow");
   const renderedEveryEntry = JSON.stringify(firstNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(secondNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(firstLightColors) === JSON.stringify(["#9EC5E8", "#E3B4E7"])
@@ -179,7 +204,7 @@ setTimeout(() => {
     && pillStyle.includes("background:var(--vault-tag-color-dark)")
     && pillStyle.includes("color:#fff");
 
-  const firstRenderOK = coalesced && renderedEveryEntry && genericHostIsPrivate;
+  const firstRenderOK = coalesced && renderedEveryEntry && genericHostIsPrivate && pageVerdictRouted;
 
   // Reattach regression: the page detaches our host as it re-renders/recycles a
   // row. The reattach observer must re-mount it immediately from cache — not
@@ -197,12 +222,12 @@ setTimeout(() => {
   const cleared = firstRoot.children.length === 1 && secondRoot.children.length === 1;
 
   if (firstRenderOK && reattached && cleared) {
-    console.log("PASS coalesces lookups, renders closed-shadow tags, and reattaches a detached pill");
+    console.log("PASS coalesces lookups, renders closed-shadow tags, routes the page verdict, and reattaches a detached pill");
     console.log("__CB_TEST_RESULT__: OK");
     return;
   }
   console.error("FAIL source tag presenter", {
-    messages, firstNames, secondNames, firstLightColors, secondLightColors,
+    messages, pagePolicyCalls, feedPolicyCalls, pageVerdictRouted, firstNames, secondNames, firstLightColors, secondLightColors,
     firstDarkColors, secondDarkColors, pillStyle, genericHostIsPrivate,
     remountedNames, reattached, cleared
   });
