@@ -654,13 +654,17 @@
     await collectEntry(entry);
     const watchTitle = (entry.evidence && entry.evidence.title) || compactText(titleElement && titleElement.textContent, 500);
     if (entry.entryID && entry.sourceID && watchTitle) {
+      // kind "page": this is the page's OWN entry, so the policy's pageAction
+      // (not feedAction) applies — a block leaves the page instead of blacking
+      // a thumbnail.
       TagUI?.observe?.({
         platform: PLATFORM,
         entryID: entry.entryID,
         creatorID: entry.sourceID,
         title: watchTitle,
         root: watchRoot || document.documentElement,
-        anchor: titleElement || source?.link || null
+        anchor: titleElement || source?.link || null,
+        kind: "page"
       });
     }
   }
