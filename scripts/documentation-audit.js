@@ -18,6 +18,9 @@ function walkMarkdown(directory, files = []) {
       if (!skippedDirectories.has(entry.name)) walkMarkdown(path.join(directory, entry.name), files);
       continue;
     }
+    // package-info.md is the agent-facing folder description (programme-wide
+    // convention), internal like docs/, so it is not localized either.
+    if (entry.isFile() && entry.name === "package-info.md") continue;
     if (entry.isFile() && entry.name.endsWith(".md") && (path.basename(directory) !== "manual" || entry.name === "en.md")) {
       files.push(path.join(directory, entry.name));
     }
