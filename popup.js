@@ -915,17 +915,6 @@ function clusterAllOnline(cluster) {
   return members.every((m) => m && m.online !== false);
 }
 
-// Offline member programs in this group's cluster (for the UI indicator).
-function clusterOfflineMembers(cluster) {
-  if (!cluster) return [];
-  const members = Array.isArray(cluster.members) ? cluster.members : [];
-  return members.filter((m) => {
-    if (!m) return false;
-    if (m.program === LOCAL_PROGRAM_ID) return false; // we are obviously here
-    return m.online === false || !bridgeIsOnline();
-  });
-}
-
 // The cluster (if any) this group currently belongs to, matched by this
 // endpoint's program id + the member's pinned group id. Membership is pinned to
 // the specific group instance that was linked, so deleting a group and later
@@ -4044,12 +4033,6 @@ async function setGroupParentalPin(group, pin) {
   return true;
 }
 
-function clearGroupParentalPin(group) {
-  if (!group) return;
-  group.parentalPasswordHash = null;
-  group.parentalPasswordSalt = null;
-}
-
 async function verifyGroupParentalPin(group, pin) {
   if (!group || !group.parentalPasswordHash || !group.parentalPasswordSalt) return false;
   if (!isValidParentalPin(pin)) return false;
@@ -7046,49 +7029,6 @@ if (runCustomGroupButton) {
   runCustomGroupButton.addEventListener("click", () => {
     runSelectedCustomGroup();
   });
-}
-
-async function checkSelectedCustomGroupSyntax() {
-  const group = getSelectedGroup();
-  if (!group || group.groupType !== "custom") return;
-  const source = String(blockingRulesField?.value ?? "").trim();
-  if (runCustomGroupStatus) {
-    runCustomGroupStatus.textContent = t("custom.checkSyntaxRunning");
-    runCustomGroupStatus.className = "run-status";
-  }
-  try {
-    const syntaxResult = await requestCustomGroupSyntaxCheck(source);
-    if (syntaxResult.ok) {
-      if (runCustomGroupStatus) {
-        runCustomGroupStatus.textContent = syntaxResult.text;
-        runCustomGroupStatus.className = "run-status success";
-      }
-      setStatus(syntaxResult.text);
-      return;
-    }
-
-    if (syntaxResult.statusKey) {
-      if (runCustomGroupStatus) {
-        runCustomGroupStatus.textContent = syntaxResult.text;
-        runCustomGroupStatus.className = "run-status error";
-      }
-      setStatus(t(syntaxResult.statusKey), true);
-      return;
-    }
-
-    if (runCustomGroupStatus) {
-      runCustomGroupStatus.textContent = syntaxResult.text;
-      runCustomGroupStatus.className = "run-status error";
-    }
-    setStatus(syntaxResult.text, true);
-  } catch (error) {
-    const text = String(error && error.message ? error.message : error);
-    if (runCustomGroupStatus) {
-      runCustomGroupStatus.textContent = text;
-      runCustomGroupStatus.className = "run-status error";
-    }
-    setStatus(text, true);
-  }
 }
 
 function toggleAiPromptPanel() {

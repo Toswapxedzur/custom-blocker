@@ -257,10 +257,6 @@ function isBlockingTimedMode(mode) {
   return mode === "after-minutes";
 }
 
-function formatDayName(dayName) {
-  return String(dayName).slice(0, 1).toUpperCase() + String(dayName).slice(1);
-}
-
 function parseAllowedMinutes(value) {
   const parsed = Number.parseFloat(String(value ?? "").trim());
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
@@ -2478,23 +2474,6 @@ function hostnameOf(url) {
     return parsed.hostname.toLowerCase().replace(/^www\./, "");
   } catch {
     return "";
-  }
-}
-
-async function gatherTabsSnapshot() {
-  try {
-    const tabs = await chrome.tabs.query({});
-    return tabs
-      .filter((t) => t && typeof t.id === "number")
-      .map((t) => ({
-        id: t.id,
-        url: normalizeUrlForEvents(t.url || ""),
-        title: t.title || "",
-        active: Boolean(t.active),
-        windowId: t.windowId
-      }));
-  } catch {
-    return [];
   }
 }
 

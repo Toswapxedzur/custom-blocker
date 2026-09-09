@@ -766,11 +766,6 @@ function cbResolveCardVerdict(card) {
   return "show";
 }
 
-// Back-compat boolean wrapper (some callers only ask "is it hidden?").
-function cbResolveCardHidden(card) {
-  return cbResolveCardVerdict(card) === "hide";
-}
-
 function cbApplyCard(card) {
   const verdict = cbResolveCardVerdict(card);
   if (verdict === "hide") {
@@ -1915,29 +1910,6 @@ function __cb_updatePanelTimerBox(timerBox, control, theme) {
     expired.textContent = "Expired";
   } else if (expired) {
     expired.remove();
-  }
-}
-
-function __cb_updatePanelTimerControls(panelEl, snapshot) {
-  if (!panelEl || !snapshot) return;
-  const theme = snapshot.theme && typeof snapshot.theme === "object" ? snapshot.theme : {};
-  const controls = __cb_collectPanelTimerControls(snapshot.controls);
-  if (controls.length === 0) return;
-  const boxes = Array.from(panelEl.querySelectorAll("[data-cb-panel-control-type='timer']"));
-  const used = new Set();
-  for (const control of controls) {
-    const controlId = String(control.id || "");
-    const timerId = String(control.timerId || "");
-    const index = boxes.findIndex((box, i) => {
-      if (used.has(i)) return false;
-      return (
-        (controlId && box.getAttribute("data-cb-panel-control-id") === controlId) ||
-        (timerId && box.getAttribute("data-cb-panel-timer-id") === timerId)
-      );
-    });
-    if (index < 0) continue;
-    used.add(index);
-    __cb_updatePanelTimerBox(boxes[index], control, theme);
   }
 }
 
