@@ -1,7 +1,8 @@
 // Reddit collection is subreddit-scoped, not author-scoped. The subreddit is
 // verified from the canonical post route and its source URL is composed
-// locally. Only the matching post root may contribute title/body/flair data;
-// comment bodies and post media are never read.
+// locally. Only the matching post root may contribute title/body/flair data
+// and its OWN thumbnail/media image URL (for on-device OCR evidence — owner
+// decision 2026-09-10); comment bodies and other posts' media are never read.
 (function (global) {
   "use strict";
   const core = global.VaultClassifierCollectorCore;
@@ -45,6 +46,37 @@
     return [...root?.querySelectorAll?.(
       '[slot="post-flair"], [data-post-click-location="post-flair"], a[href*="f=flair_name"]'
     ) || []].map((tag) => tag.textContent);
+  }
+  // The post's own image: the feed thumbnail, or the media container of an
+  // image post (also on the post page). Only the URL travels, only from Reddit's
+  // image hosts (contract allowlist), and only from THIS post's root.
+  function postImageURL(root) {
+    const image = core.firstElement(root, [
+      '[slot="thumbnail"] img',
+      '[data-testid="post-thumbnail"] img',
+      '[slot="post-media-container"] img',
+      'shreddit-aspect-ratio img',
+      '[slot="thumbnail"] faceplate-img',
+      '[slot="post-media-container"] faceplate-img',
+      'a.thumbnail img'
+    ]);
+    if (!image) return null;
+    // Feed thumbnails are served tiny (?width=64); the srcset carries larger
+    // renditions of the same image, and OCR needs the largest legible one.
+    return largestSrcsetURL(image) || core.imageURLFrom(image);
+  }
+  function largestSrcsetURL(image) {
+    const srcset = image?.getAttribute?.("srcset") || image?.getAttribute?.("data-srcset");
+    if (!srcset) return null;
+    let best = null;
+    for (const candidate of srcset.split(",")) {
+      const [url, descriptor] = candidate.trim().split(/\s+/);
+      const width = parseInt(String(descriptor || "").replace(/w$/i, ""), 10);
+      if (url && url.length <= 512 && (!best || (Number.isFinite(width) && width > best.width))) {
+        best = { url, width: Number.isFinite(width) ? width : 0 };
+      }
+    }
+    return best ? best.url : null;
   }
   function postMetadata(root) {
     const fields = {
@@ -97,6 +129,7 @@
           text: postText(card),
           suppliedTags: postTags(card),
           metadata: postMetadata(card),
+          thumbnailURL: postImageURL(card),
           sourceIconURL: core.sourceIconFromVerifiedSource("reddit", source, global.location.href),
           entryType: "post"
         });
@@ -131,6 +164,7 @@
         text: body,
         suppliedTags: postTags(root),
         metadata: postMetadata(root),
+        thumbnailURL: postImageURL(root),
         sourceIconURL: core.sourceIconFromVerifiedSource("reddit", source, global.location.href),
         entryType: "post"
       });

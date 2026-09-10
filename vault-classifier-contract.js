@@ -75,7 +75,9 @@
   // YouTube derives its thumbnail from the video id and needs no URL.
   const THUMBNAIL_HOSTS = Object.freeze({
     youtube: ["ytimg.com", "youtube.com"],
-    bilibili: ["hdslb.com", "biliimg.com", "bilibili.com"]
+    bilibili: ["hdslb.com", "biliimg.com", "bilibili.com"],
+    // preview.redd.it / i.redd.it / external-preview.redd.it / *.redditmedia.com
+    reddit: ["redd.it", "redditmedia.com", "redditstatic.com"]
   });
 
   function isTrustedThumbnailURL(platform, value, base) {
