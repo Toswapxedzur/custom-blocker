@@ -50,9 +50,14 @@ function redditPost({ subreddit, postID, title, body, sourceIconURL, commentText
   const bodyElement = element({ text: body });
   const commentElement = element({ text: commentText });
   const flair = element({ text: "Discussion" });
+  // Reddit serves the feed image tiny (?width=64) with larger renditions in
+  // srcset; the collector must pick the largest for OCR.
   const postMedia = element({
     tagName: "IMG",
-    attrs: { src: "https://i.redd.it/post-media.png" }
+    attrs: {
+      src: "https://preview.redd.it/post-media.png?width=64&auto=webp&s=sig",
+      srcset: "https://preview.redd.it/post-media.png?width=64&auto=webp&s=sig 64w, https://preview.redd.it/post-media.png?width=1080&auto=webp&s=sig 1080w, https://preview.redd.it/post-media.png?width=640&auto=webp&s=sig 640w"
+    }
   });
   return element({
     attrs: {
@@ -80,6 +85,7 @@ function redditPost({ subreddit, postID, title, body, sourceIconURL, commentText
       'a[href*="/comments/"]': [entry],
       "a[href]": [entry, source],
       img: [sourceIcon, postMedia],
+      '[slot="post-media-container"] img': [postMedia],
       '[slot="title"]': [titleElement],
       '[slot="text-body"]': [bodyElement],
       '[slot="comment"]': [commentElement],
@@ -202,7 +208,11 @@ setTimeout(() => {
     && page.entry.evidence.text === "Requested rendered post body"
     && page.entry.evidence.suppliedTags.includes("Discussion")
     && !serialized.includes("COMMENT MUST NOT BE COLLECTED")
-    && !serialized.includes("i.redd.it/post-media.png")
+    // The post's OWN media travels only as the OCR thumbnail URL (owner
+    // decision 2026-09-10) — never as text/summary evidence.
+    && feed.entry.evidence.metadata.thumbnailURL === "https://preview.redd.it/post-media.png?width=1080&auto=webp&s=sig"
+    && page.entry.evidence.metadata.thumbnailURL === "https://preview.redd.it/post-media.png?width=1080&auto=webp&s=sig"
+    && serialized.split("preview.redd.it/post-media.png").length === 3
     && !serialized.includes("Unrelated background title")
     && observations.some((value) => value.root === requested && value.creatorID === "reddit:subreddit:openai" && value.entryID === "reddit:post:right222" && typeof value.title === "string")
     // The wrapping <article> must be deduped away — only the inner <shreddit-post>
