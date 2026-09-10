@@ -34,6 +34,9 @@
     const match = String(location?.pathname || "").match(/^\/video\/(BV[0-9A-Za-z_-]{3,128})\/?$/i);
     return match ? { videoID: match[1] } : null;
   }
+  // Topics come only from the page's dedicated tag container (never from a
+  // recommendation card). Bilibili has rendered them as /v/topic/ links and,
+  // currently, as search-link chips (.tag-link) — accept both shapes.
   function topicTags(root) {
     const container = core.firstElement(root, [
       "#v_tag",
@@ -41,7 +44,9 @@
       ".tag-panel",
       ".video-tag"
     ]);
-    return [...container?.querySelectorAll?.('a[href*="/v/topic/"]') || []].map((tag) => tag.textContent);
+    if (!container?.querySelectorAll) return [];
+    const links = [...container.querySelectorAll('a[href*="/v/topic/"]'), ...container.querySelectorAll("a.tag-link")];
+    return links.map((tag) => tag.textContent);
   }
 
   core.start({
@@ -50,6 +55,8 @@
     scan({ document, collect }) {
       const cards = core.uniqueElements([
         ...core.selectorElements(document, ".bili-video-card"),
+        // The video page's "up next" / recommendation sidebar (verified live 2026-09-10).
+        ...core.selectorElements(document, ".video-page-card-small"),
         ...core.selectorElements(document, "article")
       ]).slice(0, 80);
       for (const card of cards) {
@@ -69,7 +76,7 @@
           entryURL: entry.href,
           sourceURL: source.href,
           sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source.textContent, 256),
-          title: core.firstText(card, ['h1, h2, h3', '[title]']) || core.compactText(entry.getAttribute("title") || entry.textContent, 500),
+          title: core.firstText(card, ['h1, h2, h3', '.title', '[title]']) || core.compactText(entry.getAttribute("title") || entry.textContent, 500),
           text: core.firstText(card, ['[class*="desc"]', '[class*="description"]'], 16000),
           sourceIconURL: core.sourceIconFromVerifiedSource("bilibili", source, global.location.href),
           entryType: "video"
@@ -81,7 +88,13 @@
       if (!route) return { ready: false, reason: "missing-content-id" };
       const root = document.querySelector("#viewbox_report") || document.querySelector(".video-info-container") || document.querySelector("main");
       if (!root) return { ready: false, reason: "missing-content-root" };
+      // The uploader block only (verified live 2026-09-10: .up-info-container /
+      // .up-name); recommendation cards also link to space pages and must never
+      // be taken as this video's source.
       const source = core.firstVerifiedSourceAnchor("bilibili", document, [
+        '.up-info-container .up-name[href*="space.bilibili.com/"]',
+        '.up-info-container .up-detail-top a[href*="space.bilibili.com/"]',
+        '.up-info-container a[href*="space.bilibili.com/"]',
         '#v_upinfo a[href*="space.bilibili.com/"]',
         '.upinfo-container a[href*="space.bilibili.com/"]'
       ], global.location.href);
