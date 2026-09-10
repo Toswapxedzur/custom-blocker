@@ -219,7 +219,9 @@ setTimeout(() => {
     && JSON.stringify(remountedNames) === JSON.stringify(["Games", "Technology"]);
 
   context.VaultClassifierTagUI.clearPlatform("youtube");
-  const cleared = firstRoot.children.length === 1 && secondRoot.children.length === 1;
+  // Tearing the page state down must lift its blackout (allow via the page seam).
+  const cleared = firstRoot.children.length === 1 && secondRoot.children.length === 1
+    && pagePolicyCalls.some((call) => call.root === pageRoot && call.action === "allow" && call.meta && call.meta.entryID === PAGE_ENTRY_ID);
 
   if (firstRenderOK && reattached && cleared) {
     console.log("PASS coalesces lookups, renders closed-shadow tags, routes the page verdict, and reattaches a detached pill");
