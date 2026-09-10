@@ -131,7 +131,8 @@
       clearTimeout(state.recheckTimer);
       state.recheckTimer = null;
     }
-    if (state.kind !== "page") clearContentBlock(state.root);
+    if (state.kind === "page") setContentBlock(state, "allow");
+    else clearContentBlock(state.root);
     try { state.host?.remove?.(); } catch (_) {}
     mountedStates.delete(state);
   }
@@ -400,27 +401,34 @@
     // Instant reactive block: correcting a tag away on a blocked card lifts the
     // blacked-out state NOW, without waiting for the re-classification round-trip.
     // The server confirms via the broadcast (or re-blocks if it still qualifies).
-    if (removeID && wasBlocked) setContentBlock(state.root, "allow");
+    if (removeID && wasBlocked) setContentBlock(state, "allow");
 
     (async () => {
       const taxonomy = await fetchTaxonomy(state.platform);
       const typeID = typeForTag(taxonomy, removeID || addTag.id);
-      if (!typeID) { applyLocalTags(state, before); if (wasBlocked) setContentBlock(state.root, "dim"); return; }
+      if (!typeID) { applyLocalTags(state, before); if (wasBlocked) setContentBlock(state, "dim"); return; }
       const correctTagIDs = next.filter((tag) => typeForTag(taxonomy, tag.id) === typeID).map((tag) => tag.id);
       const result = await sendCorrection(state.platform, state.entryID, state.creatorID, typeID, correctTagIDs);
       if (!result || result.ok !== true) {
         applyLocalTags(state, before);   // revert on failure
-        if (wasBlocked) setContentBlock(state.root, "dim");   // re-block: the correction did not persist
+        if (wasBlocked) setContentBlock(state, "dim");   // re-block: the correction did not persist
       }
       // success → the video-tags-updated broadcast confirms (same signature).
     })();
   }
 
-  // Apply a content-block verdict to a card via content.js's ledger (a global).
-  function setContentBlock(root, action) {
-    if (!root) return;
+  // Apply a content-block verdict to a card via content.js's ledger (a global);
+  // a page state routes to the page seam (black out / lift the player) instead.
+  function setContentBlock(state, action) {
+    if (!state || !state.root) return;
+    if (state.kind === "page") {
+      const applyPage = global.cbApplyTagPagePolicy;
+      if (typeof applyPage !== "function") return;
+      try { applyPage(state.root, action === "allow" ? "allow" : "block", { entryID: state.entryID, platform: state.platform }); } catch (_) {}
+      return;
+    }
     const apply = global.cbApplyTagPolicy;
-    if (typeof apply === "function") { try { apply(root, action); } catch (_) {} }
+    if (typeof apply === "function") { try { apply(state.root, action); } catch (_) {} }
   }
 
   // Builds the small add-a-tag panel: a search box + the addable tags (all

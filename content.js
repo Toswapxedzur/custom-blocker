@@ -798,12 +798,18 @@ if (typeof window !== "undefined") window.cbApplyTagPolicy = cbApplyTagPolicy;
 
 // ── Content-tag PAGE verdict ───────────────────────────────────────────────
 // The watch/short page's own entry gets the policy's `pageAction`. "block"
-// leaves the page the same way a platform page block does (session fallback
-// URL → skip-to-next on scroll feeds → the platform's main page → about:blank),
-// at most once per URL. Only the entry that IS this page may block it: its
-// video id must match the location, so a stale watch-root observation from a
-// previous SPA navigation can never exit the page the user moved on to.
-let cbTagPageBlockedHref = "";
+// blacks out the PLAYER in place (opaque panel, video kept paused) and leaves
+// title, author and the Vault pill live, so correcting the tag lifts it
+// instantly — the same live-function-of-tags rule as feed cards. It never
+// exits or redirects. Only the entry that IS this page may block it: its video
+// id must match the location, so a stale watch-root observation from a previous
+// SPA navigation can never black out the page the user moved on to.
+const CB_PAGE_PLAYER_SELECTORS = "#movie_player, ytd-player, #shorts-player, ytd-reel-video-renderer[is-active] #player-container, #player-container";
+const CB_PAGE_BLOCK_RETRY_MS = 300;
+const CB_PAGE_BLOCK_RETRIES = 10;
+let cbTagPageBlockedEntry = "";
+let cbTagPageRetryTimer = null;
+
 function cbTagPageEntryMatchesLocation(entryID, loc) {
   if (typeof entryID !== "string" || !loc) return false;
   const id = entryID.slice(entryID.lastIndexOf(":") + 1);
@@ -815,14 +821,83 @@ function cbTagPageEntryMatchesLocation(entryID, loc) {
   const pathname = String(loc.pathname || "");
   return pathname.endsWith("/" + id) || pathname.includes("/" + id + "/");
 }
+
+function cbFindPagePlayer() {
+  try { return document.querySelector(CB_PAGE_PLAYER_SELECTORS); } catch { return null; }
+}
+
+// While the page is blocked, any attempt to play (autoplay, the keyboard
+// shortcut, a stray click) is paused right back.
+function cbKeepPausedWhileBlocked(event) {
+  const video = event && event.target;
+  if (!cbTagPageBlockedEntry || !video || typeof video.pause !== "function") return;
+  try { video.pause(); } catch {}
+}
+
+function cbBlackOutPagePlayer(root) {
+  const player = cbFindPagePlayer();
+  if (!player) return false;
+  cbEnsureRelative(player);
+  if (!player.querySelector(":scope > .cb-block-panel")) {
+    const panel = document.createElement("div");
+    panel.className = "cb-block-panel";
+    panel.setAttribute("style", "position:absolute;inset:0;z-index:2147483000;background:#000;");
+    player.appendChild(panel);
+  }
+  for (const video of player.querySelectorAll("video")) {
+    try { video.pause(); } catch {}
+    video.addEventListener("play", cbKeepPausedWhileBlocked, true);
+    video.addEventListener("playing", cbKeepPausedWhileBlocked, true);
+  }
+  if (root && root.dataset) root.dataset.cbContentBlocked = "true";
+  return true;
+}
+
+function cbClearPagePlayer(root) {
+  const player = cbFindPagePlayer();
+  if (player) {
+    player.querySelector(":scope > .cb-block-panel")?.remove();
+    if (player.dataset && player.dataset.cbPrevPos !== undefined) {
+      if (player.dataset.cbPrevPos) player.style.position = player.dataset.cbPrevPos;
+      else player.style.removeProperty("position");
+      delete player.dataset.cbPrevPos;
+    }
+    for (const video of player.querySelectorAll("video")) {
+      video.removeEventListener("play", cbKeepPausedWhileBlocked, true);
+      video.removeEventListener("playing", cbKeepPausedWhileBlocked, true);
+    }
+  }
+  if (root && root.dataset) delete root.dataset.cbContentBlocked;
+}
+
+// root = the page's observed root (the watch metadata element the pill hangs
+// off); it carries data-cb-content-blocked so the tag UI can see the state.
 function cbApplyTagPagePolicy(root, pageAction, meta) {
-  if (pageAction !== "block" || typeof location === "undefined") return false;
+  if (typeof location === "undefined") return false;
   const entryID = meta && typeof meta.entryID === "string" ? meta.entryID : "";
+  if (cbTagPageRetryTimer) { clearTimeout(cbTagPageRetryTimer); cbTagPageRetryTimer = null; }
+  if (pageAction !== "block") {
+    // allow / dim / provisional: lift a blackout for this entry, or one left
+    // behind by a page the user has since navigated away from.
+    if (cbTagPageBlockedEntry
+      && (cbTagPageBlockedEntry === entryID || !cbTagPageEntryMatchesLocation(cbTagPageBlockedEntry, location))) {
+      cbTagPageBlockedEntry = "";
+      cbClearPagePlayer(root);
+    }
+    return false;
+  }
   if (!cbTagPageEntryMatchesLocation(entryID, location)) return false;
-  if (cbTagPageBlockedHref === location.href) return false;
-  cbTagPageBlockedHref = location.href;
-  exitAttempted = false; // a platform exit on this URL must not swallow ours
-  attemptExitPage();
+  cbTagPageBlockedEntry = entryID;
+  if (cbBlackOutPagePlayer(root)) return true;
+  // The SPA may not have rendered the player yet — retry briefly.
+  let attempts = 0;
+  const retry = () => {
+    cbTagPageRetryTimer = null;
+    if (cbTagPageBlockedEntry !== entryID || !cbTagPageEntryMatchesLocation(entryID, location)) return;
+    if (cbBlackOutPagePlayer(root) || ++attempts >= CB_PAGE_BLOCK_RETRIES) return;
+    cbTagPageRetryTimer = setTimeout(retry, CB_PAGE_BLOCK_RETRY_MS);
+  };
+  cbTagPageRetryTimer = setTimeout(retry, CB_PAGE_BLOCK_RETRY_MS);
   return true;
 }
 if (typeof window !== "undefined") window.cbApplyTagPagePolicy = cbApplyTagPagePolicy;
