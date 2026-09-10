@@ -471,6 +471,44 @@ function image(src) {
     run.collected);
 }
 
+// Bilibili feed: the card's entry id is the stable video id (shared with the
+// video page), and its own cover travels as an https URL for OCR — but only
+// from Bilibili's image hosts, and never a foreign image.
+{
+  const makeCard = (coverSrc) => {
+    const entry = element({ tagName: "A", href: "https://www.bilibili.com/video/BV1abc/?spm_id=1", text: "Card title" });
+    const source = element({ tagName: "A", href: "https://space.bilibili.com/321", text: "Uploader", attrs: { "aria-label": "Uploader" } });
+    const cover = image(coverSrc);
+    return element({
+      queryAll: {
+        'a[href*="/video/BV"]': [entry],
+        'a[href*="space.bilibili.com/"]': [source],
+        ".bili-video-card__cover img": [cover],
+        "h1, h2, h3": [element({ text: "Card title" })]
+      }
+    });
+  };
+  const run = (coverSrc) => {
+    const document = documentFixture({ ".bili-video-card": [makeCard(coverSrc)], article: [] });
+    const harnessRun = harness("bilibili", "vault-classifier-bilibili.js", {
+      href: "https://www.bilibili.com/",
+      hostname: "www.bilibili.com",
+      pathname: "/"
+    }, document);
+    harnessRun.scan();
+    return harnessRun.collected[0];
+  };
+  const good = run("//i0.hdslb.com/bfs/archive/cover.jpg@672w_378h_1c.webp");
+  assert("Bilibili feed cards use the stable video entry id and an https-canonical cover URL",
+    good?.entryID === "bilibili:video:BV1abc"
+      && good?.evidence?.metadata?.thumbnailURL === "https://i0.hdslb.com/bfs/archive/cover.jpg@672w_378h_1c.webp",
+    good);
+  const evil = run("https://evil.example/cover.jpg");
+  assert("Bilibili drops a cover URL from a foreign host",
+    evil?.entryID === "bilibili:video:BV1abc" && evil?.evidence?.metadata?.thumbnailURL === undefined,
+    evil);
+}
+
 // Discord: a reply preview or embed markup is not a substitute for the
 // message's own stable content node.
 {
