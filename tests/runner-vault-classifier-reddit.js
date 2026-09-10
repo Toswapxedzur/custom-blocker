@@ -208,6 +208,10 @@ setTimeout(() => {
     // The wrapping <article> must be deduped away — only the inner <shreddit-post>
     // gets a pill, never the wrapper (which would double-inject on the feed).
     && observations.every((value) => value.root !== requestedArticle)
+    // The post page's own entry routes the page verdict (in-place blackout),
+    // never the feed/thumbnail verdict; feed cards stay "card".
+    && observations.some((value) => value.root === requested && value.kind === "page")
+    && observations.filter((value) => value.kind === "page").length === 1
   );
   if (passed) {
     console.log("PASS derives subreddit identity from the post route, selects the matching overlay root, and excludes comments/post media");

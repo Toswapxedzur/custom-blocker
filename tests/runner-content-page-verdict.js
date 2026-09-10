@@ -16,6 +16,13 @@ function extractFunction(name) {
   }
   return source.slice(start, i + 1);
 }
+// A multi-line `const NAME = Object.freeze({ … });` block.
+function extractBlock(name) {
+  const start = source.indexOf(`const ${name} = `);
+  if (start < 0) throw new Error(`missing block ${name}`);
+  const end = source.indexOf("\n});", start);
+  return source.slice(start, end + 4);
+}
 function extractDecl(name) {
   const m = source.match(new RegExp(`^(?:const|let) ${name} = .*;$`, "m"));
   if (!m) throw new Error(`missing decl ${name}`);
@@ -41,17 +48,19 @@ class FakeVideo extends FakeEl {
 
 const document = {
   player: null,
-  querySelector(sel) { return sel.includes("#movie_player") ? this.player : null; },
+  // A document-level lookup answers the YouTube and Bilibili player selectors.
+  querySelector(sel) { return (sel.includes("#movie_player") || sel.includes("#bilibili-player")) ? this.player : null; },
   createElement(tag) { return new FakeEl(tag); }
 };
 const context = vm.createContext({
   URLSearchParams, setTimeout, clearTimeout, document,
   getComputedStyle: () => ({ position: "static" }),
-  location: { href: "https://www.youtube.com/watch?v=abc123", search: "?v=abc123", pathname: "/watch" }
+  location: { hostname: "www.youtube.com", href: "https://www.youtube.com/watch?v=abc123", search: "?v=abc123", pathname: "/watch" }
 });
 vm.runInContext([
-  extractDecl("CB_PAGE_PLAYER_SELECTORS"), extractDecl("CB_PAGE_BLOCK_RETRY_MS"), extractDecl("CB_PAGE_BLOCK_RETRIES"),
+  extractBlock("CB_CONTENT_BLOCK_PROFILES"), extractDecl("CB_PAGE_BLOCK_RETRY_MS"), extractDecl("CB_PAGE_BLOCK_RETRIES"),
   "let cbTagPageBlockedEntry = \"\";", "let cbTagPageRetryTimer = null;",
+  extractFunction("cbContentBlockPlatformID"), extractFunction("cbContentBlockProfile"), extractFunction("cbFindMedia"),
   extractFunction("cbEnsureRelative"), extractFunction("cbTagPageEntryMatchesLocation"), extractFunction("cbFindPagePlayer"),
   extractFunction("cbKeepPausedWhileBlocked"), extractFunction("cbBlackOutPagePlayer"), extractFunction("cbClearPagePlayer"),
   extractFunction("cbApplyTagPagePolicy")
@@ -93,7 +102,7 @@ if (playListener) playListener.fn({ target: document.player.video });
 check("after the lift, play is not paused any more", document.player.video.pauses === pausesBeforePlay);
 
 apply("block", "youtube:video:abc123");
-context.location = { href: "https://www.youtube.com/watch?v=next9", search: "?v=next9", pathname: "/watch" };
+context.location = { hostname: "www.youtube.com", href: "https://www.youtube.com/watch?v=next9", search: "?v=next9", pathname: "/watch" };
 apply("allow", "youtube:video:next9");
 check("navigating to a new (allowed) video lifts the previous page's blackout", !panelOf(document.player) && root.dataset.cbContentBlocked === undefined);
 
@@ -104,6 +113,35 @@ setTimeout(() => { document.player = newPlayer(); }, 350);
 setTimeout(() => {
   check("a block that arrives before the player renders blacks it out once it appears", early === true && document.player && panelOf(document.player) && document.player.video.pauses === 1);
   apply("allow", "youtube:video:next9");
+
+  // Bilibili: same document-level player path, BV id matched from /video/BV…/.
+  context.location = { hostname: "www.bilibili.com", href: "https://www.bilibili.com/video/BV1abc/", search: "", pathname: "/video/BV1abc/" };
+  document.player = newPlayer();
+  check("Bilibili: a foreign video id never blacks out the page", apply("block", "bilibili:video:BV9zz") === false && !panelOf(document.player));
+  check("Bilibili: the page's own BV id blacks out the player", apply("block", "bilibili:video:BV1abc") === true && panelOf(document.player) && document.player.video.pauses === 1);
+  apply("allow", "bilibili:video:BV1abc");
+  check("Bilibili: allow lifts it", !panelOf(document.player));
+
+  // Reddit: the page's main content lives inside the observed post root (no
+  // global player), so the profile is root-scoped; a text post blacks its body.
+  context.location = { hostname: "www.reddit.com", href: "https://www.reddit.com/r/test/comments/p0st1/title/", search: "", pathname: "/r/test/comments/p0st1/title/" };
+  document.player = null;
+  const body = new FakeEl("div");
+  const postRoot = new FakeEl("shreddit-post");
+  postRoot.querySelector = (sel) => (sel.includes('[slot="text-body"]') ? body : null);
+  context.__root = postRoot;
+  check("Reddit: a foreign post id never blacks out the page", apply("block", "reddit:post:other") === false && !panelOf(body));
+  check("Reddit: the page's own post id blacks out the post body (root-scoped)", apply("block", "reddit:post:p0st1") === true && panelOf(body) && postRoot.dataset.cbContentBlocked === "true");
+  apply("allow", "reddit:post:p0st1");
+  check("Reddit: allow lifts it", !panelOf(body) && postRoot.dataset.cbContentBlocked === undefined);
+  // Feed-card media resolution follows the same per-host profile.
+  const card = new FakeEl("shreddit-post");
+  const thumb = new FakeEl("div");
+  card.querySelector = (sel) => (sel.includes('[slot="thumbnail"]') ? thumb : null);
+  context.__card = card;
+  check("Reddit feed card: cbFindMedia resolves the thumbnail via the profile", vm.runInContext("cbFindMedia(__card)", context) === thumb);
+  context.location = { hostname: "example.com", href: "https://example.com/", search: "", pathname: "/" };
+  check("an unprofiled host never blacks anything", vm.runInContext("cbFindMedia(__card)", context) === null && apply("block", "reddit:post:p0st1") === false);
   console.log(`CONTENT PAGE VERDICT TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
   if (fail) process.exitCode = 1;

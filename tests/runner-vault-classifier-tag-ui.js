@@ -148,7 +148,7 @@ context.VaultClassifierTagUI.observe({ platform: "youtube", entryID, creatorID, 
 // the page seam and never hand the watch root to the feed (thumbnail) seam.
 const pageRoot = new FakeElement("ytd-watch-metadata", document);
 const pageAnchor = pageRoot.appendChild(new FakeElement("h1", document));
-context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: PAGE_ENTRY_ID, creatorID, title: "Page video", root: pageRoot, anchor: pageAnchor, kind: "page" });
+context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: PAGE_ENTRY_ID, creatorID, title: "Page video", root: pageRoot, anchor: pageAnchor, kind: "page", thumbnailURL: "https://i.ytimg.com/vi/page1/hqdefault.jpg" });
 
 setTimeout(() => {
   const firstHost = firstRoot.children[1];
@@ -180,7 +180,10 @@ setTimeout(() => {
     && Array.isArray(messages[0].items)
     && messages[0].items.length === 2
     && messages[0].items[0].entryID === entryID
-    && messages[0].items[1].entryID === PAGE_ENTRY_ID;
+    && messages[0].items[1].entryID === PAGE_ENTRY_ID
+    // The cover URL rides on the batch item (for on-device OCR) and only there.
+    && messages[0].items[1].thumbnailURL === "https://i.ytimg.com/vi/page1/hqdefault.jpg"
+    && messages[0].items[0].thumbnailURL === undefined;
   // Page verdict routing: exactly one page-seam call, with "block" + the entry
   // id (so content.js can prove the entry IS the current page); the watch root
   // never reaches the feed seam, while both cards got their (allow) feed verdict.

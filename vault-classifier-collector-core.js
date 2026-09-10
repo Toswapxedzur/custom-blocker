@@ -81,6 +81,18 @@
     return sourceIdentity(platform, value, null);
   }
 
+  // The entry's own cover, https-canonicalized (Bilibili serves protocol-
+  // relative "//i0.hdslb.com/…" sources) and host-checked by the contract.
+  function canonicalThumbnailURL(platform, value, base) {
+    if (typeof value !== "string" || !value) return null;
+    const candidate = value.startsWith("//") ? `https:${value}` : value;
+    if (!C?.isTrustedThumbnailURL?.(platform, candidate, base)) return null;
+    const url = safeURL(candidate, base);
+    if (!url) return null;
+    url.hash = "";
+    return url.href.length <= 512 ? url.href : null;
+  }
+
   function canonicalSourceIconURL(platform, value, base) {
     if (!C?.isTrustedSourceIconURL?.(platform, value, base)) return null;
     const url = safeURL(value, base);
@@ -121,6 +133,8 @@
     if (sourceURL) metadata.sourceURL = sourceURL;
     const sourceIconURL = canonicalSourceIconURL(platform, raw.sourceIconURL, raw.baseURL);
     if (sourceIconURL) metadata.sourceIconURL = sourceIconURL;
+    const thumbnailURL = canonicalThumbnailURL(platform, raw.thumbnailURL, raw.baseURL);
+    if (thumbnailURL) metadata.thumbnailURL = thumbnailURL;
 
     const requestedEntryID = compactText(raw.entryID, 256);
     const entryID = requestedEntryID && requestedEntryID.startsWith(`${platform}:`)
@@ -360,13 +374,17 @@
         // Per-video pill: keyed by the video's entryID, with its title as the
         // evidence the on-device model classifies. The creatorID rides along only
         // so the app can weigh the derived creator prior.
+        // A page-surface entry is the page's OWN content: the pill routes the
+        // policy's pageAction (in-place blackout) instead of the feed verdict.
         TagUI?.observe?.({
           platform,
           entryID: evidence.entryID,
           creatorID: evidence.sourceID,
           title: evidence.evidence?.title || "",
           root: raw.presentationRoot,
-          anchor: raw.presentationAnchor || null
+          anchor: raw.presentationAnchor || null,
+          kind: evidence.surface === "page" ? "page" : "card",
+          thumbnailURL: evidence.evidence?.metadata?.thumbnailURL || null
         });
       }
       const hasSourceIcon = Boolean(evidence.evidence?.metadata?.sourceIconURL);
