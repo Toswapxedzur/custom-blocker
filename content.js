@@ -565,13 +565,53 @@ function showElement(element) {
 // block, so the blacked state clears instantly the moment the tag no longer
 // qualifies (the tag pipeline re-applies the verdict on every tag change).
 
-// The media (thumbnail) element to black out, per card. Covers YouTube's older
-// ytd-thumbnail (grid + search) AND the newer lockup layout
-// (yt-thumbnail-view-model) used on the home feed; other platforms extend this.
-const CB_MEDIA_SELECTORS = "ytd-thumbnail, yt-thumbnail-view-model, yt-collection-thumbnail-view-model, ytd-playlist-thumbnail, ytm-thumbnail-cover";
+// Per-platform content-block profile: which element is the card's "main
+// content" to black out (the thumbnail; for a Reddit text post, its body),
+// which links are click-to-open (neutralized while blocked), and where the
+// page's own player/content lives for the page verdict. Adding a platform is
+// adding a profile — content.js itself stays platform-agnostic.
+//   media: ordered selectors, first hit wins; none → skip (never black a card)
+//   links: hrefs a blocked card must not follow
+//   page:  the page's main content; scope "document" (a global player) or
+//          "root" (the observed post element itself, as on Reddit)
+const CB_CONTENT_BLOCK_PROFILES = Object.freeze({
+  youtube: {
+    media: "ytd-thumbnail, yt-thumbnail-view-model, yt-collection-thumbnail-view-model, ytd-playlist-thumbnail, ytm-thumbnail-cover",
+    links: /\/watch|\/shorts\//,
+    page: "#movie_player, ytd-player, #shorts-player, ytd-reel-video-renderer[is-active] #player-container, #player-container",
+    pageScope: "document"
+  },
+  reddit: {
+    media: '[slot="thumbnail"], [slot="post-media-container"], shreddit-aspect-ratio, gallery-carousel, shreddit-player-2, shreddit-player, shreddit-embed, [slot="text-body"], a.thumbnail, .expando',
+    links: /\/comments\//,
+    page: '[slot="post-media-container"], shreddit-aspect-ratio, gallery-carousel, shreddit-player-2, shreddit-player, shreddit-embed, [slot="text-body"], [slot="thumbnail"], .expando',
+    pageScope: "root"
+  },
+  bilibili: {
+    media: ".bili-video-card__image, .bili-video-card__cover, .bili-video-card__wrap picture, .pic-box, .b-img, picture",
+    links: /\/video\/BV/i,
+    page: "#bilibili-player, .bpx-player-container, #playerWrap, #player",
+    pageScope: "document"
+  }
+});
+
+function cbContentBlockPlatformID(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  if (host === "youtube.com" || host.endsWith(".youtube.com")) return "youtube";
+  if (host === "reddit.com" || host.endsWith(".reddit.com")) return "reddit";
+  if (host === "bilibili.com" || host.endsWith(".bilibili.com")) return "bilibili";
+  return null;
+}
+
+function cbContentBlockProfile() {
+  const id = typeof location !== "undefined" ? cbContentBlockPlatformID(location.hostname) : null;
+  return (id && CB_CONTENT_BLOCK_PROFILES[id]) || null;
+}
 
 function cbFindMedia(card) {
-  try { return card.querySelector(CB_MEDIA_SELECTORS); } catch { return null; }
+  const profile = cbContentBlockProfile();
+  if (!profile) return null;
+  try { return card.querySelector(profile.media); } catch { return null; }
 }
 
 // Vault pill hosts, registered by the tag pipeline. Kept in a private WeakSet
@@ -597,7 +637,8 @@ function cbBlockNavEvent(e) {
   const inPanel = !!t.closest(".cb-block-panel");
   const link = t.closest("a[href]");
   const href = link ? (link.getAttribute("href") || "") : "";
-  if (inPanel || /\/watch|\/shorts\//.test(href)) {
+  const profile = cbContentBlockProfile();
+  if (inPanel || (profile && profile.links.test(href))) {
     e.preventDefault();
     e.stopPropagation();
     if (typeof e.stopImmediatePropagation === "function") e.stopImmediatePropagation();
@@ -804,7 +845,6 @@ if (typeof window !== "undefined") window.cbApplyTagPolicy = cbApplyTagPolicy;
 // exits or redirects. Only the entry that IS this page may block it: its video
 // id must match the location, so a stale watch-root observation from a previous
 // SPA navigation can never black out the page the user moved on to.
-const CB_PAGE_PLAYER_SELECTORS = "#movie_player, ytd-player, #shorts-player, ytd-reel-video-renderer[is-active] #player-container, #player-container";
 const CB_PAGE_BLOCK_RETRY_MS = 300;
 const CB_PAGE_BLOCK_RETRIES = 10;
 let cbTagPageBlockedEntry = "";
@@ -822,8 +862,14 @@ function cbTagPageEntryMatchesLocation(entryID, loc) {
   return pathname.endsWith("/" + id) || pathname.includes("/" + id + "/");
 }
 
-function cbFindPagePlayer() {
-  try { return document.querySelector(CB_PAGE_PLAYER_SELECTORS); } catch { return null; }
+// The page's main content per platform: a document-level player (YouTube,
+// Bilibili) or the observed post's own media/body (Reddit).
+function cbFindPagePlayer(root) {
+  const profile = cbContentBlockProfile();
+  if (!profile) return null;
+  const scope = profile.pageScope === "root" ? root : document;
+  if (!scope || typeof scope.querySelector !== "function") return null;
+  try { return scope.querySelector(profile.page); } catch { return null; }
 }
 
 // While the page is blocked, any attempt to play (autoplay, the keyboard
@@ -835,7 +881,7 @@ function cbKeepPausedWhileBlocked(event) {
 }
 
 function cbBlackOutPagePlayer(root) {
-  const player = cbFindPagePlayer();
+  const player = cbFindPagePlayer(root);
   if (!player) return false;
   cbEnsureRelative(player);
   if (!player.querySelector(":scope > .cb-block-panel")) {
@@ -854,7 +900,7 @@ function cbBlackOutPagePlayer(root) {
 }
 
 function cbClearPagePlayer(root) {
-  const player = cbFindPagePlayer();
+  const player = cbFindPagePlayer(root);
   if (player) {
     player.querySelector(":scope > .cb-block-panel")?.remove();
     if (player.dataset && player.dataset.cbPrevPos !== undefined) {

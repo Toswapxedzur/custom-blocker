@@ -69,6 +69,26 @@
     return Boolean(host && candidate && (host === candidate || host.endsWith(`.${candidate}`)));
   }
 
+  // An entry's OWN cover image (video thumbnail / Bilibili cover) may travel as
+  // a URL so the app can OCR it on-device as classification evidence. Only the
+  // platform's reviewed image hosts qualify; never post media or avatars.
+  // YouTube derives its thumbnail from the video id and needs no URL.
+  const THUMBNAIL_HOSTS = Object.freeze({
+    youtube: ["ytimg.com", "youtube.com"],
+    bilibili: ["hdslb.com", "biliimg.com", "bilibili.com"]
+  });
+
+  function isTrustedThumbnailURL(platform, value, base) {
+    if (typeof platform !== "string" || typeof value !== "string" || value.length > MAX.metadataValue) return false;
+    try {
+      const url = new URL(value, base);
+      if (url.protocol !== "https:" || url.username || url.password) return false;
+      return (THUMBNAIL_HOSTS[platform] || []).some((host) => hostMatches(url.hostname, host));
+    } catch (_) {
+      return false;
+    }
+  }
+
   function isTrustedSourceIconURL(platform, value, base) {
     if (typeof platform !== "string" || typeof value !== "string" || value.length > MAX.metadataValue) return false;
     try {
@@ -526,6 +546,7 @@
     isTrustedYouTubeURL,
     isTrustedCollectionURL,
     isTrustedSourceIconURL,
+    isTrustedThumbnailURL,
     youtubeVideoIDFromURL,
     entryFingerprint,
     normalizeVideoTagsResponse,

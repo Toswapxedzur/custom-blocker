@@ -81,6 +81,7 @@ const context = vm.createContext({
   console,
   chrome,
   TextEncoder,
+  URL,
   setTimeout,
   clearTimeout,
   CBClassifierHub: hub,
@@ -257,6 +258,24 @@ function assert(name, condition, detail) {
   // mapper once copied only tags/predicted/pending and dropped feedAction).
   assert("passes the content-block feedAction/pageAction through the bridge",
     videoTags.value?.feedAction === "dim" && videoTags.value?.pageAction === "block", videoTags);
+  // The entry's own cover URL reaches the hub only when the platform's image
+  // host allowlist accepts it; anything else is dropped, never forwarded.
+  const trustedThumb = await dispatch({
+    type: "vault-classifier-video-tags", platform: "youtube", entryID: "youtube:video:thumb1",
+    creatorID: "youtube:channel:UC1234567890123456789012", title: "With cover",
+    thumbnailURL: "https://i.ytimg.com/vi/thumb1/hqdefault.jpg"
+  }, trustedSender);
+  const trustedThumbRequest = hubRequests.filter((request) => request.operation === "video-tags").at(-1);
+  assert("forwards a trusted thumbnailURL to the hub video-tags request",
+    trustedThumb.value?.ok === true && trustedThumbRequest?.body?.thumbnailURL === "https://i.ytimg.com/vi/thumb1/hqdefault.jpg", trustedThumbRequest);
+  await dispatch({
+    type: "vault-classifier-video-tags", platform: "youtube", entryID: "youtube:video:thumb2",
+    creatorID: "youtube:channel:UC1234567890123456789012", title: "Evil cover",
+    thumbnailURL: "https://evil.example/i.ytimg.com/hqdefault.jpg"
+  }, trustedSender);
+  const untrustedThumbRequest = hubRequests.filter((request) => request.operation === "video-tags").at(-1);
+  assert("drops an untrusted thumbnailURL instead of forwarding it",
+    untrustedThumbRequest?.body?.entryID === "youtube:video:thumb2" && untrustedThumbRequest?.body?.thumbnailURL === undefined, untrustedThumbRequest);
   const forgedVideoTags = await dispatch({
     type: "vault-classifier-video-tags",
     platform: "reddit",
