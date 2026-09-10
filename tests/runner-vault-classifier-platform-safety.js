@@ -471,6 +471,46 @@ function image(src) {
     run.collected);
 }
 
+// Bilibili video page, current DOM (verified live 2026-09-10): the uploader is
+// the .up-info-container .up-name link; topics are .tag-link search chips
+// inside .tag-panel; sidebar recommendation cards link to other uploaders and
+// must not become this video's source.
+{
+  // A real anchor's .href is already absolute even when the markup is
+  // protocol-relative ("//space.bilibili.com/…").
+  const upName = element({
+    tagName: "A",
+    href: "https://space.bilibili.com/3744999590071889/?spm_id_from=333.788.u",
+    text: "用户3333-",
+    queryAll: { img: [] }
+  });
+  const recommended = element({ tagName: "A", href: "https://space.bilibili.com/89135642/", text: "Someone else" });
+  const chip = element({ tagName: "A", href: "https://search.bilibili.com/all?keyword=x", text: "减脂" });
+  const tagPanel = element({ queryAll: { "a.tag-link": [chip] } });
+  const rootElement = element({ queryAll: { h1: [element({ text: "Current video" })], "[title]": [] } });
+  const document = documentFixture({
+    '.up-info-container .up-name[href*="space.bilibili.com/"]': [upName],
+    'a[href*="space.bilibili.com/"]': [recommended, upName],
+    ".tag-panel": [tagPanel],
+    "#v_desc": [element({ text: "Description" })]
+  }, { "#viewbox_report": rootElement, 'meta[itemprop="image"]': null, 'meta[property="og:image"]': element({ attrs: { content: "https://i2.hdslb.com/bfs/archive/cover.jpg@1200w_630h" } }) });
+  const run = harness("bilibili", "vault-classifier-bilibili.js", {
+    href: "https://www.bilibili.com/video/BV1yAbs6EEbK/",
+    hostname: "www.bilibili.com",
+    pathname: "/video/BV1yAbs6EEbK/"
+  }, document);
+  const result = run.scanPage();
+  const entryResult = run.collected[0];
+  assert("Bilibili page (current DOM) binds the uploader from .up-name, tag chips, and the og:image cover",
+    result?.ready === true
+      && entryResult?.entryID === "bilibili:video:BV1yAbs6EEbK"
+      && String(entryResult?.evidence?.metadata?.sourceURL || "").startsWith("https://space.bilibili.com/3744999590071889/")
+      && entryResult?.evidence?.suppliedTags?.join(",") === "减脂"
+      && entryResult?.evidence?.metadata?.thumbnailURL === "https://i2.hdslb.com/bfs/archive/cover.jpg@1200w_630h"
+      && !JSON.stringify(entryResult).includes("89135642"),
+    { result, evidence: run.collected[0]?.evidence });
+}
+
 // Bilibili feed: the card's entry id is the stable video id (shared with the
 // video page), and its own cover travels as an https URL for OCR — but only
 // from Bilibili's image hosts, and never a foreign image.
