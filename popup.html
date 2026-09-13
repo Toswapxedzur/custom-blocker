@@ -300,12 +300,19 @@
                 </select>
               </div>
               <div class="content-tag-row">
-                <label class="label" for="contentTagName" data-i18n="contentTag.tag">Content tag</label>
-                <input id="contentTagName" type="text" autocomplete="off" spellcheck="false"
-                  placeholder="e.g. Gaming" data-i18n-placeholder="contentTag.tagPlaceholder" />
+                <label class="label" for="contentTagMode" data-i18n="contentTag.mode">Rule</label>
+                <select id="contentTagMode">
+                  <option value="include" data-i18n="contentTag.modeInclude">Block certain tags</option>
+                  <option value="exclude" data-i18n="contentTag.modeExclude">Block all except certain tags</option>
+                </select>
               </div>
               <div class="content-tag-row">
-                <label class="label" for="contentTagConfidence" data-i18n="contentTag.confidence">Minimum confidence</label>
+                <label class="label" for="contentTagNames" data-i18n="contentTag.tags">Content tags</label>
+                <textarea id="contentTagNames" rows="4" autocomplete="off" spellcheck="false"
+                  placeholder="Gaming&#10;Drama @3" data-i18n-placeholder="contentTag.tagsPlaceholder"></textarea>
+              </div>
+              <div class="content-tag-row">
+                <label class="label" for="contentTagConfidence" data-i18n="contentTag.confidence">Default minimum confidence</label>
                 <select id="contentTagConfidence">
                   <option value="3">≥ 3</option>
                   <option value="4" selected>≥ 4 (recommended)</option>
@@ -319,8 +326,12 @@
                   <option value="block" data-i18n="contentTag.effectHide">Hide the video entirely</option>
                 </select>
               </div>
+              <label id="contentTagBlockUntaggedRow" class="checkbox-row compact hidden" for="contentTagBlockUntagged">
+                <input id="contentTagBlockUntagged" type="checkbox" />
+                <span data-i18n="contentTag.blockUntagged">Also block videos with no confident tag</span>
+              </label>
               <div class="field-actions">
-                <button id="contentTagApplyButton" type="button" class="weird" data-i18n="contentTag.apply">Block this tag</button>
+                <button id="contentTagApplyButton" type="button" class="weird" data-i18n="contentTag.apply">Block these tags</button>
                 <span id="contentTagStatus" class="run-status"></span>
               </div>
               <p class="field-help" data-i18n="contentTag.advancedNote">

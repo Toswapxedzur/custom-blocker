@@ -372,9 +372,12 @@ const runCustomGroupStatus = document.getElementById("runCustomGroupStatus");
 // No-code content-tag rule builder (inside the custom editor).
 const contentTagBuilder = document.getElementById("contentTagBuilder");
 const contentTagPlatformField = document.getElementById("contentTagPlatform");
-const contentTagNameField = document.getElementById("contentTagName");
+const contentTagModeField = document.getElementById("contentTagMode");
+const contentTagNamesField = document.getElementById("contentTagNames");
 const contentTagConfidenceField = document.getElementById("contentTagConfidence");
 const contentTagEffectField = document.getElementById("contentTagEffect");
+const contentTagBlockUntaggedRow = document.getElementById("contentTagBlockUntaggedRow");
+const contentTagBlockUntaggedField = document.getElementById("contentTagBlockUntagged");
 const contentTagApplyButton = document.getElementById("contentTagApplyButton");
 const contentTagStatus = document.getElementById("contentTagStatus");
 const aiPromptPanel = document.getElementById("aiPromptPanel");
@@ -7155,16 +7158,40 @@ const CONTENT_TAG_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "facebo
 
 // Turn the no-code builder fields into a custom-rule source. Uses the platform
 // predicate's dim() (thumbnail blackout, correctable) or hide() (remove card).
-function generateContentTagRuleSource({ platform, tag, minConfidence, effect }) {
+// Supports a LIST of tags (each with an optional per-tag confidence over the
+// default), "block certain tags" (include) / "block all except" (exclude), and
+// a configurable untagged behavior for the exclude case.
+function generateContentTagRuleSource({ platform, mode, tags, defaultConfidence, blockUntagged, effect }) {
   const p = CONTENT_TAG_PLATFORMS.has(platform) ? platform : "youtube";
   const method = effect === "block" ? "hide" : "dim";
-  const n = Math.min(5, Math.max(1, Number(minConfidence) || 4));
-  const tagLiteral = JSON.stringify(String(tag));
+  const def = Math.min(5, Math.max(1, Number(defaultConfidence) || 4));
+  // Resolve each tag's threshold now, so the generated predicate stays simple.
+  const list = (Array.isArray(tags) ? tags : []).map((e) => ({
+    n: String(e && e.name),
+    c: Number.isFinite(e && e.confidence) ? Math.min(5, Math.max(1, e.confidence)) : def
+  }));
+  const listLiteral = JSON.stringify(list);
+  const isExclude = mode === "exclude";
+  const body = isExclude
+    ? (
+        "    const list = " + listLiteral + ";\n" +
+        "    const tags = Array.isArray(item.tags) ? item.tags : [];\n" +
+        "    const hasConfident = tags.some((t) => (t && t.confidence || 0) >= " + def + ");\n" +
+        "    if (!hasConfident) return " + (blockUntagged ? "true" : "false") + ";\n" +
+        "    const listMatch = list.some((e) => tags.some((t) => t && t.name === e.n && (t.confidence || 0) >= e.c));\n" +
+        "    return !listMatch;\n"
+      )
+    : (
+        "    const list = " + listLiteral + ";\n" +
+        "    const tags = Array.isArray(item.tags) ? item.tags : [];\n" +
+        "    return list.some((e) => tags.some((t) => t && t.name === e.n && (t.confidence || 0) >= e.c));\n"
+      );
   return (
     "(events, helpers) => {\n" +
     "  const p = helpers.platform()." + p + "();\n" +
-    "  p." + method + "((item) => Array.isArray(item.tags) && item.tags.some(\n" +
-    "    (t) => t && t.name === " + tagLiteral + " && (t.confidence || 0) >= " + n + "));\n" +
+    "  p." + method + "((item) => {\n" +
+    body +
+    "  });\n" +
     "  p.rescan();\n" +
     "}\n"
   );
@@ -7176,28 +7203,42 @@ function setContentTagStatus(text, isError) {
   contentTagStatus.className = isError ? "run-status error" : "run-status";
 }
 
+// The untagged toggle only matters for "block all except" (allow-list) mode.
+function syncContentTagBuilderMode() {
+  if (!contentTagBlockUntaggedRow) return;
+  const isExclude = contentTagModeField?.value === "exclude";
+  contentTagBlockUntaggedRow.classList.toggle("hidden", !isExclude);
+}
+if (contentTagModeField) {
+  contentTagModeField.addEventListener("change", syncContentTagBuilderMode);
+}
+
 if (contentTagApplyButton) {
   contentTagApplyButton.addEventListener("click", async () => {
     const group = getSelectedGroup();
     if (!group || group.groupType !== "custom" || blockingRulesField.disabled) return;
     const platform = contentTagPlatformField?.value || "youtube";
-    const tag = String(contentTagNameField?.value || "").trim();
-    if (!tag) {
+    const mode = contentTagModeField?.value === "exclude" ? "exclude" : "include";
+    const tags = parseTagListTextarea(contentTagNamesField?.value || "");
+    if (tags.length === 0) {
       setContentTagStatus(t("contentTag.needTag"), true);
-      contentTagNameField?.focus();
+      contentTagNamesField?.focus();
       return;
     }
-    const minConfidence = Number(contentTagConfidenceField?.value) || 4;
+    const defaultConfidence = Number(contentTagConfidenceField?.value) || 4;
     const effect = contentTagEffectField?.value === "block" ? "block" : "dim";
+    const blockUntagged = Boolean(contentTagBlockUntaggedField?.checked);
     // Generate the rule into the shared source field, then run it through the
     // same compile+activate pipeline as the Run button (no manual step).
-    blockingRulesField.value = generateContentTagRuleSource({ platform, tag, minConfidence, effect });
+    blockingRulesField.value = generateContentTagRuleSource({
+      platform, mode, tags, defaultConfidence, blockUntagged, effect
+    });
     stashCurrentDraft();
     render();
     scheduleAutosave();
     setContentTagStatus(t("contentTag.applying"), false);
     await runSelectedCustomGroup();
-    setContentTagStatus(t("contentTag.applied", { tag }), false);
+    setContentTagStatus(t("contentTag.applied", { count: tags.length }), false);
   });
 }
 
