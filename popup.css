@@ -1938,6 +1938,7 @@ code {
   margin: 8px 0;
 }
 .content-tag-row select,
+.content-tag-row textarea,
 .content-tag-row input[type="text"] {
   width: 100%;
   box-sizing: border-box;
