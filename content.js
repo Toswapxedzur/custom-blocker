@@ -3541,9 +3541,14 @@ async function __cb_scanFeedPredicates() {
       // effects map.
       const effects = (results[i] && results[i].effects) || {};
       for (const groupId of matched) {
-        const verdict = effects[groupId] === "allow"
+        // allow → rescue; dim → black out the thumbnail in place; block → hide
+        // the card. Falls back to the group effect for older replies.
+        const effect = effects[groupId];
+        const verdict = effect === "allow"
           ? "allow"
-          : (effects[groupId] === "block" ? "hide" : cbEffectVerdict(groupId));
+          : effect === "dim"
+            ? "dim"
+            : (effect === "block" ? "hide" : cbEffectVerdict(groupId));
         cbSetCardVerdict(card, groupId, verdict, "custom");
       }
       cbCustomSigCache.set(card, batch[i].sig);

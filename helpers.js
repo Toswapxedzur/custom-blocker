@@ -2489,7 +2489,10 @@
       function setPredicate(slot, predicate, opts) {
         if (typeof predicate !== "function") return;
         const blockPageOnVisit = Boolean(opts && opts.blockPageOnVisit);
-        const effect = opts && opts.effect === "allow" ? "allow" : "block";
+        // effect: "allow" = rescue; "dim" = black out the thumbnail in place
+        // (card + title kept, correctable); "block" (default) = hide the card.
+        const rawEffect = opts && opts.effect;
+        const effect = rawEffect === "allow" ? "allow" : rawEffect === "dim" ? "dim" : "block";
         recordIntent(platform, { slot, predicate: true, blockPageOnVisit, effect });
         const acc = ensureAccumulatorShape(accumulatorRef.get());
         acc.platformPredicates = acc.platformPredicates || {};
@@ -2529,6 +2532,17 @@
           return hide(slotOrPred, { ...(predicate || {}), effect: "allow" });
         }
         return hide(slotOrPred, predicate, { ...(opts || {}), effect: "allow" });
+      }
+
+      // dim(...) is hide(...) with effect:"dim": a match blacks out the card's
+      // thumbnail in place (the card and its title stay, and the block lifts the
+      // instant the predicate stops matching — e.g. a corrected tag) instead of
+      // removing the card. Same content-block UX as the tag-policy blackout.
+      function dim(slotOrPred, predicate, opts) {
+        if (typeof slotOrPred === "function") {
+          return hide(slotOrPred, { ...(predicate || {}), effect: "dim" });
+        }
+        return hide(slotOrPred, predicate, { ...(opts || {}), effect: "dim" });
       }
 
       // show()      → clear every feed-predicate slot
@@ -2594,6 +2608,7 @@
         hide,
         show,
         allow,
+        dim,
         surface,
         timer,
         rescan,
