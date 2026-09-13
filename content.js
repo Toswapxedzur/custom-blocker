@@ -454,6 +454,23 @@ function getCurrentFeedSite() {
   return getPlatformGroupTypeForHost(hostname);
 }
 
+// Classifier tags for a feed card (id/name/confidence), from the Vault tag
+// pipeline in this same isolated world. Empty until the pill resolves. Shared by
+// the platform feed-filter path (content-tag filter) and custom rules.
+function getFeedCardTags(card) {
+  try {
+    if (typeof window !== "undefined" && typeof window.vaultTagsForCard === "function") {
+      const resolved = window.vaultTagsForCard(card);
+      if (Array.isArray(resolved)) {
+        return resolved
+          .filter((t) => t && typeof t.name === "string")
+          .map((t) => ({ id: t.id, name: t.name, confidence: Number.isInteger(t.confidence) ? t.confidence : 0 }));
+      }
+    }
+  } catch (_) {}
+  return [];
+}
+
 function getFeedCardData(card) {
   const currentSite = getCurrentFeedSite();
   if (currentSite === "reddit") {
@@ -482,12 +499,13 @@ function getFeedCardData(card) {
           .filter(Boolean)
       )
     ];
-    return { videoForm: videoContext.form, creators };
+    return { videoForm: videoContext.form, creators, tags: getFeedCardTags(card) };
   }
   if (isPostCard(card)) {
     return {
       videoForm: "post",
-      creators: getFeedCardCreators(card)
+      creators: getFeedCardCreators(card),
+      tags: getFeedCardTags(card)
     };
   }
   const href = getFeedCardHref(card, "youtube");
@@ -497,12 +515,38 @@ function getFeedCardData(card) {
   const videoContext = detectVideoSiteContext(normalizeHostname(url.hostname), url.pathname);
   return {
     videoForm: videoContext.form,
-    creators: getFeedCardCreators(card)
+    creators: getFeedCardCreators(card),
+    tags: getFeedCardTags(card)
   };
 }
 
 function matchesFeedFilter(cardData, filter) {
   if (!cardData || !filter) return false;
+  // Content-tag filter (from platform rules). Matches on the card's classifier
+  // tags. "include" blocks a card that carries a listed tag at/above its
+  // confidence; "exclude" blocks a card that does NOT (an allowlist), with a
+  // toggle for whether untagged/low-confidence cards are blocked too.
+  if (filter.tagFilter) {
+    const tf = filter.tagFilter;
+    const cardTags = Array.isArray(cardData.tags) ? cardData.tags : [];
+    const def = Number.isFinite(tf.defaultConfidence) ? tf.defaultConfidence : 4;
+    const list = Array.isArray(tf.tags) ? tf.tags : [];
+    const listMatch = list.some((entry) => {
+      if (!entry || typeof entry.name !== "string") return false;
+      const need = Number.isFinite(entry.confidence) ? entry.confidence : def;
+      return cardTags.some(
+        (t) => t && t.name === entry.name && (Number(t.confidence) || 0) >= need
+      );
+    });
+    if (tf.mode === "include") return listMatch;
+    if (tf.mode === "exclude") {
+      const hasConfidentTag = cardTags.some((t) => (Number(t.confidence) || 0) >= def);
+      // Untagged / low-confidence: block only when the user opted in.
+      if (!hasConfidentTag) return Boolean(tf.blockUntagged);
+      return !listMatch;
+    }
+    return false;
+  }
   if (filter.site === "reddit") {
     if (!cardData.redditSubreddit) return false;
     const subreddits = Array.isArray(filter.subreddits) ? filter.subreddits : [];
@@ -1049,9 +1093,12 @@ function applyFeedFilters() {
         for (const filter of activeFilters) {
           if (!matchesFeedFilter(cardData, filter)) continue;
           // Exposure: a match means the group's usage timer should accrue,
-          // regardless of whether we hide the card right now.
-          exposed.add(filter.id);
-          const verdict = cbEffectVerdict(filter.id);
+          // regardless of whether we hide the card right now. A tag filter is a
+          // synthetic sibling of its group, so credit the real group id.
+          exposed.add(filter.baseGroupId || filter.id);
+          // Tag filters carry their own effect (dim = blackout, hide = remove);
+          // author/video filters use the group's block/allow effect.
+          const verdict = filter.effectVerdict || cbEffectVerdict(filter.id);
           // Allow filters always rescue; block filters only hide while
           // enforcing (instant, or a count-down past its allowance).
           if (verdict === "allow" || filter.enforce !== false) {
@@ -1078,6 +1125,7 @@ function applyNavShelfHides() {
   if (currentSite !== "youtube") return;
   for (const filter of latestFeedFilters) {
     if (filter?.site !== "youtube") continue;
+    if (filter.tagFilter) continue; // content-tag filters act on cards, not chrome
     if (filter.enforce === false) continue;
     if (cbEffectVerdict(filter.id) === "allow") continue;
     for (const navElement of collectNavElementsToHide(filter)) hideSurfaceElement(navElement);
