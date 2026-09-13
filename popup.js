@@ -1998,7 +1998,7 @@ function setupPlatformChipInputs() {
 // Platforms whose feed-predicate/card pipeline can act on content tags. Others
 // (reddit, bilibili) need that engine extended before a tag filter can work, so
 // the Tag filter control is hidden for them.
-const TAG_FILTER_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "facebook", "twitch"]);
+const TAG_FILTER_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "facebook", "twitch", "reddit", "bilibili"]);
 function isTagFilterCompatible(groupType) {
   return TAG_FILTER_PLATFORMS.has(String(groupType || ""));
 }

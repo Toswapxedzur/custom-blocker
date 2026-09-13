@@ -1080,6 +1080,30 @@ function isPlatformBlockEnforcing(group, usageTimersMs) {
   return (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group);
 }
 
+// Emit a group's content-tag filter as a SEPARATE feed-filter entry (own id +
+// effect), independent of the author/subreddit axis. Works for any platform
+// whose feed cards carry classifier tags (youtube, feed platforms like
+// bilibili, and reddit). content.js matchesFeedFilter does the tag matching.
+function pushTagFilterEntry(filters, group, enforce) {
+  const tagMode = normalizeTagFilterMode(group.platformTagMode);
+  if (tagMode !== "include" && tagMode !== "exclude") return;
+  const tagList = normalizeTagList(group.platformTags);
+  if (tagMode === "include" && tagList.length === 0) return;
+  filters.push({
+    id: group.id + "␟tag",
+    baseGroupId: group.id,
+    site: group.groupType,
+    tagFilter: {
+      mode: tagMode,
+      tags: tagList,
+      defaultConfidence: clampTagConfidence(group.platformTagDefaultConfidence, 4),
+      blockUntagged: Boolean(group.platformTagBlockUntagged)
+    },
+    effectVerdict: group.platformTagEffect === "block" ? "hide" : "dim",
+    enforce
+  });
+}
+
 function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnoozes, now) {
   const filters = [];
   const currentSite = pageContext.videoSite || getPlatformGroupTypeForHost(pageContext.hostname);
@@ -1112,28 +1136,8 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
           enforce
         });
       }
-      // Content-tag filter: a SEPARATE filter entry (own id + effect) so its
-      // blackout/hide verdict is independent of the author filter's, and it
-      // applies regardless of the author mode. content.js matches cardData.tags.
-      const tagMode = normalizeTagFilterMode(group.platformTagMode);
-      const tagList = normalizeTagList(group.platformTags);
-      if (tagMode === "include" || tagMode === "exclude") {
-        if (tagMode === "exclude" || tagList.length > 0) {
-          filters.push({
-            id: group.id + "␟tag",
-            baseGroupId: group.id,
-            site: group.groupType,
-            tagFilter: {
-              mode: tagMode,
-              tags: tagList,
-              defaultConfidence: clampTagConfidence(group.platformTagDefaultConfidence, 4),
-              blockUntagged: Boolean(group.platformTagBlockUntagged)
-            },
-            effectVerdict: group.platformTagEffect === "block" ? "hide" : "dim",
-            enforce
-          });
-        }
-      }
+      // Content-tag filter: independent of the author mode. Applies regardless.
+      pushTagFilterEntry(filters, group, enforce);
     }
   }
 
@@ -1147,18 +1151,24 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
       ) {
         continue;
       }
+      const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
       const subreddits = Array.isArray(group.redditSubreddits) ? group.redditSubreddits : [];
       const redditMode = normalizeRedditMode(group.redditMode, subreddits);
-      if (redditMode === "all") continue;
-      if (redditMode === "include" && subreddits.length === 0) continue;
-      const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
-      filters.push({
-        id: group.id,
-        site: "reddit",
-        redditMode,
-        subreddits: [...subreddits],
-        enforce
-      });
+      // Subreddit filter (skips "all" / empty include); the tag filter below is
+      // independent and applies regardless of the subreddit mode.
+      if (
+        (redditMode === "include" || redditMode === "exclude") &&
+        !(redditMode === "include" && subreddits.length === 0)
+      ) {
+        filters.push({
+          id: group.id,
+          site: "reddit",
+          redditMode,
+          subreddits: [...subreddits],
+          enforce
+        });
+      }
+      pushTagFilterEntry(filters, group, enforce);
     }
   }
 
@@ -1172,18 +1182,21 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
       ) {
         continue;
       }
+      const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
       const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
       // Mode "all" blocks the whole page (handled by the matcher); "nobody"
-      // blocks nothing. Only include/exclude trim individual feed cards.
-      if (authorMode !== "include" && authorMode !== "exclude") continue;
-      const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
-      filters.push({
-        id: group.id,
-        site: currentSite,
-        authorMode,
-        authors: [...group.platformAuthors],
-        enforce
-      });
+      // blocks nothing. Only include/exclude trim individual feed cards. The tag
+      // filter below is independent and applies regardless of the author mode.
+      if (authorMode === "include" || authorMode === "exclude") {
+        filters.push({
+          id: group.id,
+          site: currentSite,
+          authorMode,
+          authors: [...group.platformAuthors],
+          enforce
+        });
+      }
+      pushTagFilterEntry(filters, group, enforce);
     }
   }
 
