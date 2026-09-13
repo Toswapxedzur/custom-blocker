@@ -430,6 +430,49 @@
                 <p id="platformVideoHelp" class="field-help"></p>
               </div>
 
+              <!-- Content-tag filter: block by what the Vault classifier tagged
+                   the content. Shown only for tag-compatible platforms. -->
+              <div id="platformTagFields" class="platform-tag-fields hidden">
+                <label class="label" for="platformTagMode" data-i18n="tagFilter.mode">Content tag filter</label>
+                <select id="platformTagMode">
+                  <option value="all" data-i18n="tagFilter.modeAll">Apply to all content</option>
+                  <option value="include" data-i18n="tagFilter.modeInclude">Block certain tags</option>
+                  <option value="exclude" data-i18n="tagFilter.modeExclude">Block all except certain tags</option>
+                </select>
+                <p class="field-help" data-i18n="tagFilter.help">
+                  Block videos by what the Vault classifier tagged them. One tag per line; add "@N" to set that tag's own minimum confidence.
+                </p>
+                <div id="platformTagListBlock">
+                  <label class="label" for="platformTags" data-i18n="tagFilter.tags">Tags</label>
+                  <textarea
+                    id="platformTags"
+                    rows="4"
+                    placeholder="Gaming&#10;Drama @3"
+                    data-i18n-placeholder="tagFilter.tagsPlaceholder"
+                    spellcheck="false"
+                  ></textarea>
+                  <div class="content-tag-row">
+                    <label class="label" for="platformTagDefaultConfidence" data-i18n="tagFilter.defaultConfidence">Default minimum confidence</label>
+                    <select id="platformTagDefaultConfidence">
+                      <option value="3">&#8805; 3</option>
+                      <option value="4" selected>&#8805; 4</option>
+                      <option value="5">&#8805; 5</option>
+                    </select>
+                  </div>
+                  <div class="content-tag-row">
+                    <label class="label" for="platformTagEffect" data-i18n="tagFilter.effect">When it matches</label>
+                    <select id="platformTagEffect">
+                      <option value="dim" data-i18n="tagFilter.effectDim">Black out the thumbnail (correctable)</option>
+                      <option value="block" data-i18n="tagFilter.effectHide">Hide the video entirely</option>
+                    </select>
+                  </div>
+                  <label id="platformTagBlockUntaggedRow" class="checkbox-row compact" for="platformTagBlockUntagged">
+                    <input id="platformTagBlockUntagged" type="checkbox" />
+                    <span data-i18n="tagFilter.blockUntagged">Also block videos with no confident tag</span>
+                  </label>
+                </div>
+              </div>
+
               <label class="checkbox-row compact" for="platformBlockHomePage">
                 <input id="platformBlockHomePage" type="checkbox" />
                 <span data-i18n="filter.blockHomePage">Block home/feed pages</span>

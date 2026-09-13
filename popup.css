@@ -1950,3 +1950,10 @@ code {
 .content-tag-builder .field-actions {
   margin-top: 10px;
 }
+
+/* Content-tag filter (platform rules). */
+.platform-tag-fields {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--navy-100, #eef2ff);
+}

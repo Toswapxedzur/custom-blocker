@@ -308,6 +308,15 @@ const platformAuthorsBlock = document.getElementById("platformAuthorsBlock");
 const platformAuthorsLabel = document.getElementById("platformAuthorsLabel");
 const platformAuthorsField = document.getElementById("platformAuthors");
 const platformVideoHelp = document.getElementById("platformVideoHelp");
+// Content-tag filter (platform rules).
+const platformTagFields = document.getElementById("platformTagFields");
+const platformTagModeField = document.getElementById("platformTagMode");
+const platformTagListBlock = document.getElementById("platformTagListBlock");
+const platformTagsField = document.getElementById("platformTags");
+const platformTagDefaultConfidenceField = document.getElementById("platformTagDefaultConfidence");
+const platformTagEffectField = document.getElementById("platformTagEffect");
+const platformTagBlockUntaggedRow = document.getElementById("platformTagBlockUntaggedRow");
+const platformTagBlockUntaggedField = document.getElementById("platformTagBlockUntagged");
 const platformBlockHomePageField = document.getElementById("platformBlockHomePage");
 const skipToNextOnBlockRow = document.getElementById("skipToNextOnBlockRow");
 const skipToNextOnBlockField = document.getElementById("skipToNextOnBlock");
@@ -1982,6 +1991,54 @@ function setupPlatformChipInputs() {
   });
 }
 
+// ── Content-tag filter helpers (platform rules) ──────────────────────────
+// Platforms whose feed-predicate/card pipeline can act on content tags. Others
+// (reddit, bilibili) need that engine extended before a tag filter can work, so
+// the Tag filter control is hidden for them.
+const TAG_FILTER_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "facebook", "twitch"]);
+function isTagFilterCompatible(groupType) {
+  return TAG_FILTER_PLATFORMS.has(String(groupType || ""));
+}
+function normalizeTagFilterModeChoice(value) {
+  return value === "include" || value === "exclude" ? value : "all";
+}
+function clampTagFilterConfidence(value, fallback) {
+  const c = Number(value);
+  return Number.isFinite(c) ? Math.min(5, Math.max(1, Math.round(c))) : fallback;
+}
+// One tag per line; a trailing "@N", ">=N", ">N" or ":N" sets that tag's own
+// minimum confidence (overriding the filter default).
+function parseTagListTextarea(value) {
+  if (typeof value !== "string") return [];
+  const seen = new Set();
+  const out = [];
+  for (const rawLine of value.split(/\r?\n/)) {
+    let line = rawLine.trim();
+    if (!line) continue;
+    let confidence;
+    const m = line.match(/\s*(?:@|>=?|:)\s*([1-5])\s*$/);
+    if (m) {
+      confidence = Number(m[1]);
+      line = line.slice(0, m.index).trim();
+    }
+    if (!line) continue;
+    const name = line.slice(0, 100);
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(confidence ? { name, confidence } : { name });
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+function tagListToText(list) {
+  if (!Array.isArray(list)) return "";
+  return list
+    .map((e) => (e && typeof e.name === "string" ? (e.confidence ? `${e.name} @${e.confidence}` : e.name) : ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
 function parsePlatformAuthorsTextarea(groupType, value) {
   const validAuthors = [];
   const invalidAuthors = [];
@@ -3444,6 +3501,11 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     platformVideoMode: "all",
     platformAuthorMode: "all",
     platformAuthors: [],
+    platformTagMode: "all",
+    platformTags: [],
+    platformTagDefaultConfidence: 4,
+    platformTagBlockUntagged: false,
+    platformTagEffect: "dim",
     redditMode: "all",
     redditSubreddits: [],
     discordMode: "all",
@@ -3563,6 +3625,13 @@ function sanitizeGroups(groups) {
             .filter(Boolean)
         )
       ],
+      platformTagMode: normalizeTagFilterModeChoice(group?.platformTagMode),
+      platformTags: parseTagListTextarea(
+        Array.isArray(group?.platformTags) ? tagListToText(group.platformTags) : String(group?.platformTags ?? "")
+      ),
+      platformTagDefaultConfidence: clampTagFilterConfidence(group?.platformTagDefaultConfidence, 4),
+      platformTagBlockUntagged: Boolean(group?.platformTagBlockUntagged),
+      platformTagEffect: group?.platformTagEffect === "block" ? "block" : "dim",
       redditSubreddits: [
         ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
       ],
@@ -3714,6 +3783,11 @@ function getSerializableGroupSnapshot(group) {
     platformVideoMode: group.platformVideoMode,
     platformAuthorMode: group.platformAuthorMode,
     platformAuthors: [...group.platformAuthors],
+    platformTagMode: normalizeTagFilterModeChoice(group.platformTagMode),
+    platformTags: Array.isArray(group.platformTags) ? group.platformTags.map((e) => ({ ...e })) : [],
+    platformTagDefaultConfidence: clampTagFilterConfidence(group.platformTagDefaultConfidence, 4),
+    platformTagBlockUntagged: Boolean(group.platformTagBlockUntagged),
+    platformTagEffect: group.platformTagEffect === "block" ? "block" : "dim",
     redditMode: group.redditMode,
     redditSubreddits: [...group.redditSubreddits],
     discordMode: group.discordMode,
@@ -3837,6 +3911,11 @@ function groupToDraft(group) {
     platformVideoMode: normalizeVideoMode(group.platformVideoMode),
     platformAuthorMode: normalizePlatformAuthorMode(group.platformAuthorMode),
     platformAuthorsText: group.platformAuthors.join("\n"),
+    platformTagMode: normalizeTagFilterModeChoice(group.platformTagMode),
+    platformTagsText: tagListToText(group.platformTags),
+    platformTagDefaultConfidence: clampTagFilterConfidence(group.platformTagDefaultConfidence, 4),
+    platformTagBlockUntagged: Boolean(group.platformTagBlockUntagged),
+    platformTagEffect: group.platformTagEffect === "block" ? "block" : "dim",
     redditMode: normalizeRedditMode(group.redditMode, group.redditSubreddits),
     redditSubredditsText: group.redditSubreddits.join("\n"),
     discordMode: normalizeDiscordMode(group.discordMode, group.discordTargets),
@@ -4888,6 +4967,22 @@ function renderEditor(now = Date.now()) {
   platformAuthorModeField.value = normalizePlatformAuthorMode(
     draft?.platformAuthorMode ?? group.platformAuthorMode
   );
+  // Content-tag filter fields.
+  const tagCompatible = isTagFilterCompatible(group.groupType);
+  const tagMode = normalizeTagFilterModeChoice(draft?.platformTagMode ?? group.platformTagMode);
+  platformTagModeField.value = tagMode;
+  platformTagsField.value = draft?.platformTagsText ?? tagListToText(group.platformTags);
+  platformTagDefaultConfidenceField.value = String(
+    clampTagFilterConfidence(draft?.platformTagDefaultConfidence ?? group.platformTagDefaultConfidence, 4)
+  );
+  platformTagEffectField.value =
+    (draft?.platformTagEffect ?? group.platformTagEffect) === "block" ? "block" : "dim";
+  platformTagBlockUntaggedField.checked = Boolean(
+    draft?.platformTagBlockUntagged ?? group.platformTagBlockUntagged
+  );
+  if (platformTagFields) platformTagFields.classList.toggle("hidden", !tagCompatible);
+  if (platformTagListBlock) platformTagListBlock.classList.toggle("hidden", tagMode === "all");
+  if (platformTagBlockUntaggedRow) platformTagBlockUntaggedRow.classList.toggle("hidden", tagMode !== "exclude");
   redditSubredditsField.value = draft?.redditSubredditsText ?? group.redditSubreddits.join("\n");
   redditModeField.value = normalizeRedditMode(
     draft?.redditMode ?? group.redditMode,
@@ -5169,6 +5264,11 @@ function stashCurrentDraft() {
     platformVideoMode: platformVideoModeField.value,
     platformAuthorMode: platformAuthorModeField.value,
     platformAuthorsText: platformAuthorsField.value,
+    platformTagMode: platformTagModeField.value,
+    platformTagsText: platformTagsField.value,
+    platformTagDefaultConfidence: platformTagDefaultConfidenceField.value,
+    platformTagBlockUntagged: platformTagBlockUntaggedField.checked,
+    platformTagEffect: platformTagEffectField.value,
     redditMode: redditModeField.value,
     redditSubredditsText: redditSubredditsField.value,
     discordMode: discordModeField.value,
@@ -5714,6 +5814,15 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
       platformVideoMode: normalizeVideoMode(draft.platformVideoMode),
       platformAuthorMode: authorMode,
       platformAuthors: usesAuthorAxis ? authorResults.validAuthors : group.platformAuthors,
+      platformTagMode: isTagFilterCompatible(group.groupType)
+        ? normalizeTagFilterModeChoice(draft.platformTagMode)
+        : group.platformTagMode,
+      platformTags: isTagFilterCompatible(group.groupType)
+        ? parseTagListTextarea(draft.platformTagsText)
+        : group.platformTags,
+      platformTagDefaultConfidence: clampTagFilterConfidence(draft.platformTagDefaultConfidence, 4),
+      platformTagBlockUntagged: Boolean(draft.platformTagBlockUntagged),
+      platformTagEffect: draft.platformTagEffect === "block" ? "block" : "dim",
       surfaceHides: normalizeSurfaceHides(
         Array.isArray(draft.surfaceHides) ? draft.surfaceHides : group.surfaceHides,
         group.groupType
@@ -7256,6 +7365,30 @@ platformAuthorModeField.addEventListener("change", () => {
   renderGroupList();
   scheduleAutosave();
 });
+
+// Content-tag filter fields.
+if (platformTagModeField) {
+  platformTagModeField.addEventListener("change", () => {
+    stashCurrentDraft();
+    render(); // re-toggles the tag list + untagged row for the new mode
+    renderGroupList();
+    scheduleAutosave();
+  });
+}
+for (const field of [platformTagsField, platformTagDefaultConfidenceField, platformTagEffectField]) {
+  if (!field) continue;
+  field.addEventListener("input", () => {
+    stashCurrentDraft();
+    renderGroupList();
+    scheduleAutosave();
+  });
+}
+if (platformTagBlockUntaggedField) {
+  platformTagBlockUntaggedField.addEventListener("change", () => {
+    stashCurrentDraft();
+    scheduleAutosave();
+  });
+}
 
 redditSubredditsField.addEventListener("input", () => {
   stashCurrentDraft();
