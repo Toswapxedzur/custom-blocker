@@ -474,7 +474,7 @@ function getFeedCardTags(card) {
 function getFeedCardData(card) {
   const currentSite = getCurrentFeedSite();
   if (currentSite === "reddit") {
-    return { redditSubreddit: extractRedditSubredditFromCard(card) };
+    return { redditSubreddit: extractRedditSubredditFromCard(card), tags: getFeedCardTags(card) };
   }
   if (currentSite === "twitter") {
     const creators = [
