@@ -136,7 +136,7 @@ function appendPlatformPredicateReplay(accumulator, descriptor) {
           slot,
           predicate: true,
           blockPageOnVisit: Boolean(entry.blockPageOnVisit),
-          effect: entry.effect === "allow" ? "allow" : "block"
+          effect: entry.effect === "allow" ? "allow" : entry.effect === "dim" ? "dim" : "block"
         }
       });
     }
@@ -1233,7 +1233,7 @@ window.addEventListener("message", (msg) => {
       const entry = bucket && bucket[platform] && bucket[platform][slot];
       if (!entry || typeof entry.predicate !== "function") continue;
       evaluatedGroups.push(groupId);
-      const effect = entry.effect === "allow" ? "allow" : "block";
+      const effect = entry.effect === "allow" ? "allow" : entry.effect === "dim" ? "dim" : "block";
       for (let i = 0; i < items.length; i++) {
         let matched = false;
         try { matched = Boolean(entry.predicate(items[i])); } catch { matched = false; }
@@ -1241,8 +1241,9 @@ window.addEventListener("message", (msg) => {
           results[i].hide = true;
           results[i].matchedGroups.push(groupId);
           results[i].effects[groupId] = effect;
-          // A page-level block only makes sense for a "block" predicate.
-          if (entry.blockPageOnVisit && effect !== "allow") results[i].blockPageOnVisit = true;
+          // A page-level block (exit the page) only makes sense for a "block"
+          // predicate — never for "allow" (rescue) or "dim" (in-place blackout).
+          if (entry.blockPageOnVisit && effect === "block") results[i].blockPageOnVisit = true;
         }
       }
     }
