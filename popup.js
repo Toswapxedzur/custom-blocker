@@ -360,6 +360,14 @@ const clearSitesButton = document.getElementById("clearSitesButton");
 const runCustomGroupButton = document.getElementById("runCustomGroupButton");
 const checkSyntaxButton = document.getElementById("checkSyntaxButton");
 const runCustomGroupStatus = document.getElementById("runCustomGroupStatus");
+// No-code content-tag rule builder (inside the custom editor).
+const contentTagBuilder = document.getElementById("contentTagBuilder");
+const contentTagPlatformField = document.getElementById("contentTagPlatform");
+const contentTagNameField = document.getElementById("contentTagName");
+const contentTagConfidenceField = document.getElementById("contentTagConfidence");
+const contentTagEffectField = document.getElementById("contentTagEffect");
+const contentTagApplyButton = document.getElementById("contentTagApplyButton");
+const contentTagStatus = document.getElementById("contentTagStatus");
 const aiPromptPanel = document.getElementById("aiPromptPanel");
 const aiPromptInput = document.getElementById("aiPromptInput");
 const aiPromptCopyButton = document.getElementById("aiPromptCopyButton");
@@ -7028,6 +7036,59 @@ async function runSelectedCustomGroup() {
 if (runCustomGroupButton) {
   runCustomGroupButton.addEventListener("click", () => {
     runSelectedCustomGroup();
+  });
+}
+
+// Platforms whose feed-predicate engine can act on content tags (helpers.js
+// PLATFORM_LIST). Others (e.g. reddit, bilibili) would need the predicate
+// engine extended before a tag rule could hide/blackout their cards.
+const CONTENT_TAG_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "facebook", "twitch"]);
+
+// Turn the no-code builder fields into a custom-rule source. Uses the platform
+// predicate's dim() (thumbnail blackout, correctable) or hide() (remove card).
+function generateContentTagRuleSource({ platform, tag, minConfidence, effect }) {
+  const p = CONTENT_TAG_PLATFORMS.has(platform) ? platform : "youtube";
+  const method = effect === "block" ? "hide" : "dim";
+  const n = Math.min(5, Math.max(1, Number(minConfidence) || 4));
+  const tagLiteral = JSON.stringify(String(tag));
+  return (
+    "(events, helpers) => {\n" +
+    "  const p = helpers.platform()." + p + "();\n" +
+    "  p." + method + "((item) => Array.isArray(item.tags) && item.tags.some(\n" +
+    "    (t) => t && t.name === " + tagLiteral + " && (t.confidence || 0) >= " + n + "));\n" +
+    "  p.rescan();\n" +
+    "}\n"
+  );
+}
+
+function setContentTagStatus(text, isError) {
+  if (!contentTagStatus) return;
+  contentTagStatus.textContent = text || "";
+  contentTagStatus.className = isError ? "run-status error" : "run-status";
+}
+
+if (contentTagApplyButton) {
+  contentTagApplyButton.addEventListener("click", async () => {
+    const group = getSelectedGroup();
+    if (!group || group.groupType !== "custom" || blockingRulesField.disabled) return;
+    const platform = contentTagPlatformField?.value || "youtube";
+    const tag = String(contentTagNameField?.value || "").trim();
+    if (!tag) {
+      setContentTagStatus(t("contentTag.needTag"), true);
+      contentTagNameField?.focus();
+      return;
+    }
+    const minConfidence = Number(contentTagConfidenceField?.value) || 4;
+    const effect = contentTagEffectField?.value === "block" ? "block" : "dim";
+    // Generate the rule into the shared source field, then run it through the
+    // same compile+activate pipeline as the Run button (no manual step).
+    blockingRulesField.value = generateContentTagRuleSource({ platform, tag, minConfidence, effect });
+    stashCurrentDraft();
+    render();
+    scheduleAutosave();
+    setContentTagStatus(t("contentTag.applying"), false);
+    await runSelectedCustomGroup();
+    setContentTagStatus(t("contentTag.applied", { tag }), false);
   });
 }
 

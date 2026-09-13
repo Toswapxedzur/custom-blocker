@@ -1913,3 +1913,40 @@ code {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* No-code content-tag rule builder (inside the custom editor). */
+.content-tag-builder {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--navy-300, #c7d2fe);
+  border-radius: 10px;
+  background: var(--navy-100, #eef2ff);
+}
+.content-tag-builder > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--navy-700, #1e3a8a);
+  list-style: revert;
+}
+.content-tag-builder[open] > summary {
+  margin-bottom: 8px;
+}
+.content-tag-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+}
+.content-tag-row select,
+.content-tag-row input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  border: 1px solid var(--navy-300, #c7d2fe);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+}
+.content-tag-builder .field-actions {
+  margin-top: 10px;
+}

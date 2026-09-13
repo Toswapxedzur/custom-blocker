@@ -284,6 +284,50 @@
               </div>
             </div>
 
+            <details id="contentTagBuilder" class="content-tag-builder" open>
+              <summary data-i18n="contentTag.title">Block a content tag (no code)</summary>
+              <p class="field-help" data-i18n="contentTag.help">
+                Pick a platform and a content tag from the Vault classifier. Matching videos are blocked without writing any code.
+              </p>
+              <div class="content-tag-row">
+                <label class="label" for="contentTagPlatform" data-i18n="contentTag.platform">Platform</label>
+                <select id="contentTagPlatform">
+                  <option value="youtube">YouTube</option>
+                  <option value="tiktok">TikTok</option>
+                  <option value="instagram">Instagram</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="twitch">Twitch</option>
+                </select>
+              </div>
+              <div class="content-tag-row">
+                <label class="label" for="contentTagName" data-i18n="contentTag.tag">Content tag</label>
+                <input id="contentTagName" type="text" autocomplete="off" spellcheck="false"
+                  placeholder="e.g. Gaming" data-i18n-placeholder="contentTag.tagPlaceholder" />
+              </div>
+              <div class="content-tag-row">
+                <label class="label" for="contentTagConfidence" data-i18n="contentTag.confidence">Minimum confidence</label>
+                <select id="contentTagConfidence">
+                  <option value="3">≥ 3</option>
+                  <option value="4" selected>≥ 4 (recommended)</option>
+                  <option value="5" data-i18n="contentTag.confidence5">≥ 5 (only very confident)</option>
+                </select>
+              </div>
+              <div class="content-tag-row">
+                <label class="label" for="contentTagEffect" data-i18n="contentTag.effect">When it matches</label>
+                <select id="contentTagEffect">
+                  <option value="dim" data-i18n="contentTag.effectDim">Black out the thumbnail (correctable)</option>
+                  <option value="block" data-i18n="contentTag.effectHide">Hide the video entirely</option>
+                </select>
+              </div>
+              <div class="field-actions">
+                <button id="contentTagApplyButton" type="button" class="weird" data-i18n="contentTag.apply">Block this tag</button>
+                <span id="contentTagStatus" class="run-status"></span>
+              </div>
+              <p class="field-help" data-i18n="contentTag.advancedNote">
+                Applying generates a rule below, which advanced users can fine-tune.
+              </p>
+            </details>
+
             <div id="blockingRulesEditor" class="code-editor">
               <pre id="blockingRulesHighlight" class="code-editor-highlight" aria-hidden="true"></pre>
               <textarea
