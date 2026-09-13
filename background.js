@@ -329,6 +329,43 @@ function parseTimeWindowsText(value) {
   return [...new Set(lines)];
 }
 
+// ── Content-tag filter (platform rules) normalizers ──────────────────────
+// A platform group can block by content tag (from the Vault classifier), like
+// the author filter but keyed on WHAT the content is. Modes: "all" (off),
+// "include" (block listed tags), "exclude" (block all except listed tags).
+function normalizeTagFilterMode(value) {
+  return value === "include" || value === "exclude" ? value : "all";
+}
+function clampTagConfidence(value, fallback) {
+  const c = Number(value);
+  return Number.isFinite(c) ? Math.min(5, Math.max(1, Math.round(c))) : fallback;
+}
+// Each entry is { name, confidence? }; confidence overrides the filter default.
+function normalizeTagList(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const entry of raw) {
+    let name = null;
+    let confidence;
+    if (typeof entry === "string") {
+      name = entry;
+    } else if (entry && typeof entry === "object") {
+      name = entry.name;
+      confidence = entry.confidence;
+    }
+    if (typeof name !== "string") continue;
+    name = name.trim().slice(0, 100);
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    const c = Number(confidence);
+    out.push(Number.isFinite(c) && c >= 1 && c <= 5 ? { name, confidence: Math.round(c) } : { name });
+    if (out.length >= 100) break;
+  }
+  return out;
+}
+
 function sanitizeGroups(groups) {
   if (!Array.isArray(groups)) return [];
 
@@ -388,6 +425,12 @@ function sanitizeGroups(groups) {
               .filter(Boolean)
           )
         ],
+        // Content-tag filter (platform rules): block by classifier tag.
+        platformTagMode: normalizeTagFilterMode(group?.platformTagMode),
+        platformTags: normalizeTagList(group?.platformTags),
+        platformTagDefaultConfidence: clampTagConfidence(group?.platformTagDefaultConfidence, 4),
+        platformTagBlockUntagged: Boolean(group?.platformTagBlockUntagged),
+        platformTagEffect: group?.platformTagEffect === "block" ? "block" : "dim",
         redditSubreddits: [
           ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
         ],
@@ -1053,23 +1096,44 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
       ) {
         continue;
       }
-      const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
-      if (authorMode !== "all" && authorMode !== "include" && authorMode !== "exclude") {
-        continue;
-      }
-      // Always emit the filter so content.js can measure exposure (for the
-      // usage timer) even while the group isn't blocking yet. `enforce` decides
-      // whether matched cards are actually hidden: instant always, after-minutes
-      // only past its allowance, and the count-up "timer" mode never.
+      // `enforce` decides whether matched cards are actually hidden: instant
+      // always, after-minutes only past its allowance, count-up "timer" never.
       const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
-      filters.push({
-        id: group.id,
-        site: group.groupType,
-        videoMode: normalizeVideoMode(group.platformVideoMode),
-        authorMode,
-        authors: [...group.platformAuthors],
-        enforce
-      });
+      // Author filter: emitted only for its active modes. "nobody"/other → the
+      // author axis blocks nothing, but the group's TAG filter may still apply.
+      const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
+      if (authorMode === "all" || authorMode === "include" || authorMode === "exclude") {
+        filters.push({
+          id: group.id,
+          site: group.groupType,
+          videoMode: normalizeVideoMode(group.platformVideoMode),
+          authorMode,
+          authors: [...group.platformAuthors],
+          enforce
+        });
+      }
+      // Content-tag filter: a SEPARATE filter entry (own id + effect) so its
+      // blackout/hide verdict is independent of the author filter's, and it
+      // applies regardless of the author mode. content.js matches cardData.tags.
+      const tagMode = normalizeTagFilterMode(group.platformTagMode);
+      const tagList = normalizeTagList(group.platformTags);
+      if (tagMode === "include" || tagMode === "exclude") {
+        if (tagMode === "exclude" || tagList.length > 0) {
+          filters.push({
+            id: group.id + "␟tag",
+            baseGroupId: group.id,
+            site: group.groupType,
+            tagFilter: {
+              mode: tagMode,
+              tags: tagList,
+              defaultConfidence: clampTagConfidence(group.platformTagDefaultConfidence, 4),
+              blockUntagged: Boolean(group.platformTagBlockUntagged)
+            },
+            effectVerdict: group.platformTagEffect === "block" ? "hide" : "dim",
+            enforce
+          });
+        }
+      }
     }
   }
 
