@@ -166,8 +166,38 @@ The general author modes are:
 | Include | Match only the listed normalized creators/accounts. |
 | Exclude | Match all detected creators/accounts except the listed entries. |
 | Nobody | Match no author. This is a deliberate no-match author axis. |
-| Tag include | Match creators with any listed tag when Vault can classify them. Unknown/unclassified creators fail open. |
-| Tag exclude | Match creators without the configured tag(s) when Vault can classify them. Unknown/unclassified creators fail open. |
+
+#### Content tag filter
+
+A platform group can also match by what a video is *about*, using the tags that Vault Classifier assigns on this computer. It is a separate axis from the author modes: it has its own list, its own effect, and works whether or not an author mode is set. The control appears on platform groups whose cards Vault Classifier can tag, and it does nothing in a browser that has no classifier connection (Safari): the filter is inert there rather than blocking everything.
+
+| Mode | Result |
+| --- | --- |
+| Apply to all content | The tag filter is off. |
+| Block certain tags | A block-list: match a video that carries a listed tag. |
+| Block all except certain tags | An allow-list: match a video unless it carries a listed tag. |
+
+The list takes one rule per line:
+
+| Line | Meaning |
+| --- | --- |
+| `Gaming` | The tag, at the default minimum confidence. |
+| `Gaming @3` | The tag with its own minimum confidence, 1 to 5. `>=3`, `>3` and `:3` are accepted too. |
+| `Gaming + Drama` | Every tag on the line must be present. The `+` needs a space on each side; `&` is left alone because real tag names contain it (`Science & Education`). |
+| `!Tutorial` | An exception. In a block-list: "…except when it is also tagged Tutorial". In an allow-list: "…but not when it is also tagged Tutorial". |
+
+Under the list, Vault shows the tags that exist in your classifier; choosing one adds it as a line. A name that matches no classifier tag never matches anything, so prefer these suggestions to typing.
+
+| Option | Result |
+| --- | --- |
+| Default minimum confidence | The confidence (1 to 5) a tag needs when its line sets none. The default is 4. |
+| When it matches | *Black out the thumbnail* keeps the card, its title and its Vault tags visible and covers only the thumbnail. *Hide the video entirely* removes the card. |
+| Also black out a matching video's own page | When the video you open matches, its player is covered in place and kept paused. The title, author and Vault tags stay usable. On by default. |
+| Also block videos with no confident tag | Treat a video the classifier answered for, but could not tag confidently, as a match. Off by default. |
+
+A tag filter only ever decides on a settled answer. While a video is still being tagged, when the lookup failed, or when Vault Classifier is not running, the video is left alone; "no confident tag" means the classifier answered and found none, never that it has not answered yet.
+
+The block is a live function of the tags. Correcting a tag on the Vault pill re-decides the block immediately, on the card and on the video's own page, without waiting for the classifier to confirm; if the correction fails to save, the previous tags and the previous block return. Vault Classifier only tags: it makes no blocking decision, and every rule above is stored and evaluated by this extension.
 
 The content-form choices are platform-specific:
 
