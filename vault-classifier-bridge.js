@@ -718,10 +718,13 @@
   });
 
   // The popup's tag-filter editor offers the classifier's own tag names as
-  // suggestions. Read-only and answered ONLY to this extension's own pages (no
-  // tab, our origin) — a content script or another extension gets nothing.
+  // suggestions. Read-only and answered ONLY to this extension's own pages: our
+  // id AND a sender URL on our own origin. A content script's sender.url is the
+  // WEB page it runs in, so it can never pass — and the editor must still work
+  // when it is opened as a full tab (sender.tab is set then), which an earlier
+  // "no tab" check wrongly refused (found by the live end-to-end run).
   function isOwnExtensionPage(sender) {
-    if (!sender || sender.id !== chrome.runtime.id || sender.tab) return false;
+    if (!sender || sender.id !== chrome.runtime.id) return false;
     const origin = chrome.runtime.getURL("");
     return typeof sender.url === "string" && sender.url.startsWith(origin);
   }
