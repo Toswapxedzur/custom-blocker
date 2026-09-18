@@ -717,6 +717,36 @@
     return true;
   });
 
+  // The popup's tag-filter editor offers the classifier's own tag names as
+  // suggestions. Read-only and answered ONLY to this extension's own pages (no
+  // tab, our origin) — a content script or another extension gets nothing.
+  function isOwnExtensionPage(sender) {
+    if (!sender || sender.id !== chrome.runtime.id || sender.tab) return false;
+    const origin = chrome.runtime.getURL("");
+    return typeof sender.url === "string" && sender.url.startsWith(origin);
+  }
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || message.type !== "vault-classifier-tag-names") return false;
+    const platform = typeof message.platform === "string" ? message.platform : "";
+    if (!isOwnExtensionPage(sender) || !platform || platform.length > 64) return false;
+    classifierTaxonomy(platform)
+      .then((result) => {
+        const names = [];
+        const seen = new Set();
+        for (const type of (result && result.types) || []) {
+          for (const tag of type.tags) {
+            const key = tag.name.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            names.push(tag.name);
+          }
+        }
+        sendResponse({ ok: Boolean(result && result.ok), names: names.slice(0, 200) });
+      })
+      .catch(() => sendResponse({ ok: false, names: [] }));
+    return true;
+  });
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const platform = message && typeof message.platform === "string" ? message.platform : null;
     if (!message || message.type !== "vault-classifier-submit-correction" || !collectionPlatformForSender(sender, platform)) return false;

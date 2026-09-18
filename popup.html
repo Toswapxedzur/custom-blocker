@@ -298,6 +298,7 @@
                   <option value="facebook" data-i18n="groupType.facebook">Facebook</option>
                   <option value="twitch" data-i18n="groupType.twitch">Twitch</option>
                 </select>
+                <p class="field-help" data-i18n="contentTag.platformHint">Reddit and Bilibili: use the Content tag filter on a Reddit or Bilibili rule group instead — custom rules cannot read those feeds yet.</p>
               </div>
               <div class="content-tag-row">
                 <label class="label" for="contentTagMode" data-i18n="contentTag.mode">Rule</label>
@@ -310,6 +311,7 @@
                 <label class="label" for="contentTagNames" data-i18n="contentTag.tags">Content tags</label>
                 <textarea id="contentTagNames" rows="4" autocomplete="off" spellcheck="false"
                   placeholder="Gaming&#10;Drama @3" data-i18n-placeholder="contentTag.tagsPlaceholder"></textarea>
+                <div id="contentTagSuggestions" class="tag-suggestions hidden"></div>
               </div>
               <div class="content-tag-row">
                 <label class="label" for="contentTagConfidence" data-i18n="contentTag.confidence">Default minimum confidence</label>
@@ -470,7 +472,7 @@
                 <option value="exclude" data-i18n="tagFilter.modeExclude">Block all except certain tags</option>
               </select>
               <p class="field-help" data-i18n="tagFilter.help">
-                Block content by what the Vault classifier tagged it. One tag per line; add "@N" to set that tag's own minimum confidence.
+                Block videos by what the Vault classifier tagged them. One rule per line: "Gaming" · "Gaming @3" sets its own minimum confidence · "Gaming + Drama" needs both · "!Tutorial" is an exception.
               </p>
               <div id="platformTagListBlock">
                 <label class="label" for="platformTags" data-i18n="tagFilter.tags">Tags</label>
@@ -481,6 +483,7 @@
                   data-i18n-placeholder="tagFilter.tagsPlaceholder"
                   spellcheck="false"
                 ></textarea>
+                <div id="platformTagSuggestions" class="tag-suggestions hidden"></div>
                 <div class="content-tag-row">
                   <label class="label" for="platformTagDefaultConfidence" data-i18n="tagFilter.defaultConfidence">Default minimum confidence</label>
                   <select id="platformTagDefaultConfidence">

@@ -2010,8 +2010,12 @@ function clampTagFilterConfidence(value, fallback) {
   const c = Number(value);
   return Number.isFinite(c) ? Math.min(5, Math.max(1, Math.round(c))) : fallback;
 }
-// One tag per line; a trailing "@N", ">=N", ">N" or ":N" sets that tag's own
-// minimum confidence (overriding the filter default).
+// One rule per line:
+//   Gaming            a tag
+//   Gaming @3         …with its own minimum confidence ("@N", ">=N", ">N", ":N")
+//   Gaming + Drama    AND — every tag on the line must be present (" + ", spaced;
+//                     "&" is left alone because real tag names contain it)
+//   !Tutorial         a carve-out — the list matches only if no "!" line does
 function parseTagListTextarea(value) {
   if (typeof value !== "string") return [];
   const seen = new Set();
@@ -2019,18 +2023,38 @@ function parseTagListTextarea(value) {
   for (const rawLine of value.split(/\r?\n/)) {
     let line = rawLine.trim();
     if (!line) continue;
+    let except = false;
+    if (line.startsWith("!")) {
+      except = true;
+      line = line.slice(1).trim();
+    }
     let confidence;
     const m = line.match(/\s*(?:@|>=?|:)\s*([1-5])\s*$/);
     if (m) {
       confidence = Number(m[1]);
       line = line.slice(0, m.index).trim();
     }
+    // A dangling AND operator ("Gaming +", a lone "+") is not a tag.
+    line = line.replace(/^(?:\+\s*)+|(?:\s*\+)+$/g, "").trim();
     if (!line) continue;
-    const name = line.slice(0, 100);
-    const key = name.toLowerCase();
+    const names = [];
+    const nameKeys = new Set();
+    for (const part of line.split(/\s+\+\s+/)) {
+      const partName = part.trim().slice(0, 100);
+      if (!partName || nameKeys.has(partName.toLowerCase())) continue;
+      nameKeys.add(partName.toLowerCase());
+      names.push(partName);
+      if (names.length >= 6) break;
+    }
+    if (!names.length) continue;
+    const key = (except ? "!" : "") + [...nameKeys].sort().join("+");
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(confidence ? { name, confidence } : { name });
+    const entry = { name: names[0] };
+    if (confidence) entry.confidence = confidence;
+    if (names.length > 1) entry.also = names.slice(1);
+    if (except) entry.except = true;
+    out.push(entry);
     if (out.length >= 100) break;
   }
   return out;
@@ -2038,7 +2062,11 @@ function parseTagListTextarea(value) {
 function tagListToText(list) {
   if (!Array.isArray(list)) return "";
   return list
-    .map((e) => (e && typeof e.name === "string" ? (e.confidence ? `${e.name} @${e.confidence}` : e.name) : ""))
+    .map((e) => {
+      if (!e || typeof e.name !== "string") return "";
+      const names = [e.name, ...(Array.isArray(e.also) ? e.also : [])].join(" + ");
+      return (e.except ? "!" : "") + names + (e.confidence ? ` @${e.confidence}` : "");
+    })
     .filter(Boolean)
     .join("\n");
 }
@@ -4993,7 +5021,12 @@ function renderEditor(now = Date.now()) {
   }
   if (platformTagFields) platformTagFields.classList.toggle("hidden", !tagCompatible);
   if (platformTagListBlock) platformTagListBlock.classList.toggle("hidden", tagMode === "all");
-  if (platformTagBlockUntaggedRow) platformTagBlockUntaggedRow.classList.toggle("hidden", tagMode !== "exclude");
+  refreshTagSuggestions(
+    document.getElementById("platformTagSuggestions"), platformTagsField,
+    tagCompatible && tagMode !== "all" ? group.groupType : ""
+  );
+  // Honoured in both modes now (it lives inside the list block, hidden for "all").
+  if (platformTagBlockUntaggedRow) platformTagBlockUntaggedRow.classList.remove("hidden");
   redditSubredditsField.value = draft?.redditSubredditsText ?? group.redditSubreddits.join("\n");
   redditModeField.value = normalizeRedditMode(
     draft?.redditMode ?? group.redditMode,
@@ -7176,26 +7209,24 @@ function generateContentTagRuleSource({ platform, mode, tags, defaultConfidence,
   const method = effect === "block" ? "hide" : "dim";
   const def = Math.min(5, Math.max(1, Number(defaultConfidence) || 4));
   // Resolve each tag's threshold now, so the generated predicate stays simple.
+  // n = names that must ALL be present (AND), c = threshold, x = carve-out.
   const list = (Array.isArray(tags) ? tags : []).map((e) => ({
-    n: String(e && e.name),
-    c: Number.isFinite(e && e.confidence) ? Math.min(5, Math.max(1, e.confidence)) : def
+    n: [String(e && e.name), ...(Array.isArray(e && e.also) ? e.also.map(String) : [])],
+    c: Number.isFinite(e && e.confidence) ? Math.min(5, Math.max(1, e.confidence)) : def,
+    x: Boolean(e && e.except)
   }));
   const listLiteral = JSON.stringify(list);
   const isExclude = mode === "exclude";
-  const body = isExclude
-    ? (
-        "    const list = " + listLiteral + ";\n" +
-        "    const tags = Array.isArray(item.tags) ? item.tags : [];\n" +
-        "    const hasConfident = tags.some((t) => (t && t.confidence || 0) >= " + def + ");\n" +
-        "    if (!hasConfident) return " + (blockUntagged ? "true" : "false") + ";\n" +
-        "    const listMatch = list.some((e) => tags.some((t) => t && t.name === e.n && (t.confidence || 0) >= e.c));\n" +
-        "    return !listMatch;\n"
-      )
-    : (
-        "    const list = " + listLiteral + ";\n" +
-        "    const tags = Array.isArray(item.tags) ? item.tags : [];\n" +
-        "    return list.some((e) => tags.some((t) => t && t.name === e.n && (t.confidence || 0) >= e.c));\n"
-      );
+  // Same decision as the platform tag filter (content.js matchesTagFilter).
+  const body =
+    "    const list = " + listLiteral + ";\n" +
+    "    const tags = Array.isArray(item.tags) ? item.tags : [];\n" +
+    "    const hit = (e) => e.n.every((n) => tags.some((t) => t && t.name === n && (t.confidence || 0) >= e.c));\n" +
+    "    const listMatch = list.some((e) => !e.x && hit(e)) && !list.some((e) => e.x && hit(e));\n" +
+    "    if (listMatch) return " + (isExclude ? "false" : "true") + ";\n" +
+    "    const hasConfident = tags.some((t) => (t && t.confidence || 0) >= " + def + ");\n" +
+    "    if (!hasConfident) return " + (blockUntagged ? "true" : "false") + ";\n" +
+    "    return " + (isExclude ? "true" : "false") + ";\n";
   return (
     "(events, helpers) => {\n" +
     "  const p = helpers.platform()." + p + "();\n" +
@@ -7205,6 +7236,93 @@ function generateContentTagRuleSource({ platform, mode, tags, defaultConfidence,
     "  p.rescan();\n" +
     "}\n"
   );
+}
+
+// ── Classifier tag-name suggestions ──────────────────────────────────────
+// Clickable chips under a tag-list textarea, fed by the classifier's own
+// taxonomy for that platform (so a filter names tags that actually exist — a
+// typo'd tag silently never matches). Hidden when the classifier is unreachable.
+const tagNameCache = new Map(); // platform -> { at, names }
+const TAG_NAME_CACHE_MS = 60_000;
+function fetchClassifierTagNames(platform) {
+  const cached = tagNameCache.get(platform);
+  if (cached && Date.now() - cached.at < TAG_NAME_CACHE_MS) return Promise.resolve(cached.names);
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: "vault-classifier-tag-names", platform }, (response) => {
+        const failed = chrome.runtime.lastError || !response || response.ok !== true;
+        const names = !failed && Array.isArray(response.names) ? response.names.filter((n) => typeof n === "string" && n) : [];
+        if (!failed) tagNameCache.set(platform, { at: Date.now(), names });
+        resolve(names);
+      });
+    } catch (_) {
+      resolve([]);
+    }
+  });
+}
+function usedTagNames(textarea) {
+  const used = new Set();
+  for (const entry of parseTagListTextarea(textarea?.value || "")) {
+    for (const name of [entry.name, ...(entry.also || [])]) used.add(name.toLowerCase());
+  }
+  return used;
+}
+function renderTagSuggestions(container, textarea, names) {
+  if (!container || !textarea) return;
+  container.replaceChildren();
+  container.classList.toggle("hidden", names.length === 0);
+  if (names.length === 0) return;
+  const label = document.createElement("span");
+  label.className = "tag-suggestions-label";
+  label.textContent = t("tagFilter.available");
+  container.appendChild(label);
+  const used = usedTagNames(textarea);
+  for (const name of names) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.textContent = name;
+    const isUsed = used.has(name.toLowerCase());
+    chip.classList.toggle("used", isUsed);
+    chip.disabled = isUsed;
+    chip.addEventListener("click", () => {
+      const current = textarea.value.replace(/\s+$/, "");
+      textarea.value = current ? `${current}\n${name}` : name;
+      // Fire the same event typing would, so drafts/autosave react.
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      renderTagSuggestions(container, textarea, names);
+    });
+    container.appendChild(chip);
+  }
+}
+const tagSuggestionRequests = new WeakMap(); // container -> latest request token
+function refreshTagSuggestions(container, textarea, platform) {
+  if (!container || !textarea) return;
+  const token = {};
+  tagSuggestionRequests.set(container, token);
+  if (!platform) { renderTagSuggestions(container, textarea, []); return; }
+  fetchClassifierTagNames(platform).then((names) => {
+    if (tagSuggestionRequests.get(container) !== token) return; // a newer request won
+    renderTagSuggestions(container, textarea, names);
+  });
+}
+
+// Keep chip "used" state live while typing, and follow the builder's platform.
+function bindTagSuggestions(containerId, textarea, platformOf) {
+  const container = document.getElementById(containerId);
+  if (!container || !textarea) return;
+  textarea.addEventListener("input", () => {
+    const cached = tagNameCache.get(platformOf());
+    if (cached) renderTagSuggestions(container, textarea, cached.names);
+  });
+}
+bindTagSuggestions("platformTagSuggestions", platformTagsField, () => String(getSelectedGroup()?.groupType || ""));
+bindTagSuggestions("contentTagSuggestions", contentTagNamesField, () => contentTagPlatformField?.value || "youtube");
+if (contentTagPlatformField) {
+  const refreshBuilderSuggestions = () => refreshTagSuggestions(
+    document.getElementById("contentTagSuggestions"), contentTagNamesField, contentTagPlatformField.value || "youtube"
+  );
+  contentTagPlatformField.addEventListener("change", refreshBuilderSuggestions);
+  contentTagNamesField?.addEventListener("focus", refreshBuilderSuggestions, { once: true });
 }
 
 function setContentTagStatus(text, isError) {
