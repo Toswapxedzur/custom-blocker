@@ -520,33 +520,44 @@ function getFeedCardData(card) {
   };
 }
 
+// The ONE content-tag decision (feed cards and the page's own entry both use
+// it). An entry matches when its tag — and every `also` tag (AND) — is present
+// at/above the entry's confidence. The LIST matches when some normal entry
+// matches and no carve-out (`except`) entry does.
+//   include (block-list): block when the list matches.
+//   exclude (allow-list): block unless the list matches.
+// Content with no confident tag that the list did not decide is blocked only
+// when the user opted in (blockUntagged) — in either mode.
+function matchesTagFilter(tf, rawTags) {
+  if (!tf) return false;
+  const cardTags = Array.isArray(rawTags) ? rawTags : [];
+  const def = Number.isFinite(tf.defaultConfidence) ? tf.defaultConfidence : 4;
+  const list = Array.isArray(tf.tags) ? tf.tags : [];
+  const has = (name, need) => cardTags.some(
+    (t) => t && t.name === name && (Number(t.confidence) || 0) >= need
+  );
+  const entryMatches = (entry) => {
+    if (!entry || typeof entry.name !== "string") return false;
+    const need = Number.isFinite(entry.confidence) ? entry.confidence : def;
+    if (!has(entry.name, need)) return false;
+    return (Array.isArray(entry.also) ? entry.also : []).every((name) => has(name, need));
+  };
+  const listMatch = list.some((entry) => entry && !entry.except && entryMatches(entry))
+    && !list.some((entry) => entry && entry.except && entryMatches(entry));
+  if (tf.mode !== "include" && tf.mode !== "exclude") return false;
+  if (listMatch) return tf.mode === "include";
+  const hasConfidentTag = cardTags.some((t) => (Number(t && t.confidence) || 0) >= def);
+  if (!hasConfidentTag) return Boolean(tf.blockUntagged);
+  return tf.mode === "exclude";
+}
+
 function matchesFeedFilter(cardData, filter) {
   if (!cardData || !filter) return false;
   // Content-tag filter (from platform rules). Matches on the card's classifier
   // tags. "include" blocks a card that carries a listed tag at/above its
   // confidence; "exclude" blocks a card that does NOT (an allowlist), with a
   // toggle for whether untagged/low-confidence cards are blocked too.
-  if (filter.tagFilter) {
-    const tf = filter.tagFilter;
-    const cardTags = Array.isArray(cardData.tags) ? cardData.tags : [];
-    const def = Number.isFinite(tf.defaultConfidence) ? tf.defaultConfidence : 4;
-    const list = Array.isArray(tf.tags) ? tf.tags : [];
-    const listMatch = list.some((entry) => {
-      if (!entry || typeof entry.name !== "string") return false;
-      const need = Number.isFinite(entry.confidence) ? entry.confidence : def;
-      return cardTags.some(
-        (t) => t && t.name === entry.name && (Number(t.confidence) || 0) >= need
-      );
-    });
-    if (tf.mode === "include") return listMatch;
-    if (tf.mode === "exclude") {
-      const hasConfidentTag = cardTags.some((t) => (Number(t.confidence) || 0) >= def);
-      // Untagged / low-confidence: block only when the user opted in.
-      if (!hasConfidentTag) return Boolean(tf.blockUntagged);
-      return !listMatch;
-    }
-    return false;
-  }
+  if (filter.tagFilter) return matchesTagFilter(filter.tagFilter, cardData.tags);
   if (filter.site === "reddit") {
     if (!cardData.redditSubreddit) return false;
     const subreddits = Array.isArray(filter.subreddits) ? filter.subreddits : [];

@@ -39,6 +39,12 @@ const hub = {
             darkColorHex: "#1A4775"
           }]
         }));
+      } else if (operation === "classifier-taxonomy") {
+        const tag = (id, name) => ({ id, name, lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" });
+        resolve(inExtensionRealm({ platformID: body.platformID, types: [
+          { typeID: "t1", name: "Topics", tags: [tag("a", "Gaming"), tag("b", "Science & Education")] },
+          { typeID: "t2", name: "Mood", tags: [tag("c", "gaming"), tag("d", "Drama")] }
+        ] }));
       } else {
         resolve(inExtensionRealm({ accepted: false, inserted: false }));
       }
@@ -68,6 +74,7 @@ const chrome = {
   runtime: {
     id: "vault-classifier-test-extension",
     lastError: null,
+    getURL(resource) { return "chrome-extension://vault-classifier-test-extension/" + (resource || ""); },
     onMessage: { addListener(listener) { listeners.push(listener); } }
   },
   storage: {
@@ -258,6 +265,18 @@ function assert(name, condition, detail) {
   // extension. A stale app that still sends a verdict must not leak through.
   assert("drops any classifier-sent feedAction/pageAction at the bridge",
     videoTags.value?.feedAction === undefined && videoTags.value?.pageAction === undefined, videoTags);
+  // Tag-name suggestions for the popup's tag-filter editor: read-only, answered
+  // ONLY to this extension's own pages (no tab, our origin), de-duplicated.
+  const ownPage = { id: "vault-classifier-test-extension", url: "chrome-extension://vault-classifier-test-extension/popup.html" };
+  const tagNames = await dispatch({ type: "vault-classifier-tag-names", platform: "youtube" }, ownPage);
+  assert("serves de-duplicated classifier tag names to the extension's own popup",
+    tagNames.value?.ok === true && JSON.stringify(tagNames.value?.names) === JSON.stringify(["Gaming", "Science & Education", "Drama"]), tagNames);
+  const fromContentScript = await dispatch({ type: "vault-classifier-tag-names", platform: "youtube" }, trustedSender);
+  const fromTabbedOwnPage = await dispatch({ type: "vault-classifier-tag-names", platform: "youtube" }, { ...ownPage, tab: { id: 1 } });
+  const fromOtherExtension = await dispatch({ type: "vault-classifier-tag-names", platform: "youtube" }, { id: "someone-else", url: ownPage.url });
+  assert("refuses tag names to content scripts, tabbed pages and other extensions",
+    fromContentScript.waiting === false && fromTabbedOwnPage.waiting === false && fromOtherExtension.waiting === false,
+    { fromContentScript, fromTabbedOwnPage, fromOtherExtension });
   // The entry's own cover URL reaches the hub only when the platform's image
   // host allowlist accepts it; anything else is dropped, never forwarded.
   const trustedThumb = await dispatch({

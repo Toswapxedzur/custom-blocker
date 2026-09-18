@@ -31,7 +31,7 @@ const context = vm.createContext({
 context.window = context;
 vm.runInContext([
   "let latestFeedFilters = [];", "let cbTagPageContext = null;",
-  extractFunction("getFeedCardTags"), extractFunction("matchesFeedFilter"),
+  extractFunction("getFeedCardTags"), extractFunction("matchesTagFilter"), extractFunction("matchesFeedFilter"),
   extractFunction("cbTagPageVerdict"), extractFunction("cbEvaluateTagPage"),
   extractFunction("cbReapplyTagFilters"), extractFunction("updateFeedFilters")
 ].join("\n"), context);
@@ -92,6 +92,25 @@ tagsByRoot.set(root, [{ id: "t3", name: "Music", confidence: 5 }]);
 const rescansBefore = rescans;
 vm.runInContext("cbReapplyTagFilters()", context);
 check("correcting the tag away lifts the page block on re-apply (and rescans the feed)", blockedBefore && last().action === "allow" && rescans === rescansBefore + 1);
+
+// ── List semantics: AND ("A + B"), carve-outs ("!C"), untagged in include mode.
+const decide = (tf, tags) => { context.__tf = tf; context.__tags = tags; return vm.runInContext("matchesTagFilter(__tf, __tags)", context); };
+const T = (name, confidence = 5) => ({ id: name, name, confidence });
+const inc = (tags, extra = {}) => ({ mode: "include", tags, defaultConfidence: 4, blockUntagged: false, ...extra });
+const exc = (tags, extra = {}) => ({ mode: "exclude", tags, defaultConfidence: 4, blockUntagged: false, ...extra });
+check("AND: both tags present → block", decide(inc([{ name: "Gaming", also: ["Drama"] }]), [T("Gaming"), T("Drama")]) === true);
+check("AND: only one of the two → no block", decide(inc([{ name: "Gaming", also: ["Drama"] }]), [T("Gaming")]) === false);
+check("AND: the second tag below the floor → no block", decide(inc([{ name: "Gaming", also: ["Drama"] }]), [T("Gaming"), T("Drama", 3)]) === false);
+check("carve-out: block Gaming except when Tutorial", decide(inc([{ name: "Gaming" }, { name: "Tutorial", except: true }]), [T("Gaming"), T("Tutorial")]) === false
+  && decide(inc([{ name: "Gaming" }, { name: "Tutorial", except: true }]), [T("Gaming")]) === true);
+check("carve-out in an allow-list: allowed Education, but not when also Drama", decide(exc([{ name: "Education" }, { name: "Drama", except: true }]), [T("Education")]) === false
+  && decide(exc([{ name: "Education" }, { name: "Drama", except: true }]), [T("Education"), T("Drama")]) === true);
+check("include + blockUntagged: untagged content is blocked, tagged-but-unlisted is not", decide(inc([{ name: "Gaming" }], { blockUntagged: true }), []) === true
+  && decide(inc([{ name: "Gaming" }], { blockUntagged: true }), [T("Music")]) === false
+  && decide(inc([{ name: "Gaming" }]), []) === false);
+check("a per-tag lower threshold still decides before the untagged rule (allow-list rescue at @3)", decide(exc([{ name: "Education", confidence: 3 }], { blockUntagged: true }), [T("Education", 3)]) === false
+  && decide(inc([{ name: "Gaming", confidence: 3 }]), [T("Gaming", 3)]) === true);
+check("mode all / malformed filter never blocks", decide({ mode: "all", tags: [{ name: "Gaming" }] }, [T("Gaming")]) === false && decide(null, [T("Gaming")]) === false);
 
 // Author-only filters (no tagFilter) never decide the page.
 setFilters([{ id: "g2", site: "youtube", authorMode: "include", authors: ["x"], enforce: true }]);
