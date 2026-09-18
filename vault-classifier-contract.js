@@ -334,12 +334,6 @@
     return tags;
   }
 
-  // Per-entry content-block verdict from the app's bound platform policy. Only
-  // the three known PresentationAction values pass; anything else → "allow"
-  // (fail-open: never hide/dim on a malformed or unknown action).
-  function normalizeAction(value) {
-    return value === "block" || value === "dim" ? value : "allow";
-  }
 
   // Local-LLM rework: validates a per-video tags reply, keyed by the video's
   // entryID (not the creator). `pending` is true when the app has queued
@@ -359,9 +353,7 @@
       entryID: expectedEntryID,
       tags,
       predicted: value.predicted === true,
-      pending: value.pending === true,
-      feedAction: normalizeAction(value.feedAction),
-      pageAction: normalizeAction(value.pageAction)
+      pending: value.pending === true
     };
   }
 
@@ -391,8 +383,7 @@
       const tags = normalizeTagList(item.tags);
       if (tags === null) return null;
       results.set(item.entryID, {
-        tags, predicted: item.predicted === true, pending: item.pending === true,
-        feedAction: normalizeAction(item.feedAction), pageAction: normalizeAction(item.pageAction)
+        tags, predicted: item.predicted === true, pending: item.pending === true
       });
     }
     return results;
@@ -424,8 +415,7 @@
       if (tags === null) return null;
       seen.add(item.entryID);
       items.push({
-        entryID: item.entryID, tags, predicted: item.predicted === true,
-        feedAction: normalizeAction(item.feedAction), pageAction: normalizeAction(item.pageAction)
+        entryID: item.entryID, tags, predicted: item.predicted === true
       });
     }
     return { platformID: platform, items };

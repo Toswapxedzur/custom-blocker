@@ -131,41 +131,38 @@
       clearTimeout(state.recheckTimer);
       state.recheckTimer = null;
     }
-    if (state.kind === "page") setContentBlock(state, "allow");
-    else clearContentBlock(state.root);
+    forgetContentBlock(state);
     try { state.host?.remove?.(); } catch (_) {}
     mountedStates.delete(state);
   }
 
-  // Content-tag block enforcement: hand the card + its resolved feedAction to
-  // content.js's verdict ledger (a global). DIM keeps the card visible and
-  // correctable — the Vault pill stays clickable, so one correction re-classifies
-  // and lifts the verdict. A provisional/"allow"/absent result clears any prior
-  // verdict (un-dim). Safe no-op if content.js isn't present in this world.
-  //
-  // A kind:"page" state is the page's OWN entry (watch/short page): it takes the
-  // policy's pageAction instead, via cbApplyTagPagePolicy — "block" leaves the
-  // page. Only a settled (non-provisional) verdict may do that.
-  function applyContentBlock(state, result) {
+  // Content-block POLICY lives in content.js (the extension's own tag filters);
+  // this pipeline only reports that an entry's tags settled or changed, and
+  // content.js re-decides: feed cards through the shared feed-filter pass, the
+  // page's OWN entry (kind "page") through cbEvaluateTagPage, which blacks out
+  // the player in place. A provisional ("Tagging…") state never blocks. Safe
+  // no-op if content.js isn't present in this world.
+  function notifyTagsChanged(state, result) {
     if (!state || !state.root) return;
     if (state.kind === "page") {
-      const applyPage = global.cbApplyTagPagePolicy;
-      if (typeof applyPage !== "function") return;
-      const pageAction = (result && !result.provisional) ? (result.pageAction || "allow") : "allow";
-      devLog("page-verdict", { entry: state.entryID, action: pageAction });
-      try { applyPage(state.root, pageAction, { entryID: state.entryID, platform: state.platform }); } catch (_) {}
+      const evaluate = global.cbEvaluateTagPage;
+      if (typeof evaluate !== "function") return;
+      const settled = Boolean(result) && !result.provisional;
+      let action = "allow";
+      try { action = evaluate(state.root, { entryID: state.entryID, platform: state.platform, settled }); } catch (_) {}
+      devLog("page-verdict", { entry: state.entryID, action });
       return;
     }
-    const apply = global.cbApplyTagPolicy;
-    if (typeof apply !== "function") return;
-    const action = (result && !result.provisional) ? (result.feedAction || "allow") : "allow";
-    try { apply(state.root, action); } catch (_) {}
+    const reapply = global.cbReapplyTagFilters;
+    if (typeof reapply === "function") { try { reapply(); } catch (_) {} }
   }
 
-  function clearContentBlock(root) {
-    if (!root) return;
-    const apply = global.cbApplyTagPolicy;
-    if (typeof apply === "function") { try { apply(root, "allow"); } catch (_) {} }
+  // The root is going away: lift a page blackout it owned. Feed cards need
+  // nothing — the feed-filter pass re-derives platform verdicts from scratch.
+  function forgetContentBlock(state) {
+    if (!state || state.kind !== "page") return;
+    const evaluate = global.cbEvaluateTagPage;
+    if (typeof evaluate === "function") { try { evaluate(state.root, null); } catch (_) {} }
   }
 
   // Expose a card's resolved tags (with confidence) to custom content-block
@@ -204,7 +201,7 @@
     const cached = sourceCache.get(key);
     if (cached?.pending) return cached.pending;
     if (cached && cached.expiresAt > Date.now()) {
-      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true, feedAction: cached.feedAction || "allow", pageAction: cached.pageAction || "allow" });
+      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true });
     }
 
     const pending = new Promise((resolve) => {
@@ -215,19 +212,17 @@
       // and re-check soon so the real tags replace it quickly. Never dim/hide
       // while provisional — a card is only ever acted on by a resolved verdict.
       if (result && result.pending) {
-        sourceCache.set(key, { tags: TAGGING_TAGS, predicted: false, provisional: true, expiresAt: Date.now() + PENDING_TTL_MS, pending: null, feedAction: "allow", pageAction: "allow" });
+        sourceCache.set(key, { tags: TAGGING_TAGS, predicted: false, provisional: true, expiresAt: Date.now() + PENDING_TTL_MS, pending: null });
         prune();
-        return { tags: TAGGING_TAGS, predicted: false, provisional: true, feedAction: "allow", pageAction: "allow" };
+        return { tags: TAGGING_TAGS, predicted: false, provisional: true };
       }
       const display = displayTags(result && result.tags);
       const predicted = Boolean(result && result.predicted);
-      const feedAction = (result && result.feedAction) || "allow";
-      const pageAction = (result && result.pageAction) || "allow";
-      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null, feedAction, pageAction });
+      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
       prune();
-      return { tags: display, predicted, provisional: false, feedAction, pageAction };
+      return { tags: display, predicted, provisional: false };
     });
-    sourceCache.set(key, { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending, feedAction: cached?.feedAction || "allow", pageAction: cached?.pageAction || "allow" });
+    sourceCache.set(key, { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending });
     return pending;
   }
 
@@ -300,7 +295,7 @@
           (response) => {
             if (chrome.runtime.lastError || response?.ok !== true) return resolve(null);
             const normalized = C.normalizeVideoTagsResponse(response, platform, entryID);
-            resolve(normalized ? { tags: normalized.tags, predicted: normalized.predicted === true, pending: normalized.pending === true, feedAction: normalized.feedAction, pageAction: normalized.pageAction } : null);
+            resolve(normalized ? { tags: normalized.tags, predicted: normalized.predicted === true, pending: normalized.pending === true } : null);
           }
         );
       } catch (_) {
@@ -382,6 +377,8 @@
     if (key) {
       sourceCache.set(key, { tags: display, predicted: false, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
     }
+    // The block is a live function of the tags: a correction flips it NOW.
+    notifyTagsChanged(state, { provisional: false });
   }
 
   // Optimistic tag edit: update the pill NOW, then send the correction in the
@@ -398,40 +395,23 @@
     } else {
       return;
     }
-    const wasBlocked = !!(state.root && state.root.dataset && state.root.dataset.cbContentBlocked === "true");
-    applyLocalTags(state, next);   // instant
-
-    // Instant reactive block: correcting a tag away on a blocked card lifts the
-    // blacked-out state NOW, without waiting for the re-classification round-trip.
-    // The server confirms via the broadcast (or re-blocks if it still qualifies).
-    if (removeID && wasBlocked) setContentBlock(state, "allow");
+    // A correction makes the whole set human-authoritative; the app stamps it at
+    // max confidence (5). Mirror that locally so the optimistic block decision
+    // equals the one the confirming broadcast will produce.
+    next = next.map((tag) => ({ ...tag, confidence: 5 }));
+    applyLocalTags(state, next);   // instant — and the block re-decides from the new tags
 
     (async () => {
       const taxonomy = await fetchTaxonomy(state.platform);
       const typeID = typeForTag(taxonomy, removeID || addTag.id);
-      if (!typeID) { applyLocalTags(state, before); if (wasBlocked) setContentBlock(state, "dim"); return; }
+      if (!typeID) { applyLocalTags(state, before); return; }
       const correctTagIDs = next.filter((tag) => typeForTag(taxonomy, tag.id) === typeID).map((tag) => tag.id);
       const result = await sendCorrection(state.platform, state.entryID, state.creatorID, typeID, correctTagIDs);
       if (!result || result.ok !== true) {
-        applyLocalTags(state, before);   // revert on failure
-        if (wasBlocked) setContentBlock(state, "dim");   // re-block: the correction did not persist
+        applyLocalTags(state, before);   // revert on failure (the block re-decides with it)
       }
       // success → the video-tags-updated broadcast confirms (same signature).
     })();
-  }
-
-  // Apply a content-block verdict to a card via content.js's ledger (a global);
-  // a page state routes to the page seam (black out / lift the player) instead.
-  function setContentBlock(state, action) {
-    if (!state || !state.root) return;
-    if (state.kind === "page") {
-      const applyPage = global.cbApplyTagPagePolicy;
-      if (typeof applyPage !== "function") return;
-      try { applyPage(state.root, action === "allow" ? "allow" : "block", { entryID: state.entryID, platform: state.platform }); } catch (_) {}
-      return;
-    }
-    const apply = global.cbApplyTagPolicy;
-    if (typeof apply === "function") { try { apply(state.root, action); } catch (_) {} }
   }
 
   // Builds the small add-a-tag panel: a search box + the addable tags (all
@@ -681,7 +661,7 @@
       }
       request(state.platform, state.entryID, state.creatorID, state.title).then((result) => {
         render(state, result && result.tags, Boolean(result && result.predicted));
-        applyContentBlock(state, result);
+        notifyTagsChanged(state, result);
         if (result && result.provisional) scheduleProvisionalRecheck(state);
       });
     }, PENDING_TTL_MS + 200);
@@ -729,7 +709,7 @@
         state: result ? (result.provisional ? "tagging" : ((result.tags && result.tags.length) ? "tags" : "none")) : "null"
       });
       render(state, result && result.tags, Boolean(result && result.predicted));
-      applyContentBlock(state, result);
+      notifyTagsChanged(state, result);
       if (result && result.provisional) scheduleProvisionalRecheck(state);
     });
   }
@@ -745,13 +725,11 @@
       const display = displayTags(item && item.tags);
       if (!key || !display) continue;
       const predicted = item.predicted === true;
-      const feedAction = item.feedAction || "allow";
-      const pageAction = item.pageAction || "allow";
-      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null, feedAction, pageAction });
+      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
       for (const state of [...mountedStates]) {
         if (state.key === key) {
           render(state, display, predicted);
-          applyContentBlock(state, { provisional: false, feedAction, pageAction });
+          notifyTagsChanged(state, { provisional: false });
         }
       }
     }

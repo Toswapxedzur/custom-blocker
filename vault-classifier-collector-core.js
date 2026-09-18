@@ -374,8 +374,9 @@
         // Per-video pill: keyed by the video's entryID, with its title as the
         // evidence the on-device model classifies. The creatorID rides along only
         // so the app can weigh the derived creator prior.
-        // A page-surface entry is the page's OWN content: the pill routes the
-        // policy's pageAction (in-place blackout) instead of the feed verdict.
+        // A page-surface entry is the page's OWN content: the extension's tag
+        // filter decides an in-place player blackout for it (content.js
+        // cbEvaluateTagPage) rather than a feed-card verdict.
         TagUI?.observe?.({
           platform,
           entryID: evidence.entryID,
