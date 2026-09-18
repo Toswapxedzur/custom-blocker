@@ -254,10 +254,10 @@ function assert(name, condition, detail) {
     && videoTags.value?.tags?.[0]?.name === "Games"
     && videoTags.value?.tags?.[0]?.lightColorHex === "#9EC5E8"
     && videoTags.value?.tags?.[0]?.darkColorHex === "#1A4775", videoTags);
-  // Content-block verdict must survive the bridge passthrough (regression: the
-  // mapper once copied only tags/predicted/pending and dropped feedAction).
-  assert("passes the content-block feedAction/pageAction through the bridge",
-    videoTags.value?.feedAction === "dim" && videoTags.value?.pageAction === "block", videoTags);
+  // The classifier is a pure tagging service: content-block policy lives in the
+  // extension. A stale app that still sends a verdict must not leak through.
+  assert("drops any classifier-sent feedAction/pageAction at the bridge",
+    videoTags.value?.feedAction === undefined && videoTags.value?.pageAction === undefined, videoTags);
   // The entry's own cover URL reaches the hub only when the platform's image
   // host allowlist accepts it; anything else is dropped, never forwarded.
   const trustedThumb = await dispatch({

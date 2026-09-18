@@ -654,9 +654,9 @@
     await collectEntry(entry);
     const watchTitle = (entry.evidence && entry.evidence.title) || compactText(titleElement && titleElement.textContent, 500);
     if (entry.entryID && entry.sourceID && watchTitle) {
-      // kind "page": this is the page's OWN entry, so the policy's pageAction
-      // (not feedAction) applies — a block leaves the page instead of blacking
-      // a thumbnail.
+      // kind "page": this is the page's OWN entry, so the tag filter's page
+      // effect applies — the player is blacked out in place (content.js
+      // cbEvaluateTagPage) instead of blacking a thumbnail.
       TagUI?.observe?.({
         platform: PLATFORM,
         entryID: entry.entryID,

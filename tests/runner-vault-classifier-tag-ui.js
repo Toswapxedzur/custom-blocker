@@ -84,9 +84,11 @@ const document = {
 document.documentElement = new FakeElement("html", document);
 
 const PAGE_ENTRY_ID = "youtube:video:page1";
-// content.js verdict seams, stubbed: record every call.
-const feedPolicyCalls = [];
-const pagePolicyCalls = [];
+// content.js policy seams, stubbed: record every call. The pipeline no longer
+// relays classifier verdicts — it only reports that an entry's tags settled;
+// content.js (the extension's own tag filters) makes the decision.
+const reapplyCalls = [];
+const pageEvaluations = [];
 
 const chrome = {
   runtime: {
@@ -97,7 +99,8 @@ const chrome = {
         { id: "games", name: "Games", lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" },
         { id: "technology", name: "Technology", lightColorHex: "#E3B4E7", darkColorHex: "#6B246F" }
       ];
-      // The page entry carries a settled block verdict (feed dim, page block).
+      // A classifier reply carries tags only. A stale app that still sent a
+      // verdict must be ignored, so keep sending one for the page entry.
       const verdictFor = (id) => (id === PAGE_ENTRY_ID ? { feedAction: "dim", pageAction: "block" } : {});
       const response = message.type === "vault-classifier-video-tags-batch"
         ? {
@@ -115,8 +118,8 @@ const chrome = {
 };
 
 context = vm.createContext({
-  cbApplyTagPolicy(root, action) { feedPolicyCalls.push({ root, action }); },
-  cbApplyTagPagePolicy(root, action, meta) { pagePolicyCalls.push({ root, action, meta }); },
+  cbReapplyTagFilters() { reapplyCalls.push(true); },
+  cbEvaluateTagPage(root, meta) { pageEvaluations.push({ root, meta }); return "allow"; },
   chrome,
   console,
   document,
@@ -144,8 +147,8 @@ const title = "A great video";
 
 context.VaultClassifierTagUI.observe({ platform: "youtube", entryID, creatorID, title, root: firstRoot, anchor: firstAnchor });
 context.VaultClassifierTagUI.observe({ platform: "youtube", entryID, creatorID, title, root: secondRoot, anchor: secondAnchor });
-// The watch page's own entry: kind "page" must route the pageAction (block) to
-// the page seam and never hand the watch root to the feed (thumbnail) seam.
+// The watch page's own entry: kind "page" must be reported to the page seam
+// (content.js decides its in-place blackout), never to the feed re-apply seam.
 const pageRoot = new FakeElement("ytd-watch-metadata", document);
 const pageAnchor = pageRoot.appendChild(new FakeElement("h1", document));
 context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: PAGE_ENTRY_ID, creatorID, title: "Page video", root: pageRoot, anchor: pageAnchor, kind: "page", thumbnailURL: "https://i.ytimg.com/vi/page1/hqdefault.jpg" });
@@ -184,16 +187,15 @@ setTimeout(() => {
     // The cover URL rides on the batch item (for on-device OCR) and only there.
     && messages[0].items[1].thumbnailURL === "https://i.ytimg.com/vi/page1/hqdefault.jpg"
     && messages[0].items[0].thumbnailURL === undefined;
-  // Page verdict routing: exactly one page-seam call, with "block" + the entry
-  // id (so content.js can prove the entry IS the current page); the watch root
-  // never reaches the feed seam, while both cards got their (allow) feed verdict.
-  const pageVerdictRouted = pagePolicyCalls.length === 1
-    && pagePolicyCalls[0].root === pageRoot
-    && pagePolicyCalls[0].action === "block"
-    && pagePolicyCalls[0].meta && pagePolicyCalls[0].meta.entryID === PAGE_ENTRY_ID
-    && !feedPolicyCalls.some((call) => call.root === pageRoot)
-    && feedPolicyCalls.some((call) => call.root === firstRoot && call.action === "allow")
-    && feedPolicyCalls.some((call) => call.root === secondRoot && call.action === "allow");
+  // Page routing: exactly one page-seam call, for the watch root, carrying the
+  // entry id (so content.js can prove the entry IS the current page) and
+  // settled:true; the two feed cards each asked for a feed-filter re-apply.
+  const pageVerdictRouted = pageEvaluations.length === 1
+    && pageEvaluations[0].root === pageRoot
+    && pageEvaluations[0].meta && pageEvaluations[0].meta.entryID === PAGE_ENTRY_ID
+    && pageEvaluations[0].meta.platform === "youtube"
+    && pageEvaluations[0].meta.settled === true
+    && reapplyCalls.length === 2;
   const renderedEveryEntry = JSON.stringify(firstNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(secondNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(firstLightColors) === JSON.stringify(["#9EC5E8", "#E3B4E7"])
@@ -222,9 +224,10 @@ setTimeout(() => {
     && JSON.stringify(remountedNames) === JSON.stringify(["Games", "Technology"]);
 
   context.VaultClassifierTagUI.clearPlatform("youtube");
-  // Tearing the page state down must lift its blackout (allow via the page seam).
+  // Tearing the page state down must make content.js forget the page (meta
+  // null), which lifts any blackout it owned.
   const cleared = firstRoot.children.length === 1 && secondRoot.children.length === 1
-    && pagePolicyCalls.some((call) => call.root === pageRoot && call.action === "allow" && call.meta && call.meta.entryID === PAGE_ENTRY_ID);
+    && pageEvaluations.some((call) => call.root === pageRoot && call.meta === null);
 
   if (firstRenderOK && reattached && cleared) {
     console.log("PASS coalesces lookups, renders closed-shadow tags, routes the page verdict, and reattaches a detached pill");
@@ -232,7 +235,7 @@ setTimeout(() => {
     return;
   }
   console.error("FAIL source tag presenter", {
-    messages, pagePolicyCalls, feedPolicyCalls, pageVerdictRouted, firstNames, secondNames, firstLightColors, secondLightColors,
+    messages, pageEvaluations, reapplyCalls, pageVerdictRouted, firstNames, secondNames, firstLightColors, secondLightColors,
     firstDarkColors, secondDarkColors, pillStyle, genericHostIsPrivate,
     remountedNames, reattached, cleared
   });
