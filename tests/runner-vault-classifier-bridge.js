@@ -272,11 +272,15 @@ function assert(name, condition, detail) {
   assert("serves de-duplicated classifier tag names to the extension's own popup",
     tagNames.value?.ok === true && JSON.stringify(tagNames.value?.names) === JSON.stringify(["Gaming", "Science & Education", "Drama"]), tagNames);
   const fromContentScript = await dispatch({ type: "vault-classifier-tag-names", platform: "youtube" }, trustedSender);
+  // The editor opened as a full TAB is still our own page and must be served.
   const fromTabbedOwnPage = await dispatch({ type: "vault-classifier-tag-names", platform: "youtube" }, { ...ownPage, tab: { id: 1 } });
+  // A content script: our extension id and a tab, but its sender.url is the WEB page.
+  const fromContentScriptInTab = await dispatch({ type: "vault-classifier-tag-names", platform: "youtube" }, { ...trustedSender, tab: { id: 2 } });
   const fromOtherExtension = await dispatch({ type: "vault-classifier-tag-names", platform: "youtube" }, { id: "someone-else", url: ownPage.url });
-  assert("refuses tag names to content scripts, tabbed pages and other extensions",
-    fromContentScript.waiting === false && fromTabbedOwnPage.waiting === false && fromOtherExtension.waiting === false,
-    { fromContentScript, fromTabbedOwnPage, fromOtherExtension });
+  assert("serves the editor when it is opened as a full tab", fromTabbedOwnPage.value?.ok === true && fromTabbedOwnPage.value?.names?.length === 3, fromTabbedOwnPage);
+  assert("refuses tag names to content scripts (with or without a tab) and to other extensions",
+    fromContentScript.waiting === false && fromContentScriptInTab.waiting === false && fromOtherExtension.waiting === false,
+    { fromContentScript, fromContentScriptInTab, fromOtherExtension });
   // The entry's own cover URL reaches the hub only when the platform's image
   // host allowlist accepts it; anything else is dropped, never forwarded.
   const trustedThumb = await dispatch({
