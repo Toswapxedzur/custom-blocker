@@ -22,11 +22,13 @@ function extractFunction(name) {
 const applied = [];
 let rescans = 0;
 const tagsByRoot = new Map();
+const settledByRoot = new Map(); // default: settled
 const context = vm.createContext({
   cbApplyTagPagePolicy(root, action, meta) { applied.push({ root, action, entryID: meta && meta.entryID }); return action === "block"; },
   scheduleApplyFeedFilters() { rescans += 1; },
   reconcilePageMutations() {},
-  vaultTagsForCard: (root) => tagsByRoot.get(root) || []
+  vaultTagsForCard: (root) => tagsByRoot.get(root) || [],
+  vaultTagsSettledForCard: (root) => settledByRoot.get(root) !== false
 });
 context.window = context;
 vm.runInContext([
@@ -111,6 +113,25 @@ check("include + blockUntagged: untagged content is blocked, tagged-but-unlisted
 check("a per-tag lower threshold still decides before the untagged rule (allow-list rescue at @3)", decide(exc([{ name: "Education", confidence: 3 }], { blockUntagged: true }), [T("Education", 3)]) === false
   && decide(inc([{ name: "Gaming", confidence: 3 }]), [T("Gaming", 3)]) === true);
 check("mode all / malformed filter never blocks", decide({ mode: "all", tags: [{ name: "Gaming" }] }, [T("Gaming")]) === false && decide(null, [T("Gaming")]) === false);
+
+// ── "Untagged" means the classifier ANSWERED with no confident tag — never
+// "no answer yet", and never "this browser has no tag pipeline" (Safari).
+const card = { id: "feed-card" };
+context.__card = card;
+const feedBlocks = (filter) => { context.__f = filter; return vm.runInContext("matchesFeedFilter({ tags: getFeedCardTags(__card) }, __f)", context); };
+const untaggedBlocker = tagFilter({ tagFilter: { mode: "exclude", tags: [{ name: "Education" }], defaultConfidence: 4, blockUntagged: true } });
+tagsByRoot.set(card, []); settledByRoot.set(card, true);
+check("feed: a SETTLED untagged card is blocked by a block-untagged filter", feedBlocks(untaggedBlocker) === true);
+settledByRoot.set(card, false);
+check("feed: a card still Tagging… / failed lookup is NOT treated as untagged", feedBlocks(untaggedBlocker) === false);
+check("feed: …and an allow-list does not black out a not-yet-answered card either", feedBlocks(tagFilter({ tagFilter: { mode: "exclude", tags: [{ name: "Education" }], defaultConfidence: 4, blockUntagged: false } })) === false);
+tagsByRoot.set(card, [{ id: "g", name: "Gaming", confidence: 5 }]); settledByRoot.set(card, true);
+check("feed: a settled, listed tag still blocks", feedBlocks(tagFilter()) === true);
+// A browser with no tag pipeline at all: both globals missing → tag filters inert.
+const savedTags = context.vaultTagsForCard; const savedSettled = context.vaultTagsSettledForCard;
+context.vaultTagsForCard = undefined; context.vaultTagsSettledForCard = undefined;
+check("no tag pipeline (Safari): a block-untagged filter is inert, not a blanket blackout", feedBlocks(untaggedBlocker) === false && feedBlocks(tagFilter()) === false);
+context.vaultTagsForCard = savedTags; context.vaultTagsSettledForCard = savedSettled;
 
 // Author-only filters (no tagFilter) never decide the page.
 setFilters([{ id: "g2", site: "youtube", authorMode: "include", authors: ["x"], enforce: true }]);

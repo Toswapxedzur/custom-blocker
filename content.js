@@ -457,18 +457,30 @@ function getCurrentFeedSite() {
 // Classifier tags for a feed card (id/name/confidence), from the Vault tag
 // pipeline in this same isolated world. Empty until the pill resolves. Shared by
 // the platform feed-filter path (content-tag filter) and custom rules.
+//
+// The returned array carries `.settled`: true only once the classifier has
+// ANSWERED for this card (tags, or an explicit "None"). It is false while the
+// card is still "Tagging…", when the lookup failed, and in a browser that ships
+// no tag pipeline at all (Safari) — there every card would otherwise look
+// "untagged" and a block-untagged filter would black out the whole feed.
 function getFeedCardTags(card) {
+  let tags = [];
+  let settled = false;
   try {
     if (typeof window !== "undefined" && typeof window.vaultTagsForCard === "function") {
       const resolved = window.vaultTagsForCard(card);
       if (Array.isArray(resolved)) {
-        return resolved
+        tags = resolved
           .filter((t) => t && typeof t.name === "string")
           .map((t) => ({ id: t.id, name: t.name, confidence: Number.isInteger(t.confidence) ? t.confidence : 0 }));
       }
+      settled = typeof window.vaultTagsSettledForCard === "function"
+        ? window.vaultTagsSettledForCard(card) === true
+        : tags.length > 0;
     }
   } catch (_) {}
-  return [];
+  tags.settled = settled;
+  return tags;
 }
 
 function getFeedCardData(card) {
@@ -557,7 +569,12 @@ function matchesFeedFilter(cardData, filter) {
   // tags. "include" blocks a card that carries a listed tag at/above its
   // confidence; "exclude" blocks a card that does NOT (an allowlist), with a
   // toggle for whether untagged/low-confidence cards are blocked too.
-  if (filter.tagFilter) return matchesTagFilter(filter.tagFilter, cardData.tags);
+  if (filter.tagFilter) {
+    // No answer from the classifier yet (or no tag pipeline here) is NOT
+    // "untagged": a tag filter only ever decides on a settled result.
+    if (cardData.tags && cardData.tags.settled === false) return false;
+    return matchesTagFilter(filter.tagFilter, cardData.tags);
+  }
   if (filter.site === "reddit") {
     if (!cardData.redditSubreddit) return false;
     const subreddits = Array.isArray(filter.subreddits) ? filter.subreddits : [];
