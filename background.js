@@ -340,27 +340,48 @@ function clampTagConfidence(value, fallback) {
   const c = Number(value);
   return Number.isFinite(c) ? Math.min(5, Math.max(1, Math.round(c))) : fallback;
 }
-// Each entry is { name, confidence? }; confidence overrides the filter default.
+// Each entry is { name, confidence?, also?, except? }:
+//   confidence — overrides the filter default for this entry;
+//   also       — further tags that must ALL be present too (AND: "A + B");
+//   except     — a carve-out ("!A"): the list matches only if no carve-out does.
 function normalizeTagList(raw) {
   if (!Array.isArray(raw)) return [];
   const seen = new Set();
   const out = [];
+  const cleanName = (value) => (typeof value === "string" ? value.trim().slice(0, 100) : "");
   for (const entry of raw) {
     let name = null;
     let confidence;
+    let also = [];
+    let except = false;
     if (typeof entry === "string") {
       name = entry;
     } else if (entry && typeof entry === "object") {
       name = entry.name;
       confidence = entry.confidence;
+      if (Array.isArray(entry.also)) also = entry.also;
+      except = entry.except === true;
     }
-    if (typeof name !== "string") continue;
-    name = name.trim().slice(0, 100);
-    const key = name.toLowerCase();
-    if (!name || seen.has(key)) continue;
+    name = cleanName(name);
+    if (!name) continue;
+    const alsoSeen = new Set([name.toLowerCase()]);
+    const cleanAlso = [];
+    for (const extra of also) {
+      const extraName = cleanName(extra);
+      if (!extraName || alsoSeen.has(extraName.toLowerCase())) continue;
+      alsoSeen.add(extraName.toLowerCase());
+      cleanAlso.push(extraName);
+      if (cleanAlso.length >= 5) break;
+    }
+    const key = (except ? "!" : "") + [...alsoSeen].sort().join("+");
+    if (seen.has(key)) continue;
     seen.add(key);
     const c = Number(confidence);
-    out.push(Number.isFinite(c) && c >= 1 && c <= 5 ? { name, confidence: Math.round(c) } : { name });
+    const normalized = { name };
+    if (Number.isFinite(c) && c >= 1 && c <= 5) normalized.confidence = Math.round(c);
+    if (cleanAlso.length) normalized.also = cleanAlso;
+    if (except) normalized.except = true;
+    out.push(normalized);
     if (out.length >= 100) break;
   }
   return out;
@@ -1092,7 +1113,9 @@ function pushTagFilterEntry(filters, group, enforce) {
   const tagMode = normalizeTagFilterMode(group.platformTagMode);
   if (tagMode !== "include" && tagMode !== "exclude") return;
   const tagList = normalizeTagList(group.platformTags);
-  if (tagMode === "include" && tagList.length === 0) return;
+  // A block-list with nothing to block is inert — unless it blocks untagged content.
+  const hasBlockingEntry = tagList.some((entry) => !entry.except);
+  if (tagMode === "include" && !hasBlockingEntry && !group.platformTagBlockUntagged) return;
   filters.push({
     id: group.id + "␟tag",
     baseGroupId: group.id,

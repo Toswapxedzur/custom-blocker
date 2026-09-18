@@ -1958,3 +1958,43 @@ code {
   padding-top: 10px;
   border-top: 1px solid var(--navy-100, #eef2ff);
 }
+
+/* Classifier tag-name suggestions under a tag-list textarea. */
+.tag-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.tag-suggestions .tag-suggestions-label {
+  flex-basis: 100%;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.tag-suggestions button {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  opacity: 0.75;
+  cursor: pointer;
+}
+.tag-suggestions button:hover,
+.tag-suggestions button:focus-visible {
+  opacity: 1;
+}
+.tag-suggestions button.used {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* The tag filter's option checkboxes stack, one per line. */
+#platformTagListBlock > .checkbox-row.compact {
+  display: flex;
+  width: 100%;
+  margin: 0 0 6px;
+}
