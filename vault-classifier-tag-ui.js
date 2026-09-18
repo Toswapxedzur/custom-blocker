@@ -178,6 +178,20 @@
   }
   if (global) global.vaultTagsForCard = tagsForCard;
 
+  // Has the classifier ANSWERED for this card? True only for a settled result
+  // (real tags or an explicit "None"). False while it is still "Tagging…", when
+  // the lookup failed, or when the root is unknown. content.js needs this to
+  // tell "untagged" (a decision) apart from "don't know yet" (not one): a
+  // block-untagged filter must never black out a feed the classifier simply
+  // hasn't answered for.
+  function tagsSettledForCard(root) {
+    const state = root && stateByRoot.get(root);
+    if (!state) return false;
+    const cached = sourceCache.get(state.key);
+    return Boolean(cached && !cached.provisional && Array.isArray(cached.tags));
+  }
+  if (global) global.vaultTagsSettledForCard = tagsSettledForCard;
+
   function prune() {
     for (const state of [...mountedStates]) {
       if (!state.root?.isConnected) removeState(state);

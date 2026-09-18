@@ -209,7 +209,11 @@ setTimeout(() => {
     && pillStyle.includes("background:var(--vault-tag-color-dark)")
     && pillStyle.includes("color:#fff");
 
-  const firstRenderOK = coalesced && renderedEveryEntry && genericHostIsPrivate && pageVerdictRouted;
+  // content.js tells "untagged" from "no answer yet" through this export.
+  const settledExport = context.vaultTagsSettledForCard(firstRoot) === true
+    && context.vaultTagsSettledForCard(new FakeElement("article", document)) === false
+    && context.vaultTagsForCard(firstRoot).length === 2;
+  const firstRenderOK = coalesced && renderedEveryEntry && genericHostIsPrivate && pageVerdictRouted && settledExport;
 
   // Reattach regression: the page detaches our host as it re-renders/recycles a
   // row. The reattach observer must re-mount it immediately from cache — not
