@@ -70,8 +70,7 @@ const valid = VC.normalizeEvidence({
     title: "  Clash   Royale deck gameplay  ",
     suppliedTags: ["clash royale", "clash royale", "guide"],
     metadata: { views: 1200, live: false, ignored: { nested: true } }
-  },
-  policyIDs: ["clash-royale-focus"]
+  }
 });
 assert("normalizes compact bounded entry evidence", valid && valid.evidence.title === "Clash Royale deck gameplay");
 assert("deduplicates creator-provided tags", valid && JSON.stringify(valid.evidence.suppliedTags) === JSON.stringify(["clash royale", "guide"]));
@@ -175,13 +174,13 @@ const enrichedPageEntry = Collector.makeCollectedEntry({
 assert("gives every dedicated collector YouTube-style bounded page evidence", enrichedPageEntry?.entryID === "tiktok:video:123" && enrichedPageEntry?.surface === "page" && enrichedPageEntry?.evidence.text === "Visible rendered description" && enrichedPageEntry?.evidence.summary === "Visible rendered summary" && JSON.stringify(enrichedPageEntry?.evidence.suppliedTags) === JSON.stringify(["gaming", "guide"]) && enrichedPageEntry?.evidence.metadata.published === "today" && enrichedPageEntry?.evidence.metadata.ignored === undefined);
 
 const fingerprintOne = VC.entryFingerprint(VC.normalizeEvidence({
-  platform: "youtube", surface: "page", evidence: { title: "A title", text: "A description", metadata: { b: "2", a: "1" } }, policyIDs: ["focus"]
+  platform: "youtube", surface: "page", evidence: { title: "A title", text: "A description", metadata: { b: "2", a: "1" } }
 }));
 const fingerprintTwo = VC.entryFingerprint(VC.normalizeEvidence({
-  platform: "youtube", surface: "page", evidence: { title: "A title", text: "A description", metadata: { a: "1", b: "2" } }, policyIDs: ["focus"]
+  platform: "youtube", surface: "page", evidence: { title: "A title", text: "A description", metadata: { a: "1", b: "2" } }
 }));
 const fingerprintChanged = VC.entryFingerprint(VC.normalizeEvidence({
-  platform: "youtube", surface: "page", evidence: { title: "A title", text: "An enriched description", metadata: { a: "1", b: "2" } }, policyIDs: ["focus"]
+  platform: "youtube", surface: "page", evidence: { title: "A title", text: "An enriched description", metadata: { a: "1", b: "2" } }
 }));
 assert("keeps evidence fingerprints stable across metadata ordering", fingerprintOne && fingerprintOne === fingerprintTwo);
 assert("changes evidence fingerprints when page enrichment changes", fingerprintOne && fingerprintOne !== fingerprintChanged);

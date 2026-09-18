@@ -1,10 +1,12 @@
 // The classifier route's operation allowlist exists in FOUR places: the
-// extension service worker (background.js), the classifier app's own hub
-// (LocalClassifierHub.swift), and the Mac app's hub (ConnectionHub.swift,
-// request + response guards). A missing entry silently drops the operation —
-// this once blackholed the pill pipeline AND its dev-log diagnostics at once.
-// This suite fails whenever any copy drifts, including the broadcast-op lists
-// and the classifier-broadcast frame plumbing added for the push path.
+// extension service worker (background.js), the classifier's bridge vocabulary
+// (SharedBrowserBridgeOperation in SharedBrowserBridge.swift — its own hub
+// derives both allowlists from that enum, so it is the single source there),
+// and the Mac app's hub (ConnectionHub.swift, request + response guards). A
+// missing entry silently drops the operation — this once blackholed the pill
+// pipeline AND its dev-log diagnostics at once. This suite fails whenever any
+// copy drifts, including the broadcast-op lists and the classifier-broadcast
+// frame plumbing added for the push path.
 "use strict";
 
 const fs = require("fs");
@@ -15,6 +17,7 @@ const FILES = {
   background: path.join(ROOT, "background.js"),
   bridge: path.join(ROOT, "vault-classifier-bridge.js"),
   classifierHub: path.join(ROOT, "../vaultClassifier/Sources/VaultClassifierApp/LocalClassifierHub.swift"),
+  classifierBridge: path.join(ROOT, "../vaultClassifier/Sources/VaultClassifierBridge/SharedBrowserBridge.swift"),
   macHub: path.join(ROOT, "../macosBlocker/Sources/MacBlockerAppFeature/ConnectionHub.swift")
 };
 
@@ -49,10 +52,29 @@ for (const [name, file] of Object.entries(FILES)) {
   sources[name] = fs.readFileSync(file, "utf8");
 }
 
-// Request-operation allowlists. In Swift they are `[...].contains(operation)`
+// The classifier's vocabulary is the SharedBrowserBridgeOperation enum: each
+// `case name = "raw"` (or a bare `case name`, whose raw value is the name) is a
+// request op, and the broadcast op is the `videoTagsUpdatedBroadcast` constant.
+function classifierEnumOps(source) {
+  const body = source.match(/enum SharedBrowserBridgeOperation[^{]*\{([\s\S]*?)\n\}/);
+  if (!body) return [];
+  const ops = [];
+  for (const line of body[1].split("\n")) {
+    const m = line.match(/^\s*case\s+([A-Za-z0-9_]+)(?:\s*=\s*"([a-z-]+)")?\s*$/);
+    if (m) ops.push(m[2] || m[1]);
+  }
+  return ops;
+}
+function classifierBroadcastOps(source) {
+  const m = source.match(/videoTagsUpdatedBroadcast\s*=\s*"([a-z-]+)"/);
+  return m ? [m[1]] : [];
+}
+
+// Request-operation allowlists. In the Mac hub they are `[...].contains(operation)`
 // guards; in the service worker it is the `operations:` array on the hub client.
 const swiftLists = [
-  ...quotedLists(sources.classifierHub, /\[((?:\s*"[a-z-]+",?)+)\]\.contains\(operation\)/g),
+  classifierEnumOps(sources.classifierBridge),
+  classifierBroadcastOps(sources.classifierBridge),
   ...quotedLists(sources.macHub, /\[((?:\s*"[a-z-]+",?)+)\]\.contains\(operation\)/g)
 ];
 const requestLists = swiftLists.filter((list) => list.includes("bridge-info"));
