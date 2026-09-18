@@ -865,24 +865,11 @@ function cbApplyCard(card) {
   }
 }
 
-// ── Content-tag policy verdict source ──────────────────────────────────────
-// The app resolves each classified entry's platform policy (allow/dim/block on
-// content tags) and ships a per-entry `feedAction`. The tag pipeline calls this
-// with the card + that action. It's a first-class verdict source ("tag") in the
-// same ledger, so it composes with creator/custom rules: an explicit user
-// "allow" rescue or "hide" still wins (the tag group has no feedOrder index, so
-// it sits at lowest priority). DIM is the intended default — correctable.
-const CB_TAG_POLICY_GROUP_ID = "__vault_tag_policy__";
-function cbApplyTagPolicy(card, feedAction) {
-  if (!card) return;
-  const verdict = feedAction === "block" ? "hide" : feedAction === "dim" ? "dim" : null;
-  cbSetCardVerdict(card, CB_TAG_POLICY_GROUP_ID, verdict, "tag");
-  cbApplyCard(card);
-}
-if (typeof window !== "undefined") window.cbApplyTagPolicy = cbApplyTagPolicy;
-
 // ── Content-tag PAGE verdict ───────────────────────────────────────────────
-// The watch/short page's own entry gets the policy's `pageAction`. "block"
+// Content-block policy lives HERE, in the extension: the classifier only tags.
+// A platform group's content-tag filter may also cover a matching video's OWN
+// page (`pageEffect: "block"`, see background.js pushTagFilterEntry); the page
+// entry's tags are matched by the very same matchesFeedFilter as feed cards. "block"
 // blacks out the PLAYER in place (opaque panel, video kept paused) and leaves
 // title, author and the Vault pill live, so correcting the tag lifts it
 // instantly — the same live-function-of-tags rule as feed cards. It never
@@ -991,6 +978,50 @@ function cbApplyTagPagePolicy(root, pageAction, meta) {
   return true;
 }
 if (typeof window !== "undefined") window.cbApplyTagPagePolicy = cbApplyTagPagePolicy;
+
+// The page's own entry, as last reported by the tag pipeline. Kept so a change
+// to the filters (group edited, count-down elapsed, snooze) re-decides the page
+// without waiting for another tag event.
+let cbTagPageContext = null;
+
+function cbTagPageVerdict(tags) {
+  for (const filter of latestFeedFilters) {
+    if (!filter || !filter.tagFilter || filter.pageEffect !== "block") continue;
+    if (filter.enforce === false) continue; // count-down group still within its allowance
+    if (matchesFeedFilter({ tags }, filter)) return "block";
+  }
+  return "allow";
+}
+
+// Decide + apply the page verdict for the page's own entry. Called by the tag
+// pipeline whenever that entry's tags settle or change (meta.settled === false
+// while it is still "Tagging…": never block on a provisional state), and again
+// by updateFeedFilters. `meta === null` forgets the page (its root went away).
+function cbEvaluateTagPage(root, meta) {
+  if (!root || !meta) {
+    if (cbTagPageContext && (!root || cbTagPageContext.root === root)) {
+      cbApplyTagPagePolicy(cbTagPageContext.root, "allow", cbTagPageContext);
+      cbTagPageContext = null;
+    }
+    return "allow";
+  }
+  cbTagPageContext = { root, entryID: meta.entryID, platform: meta.platform, settled: meta.settled !== false };
+  const action = cbTagPageContext.settled ? cbTagPageVerdict(getFeedCardTags(root)) : "allow";
+  cbApplyTagPagePolicy(root, action, cbTagPageContext);
+  return action;
+}
+
+// Tags changed for something on this page (resolved, pushed, or corrected):
+// re-run the tag filters now rather than waiting for a DOM mutation — the pill
+// may render inside a shadow root the feed observer cannot see.
+function cbReapplyTagFilters() {
+  if (latestFeedFilters.length > 0) scheduleApplyFeedFilters();
+  if (cbTagPageContext) cbEvaluateTagPage(cbTagPageContext.root, cbTagPageContext);
+}
+if (typeof window !== "undefined") {
+  window.cbEvaluateTagPage = cbEvaluateTagPage;
+  window.cbReapplyTagFilters = cbReapplyTagFilters;
+}
 
 function collectNavElementsToHide(filter) {
   if (!filter || filter.authorMode !== "all") return [];
@@ -1141,6 +1172,7 @@ function scheduleApplyFeedFilters() {
 function updateFeedFilters(filters) {
   latestFeedFilters = Array.isArray(filters) ? filters : [];
   reconcilePageMutations();
+  if (cbTagPageContext) cbEvaluateTagPage(cbTagPageContext.root, cbTagPageContext);
 }
 
 // Surface hides ("hide elements" toggles) are plain CSS-selector hides driven

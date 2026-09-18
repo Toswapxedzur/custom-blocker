@@ -431,6 +431,10 @@ function sanitizeGroups(groups) {
         platformTagDefaultConfidence: clampTagConfidence(group?.platformTagDefaultConfidence, 4),
         platformTagBlockUntagged: Boolean(group?.platformTagBlockUntagged),
         platformTagEffect: group?.platformTagEffect === "block" ? "block" : "dim",
+        // A matching video's OWN page (watch/detail) blacks out its player in
+        // place. On unless explicitly turned off: feed-dim + page-block is the
+        // product default for content-tag blocking.
+        platformTagBlockPage: group?.platformTagBlockPage !== false,
         redditSubreddits: [
           ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
         ],
@@ -1100,6 +1104,8 @@ function pushTagFilterEntry(filters, group, enforce) {
       blockUntagged: Boolean(group.platformTagBlockUntagged)
     },
     effectVerdict: group.platformTagEffect === "block" ? "hide" : "dim",
+    // content.js evaluates the page's own entry against this same filter.
+    pageEffect: group.platformTagBlockPage !== false ? "block" : "allow",
     enforce
   });
 }
