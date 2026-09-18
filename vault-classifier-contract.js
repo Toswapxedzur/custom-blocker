@@ -14,7 +14,6 @@
     summary: 16000,
     tags: 64,
     tag: 256,
-    policy: 128,
     metadataKey: 64,
     metadataValue: 512,
     nativeBodyBytes: 46 * 1024,
@@ -155,7 +154,6 @@
     const entryID = cleanOptional(raw.entryID, MAX.id);
     const sourceID = cleanOptional(raw.sourceID, MAX.id);
     const sourceAliases = cleanSourceAliases(raw.sourceAliases, platform, sourceID);
-    const policies = cleanTags(raw.policyIDs).filter((policy) => policy.length <= MAX.policy);
     return {
       requestID: cleanOptional(raw.requestID, MAX.id) || randomID("vault"),
       platform,
@@ -169,8 +167,7 @@
         summary,
         suppliedTags,
         metadata: sanitizeMetadata(raw.evidence && raw.evidence.metadata)
-      },
-      policyIDs: policies
+      }
     };
   }
 
@@ -267,8 +264,7 @@
         summary: entry.evidence.summary,
         suppliedTags: Array.isArray(entry.evidence.suppliedTags) ? entry.evidence.suppliedTags.slice() : [],
         metadata: { ...(isPlainRecord(entry.evidence.metadata) ? entry.evidence.metadata : {}) }
-      },
-      policyIDs: Array.isArray(entry.policyIDs) ? entry.policyIDs.slice() : []
+      }
     };
     // Collection queue observation fields are added beside `entry` by the
     // background worker. Reserve their worst-case envelope here so a fitted
@@ -529,7 +525,6 @@
       add(parts, key);
       add(parts, metadata[key]);
     }
-    for (const policyID of Array.isArray(entry.policyIDs) ? entry.policyIDs : []) add(parts, policyID);
     let hash = 0x811c9dc5;
     const material = parts.join("\u001f");
     for (let index = 0; index < material.length; index++) {
