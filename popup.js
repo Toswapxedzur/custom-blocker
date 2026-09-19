@@ -318,6 +318,7 @@ const platformTagEffectField = document.getElementById("platformTagEffect");
 const platformTagBlockUntaggedRow = document.getElementById("platformTagBlockUntaggedRow");
 const platformTagBlockUntaggedField = document.getElementById("platformTagBlockUntagged");
 const platformTagBlockPageField = document.getElementById("platformTagBlockPage");
+const platformTagCoverUntilTaggedField = document.getElementById("platformTagCoverUntilTagged");
 const platformBlockHomePageField = document.getElementById("platformBlockHomePage");
 const skipToNextOnBlockRow = document.getElementById("skipToNextOnBlockRow");
 const skipToNextOnBlockField = document.getElementById("skipToNextOnBlock");
@@ -3538,6 +3539,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     platformTagDefaultConfidence: 4,
     platformTagBlockUntagged: false,
     platformTagBlockPage: true,
+    platformTagCoverUntilTagged: false,
     platformTagEffect: "dim",
     redditMode: "all",
     redditSubreddits: [],
@@ -3665,6 +3667,7 @@ function sanitizeGroups(groups) {
       platformTagDefaultConfidence: clampTagFilterConfidence(group?.platformTagDefaultConfidence, 4),
       platformTagBlockUntagged: Boolean(group?.platformTagBlockUntagged),
       platformTagBlockPage: group?.platformTagBlockPage !== false,
+      platformTagCoverUntilTagged: group?.platformTagCoverUntilTagged === true,
       platformTagEffect: group?.platformTagEffect === "block" ? "block" : "dim",
       redditSubreddits: [
         ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
@@ -3822,6 +3825,7 @@ function getSerializableGroupSnapshot(group) {
     platformTagDefaultConfidence: clampTagFilterConfidence(group.platformTagDefaultConfidence, 4),
     platformTagBlockUntagged: Boolean(group.platformTagBlockUntagged),
     platformTagBlockPage: group.platformTagBlockPage !== false,
+    platformTagCoverUntilTagged: group.platformTagCoverUntilTagged === true,
     platformTagEffect: group.platformTagEffect === "block" ? "block" : "dim",
     redditMode: group.redditMode,
     redditSubreddits: [...group.redditSubreddits],
@@ -3951,6 +3955,7 @@ function groupToDraft(group) {
     platformTagDefaultConfidence: clampTagFilterConfidence(group.platformTagDefaultConfidence, 4),
     platformTagBlockUntagged: Boolean(group.platformTagBlockUntagged),
     platformTagBlockPage: group.platformTagBlockPage !== false,
+    platformTagCoverUntilTagged: group.platformTagCoverUntilTagged === true,
     platformTagEffect: group.platformTagEffect === "block" ? "block" : "dim",
     redditMode: normalizeRedditMode(group.redditMode, group.redditSubreddits),
     redditSubredditsText: group.redditSubreddits.join("\n"),
@@ -5019,6 +5024,9 @@ function renderEditor(now = Date.now()) {
   if (platformTagBlockPageField) {
     platformTagBlockPageField.checked = (draft?.platformTagBlockPage ?? group.platformTagBlockPage) !== false;
   }
+  if (platformTagCoverUntilTaggedField) {
+    platformTagCoverUntilTaggedField.checked = (draft?.platformTagCoverUntilTagged ?? group.platformTagCoverUntilTagged) === true;
+  }
   if (platformTagFields) platformTagFields.classList.toggle("hidden", !tagCompatible);
   if (platformTagListBlock) platformTagListBlock.classList.toggle("hidden", tagMode === "all");
   refreshTagSuggestions(
@@ -5313,6 +5321,7 @@ function stashCurrentDraft() {
     platformTagDefaultConfidence: platformTagDefaultConfidenceField.value,
     platformTagBlockUntagged: platformTagBlockUntaggedField.checked,
     platformTagBlockPage: platformTagBlockPageField ? platformTagBlockPageField.checked : true,
+    platformTagCoverUntilTagged: platformTagCoverUntilTaggedField ? platformTagCoverUntilTaggedField.checked : false,
     platformTagEffect: platformTagEffectField.value,
     redditMode: redditModeField.value,
     redditSubredditsText: redditSubredditsField.value,
@@ -5868,6 +5877,7 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
       platformTagDefaultConfidence: clampTagFilterConfidence(draft.platformTagDefaultConfidence, 4),
       platformTagBlockUntagged: Boolean(draft.platformTagBlockUntagged),
       platformTagBlockPage: draft.platformTagBlockPage !== false,
+      platformTagCoverUntilTagged: draft.platformTagCoverUntilTagged === true,
       platformTagEffect: draft.platformTagEffect === "block" ? "block" : "dim",
       surfaceHides: normalizeSurfaceHides(
         Array.isArray(draft.surfaceHides) ? draft.surfaceHides : group.surfaceHides,
@@ -7552,7 +7562,7 @@ for (const field of [platformTagsField, platformTagDefaultConfidenceField, platf
     scheduleAutosave();
   });
 }
-for (const field of [platformTagBlockUntaggedField, platformTagBlockPageField]) {
+for (const field of [platformTagBlockUntaggedField, platformTagBlockPageField, platformTagCoverUntilTaggedField]) {
   if (!field) continue;
   field.addEventListener("change", () => {
     stashCurrentDraft();

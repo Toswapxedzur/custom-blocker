@@ -484,6 +484,7 @@
   "tagFilter.effectHide": "Hide the video entirely",
   "tagFilter.blockUntagged": "Also block videos with no confident tag",
   "tagFilter.blockPage": "Also black out a matching video's own page",
+  "tagFilter.coverUntilTagged": "Cover content until it has been tagged",
   "tagFilter.available": "Tags in your classifier (click to add):",
   "contentTag.platformHint": "Reddit and Bilibili: use the Content tag filter on a Reddit or Bilibili rule group instead — custom rules cannot read those feeds yet.",
   "filter.blockHomePage": "屏蔽主页/信息流页面",
