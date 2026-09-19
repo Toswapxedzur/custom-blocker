@@ -16,8 +16,8 @@ const ROOT = path.resolve(__dirname, "..");
 const FILES = {
   background: path.join(ROOT, "background.js"),
   bridge: path.join(ROOT, "vault-classifier-bridge.js"),
-  classifierHub: path.join(ROOT, "../vaultClassifier/Sources/VaultClassifierApp/LocalClassifierHub.swift"),
-  classifierBridge: path.join(ROOT, "../vaultClassifier/Sources/VaultClassifierBridge/SharedBrowserBridge.swift"),
+  classifierHub: path.join(ROOT, "../macosBlocker/classifier/Sources/VaultClassifierApp/LocalClassifierHub.swift"),
+  classifierBridge: path.join(ROOT, "../macosBlocker/classifier/Sources/VaultClassifierBridge/SharedBrowserBridge.swift"),
   macHub: path.join(ROOT, "../macosBlocker/Sources/MacBlockerAppFeature/ConnectionHub.swift")
 };
 
