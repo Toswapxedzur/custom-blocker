@@ -75,6 +75,9 @@ const cbActivity = {
   // Cached per-category enabled flags from the native settings.
   enabled: { "web-visit": false, "content-watched": false },
   ready: false,
+  // domain → favicon data URI, gathered from tabs and flushed with the records
+  // (kept local: converted to a data URI here so the dashboard never fetches).
+  pendingIcons: {},
 
   async init() {
     if (this.ready || typeof chrome === "undefined" || !chrome.tabs) return;
@@ -131,9 +134,28 @@ const cbActivity = {
     await this.closeSession("switch");
     if (domain && tab) {
       await chrome.storage.local.set({
-        [CB_ACTIVITY_SESSION_KEY]: { domain, tabId: tab.id, startMs: Date.now() },
+        [CB_ACTIVITY_SESSION_KEY]: { domain, tabId: tab.id, startMs: Date.now(), favicon: tab.favIconUrl || null },
       });
     }
+  },
+
+  // Best-effort local favicon → data URI (so the native dashboard renders it
+  // without any network). Skips oversized icons; failure just means no icon.
+  async captureIcon(domain, favicon) {
+    if (!domain || !favicon || this.pendingIcons[domain]) return;
+    try {
+      if (favicon.startsWith("data:image/")) { this.pendingIcons[domain] = favicon; return; }
+      const response = await fetch(favicon);
+      const blob = await response.blob();
+      if (!blob.type.startsWith("image/") || blob.size > 24000) return;
+      const dataURI = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+      if (dataURI && dataURI.startsWith("data:image/")) this.pendingIcons[domain] = dataURI;
+    } catch (_) { /* no icon for this domain */ }
   },
 
   async onTabGone(tabId) {
@@ -157,7 +179,10 @@ const cbActivity = {
       minMs: CB_ACTIVITY_MIN_VISIT_MS,
       makeId: () => crypto.randomUUID(),
     });
-    if (record) await this.enqueue(record);
+    if (record) {
+      await this.captureIcon(session.domain, session.favicon);
+      await this.enqueue(record);
+    }
   },
 
   // Called by vault-activity-content.js for a watched video on a supported
@@ -196,11 +221,18 @@ const cbActivity = {
     } catch (_) { return; }
     if (!buffer.length) return;
     const batch = buffer.slice(0, CB_ACTIVITY_FLUSH_BATCH);
+    // Include favicons for the domains in this batch (local data URIs; the
+    // native side dedupes them into a per-domain cache).
+    const icons = {};
+    for (const record of batch) {
+      if (record.category === "web-visit" && this.pendingIcons[record.key]) icons[record.key] = this.pendingIcons[record.key];
+    }
     try {
-      await cbClassifierHub.request("activity-record", { records: batch });
+      await cbClassifierHub.request("activity-record", { records: batch, icons });
     } catch (_) {
       return; // hub unavailable; keep the buffer and retry on the next alarm
     }
+    for (const domain of Object.keys(icons)) delete this.pendingIcons[domain];
     // Drop exactly the flushed records (identified by id); a concurrent enqueue
     // is preserved.
     try {
