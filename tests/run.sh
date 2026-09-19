@@ -186,4 +186,11 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   failed=1
 fi
 
+node_out=$(node tests/runner-activity.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'activity' FAILED" >&2
+  failed=1
+fi
+
 exit "$failed"

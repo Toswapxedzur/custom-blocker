@@ -50,6 +50,11 @@ if (typeof importScripts === "function") {
   } catch (error) {
     console.error("[CustomBlocker] importScripts(helpers.js) failed", error);
   }
+  try {
+    if (typeof cbActivity === "undefined") importScripts("vault-activity.js");
+  } catch (error) {
+    console.error("[CustomBlocker] importScripts(vault-activity.js) failed", error);
+  }
 }
 
 const helperBundle = self.__customBlockerHelpers;
@@ -1733,6 +1738,24 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     console.error("Failed to sync blocking rules after alarm.", error);
   });
 });
+
+// Activity log (browser feeders): drive the flush/settings-refresh alarm and
+// receive watched-content records + config queries from the page script.
+if (typeof cbActivity !== "undefined") {
+  chrome.alarms.onAlarm.addListener((alarm) => { cbActivity.onAlarm(alarm); });
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!message || typeof message !== "object") return false;
+    if (message.kind === "vault-activity-watched") {
+      cbActivity.recordWatched(message.record);
+      return false;
+    }
+    if (message.kind === "vault-activity-config") {
+      sendResponse({ "content-watched": !!cbActivity.enabled["content-watched"] });
+      return false;
+    }
+    return false;
+  });
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "action-icon-color-scheme") {
@@ -4498,5 +4521,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Every service-worker lifetime participates in the authenticated local hub.
 cbConnection.startAutomatically();
+
+// Start the Activity log's browser feeders (web-visit dwell + watched content).
+// Records only while the matching category is enabled in the native settings.
+if (typeof cbActivity !== "undefined") {
+  cbActivity.init().catch((error) => {
+    console.error("[CustomBlocker] activity init failed", error);
+  });
+}
 
 // ===========================================================================
