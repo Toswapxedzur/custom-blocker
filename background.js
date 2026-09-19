@@ -461,6 +461,10 @@ function sanitizeGroups(groups) {
         // place. On unless explicitly turned off: feed-dim + page-block is the
         // product default for content-tag blocking.
         platformTagBlockPage: group?.platformTagBlockPage !== false,
+        // Optional (default off): cover taggable cards / the watch page while the
+        // classifier is still tagging, instead of leaving them visible until the
+        // tags arrive. Revealed when the tags settle and do not match.
+        platformTagCoverUntilTagged: group?.platformTagCoverUntilTagged === true,
         redditSubreddits: [
           ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
         ],
@@ -1134,6 +1138,7 @@ function pushTagFilterEntry(filters, group, enforce) {
     effectVerdict: group.platformTagEffect === "block" ? "hide" : "dim",
     // content.js evaluates the page's own entry against this same filter.
     pageEffect: group.platformTagBlockPage !== false ? "block" : "allow",
+    tagCoverUntilTagged: group.platformTagCoverUntilTagged === true,
     enforce
   });
 }

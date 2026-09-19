@@ -1034,9 +1034,20 @@ function cbEvaluateTagPage(root, meta) {
     return "allow";
   }
   cbTagPageContext = { root, entryID: meta.entryID, platform: meta.platform, settled: meta.settled !== false };
-  const action = cbTagPageContext.settled ? cbTagPageVerdict(getFeedCardTags(root)) : "allow";
+  // While still "Tagging…", cover the page only when the user opted in
+  // (cover-until-tagged); otherwise let it play until the tags arrive.
+  const pending = cbPageCoversUntilTagged(meta.platform) ? "block" : "allow";
+  const action = cbTagPageContext.settled ? cbTagPageVerdict(getFeedCardTags(root)) : pending;
   cbApplyTagPagePolicy(root, action, cbTagPageContext);
   return action;
+}
+
+// True when an active page-blocking tag filter for this platform opted into
+// covering the watch page while it is still being tagged.
+function cbPageCoversUntilTagged(platform) {
+  return latestFeedFilters.some((filter) =>
+    filter && filter.tagFilter && filter.pageEffect === "block" && filter.enforce !== false
+    && filter.tagCoverUntilTagged && (!platform || !filter.site || filter.site === platform));
 }
 
 // Tags changed for something on this page (resolved, pushed, or corrected):
@@ -1150,6 +1161,16 @@ function applyFeedFilters() {
       const cardData = getFeedCardData(card);
       if (cardData) {
         for (const filter of activeFilters) {
+          // Cover-until-tagged (opt-in): a taggable card whose tags have not
+          // settled yet is blacked out (dim) rather than left visible, so nothing
+          // flashes before it can be judged. When the tags settle a later pass
+          // re-decides — a match stays covered, a non-match is revealed.
+          if (filter.tagFilter && filter.tagCoverUntilTagged
+              && cardData.tags && cardData.tags.settled === false) {
+            exposed.add(filter.baseGroupId || filter.id);
+            if (filter.enforce !== false) cbSetCardVerdict(card, filter.id, "dim", "platform");
+            continue;
+          }
           if (!matchesFeedFilter(cardData, filter)) continue;
           // Exposure: a match means the group's usage timer should accrue,
           // regardless of whether we hide the card right now. A tag filter is a

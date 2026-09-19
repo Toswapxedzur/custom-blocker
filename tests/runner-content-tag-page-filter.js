@@ -34,7 +34,7 @@ context.window = context;
 vm.runInContext([
   "let latestFeedFilters = [];", "let cbTagPageContext = null;",
   extractFunction("getFeedCardTags"), extractFunction("matchesTagFilter"), extractFunction("matchesFeedFilter"),
-  extractFunction("cbTagPageVerdict"), extractFunction("cbEvaluateTagPage"),
+  extractFunction("cbTagPageVerdict"), extractFunction("cbPageCoversUntilTagged"), extractFunction("cbEvaluateTagPage"),
   extractFunction("cbReapplyTagFilters"), extractFunction("updateFeedFilters")
 ].join("\n"), context);
 
@@ -73,6 +73,13 @@ check("a count-down group still within its allowance does not block the page", l
 
 setFilters([tagFilter()]);
 check("provisional (still Tagging…) never blocks, whatever the tags", evaluate({ ...META, settled: false }) === "allow" && last().action === "allow");
+
+// Cover-until-tagged (opt-in): the provisional page IS covered, then revealed
+// when its tags settle and do not match.
+setFilters([tagFilter({ tagCoverUntilTagged: true })]);
+check("cover-until-tagged: a provisional page is covered (blocked) when opted in", evaluate({ ...META, settled: false }) === "block");
+tagsByRoot.set(root, [{ id: "tX", name: "Education", confidence: 5 }]);
+check("cover-until-tagged: once settled and non-matching, the page is revealed", evaluate(META) === "allow");
 
 setFilters([tagFilter({ tagFilter: { mode: "exclude", tags: [{ name: "Education" }], defaultConfidence: 4, blockUntagged: false } })]);
 tagsByRoot.set(root, [{ id: "t1", name: "Gaming", confidence: 5 }]);
