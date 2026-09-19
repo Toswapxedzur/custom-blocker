@@ -4320,7 +4320,7 @@ const cbClassifierHub = {
   // Every operation the extension may send over the shared classifier route.
   // Keep in sync with LocalClassifierHub.swift and ConnectionHub.swift — the
   // parity suite (tests/runner-hub-op-parity.js) fails if the copies drift.
-  operations: ["bridge-info", "collection-info", "diagnostic", "collect", "video-tags", "video-tags-batch", "classifier-taxonomy", "submit-correction", "dev-log"],
+  operations: ["bridge-info", "collection-info", "diagnostic", "collect", "video-tags", "video-tags-batch", "classifier-taxonomy", "submit-correction", "dev-log", "activity-record", "activity-settings"],
 
   request(operation, body) {
     if (!this.operations.includes(operation)) {
