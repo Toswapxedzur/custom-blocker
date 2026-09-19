@@ -869,9 +869,29 @@ function applyConnectionStatus(raw) {
   };
   // The per-group panel lives in the editor (always visible), so keep it fresh.
   refreshConnectionGroupPanel();
+  renderClassifierStatus();
   if (!wasOnline && bridgeIsOnline()) {
     announceGroups();
     requestClusters();
+  }
+}
+
+// A visible indicator that Vault Classifier (Mac Vault) is reachable. When it is
+// down the extension keeps working — site blocks, custom rules and hides are
+// unaffected — but tag-based blocking is inert (a tag filter only decides on a
+// classifier answer), so the pill says so rather than failing silently.
+function renderClassifierStatus() {
+  const pill = document.getElementById("classifierStatusPill");
+  const help = document.getElementById("classifierStatusHelp");
+  const online = (state.connectionStatus || {}).state === "connected";
+  if (pill) {
+    pill.textContent = online ? t("classifierBridge.statusActive") : t("classifierBridge.statusOffline");
+    pill.classList.toggle("is-online", online);
+    pill.classList.toggle("is-offline", !online);
+  }
+  if (help) {
+    help.textContent = online ? "" : t("classifierBridge.statusOfflineHelp");
+    help.hidden = online;
   }
 }
 
@@ -1560,6 +1580,9 @@ function applyStaticTranslations() {
   layoutResizer.setAttribute("aria-label", t("layout.resizeAria"));
   manualButton.setAttribute("aria-label", t("manual.button"));
   manualCloseButton.setAttribute("aria-label", t("manual.close"));
+
+  // Dynamic (status-dependent) text, re-rendered in the current language.
+  renderClassifierStatus();
 }
 
 function populateLanguageOptions() {

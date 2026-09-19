@@ -1998,3 +1998,27 @@ code {
   width: 100%;
   margin: 0 0 6px;
 }
+
+/* Vault Classifier reachability indicator (functional gap #1). */
+.classifier-status {
+  align-self: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.classifier-status:empty { display: none; }
+.classifier-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.classifier-status.is-online { color: #157347; background: #e6f4ea; }
+.classifier-status.is-offline { color: #b02a37; background: #fbe9eb; }
+.classifier-status-help { color: #b02a37; margin-top: 6px; }
