@@ -10,7 +10,9 @@ const workspace = path.resolve(__dirname, "..", "..");
 const locales = ["ar", "bn", "de", "es", "fr", "hi", "id", "it", "ja", "ko", "nl", "pa", "pl", "pt", "ru", "th", "tr", "vi", "zh"];
 // `docs/` holds internal engineering documentation (not user-facing manuals), so
 // it is exempt from localization — mirroring how other products use their docs/.
-const skippedDirectories = new Set([".build", ".git", "DerivedData", "bin", "build", "dist", "docs", "i18n-docs", "node_modules", "obj", "release", "tests"]);
+// `classifier/` is the Vault Classifier component inside Mac Vault: its markdown is
+// engineering design documentation (it was never audited as its own repository).
+const skippedDirectories = new Set([".build", ".claude", ".git", "DerivedData", "bin", "build", "classifier", "dist", "docs", "i18n-docs", "node_modules", "obj", "release", "tests"]);
 
 function walkMarkdown(directory, files = []) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
