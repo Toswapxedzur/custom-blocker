@@ -480,13 +480,7 @@
   // Local-LLM rework: resolves ONE video's tags, keyed by the video's entryID +
   // evidence (the pill is now per-video). Returns pending:true when the app has
   // queued classification and the caller should re-request shortly.
-  // The entry's own cover URL rides along for on-device OCR; the contract's
-  // per-platform host allowlist is the gate (untrusted → dropped, never fatal).
-  function trustedThumbnailURL(platform, value) {
-    return typeof value === "string" && value.length <= 512 && C.isTrustedThumbnailURL?.(platform, value) ? value : null;
-  }
-
-  async function videoTags(platform, entryID, creatorID, title, summary, text, thumbnailURL) {
+  async function videoTags(platform, entryID, creatorID, title, summary, text) {
     if (typeof entryID !== "string" || entryID.length === 0 || entryID.length > 256 || !entryID.startsWith(`${platform}:`)
       || typeof creatorID !== "string" || creatorID.length === 0 || creatorID.length > 256 || !creatorID.startsWith(`${platform}:`)
       || typeof title !== "string" || title.length === 0 || title.length > 500) {
@@ -495,12 +489,10 @@
     try {
       const current = await settings();
       if (!current.collectionEnabled) return { ok: true, platformID: platform, entryID, tags: [], pending: false };
-      const trustedThumbnail = trustedThumbnailURL(platform, thumbnailURL);
       const body = await hubRequest("video-tags", {
         platformID: platform, entryID, creatorID, title,
         ...(typeof summary === "string" && summary ? { summary: summary.slice(0, 4000) } : {}),
-        ...(typeof text === "string" && text ? { text: text.slice(0, 4000) } : {}),
-        ...(trustedThumbnail ? { thumbnailURL: trustedThumbnail } : {})
+        ...(typeof text === "string" && text ? { text: text.slice(0, 4000) } : {})
       });
       const normalized = C.normalizeVideoTagsResponse?.(body, platform, entryID);
       return normalized
@@ -534,8 +526,6 @@
       const item = { entryID, creatorID, title };
       if (typeof raw.summary === "string" && raw.summary) item.summary = raw.summary.slice(0, 4000);
       if (typeof raw.text === "string" && raw.text) item.text = raw.text.slice(0, 4000);
-      const trustedThumbnail = trustedThumbnailURL(platform, raw.thumbnailURL);
-      if (trustedThumbnail) item.thumbnailURL = trustedThumbnail;
       items.push(item);
       if (items.length >= 64) break;
     }
@@ -688,7 +678,7 @@
       || entryID.length > 256) {
       return false;
     }
-    videoTags(platform, entryID, creatorID, typeof message.title === "string" ? message.title : "", message.summary, message.text, message.thumbnailURL)
+    videoTags(platform, entryID, creatorID, typeof message.title === "string" ? message.title : "", message.summary, message.text)
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, tags: [], pending: false }));
     return true;

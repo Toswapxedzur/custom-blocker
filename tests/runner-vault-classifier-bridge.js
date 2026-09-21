@@ -281,23 +281,23 @@ function assert(name, condition, detail) {
   assert("refuses tag names to content scripts (with or without a tab) and to other extensions",
     fromContentScript.waiting === false && fromContentScriptInTab.waiting === false && fromOtherExtension.waiting === false,
     { fromContentScript, fromContentScriptInTab, fromOtherExtension });
-  // The entry's own cover URL reaches the hub only when the platform's image
-  // host allowlist accepts it; anything else is dropped, never forwarded.
+  // No cover URL ever reaches the hub (thumbnail OCR evidence was removed
+  // 2026-09-22), whatever host it names and even if a page still supplies one.
   const trustedThumb = await dispatch({
     type: "vault-classifier-video-tags", platform: "youtube", entryID: "youtube:video:thumb1",
     creatorID: "youtube:channel:UC1234567890123456789012", title: "With cover",
     thumbnailURL: "https://i.ytimg.com/vi/thumb1/hqdefault.jpg"
   }, trustedSender);
   const trustedThumbRequest = hubRequests.filter((request) => request.operation === "video-tags").at(-1);
-  assert("forwards a trusted thumbnailURL to the hub video-tags request",
-    trustedThumb.value?.ok === true && trustedThumbRequest?.body?.thumbnailURL === "https://i.ytimg.com/vi/thumb1/hqdefault.jpg", trustedThumbRequest);
+  assert("never forwards a thumbnailURL to the hub, even from the platform's own image host",
+    trustedThumb.value?.ok === true && trustedThumbRequest?.body?.entryID === "youtube:video:thumb1" && trustedThumbRequest?.body?.thumbnailURL === undefined, trustedThumbRequest);
   await dispatch({
     type: "vault-classifier-video-tags", platform: "youtube", entryID: "youtube:video:thumb2",
     creatorID: "youtube:channel:UC1234567890123456789012", title: "Evil cover",
     thumbnailURL: "https://evil.example/i.ytimg.com/hqdefault.jpg"
   }, trustedSender);
   const untrustedThumbRequest = hubRequests.filter((request) => request.operation === "video-tags").at(-1);
-  assert("drops an untrusted thumbnailURL instead of forwarding it",
+  assert("never forwards a thumbnailURL from an untrusted host either",
     untrustedThumbRequest?.body?.entryID === "youtube:video:thumb2" && untrustedThumbRequest?.body?.thumbnailURL === undefined, untrustedThumbRequest);
   const forgedVideoTags = await dispatch({
     type: "vault-classifier-video-tags",
