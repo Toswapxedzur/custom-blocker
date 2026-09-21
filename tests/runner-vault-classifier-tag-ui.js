@@ -184,8 +184,8 @@ setTimeout(() => {
     && messages[0].items.length === 2
     && messages[0].items[0].entryID === entryID
     && messages[0].items[1].entryID === PAGE_ENTRY_ID
-    // The cover URL rides on the batch item (for on-device OCR) and only there.
-    && messages[0].items[1].thumbnailURL === "https://i.ytimg.com/vi/page1/hqdefault.jpg"
+    // No cover URL ever rides along, even if a caller still supplies one.
+    && messages[0].items[1].thumbnailURL === undefined
     && messages[0].items[0].thumbnailURL === undefined;
   // Page routing: exactly one page-seam call, for the watch root, carrying the
   // entry id (so content.js can prove the entry IS the current page) and

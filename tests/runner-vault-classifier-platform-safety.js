@@ -501,19 +501,20 @@ function image(src) {
   }, document);
   const result = run.scanPage();
   const entryResult = run.collected[0];
-  assert("Bilibili page (current DOM) binds the uploader from .up-name, tag chips, and the og:image cover",
+  assert("Bilibili page (current DOM) binds the uploader from .up-name and tag chips, and never sends the cover",
     result?.ready === true
       && entryResult?.entryID === "bilibili:video:BV1yAbs6EEbK"
       && String(entryResult?.evidence?.metadata?.sourceURL || "").startsWith("https://space.bilibili.com/3744999590071889/")
       && entryResult?.evidence?.suppliedTags?.join(",") === "减脂"
-      && entryResult?.evidence?.metadata?.thumbnailURL === "https://i2.hdslb.com/bfs/archive/cover.jpg@1200w_630h"
+      && entryResult?.evidence?.metadata?.thumbnailURL === undefined
+      && !JSON.stringify(entryResult).includes("hdslb.com/bfs/archive/cover")
       && !JSON.stringify(entryResult).includes("89135642"),
     { result, evidence: run.collected[0]?.evidence });
 }
 
 // Bilibili feed: the card's entry id is the stable video id (shared with the
-// video page), and its own cover travels as an https URL for OCR — but only
-// from Bilibili's image hosts, and never a foreign image.
+// video page), and its cover image never travels — from Bilibili's own image
+// hosts or anywhere else (thumbnail OCR evidence was removed 2026-09-22).
 {
   const makeCard = (coverSrc) => {
     const entry = element({ tagName: "A", href: "https://www.bilibili.com/video/BV1abc/?spm_id=1", text: "Card title" });
@@ -539,12 +540,13 @@ function image(src) {
     return harnessRun.collected[0];
   };
   const good = run("//i0.hdslb.com/bfs/archive/cover.jpg@672w_378h_1c.webp");
-  assert("Bilibili feed cards use the stable video entry id and an https-canonical cover URL",
+  assert("Bilibili feed cards use the stable video entry id and send no cover URL",
     good?.entryID === "bilibili:video:BV1abc"
-      && good?.evidence?.metadata?.thumbnailURL === "https://i0.hdslb.com/bfs/archive/cover.jpg@672w_378h_1c.webp",
+      && good?.evidence?.metadata?.thumbnailURL === undefined
+      && !JSON.stringify(good).includes("hdslb.com"),
     good);
   const evil = run("https://evil.example/cover.jpg");
-  assert("Bilibili drops a cover URL from a foreign host",
+  assert("Bilibili sends no cover URL from a foreign host either",
     evil?.entryID === "bilibili:video:BV1abc" && evil?.evidence?.metadata?.thumbnailURL === undefined,
     evil);
 }
