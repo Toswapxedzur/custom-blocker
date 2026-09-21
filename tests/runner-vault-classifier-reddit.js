@@ -50,8 +50,8 @@ function redditPost({ subreddit, postID, title, body, sourceIconURL, commentText
   const bodyElement = element({ text: body });
   const commentElement = element({ text: commentText });
   const flair = element({ text: "Discussion" });
-  // Reddit serves the feed image tiny (?width=64) with larger renditions in
-  // srcset; the collector must pick the largest for OCR.
+  // The post carries an image; the collector must never read it (thumbnail OCR
+  // evidence was removed 2026-09-22 — no image URL leaves the page).
   const postMedia = element({
     tagName: "IMG",
     attrs: {
@@ -208,11 +208,10 @@ setTimeout(() => {
     && page.entry.evidence.text === "Requested rendered post body"
     && page.entry.evidence.suppliedTags.includes("Discussion")
     && !serialized.includes("COMMENT MUST NOT BE COLLECTED")
-    // The post's OWN media travels only as the OCR thumbnail URL (owner
-    // decision 2026-09-10) — never as text/summary evidence.
-    && feed.entry.evidence.metadata.thumbnailURL === "https://preview.redd.it/post-media.png?width=1080&auto=webp&s=sig"
-    && page.entry.evidence.metadata.thumbnailURL === "https://preview.redd.it/post-media.png?width=1080&auto=webp&s=sig"
-    && serialized.split("preview.redd.it/post-media.png").length === 3
+    // The post's OWN media never travels at all — not as a URL, not as text.
+    && feed.entry.evidence.metadata.thumbnailURL === undefined
+    && page.entry.evidence.metadata.thumbnailURL === undefined
+    && !serialized.includes("preview.redd.it/post-media.png")
     && !serialized.includes("Unrelated background title")
     && observations.some((value) => value.root === requested && value.creatorID === "reddit:subreddit:openai" && value.entryID === "reddit:post:right222" && typeof value.title === "string")
     // The wrapping <article> must be deduped away — only the inner <shreddit-post>

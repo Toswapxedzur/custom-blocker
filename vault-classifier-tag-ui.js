@@ -206,7 +206,7 @@
   }
 
   // Resolves one video's tags by entryID, carrying its title as evidence.
-  function request(platform, entryID, creatorID, title, thumbnailURL = null) {
+  function request(platform, entryID, creatorID, title) {
     const key = boundedIdentity(platform, entryID);
     if (!key || !C?.normalizeVideoTagsResponse || !global.chrome?.runtime?.sendMessage) {
       return Promise.resolve(null);
@@ -219,7 +219,7 @@
     }
 
     const pending = new Promise((resolve) => {
-      pendingBatch.push({ platform, entryID, creatorID, title, thumbnailURL, key, resolve });
+      pendingBatch.push({ platform, entryID, creatorID, title, key, resolve });
       scheduleDrain();
     }).then((result) => {
       // The app is still classifying this video: show the "Tagging" placeholder
@@ -267,8 +267,7 @@
 
   function dispatchBatch(platform, jobs) {
     const items = jobs.map((job) => ({
-      entryID: job.entryID, creatorID: job.creatorID, title: job.title,
-      ...(job.thumbnailURL ? { thumbnailURL: job.thumbnailURL } : {})
+      entryID: job.entryID, creatorID: job.creatorID, title: job.title
     }));
     sendBatch(platform, items).then((resultMap) => {
       for (const job of jobs) {
@@ -277,7 +276,7 @@
         } else {
           // The batch route is unavailable (e.g. a worker still on the old build).
           // Fall back to a single request so a rollout skew never blanks the feed.
-          sendSingle(job.platform, job.entryID, job.creatorID, job.title, job.thumbnailURL).then(job.resolve);
+          sendSingle(job.platform, job.entryID, job.creatorID, job.title).then(job.resolve);
         }
       }
     });
@@ -301,11 +300,11 @@
     });
   }
 
-  function sendSingle(platform, entryID, creatorID, title, thumbnailURL = null) {
+  function sendSingle(platform, entryID, creatorID, title) {
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage(
-          { type: "vault-classifier-video-tags", platform, entryID, creatorID, title, ...(thumbnailURL ? { thumbnailURL } : {}) },
+          { type: "vault-classifier-video-tags", platform, entryID, creatorID, title },
           (response) => {
             if (chrome.runtime.lastError || response?.ok !== true) return resolve(null);
             const normalized = C.normalizeVideoTagsResponse(response, platform, entryID);
@@ -681,7 +680,7 @@
     }, PENDING_TTL_MS + 200);
   }
 
-  function observe({ platform, entryID, creatorID, title, root, anchor = null, kind = "card", thumbnailURL = null } = {}) {
+  function observe({ platform, entryID, creatorID, title, root, anchor = null, kind = "card" } = {}) {
     const key = boundedIdentity(platform, entryID);
     if (!key || !boundedIdentity(platform, creatorID) || typeof title !== "string" || !title
       || !root || root.isConnected === false) return;
@@ -698,7 +697,6 @@
         root,
         anchor,
         kind: kind === "page" ? "page" : "card",
-        thumbnailURL: typeof thumbnailURL === "string" && thumbnailURL ? thumbnailURL : null,
         epoch: platformEpochs.get(platform) || 0,
         host: null,
         rail: null,
@@ -710,14 +708,13 @@
     } else {
       if (anchor) state.anchor = anchor;
       if (kind === "page") state.kind = "page";
-      if (typeof thumbnailURL === "string" && thumbnailURL) state.thumbnailURL = thumbnailURL;
       // A card may hydrate its title/creator after first paint.
       if (title) state.title = title;
       if (creatorID) state.creatorID = creatorID;
     }
     state.epoch = platformEpochs.get(platform) || 0;
     devLog("observe", { platform, entry: entryID, creator: creatorID });
-    request(platform, entryID, state.creatorID, state.title, state.thumbnailURL).then((result) => {
+    request(platform, entryID, state.creatorID, state.title).then((result) => {
       devLog("result", {
         entry: entryID,
         state: result ? (result.provisional ? "tagging" : ((result.tags && result.tags.length) ? "tags" : "none")) : "null"

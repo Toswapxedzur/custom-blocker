@@ -1,7 +1,7 @@
 // The classifier route's operation allowlist exists in FOUR places: the
 // extension service worker (background.js), the classifier's bridge vocabulary
-// (SharedBrowserBridgeOperation in SharedBrowserBridge.swift — its own hub
-// derives both allowlists from that enum, so it is the single source there),
+// (SharedBrowserBridgeOperation in SharedBrowserBridge.swift — the single
+// source on the classifier side),
 // and the Mac app's hub (ConnectionHub.swift, request + response guards). A
 // missing entry silently drops the operation — this once blackholed the pill
 // pipeline AND its dev-log diagnostics at once. This suite fails whenever any
@@ -16,7 +16,9 @@ const ROOT = path.resolve(__dirname, "..");
 const FILES = {
   background: path.join(ROOT, "background.js"),
   bridge: path.join(ROOT, "vault-classifier-bridge.js"),
-  classifierHub: path.join(ROOT, "../macosBlocker/classifier/Sources/VaultClassifierApp/LocalClassifierHub.swift"),
+  // The classifier no longer hosts a hub (2026-09-20): it joins the Mac app's hub
+  // as a client, and that client is what emits the classifier-broadcast frame.
+  classifierClient: path.join(ROOT, "../macosBlocker/classifier/Sources/VaultClassifierApp/SharedHubClient.swift"),
   classifierBridge: path.join(ROOT, "../macosBlocker/classifier/Sources/VaultClassifierBridge/SharedBrowserBridge.swift"),
   macHub: path.join(ROOT, "../macosBlocker/Sources/MacBlockerAppFeature/ConnectionHub.swift")
 };
@@ -118,8 +120,9 @@ if (broadcastLists.length === 2) {
 }
 
 // The broadcast frame kind must be plumbed end to end: emitted or relayed by
-// both hubs and dispatched by the service worker socket pump.
-for (const name of ["background", "classifierHub", "macHub"]) {
+// the classifier's hub client, relayed by the Mac hub, and dispatched by the
+// service worker socket pump.
+for (const name of ["background", "classifierClient", "macHub"]) {
   check(
     `${name} handles the classifier-broadcast frame kind`,
     sources[name].includes('"classifier-broadcast"'),

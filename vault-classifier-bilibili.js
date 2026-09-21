@@ -16,20 +16,6 @@
       return null;
     }
   }
-  // The card's own cover image (i0.hdslb.com/bfs/archive/…), used only as an
-  // OCR evidence URL; the uploader is never taken from it.
-  function cardCoverURL(card) {
-    const image = core.firstElement(card, [
-      ".bili-video-card__cover img", ".bili-video-card__image img", ".bili-video-card__wrap picture img",
-      "picture img", ".pic-box img", ".b-img img", "img"
-    ]);
-    return image ? core.imageURLFrom(image) : null;
-  }
-  function pageCoverURL(document) {
-    return document.querySelector('meta[itemprop="image"]')?.getAttribute?.("content")
-      || document.querySelector('meta[property="og:image"]')?.getAttribute?.("content")
-      || null;
-  }
   function pageRoute(location) {
     const match = String(location?.pathname || "").match(/^\/video\/(BV[0-9A-Za-z_-]{3,128})\/?$/i);
     return match ? { videoID: match[1] } : null;
@@ -71,7 +57,6 @@
           // Same id as the video page's own entry, so one classification serves
           // the feed card, the page pill, and the page verdict.
           ...(videoID ? { entryID: `bilibili:video:${videoID}` } : {}),
-          thumbnailURL: cardCoverURL(card),
           sourceKind: "creator",
           entryURL: entry.href,
           sourceURL: source.href,
@@ -108,7 +93,6 @@
         presentationAnchor: source,
         entryID: `bilibili:video:${route.videoID}`,
         surface: "page",
-        thumbnailURL: pageCoverURL(document),
         sourceKind: "creator",
         entryURL: global.location.href,
         sourceURL: source.href,
