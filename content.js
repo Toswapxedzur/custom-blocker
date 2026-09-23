@@ -496,7 +496,7 @@ function getFeedCardData(card) {
           .filter(Boolean)
       )
     ];
-    return { videoForm: "post", creators };
+    return { videoForm: "post", creators, tags: getFeedCardTags(card) };
   }
   if (currentSite !== "youtube") {
     const href = getFeedCardHref(card, currentSite);
@@ -664,6 +664,23 @@ const CB_CONTENT_BLOCK_PROFILES = Object.freeze({
     links: /\/video\/BV/i,
     page: "#bilibili-player, .bpx-player-container, #playerWrap, #player",
     pageScope: "document"
+  },
+  // X/Twitter (verified live 2026-09-23 on x.com/home + a status page): a
+  // tweet's media is its photo / video player / link card; the status page's
+  // own tweet is the observed article, so the page verdict scopes to the root.
+  twitter: {
+    media: '[data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="tweetPhoto"], [data-testid="card.wrapper"], [data-testid="card.layoutLarge.media"], [data-testid="card.layoutSmall.media"]',
+    links: /\/status\//,
+    page: '[data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="tweetPhoto"], [data-testid="card.wrapper"], [data-testid="card.layoutLarge.media"], [data-testid="card.layoutSmall.media"]',
+    pageScope: "root"
+  },
+  // TikTok: grid/search cards carry a cover picture; the For You feed and the
+  // video page render the player in a feed-video / browse-video container.
+  tiktok: {
+    media: '[data-e2e="feed-video"], [data-e2e="browse-video"], video, picture, img',
+    links: /\/video\//,
+    page: '[data-e2e="browse-video"], [data-e2e="feed-video"], video',
+    pageScope: "document"
   }
 });
 
@@ -672,6 +689,8 @@ function cbContentBlockPlatformID(hostname) {
   if (host === "youtube.com" || host.endsWith(".youtube.com")) return "youtube";
   if (host === "reddit.com" || host.endsWith(".reddit.com")) return "reddit";
   if (host === "bilibili.com" || host.endsWith(".bilibili.com")) return "bilibili";
+  if (host === "x.com" || host.endsWith(".x.com") || host === "twitter.com" || host.endsWith(".twitter.com")) return "twitter";
+  if (host === "tiktok.com" || host.endsWith(".tiktok.com")) return "tiktok";
   return null;
 }
 
@@ -3441,6 +3460,11 @@ const __cb_PLATFORM_CSS = {
   reddit: {
     comments: "shreddit-comment-tree, #comment-tree, .commentarea, shreddit-comments-page-tools { display: none !important; }"
   },
+  twitter: {
+    // Replies under a status page: everything in the conversation timeline
+    // after the first cell (the tweet itself).
+    comments: '[aria-label="Timeline: Conversation"] [data-testid="cellInnerDiv"]:not(:first-of-type) { display: none !important; }'
+  },
   bilibili: {
     comments: "#comment, #commentapp, bili-comments, .comment-container, .bili-comment { display: none !important; }"
   }
@@ -3471,6 +3495,8 @@ function __cb_isOnPlatformHome(platform) {
       const host = String(location.hostname || "").toLowerCase();
       return (host === "bilibili.com" || host === "www.bilibili.com") && (p === "/" || p === "/index.html");
     }
+    case "twitter":
+      return p === "/" || p === "/home" || p === "/explore" || p.startsWith("/explore/") || p.startsWith("/i/trends");
     default:
       return false;
   }
@@ -3485,6 +3511,7 @@ function __cb_currentPlatform() {
   if (host === "twitch.tv" || host?.endsWith(".twitch.tv") || host === "clips.twitch.tv") return "twitch";
   if (host === "reddit.com" || host?.endsWith(".reddit.com")) return "reddit";
   if (host === "bilibili.com" || host?.endsWith(".bilibili.com")) return "bilibili";
+  if (host === "x.com" || host?.endsWith(".x.com") || host === "twitter.com" || host?.endsWith(".twitter.com")) return "twitter";
   return null;
 }
 
@@ -3535,6 +3562,14 @@ function __cb_extractCardItem(card, platform) {
       // Reddit's author axis is the subreddit (what its platform rules filter on).
       const subreddit = extractRedditSubredditFromCard(card);
       creators = subreddit ? [subreddit] : [];
+    } else if (platform === "twitter") {
+      creators = [
+        ...new Set(
+          [...card.querySelectorAll('a[role="link"][href^="/"], a[href^="/"]')]
+            .map((anchor) => normalizeTwitterHandleInput(anchor.getAttribute("href")))
+            .filter(Boolean)
+        )
+      ];
     } else {
       creators = [
         ...new Set(

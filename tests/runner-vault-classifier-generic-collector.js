@@ -136,9 +136,12 @@ setTimeout(() => {
     && page?.entry?.evidence?.text === "Visible rendered description"
     && diagnostics.some((message) => message.event === "collector-started")
     && diagnostics.some((message) => message.event === "page-evidence-ready")
-    // TikTok is not on the pill allowlist, so the shared collector must NOT inject
-    // a source-tag pill even though it delivered collection + page evidence above.
-    && tagPresentations.length === 0
+    // TikTok joined the pill platforms on 2026-09-23: the feed card and the page's
+    // own entry each get exactly one pill, keyed by the video, routed as card/page.
+    // (The feed card is re-observed on its enrichment delivery; tag-ui dedupes by key.)
+    && tagPresentations.some((value) => value.root === feedRoot && value.kind === "card" && value.entryID === "tiktok:video:123")
+    && tagPresentations.some((value) => value.root === pageRoot && value.kind === "page" && value.entryID === "tiktok:video:456")
+    && tagPresentations.every((value) => value.root === feedRoot || value.root === pageRoot)
     && matchingStatusRoot === requestedStatusRoot
     && observers.some((observer) => observer.options?.attributeFilter?.includes("src"))
     && debugLogs.includes("[VaultClassifier:source-icon] tiktok:debug-ready")

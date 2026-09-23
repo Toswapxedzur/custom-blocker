@@ -2027,7 +2027,7 @@ function setupPlatformChipInputs() {
 // ── Content-tag filter helpers (platform rules) ──────────────────────────
 // Platforms whose feed-card pipeline can act on content tags (the three
 // parity platforms plus the video platforms that share YouTube's card model).
-const TAG_FILTER_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "facebook", "twitch", "reddit", "bilibili"]);
+const TAG_FILTER_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "facebook", "twitch", "reddit", "bilibili", "twitter"]);
 function isTagFilterCompatible(groupType) {
   return TAG_FILTER_PLATFORMS.has(String(groupType || ""));
 }
@@ -7233,7 +7233,7 @@ if (runCustomGroupButton) {
 
 // Platforms whose feed-predicate engine can act on content tags (helpers.js
 // PLATFORM_LIST): the no-code builder emits `<platform>().dim|hide(...)` for these.
-const CONTENT_TAG_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "facebook", "twitch", "reddit", "bilibili"]);
+const CONTENT_TAG_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "facebook", "twitch", "reddit", "bilibili", "twitter"]);
 
 // Turn the no-code builder fields into a custom-rule source. Uses the platform
 // predicate's dim() (thumbnail blackout, correctable) or hide() (remove card).

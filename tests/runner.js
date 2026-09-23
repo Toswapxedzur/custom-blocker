@@ -317,6 +317,27 @@ log.section("S8c: Reddit and Bilibili in the custom-rule engine");
   assertEqual("reddit().timerSlots()", reddit.timerSlots(), ["posts"]);
 }
 
+log.section("S8d: X/Twitter in the custom-rule engine");
+{
+  const { platformHelpers } = makeFixture();
+  const x = platformHelpers.twitter();
+  assert("twitter().isPostUrl recognises a status permalink",
+    x.isPostUrl("https://x.com/BrawlStars/status/2102730439869837540"));
+  assert("twitter().isPostUrl rejects a profile", !x.isPostUrl("https://x.com/BrawlStars"));
+  assert("twitter().isHomePage recognises /home and /explore",
+    x.isHomePage("https://x.com/home") && x.isHomePage("https://x.com/explore"));
+  assertEqual("twitter().extractAuthor is the lowercase handle",
+    x.extractAuthor("https://x.com/BrawlStars/status/2102730439869837540"), "brawlstars");
+  assertEqual("twitter().extractAuthor ignores reserved routes",
+    x.extractAuthor("https://x.com/home"), null);
+  assertEqual("twitter().extractVideoId is the status id",
+    x.extractVideoId("https://twitter.com/BrawlStars/status/2102730439869837540"), "2102730439869837540");
+  assertThrows("twitter().hide('videos', …) throws (statuses are X's one form)",
+    () => x.hide("videos", () => true), TypeError);
+  x.dim("posts", () => true);
+  assertEqual("twitter().timerSlots()", x.timerSlots(), ["posts"]);
+}
+
 log.section("S9: surface(name, action) toggles whole regions");
 {
   const { accumulator, persistentBucket, platformHelpers } = makeFixture();
