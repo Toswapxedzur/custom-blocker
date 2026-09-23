@@ -84,12 +84,28 @@
     });
   }
 
+  // Tagging schedule: "whenFiltering" (default) tags a platform only while one
+  // of its groups has an active tag filter; "always" tags whenever collection
+  // is on; "paused" tags nothing. Collection (History) is unaffected.
+  const TAGGING_MODES = new Set(["whenFiltering", "always", "paused"]);
   async function settings() {
     const result = await storageGet(SETTINGS_KEY);
     const raw = result[SETTINGS_KEY];
     return {
-      collectionEnabled: !raw || raw.collectionEnabled !== false
+      collectionEnabled: !raw || raw.collectionEnabled !== false,
+      taggingMode: raw && TAGGING_MODES.has(raw.taggingMode) ? raw.taggingMode : "whenFiltering"
     };
+  }
+
+  // Whether the classifier may be asked to tag `platform` now. The schedule
+  // check lives in background.js (it owns the groups); when that hook is absent
+  // (Safari package, tests) tagging follows collection as before.
+  async function taggingAllowed(platform, current) {
+    if (current.taggingMode === "paused") return false;
+    if (current.taggingMode === "always") return true;
+    const hook = typeof globalThis.cbHasActiveTagFilter === "function" ? globalThis.cbHasActiveTagFilter : null;
+    if (!hook) return true;
+    try { return (await hook(platform, Date.now())) === true; } catch (_) { return true; }
   }
 
   function hubRequest(operation, body) {
@@ -454,7 +470,8 @@
       // (no manual "debug mode" toggle needed when talking to a dev app).
       await syncDevMode(body && body.developmentMode === true);
       scheduleCollectionQueueFlush();
-      return { ok: true, enabled: enabledPlatformIDs.includes(platform) };
+      const enabled = enabledPlatformIDs.includes(platform);
+      return { ok: true, enabled, tagging: enabled && await taggingAllowed(platform, current) };
     } catch (error) {
       return { ok: false, enabled: false, reason: String(error && error.message || error) };
     }
@@ -488,7 +505,9 @@
     }
     try {
       const current = await settings();
-      if (!current.collectionEnabled) return { ok: true, platformID: platform, entryID, tags: [], pending: false };
+      if (!current.collectionEnabled || !(await taggingAllowed(platform, current))) {
+        return { ok: true, platformID: platform, entryID, tags: [], pending: false };
+      }
       const body = await hubRequest("video-tags", {
         platformID: platform, entryID, creatorID, title,
         ...(typeof summary === "string" && summary ? { summary: summary.slice(0, 4000) } : {}),
@@ -532,7 +551,7 @@
     if (!items.length) return { ok: true, platformID: platform, items: [] };
     try {
       const current = await settings();
-      if (!current.collectionEnabled) return { ok: true, platformID: platform, items: [] };
+      if (!current.collectionEnabled || !(await taggingAllowed(platform, current))) return { ok: true, platformID: platform, items: [] };
       const body = await hubRequest("video-tags-batch", { platformID: platform, items });
       const expected = new Set(items.map((item) => item.entryID));
       const results = C.normalizeVideoTagsBatchResponse?.(body, platform, expected);

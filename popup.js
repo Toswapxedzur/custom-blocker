@@ -420,6 +420,7 @@ let localFolderHandle = null;
 const settingsResetButton = document.getElementById("settingsResetButton");
 const settingsStatus = document.getElementById("settingsStatus");
 const classifierCollectionToggle = document.getElementById("classifierCollectionToggle");
+const classifierTaggingModeField = document.getElementById("classifierTaggingMode");
 const connectionGroupSection = document.getElementById("connectionGroupSection");
 const connectionGroupHint = document.getElementById("connectionGroupHint");
 const connectionGroupDisconnected = document.getElementById("connectionGroupDisconnected");
@@ -497,8 +498,10 @@ const state = {
 // This remains separate from the group-sync connection. Its browser evidence
 // requests share the public broker but never receive a group definition.
 const CLASSIFIER_BRIDGE_SETTINGS_KEY = "vaultClassifierSettings";
+const CLASSIFIER_TAGGING_MODES = ["whenFiltering", "always", "paused"];
 const DEFAULT_CLASSIFIER_BRIDGE_SETTINGS = Object.freeze({
-  collectionEnabled: true
+  collectionEnabled: true,
+  taggingMode: "whenFiltering"
 });
 let classifierBridgeSettings = { ...DEFAULT_CLASSIFIER_BRIDGE_SETTINGS };
 
@@ -506,7 +509,8 @@ function sanitizeClassifierBridgeSettings(raw) {
   return {
     // Existing deliberate opt-outs stay off; new extension settings collect by
     // default once the matching local app platform is enabled.
-    collectionEnabled: !raw || raw.collectionEnabled !== false
+    collectionEnabled: !raw || raw.collectionEnabled !== false,
+    taggingMode: raw && CLASSIFIER_TAGGING_MODES.includes(raw.taggingMode) ? raw.taggingMode : "whenFiltering"
   };
 }
 
@@ -530,6 +534,7 @@ function classifierBridgeStorageSet(next) {
 
 function renderClassifierBridgeSettings() {
   if (classifierCollectionToggle) classifierCollectionToggle.checked = classifierBridgeSettings.collectionEnabled;
+  if (classifierTaggingModeField) classifierTaggingModeField.value = classifierBridgeSettings.taggingMode;
 }
 
 async function loadClassifierBridgeSettings() {
@@ -7736,6 +7741,11 @@ if (settingsModal) {
 if (classifierCollectionToggle) {
   classifierCollectionToggle.addEventListener("change", () => {
     classifierBridgeStorageSet({ ...classifierBridgeSettings, collectionEnabled: classifierCollectionToggle.checked }).catch(() => {});
+  });
+}
+if (classifierTaggingModeField) {
+  classifierTaggingModeField.addEventListener("change", () => {
+    classifierBridgeStorageSet({ ...classifierBridgeSettings, taggingMode: classifierTaggingModeField.value }).catch(() => {});
   });
 }
 
