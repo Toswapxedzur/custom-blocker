@@ -4094,6 +4094,12 @@ const cbConnection = {
         // the platform's tabs.
         if (self.CBClassifierBroadcastReceive) self.CBClassifierBroadcastReceive(msg);
         break;
+      case "browser-request":
+        // Mac Vault's MCP server driving the extension's settings (1:1 parity
+        // with the popup). Only an authenticated hub host reaches this branch.
+        if (!this.routeIsReady("macapp")) break;
+        void cbHandleBrowserRequest(this, msg);
+        break;
       default:
         break;
     }
@@ -4141,6 +4147,124 @@ const cbConnection = {
 
 // Classifier requests share the automatic local WebSocket and are relayed only
 // while a Vault Classifier host or peer is present.
+// ── Extension settings over the hub (owner 2026-09-23: MCP 1:1 parity) ──────
+// Mac Vault relays `browser-request` frames from its in-process MCP server; the
+// extension is the authority on which operations it honours. Every write goes
+// through the same sanitizers the popup's saves go through (sanitizeGroups /
+// createDefaultGroup), so a process can do exactly what the popup can — and a
+// frozen / strict / parental group is as untouchable here as it is in the popup.
+const CB_BROWSER_REQUEST_OPERATIONS = Object.freeze([
+  "settings-get",
+  "settings-set-group",
+  "settings-create-group",
+  "settings-delete-group",
+  "settings-set-classifier"
+]);
+const CB_CLASSIFIER_SETTINGS_STORAGE_KEY = "vaultClassifierSettings";
+const CB_TAGGING_MODES = Object.freeze(["whenFiltering", "always", "paused"]);
+
+function cbGroupIsLocked(group) {
+  return Boolean(group) && group.freezeMode !== "none" && group.freezeMode !== undefined;
+}
+
+async function cbBrowserRequestBody(operation, body) {
+  const input = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+  switch (operation) {
+    case "settings-get": {
+      const { groups, usageTimersMs, groupSnoozes } = await getState();
+      const stored = await chrome.storage.local.get([CB_CLASSIFIER_SETTINGS_STORAGE_KEY, CB_GLOBAL_SETTINGS_KEY]);
+      const raw = stored?.[CB_CLASSIFIER_SETTINGS_STORAGE_KEY];
+      return {
+        groups,
+        usageTimersMs,
+        groupSnoozes,
+        classifierSettings: {
+          collectionEnabled: !raw || raw.collectionEnabled !== false,
+          taggingMode: raw && CB_TAGGING_MODES.includes(raw.taggingMode) ? raw.taggingMode : "whenFiltering"
+        },
+        globalSettings: stored?.[CB_GLOBAL_SETTINGS_KEY] && typeof stored[CB_GLOBAL_SETTINGS_KEY] === "object" ? stored[CB_GLOBAL_SETTINGS_KEY] : {},
+        operations: CB_BROWSER_REQUEST_OPERATIONS
+      };
+    }
+    case "settings-create-group": {
+      const groupType = typeof input.groupType === "string" ? input.groupType : "";
+      if (!PLATFORM_GROUP_TYPES.includes(groupType) && groupType !== "site" && groupType !== "custom") {
+        throw new Error("unknown-group-type");
+      }
+      const patch = input.patch && typeof input.patch === "object" && !Array.isArray(input.patch) ? input.patch : {};
+      const draft = { ...createDefaultGroup(groupType), ...patch, groupType };
+      const [group] = sanitizeGroups([draft]);
+      if (!group) throw new Error("invalid-group");
+      const { groups } = await getState();
+      if (groups.some((existing) => existing.id === group.id)) throw new Error("duplicate-group-id");
+      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: [...groups, group] });
+      return { group };
+    }
+    case "settings-set-group": {
+      const id = typeof input.id === "string" ? input.id : "";
+      const patch = input.patch && typeof input.patch === "object" && !Array.isArray(input.patch) ? input.patch : null;
+      if (!id || !patch) throw new Error("missing-id-or-patch");
+      const { groups } = await getState();
+      const index = groups.findIndex((group) => group.id === id);
+      if (index < 0) throw new Error("group-not-found");
+      if (cbGroupIsLocked(groups[index])) throw new Error("group-locked");
+      // The id and the lock state are never patchable — same as the popup.
+      const { id: _id, freezeMode: _freeze, frozenAtMs: _frozenAt, parentalPasswordHash: _hash, parentalPasswordSalt: _salt, ...safePatch } = patch;
+      const [group] = sanitizeGroups([{ ...groups[index], ...safePatch, id }]);
+      if (!group) throw new Error("invalid-group");
+      const next = groups.slice();
+      next[index] = group;
+      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+      return { group };
+    }
+    case "settings-delete-group": {
+      const id = typeof input.id === "string" ? input.id : "";
+      const { groups } = await getState();
+      const group = groups.find((candidate) => candidate.id === id);
+      if (!group) throw new Error("group-not-found");
+      if (cbGroupIsLocked(group)) throw new Error("group-locked");
+      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups.filter((candidate) => candidate.id !== id) });
+      return { deleted: id };
+    }
+    case "settings-set-classifier": {
+      const stored = await chrome.storage.local.get(CB_CLASSIFIER_SETTINGS_STORAGE_KEY);
+      const current = stored?.[CB_CLASSIFIER_SETTINGS_STORAGE_KEY] && typeof stored[CB_CLASSIFIER_SETTINGS_STORAGE_KEY] === "object"
+        ? { ...stored[CB_CLASSIFIER_SETTINGS_STORAGE_KEY] } : {};
+      if (input.taggingMode !== undefined) {
+        if (!CB_TAGGING_MODES.includes(input.taggingMode)) throw new Error("invalid-tagging-mode");
+        current.taggingMode = input.taggingMode;
+      }
+      if (input.collectionEnabled !== undefined) current.collectionEnabled = input.collectionEnabled === true;
+      await chrome.storage.local.set({ [CB_CLASSIFIER_SETTINGS_STORAGE_KEY]: current });
+      return {
+        classifierSettings: {
+          collectionEnabled: current.collectionEnabled !== false,
+          taggingMode: CB_TAGGING_MODES.includes(current.taggingMode) ? current.taggingMode : "whenFiltering"
+        }
+      };
+    }
+    default:
+      throw new Error("unsupported-operation");
+  }
+}
+
+// Answers one relayed request on the hub socket; every path replies exactly
+// once, with a bounded error string on failure.
+async function cbHandleBrowserRequest(connection, msg) {
+  const requestID = typeof msg?.requestID === "string" ? msg.requestID.slice(0, 128) : "";
+  const operation = typeof msg?.operation === "string" ? msg.operation.slice(0, 64) : "";
+  if (!requestID || !operation) return;
+  const reply = (frame) => { try { connection.sendWS({ kind: "browser-response", requestID, operation, ...frame }); } catch (_) {} };
+  if (!CB_BROWSER_REQUEST_OPERATIONS.includes(operation)) { reply({ error: "unsupported-operation" }); return; }
+  try {
+    reply({ body: await cbBrowserRequestBody(operation, msg.body) });
+  } catch (error) {
+    const text = String(error?.message || error || "error").replace(/[^\x20-\x7e]/g, "").slice(0, 200);
+    reply({ error: text || "error" });
+  }
+}
+self.cbHandleBrowserRequest = cbHandleBrowserRequest;
+
 const CB_CLASSIFIER_HUB_MAX_PENDING = 16;
 // The native relay expires first (30 seconds), leaving this browser deadline
 // enough margin to receive its explicit timeout without racing a late reply.
