@@ -4158,7 +4158,8 @@ const CB_BROWSER_REQUEST_OPERATIONS = Object.freeze([
   "settings-set-group",
   "settings-create-group",
   "settings-delete-group",
-  "settings-set-classifier"
+  "settings-set-classifier",
+  "settings-set-global"
 ]);
 const CB_CLASSIFIER_SETTINGS_STORAGE_KEY = "vaultClassifierSettings";
 const CB_TAGGING_MODES = Object.freeze(["whenFiltering", "always", "paused"]);
@@ -4242,6 +4243,25 @@ async function cbBrowserRequestBody(operation, body) {
           taggingMode: CB_TAGGING_MODES.includes(current.taggingMode) ? current.taggingMode : "whenFiltering"
         }
       };
+    }
+    case "settings-set-global": {
+      // The popup's global settings, sanitized the way its save does.
+      const stored = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
+      const current = stored?.[CB_GLOBAL_SETTINGS_KEY] && typeof stored[CB_GLOBAL_SETTINGS_KEY] === "object" ? stored[CB_GLOBAL_SETTINGS_KEY] : {};
+      const patch = input.patch && typeof input.patch === "object" && !Array.isArray(input.patch) ? input.patch : null;
+      if (!patch) throw new Error("missing-patch");
+      const merged = { ...current, ...patch };
+      const clamp = (value, min, max, fallback) => { const n = Number(value); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback; };
+      const next = {
+        tickRateMs: Math.round(clamp(merged.tickRateMs, 100, 10_000, 250)),
+        autosaveDebounceMs: Math.round(clamp(merged.autosaveDebounceMs, 0, 10_000, 400)),
+        debugMode: merged.debugMode === true,
+        showOnPageLogToasts: merged.showOnPageLogToasts !== false,
+        defaultSnoozeMinutes: (() => { const n = Number.parseFloat(merged.defaultSnoozeMinutes); return Number.isFinite(n) && n > 0 ? n : 5; })(),
+        defaultFallbackUrl: typeof merged.defaultFallbackUrl === "string" ? merged.defaultFallbackUrl.trim() : ""
+      };
+      await chrome.storage.local.set({ [CB_GLOBAL_SETTINGS_KEY]: next });
+      return { globalSettings: next };
     }
     default:
       throw new Error("unsupported-operation");
