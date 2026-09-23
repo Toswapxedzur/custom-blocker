@@ -292,6 +292,9 @@
     const reportedDiagnostics = new Set();
     const reportedSourceIconDebugStages = new Set();
     let collectionEnabled = false;
+    // Tagging can be off while collection stays on (tagging schedule / pause):
+    // cards are still collected for History but never sent for tags.
+    let taggingEnabled = false;
     let scanTimer = null;
     let pageTimer = null;
     let collectionEpoch = 0;
@@ -363,7 +366,7 @@
         // A page-surface entry is the page's OWN content: the extension's tag
         // filter decides an in-place player blackout for it (content.js
         // cbEvaluateTagPage) rather than a feed-card verdict.
-        TagUI?.observe?.({
+        if (taggingEnabled) TagUI?.observe?.({
           platform,
           entryID: evidence.entryID,
           creatorID: evidence.sourceID,
@@ -438,6 +441,12 @@
             return;
           }
           collectionEnabled = Boolean(response?.ok === true && response.enabled === true);
+          const taggingWas = taggingEnabled;
+          taggingEnabled = collectionEnabled && response.tagging !== false;
+          // Every scan observes the cards on screen (before the collection
+          // de-dupe), so a schedule window opening just needs the rescan below;
+          // one closing must take the pills down.
+          if (taggingWas && !taggingEnabled) TagUI?.clearPlatform?.(platform);
           if (collectionEnabled) {
             reportDiagnostic("collection-info-enabled");
             scheduleScan();

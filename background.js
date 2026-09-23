@@ -1046,6 +1046,18 @@ function applyRuntimeNormalizations(
   };
 }
 
+// Tagging schedule (owner idea, 2026-09-23): the classifier is only asked to tag
+// a platform while a tag filter for it is active — i.e. some enabled, un-snoozed
+// group of that site whose schedule window is open has a tag filter. Reuses
+// the feed-filter builder so "active" means exactly what blocking means.
+globalThis.cbHasActiveTagFilter = async function cbHasActiveTagFilter(platform, now = Date.now()) {
+  if (typeof platform !== "string" || !platform) return false;
+  const { groups, usageTimersMs, groupSnoozes } = await getState();
+  const pageContext = { hostname: "", videoSite: platform, isRedditPage: platform === "reddit" };
+  return buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnoozes, now)
+    .some((filter) => filter && filter.tagFilter);
+};
+
 async function getState() {
   const baseState = await loadStoredState();
   const normalized = applyRuntimeNormalizations(
