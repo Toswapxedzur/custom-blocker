@@ -4073,14 +4073,6 @@ const cbConnection = {
         this.applySharedToStorage();
         break;
       }
-      case "connect-group-rejected":
-        if (!this.routeIsReady("macapp")) break;
-        try {
-          chrome.runtime
-            .sendMessage({ type: "group-rejected", reason: msg.reason || "" })
-            .catch(() => {});
-        } catch (_) {}
-        break;
       case "pong":
         break;
       case "classifier-response":
@@ -4619,27 +4611,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case "connection-status":
       sendResponse({ ok: true, status: cbConnection.statusForTarget("macapp") });
-      return false;
-    case "group-connect":
-      if (!cbConnection.routeIsReady("macapp")) { sendResponse({ ok: false, error: "macapp-unavailable" }); return false; }
-      cbConnection.sendWS({
-        kind: "connect-group",
-        groupName: message.groupName,
-        groupType: message.groupType,
-        fromProgram: message.fromProgram,
-        toProgram: message.toProgram
-      });
-      sendResponse({ ok: true });
-      return false;
-    case "group-disconnect":
-      if (!cbConnection.routeIsReady("macapp")) { sendResponse({ ok: false, error: "macapp-unavailable" }); return false; }
-      cbConnection.sendWS({
-        kind: "disconnect-group",
-        clusterId: message.clusterId,
-        groupName: message.groupName,
-        program: message.program
-      });
-      sendResponse({ ok: true });
       return false;
     case "groups-announce":
       cbConnection.lastAnnounce = {
