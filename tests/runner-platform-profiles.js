@@ -73,6 +73,12 @@ assertEqual("Bilibili av video is long", detectVideoSiteContext("www.bilibili.co
   { site: "bilibili", form: "long" });
 assertEqual("Bilibili search is unknown", detectVideoSiteContext("search.bilibili.com", "/all"),
   { site: "bilibili", form: "unknown" });
+assertEqual("X status permalink is post", detectVideoSiteContext("x.com", "/BrawlStars/status/2102730439869837540"),
+  { site: "twitter", form: "post" });
+assertEqual("X home is unknown", detectVideoSiteContext("x.com", "/home"), { site: "twitter", form: "unknown" });
+assertEqual("X status maps to the posts slot", platformVideoFormToSlot("twitter", "post"), "posts");
+assert("X feed profile names the status permalink as its href",
+  PLATFORM_PROFILES.twitter.feed.hrefSelectors.includes('a[href*="/status/"]'));
 assertEqual("Reddit post maps to the posts slot", platformVideoFormToSlot("reddit", "post"), "posts");
 assertEqual("Bilibili video maps to the videos slot", platformVideoFormToSlot("bilibili", "long"), "videos");
 assert("Bilibili feed containers include the watch page's up-next card",

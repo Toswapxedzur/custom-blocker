@@ -32,6 +32,21 @@
       }
     });
   }
+  // The account image sits under the avatar-container link, not the User-Name
+  // link (verified live 2026-09-23), and is accepted only when that link
+  // resolves to the same account as the status.
+  function avatarAnchor(root, handle) {
+    const expectedPath = `/${handle}`.toLowerCase();
+    return core.firstAnchor(root, ['[data-testid^="UserAvatar-Container"] a[href]'], (anchor) => {
+      try {
+        const url = new URL(anchor.href, global.location.href);
+        return /(^|\.)(x|twitter)\.com$/i.test(url.hostname)
+          && url.pathname.replace(/\/+$/, "").toLowerCase() === expectedPath;
+      } catch (_) {
+        return false;
+      }
+    });
+  }
   function tweetTextElement(root) {
     return core.firstElement(root, ['[data-testid="tweetText"]']);
   }
@@ -43,10 +58,16 @@
     platform: "twitter",
     matchesPage,
     scan({ document, collect }) {
-      const cards = core.uniqueElements([
+      const candidates = core.uniqueElements([
         ...core.selectorElements(document, 'article[data-testid="tweet"]'),
         ...core.selectorElements(document, '[data-testid="cellInnerDiv"]:has(article[data-testid="tweet"])')
       ]).slice(0, 80);
+      // A timeline cell wraps its <article>; both match, so keep only the
+      // innermost of any nested pair — one pill per tweet, on the article
+      // (the element the tag filter resolves a cell to).
+      const cards = candidates.filter(
+        (card) => !candidates.some((other) => other !== card && card.contains?.(other))
+      );
       for (const card of cards) {
         const entry = core.firstAnchor(card, ['a[href*="/status/"]'], isStatus);
         if (!entry) continue;
@@ -67,7 +88,7 @@
           title: core.compactText(text, 500) || core.compactText(entry.getAttribute("aria-label") || entry.textContent, 500),
           text,
           suppliedTags: suppliedTags(textRoot),
-          sourceIconURL: core.sourceIconFromVerifiedSource("twitter", source, global.location.href),
+          sourceIconURL: core.sourceIconFromVerifiedSource("twitter", avatarAnchor(card, route.handle) || source, global.location.href),
           entryType: "post"
         });
       }
@@ -98,7 +119,7 @@
         title,
         text,
         suppliedTags: suppliedTags(textRoot),
-        sourceIconURL: core.sourceIconFromVerifiedSource("twitter", source, global.location.href),
+        sourceIconURL: core.sourceIconFromVerifiedSource("twitter", avatarAnchor(root, route.handle) || source, global.location.href),
         entryType: "post"
       });
       return { ready: true };

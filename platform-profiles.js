@@ -611,6 +611,13 @@ function detectVideoSiteContext(hostname, pathname) {
       : { site: "bilibili", form: "unknown" };
   }
 
+  if (isTwitterHost(hostname)) {
+    // A status permalink is X's one content form; feeds and profiles are chrome.
+    return /^\/[^/]+\/status\/\d+/i.test(safePathname)
+      ? { site: "twitter", form: "post" }
+      : { site: "twitter", form: "unknown" };
+  }
+
   return { site: null, form: "unknown" };
 }
 
@@ -1406,6 +1413,8 @@ const PLATFORM_PROFILES = {
     feed: {
       anchorSelectors: ['article[data-testid="tweet"]'],
       cardSelectors: ['[data-testid="cellInnerDiv"]:has(article[data-testid="tweet"])'],
+      // The status permalink: what a custom rule's item.url / videoForm read.
+      hrefSelectors: ['a[href*="/status/"]'],
       replenish: { scroll: true }
     },
     surfaceHides: [
