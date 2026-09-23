@@ -3437,6 +3437,12 @@ const __cb_PLATFORM_CSS = {
   },
   twitch: {
     comments: 'section[data-test-selector="chat-room-component-layout"] { display: none !important; }'
+  },
+  reddit: {
+    comments: "shreddit-comment-tree, #comment-tree, .commentarea, shreddit-comments-page-tools { display: none !important; }"
+  },
+  bilibili: {
+    comments: "#comment, #commentapp, bili-comments, .comment-container, .bili-comment { display: none !important; }"
   }
 };
 
@@ -3457,6 +3463,14 @@ function __cb_isOnPlatformHome(platform) {
       return p === "/" || p === "/watch" || p.startsWith("/watch/");
     case "twitch":
       return p === "/" || p === "/directory" || p.startsWith("/directory/");
+    case "reddit": {
+      const trimmed = p.replace(/\/+$/, "") || "/";
+      return trimmed === "/" || /^\/(best|hot|new|top|rising)$/i.test(trimmed) || /^\/r\/(all|popular)$/i.test(trimmed);
+    }
+    case "bilibili": {
+      const host = String(location.hostname || "").toLowerCase();
+      return (host === "bilibili.com" || host === "www.bilibili.com") && (p === "/" || p === "/index.html");
+    }
     default:
       return false;
   }
@@ -3469,6 +3483,8 @@ function __cb_currentPlatform() {
   if (host === "instagram.com" || host?.endsWith(".instagram.com")) return "instagram";
   if (host === "facebook.com" || host?.endsWith(".facebook.com")) return "facebook";
   if (host === "twitch.tv" || host?.endsWith(".twitch.tv") || host === "clips.twitch.tv") return "twitch";
+  if (host === "reddit.com" || host?.endsWith(".reddit.com")) return "reddit";
+  if (host === "bilibili.com" || host?.endsWith(".bilibili.com")) return "bilibili";
   return null;
 }
 
@@ -3515,13 +3531,19 @@ function __cb_extractCardItem(card, platform) {
         videoForm = detectVideoSiteContext(normalizeHostname(u.hostname), u.pathname).form;
       } catch {}
     }
-    creators = [
-      ...new Set(
-        [...card.querySelectorAll("a[href]")]
-          .map((a) => normalizePlatformAuthorInput(a.getAttribute("href"), platform))
-          .filter(Boolean)
-      )
-    ];
+    if (platform === "reddit") {
+      // Reddit's author axis is the subreddit (what its platform rules filter on).
+      const subreddit = extractRedditSubredditFromCard(card);
+      creators = subreddit ? [subreddit] : [];
+    } else {
+      creators = [
+        ...new Set(
+          [...card.querySelectorAll("a[href]")]
+            .map((a) => normalizePlatformAuthorInput(a.getAttribute("href"), platform))
+            .filter(Boolean)
+        )
+      ];
+    }
   }
 
   let name = "";

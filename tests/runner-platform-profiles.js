@@ -63,6 +63,22 @@ assertEqual("Instagram reel is short", detectVideoSiteContext("www.instagram.com
   { site: "instagram", form: "short" });
 assertEqual("Instagram post is post", detectVideoSiteContext("www.instagram.com", "/p/ABC/"),
   { site: "instagram", form: "post" });
+assertEqual("Reddit post permalink is post", detectVideoSiteContext("www.reddit.com", "/r/OpenAI/comments/abc123/title/"),
+  { site: "reddit", form: "post" });
+assertEqual("Reddit feed is unknown", detectVideoSiteContext("www.reddit.com", "/r/all/"),
+  { site: "reddit", form: "unknown" });
+assertEqual("Bilibili BV video is long", detectVideoSiteContext("www.bilibili.com", "/video/BV16zhJ6KEht/"),
+  { site: "bilibili", form: "long" });
+assertEqual("Bilibili av video is long", detectVideoSiteContext("www.bilibili.com", "/video/av170001"),
+  { site: "bilibili", form: "long" });
+assertEqual("Bilibili search is unknown", detectVideoSiteContext("search.bilibili.com", "/all"),
+  { site: "bilibili", form: "unknown" });
+assertEqual("Reddit post maps to the posts slot", platformVideoFormToSlot("reddit", "post"), "posts");
+assertEqual("Bilibili video maps to the videos slot", platformVideoFormToSlot("bilibili", "long"), "videos");
+assert("Bilibili feed containers include the watch page's up-next card",
+  PLATFORM_PROFILES.bilibili.feed.containerSelectors.includes(".video-page-card-small"));
+assert("Reddit feed profile names the post permalink as its href",
+  PLATFORM_PROFILES.reddit.feed.hrefSelectors.includes('a[href*="/comments/"]'));
 assertEqual("Facebook shared reel is short", detectVideoSiteContext("www.facebook.com", "/share/r/abc/"),
   { site: "facebook", form: "short" });
 assertEqual("Facebook shared video is long", detectVideoSiteContext("www.facebook.com", "/share/v/abc/"),

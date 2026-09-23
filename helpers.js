@@ -14,7 +14,10 @@
     return;
   }
 
-  const PLATFORM_LIST = ["youtube", "tiktok", "facebook", "instagram", "twitch"];
+  // Reddit and Bilibili joined 2026-09-23 (owner: full parity with YouTube on
+  // YouTube, Reddit and Bilibili): posts / videos slots, home + comments
+  // surfaces, and URL classifiers for page predicates.
+  const PLATFORM_LIST = ["youtube", "tiktok", "facebook", "instagram", "twitch", "reddit", "bilibili"];
   const MAX_PERSISTENCE_KEYS_PER_GROUP = 200;
   const MAX_PERSISTENCE_VALUE_BYTES = 16 * 1024;
 
@@ -80,6 +83,10 @@
     return Boolean(host && (host === "reddit.com" || host.endsWith(".reddit.com")));
   }
 
+  function isBilibiliHost(host) {
+    return Boolean(host && (host === "bilibili.com" || host.endsWith(".bilibili.com")));
+  }
+
   function isDiscordHost(host) {
     return Boolean(
       host &&
@@ -97,6 +104,8 @@
     if (isInstagramHost(host)) return "instagram";
     if (isFacebookHost(host)) return "facebook";
     if (isTwitchHost(host)) return "twitch";
+    if (isRedditHost(host)) return "reddit";
+    if (isBilibiliHost(host)) return "bilibili";
     return null;
   }
 
@@ -333,6 +342,70 @@
         const c = parsed.pathname.match(/\/clip\/([^/?#]+)/);
         return c ? c[1] : null;
       }
+    },
+    reddit: {
+      // Reddit has one content form (a post); "author" is the SUBREDDIT, the
+      // axis Reddit groups filter on (lowercase, no r/ prefix).
+      isPlatformUrl(url) {
+        return isRedditHost(getHostname(url));
+      },
+      isShortUrl() {
+        return false;
+      },
+      isVideoUrl() {
+        return false;
+      },
+      isPostUrl(url) {
+        return isRedditHost(getHostname(url)) && /^\/r\/[^/]+\/comments\//i.test(getPathname(url));
+      },
+      isHomePage(url) {
+        if (!isRedditHost(getHostname(url))) return false;
+        const path = getPathname(url).replace(/\/+$/, "") || "/";
+        return path === "/" || /^\/(best|hot|new|top|rising)$/i.test(path) || /^\/r\/(all|popular)$/i.test(path);
+      },
+      extractAuthor(url) {
+        if (!isRedditHost(getHostname(url))) return null;
+        const m = getPathname(url).match(/^\/r\/([A-Za-z0-9_]{2,64})(?:[/?#]|$)/i);
+        return m ? m[1].toLowerCase() : null;
+      },
+      extractVideoId(url) {
+        if (!isRedditHost(getHostname(url))) return null;
+        const m = getPathname(url).match(/^\/r\/[^/]+\/comments\/([A-Za-z0-9_-]{3,128})(?:[/?#]|$)/i);
+        return m ? m[1] : null;
+      }
+    },
+    bilibili: {
+      // Bilibili's content form is the long video (/video/BV… or /video/av…);
+      // "author" is the uploader's numeric space id.
+      isPlatformUrl(url) {
+        return isBilibiliHost(getHostname(url));
+      },
+      isShortUrl() {
+        return false;
+      },
+      isVideoUrl(url) {
+        return isBilibiliHost(getHostname(url)) && /^\/video\/(BV[0-9A-Za-z_-]+|av\d+)/i.test(getPathname(url));
+      },
+      isPostUrl() {
+        return false;
+      },
+      isHomePage(url) {
+        const host = getHostname(url);
+        if (!isBilibiliHost(host)) return false;
+        const path = getPathname(url).replace(/\/+$/, "") || "/";
+        return (host === "bilibili.com" || host === "www.bilibili.com") && (path === "/" || path === "/index.html");
+      },
+      extractAuthor(url) {
+        const host = getHostname(url);
+        if (host !== "space.bilibili.com") return null;
+        const m = getPathname(url).match(/^\/(\d{1,20})(?:[/?#]|$)/);
+        return m ? m[1] : null;
+      },
+      extractVideoId(url) {
+        if (!isBilibiliHost(getHostname(url))) return null;
+        const m = getPathname(url).match(/^\/video\/(BV[0-9A-Za-z_-]{3,128}|av\d+)/i);
+        return m ? m[1] : null;
+      }
     }
   };
 
@@ -348,6 +421,7 @@
       isFacebookHost,
       isTwitchHost,
       isRedditHost,
+      isBilibiliHost,
       isDiscordHost
     };
     for (const platform of PLATFORM_LIST) {
@@ -2429,6 +2503,29 @@
       { name: "isAlgorithmicRecommendation", kind: "itemBool", field: "algorithmic" },
       { name: "setClipsTimer", kind: "subsectionTimer", slot: "shorts" },
       { name: "setStreamsTimer", kind: "subsectionTimer", slot: "streams" },
+      { name: "setVideosTimer", kind: "subsectionTimer", slot: "videos" }
+    ],
+    reddit: [
+      // Posts are Reddit's one card form; the item's `author` is the subreddit.
+      { name: "hidePosts", kind: "predicate", slot: "posts" },
+      { name: "showPosts", kind: "clearPredicate", slot: "posts" },
+      { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
+      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
+      { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
+      { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
+      { name: "isSponsored", kind: "itemBool", field: "sponsored" },
+      { name: "setPostsTimer", kind: "subsectionTimer", slot: "posts" }
+    ],
+    bilibili: [
+      // Long videos are Bilibili's card form; the item's `author` is the
+      // uploader's space id.
+      { name: "hideVideos", kind: "predicate", slot: "videos" },
+      { name: "showVideos", kind: "clearPredicate", slot: "videos" },
+      { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
+      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
+      { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
+      { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
+      { name: "isSponsored", kind: "itemBool", field: "sponsored" },
       { name: "setVideosTimer", kind: "subsectionTimer", slot: "videos" }
     ]
   };

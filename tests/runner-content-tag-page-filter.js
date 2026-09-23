@@ -64,6 +64,19 @@ tagsByRoot.set(root, [{ id: "t1", name: "Gaming", confidence: 3 }]);
 setFilters([tagFilter({ tagFilter: { mode: "include", tags: [{ name: "Gaming", confidence: 3 }], defaultConfidence: 4, blockUntagged: false } })]);
 check("a per-tag confidence override is honoured (and a filter update re-decides the page)", last().action === "block");
 
+// Parity platforms: the same filter shape decides a Reddit post page and a
+// Bilibili watch page, and cover-until-tagged is per site.
+tagsByRoot.set(root, [{ id: "t1", name: "Gaming", confidence: 5 }]);
+setFilters([tagFilter({ id: "r␟tag", baseGroupId: "r", site: "reddit" })]);
+check("a Reddit tag filter blocks the post page's own entry", evaluate({ entryID: "reddit:post:abc123", platform: "reddit", settled: true }) === "block");
+setFilters([tagFilter({ id: "b␟tag", baseGroupId: "b", site: "bilibili" })]);
+check("a Bilibili tag filter blocks the watch page's own entry", evaluate({ entryID: "bilibili:video:BV1abc", platform: "bilibili", settled: true }) === "block");
+setFilters([tagFilter({ id: "b␟tag", baseGroupId: "b", site: "bilibili", tagCoverUntilTagged: true })]);
+settledByRoot.set(root, false);
+check("cover-until-tagged covers a still-tagging Bilibili page", evaluate({ entryID: "bilibili:video:BV1abc", platform: "bilibili", settled: false }) === "block");
+check("…but not a still-tagging Reddit page (the cover is per site)", evaluate({ entryID: "reddit:post:abc123", platform: "reddit", settled: false }) === "allow");
+settledByRoot.delete(root);
+
 tagsByRoot.set(root, [{ id: "t1", name: "Gaming", confidence: 5 }]);
 setFilters([tagFilter({ pageEffect: "allow" })]);
 check("pageEffect allow (page blocking turned off) → never blocks the page", last().action === "allow");
