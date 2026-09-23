@@ -388,6 +388,33 @@ function assert(name, condition, detail) {
     && tagsDisabled.value?.tags?.length === 0
     && tagsDisabled.value?.pending === false, { collectionDisabled, tagsDisabled });
 
+  // Tagging schedule: tagging can be off while collection stays on.
+  localStorage.vaultClassifierSettings = { collectionEnabled: true, taggingMode: "paused" };
+  storageListeners.forEach((listener) => listener({ vaultClassifierSettings: { newValue: localStorage.vaultClassifierSettings } }, "local"));
+  enabledPlatformIDs = ["youtube", "reddit", "discord"];
+  const pausedInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "youtube" }, trustedSender);
+  const pausedTags = await dispatch({
+    type: "vault-classifier-video-tags", platform: "youtube", entryID: "youtube:video:paused",
+    creatorID: "youtube:channel:UC1234567890123456789012", title: "Paused"
+  }, trustedSender);
+  assert("paused tagging keeps collection on but sends nothing for tags", pausedInfo.value?.enabled === true
+    && pausedInfo.value?.tagging === false && pausedTags.value?.ok === true && pausedTags.value?.tags?.length === 0, { pausedInfo, pausedTags });
+
+  localStorage.vaultClassifierSettings = { collectionEnabled: true, taggingMode: "whenFiltering" };
+  context.cbHasActiveTagFilter = async (platform) => platform === "reddit";
+  const ytInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "youtube" }, trustedSender);
+  const redditInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "reddit" }, trustedRedditSender);
+  assert("whenFiltering follows the background's active-tag-filter answer per platform",
+    ytInfo.value?.enabled === true && ytInfo.value?.tagging === false && redditInfo.value?.tagging === true, { ytInfo, redditInfo });
+
+  localStorage.vaultClassifierSettings = { collectionEnabled: true, taggingMode: "always" };
+  const alwaysInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "youtube" }, trustedSender);
+  delete context.cbHasActiveTagFilter;
+  localStorage.vaultClassifierSettings = { collectionEnabled: true };
+  const defaultInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "youtube" }, trustedSender);
+  assert("always ignores the schedule; without the background hook tagging follows collection",
+    alwaysInfo.value?.tagging === true && defaultInfo.value?.tagging === true, { alwaysInfo, defaultInfo });
+
   console.log(`__CB_TEST_RESULT__: ${failures === 0 ? "OK" : "FAIL"} (${failures} failures)`);
   if (failures !== 0) process.exitCode = 1;
 })().catch((error) => {
