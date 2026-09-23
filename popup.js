@@ -421,14 +421,6 @@ const settingsResetButton = document.getElementById("settingsResetButton");
 const settingsStatus = document.getElementById("settingsStatus");
 const classifierCollectionToggle = document.getElementById("classifierCollectionToggle");
 const classifierTaggingModeField = document.getElementById("classifierTaggingMode");
-const connectionGroupSection = document.getElementById("connectionGroupSection");
-const connectionGroupHint = document.getElementById("connectionGroupHint");
-const connectionGroupDisconnected = document.getElementById("connectionGroupDisconnected");
-const connectionGroupConnected = document.getElementById("connectionGroupConnected");
-const connectionGroupProgram = document.getElementById("connectionGroupProgram");
-const connectionGroupConnectButton = document.getElementById("connectionGroupConnectButton");
-const connectionGroupDisconnectButton = document.getElementById("connectionGroupDisconnectButton");
-const connectionGroupMembers = document.getElementById("connectionGroupMembers");
 const dayCheckboxes = Array.from(daysGrid.querySelectorAll('input[type="checkbox"]'));
 
 const state = {
@@ -872,31 +864,11 @@ function applyConnectionStatus(raw) {
     error: typeof incoming.error === "string" ? incoming.error : "",
     hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
-  // The per-group panel lives in the editor (always visible), so keep it fresh.
-  refreshConnectionGroupPanel();
-  renderClassifierStatus();
+  // The bridge mirror lives in the editor (always visible), so keep it fresh.
+  refreshBridgeMirror();
   if (!wasOnline && bridgeIsOnline()) {
     announceGroups();
     requestClusters();
-  }
-}
-
-// A visible indicator that Vault Classifier (Mac Vault) is reachable. When it is
-// down the extension keeps working — site blocks, custom rules and hides are
-// unaffected — but tag-based blocking is inert (a tag filter only decides on a
-// classifier answer), so the pill says so rather than failing silently.
-function renderClassifierStatus() {
-  const pill = document.getElementById("classifierStatusPill");
-  const help = document.getElementById("classifierStatusHelp");
-  const online = (state.connectionStatus || {}).state === "connected";
-  if (pill) {
-    pill.textContent = online ? t("classifierBridge.statusActive") : t("classifierBridge.statusOffline");
-    pill.classList.toggle("is-online", online);
-    pill.classList.toggle("is-offline", !online);
-  }
-  if (help) {
-    help.textContent = online ? "" : t("classifierBridge.statusOfflineHelp");
-    help.hidden = online;
   }
 }
 
@@ -935,10 +907,6 @@ const CONNECTION_PROGRAM_LABELS = {
   opera: "Opera",
   browser: "Browser"
 };
-
-function connectionProgramLabel(programId) {
-  return CONNECTION_PROGRAM_LABELS[programId] || programId || "?";
-}
 
 function bridgeIsOnline() {
   const s = state.connectionStatus || {};

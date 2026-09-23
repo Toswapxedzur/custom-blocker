@@ -742,39 +742,6 @@
             </div>
             <p id="snoozeWarning" class="inline-warning"></p>
           </section>
-
-          <section id="connectionGroupSection" class="section-card connection-group-section hidden">
-            <div class="section-header">
-              <div>
-                <h3 data-i18n="connectionGroup.title">Web-app Bridge</h3>
-                <p class="section-copy" data-i18n="connectionGroup.copy">
-                  Link this group with a same-named group on another connected program. Linked groups form one shared cluster.
-                </p>
-              </div>
-            </div>
-
-            <p id="connectionGroupHint" class="field-help"></p>
-
-            <div id="connectionGroupDisconnected" class="connection-group-connect hidden">
-              <div class="settings-grid">
-                <div>
-                  <label class="label" for="connectionGroupProgram" data-i18n="connectionGroup.programLabel">Designated program</label>
-                  <select id="connectionGroupProgram"></select>
-                </div>
-              </div>
-              <div class="actions">
-                <button id="connectionGroupConnectButton" type="button" data-i18n="connectionGroup.connect">Connect group</button>
-              </div>
-            </div>
-
-            <div id="connectionGroupConnected" class="connection-group-cluster hidden">
-              <p class="field-help" data-i18n="connectionGroup.membersLabel">Connected cluster</p>
-              <div id="connectionGroupMembers" class="connection-peer-list"></div>
-              <div class="actions">
-                <button id="connectionGroupDisconnectButton" type="button" class="secondary" data-i18n="connectionGroup.disconnect">Disconnect</button>
-              </div>
-            </div>
-          </section>
         </section>
       </section>
 
@@ -926,9 +893,7 @@
             <div>
               <h3 data-i18n="classifierBridge.title">Vault Classifier</h3>
             </div>
-            <span id="classifierStatusPill" class="classifier-status" role="status" aria-live="polite"></span>
           </div>
-          <p id="classifierStatusHelp" class="field-help classifier-status-help" hidden></p>
           <label class="checkbox-row compact" for="classifierCollectionToggle">
             <input id="classifierCollectionToggle" type="checkbox" checked />
             <span data-i18n="classifierBridge.collection">Collect supported platform entries</span>
