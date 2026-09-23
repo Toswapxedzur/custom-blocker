@@ -1211,6 +1211,19 @@ function applyFeedFilters() {
 
   latestExposedGroupIds = [...exposed];
 
+  if (cbDebugMode) {
+    // Debug mode only: one line per pass so a blackout that "does nothing" can
+    // be traced to its stage (no filter, no cards, tags not settled, no match).
+    let settled = 0; let dim = 0; let hide = 0;
+    for (const card of candidates) {
+      const tags = getFeedCardTags(card);
+      if (tags.settled) settled += 1;
+      const verdict = cbResolveCardVerdict(card);
+      if (verdict === "dim") dim += 1; else if (verdict === "hide") hide += 1;
+    }
+    cbDebugLog("[CustomBlocker:feed] pass", { site: currentSite, filters: activeFilters.length, cards: candidates.size, settled, dim, hide });
+  }
+
   // Refill what enforcement removed (only when the feed is too short to scroll).
   __cb_maybeReplenishFeed(currentSite);
 }
@@ -1239,6 +1252,7 @@ function scheduleApplyFeedFilters() {
 
 function updateFeedFilters(filters) {
   latestFeedFilters = Array.isArray(filters) ? filters : [];
+  cbDebugLog("[CustomBlocker:feed] filters received", latestFeedFilters.length, "site", getCurrentFeedSite(), latestFeedFilters.map((f) => `${f && f.site}:${f && f.tagFilter ? "tag" : "author"}`));
   reconcilePageMutations();
   if (cbTagPageContext) cbEvaluateTagPage(cbTagPageContext.root, cbTagPageContext);
 }
