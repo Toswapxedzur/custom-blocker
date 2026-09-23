@@ -17,7 +17,7 @@
   // Reddit and Bilibili joined 2026-09-23 (owner: full parity with YouTube on
   // YouTube, Reddit and Bilibili): posts / videos slots, home + comments
   // surfaces, and URL classifiers for page predicates.
-  const PLATFORM_LIST = ["youtube", "tiktok", "facebook", "instagram", "twitch", "reddit", "bilibili"];
+  const PLATFORM_LIST = ["youtube", "tiktok", "facebook", "instagram", "twitch", "reddit", "bilibili", "twitter"];
   const MAX_PERSISTENCE_KEYS_PER_GROUP = 200;
   const MAX_PERSISTENCE_VALUE_BYTES = 16 * 1024;
 
@@ -83,6 +83,10 @@
     return Boolean(host && (host === "reddit.com" || host.endsWith(".reddit.com")));
   }
 
+  function isTwitterHost(host) {
+    return Boolean(host && (host === "x.com" || host.endsWith(".x.com") || host === "twitter.com" || host.endsWith(".twitter.com")));
+  }
+
   function isBilibiliHost(host) {
     return Boolean(host && (host === "bilibili.com" || host.endsWith(".bilibili.com")));
   }
@@ -106,6 +110,7 @@
     if (isTwitchHost(host)) return "twitch";
     if (isRedditHost(host)) return "reddit";
     if (isBilibiliHost(host)) return "bilibili";
+    if (isTwitterHost(host)) return "twitter";
     return null;
   }
 
@@ -406,6 +411,40 @@
         const m = getPathname(url).match(/^\/video\/(BV[0-9A-Za-z_-]{3,128}|av\d+)/i);
         return m ? m[1] : null;
       }
+    },
+    twitter: {
+      // X's content form is the status (post); "author" is the account handle
+      // (lowercase, no @); the content id is the status id.
+      isPlatformUrl(url) {
+        return isTwitterHost(getHostname(url));
+      },
+      isShortUrl() {
+        return false;
+      },
+      isVideoUrl() {
+        return false;
+      },
+      isPostUrl(url) {
+        return isTwitterHost(getHostname(url)) && /^\/[^/]+\/status\/\d+/i.test(getPathname(url));
+      },
+      isHomePage(url) {
+        if (!isTwitterHost(getHostname(url))) return false;
+        const path = getPathname(url).replace(/\/+$/, "") || "/";
+        return path === "/" || path === "/home" || path === "/explore" || path.startsWith("/explore/") || path.startsWith("/i/trends");
+      },
+      extractAuthor(url) {
+        if (!isTwitterHost(getHostname(url))) return null;
+        const m = getPathname(url).match(/^\/([A-Za-z0-9_]{1,15})(?:[/?#]|$)/);
+        if (!m) return null;
+        const reserved = new Set(["home", "explore", "i", "search", "settings", "messages", "notifications", "compose", "login", "signup", "hashtag", "intent"]);
+        const handle = m[1].toLowerCase();
+        return reserved.has(handle) ? null : handle;
+      },
+      extractVideoId(url) {
+        if (!isTwitterHost(getHostname(url))) return null;
+        const m = getPathname(url).match(/^\/[^/]+\/status\/(\d{6,32})(?:[/?#]|$)/i);
+        return m ? m[1] : null;
+      }
     }
   };
 
@@ -422,6 +461,7 @@
       isTwitchHost,
       isRedditHost,
       isBilibiliHost,
+      isTwitterHost,
       isDiscordHost
     };
     for (const platform of PLATFORM_LIST) {
@@ -2507,6 +2547,17 @@
     ],
     reddit: [
       // Posts are Reddit's one card form; the item's `author` is the subreddit.
+      { name: "hidePosts", kind: "predicate", slot: "posts" },
+      { name: "showPosts", kind: "clearPredicate", slot: "posts" },
+      { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
+      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
+      { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
+      { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
+      { name: "isSponsored", kind: "itemBool", field: "sponsored" },
+      { name: "setPostsTimer", kind: "subsectionTimer", slot: "posts" }
+    ],
+    twitter: [
+      // Posts (statuses) are X's one card form; the item's `author` is the handle.
       { name: "hidePosts", kind: "predicate", slot: "posts" },
       { name: "showPosts", kind: "clearPredicate", slot: "posts" },
       { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },

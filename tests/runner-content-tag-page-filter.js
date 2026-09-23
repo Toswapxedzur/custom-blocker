@@ -69,6 +69,8 @@ check("a per-tag confidence override is honoured (and a filter update re-decides
 tagsByRoot.set(root, [{ id: "t1", name: "Gaming", confidence: 5 }]);
 setFilters([tagFilter({ id: "r␟tag", baseGroupId: "r", site: "reddit" })]);
 check("a Reddit tag filter blocks the post page's own entry", evaluate({ entryID: "reddit:post:abc123", platform: "reddit", settled: true }) === "block");
+setFilters([tagFilter({ id: "x␟tag", baseGroupId: "x", site: "twitter" })]);
+check("an X tag filter blocks the status page's own tweet", evaluate({ entryID: "twitter:status:2102730439869837540", platform: "twitter", settled: true }) === "block");
 setFilters([tagFilter({ id: "b␟tag", baseGroupId: "b", site: "bilibili" })]);
 check("a Bilibili tag filter blocks the watch page's own entry", evaluate({ entryID: "bilibili:video:BV1abc", platform: "bilibili", settled: true }) === "block");
 setFilters([tagFilter({ id: "b␟tag", baseGroupId: "b", site: "bilibili", tagCoverUntilTagged: true })]);
