@@ -38,7 +38,7 @@
   core.start({
     platform: "bilibili",
     matchesPage,
-    scan({ document, collect }) {
+    scan({ document, collect, observe }) {
       const cards = core.uniqueElements([
         ...core.selectorElements(document, ".bili-video-card"),
         // The video page's "up next" / recommendation sidebar (verified live 2026-09-10).
@@ -49,8 +49,21 @@
         const entry = core.firstAnchor(card, ['a[href*="/video/BV"]'], isVideo);
         if (!entry) continue;
         const source = core.firstAnchor(card, ['a[href*="space.bilibili.com/"]'], (anchor) => Boolean(core.normalizedSourceIdentity("bilibili", anchor.href)));
-        if (!source) continue;
         const videoID = videoIDFromHref(entry.href);
+        if (!source) {
+          // No uploader link (some search-result and ranking cards render the
+          // uploader as plain text; verified live 2026-09-23: 5 of 50 search
+          // cards). Still tag the title, keyed per video, like a creator-less
+          // YouTube Short — nothing is collected without a verifiable source.
+          if (videoID && typeof observe === "function") {
+            observe({
+              presentationRoot: card,
+              entryID: `bilibili:video:${videoID}`,
+              title: core.firstText(card, ['h1, h2, h3', '.title', '[title]']) || core.compactText(entry.getAttribute("title") || entry.textContent, 500)
+            });
+          }
+          continue;
+        }
         collect({
           presentationRoot: card,
           presentationAnchor: source,

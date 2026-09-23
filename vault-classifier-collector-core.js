@@ -404,6 +404,27 @@
       }
     }
 
+    // Pill-only: a card with content but no verifiable source (e.g. a Bilibili
+    // search card whose uploader is plain text). Nothing is collected — there
+    // is no source to key it under — but the title is still tagged, keyed per
+    // entry (owner 2026-09-19: "we can tag anything"), like a creator-less
+    // YouTube Short.
+    function observeOnly(raw) {
+      if (!collectionEnabled || !taggingEnabled || !raw?.presentationRoot || !PILL_PLATFORMS.has(platform)) return;
+      const entryID = compactText(raw.entryID, 256);
+      const title = compactText(raw.title, 500);
+      if (!entryID || !entryID.startsWith(`${platform}:`) || !title) return;
+      TagUI?.observe?.({
+        platform,
+        entryID,
+        creatorID: compactText(raw.creatorID, 256) || `${platform}:collab:${entryID.slice(platform.length + 1)}`,
+        title,
+        root: raw.presentationRoot,
+        anchor: raw.presentationAnchor || null,
+        kind: "card"
+      });
+    }
+
     function scheduleScan(delay = 250) {
       if (!collectionEnabled) return;
       if (scanTimer) {
@@ -412,7 +433,7 @@
       }
       scanTimer = setTimeout(() => {
         scanTimer = null;
-        try { config.scan({ document: global.document, collect: deliver, core: api }); } catch (_) {}
+        try { config.scan({ document: global.document, collect: deliver, observe: observeOnly, core: api }); } catch (_) {}
       }, delay);
     }
 

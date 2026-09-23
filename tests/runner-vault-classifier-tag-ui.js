@@ -210,9 +210,18 @@ setTimeout(() => {
     && pillStyle.includes("color:#fff");
 
   // content.js tells "untagged" from "no answer yet" through this export.
+  // A wrapper element that merely CONTAINS one pilled card (Reddit's <article>
+  // around <shreddit-post>, a Bilibili <li>) resolves to that card's tags; a
+  // wrapper holding several cards stays unknown.
+  const wrapperOfFirst = { isConnected: true, contains(node) { return node === this || node === firstRoot; } };
+  const wrapperOfBoth = { isConnected: true, contains(node) { return node === this || node === firstRoot || node === secondRoot; } };
   const settledExport = context.vaultTagsSettledForCard(firstRoot) === true
     && context.vaultTagsSettledForCard(new FakeElement("article", document)) === false
-    && context.vaultTagsForCard(firstRoot).length === 2;
+    && context.vaultTagsForCard(firstRoot).length === 2
+    && context.vaultTagsForCard(wrapperOfFirst).length === 2
+    && context.vaultTagsSettledForCard(wrapperOfFirst) === true
+    && context.vaultTagsForCard(wrapperOfBoth).length === 0
+    && context.vaultTagsSettledForCard(wrapperOfBoth) === false;
   const firstRenderOK = coalesced && renderedEveryEntry && genericHostIsPrivate && pageVerdictRouted && settledExport;
 
   // Reattach regression: the page detaches our host as it re-renders/recycles a

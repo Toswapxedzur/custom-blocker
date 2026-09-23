@@ -168,8 +168,26 @@
   // Expose a card's resolved tags (with confidence) to custom content-block
   // rules, which run in content.js and only hold the card element. Returns the
   // display tag list for the card's current entryID, or [] if unknown.
+  // The element content.js holds for a feed card is not always the element the
+  // collector pilled: Reddit's filter card is the <article> wrapping the pilled
+  // <shreddit-post>, and a Bilibili grid may wrap a card in an <li>. Resolve the
+  // exact root first, else the one pilled card inside the given element.
+  function stateForCard(root) {
+    if (!root) return null;
+    const exact = stateByRoot.get(root);
+    if (exact) return exact;
+    if (typeof root.contains !== "function") return null;
+    let found = null;
+    for (const state of mountedStates) {
+      if (state.kind !== "card" || state.root === root || !root.contains(state.root)) continue;
+      if (found) return null; // ambiguous wrapper (several cards inside) → unknown
+      found = state;
+    }
+    return found;
+  }
+
   function tagsForCard(root) {
-    const state = root && stateByRoot.get(root);
+    const state = stateForCard(root);
     if (!state) return [];
     const cached = sourceCache.get(state.key);
     if (!cached || cached.provisional || !Array.isArray(cached.tags)) return [];
@@ -185,7 +203,7 @@
   // block-untagged filter must never black out a feed the classifier simply
   // hasn't answered for.
   function tagsSettledForCard(root) {
-    const state = root && stateByRoot.get(root);
+    const state = stateForCard(root);
     if (!state) return false;
     const cached = sourceCache.get(state.key);
     return Boolean(cached && !cached.provisional && Array.isArray(cached.tags));
