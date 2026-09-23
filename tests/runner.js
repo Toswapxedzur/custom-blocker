@@ -279,6 +279,44 @@ log.section("S8b: Facebook current video routes");
     facebook.extractAuthor("https://www.facebook.com/share/v/abc/"), null);
 }
 
+log.section("S8c: Reddit and Bilibili in the custom-rule engine");
+{
+  const { platformHelpers } = makeFixture();
+  const reddit = platformHelpers.reddit();
+  const bilibili = platformHelpers.bilibili();
+  assert("reddit().isPostUrl recognises a post permalink",
+    reddit.isPostUrl("https://www.reddit.com/r/OpenAI/comments/abc123/title/"));
+  assert("reddit().isPostUrl rejects a subreddit feed",
+    !reddit.isPostUrl("https://www.reddit.com/r/OpenAI/"));
+  assert("reddit().isHomePage recognises / and /r/all",
+    reddit.isHomePage("https://www.reddit.com/") && reddit.isHomePage("https://www.reddit.com/r/all/"));
+  assert("reddit().isHomePage rejects a subreddit", !reddit.isHomePage("https://www.reddit.com/r/OpenAI/"));
+  assertEqual("reddit().extractAuthor is the subreddit, lowercase",
+    reddit.extractAuthor("https://www.reddit.com/r/OpenAI/comments/abc123/title/"), "openai");
+  assertEqual("reddit().extractVideoId is the post id",
+    reddit.extractVideoId("https://www.reddit.com/r/OpenAI/comments/abc123/title/"), "abc123");
+  assertThrows("reddit().hide('videos', …) throws (posts are Reddit's one form)",
+    () => reddit.hide("videos", () => true), TypeError);
+  reddit.hide("posts", () => true);
+  assert("reddit().hide('posts', …) installs the posts predicate", true);
+  assert("bilibili().isVideoUrl recognises /video/BV…",
+    bilibili.isVideoUrl("https://www.bilibili.com/video/BV16zhJ6KEht/?spm=1"));
+  assert("bilibili().isVideoUrl rejects the search page",
+    !bilibili.isVideoUrl("https://search.bilibili.com/all?keyword=x"));
+  assert("bilibili().isHomePage is www root only",
+    bilibili.isHomePage("https://www.bilibili.com/") && !bilibili.isHomePage("https://search.bilibili.com/"));
+  assertEqual("bilibili().extractAuthor reads the space id",
+    bilibili.extractAuthor("https://space.bilibili.com/12345/video"), "12345");
+  assertEqual("bilibili().extractVideoId reads the BV id",
+    bilibili.extractVideoId("https://www.bilibili.com/video/BV16zhJ6KEht/"), "BV16zhJ6KEht");
+  assertThrows("bilibili().hide('posts', …) throws (videos are Bilibili's one form)",
+    () => bilibili.hide("posts", () => true), TypeError);
+  bilibili.dim("videos", () => true);
+  assert("bilibili().dim('videos', …) installs the videos predicate", true);
+  assertEqual("bilibili().timerSlots()", bilibili.timerSlots(), ["videos"]);
+  assertEqual("reddit().timerSlots()", reddit.timerSlots(), ["posts"]);
+}
+
 log.section("S9: surface(name, action) toggles whole regions");
 {
   const { accumulator, persistentBucket, platformHelpers } = makeFixture();

@@ -47,6 +47,9 @@
     "src", "srcset", "data-src", "data-lazy-src", "data-original", "data-srcset"
   ]);
   let collectionEnabled = false;
+  // Tagging can be off while collection stays on (tagging schedule / pause):
+  // cards are still collected for History but never sent for tags.
+  let taggingEnabled = false;
   let pageTimer = null;
   let collectionEpoch = 0;
   let lastWatchEvidenceFailure = "missing-watch-root";
@@ -521,14 +524,16 @@
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage({ type: "vault-classifier-collection-info" }, (response) => {
-          if (chrome.runtime.lastError) return resolve({ enabled: false, failed: true });
+          if (chrome.runtime.lastError) return resolve({ enabled: false, tagging: false, failed: true });
+          const enabled = Boolean(response && response.ok === true && response.enabled === true);
           resolve({
-            enabled: Boolean(response && response.ok === true && response.enabled === true),
+            enabled,
+            tagging: enabled && response.tagging !== false,
             failed: !(response && response.ok === true)
           });
         });
       } catch (_) {
-        resolve({ enabled: false, failed: true });
+        resolve({ enabled: false, tagging: false, failed: true });
       }
     });
   }
@@ -603,7 +608,7 @@
       const title = selectorText(card, TITLE_SELECTORS, 500);
       // Per-video pill: keyed by the video's entryID + title; the creator rides
       // along only as the derived weak prior.
-      if (videoID && title) {
+      if (videoID && title && taggingEnabled) {
         TagUI?.observe?.({
           platform: PLATFORM,
           entryID: `${PLATFORM}:video:${videoID}`,
@@ -630,7 +635,7 @@
       if (videoID) {
         const titleElement = selectorElement(card, TITLE_SELECTORS);
         const title = selectorText(card, TITLE_SELECTORS, 500);
-        if (title) {
+        if (title && taggingEnabled) {
           TagUI?.observe?.({
             platform: PLATFORM,
             entryID: `${PLATFORM}:video:${videoID}`,
@@ -666,7 +671,7 @@
     // on the very first visit rather than only after a later collection.
     await collectEntry(entry);
     const watchTitle = (entry.evidence && entry.evidence.title) || compactText(titleElement && titleElement.textContent, 500);
-    if (entry.entryID && entry.sourceID && watchTitle) {
+    if (entry.entryID && entry.sourceID && watchTitle && taggingEnabled) {
       // kind "page": this is the page's OWN entry, so the tag filter's page
       // effect applies — the player is blacked out in place (content.js
       // cbEvaluateTagPage) instead of blacking a thumbnail.
@@ -794,6 +799,11 @@
     requestCollectionInfo().then((nextEnabled) => {
       if (epoch !== collectionEpoch) return;
       collectionEnabled = nextEnabled.enabled;
+      const taggingWas = taggingEnabled;
+      taggingEnabled = nextEnabled.tagging;
+      // A schedule window closing takes the pills down; one opening just needs
+      // the sweep below (every card is re-observed there).
+      if (taggingWas && !taggingEnabled) TagUI?.clearPlatform?.(PLATFORM);
       if (nextEnabled.failed) {
         reportDiagnostic("collection-info-failed", "runtime-last-error");
       } else if (collectionEnabled) {
