@@ -24,6 +24,8 @@ let rescans = 0;
 const tagsByRoot = new Map();
 const settledByRoot = new Map(); // default: settled
 const context = vm.createContext({
+  cbDebugLog() {},
+  getCurrentFeedSite: () => "youtube",
   cbApplyTagPagePolicy(root, action, meta) { applied.push({ root, action, entryID: meta && meta.entryID }); return action === "block"; },
   scheduleApplyFeedFilters() { rescans += 1; },
   reconcilePageMutations() {},
