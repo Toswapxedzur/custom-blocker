@@ -19,7 +19,7 @@ Vault is a focus-control WebExtension. Its unit of configuration is a **block gr
 - run a Custom JavaScript rule with an event API;
 - show an on-page timer, panel, message, or page log;
 - redirect, navigate, close a browser tab, or maintain a session-only rule-created site blocklist;
-- optionally participate in a locally connected Vault bridge cluster.
+- automatically participate in a locally connected Vault bridge cluster.
 
 Vault acts only inside the browser profile where it is installed and only where the browser permits its content script to run. It does not:
 
@@ -879,15 +879,15 @@ No Custom rule receives unrestricted extension APIs. In particular:
 
 The browser extension automatically starts its connection to the compatible local Vault hub at ws://127.0.0.1:8787. There is no user connection switch, and protocol compatibility is required.
 
-Vault probes rapidly first and then continues slower reconnect attempts for as long as the extension runs. Automatic transport does not merge groups by itself; linking and unlinking groups remain explicit.
+Vault probes rapidly first and then continues slower reconnect attempts for as long as the extension runs.
 
-### 11.1 Linking groups
+### 11.1 Automatic group linking
 
-Groups are linkable only when their name and type match and they are eligible for linking. The user explicitly selects/links the participating programs. A linked group forms a cluster. Disconnecting leaves local group data intact; it stops live synchronization.
+Linking is automatic and always on. Whenever a peer program is present on the hub, a group is joined into a shared cluster with every same-named, same-type group across the connected programs. There is no program picker and no connect or disconnect action: clusters form and dissolve on their own as peers and groups come and go. A read-only mirror in the group editor shows the linked side's blocked list (browsers own websites and mirror the shared apps; the Mac owns apps and mirrors the shared websites).
 
 The bridge synchronizes shared scalar policy for supported linked groups, including normal blocking mode, allowance/reset values, snooze settings, active days/windows, freeze state/choice/duration, homepage policy, allowlist setting, fallback URL, and skip-to-next policy. It also coordinates usage and snooze state for cluster members.
 
-The bridge does not promise that every product-specific field, platform selector, Custom source text, or browser-specific capability is transferable to a different program. A group can remain local and unlinked even while the bridge is connected.
+The bridge does not promise that every product-specific field, platform selector, Custom source text, or browser-specific capability is transferable to a different program.
 
 Frozen bridge clusters require all relevant members to be online for freeze-state actions that need coordinated mutation. A connection is local transport, not a cloud backup or remote-control channel.
 
