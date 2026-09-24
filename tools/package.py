@@ -52,6 +52,7 @@ COMMON_TOP_LEVEL_FILES = [
     "bridge-protocol.js",
     "content.js",
     "platform-profiles.js",
+    "group-scopes.js",
     "helpers.js",
     "browser-compat.js",
     "popup.html",
