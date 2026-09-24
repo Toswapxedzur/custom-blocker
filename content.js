@@ -3616,6 +3616,10 @@ function __cb_extractCardItem(card, platform) {
   // creator. Empty until the pill resolves; a resolved change re-evaluates via
   // the signature below.
   let tags = [];
+  // True only once the classifier has ANSWERED for this card (tags, or an
+  // explicit none). While false the tags are simply unknown yet, so a rule can
+  // fail open instead of treating "not classified" as "untagged".
+  let tagsSettled = false;
   try {
     if (typeof window !== "undefined" && typeof window.vaultTagsForCard === "function") {
       const resolved = window.vaultTagsForCard(card);
@@ -3624,6 +3628,9 @@ function __cb_extractCardItem(card, platform) {
           .filter((t) => t && typeof t.name === "string")
           .map((t) => ({ id: t.id, name: t.name, confidence: Number.isInteger(t.confidence) ? t.confidence : 0 }));
       }
+      tagsSettled = typeof window.vaultTagsSettledForCard === "function"
+        ? window.vaultTagsSettledForCard(card) === true
+        : tags.length > 0;
     }
   } catch {}
 
@@ -3640,7 +3647,8 @@ function __cb_extractCardItem(card, platform) {
     sponsored: null,
     algorithmic: null,
     videoForm,
-    tags
+    tags,
+    tagsSettled
   };
 }
 
@@ -3659,7 +3667,7 @@ function cbCardSignature(item) {
   const tagSig = Array.isArray(item.tags)
     ? item.tags.map((t) => `${t.id || t.name}:${t.confidence || 0}`).sort().join(",")
     : "";
-  return [item.url || "", item.title || "", item.videoForm || "", tagSig].join("\n");
+  return [item.url || "", item.title || "", item.videoForm || "", tagSig, item.tagsSettled ? "settled" : ""].join("\n");
 }
 
 // Returns the full sandbox reply { results, evaluatedGroups } (or null). The
