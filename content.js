@@ -67,7 +67,7 @@ function normalizeHostname(hostname) {
 // Entity/mode normalisation, host predicates, path parsers and
 // detectVideoSiteContext now live in platform-profiles.js (loaded as the
 // first content script) and are available here as globals:
-//   normalizeYouTubeCreatorInput, normalizePlatformAuthorInput,
+//   normalizeYouTubeCreatorInput, normalizeSourceInput,
 //   normalizeRedditSubredditInput, normalizeDiscordTargetInput,
 //   isYouTubeHost, isRedditHost, isDiscordHost, isTwitterHost,
 //   getPlatformGroupTypeForHost,
@@ -484,7 +484,9 @@ function getFeedCardTags(card) {
 function getFeedCardData(card) {
   const currentSite = getCurrentFeedSite();
   if (currentSite === "reddit") {
-    return { redditSubreddit: extractRedditSubredditFromCard(card), tags: getFeedCardTags(card) };
+    // Reddit's source axis is the subreddit, carried like any creator list.
+    const subreddit = extractRedditSubredditFromCard(card);
+    return { videoForm: "post", creators: subreddit ? [subreddit] : [], tags: getFeedCardTags(card) };
   }
   if (currentSite === "twitter") {
     const creators = [
@@ -505,7 +507,7 @@ function getFeedCardData(card) {
     const creators = [
       ...new Set(
         [...card.querySelectorAll("a[href]")]
-          .map((anchor) => normalizePlatformAuthorInput(anchor.getAttribute("href"), currentSite))
+          .map((anchor) => normalizeSourceInput(anchor.getAttribute("href"), currentSite))
           .filter(Boolean)
       )
     ];
@@ -572,13 +574,6 @@ function matchesFeedFilter(cardData, filter) {
     // "untagged": a tag filter only ever decides on a settled result.
     if (cardData.tags && cardData.tags.settled === false) return false;
     return matchesTagFilter(filter.tagFilter, cardData.tags);
-  }
-  if (filter.site === "reddit") {
-    if (!cardData.redditSubreddit) return false;
-    const subreddits = Array.isArray(filter.subreddits) ? filter.subreddits : [];
-    if (filter.redditMode === "include") return subreddits.includes(cardData.redditSubreddit);
-    if (filter.redditMode === "exclude") return !subreddits.includes(cardData.redditSubreddit);
-    return false;
   }
   if (filter.videoMode === "short" || filter.videoMode === "long" || filter.videoMode === "post") {
     if (cardData.videoForm !== filter.videoMode) return false;
@@ -1406,9 +1401,9 @@ function collectYouTubeCreatorIdentifiers() {
 // 3rd `url` arg for Facebook profile.php id extraction).
 
 function collectPlatformAuthors(pathname, isYouTubePage) {
-  const map = { youtube: [], tiktok: [], facebook: [], instagram: [], twitch: [], twitter: [] };
+  const map = { youtube: [], tiktok: [], facebook: [], instagram: [], twitch: [], twitter: [], reddit: [] };
   if (isYouTubePage) map.youtube = collectYouTubeCreatorIdentifiers();
-  for (const groupType of ["youtube", "tiktok", "facebook", "instagram", "twitch", "twitter"]) {
+  for (const groupType of ["youtube", "tiktok", "facebook", "instagram", "twitch", "twitter", "reddit"]) {
     const fromPath = extractPrimaryAuthorFromPath(groupType, pathname, location.href);
     if (fromPath && !map[groupType].includes(fromPath)) map[groupType].push(fromPath);
   }
@@ -3568,7 +3563,7 @@ function __cb_extractCardItem(card, platform) {
       creators = [
         ...new Set(
           [...card.querySelectorAll("a[href]")]
-            .map((a) => normalizePlatformAuthorInput(a.getAttribute("href"), platform))
+            .map((a) => normalizeSourceInput(a.getAttribute("href"), platform))
             .filter(Boolean)
         )
       ];

@@ -197,10 +197,9 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     activeDays: createDefaultDays(),
     timeWindowsText: "",
     platformVideoMode: "all",
-    platformAuthorMode: "none",
-    platformAuthors: [],
-    redditMode: "all",
-    redditSubreddits: [],
+    // Source axis: creators / accounts / subreddits (Discord keeps its own pair).
+    sourceMode: "all",
+    sources: [],
     discordMode: "all",
     discordTargets: [],
     surfaceHides: [],
@@ -241,8 +240,8 @@ function normalizeSiteInput(value) {
 // Platform group-type vocabulary + entity/mode normalisation now lives in
 // platform-profiles.js (the single site-profile registry), loaded above via
 // importScripts. normalizeGroupType, isPlatformVideoGroupType,
-// normalizeYouTubeCreatorInput, normalizePlatformAuthorInput,
-// normalizePlatformAuthorMode, normalizeVideoMode, normalizeRedditMode,
+// normalizeYouTubeCreatorInput, normalizeSourceInput,
+// normalizeSourceMode, normalizeVideoMode,
 // normalizeRedditSubredditInput, normalizeDiscordMode and
 // normalizeDiscordTargetInput are provided as globals from there.
 
@@ -414,10 +413,19 @@ function sanitizeGroups(groups) {
           : Array.isArray(group?.timeWindows)
             ? group.timeWindows.join("\n")
             : "";
-      const rawAuthors = Array.isArray(group?.platformAuthors) ? group.platformAuthors : [];
-      const rawRedditSubreddits = Array.isArray(group?.redditSubreddits)
-        ? group.redditSubreddits
-        : [];
+      // One source list per group. Legacy stores carried platformAuthors /
+      // platformAuthorMode (creators, accounts) or redditSubreddits /
+      // redditMode (Reddit); both are read once here and written back as
+      // sources / sourceMode.
+      const legacySources = group?.groupType === "reddit" ? group?.redditSubreddits : group?.platformAuthors;
+      const legacyMode = group?.groupType === "reddit" ? group?.redditMode : group?.platformAuthorMode;
+      // The legacy pair only exists in old stores and old-style patches, so when
+      // it is present it wins over a default-valued modern pair merged underneath.
+      const hasLegacy = Array.isArray(legacySources) || typeof legacyMode === "string";
+      const rawSources = hasLegacy
+        ? (Array.isArray(legacySources) ? legacySources : [])
+        : Array.isArray(group?.sources) ? group.sources : [];
+      const rawSourceMode = hasLegacy ? legacyMode : group?.sourceMode;
       const rawDiscordTargets = Array.isArray(group?.discordTargets) ? group.discordTargets : [];
 
       const normalizedGroupType = normalizeGroupType(group?.groupType);
@@ -450,11 +458,11 @@ function sanitizeGroups(groups) {
         activeDays: hasStoredDays ? activeDays : createDefaultDays(),
         timeWindowsText: parseTimeWindowsText(rawTimeWindowsText).join("\n"),
         platformVideoMode: normalizeVideoMode(group?.platformVideoMode),
-        platformAuthorMode: normalizePlatformAuthorMode(group?.platformAuthorMode),
-        platformAuthors: [
+        sourceMode: normalizeSourceMode(rawSourceMode, rawSources),
+        sources: [
           ...new Set(
-            rawAuthors
-              .map((author) => normalizePlatformAuthorInput(author, normalizedGroupType))
+            rawSources
+              .map((source) => normalizeSourceInput(source, normalizedGroupType))
               .filter(Boolean)
           )
         ],
@@ -472,10 +480,6 @@ function sanitizeGroups(groups) {
         // classifier is still tagging, instead of leaving them visible until the
         // tags arrive. Revealed when the tags settle and do not match.
         platformTagCoverUntilTagged: group?.platformTagCoverUntilTagged === true,
-        redditSubreddits: [
-          ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
-        ],
-        redditMode: normalizeRedditMode(group?.redditMode, rawRedditSubreddits),
         discordTargets: [
           ...new Set(
             rawDiscordTargets
@@ -1365,14 +1369,14 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
       const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
       // Author filter: emitted only for its active modes. "nobody"/other → the
       // author axis blocks nothing, but the group's TAG filter may still apply.
-      const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
+      const authorMode = normalizeSourceMode(group.sourceMode, group.sources);
       if (authorMode === "all" || authorMode === "include" || authorMode === "exclude") {
         filters.push({
           id: group.id,
           site: group.groupType,
           videoMode: normalizeVideoMode(group.platformVideoMode),
           authorMode,
-          authors: [...group.platformAuthors],
+          authors: [...group.sources],
           enforce
         });
       }
@@ -1392,19 +1396,16 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
         continue;
       }
       const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
-      const subreddits = Array.isArray(group.redditSubreddits) ? group.redditSubreddits : [];
-      const redditMode = normalizeRedditMode(group.redditMode, subreddits);
-      // Subreddit filter (skips "all" / empty include); the tag filter below is
-      // independent and applies regardless of the subreddit mode.
-      if (
-        (redditMode === "include" || redditMode === "exclude") &&
-        !(redditMode === "include" && subreddits.length === 0)
-      ) {
+      const authorMode = normalizeSourceMode(group.sourceMode, group.sources);
+      // Subreddit (source) filter: only include/exclude trim feed cards; "all"
+      // blocks the page (matcher) and "nobody" blocks nothing. The tag filter
+      // below is independent and applies regardless.
+      if (authorMode === "include" || authorMode === "exclude") {
         filters.push({
           id: group.id,
           site: "reddit",
-          redditMode,
-          subreddits: [...subreddits],
+          authorMode,
+          authors: [...group.sources],
           enforce
         });
       }
@@ -1423,16 +1424,16 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
         continue;
       }
       const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
-      const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
+      const authorMode = normalizeSourceMode(group.sourceMode, group.sources);
       // Mode "all" blocks the whole page (handled by the matcher); "nobody"
       // blocks nothing. Only include/exclude trim individual feed cards. The tag
-      // filter below is independent and applies regardless of the author mode.
+      // filter below is independent and applies regardless of the source mode.
       if (authorMode === "include" || authorMode === "exclude") {
         filters.push({
           id: group.id,
           site: currentSite,
           authorMode,
-          authors: [...group.platformAuthors],
+          authors: [...group.sources],
           enforce
         });
       }

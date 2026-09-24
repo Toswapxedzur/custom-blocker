@@ -155,16 +155,16 @@ The normal Site-group domain list is the only declarative whole-site list expose
 
 ### 3.2 Video-platform groups
 
-YouTube, TikTok, Facebook, Instagram, and Twitch are video-platform groups. Each is limited to its own platform host. A group can target content form, author/account scope, the platform's home feed, and optional hide-element controls.
+YouTube, TikTok, Facebook, Instagram, and Twitch are video-platform groups. Each is limited to its own platform host. A group can target content form, source scope (creators or accounts), the platform's home feed, and optional hide-element controls.
 
-The general author modes are:
+Creators, accounts and subreddits are the group's **sources**. The source modes are:
 
 | Mode | Result |
 | --- | --- |
-| All | Do not restrict by author; other configured axes decide the match. |
-| Include | Match only the listed normalized creators/accounts. |
-| Exclude | Match all detected creators/accounts except the listed entries. |
-| Nobody | Match no author. This is a deliberate no-match author axis. |
+| All | Do not restrict by source; other configured axes decide the match. |
+| Include | Match only the listed normalized sources. |
+| Exclude | Match all detected sources except the listed entries. |
+| Nobody | Match no source. This is a deliberate no-match source axis; the group's content tag filter may still apply. |
 
 #### Content tag filter
 
@@ -222,9 +222,9 @@ Surface-hide choices are independent of top-level blocking. They affect only the
 
 ### 3.3 Reddit
 
-A Reddit group applies only on Reddit. Its entity is a subreddit. Subreddit input accepts the ordinary community form and normalizes it before matching.
+A Reddit group applies only on Reddit. Its sources are subreddits, edited in the same source list as creators on other platforms. Subreddit input accepts the ordinary community form and normalizes it before matching.
 
-The subreddit modes are:
+The subreddit modes are the general source modes:
 
 | Mode | Result |
 | --- | --- |
