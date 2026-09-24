@@ -82,7 +82,7 @@ function isPlatformFeedGroupType(groupType) {
 
 function isPlatformAuthorGroupType(groupType) {
   const t = normalizeGroupType(groupType);
-  return isPlatformVideoGroupType(t) || isPlatformFeedGroupType(t);
+  return isPlatformVideoGroupType(t) || isPlatformFeedGroupType(t) || t === "reddit";
 }
 
 // Any non-custom, non-site group that owns a dedicated matcher in this
@@ -100,27 +100,27 @@ function isPlatformProfileGroupType(groupType) {
 //   include      → applies only to the listed authors
 //   exclude      → applies to every author except the listed ones
 //   nobody       → applies to no author (author axis blocks nothing)
-const PLATFORM_AUTHOR_MODES = ["all", "include", "exclude", "nobody"];
+// Source axis (owner 2026-09-24): creators, accounts and subreddits are all
+// "sources of content" and share ONE field pair — `sourceMode` + `sources`.
+// Discord's servers/channels are places, not sources, and keep their own pair.
+const SOURCE_MODES = ["all", "include", "exclude", "nobody"];
 
-function normalizePlatformAuthorMode(value) {
+function normalizeSourceMode(value, fallbackList) {
   if (value === "none") return "all"; // legacy value meant "apply to all authors"
-  return PLATFORM_AUTHOR_MODES.includes(value) ? value : "all";
+  if (SOURCE_MODES.includes(value)) return value;
+  // Legacy Reddit groups stored no mode: a non-empty list meant "include".
+  const list = Array.isArray(fallbackList) ? fallbackList : [];
+  return list.length > 0 ? "include" : "all";
 }
 
-// True when the author mode keys off an explicit author list (include/exclude).
-function platformAuthorModeUsesList(mode) {
-  const m = normalizePlatformAuthorMode(mode);
+// True when the source mode keys off an explicit list (include/exclude).
+function sourceModeUsesList(mode) {
+  const m = normalizeSourceMode(mode);
   return m === "include" || m === "exclude";
 }
 
 function normalizeVideoMode(value) {
   return value === "short" || value === "long" || value === "post" ? value : "all";
-}
-
-function normalizeRedditMode(value, fallbackList) {
-  if (value === "all" || value === "include" || value === "exclude") return value;
-  const list = Array.isArray(fallbackList) ? fallbackList : [];
-  return list.length > 0 ? "include" : "all";
 }
 
 function normalizeDiscordMode(value, fallbackList) {
@@ -292,11 +292,14 @@ function normalizeFeedPlatformAuthorInput(value, groupType) {
   return null;
 }
 
-function normalizePlatformAuthorInput(value, groupType) {
+function normalizeSourceInput(value, groupType) {
   const normalizedGroupType = normalizeGroupType(groupType);
 
   if (normalizedGroupType === "youtube") {
     return normalizeYouTubeCreatorInput(value);
+  }
+  if (normalizedGroupType === "reddit") {
+    return normalizeRedditSubredditInput(value);
   }
   if (normalizedGroupType === "twitter") {
     return normalizeTwitterHandleInput(value);
@@ -413,7 +416,7 @@ function normalizePlatformEntityInput(value, groupType) {
   const t = normalizeGroupType(groupType);
   if (t === "reddit") return normalizeRedditSubredditInput(value);
   if (t === "discord") return normalizeDiscordTargetInput(value);
-  return normalizePlatformAuthorInput(value, t);
+  return normalizeSourceInput(value, t);
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -648,6 +651,8 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
 
   if (t === "youtube") return normalizeYouTubeCreatorInput(safePathname);
 
+  if (t === "reddit") return parseRedditSubredditFromPath(safePathname);
+
   if (t === "twitter") {
     const match = safePathname.match(/^\/([^/?#]+)/i);
     return match ? normalizeTwitterHandleInput(match[1]) : null;
@@ -659,7 +664,7 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
 
   if (t === "tiktok") {
     const match = safePathname.match(/^\/@([^/?#]+)/i);
-    return match ? normalizePlatformAuthorInput(match[1], t) : null;
+    return match ? normalizeSourceInput(match[1], t) : null;
   }
 
   if (t === "instagram") {
@@ -668,21 +673,21 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
     const reserved = new Set(["reel", "p", "tv", "explore", "accounts", "about"]);
     return reserved.has(match[1].toLowerCase())
       ? null
-      : normalizePlatformAuthorInput(match[1], t);
+      : normalizeSourceInput(match[1], t);
   }
 
   if (t === "facebook") {
     try {
       const parsed = url ? new URL(url) : null;
       const id = parsed?.searchParams?.get("id");
-      if (id) return normalizePlatformAuthorInput(`id:${id}`, t);
+      if (id) return normalizeSourceInput(`id:${id}`, t);
     } catch {}
     const match = safePathname.match(/^\/([^/?#]+)/i);
     if (!match) return null;
     const reserved = new Set(["watch", "reel", "share", "groups", "marketplace", "gaming", "video", "videos"]);
     return reserved.has(match[1].toLowerCase())
       ? null
-      : normalizePlatformAuthorInput(match[1], t);
+      : normalizeSourceInput(match[1], t);
   }
 
   if (t === "twitch") {
@@ -701,7 +706,7 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
     ]);
     return reserved.has(match[1].toLowerCase())
       ? null
-      : normalizePlatformAuthorInput(match[1], t);
+      : normalizeSourceInput(match[1], t);
   }
 
   return null;
@@ -711,7 +716,7 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
 // plus whatever can be parsed from the path. Twitter participates here too so
 // account include/exclude works on profile pages.
 const PLATFORM_AUTHOR_MAP_TYPES = [
-  ...new Set([...PLATFORM_VIDEO_GROUP_TYPES, ...PLATFORM_FEED_GROUP_TYPES])
+  ...new Set([...PLATFORM_VIDEO_GROUP_TYPES, ...PLATFORM_FEED_GROUP_TYPES, "reddit"])
 ];
 
 function normalizePlatformAuthorsMap(inputMap, pathname, url) {
@@ -719,7 +724,7 @@ function normalizePlatformAuthorsMap(inputMap, pathname, url) {
   for (const groupType of PLATFORM_AUTHOR_MAP_TYPES) {
     const raw = Array.isArray(inputMap?.[groupType]) ? inputMap[groupType] : [];
     const normalized = [
-      ...new Set(raw.map((author) => normalizePlatformAuthorInput(author, groupType)).filter(Boolean))
+      ...new Set(raw.map((author) => normalizeSourceInput(author, groupType)).filter(Boolean))
     ];
     const fromPath = extractPrimaryAuthorFromPath(groupType, pathname, url);
     if (fromPath && !normalized.includes(fromPath)) normalized.push(fromPath);
@@ -794,7 +799,7 @@ function matchesVideoMode(group, pageContext) {
 function matchesPlatformVideoGroup(group, pageContext) {
   const isYouTubeGroup = group.groupType === "youtube";
 
-  const authorMode = normalizePlatformAuthorMode(group.platformAuthorMode);
+  const authorMode = normalizeSourceMode(group.sourceMode, group.sources);
 
   if (isYouTubeGroup) {
     if (!pageContext.isYouTubePage) {
@@ -827,7 +832,7 @@ function matchesPlatformVideoGroup(group, pageContext) {
   // "nobody" doesn't block via the author axis.
   if (authorMode !== "include" && authorMode !== "exclude") return false;
 
-  if (!Array.isArray(group.platformAuthors) || group.platformAuthors.length === 0) return false;
+  if (!Array.isArray(group.sources) || group.sources.length === 0) return false;
 
   const platformKey = isYouTubeGroup ? "youtube" : group.groupType;
   const pageAuthors = Array.isArray(pageContext.platformAuthors?.[platformKey])
@@ -836,28 +841,33 @@ function matchesPlatformVideoGroup(group, pageContext) {
 
   if (pageAuthors.length === 0) return false;
 
-  const hasAuthorMatch = group.platformAuthors.some((author) => pageAuthors.includes(author));
+  const hasAuthorMatch = group.sources.some((author) => pageAuthors.includes(author));
   return authorMode === "include" ? hasAuthorMatch : !hasAuthorMatch;
 }
 
+// Reddit's source is the subreddit; the page context carries it both as
+// `redditSubreddit` (custom rules) and under platformAuthors.reddit (this axis).
 function matchesRedditGroup(group, pageContext) {
   if (!pageContext.isRedditPage) return false;
   if (group.blockHomePage && isHomeFeedPage("reddit", pageContext.hostname, pageContext.pathname)) {
     return true;
   }
 
-  const subreddits = Array.isArray(group.redditSubreddits) ? group.redditSubreddits : [];
-  const mode = normalizeRedditMode(group.redditMode, subreddits);
+  const sources = Array.isArray(group.sources) ? group.sources : [];
+  const mode = normalizeSourceMode(group.sourceMode, sources);
 
   if (mode === "all") return true;
+  // "nobody" blocks no subreddit (the group's tag filter may still apply).
+  if (mode !== "include" && mode !== "exclude") return false;
+  if (sources.length === 0) return false;
 
-  if (mode === "include") {
-    if (subreddits.length === 0 || !pageContext.redditSubreddit) return false;
-    return subreddits.includes(pageContext.redditSubreddit);
-  }
+  const pageSubreddits = Array.isArray(pageContext.platformAuthors?.reddit) && pageContext.platformAuthors.reddit.length > 0
+    ? pageContext.platformAuthors.reddit
+    : pageContext.redditSubreddit ? [pageContext.redditSubreddit] : [];
+  if (pageSubreddits.length === 0) return false;
 
-  if (!pageContext.redditSubreddit) return false;
-  return !subreddits.includes(pageContext.redditSubreddit);
+  const hasMatch = sources.some((subreddit) => pageSubreddits.includes(subreddit));
+  return mode === "include" ? hasMatch : !hasMatch;
 }
 
 function matchesDiscordGroup(group, pageContext) {
@@ -881,8 +891,8 @@ function matchesDiscordGroup(group, pageContext) {
   return mode === "include" ? Boolean(isListed) : !isListed;
 }
 
-// Feed platforms use the author/account axis (platformAuthorMode/
-// platformAuthors) but no video-form axis. authorMode "all" means a coarse
+// Feed platforms use the source axis (sourceMode/sources) but no video-form
+// axis. sourceMode "all" means a coarse
 // whole-platform block; include/exclude stay fail-open until the page author
 // can be determined.
 function matchesPlatformFeedGroup(group, pageContext) {
@@ -892,12 +902,12 @@ function matchesPlatformFeedGroup(group, pageContext) {
     return true;
   }
 
-  const mode = normalizePlatformAuthorMode(group.platformAuthorMode);
+  const mode = normalizeSourceMode(group.sourceMode, group.sources);
   if (mode === "all") return true;
   // "nobody" blocks no account.
   if (mode !== "include" && mode !== "exclude") return false;
 
-  const authors = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
+  const authors = Array.isArray(group.sources) ? group.sources : [];
   if (authors.length === 0) return false;
 
   const pageAuthors = Array.isArray(pageContext.platformAuthors?.[type])
@@ -1024,11 +1034,11 @@ function getSurfaceHideSelectors(groupType, enabledIds, scope) {
 // by the group's targeted authors). Ignores the content-type/home axes.
 function platformGroupAuthorAxisMatchesPage(group, pageContext) {
   const t = normalizeGroupType(group.groupType);
-  const mode = normalizePlatformAuthorMode(group.platformAuthorMode);
+  const mode = normalizeSourceMode(group.sourceMode, group.sources);
   if (mode === "all") return true;
   if (mode !== "include" && mode !== "exclude") return false; // nobody
 
-  const list = Array.isArray(group.platformAuthors) ? group.platformAuthors : [];
+  const list = Array.isArray(group.sources) ? group.sources : [];
   if (list.length === 0) return false;
 
   const key = t;
@@ -1063,8 +1073,8 @@ const PLATFORM_PROFILES = {
     kind: "video",
     homeFeedLabelKey: "platform.home.youtube",
     entity: {
-      mode: "platformAuthorMode",
-      list: "platformAuthors",
+      mode: "sourceMode",
+      list: "sources",
       labelKey: "platform.authors",
       placeholderKey: "platform.placeholder.youtube"
     },
@@ -1166,8 +1176,8 @@ const PLATFORM_PROFILES = {
     kind: "video",
     homeFeedLabelKey: "platform.home.tiktok",
     entity: {
-      mode: "platformAuthorMode",
-      list: "platformAuthors",
+      mode: "sourceMode",
+      list: "sources",
       labelKey: "platform.authors",
       placeholderKey: "platform.placeholder.tiktok"
     },
@@ -1206,8 +1216,8 @@ const PLATFORM_PROFILES = {
     kind: "video",
     homeFeedLabelKey: "platform.home.facebook",
     entity: {
-      mode: "platformAuthorMode",
-      list: "platformAuthors",
+      mode: "sourceMode",
+      list: "sources",
       labelKey: "platform.authors",
       placeholderKey: "platform.placeholder.facebook"
     },
@@ -1263,8 +1273,8 @@ const PLATFORM_PROFILES = {
     kind: "video",
     homeFeedLabelKey: "platform.home.instagram",
     entity: {
-      mode: "platformAuthorMode",
-      list: "platformAuthors",
+      mode: "sourceMode",
+      list: "sources",
       labelKey: "platform.authors",
       placeholderKey: "platform.placeholder.instagram"
     },
@@ -1311,8 +1321,8 @@ const PLATFORM_PROFILES = {
     kind: "video",
     homeFeedLabelKey: "platform.home.twitch",
     entity: {
-      mode: "platformAuthorMode",
-      list: "platformAuthors",
+      mode: "sourceMode",
+      list: "sources",
       labelKey: "platform.authors",
       placeholderKey: "platform.placeholder.twitch"
     },
@@ -1359,8 +1369,8 @@ const PLATFORM_PROFILES = {
     kind: "reddit",
     homeFeedLabelKey: "platform.home.reddit",
     entity: {
-      mode: "redditMode",
-      list: "redditSubreddits",
+      mode: "sourceMode",
+      list: "sources",
       labelKey: "reddit.subreddits",
       placeholderKey: "reddit.subredditsPlaceholder"
     },
@@ -1405,8 +1415,8 @@ const PLATFORM_PROFILES = {
     kind: "twitter",
     homeFeedLabelKey: "platform.home.twitter",
     entity: {
-      mode: "platformAuthorMode",
-      list: "platformAuthors",
+      mode: "sourceMode",
+      list: "sources",
       labelKey: "platform.accounts",
       placeholderKey: "platform.placeholder.twitter"
     },
@@ -1451,7 +1461,7 @@ const PLATFORM_PROFILES = {
     displayName: "Bluesky",
     defaultName: "Bluesky Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     feed: {
       anchorSelectors: ['a[href^="/profile/"][href*="/post/"]'],
       hrefSelectors: ['a[href^="/profile/"][href*="/post/"]'],
@@ -1466,7 +1476,7 @@ const PLATFORM_PROFILES = {
     displayName: "Threads",
     defaultName: "Threads Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     feed: {
       anchorSelectors: ['a[href^="/@"][href*="/post/"]'],
       hrefSelectors: ['a[href^="/@"][href*="/post/"]'],
@@ -1481,7 +1491,7 @@ const PLATFORM_PROFILES = {
     displayName: "Substack",
     defaultName: "Substack Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     feed: {
       anchorSelectors: ['a[href^="/@"][href*="/note/"]', 'a[href*="/p/"]'],
       hrefSelectors: ['a[href^="/@"][href*="/note/"]', 'a[href*="/p/"]'],
@@ -1496,7 +1506,7 @@ const PLATFORM_PROFILES = {
     displayName: "Bilibili",
     defaultName: "Bilibili Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     feed: {
       anchorSelectors: ['a[href*="/video/BV"]'],
       hrefSelectors: ['a[href*="/video/BV"]'],
@@ -1514,7 +1524,7 @@ const PLATFORM_PROFILES = {
     displayName: "Rumble",
     defaultName: "Rumble Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     feed: {
       anchorSelectors: ['a[href^="/v"]'],
       hrefSelectors: ['a[href^="/v"]'],
@@ -1529,7 +1539,7 @@ const PLATFORM_PROFILES = {
     displayName: "Pinterest",
     defaultName: "Pinterest Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     feed: {
       anchorSelectors: ['a[href^="/pin/"]'],
       hrefSelectors: ['a[href^="/pin/"]'],
@@ -1544,7 +1554,7 @@ const PLATFORM_PROFILES = {
     displayName: "Kick",
     defaultName: "Kick Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     // The public homepage did not expose stable content-card semantics. Keep
     // reliable whole-platform/profile enforcement without guessing a feed DOM.
     surfaceHides: []
@@ -1555,7 +1565,7 @@ const PLATFORM_PROFILES = {
     displayName: "Tumblr",
     defaultName: "Tumblr Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     feed: {
       anchorSelectors: ['a[href*=".tumblr.com/post/"]', 'a[href^="/post/"]'],
       hrefSelectors: ['a[href*=".tumblr.com/post/"]', 'a[href^="/post/"]'],
@@ -1570,7 +1580,7 @@ const PLATFORM_PROFILES = {
     displayName: "PeerTube",
     defaultName: "PeerTube Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     feed: {
       anchorSelectors: ['a[href^="/w/"]'],
       hrefSelectors: ['a[href^="/w/"]'],
@@ -1585,7 +1595,7 @@ const PLATFORM_PROFILES = {
     displayName: "Pixelfed",
     defaultName: "Pixelfed Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     feed: {
       anchorSelectors: ['a[href^="/p/"]'],
       hrefSelectors: ['a[href^="/p/"]'],
@@ -1600,7 +1610,7 @@ const PLATFORM_PROFILES = {
     displayName: "Kuaishou",
     defaultName: "Kuaishou Block",
     kind: "feed",
-    entity: { mode: "platformAuthorMode", list: "platformAuthors", labelKey: "platform.authors" },
+    entity: { mode: "sourceMode", list: "sources", labelKey: "platform.authors" },
     // The tested public recommendation shell exposed no stable content-card
     // hooks. Profile and whole-platform matching remain available.
     surfaceHides: []
@@ -1679,14 +1689,13 @@ const __cbPlatformRegistry = {
   isPlatformFeedGroupType,
   isPlatformAuthorGroupType,
   isPlatformProfileGroupType,
-  normalizePlatformAuthorMode,
+  normalizeSourceMode,
   normalizeVideoMode,
-  normalizeRedditMode,
   normalizeDiscordMode,
   normalizeYouTubeCreatorInput,
   normalizeTwitterHandleInput,
   normalizeFeedPlatformAuthorInput,
-  normalizePlatformAuthorInput,
+  normalizeSourceInput,
   normalizeRedditSubredditInput,
   normalizeDiscordTargetInput,
   normalizePlatformEntityInput,
@@ -1718,8 +1727,8 @@ const __cbPlatformRegistry = {
   parseSurfaceFeedCardsDirective,
   surfaceHideEntryScope,
   platformGroupAuthorAxisMatchesPage,
-  platformAuthorModeUsesList,
-  PLATFORM_AUTHOR_MODES
+  sourceModeUsesList,
+  SOURCE_MODES
 };
 
 if (typeof module !== "undefined" && module.exports) {

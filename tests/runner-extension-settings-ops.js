@@ -98,6 +98,17 @@ async function op(operation, body) {
   const p = patched?.body?.group;
   check("set-group patches through the sanitizer and never changes the id or the lock", p && p.id === g.id && p.enabled === false && p.platformTags?.[0]?.name === "Music" && p.freezeMode === "none", patched);
 
+  // Sources (owner 2026-09-24): creators, accounts and subreddits share one
+  // field pair; the legacy pairs are read once and never written back.
+  const legacyReddit = await op("settings-create-group", { groupType: "reddit", patch: { name: "Legacy reddit", redditMode: "include", redditSubreddits: ["r/Focus", "https://www.reddit.com/r/programming/"] } });
+  const lr = legacyReddit?.body?.group;
+  check("a legacy Reddit patch migrates to sources/sourceMode", lr && lr.sourceMode === "include" && JSON.stringify(lr.sources) === JSON.stringify(["focus", "programming"]) && !("redditSubreddits" in lr) && !("redditMode" in lr), lr);
+  const legacyAuthors = await op("settings-create-group", { groupType: "youtube", patch: { name: "Legacy authors", platformAuthorMode: "exclude", platformAuthors: ["@someone"] } });
+  const la = legacyAuthors?.body?.group;
+  check("a legacy author patch migrates to sources/sourceMode", la && la.sourceMode === "exclude" && la.sources.length === 1 && !("platformAuthors" in la) && !("platformAuthorMode" in la), la);
+  const modern = await op("settings-set-group", { id: la.id, patch: { sourceMode: "include", sources: ["@other"] } });
+  check("the new pair patches directly", modern?.body?.group?.sourceMode === "include" && modern.body.group.sources.length === 1, modern);
+
   const missing = await op("settings-set-group", { id: "nope", patch: { enabled: true } });
   check("patching an unknown group fails", missing?.error === "group-not-found", missing);
 

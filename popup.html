@@ -456,36 +456,6 @@
               </div>
             </div>
 
-            <!-- Reddit (subreddit) fields -->
-            <div id="redditFields" class="platform-fields hidden">
-              <label class="label" for="redditMode" data-i18n="reddit.mode">Subreddit filter</label>
-              <select id="redditMode">
-                <option value="all" data-i18n="reddit.modeAll">Apply to all Reddit pages</option>
-                <option value="include" data-i18n="reddit.modeInclude">Apply to certain subreddits</option>
-                <option value="exclude" data-i18n="reddit.modeExclude">Apply to all except certain subreddits</option>
-              </select>
-
-              <label class="label" for="redditSubreddits" data-i18n="reddit.subreddits">Subreddits</label>
-              <textarea
-                id="redditSubreddits"
-                rows="6"
-                placeholder="productivity&#10;programming&#10;r/focus"
-                data-i18n-placeholder="reddit.subredditsPlaceholder"
-                spellcheck="false"
-              ></textarea>
-              <p class="field-help" data-i18n="reddit.help">
-                Use one subreddit per line. Plain names like `productivity` and paths like `r/productivity` are both accepted.
-              </p>
-
-              <label class="checkbox-row compact" for="redditBlockHomePage">
-                <input id="redditBlockHomePage" type="checkbox" />
-                <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
-              </label>
-              <p class="field-help" data-i18n="filter.blockHomePageRedditHelp">
-                Blocks the Reddit home feed, r/popular, and r/all when enabled.
-              </p>
-            </div>
-
             <!-- Discord (server/channel) fields -->
             <div id="discordFields" class="platform-fields hidden">
               <label class="label" for="discordMode" data-i18n="discord.mode">Target filter</label>
