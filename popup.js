@@ -321,10 +321,6 @@ const platformTagBlockUntaggedField = document.getElementById("platformTagBlockU
 const platformTagBlockPageField = document.getElementById("platformTagBlockPage");
 const platformTagCoverUntilTaggedField = document.getElementById("platformTagCoverUntilTagged");
 const platformBlockHomePageField = document.getElementById("platformBlockHomePage");
-const redditSettingsCard = document.getElementById("redditFields");
-const redditModeField = document.getElementById("redditMode");
-const redditSubredditsField = document.getElementById("redditSubreddits");
-const redditBlockHomePageField = document.getElementById("redditBlockHomePage");
 const discordSettingsCard = document.getElementById("discordFields");
 const discordModeField = document.getElementById("discordMode");
 const discordTargetsField = document.getElementById("discordTargets");
@@ -1826,10 +1822,7 @@ function refreshChipField(field) {
 
 function setupPlatformChipInputs() {
   setupChipField(platformAuthorsField, {
-    normalize: (value) => normalizePlatformAuthorInput(value, chipsGroupType)
-  });
-  setupChipField(redditSubredditsField, {
-    normalize: (value) => normalizeRedditSubredditInput(value)
+    normalize: (value) => normalizeSourceInput(value, chipsGroupType)
   });
   setupChipField(discordTargetsField, {
     normalize: (value) => normalizeDiscordTargetInput(value)
@@ -1922,7 +1915,7 @@ function parsePlatformAuthorsTextarea(groupType, value) {
       continue;
     }
 
-    const normalized = normalizePlatformAuthorInput(trimmedLine, groupType);
+    const normalized = normalizeSourceInput(trimmedLine, groupType);
 
     if (normalized) {
       validAuthors.push(normalized);
@@ -2316,7 +2309,7 @@ function applyPlatformRuleSelection(groupType) {
 // Builds the author/account mode dropdown for the current platform.
 function rebuildAuthorModeOptions(type) {
   const isTwitter = type === "twitter";
-  const noun = isTwitter ? t("platform.nounAccounts") : t("platform.nounAuthors");
+  const noun = type === "reddit" ? t("platform.nounSubreddits") : isTwitter ? t("platform.nounAccounts") : t("platform.nounAuthors");
   const modes = ["all", "include", "exclude", "nobody"];
 
   const previous = platformAuthorModeField.value;
@@ -2339,11 +2332,12 @@ function applyPlatformVideoUi(groupType) {
   const isYouTube = type === "youtube";
   const isTwitter = type === "twitter";
 
+  const isReddit = type === "reddit";
   const isFeedPlatform = isPlatformFeedGroupType(type);
 
-  // Feed platforms have no video-form axis. Twitter/X retains its account
-  // wording; the other feeds use the generic author wording.
-  platformVideoModeRow.classList.toggle("hidden", isFeedPlatform);
+  // Feed platforms and Reddit have no video-form axis. Twitter/X keeps its
+  // account wording, Reddit its subreddit wording; the rest say "authors".
+  platformVideoModeRow.classList.toggle("hidden", isFeedPlatform || isReddit);
 
   platformVideoModeLabel.textContent = t("platform.videoMode");
   if (platformVideoModeHelp) platformVideoModeHelp.textContent = t("platform.videoModeHelp");
@@ -2352,16 +2346,22 @@ function applyPlatformVideoUi(groupType) {
   platformVideoModeLongOption.textContent = t("platform.videoModeLong", { content: longLabel });
   platformVideoModePostOption.textContent = t("platform.videoModePost", { content: postLabel });
 
-  platformAuthorModeLabel.textContent = isTwitter ? t("platform.accountMode") : t("platform.authorMode");
+  platformAuthorModeLabel.textContent = isReddit
+    ? t("reddit.mode")
+    : isTwitter ? t("platform.accountMode") : t("platform.authorMode");
   rebuildAuthorModeOptions(type);
-  platformAuthorModeHelp.textContent = isTwitter
-    ? t("platform.accountModeHelp")
-    : t("platform.authorModeHelp");
+  platformAuthorModeHelp.textContent = isReddit
+    ? t("platform.sourceModeHelp.reddit")
+    : isTwitter ? t("platform.accountModeHelp") : t("platform.authorModeHelp");
 
-  platformAuthorsLabel.textContent = isTwitter ? t("platform.accounts") : t("platform.authors");
+  platformAuthorsLabel.textContent = isReddit
+    ? t("reddit.subreddits")
+    : isTwitter ? t("platform.accounts") : t("platform.authors");
   platformAuthorsField.setAttribute("placeholder", getPlatformAuthorsPlaceholder(type));
   platformVideoHelp.textContent = isYouTube
     ? t("platform.help.youtube", { platform })
+    : isReddit
+      ? t("platform.help.reddit", { platform })
     : isTwitter
       ? t("platform.help.twitter", { platform })
       : isFeedPlatform
@@ -2463,36 +2463,10 @@ function handleSurfaceHideChange(groupId) {
   scheduleAutosave();
 }
 
-// normalizePlatformAuthorMode, normalizeRedditMode, normalizeDiscordMode,
-// isPlatformVideoGroupType, normalizePlatformAuthorInput, normalizeVideoMode,
+// normalizeSourceMode, normalizeDiscordMode,
+// isPlatformVideoGroupType, normalizeSourceInput, normalizeVideoMode,
 // normalizeRedditSubredditInput and normalizeDiscordTargetInput now come from
 // platform-profiles.js (loaded before this script).
-
-function parseRedditSubredditsTextarea(value) {
-  const validSubreddits = [];
-  const invalidSubreddits = [];
-
-  for (const rawLine of String(value ?? "").split(/\r?\n/)) {
-    const trimmedLine = rawLine.trim();
-
-    if (!trimmedLine) {
-      continue;
-    }
-
-    const normalized = normalizeRedditSubredditInput(trimmedLine);
-
-    if (normalized) {
-      validSubreddits.push(normalized);
-    } else {
-      invalidSubreddits.push(trimmedLine);
-    }
-  }
-
-  return {
-    validSubreddits: [...new Set(validSubreddits)],
-    invalidSubreddits
-  };
-}
 
 function parseDiscordTargetsTextarea(value) {
   const validTargets = [];
@@ -2521,7 +2495,7 @@ function parseDiscordTargetsTextarea(value) {
 }
 
 function describePlatformVideoScope(groupLike) {
-  const authors = Array.isArray(groupLike.platformAuthors) ? groupLike.platformAuthors : [];
+  const authors = Array.isArray(groupLike.sources) ? groupLike.sources : [];
   const scopes = [];
   const videoMode = normalizeVideoMode(groupLike.platformVideoMode);
   const groupType = normalizeGroupType(groupLike.groupType);
@@ -2530,7 +2504,7 @@ function describePlatformVideoScope(groupLike) {
     scopes.push(getPlatformTypeLabel(groupType, videoMode));
   }
 
-  const authorMode = normalizePlatformAuthorMode(groupLike.platformAuthorMode);
+  const authorMode = normalizeSourceMode(groupLike.sourceMode, groupLike.sources);
   if (authorMode === "include") {
     scopes.push(`${authors.length} ${t("meta.creators")}`);
   } else if (authorMode === "exclude") {
@@ -2554,8 +2528,8 @@ function describePlatformVideoScope(groupLike) {
 }
 
 function describeTwitterScope(groupLike) {
-  const accounts = Array.isArray(groupLike.platformAuthors) ? groupLike.platformAuthors : [];
-  const mode = normalizePlatformAuthorMode(groupLike.platformAuthorMode);
+  const accounts = Array.isArray(groupLike.sources) ? groupLike.sources : [];
+  const mode = normalizeSourceMode(groupLike.sourceMode, groupLike.sources);
 
   if (mode === "include") {
     return `${accounts.length} ${t("meta.creators")}`;
@@ -2570,8 +2544,8 @@ function describeTwitterScope(groupLike) {
 }
 
 function describeFeedPlatformScope(groupLike) {
-  const authors = Array.isArray(groupLike.platformAuthors) ? groupLike.platformAuthors : [];
-  const mode = normalizePlatformAuthorMode(groupLike.platformAuthorMode);
+  const authors = Array.isArray(groupLike.sources) ? groupLike.sources : [];
+  const mode = normalizeSourceMode(groupLike.sourceMode, groupLike.sources);
   if (mode === "include") return `${authors.length} ${t("meta.creators")}`;
   if (mode === "exclude") return t("meta.allExceptCreators", { count: authors.length });
   if (mode === "nobody") return t("meta.noAuthors");
@@ -2579,8 +2553,8 @@ function describeFeedPlatformScope(groupLike) {
 }
 
 function describeRedditScope(groupLike) {
-  const subreddits = Array.isArray(groupLike.redditSubreddits) ? groupLike.redditSubreddits : [];
-  const mode = normalizeRedditMode(groupLike.redditMode, subreddits);
+  const subreddits = Array.isArray(groupLike.sources) ? groupLike.sources : [];
+  const mode = normalizeSourceMode(groupLike.sourceMode, subreddits);
 
   if (mode === "all") {
     return t("meta.allReddit");
@@ -3063,8 +3037,8 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     activeDays: createDefaultDays(),
     timeWindowsText: "",
     platformVideoMode: "all",
-    platformAuthorMode: "all",
-    platformAuthors: [],
+    sourceMode: "all",
+    sources: [],
     platformTagMode: "all",
     platformTags: [],
     platformTagDefaultConfidence: 4,
@@ -3072,8 +3046,6 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     platformTagBlockPage: true,
     platformTagCoverUntilTagged: false,
     platformTagEffect: "dim",
-    redditMode: "all",
-    redditSubreddits: [],
     discordMode: "all",
     discordTargets: [],
     surfaceHides: [],
@@ -3148,8 +3120,16 @@ function sanitizeGroups(groups) {
     const activeDays = rawDays
       .map((day) => String(day).trim().toLowerCase())
       .filter((day, index, array) => DAY_NAMES.includes(day) && array.indexOf(day) === index);
-    const rawAuthors = Array.isArray(group?.platformAuthors) ? group.platformAuthors : [];
-    const rawRedditSubreddits = Array.isArray(group?.redditSubreddits) ? group.redditSubreddits : [];
+    // Sources (creators / accounts / subreddits): read the legacy pairs once.
+    const legacySources = normalizedGroupType === "reddit" ? group?.redditSubreddits : group?.platformAuthors;
+    const legacyMode = normalizedGroupType === "reddit" ? group?.redditMode : group?.platformAuthorMode;
+    // The legacy pair only exists in old stores and old-style patches, so when
+    // it is present it wins over a default-valued modern pair merged underneath.
+    const hasLegacy = Array.isArray(legacySources) || typeof legacyMode === "string";
+    const rawSources = hasLegacy
+      ? (Array.isArray(legacySources) ? legacySources : [])
+      : Array.isArray(group?.sources) ? group.sources : [];
+    const rawSourceMode = hasLegacy ? legacyMode : group?.sourceMode;
     const rawDiscordTargets = Array.isArray(group?.discordTargets) ? group.discordTargets : [];
     const ownsSiteList = normalizedGroupType === "site";
 
@@ -3184,11 +3164,11 @@ function sanitizeGroups(groups) {
       activeDays: hasStoredDays ? activeDays : createDefaultDays(),
       timeWindowsText: parsedTimeWindows.normalizedLines.join("\n"),
       platformVideoMode: normalizeVideoMode(group?.platformVideoMode),
-      platformAuthorMode: normalizePlatformAuthorMode(group?.platformAuthorMode),
-      platformAuthors: [
+      sourceMode: normalizeSourceMode(rawSourceMode, rawSources),
+      sources: [
         ...new Set(
-          rawAuthors
-            .map((author) => normalizePlatformAuthorInput(author, normalizedGroupType))
+          rawSources
+            .map((source) => normalizeSourceInput(source, normalizedGroupType))
             .filter(Boolean)
         )
       ],
@@ -3201,10 +3181,6 @@ function sanitizeGroups(groups) {
       platformTagBlockPage: group?.platformTagBlockPage !== false,
       platformTagCoverUntilTagged: group?.platformTagCoverUntilTagged === true,
       platformTagEffect: group?.platformTagEffect === "block" ? "block" : "dim",
-      redditSubreddits: [
-        ...new Set(rawRedditSubreddits.map(normalizeRedditSubredditInput).filter(Boolean))
-      ],
-      redditMode: normalizeRedditMode(group?.redditMode, rawRedditSubreddits),
       discordTargets: [
         ...new Set(
           rawDiscordTargets
@@ -3351,8 +3327,8 @@ function getSerializableGroupSnapshot(group) {
     activeDays: [...group.activeDays],
     timeWindowsText: group.timeWindowsText,
     platformVideoMode: group.platformVideoMode,
-    platformAuthorMode: group.platformAuthorMode,
-    platformAuthors: [...group.platformAuthors],
+    sourceMode: group.sourceMode,
+    sources: [...group.sources],
     platformTagMode: normalizeTagFilterModeChoice(group.platformTagMode),
     platformTags: Array.isArray(group.platformTags) ? group.platformTags.map((e) => ({ ...e })) : [],
     platformTagDefaultConfidence: clampTagFilterConfidence(group.platformTagDefaultConfidence, 4),
@@ -3360,8 +3336,6 @@ function getSerializableGroupSnapshot(group) {
     platformTagBlockPage: group.platformTagBlockPage !== false,
     platformTagCoverUntilTagged: group.platformTagCoverUntilTagged === true,
     platformTagEffect: group.platformTagEffect === "block" ? "block" : "dim",
-    redditMode: group.redditMode,
-    redditSubreddits: [...group.redditSubreddits],
     discordMode: group.discordMode,
     discordTargets: [...group.discordTargets],
     surfaceHides: [...(group.surfaceHides ?? [])],
@@ -3482,8 +3456,8 @@ function groupToDraft(group) {
     timeWindowsText: group.timeWindowsText,
     sitesText: group.sites.join("\n"),
     platformVideoMode: normalizeVideoMode(group.platformVideoMode),
-    platformAuthorMode: normalizePlatformAuthorMode(group.platformAuthorMode),
-    platformAuthorsText: group.platformAuthors.join("\n"),
+    sourceMode: normalizeSourceMode(group.sourceMode, group.sources),
+    sourcesText: group.sources.join("\n"),
     platformTagMode: normalizeTagFilterModeChoice(group.platformTagMode),
     platformTagsText: tagListToText(group.platformTags),
     platformTagDefaultConfidence: clampTagFilterConfidence(group.platformTagDefaultConfidence, 4),
@@ -3491,8 +3465,6 @@ function groupToDraft(group) {
     platformTagBlockPage: group.platformTagBlockPage !== false,
     platformTagCoverUntilTagged: group.platformTagCoverUntilTagged === true,
     platformTagEffect: group.platformTagEffect === "block" ? "block" : "dim",
-    redditMode: normalizeRedditMode(group.redditMode, group.redditSubreddits),
-    redditSubredditsText: group.redditSubreddits.join("\n"),
     discordMode: normalizeDiscordMode(group.discordMode, group.discordTargets),
     discordTargetsText: group.discordTargets.join("\n"),
     surfaceHides: normalizeSurfaceHides(group.surfaceHides, group.groupType),
@@ -4031,25 +4003,25 @@ function getGroupMetaText(group, draft, now = Date.now()) {
   if (isPlatformVideoGroupType(group.groupType)) {
     const draftAuthors = parsePlatformAuthorsTextarea(
       group.groupType,
-      draft?.platformAuthorsText ?? ""
+      draft?.sourcesText ?? ""
     ).validAuthors;
     pieces.push(
       describePlatformVideoScope({
         groupType: group.groupType,
         platformVideoMode: draft?.platformVideoMode ?? group.platformVideoMode,
-        platformAuthorMode: draft?.platformAuthorMode ?? group.platformAuthorMode,
-        platformAuthors: draftAuthors.length > 0 ? draftAuthors : group.platformAuthors
+        sourceMode: draft?.sourceMode ?? group.sourceMode,
+        sources: draftAuthors.length > 0 ? draftAuthors : group.sources
       })
     );
   } else if (group.groupType === "reddit") {
-    const draftSubreddits = parseRedditSubredditsTextarea(
-      draft?.redditSubredditsText ?? ""
-    ).validSubreddits;
+    const draftSubreddits = parsePlatformAuthorsTextarea(
+      "reddit",
+      draft?.sourcesText ?? ""
+    ).validAuthors;
     pieces.push(
       describeRedditScope({
-        redditMode: draft?.redditMode ?? group.redditMode,
-        redditSubreddits:
-          draftSubreddits.length > 0 ? draftSubreddits : group.redditSubreddits
+        sourceMode: draft?.sourceMode ?? group.sourceMode,
+        sources: draftSubreddits.length > 0 ? draftSubreddits : group.sources
       })
     );
   } else if (group.groupType === "discord") {
@@ -4065,12 +4037,12 @@ function getGroupMetaText(group, draft, now = Date.now()) {
   } else if (isPlatformFeedGroupType(group.groupType)) {
     const draftAuthors = parsePlatformAuthorsTextarea(
       group.groupType,
-      draft?.platformAuthorsText ?? ""
+      draft?.sourcesText ?? ""
     ).validAuthors;
     const scopeGroup = {
       groupType: group.groupType,
-        platformAuthorMode: draft?.platformAuthorMode ?? group.platformAuthorMode,
-        platformAuthors: draftAuthors.length > 0 ? draftAuthors : group.platformAuthors
+        sourceMode: draft?.sourceMode ?? group.sourceMode,
+        sources: draftAuthors.length > 0 ? draftAuthors : group.sources
     };
     pieces.push(
       group.groupType === "twitter"
@@ -4478,9 +4450,7 @@ function renderEditor(now = Date.now()) {
     blockingRulesField.value = "";
     platformAuthorsField.value = "";
     platformVideoModeField.value = "all";
-    platformAuthorModeField.value = "none";
-    redditModeField.value = "all";
-    redditSubredditsField.value = "";
+    platformAuthorModeField.value = "all";
     discordModeField.value = "all";
     discordTargetsField.value = "";
     allowSnoozeField.checked = true;
@@ -4488,7 +4458,6 @@ function renderEditor(now = Date.now()) {
     strictFreezeHoursField.value = "";
     usageSummary.textContent = "";
     platformBlockHomePageField.checked = false;
-    redditBlockHomePageField.checked = false;
     discordBlockHomePageField.checked = false;
     fallbackUrlField.value = "";
     if (groupEffectField) groupEffectField.value = "block";
@@ -4499,7 +4468,6 @@ function renderEditor(now = Date.now()) {
     if (platformRulesCard) platformRulesCard.classList.add("hidden");
     if (platformRulePlatformField) platformRulePlatformField.disabled = true;
     platformVideoCard.classList.add("hidden");
-    redditSettingsCard.classList.add("hidden");
     discordSettingsCard.classList.add("hidden");
     if (surfaceHidesSection) surfaceHidesSection.classList.add("hidden");
     scheduleSection.classList.remove("hidden");
@@ -4525,8 +4493,6 @@ function renderEditor(now = Date.now()) {
     platformAuthorsField.disabled = true;
     platformVideoModeField.disabled = true;
     platformAuthorModeField.disabled = true;
-    redditModeField.disabled = true;
-    redditSubredditsField.disabled = true;
     discordModeField.disabled = true;
     discordTargetsField.disabled = true;
     allowSnoozeField.disabled = true;
@@ -4537,7 +4503,6 @@ function renderEditor(now = Date.now()) {
     importGroupButton.disabled = true;
     applyFreezeButton.disabled = true;
     platformBlockHomePageField.disabled = true;
-    redditBlockHomePageField.disabled = true;
     discordBlockHomePageField.disabled = true;
     fallbackUrlField.disabled = true;
     state.aiPromptGroupId = null;
@@ -4620,10 +4585,11 @@ function renderEditor(now = Date.now()) {
   scheduleWindowsField.value = draft?.timeWindowsText ?? group.timeWindowsText;
   blockedSitesField.value = draft?.sitesText ?? group.sites.join("\n");
   blockingRulesField.value = draft?.blockingRulesText ?? group.blockingRulesText;
-  platformAuthorsField.value = draft?.platformAuthorsText ?? group.platformAuthors.join("\n");
+  platformAuthorsField.value = draft?.sourcesText ?? group.sources.join("\n");
   platformVideoModeField.value = draft?.platformVideoMode ?? group.platformVideoMode;
-  platformAuthorModeField.value = normalizePlatformAuthorMode(
-    draft?.platformAuthorMode ?? group.platformAuthorMode
+  platformAuthorModeField.value = normalizeSourceMode(
+    draft?.sourceMode ?? group.sourceMode,
+    group.sources
   );
   // Content-tag filter fields.
   const tagCompatible = isTagFilterCompatible(group.groupType);
@@ -4652,11 +4618,6 @@ function renderEditor(now = Date.now()) {
   );
   // Honoured in both modes now (it lives inside the list block, hidden for "all").
   if (platformTagBlockUntaggedRow) platformTagBlockUntaggedRow.classList.remove("hidden");
-  redditSubredditsField.value = draft?.redditSubredditsText ?? group.redditSubreddits.join("\n");
-  redditModeField.value = normalizeRedditMode(
-    draft?.redditMode ?? group.redditMode,
-    group.redditSubreddits
-  );
   discordModeField.value = normalizeDiscordMode(
     draft?.discordMode ?? group.discordMode,
     group.discordTargets
@@ -4665,7 +4626,6 @@ function renderEditor(now = Date.now()) {
 
   const blockHomePageValue = Boolean(draft?.blockHomePage ?? group.blockHomePage);
   platformBlockHomePageField.checked = blockHomePageValue;
-  redditBlockHomePageField.checked = blockHomePageValue;
   discordBlockHomePageField.checked = blockHomePageValue;
 
   fallbackUrlField.value = draft?.fallbackUrl ?? group.fallbackUrl ?? "";
@@ -4700,7 +4660,6 @@ function renderEditor(now = Date.now()) {
     platformRulePlatformField.disabled = !editable || !isPlatformProfileGroup;
   }
   platformVideoCard.classList.toggle("hidden", !usesAuthorAxis);
-  redditSettingsCard.classList.toggle("hidden", !isRedditGroup);
   discordSettingsCard.classList.toggle("hidden", !isDiscordGroup);
   renderSurfaceHides(group, draft, editable);
   if (fallbackUrlSection) {
@@ -4741,29 +4700,24 @@ function renderEditor(now = Date.now()) {
       !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
   }
   blockingRulesField.disabled = !editable || !isCustomGroup;
-  const currentAuthorMode = normalizePlatformAuthorMode(platformAuthorModeField.value);
-  const authorModeUsesList = platformAuthorModeUsesList(currentAuthorMode); // include/exclude
+  const currentAuthorMode = normalizeSourceMode(platformAuthorModeField.value);
+  const authorModeUsesList = sourceModeUsesList(currentAuthorMode); // include/exclude
   // Show the author list only for include/exclude.
   platformAuthorsBlock.classList.toggle("hidden", !usesAuthorAxis || !authorModeUsesList);
   platformAuthorsField.disabled = !editable || !usesAuthorAxis || !authorModeUsesList;
   platformVideoModeField.disabled = !editable || !isPlatformVideoGroup;
   platformAuthorModeField.disabled = !editable || !usesAuthorAxis;
-  redditModeField.disabled = !editable || !isRedditGroup;
-  redditSubredditsField.disabled =
-    !editable || !isRedditGroup || redditModeField.value === "all";
   discordModeField.disabled = !editable || !isDiscordGroup;
   discordTargetsField.disabled = !editable || !isDiscordGroup || discordModeField.value === "all";
   clearSitesButton.disabled =
     !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
   renderBlockedSites();
   refreshChipField(platformAuthorsField);
-  refreshChipField(redditSubredditsField);
   refreshChipField(discordTargetsField);
   deleteGroupButton.disabled = !editable;
   exportGroupButton.disabled = false;
   importGroupButton.disabled = !editable;
   platformBlockHomePageField.disabled = !editable || !usesAuthorAxis;
-  redditBlockHomePageField.disabled = !editable || !isRedditGroup;
   discordBlockHomePageField.disabled = !editable || !isDiscordGroup;
   fallbackUrlField.disabled = !editable;
   if (groupEffectField) groupEffectField.disabled = !editable;
@@ -4926,8 +4880,8 @@ function stashCurrentDraft() {
     allowlist: siteAllowlistField.checked,
     blockingRulesText: blockingRulesField.value,
     platformVideoMode: platformVideoModeField.value,
-    platformAuthorMode: platformAuthorModeField.value,
-    platformAuthorsText: platformAuthorsField.value,
+    sourceMode: platformAuthorModeField.value,
+    sourcesText: platformAuthorsField.value,
     platformTagMode: platformTagModeField.value,
     platformTagsText: platformTagsField.value,
     platformTagDefaultConfidence: platformTagDefaultConfidenceField.value,
@@ -4935,17 +4889,13 @@ function stashCurrentDraft() {
     platformTagBlockPage: platformTagBlockPageField ? platformTagBlockPageField.checked : true,
     platformTagCoverUntilTagged: platformTagCoverUntilTaggedField ? platformTagCoverUntilTaggedField.checked : false,
     platformTagEffect: platformTagEffectField.value,
-    redditMode: redditModeField.value,
-    redditSubredditsText: redditSubredditsField.value,
     discordMode: discordModeField.value,
     discordTargetsText: discordTargetsField.value,
     blockHomePage: usesAuthorAxis
       ? platformBlockHomePageField.checked
-      : isRedditGroup
-        ? redditBlockHomePageField.checked
-        : isDiscordGroup
-          ? discordBlockHomePageField.checked
-          : false,
+      : isDiscordGroup
+        ? discordBlockHomePageField.checked
+        : false,
     surfaceHides: readSurfaceHidesFromForm(),
     effect: groupEffectField.value === "allow" ? "allow" : "block",
     fallbackUrl: fallbackUrlField.value
@@ -5152,10 +5102,8 @@ function resetPlatformCriteriaFor(group, groupType) {
     ...group,
     groupType: defaults.groupType,
     platformVideoMode: defaults.platformVideoMode,
-    platformAuthorMode: defaults.platformAuthorMode,
-    platformAuthors: defaults.platformAuthors,
-    redditMode: defaults.redditMode,
-    redditSubreddits: defaults.redditSubreddits,
+    sourceMode: defaults.sourceMode,
+    sources: defaults.sources,
     discordMode: defaults.discordMode,
     discordTargets: defaults.discordTargets,
     surfaceHides: defaults.surfaceHides,
@@ -5417,10 +5365,8 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
   const snoozeConfirmations = parseSnoozeConfirmations(draft.snoozeConfirmations);
   const timeWindows = parseTimeWindowsText(draft.timeWindowsText);
   const siteResults = parseSiteTextareaValue(draft.sitesText);
-  const authorResults = parsePlatformAuthorsTextarea(group.groupType, draft.platformAuthorsText);
-  const authorMode = normalizePlatformAuthorMode(draft.platformAuthorMode);
-  const redditResults = parseRedditSubredditsTextarea(draft.redditSubredditsText);
-  const redditMode = normalizeRedditMode(draft.redditMode, redditResults.validSubreddits);
+  const authorResults = parsePlatformAuthorsTextarea(group.groupType, draft.sourcesText);
+  const authorMode = normalizeSourceMode(draft.sourceMode, authorResults.validAuthors);
   const discordResults = parseDiscordTargetsTextarea(draft.discordTargetsText);
   const discordMode = normalizeDiscordMode(draft.discordMode, discordResults.validTargets);
   const blockingRulesText = draft.blockingRulesText?.trim() ?? "";
@@ -5502,8 +5448,8 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
           ? group.timeWindowsText
           : timeWindows.normalizedLines.join("\n"),
       platformVideoMode: normalizeVideoMode(draft.platformVideoMode),
-      platformAuthorMode: authorMode,
-      platformAuthors: usesAuthorAxis ? authorResults.validAuthors : group.platformAuthors,
+      sourceMode: authorMode,
+      sources: usesAuthorAxis ? authorResults.validAuthors : group.sources,
       platformTagMode: isTagFilterCompatible(group.groupType)
         ? normalizeTagFilterModeChoice(draft.platformTagMode)
         : group.platformTagMode,
@@ -5519,9 +5465,6 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
         Array.isArray(draft.surfaceHides) ? draft.surfaceHides : group.surfaceHides,
         group.groupType
       ),
-      redditSubreddits:
-        group.groupType === "reddit" ? redditResults.validSubreddits : group.redditSubreddits,
-      redditMode: group.groupType === "reddit" ? redditMode : group.redditMode,
       discordTargets:
         group.groupType === "discord" ? discordResults.validTargets : group.discordTargets,
       discordMode: group.groupType === "discord" ? discordMode : group.discordMode,
@@ -7056,22 +6999,6 @@ for (const field of [platformTagBlockUntaggedField, platformTagBlockPageField, p
   });
 }
 
-redditSubredditsField.addEventListener("input", () => {
-  stashCurrentDraft();
-  renderGroupList();
-  scheduleAutosave();
-});
-
-redditModeField.addEventListener("change", () => {
-  if (redditModeField.value === "exclude") {
-    setStatus(t("status.redditAllowlistWarning"));
-  }
-  stashCurrentDraft();
-  render();
-  renderGroupList();
-  scheduleAutosave();
-});
-
 discordTargetsField.addEventListener("input", () => {
   stashCurrentDraft();
   renderGroupList();
@@ -7088,7 +7015,7 @@ discordModeField.addEventListener("change", () => {
   scheduleAutosave();
 });
 
-for (const field of [platformBlockHomePageField, redditBlockHomePageField, discordBlockHomePageField]) {
+for (const field of [platformBlockHomePageField, discordBlockHomePageField]) {
   field.addEventListener("change", () => {
     stashCurrentDraft();
     renderGroupList();

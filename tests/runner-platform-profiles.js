@@ -50,8 +50,8 @@ function videoGroup(groupType, videoMode) {
   return {
     groupType,
     blockHomePage: false,
-    platformAuthorMode: "all",
-    platformAuthors: [],
+    sourceMode: "all",
+    sources: [],
     platformVideoMode: videoMode
   };
 }
@@ -92,7 +92,7 @@ assertEqual("Facebook shared video is long", detectVideoSiteContext("www.faceboo
 assertEqual("Facebook /videos page is long", detectVideoSiteContext("www.facebook.com", "/videos/123/"),
   { site: "facebook", form: "long" });
 assertEqual("Facebook share routes are not treated as creator names",
-  normalizePlatformAuthorInput("/share/v/abc", "facebook"), null);
+  normalizeSourceInput("/share/v/abc", "facebook"), null);
 assertEqual("Twitch creator path is a stream form", detectVideoSiteContext("www.twitch.tv", "/some_streamer"),
   { site: "twitch", form: "post" });
 
@@ -122,8 +122,18 @@ assert("Twitch stream group matches a creator path",
 
 const reddit = pageContext("www.reddit.com", "/r/focus/comments/123/test/");
 assert("Reddit include group matches its subreddit", matchesProfileGroup({
-  groupType: "reddit", blockHomePage: false, redditMode: "include", redditSubreddits: ["focus"]
+  groupType: "reddit", blockHomePage: false, sourceMode: "include", sources: ["focus"]
 }, reddit));
+assert("Reddit exclude group leaves its listed subreddit alone", !matchesProfileGroup({
+  groupType: "reddit", blockHomePage: false, sourceMode: "exclude", sources: ["focus"]
+}, reddit));
+assert("Reddit nobody group blocks no subreddit (tag filter only)", !matchesProfileGroup({
+  groupType: "reddit", blockHomePage: false, sourceMode: "nobody", sources: ["focus"]
+}, reddit));
+assertEqual("the page context carries the subreddit as Reddit's source", reddit.platformAuthors.reddit, ["focus"]);
+assertEqual("a legacy Reddit list with no mode reads as include", normalizeSourceMode(undefined, ["focus"]), "include");
+assertEqual("the legacy author mode 'none' reads as all", normalizeSourceMode("none"), "all");
+assertEqual("subreddit input normalizes through the shared source normalizer", normalizeSourceInput("r/Focus", "reddit"), "focus");
 
 const discord = pageContext("discord.com", "/channels/123456789012/987654321098");
 assert("Discord include group matches a channel target", matchesProfileGroup({
@@ -132,7 +142,7 @@ assert("Discord include group matches a channel target", matchesProfileGroup({
 
 const twitter = pageContext("x.com", "/focus_account");
 assert("X include group matches a profile handle", matchesProfileGroup({
-  groupType: "twitter", blockHomePage: false, platformAuthorMode: "include", platformAuthors: ["focus_account"]
+  groupType: "twitter", blockHomePage: false, sourceMode: "include", sources: ["focus_account"]
 }, twitter));
 
 log.section("P4: public feed adapters share author matching without video forms");
@@ -154,11 +164,11 @@ for (const [groupType, hostname, pathname, author] of feedAdapters) {
   assert(groupType + " is available in the unified Platform selector", PLATFORM_GROUP_TYPES.includes(groupType));
   assertEqual(groupType + " normalizes its public author route", context.platformAuthors[groupType], [author]);
   assert(groupType + " include group matches its public author page", matchesProfileGroup({
-    groupType, blockHomePage: false, platformAuthorMode: "include", platformAuthors: [author]
+    groupType, blockHomePage: false, sourceMode: "include", sources: [author]
   }, context));
 }
 assertEqual("Substack accepts a direct publication URL",
-  normalizePlatformAuthorInput("https://focus.substack.com/p/example", "substack"), "focus");
+  normalizeSourceInput("https://focus.substack.com/p/example", "substack"), "focus");
 assert("PeerTube does not overreach to unverified federation instances",
   !isPlatformHost("peertube", "example.peertube.instance"));
 assert("Pixelfed does not overreach to unverified federation instances",
