@@ -692,10 +692,45 @@ function normalizePageContext(input) {
 // blocked page paints. The content-script `shouldExitPage` path remains as a
 // second line of defence for in-page (SPA) navigations.
 let __blockedHostnamesCache = [];
+// site -> where its block lands (see cbWorkerBlockTarget); "" = the plain message page.
+let __blockedTargetsCache = new Map();
 
 function isHostnameBlockedByCache(hostname) {
   if (!hostname) return false;
   return __blockedHostnamesCache.some((blocked) => hostnameMatchesSite(hostname, blocked));
+}
+
+// The group's "when blocked" field, resolved for the redirect fast path the
+// same way content.js cbBlockTarget resolves it for page-level blocks: a URL
+// (or a scheme-less host) is an address; any other text is shown on Vault's
+// message page; blank → "" (the plain message page).
+function cbWorkerBlockTarget(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return "";
+  if (/^(https?|about|chrome-extension|moz-extension|safari-web-extension):/i.test(text)) return text;
+  if (!/\s/.test(text) && /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(text)) return "https://" + text;
+  try {
+    return chrome.runtime.getURL("message-page.html") + "?msg=" + encodeURIComponent(text);
+  } catch (_) {
+    return "";
+  }
+}
+
+// For every blocked site, the target of the top-most group that blocks it
+// right now and carries a "when blocked" value; sites whose blocking groups
+// leave the field blank get "" (plain message page).
+function getBlockingTargets(groups, usageTimersMs, groupSnoozes, now) {
+  const targets = new Map();
+  for (const hostname of getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now)) {
+    const blocking = getRelevantSiteGroupsForHostname(hostname, groups, groupSnoozes, now).filter(
+      (group) =>
+        group.mode === "instant" ||
+        (isBlockingTimedMode(group.mode) && (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group))
+    );
+    const chosen = blocking.find((group) => typeof group.fallbackUrl === "string" && group.fallbackUrl.trim());
+    targets.set(hostname, chosen ? cbWorkerBlockTarget(chosen.fallbackUrl) : "");
+  }
+  return targets;
 }
 
 function getAllowedMs(group) {
@@ -1466,13 +1501,18 @@ async function syncBlockingRules() {
 
   // Refresh the redirect fast-path cache (replaces declarativeNetRequest).
   __blockedHostnamesCache = getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now);
+  __blockedTargetsCache = getBlockingTargets(groups, usageTimersMs, groupSnoozes, now);
 
   await scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now);
 }
 
-// Redirect target for a fully-blocked site. The message page renders the
-// "blocked" screen without loading any of the blocked site's content.
-function blockedRedirectUrl() {
+// Redirect target for a fully-blocked site: the blocking group's address or
+// message when it has one, else the message page, which renders the "blocked"
+// screen without loading any of the blocked site's content.
+function blockedRedirectUrl(hostname) {
+  for (const [site, target] of __blockedTargetsCache) {
+    if (target && hostnameMatchesSite(hostname, site)) return target;
+  }
   try {
     return chrome.runtime.getURL("message-page.html");
   } catch (_) {
@@ -3219,8 +3259,9 @@ if (chrome.webNavigation && chrome.webNavigation.onBeforeNavigate) {
     if (!details || details.frameId !== 0) return;
     const url = String(details.url || "");
     if (!/^https?:/i.test(url)) return;
-    if (!isHostnameBlockedByCache(hostnameOf(url))) return;
-    const target = blockedRedirectUrl();
+    const hostname = hostnameOf(url);
+    if (!isHostnameBlockedByCache(hostname)) return;
+    const target = blockedRedirectUrl(hostname);
     chrome.tabs.update(details.tabId, { url: target }).catch(() => {});
   });
 }
