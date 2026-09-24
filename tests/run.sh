@@ -169,6 +169,12 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'scopes-equivalence' FAILED" >&2
   failed=1
 fi
+node_out=$(node tests/runner-scopes-union.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'scopes-union' FAILED" >&2
+  failed=1
+fi
 node_out=$(node tests/runner-vault-classifier-youtube-tagging.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
