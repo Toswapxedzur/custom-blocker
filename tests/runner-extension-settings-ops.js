@@ -61,13 +61,16 @@ const context = vm.createContext({
   atob: (s) => Buffer.from(s, "base64").toString("binary"), btoa: (s) => Buffer.from(s, "binary").toString("base64")
 });
 context.self = context; context.globalThis = context; context.window = context;
-for (const file of ["platform-profiles.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
+for (const file of ["platform-profiles.js", "group-scopes.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
   const p = path.join(root, file);
   if (!fs.existsSync(p)) continue;
   try { vm.runInContext(fs.readFileSync(p, "utf8"), context, { filename: file }); }
   catch (error) { console.error(`load ${file}:`, error.message); }
 }
 
+// Stored groups are canonical (policy + scope lines); read them back through
+// the same flattening the popup uses.
+const flatOf = (group) => vm.runInContext("(g) => CBGroupScopes.flatFromScopes(g)", context)(group);
 const sent = [];
 const connection = { sendWS(frame) { sent.push(frame); return true; }, routeIsReady: () => true };
 async function op(operation, body) {
@@ -87,7 +90,7 @@ async function op(operation, body) {
 
   const created = await op("settings-create-group", { groupType: "twitter", patch: { name: "X tags", platformTagMode: "include", platformTags: [{ name: "Gaming", confidence: 3 }, { name: "Sports" }], platformTagCoverUntilTagged: true } });
   const g = created?.body?.group;
-  check("create-group builds a sanitized X group from the popup's defaults + patch", g && g.groupType === "twitter" && g.name === "X tags" && g.enabled === true && g.platformTagMode === "include" && g.platformTags?.length === 2 && g.platformTags[0].confidence === 3 && g.platformTagCoverUntilTagged === true && g.platformTagBlockPage === true, created);
+  check("create-group builds a sanitized X group from the popup's defaults + patch", g && flatOf(g) && Array.isArray(g.scopes) && g.groupType === "twitter" && g.name === "X tags" && g.enabled === true && flatOf(g).platformTagMode === "include" && flatOf(g).platformTags?.length === 2 && flatOf(g).platformTags[0].confidence === 3 && flatOf(g).platformTagCoverUntilTagged === true && flatOf(g).platformTagBlockPage === true, created);
   const stored = storage.get("blockedGroups") || [];
   check("the new group is persisted where the popup reads it", stored.some((x) => x.id === g?.id));
 
@@ -96,24 +99,32 @@ async function op(operation, body) {
 
   const patched = await op("settings-set-group", { id: g.id, patch: { enabled: false, platformTags: [{ name: "Music" }], id: "hijack", freezeMode: "strict" } });
   const p = patched?.body?.group;
-  check("set-group patches through the sanitizer and never changes the id or the lock", p && p.id === g.id && p.enabled === false && p.platformTags?.[0]?.name === "Music" && p.freezeMode === "none", patched);
+  check("set-group patches through the sanitizer and never changes the id or the lock", p && p.id === g.id && p.enabled === false && flatOf(p).platformTags?.[0]?.name === "Music" && p.freezeMode === "none", patched);
 
   // Sources (owner 2026-09-24): creators, accounts and subreddits share one
   // field pair; the legacy pairs are read once and never written back.
   const legacyReddit = await op("settings-create-group", { groupType: "reddit", patch: { name: "Legacy reddit", redditMode: "include", redditSubreddits: ["r/Focus", "https://www.reddit.com/r/programming/"] } });
   const lr = legacyReddit?.body?.group;
-  check("a legacy Reddit patch migrates to sources/sourceMode", lr && lr.sourceMode === "include" && JSON.stringify(lr.sources) === JSON.stringify(["focus", "programming"]) && !("redditSubreddits" in lr) && !("redditMode" in lr), lr);
+  check("a legacy Reddit patch migrates to sources/sourceMode", lr && flatOf(lr).sourceMode === "include" && JSON.stringify(flatOf(lr).sources) === JSON.stringify(["focus", "programming"]) && !("redditSubreddits" in lr) && !("redditMode" in lr), lr);
   const legacyAuthors = await op("settings-create-group", { groupType: "youtube", patch: { name: "Legacy authors", platformAuthorMode: "exclude", platformAuthors: ["@someone"] } });
   const la = legacyAuthors?.body?.group;
-  check("a legacy author patch migrates to sources/sourceMode", la && la.sourceMode === "exclude" && la.sources.length === 1 && !("platformAuthors" in la) && !("platformAuthorMode" in la), la);
+  check("a legacy author patch migrates to sources/sourceMode", la && flatOf(la).sourceMode === "exclude" && flatOf(la).sources.length === 1 && !("platformAuthors" in la) && !("platformAuthorMode" in la), la);
   const modern = await op("settings-set-group", { id: la.id, patch: { sourceMode: "include", sources: ["@other"] } });
-  check("the new pair patches directly", modern?.body?.group?.sourceMode === "include" && modern.body.group.sources.length === 1, modern);
+  check("the new pair patches directly", modern?.body?.group && flatOf(modern.body.group).sourceMode === "include" && flatOf(modern.body.group).sources.length === 1, modern);
 
   // The group-level "allow" exception effect is gone (owner 2026-09-24); a
   // stored exception group is kept but disabled, never turned into a block.
   const legacyAllow = await op("settings-create-group", { groupType: "youtube", patch: { name: "Old exception", enabled: true, effect: "allow" } });
   const oa = legacyAllow?.body?.group;
   check("a legacy allow-effect group comes back disabled and without the field", oa && oa.enabled === false && !("effect" in oa), oa);
+
+  // Scope lines (phase 1): a stored group carries policy + scopes, no flat scope
+  // fields; a new-style patch may send scopes directly.
+  check("stored groups carry scope lines and no flat scope fields", g && Array.isArray(g.scopes) && g.scopes.some((line) => line.surface === "items" && line.tagFilter) && !("platformTags" in g) && !("sources" in g), g && Object.keys(g));
+  const scoped = await op("settings-set-group", { id: la.id, patch: { scopes: [{ surface: "items", platform: "youtube", form: "short", sourceMode: "include", sources: ["@a", "@b"], action: "hide" }, { surface: "home", platform: "youtube", action: "block" }, { surface: "shelf", platform: "youtube", shelf: "shorts-button", action: "dim" }] } });
+  const sg = scoped?.body?.group;
+  check("a scopes patch is sanitized line by line (illegal action corrected, ids assigned)", sg && sg.scopes.length === 3 && sg.scopes[0].surface === "items" && sg.scopes[0].form === "short" && sg.scopes[0].sources.length === 2 && sg.scopes[2].action === "hide" && sg.scopes.every((line) => typeof line.id === "string" && line.id), sg && sg.scopes);
+  check("the flat view of a scoped group reads back the lines", sg && flatOf(sg).sourceMode === "include" && flatOf(sg).platformVideoMode === "short" && flatOf(sg).blockHomePage === true && JSON.stringify(flatOf(sg).surfaceHides) === JSON.stringify(["shorts-button"]), sg && flatOf(sg));
 
   const missing = await op("settings-set-group", { id: "nope", patch: { enabled: true } });
   check("patching an unknown group fails", missing?.error === "group-not-found", missing);
