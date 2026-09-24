@@ -6,16 +6,23 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const source = fs.readFileSync(path.join(__dirname, "..", "content.js"), "utf8");
-const start = source.indexOf("function cbBlockTarget(");
-let depth = 0; let end = source.indexOf("{", start);
-for (; end < source.length; end += 1) {
-  if (source[end] === "{") depth += 1;
-  else if (source[end] === "}") { depth -= 1; if (depth === 0) break; }
+function extract(file, name) {
+  const source = fs.readFileSync(path.join(__dirname, "..", file), "utf8");
+  const start = source.indexOf(`function ${name}(`);
+  if (start < 0) throw new Error(`missing ${name} in ${file}`);
+  let depth = 0; let end = source.indexOf("{", start);
+  for (; end < source.length; end += 1) {
+    if (source[end] === "{") depth += 1;
+    else if (source[end] === "}") { depth -= 1; if (depth === 0) break; }
+  }
+  return source.slice(start, end + 1);
 }
 const context = vm.createContext({ chrome: { runtime: { getURL: (p) => "chrome-extension://abc/" + p } } });
-vm.runInContext(source.slice(start, end + 1), context);
+// The content script resolves page-level blocks; the worker resolves the
+// whole-site redirect fast path. Both must read the field the same way.
+vm.runInContext(extract("content.js", "cbBlockTarget") + "\n" + extract("background.js", "cbWorkerBlockTarget"), context);
 const target = (v) => vm.runInContext(`cbBlockTarget(${JSON.stringify(v)})`, context);
+const workerTarget = (v) => vm.runInContext(`cbWorkerBlockTarget(${JSON.stringify(v)})`, context);
 
 let pass = 0; let fail = 0;
 const check = (label, ok, got) => { if (ok) { pass += 1; console.log(`PASS ${label}`); } else { fail += 1; console.log(`FAIL ${label} — got ${JSON.stringify(got)}`); } };
@@ -34,6 +41,7 @@ const cases = [
   ["unicode text is a message", "去工作吧", "chrome-extension://abc/message-page.html?msg=" + encodeURIComponent("去工作吧")]
 ];
 for (const [label, input, expected] of cases) { const got = target(input); check(label, got === expected, got); }
+for (const [label, input, expected] of cases) { const got = workerTarget(input); check(`worker fast path: ${label}`, got === expected, got); }
 console.log(`BLOCK TARGET TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
 if (fail) process.exitCode = 1;
