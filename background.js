@@ -86,6 +86,8 @@ if (chrome.storage && chrome.storage.onChanged) {
 const BLOCKED_GROUPS_KEY = "blockedGroups";
 const USAGE_TIMERS_KEY = "usageTimersMs";
 const USAGE_RESET_AT_KEY = "usageResetAtMs";
+// Rolling-limit usage per group: {groupId: {"<minuteStartMs>": ms}}.
+const USAGE_BUCKETS_KEY = "usageBucketsMs";
 const GROUP_SNOOZES_KEY = "groupSnoozes";
 const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
 
@@ -185,6 +187,8 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     mode: "instant",
     allowedMinutes: DEFAULT_ALLOWED_MINUTES,
     resetIntervalHours: DEFAULT_RESET_INTERVAL_HOURS,
+    resetAtMidnight: false,
+    rollingLimit: false,
     allowSnooze: true,
     snoozeMinutes: DEFAULT_SNOOZE_MINUTES,
     snoozeActivationDelayMinutes: DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
@@ -315,7 +319,9 @@ function normalizeTimeWindowLine(line) {
     endHours > 23 ||
     startMinutes > 59 ||
     endMinutes > 59 ||
-    startTotal >= endTotal
+    // An end before the start runs past midnight (2300-0100); only an empty
+    // window is invalid.
+    startTotal === endTotal
   ) {
     return null;
   }
@@ -429,6 +435,8 @@ function sanitizeGroups(groups) {
         allowedMinutes: parseAllowedMinutes(group?.allowedMinutes) ?? DEFAULT_ALLOWED_MINUTES,
         resetIntervalHours:
           parseResetIntervalHours(group?.resetIntervalHours) ?? DEFAULT_RESET_INTERVAL_HOURS,
+        resetAtMidnight: group?.resetAtMidnight === true,
+        rollingLimit: group?.rollingLimit === true,
         allowSnooze: group?.allowSnooze !== false,
         snoozeMinutes: parseSnoozeMinutes(group?.snoozeMinutes) ?? DEFAULT_SNOOZE_MINUTES,
         snoozeActivationDelayMinutes:
@@ -548,6 +556,22 @@ function sanitizeResetTimes(value, groups, now) {
   for (const group of groups) {
     const parsed = Number.parseInt(value?.[group.id], 10);
     sanitized[group.id] = Number.isFinite(parsed) && parsed > 0 ? parsed : now;
+  }
+  return sanitized;
+}
+
+function sanitizeUsageBuckets(value, groups) {
+  const sanitized = {};
+  for (const group of groups) {
+    const raw = value?.[group.id];
+    if (!raw || typeof raw !== "object") continue;
+    const buckets = {};
+    for (const [minute, used] of Object.entries(raw)) {
+      const start = Number(minute);
+      const ms = Number(used);
+      if (Number.isFinite(start) && Number.isFinite(ms) && ms > 0) buckets[String(start)] = ms;
+    }
+    sanitized[group.id] = buckets;
   }
   return sanitized;
 }
@@ -743,6 +767,79 @@ function getResetIntervalMs(group) {
   return group.resetIntervalHours * MS_PER_HOUR;
 }
 
+// ── Timed-group budget periods (same rules as Mac Vault's UsageBudget.swift) ─
+// Fixed budget: resets every resetIntervalHours from the stored anchor, or — with
+// resetAtMidnight — on a grid restarted at local 00:00 each day (00:00, then every
+// N h; the last period of the day ends early at midnight). Rolling limit: usage is
+// kept per minute and counts until it is N h old; with resetAtMidnight the window
+// never reaches before today's 00:00.
+const USAGE_BUCKET_MS = MS_PER_MINUTE;
+
+function cbStartOfDayMs(nowMs) {
+  const day = new Date(nowMs);
+  day.setHours(0, 0, 0, 0);
+  return day.getTime();
+}
+
+function cbNextMidnightMs(nowMs) {
+  const day = new Date(cbStartOfDayMs(nowMs));
+  day.setDate(day.getDate() + 1);
+  return day.getTime();
+}
+
+function cbPeriodStartMs(anchorMs, group, nowMs) {
+  const interval = Math.max(0, getResetIntervalMs(group));
+  if (group.resetAtMidnight) {
+    const dayStart = cbStartOfDayMs(nowMs);
+    if (interval <= 0) return dayStart;
+    return dayStart + Math.floor((nowMs - dayStart) / interval) * interval;
+  }
+  if (interval <= 0 || nowMs - anchorMs < interval) return anchorMs;
+  return anchorMs + Math.floor((nowMs - anchorMs) / interval) * interval;
+}
+
+function cbNextResetMs(periodStartMs, group, nowMs) {
+  const interval = Math.max(0, getResetIntervalMs(group));
+  if (group.resetAtMidnight) {
+    const midnight = cbNextMidnightMs(nowMs);
+    return interval > 0 ? Math.min(periodStartMs + interval, midnight) : midnight;
+  }
+  return interval > 0 ? periodStartMs + interval : null;
+}
+
+function cbUsageBucketStartMs(nowMs) {
+  return Math.floor(nowMs / USAGE_BUCKET_MS) * USAGE_BUCKET_MS;
+}
+
+function cbPruneUsageBuckets(buckets, group, nowMs) {
+  let windowStart = nowMs - Math.max(0, getResetIntervalMs(group));
+  if (group.resetAtMidnight) windowStart = Math.max(windowStart, cbStartOfDayMs(nowMs));
+  const kept = {};
+  for (const [minute, used] of Object.entries(buckets ?? {})) {
+    const start = Number(minute);
+    const ms = Number(used);
+    // A minute counts until the whole minute has aged out of the window.
+    if (Number.isFinite(start) && Number.isFinite(ms) && ms > 0 && start + USAGE_BUCKET_MS > windowStart) {
+      kept[String(start)] = ms;
+    }
+  }
+  return kept;
+}
+
+function cbBucketsUsedMs(buckets) {
+  return Object.values(buckets ?? {}).reduce((sum, used) => sum + (Number(used) || 0), 0);
+}
+
+// When rolling time starts coming back: the oldest counted minute leaving the
+// window (or midnight clearing it). Null when nothing is counted.
+function cbNextReturnMs(buckets, group, nowMs) {
+  const minutes = Object.keys(buckets ?? {}).map(Number).filter(Number.isFinite);
+  if (minutes.length === 0) return null;
+  let next = Math.min(...minutes) + USAGE_BUCKET_MS + Math.max(0, getResetIntervalMs(group));
+  if (group.resetAtMidnight) next = Math.min(next, cbNextMidnightMs(nowMs));
+  return next;
+}
+
 function getSnoozePhase(snooze, now) {
   if (!snooze) return "none";
   if (Number.isFinite(snooze.startsAtMs) && now < snooze.startsAtMs) return "pending";
@@ -778,17 +875,24 @@ function isGroupActiveNow(group, now) {
   if (group.groupType === "custom") return true;
 
   const currentDate = new Date(now);
-  const currentDayName = getDayNameForDate(currentDate);
-
-  if (!group.activeDays.includes(currentDayName)) return false;
+  const todayActive = group.activeDays.includes(getDayNameForDate(currentDate));
 
   const timeWindows = parseTimeWindowsText(group.timeWindowsText);
-  if (timeWindows.length === 0) return true;
+  if (timeWindows.length === 0) return todayActive;
 
+  // The part of a window after midnight belongs to the day the window starts:
+  // Monday's 2300-0100 still runs at 00:30 on Tuesday even when Tuesday is not
+  // an active day, and needs Monday to be active.
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayActive = group.activeDays.includes(getDayNameForDate(yesterday));
   const currentMinutes = currentDate.getHours() * 60 + currentDate.getMinutes();
   return timeWindows.some((windowText) => {
     const { startMinutes, endMinutes } = parseTimeWindowToMinutes(windowText);
-    return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+    if (endMinutes < startMinutes) {
+      return (todayActive && currentMinutes >= startMinutes) || (yesterdayActive && currentMinutes < endMinutes);
+    }
+    return todayActive && currentMinutes >= startMinutes && currentMinutes < endMinutes;
   });
 }
 
@@ -945,7 +1049,7 @@ function collectPanelSnapshots(dispatchResult) {
   return { panels, groups: Array.from(groups) };
 }
 
-function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now) {
+function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now, usageBucketsMs = {}) {
   return relevantGroups
     .filter((group) => isTimedBlockingMode(group.mode))
     .map((group) => {
@@ -965,7 +1069,13 @@ function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now) {
         usedMs,
         allowedMinutes: group.allowedMinutes,
         resetIntervalHours: group.resetIntervalHours,
-        nextResetAtMs: (usageResetAtMs[group.id] ?? now) + getResetIntervalMs(group),
+        resetAtMidnight: group.resetAtMidnight === true,
+        rollingLimit: group.rollingLimit === true,
+        // Fixed budget: when it next resets. Rolling limit: when counted time
+        // starts coming back (null with nothing counted).
+        nextResetAtMs: group.rollingLimit
+          ? cbNextReturnMs(usageBucketsMs[group.id], group, now)
+          : cbNextResetMs(cbPeriodStartMs(usageResetAtMs[group.id] ?? now, group, now), group, now),
         remainingMs,
         displayMs,
         blocksNow: isBlockingMode && usedMs >= getAllowedMs(group)
@@ -1008,6 +1118,7 @@ async function loadStoredState() {
     [BLOCKED_GROUPS_KEY]: [],
     [USAGE_TIMERS_KEY]: {},
     [USAGE_RESET_AT_KEY]: {},
+    [USAGE_BUCKETS_KEY]: {},
     [GROUP_SNOOZES_KEY]: {},
     [GROUP_SNOOZE_TOTALS_KEY]: {},
     [CB_GLOBAL_SETTINGS_KEY]: null
@@ -1020,6 +1131,7 @@ async function loadStoredState() {
     groups,
     usageTimersMs: sanitizeUsageTimers(result[USAGE_TIMERS_KEY], groups),
     usageResetAtMs: sanitizeResetTimes(result[USAGE_RESET_AT_KEY], groups, now),
+    usageBucketsMs: sanitizeUsageBuckets(result[USAGE_BUCKETS_KEY], groups),
     groupSnoozes: sanitizeSnoozes(result[GROUP_SNOOZES_KEY], groups, now),
     groupSnoozeTotalsMs: sanitizeSnoozeTotals(result[GROUP_SNOOZE_TOTALS_KEY], groups)
   };
@@ -1031,11 +1143,13 @@ function applyRuntimeNormalizations(
   usageResetAtMs,
   groupSnoozes,
   groupSnoozeTotalsMs,
-  now
+  now,
+  usageBucketsMs = {}
 ) {
   const nextGroups = [...groups];
   const nextTimers = { ...usageTimersMs };
   const nextResetAt = { ...usageResetAtMs };
+  const nextBuckets = { ...usageBucketsMs };
   const nextSnoozes = { ...groupSnoozes };
   const nextSnoozeTotals = { ...groupSnoozeTotalsMs };
   let changed = false;
@@ -1046,13 +1160,24 @@ function applyRuntimeNormalizations(
       changed = true;
     }
     if (!isTimedBlockingMode(group.mode)) continue;
-    const intervalMs = getResetIntervalMs(group);
-    if (!intervalMs) continue;
-    const elapsedSinceReset = now - nextResetAt[group.id];
-    if (elapsedSinceReset < intervalMs) continue;
-    const elapsedIntervals = Math.floor(elapsedSinceReset / intervalMs);
+    if (group.rollingLimit) {
+      // Rolling limit: the timer is the total still inside the window.
+      const pruned = cbPruneUsageBuckets(nextBuckets[group.id], group, now);
+      const used = cbBucketsUsedMs(pruned);
+      if (JSON.stringify(pruned) !== JSON.stringify(nextBuckets[group.id] ?? {})) {
+        nextBuckets[group.id] = pruned;
+        changed = true;
+      }
+      if ((Number(nextTimers[group.id]) || 0) !== used) {
+        nextTimers[group.id] = used;
+        changed = true;
+      }
+      continue;
+    }
+    const periodStart = cbPeriodStartMs(nextResetAt[group.id], group, now);
+    if (periodStart === nextResetAt[group.id]) continue;
     nextTimers[group.id] = 0;
-    nextResetAt[group.id] += elapsedIntervals * intervalMs;
+    nextResetAt[group.id] = periodStart;
     changed = true;
   }
 
@@ -1100,6 +1225,7 @@ function applyRuntimeNormalizations(
     groups: nextGroups,
     usageTimersMs: nextTimers,
     usageResetAtMs: nextResetAt,
+    usageBucketsMs: nextBuckets,
     groupSnoozes: nextSnoozes,
     groupSnoozeTotalsMs: nextSnoozeTotals,
     changed
@@ -1126,7 +1252,8 @@ async function getState() {
     baseState.usageResetAtMs,
     baseState.groupSnoozes,
     baseState.groupSnoozeTotalsMs,
-    Date.now()
+    Date.now(),
+    baseState.usageBucketsMs
   );
 
   if (normalized.changed) {
@@ -1134,6 +1261,7 @@ async function getState() {
       [BLOCKED_GROUPS_KEY]: normalized.groups,
       [USAGE_TIMERS_KEY]: normalized.usageTimersMs,
       [USAGE_RESET_AT_KEY]: normalized.usageResetAtMs,
+      [USAGE_BUCKETS_KEY]: normalized.usageBucketsMs,
       [GROUP_SNOOZES_KEY]: normalized.groupSnoozes,
       [GROUP_SNOOZE_TOTALS_KEY]: normalized.groupSnoozeTotalsMs
     });
@@ -1143,6 +1271,7 @@ async function getState() {
     groups: normalized.groups,
     usageTimersMs: normalized.usageTimersMs,
     usageResetAtMs: normalized.usageResetAtMs,
+    usageBucketsMs: normalized.usageBucketsMs,
     groupSnoozes: normalized.groupSnoozes,
     groupSnoozeTotalsMs: normalized.groupSnoozeTotalsMs,
     didApplyResets: normalized.changed
@@ -1445,14 +1574,15 @@ function buildFeedOrder(groups) {
   }));
 }
 
-async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now) {
+async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now, usageBucketsMs = {}) {
   const candidateTimes = [];
 
   for (const group of groups) {
-    if (isTimedBlockingMode(group.mode)) {
-      const nextResetAtMs = (usageResetAtMs[group.id] ?? now) + getResetIntervalMs(group);
-      if (nextResetAtMs > now) candidateTimes.push(nextResetAtMs);
-    }
+    if (!isTimedBlockingMode(group.mode)) continue;
+    const next = group.rollingLimit
+      ? cbNextReturnMs(usageBucketsMs[group.id], group, now)
+      : cbNextResetMs(cbPeriodStartMs(usageResetAtMs[group.id] ?? now, group, now), group, now);
+    if (Number.isFinite(next) && next > now) candidateTimes.push(next);
   }
 
   for (const snooze of Object.values(groupSnoozes)) {
@@ -1472,7 +1602,9 @@ async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes,
     const timeWindows = parseTimeWindowsText(group.timeWindowsText);
     if (group.activeDays.length === 0 || timeWindows.length === 0) continue;
 
-    for (let offset = 0; offset <= 7; offset += 1) {
+    // Start one day back: a window that crosses midnight and began yesterday
+    // still ends today.
+    for (let offset = -1; offset <= 7; offset += 1) {
       const candidateDate = new Date(now);
       candidateDate.setHours(0, 0, 0, 0);
       candidateDate.setDate(candidateDate.getDate() + offset);
@@ -1483,6 +1615,7 @@ async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes,
         const startTime = new Date(candidateDate);
         startTime.setMinutes(startMinutes);
         const endTime = new Date(candidateDate);
+        if (endMinutes < startMinutes) endTime.setDate(endTime.getDate() + 1);
         endTime.setMinutes(endMinutes);
         if (startTime.getTime() > now) candidateTimes.push(startTime.getTime());
         if (endTime.getTime() > now) candidateTimes.push(endTime.getTime());
@@ -1497,13 +1630,13 @@ async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes,
 
 async function syncBlockingRules() {
   const now = Date.now();
-  const { groups, usageTimersMs, usageResetAtMs, groupSnoozes } = await getState();
+  const { groups, usageTimersMs, usageResetAtMs, usageBucketsMs, groupSnoozes } = await getState();
 
   // Refresh the redirect fast-path cache (replaces declarativeNetRequest).
   __blockedHostnamesCache = getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now);
   __blockedTargetsCache = getBlockingTargets(groups, usageTimersMs, groupSnoozes, now);
 
-  await scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now);
+  await scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now, usageBucketsMs);
 }
 
 // Redirect target for a fully-blocked site: the blocking group's address or
@@ -1545,6 +1678,7 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     groups,
     usageTimersMs,
     usageResetAtMs,
+    usageBucketsMs,
     groupSnoozes,
     didApplyResets
   } = await getState();
@@ -1580,16 +1714,37 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
   }
 
   const nextTimers = { ...usageTimersMs };
+  const nextBuckets = { ...(usageBucketsMs ?? {}) };
+  const bucketDeltas = {};
   let changed = false;
+  let bucketsChanged = false;
   let reachedLimit = false;
 
   for (const group of accrualGroups) {
     const currentValue = nextTimers[group.id] ?? 0;
     const thresholdMs = getAllowedMs(group);
-    const nextValue =
-      isBlockingTimedMode(group.mode)
-        ? Math.min(currentValue + boundedElapsedMs, thresholdMs)
-        : Math.max(0, currentValue + boundedElapsedMs);
+    let nextValue;
+    if (group.rollingLimit) {
+      // Rolling limit: book the time into this minute (capped at the allowance
+      // for a blocking group, like the fixed budget); the timer is the total
+      // still inside the window.
+      const room = isBlockingTimedMode(group.mode) ? Math.max(0, thresholdMs - currentValue) : boundedElapsedMs;
+      const added = Math.min(boundedElapsedMs, room);
+      const buckets = { ...(nextBuckets[group.id] ?? {}) };
+      if (added > 0) {
+        const minute = String(cbUsageBucketStartMs(now));
+        buckets[minute] = (Number(buckets[minute]) || 0) + added;
+        bucketDeltas[group.id] = { [minute]: added };
+      }
+      nextBuckets[group.id] = cbPruneUsageBuckets(buckets, group, now);
+      bucketsChanged = true;
+      nextValue = cbBucketsUsedMs(nextBuckets[group.id]);
+    } else {
+      nextValue =
+        isBlockingTimedMode(group.mode)
+          ? Math.min(currentValue + boundedElapsedMs, thresholdMs)
+          : Math.max(0, currentValue + boundedElapsedMs);
+    }
     if (nextValue !== currentValue) {
       nextTimers[group.id] = nextValue;
       changed = true;
@@ -1597,11 +1752,13 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     if (isBlockingTimedMode(group.mode) && nextValue >= thresholdMs) reachedLimit = true;
   }
 
-  if (changed) {
-    await chrome.storage.local.set({ [USAGE_TIMERS_KEY]: nextTimers });
+  if (changed || bucketsChanged) {
+    const writes = { [USAGE_TIMERS_KEY]: nextTimers };
+    if (bucketsChanged) writes[USAGE_BUCKETS_KEY] = nextBuckets;
+    await chrome.storage.local.set(writes);
     // Report accrual to the hub so clustered Default groups keep one shared
     // live budget even while this browser's popup is closed.
-    cbReportClusterUsage(accrualGroups, nextTimers, usageResetAtMs);
+    cbReportClusterUsage(accrualGroups, nextTimers, usageResetAtMs, bucketDeltas, nextBuckets);
   }
   if (reachedLimit) {
     await syncBlockingRules();
@@ -3613,6 +3770,8 @@ const CB_SYNC_SCALAR_FIELDS = [
   "mode",
   "allowedMinutes",
   "resetIntervalHours",
+  "resetAtMidnight",
+  "rollingLimit",
   "allowSnooze",
   "snoozeMinutes",
   "snoozeActivationDelayMinutes",
@@ -3657,7 +3816,7 @@ const cbClusterUsageReset = {};
 // the delta since our last report plus an absolute seed (used by the hub only
 // until the first real delta arrives). The popup never reports usage, so this is
 // the sole browser-side reporter and the delta can't be counted twice.
-function cbReportClusterUsage(groups, timers, resets) {
+function cbReportClusterUsage(groups, timers, resets, bucketDeltas = {}, buckets = {}) {
   try {
     const clusters = Array.isArray(cbConnection.clusters) ? cbConnection.clusters : [];
     if (clusters.length === 0) return;
@@ -3669,6 +3828,25 @@ function cbReportClusterUsage(groups, timers, resets) {
         (cluster) => self.CBBridgeProtocol.clusterForGroup([cluster], g, program) === cluster
       );
       if (!inCluster) continue;
+      if (g.rollingLimit) {
+        // Rolling limit: share WHEN time was used (per-minute increments), not a
+        // total. The first report seeds our history; the hub keeps it only until
+        // real increments arrive.
+        const seeded = Object.prototype.hasOwnProperty.call(cbClusterUsageBaseline, g.id);
+        const deltas = bucketDeltas[g.id];
+        if (seeded && !deltas) continue;
+        cbClusterUsageBaseline[g.id] = 0;
+        cbConnection.sendWS({
+          kind: "group-sync",
+          program,
+          groupName: g.name,
+          groupType: "site",
+          usageResetAtMs: 0,
+          ...(seeded ? { usageBuckets: deltas } : { usageBucketsSeed: buckets[g.id] ?? {} }),
+          ts: Date.now()
+        });
+        continue;
+      }
       const current = Number(timers && timers[g.id]) || 0;
       const resetAt = Number(resets && resets[g.id]) || 0;
       const hasBaseline = Object.prototype.hasOwnProperty.call(cbClusterUsageBaseline, g.id);
@@ -3836,8 +4014,13 @@ const cbConnection = {
     try {
       const usageStore = await chrome.storage.local.get({
         [USAGE_TIMERS_KEY]: {},
-        [USAGE_RESET_AT_KEY]: {}
+        [USAGE_RESET_AT_KEY]: {},
+        [USAGE_BUCKETS_KEY]: {}
       });
+      const bucketStore =
+        usageStore[USAGE_BUCKETS_KEY] && typeof usageStore[USAGE_BUCKETS_KEY] === "object"
+          ? usageStore[USAGE_BUCKETS_KEY]
+          : {};
       const timers =
         usageStore[USAGE_TIMERS_KEY] && typeof usageStore[USAGE_TIMERS_KEY] === "object"
           ? usageStore[USAGE_TIMERS_KEY]
@@ -3850,9 +4033,20 @@ const cbConnection = {
       for (const cluster of relevant) {
         const shared = cluster.shared;
         if (!shared || (cluster.groupType && cluster.groupType !== "site")) continue;
-        if (!Number.isFinite(shared.usageMs)) continue;
         const grp = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
         if (!grp || !grp.id) continue;
+        if (grp.rollingLimit) {
+          // Rolling limit: adopt the hub's shared per-minute usage; the timer is
+          // what is still inside this group's window.
+          const pruned = cbPruneUsageBuckets(shared.usageBuckets, grp, Date.now());
+          if (JSON.stringify(pruned) !== JSON.stringify(bucketStore[grp.id] ?? {})) {
+            bucketStore[grp.id] = pruned;
+            timers[grp.id] = cbBucketsUsedMs(pruned);
+            usageChanged = true;
+          }
+          continue;
+        }
+        if (!Number.isFinite(shared.usageMs)) continue;
         const incoming = Math.max(0, Number(shared.usageMs) || 0);
         if ((Number(timers[grp.id]) || 0) !== incoming) {
           timers[grp.id] = incoming;
@@ -3873,7 +4067,8 @@ const cbConnection = {
       if (usageChanged) {
         await chrome.storage.local.set({
           [USAGE_TIMERS_KEY]: timers,
-          [USAGE_RESET_AT_KEY]: resets
+          [USAGE_RESET_AT_KEY]: resets,
+          [USAGE_BUCKETS_KEY]: bucketStore
         });
         await syncBlockingRules();
       }
