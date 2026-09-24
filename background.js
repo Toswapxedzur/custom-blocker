@@ -215,8 +215,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     allowlist: false,
     blockHomePage: false,
     effect: "block",
-    fallbackUrl: "",
-    skipToNextOnBlock: false
+    fallbackUrl: ""
   };
 }
 
@@ -512,8 +511,10 @@ function sanitizeGroups(groups) {
         // whitelist/exception. Stored for all groups but only honored for
         // platform groups (see buildFeedOrder); defaults to "block".
         effect: group?.effect === "allow" ? "allow" : "block",
+        // One field: a web address redirects the blocked tab there, any other
+        // text is shown on Vault's message page, blank = the plain block
+        // (owner 2026-09-24). The content script decides which it is.
         fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
-        skipToNextOnBlock: Boolean(group?.skipToNextOnBlock),
         // Preserve custom-rule fields verbatim so that any path which
         // eventually persists the sanitised group (e.g. getState() →
         // applyRuntimeNormalizations() when changed=true) does not silently
@@ -944,6 +945,28 @@ function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now) {
     });
 }
 
+// One-time migration (2026-09-24): the global "default fallback URL" setting
+// is gone — the redirect is one per-group field now. A stored default is copied
+// into every non-custom group that had no address of its own, so nobody's
+// redirect silently disappears, then the key is dropped.
+async function cbMigrateGlobalFallbackUrl(groups, globalSettings) {
+  if (!globalSettings || typeof globalSettings !== "object") return;
+  if (!Object.prototype.hasOwnProperty.call(globalSettings, "defaultFallbackUrl")) return;
+  const inherited = typeof globalSettings.defaultFallbackUrl === "string" ? globalSettings.defaultFallbackUrl.trim() : "";
+  let touched = false;
+  if (inherited && inherited !== "about:blank") {
+    for (const group of groups) {
+      if (group.groupType === "custom" || group.fallbackUrl) continue;
+      group.fallbackUrl = inherited;
+      touched = true;
+    }
+  }
+  const { defaultFallbackUrl, ...rest } = globalSettings;
+  const writes = { [CB_GLOBAL_SETTINGS_KEY]: rest };
+  if (touched) writes[BLOCKED_GROUPS_KEY] = groups;
+  try { await chrome.storage.local.set(writes); } catch (_) {}
+}
+
 async function loadStoredState() {
   const now = Date.now();
   const result = await chrome.storage.local.get({
@@ -951,10 +974,12 @@ async function loadStoredState() {
     [USAGE_TIMERS_KEY]: {},
     [USAGE_RESET_AT_KEY]: {},
     [GROUP_SNOOZES_KEY]: {},
-    [GROUP_SNOOZE_TOTALS_KEY]: {}
+    [GROUP_SNOOZE_TOTALS_KEY]: {},
+    [CB_GLOBAL_SETTINGS_KEY]: null
   });
 
   const groups = sanitizeGroups(result[BLOCKED_GROUPS_KEY]);
+  await cbMigrateGlobalFallbackUrl(groups, result[CB_GLOBAL_SETTINGS_KEY]);
 
   return {
     groups,
@@ -1344,7 +1369,6 @@ function buildPageSession(
     relevantTimedItems.some((item) => item.blocksNow);
 
   let fallbackUrl = "";
-  let skipToNextOnBlock = false;
   if (blockedNow) {
     const blockingGroups = relevantGroups.filter((group) => {
       if (group.mode === "instant") return true;
@@ -1355,7 +1379,6 @@ function buildPageSession(
       return false;
     });
     fallbackUrl = blockingGroups.find((g) => g.fallbackUrl?.trim())?.fallbackUrl?.trim() ?? "";
-    skipToNextOnBlock = blockingGroups.some((g) => g.skipToNextOnBlock);
   }
 
   return {
@@ -1366,7 +1389,6 @@ function buildPageSession(
     surfaceHides,
     feedOrder: buildFeedOrder(groups),
     fallbackUrl,
-    skipToNextOnBlock,
     now
   };
 }
@@ -1470,7 +1492,6 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
       items: [],
       feedFilters: [],
       fallbackUrl: "",
-      skipToNextOnBlock: false,
       now: Date.now()
     };
   }
@@ -1568,7 +1589,6 @@ async function getPageSession(pageContextInput) {
       items: [],
       feedFilters: [],
       fallbackUrl: "",
-      skipToNextOnBlock: false,
       now: Date.now()
     };
   }
@@ -1824,7 +1844,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           items: [],
           feedFilters: [],
           fallbackUrl: "",
-          skipToNextOnBlock: false,
           now: Date.now()
         });
       });
@@ -1908,7 +1927,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           items: [],
           feedFilters: [],
           fallbackUrl: "",
-          skipToNextOnBlock: false,
           now: Date.now()
         });
       });
@@ -3567,8 +3585,7 @@ const CB_SYNC_SCALAR_FIELDS = [
   "frozenAtMs",
   "blockHomePage",
   "allowlist",
-  "fallbackUrl",
-  "skipToNextOnBlock"
+  "fallbackUrl"
 ];
 
 function cbDetectProgramId() {
@@ -4249,8 +4266,7 @@ async function cbBrowserRequestBody(operation, body) {
         autosaveDebounceMs: Math.round(clamp(merged.autosaveDebounceMs, 0, 10_000, 400)),
         debugMode: merged.debugMode === true,
         showOnPageLogToasts: merged.showOnPageLogToasts !== false,
-        defaultSnoozeMinutes: (() => { const n = Number.parseFloat(merged.defaultSnoozeMinutes); return Number.isFinite(n) && n > 0 ? n : 5; })(),
-        defaultFallbackUrl: typeof merged.defaultFallbackUrl === "string" ? merged.defaultFallbackUrl.trim() : ""
+        defaultSnoozeMinutes: (() => { const n = Number.parseFloat(merged.defaultSnoozeMinutes); return Number.isFinite(n) && n > 0 ? n : 5; })()
       };
       await chrome.storage.local.set({ [CB_GLOBAL_SETTINGS_KEY]: next });
       return { globalSettings: next };

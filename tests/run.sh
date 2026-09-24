@@ -139,6 +139,12 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'content-x-blackout' FAILED" >&2
   failed=1
 fi
+node_out=$(node tests/runner-content-block-target.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'content-block-target' FAILED" >&2
+  failed=1
+fi
 node_out=$(node tests/runner-vault-classifier-youtube-tagging.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
