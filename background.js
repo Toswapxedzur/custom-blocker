@@ -5002,12 +5002,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         kind: "group-sync",
         program: message.program,
         groupName: message.groupName,
-        groupType: message.groupType,
         ts: message.ts,
         priority: message.priority === true,
+        // The whole definition: policy scalars + every entry's lines.
         scalars: message.scalars,
-        sites: message.sites,
-        apps: message.apps,
+        scopes: message.scopes,
         // Active-snooze runtime must be relayed too — without these the popup's
         // snooze never reaches the hub and a snooze started on one member never
         // propagates to its linked peers.

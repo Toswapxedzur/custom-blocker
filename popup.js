@@ -1156,7 +1156,10 @@ function applyClusterShared(group, shared) {
       changed = true;
     }
   }
-  if (Array.isArray(shared.scopes)) {
+  // The hub carries lines only once a member has contributed them; an empty
+  // list is "nothing shared yet", never "delete every entry" (a group always
+  // keeps at least one entry), so it is not adopted.
+  if (Array.isArray(shared.scopes) && shared.scopes.length > 0) {
     const stored = toStoredGroup(next);
     const incoming = CBGroupScopes.sanitizeScopeLines(shared.scopes, stored.groupType, cbScopeNormalizers);
     if (JSON.stringify(incoming) !== JSON.stringify(stored.scopes)) {
@@ -3349,9 +3352,9 @@ function sanitizeGroups(groups) {
       : Array.isArray(group?.sources) ? group.sources : [];
     const rawSourceMode = hasLegacy ? legacyMode : group?.sourceMode;
     const rawDiscordTargets = Array.isArray(group?.discordTargets) ? group.discordTargets : [];
-    const ownsSiteList = entryView === "site";
+    const ownsSiteList = true;
 
-    return {
+    const normalized = {
       ...baseGroup,
       id: typeof group?.id === "string" && group.id ? group.id : baseGroup.id,
       name:
@@ -3445,16 +3448,22 @@ function sanitizeGroups(groups) {
         ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
         : [],
       allowlist: ownsSiteList && Boolean(group?.allowlist),
-      apps: entryView === "apps" ? CBGroupScopes.normalizeAppList(group?.apps) : [],
-      entryView,
+      apps: CBGroupScopes.normalizeAppList(group?.apps),
       blockHomePage: Boolean(group?.blockHomePage),
-      fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
-      // Every platform's lines (the group type's are also mirrored by the flat
-      // fields above, which the cards edit); merged back by toStoredGroup().
-      scopes: CBGroupScopes.hasScopeLines(input)
-        ? CBGroupScopes.sanitizeScopeLines(input.scopes, normalizedGroupType, cbScopeNormalizers)
-        : []
+      fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : ""
     };
+    // Every entry's lines. A stored group carries them; a flat group (an older
+    // store, an import) gets its type's lines plus an Apps entry when it has a
+    // legacy app list — nothing a legacy shape held is lost. The flat fields
+    // above are then re-read as the view of the entry in view, so the form and
+    // the lines always agree (toStoredGroup merges the form back).
+    const scopes = CBGroupScopes.hasScopeLines(input)
+      ? CBGroupScopes.sanitizeScopeLines(input.scopes, normalizedGroupType, cbScopeNormalizers)
+      : normalized.apps.length > 0 && normalizedGroupType !== "custom"
+        ? CBGroupScopes.mergeFlatIntoScopes(CBGroupScopes.scopeLinesFromFlat(normalized, normalizedGroupType), normalized, "apps")
+        : CBGroupScopes.scopeLinesFromFlat(normalized, normalizedGroupType);
+    const view = entryView === "custom" ? {} : CBGroupScopes.flatFromScopes({ scopes }, entryView);
+    return { ...normalized, ...view, scopes, entryView };
   });
 
   return dedupeGroupNames(sanitized);
@@ -5162,6 +5171,9 @@ function flushAutosaveOnExit() {
     window.clearTimeout(state.autosaveTimeoutId);
     state.autosaveTimeoutId = null;
   }
+  // Closing the popup before the store was read must not write the empty
+  // in-memory list back (that erased every group).
+  if (!state.groupsLoaded) return;
 
   const group = getSelectedGroup();
   const draft = group ? getDraftForGroup(group.id) : null;
@@ -5280,6 +5292,7 @@ async function persistState(message) {
 async function loadGroups() {
   const loaded = await loadStoredState();
   state.groups = loaded.groups;
+  state.groupsLoaded = true;
   state.usageTimersMs = loaded.usageTimersMs;
   state.usageResetAtMs = loaded.usageResetAtMs;
   state.usageBucketsMs = loaded.usageBucketsMs;
