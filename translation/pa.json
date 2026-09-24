@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "ਲੇਖਕ ਫਿਲਟਰਿੰਗ {platform} 'ਤੇ ਲਾਗੂ ਹੁੰਦੀ ਹੈ। ਛੋਟਾ-ਬਨਾਮ-ਲੰਬਾ ਚੋਣਕਾਰ ਸਮਰਥਿਤ ਵੀਡੀਓ ਸਾਈਟਾਂ 'ਤੇ ਵੀ ਕੰਮ ਕਰਦਾ ਹੈ ਜਦੋਂ ਉਨ੍ਹਾਂ ਦੇ ਪੰਨੇ ਦੀ ਕਿਸਮ ਦੀ ਪਛਾਣ ਕੀਤੀ ਜਾ ਸਕਦੀ ਹੈ।",
   "platform.help.generic": "ਲੇਖਕ ਫਿਲਟਰਿੰਗ ਉਦੋਂ ਲਾਗੂ ਹੁੰਦੀ ਹੈ ਜਦੋਂ ਲੇਖਕ ਪਛਾਣਕਰਤਾਵਾਂ ਦਾ ਪਤਾ ਲਗਾਇਆ ਜਾ ਸਕਦਾ ਹੈ। ਸਮੱਗਰੀ ਦੀਆਂ ਕਿਸਮਾਂ {shortLabel}, {longLabel}, ਅਤੇ {postLabel} 'ਤੇ ਮੈਪ ਕਰਦੀਆਂ ਹਨ ਜਦੋਂ ਉਹ ਪੰਨਾ ਫਾਰਮ ਖੋਜਣਯੋਗ ਹੁੰਦੇ ਹਨ।",
   "platform.short.youtube": "ਸ਼ਾਰਟਸ",

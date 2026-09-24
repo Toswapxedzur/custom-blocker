@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "著者フィルタリングは {platform} に適用されます。短い対長いセレクターは、ページ タイプが識別できる場合、サポートされているビデオ サイトでも機能します。",
   "platform.help.generic": "著者フィルタリングは、著者識別子が検出できる場合に適用されます。コンテンツ タイプは、ページ フォームが検出可能な場合、{shortLabel}、{longLabel}、および {postLabel} にマッピングされます。",
   "platform.short.youtube": "ショーツ",

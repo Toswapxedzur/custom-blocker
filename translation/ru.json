@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "Фильтрация авторов применяется к {platform}. Селектор короткого и длинного также работает на поддерживаемых видеосайтах, если можно идентифицировать тип их страницы.",
   "platform.help.generic": "Фильтрация авторов применяется, когда можно обнаружить идентификаторы авторов. Типы контента сопоставляются с {shortLabel}, {longLabel} и {postLabel}, когда эти формы страниц можно обнаружить.",
   "platform.short.youtube": "Шорты",

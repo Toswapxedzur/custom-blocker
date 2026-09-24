@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "Filtrowanie autorów ma zastosowanie w {platform}. Selektor krótkich i długich działa także w obsługiwanych witrynach wideo, jeśli można zidentyfikować typ ich strony.",
   "platform.help.generic": "Filtrowanie autorów ma zastosowanie, gdy można wykryć identyfikatory autorów. Typy treści są mapowane na {shortLabel}, {longLabel} i {postLabel}, jeśli można wykryć te formularze stron.",
   "platform.short.youtube": "Szorty",
