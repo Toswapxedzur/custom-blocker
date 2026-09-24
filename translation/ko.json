@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "허용된 웹사이트(그 외 모든 항목은 차단됨)",
   "sites.allowlistLabel": "이 사이트를 제외한 모든 사이트 차단",
   "sites.allowlistHelp": "켜져 있으면 이 그룹은 아래 나열된 사이트(허용 목록)를 제외한 전체 웹을 차단합니다. 꺼져 있으면 나열된 사이트만 차단합니다.",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "사이트 비우기",
   "sites.addAria": "웹사이트 추가",
   "sites.addConfirm": "추가",

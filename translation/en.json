@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "Allowed websites (everything else blocked)",
   "sites.allowlistLabel": "Block everything except these sites",
   "sites.allowlistHelp": "When on, this group blocks the entire web except the sites listed below (an allowlist). When off, it blocks only the listed sites.",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "Clear Sites",
   "sites.addAria": "Add websites",
   "sites.addConfirm": "Add",

@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "允许的网站（其他所有网站均被阻止）",
   "sites.allowlistLabel": "阻止除这些网站之外的所有内容",
   "sites.allowlistHelp": "启用后，该组会阻止除下面列出的网站（允许列表）之外的整个网络。关闭时，它仅阻止列出的站点。",
-  "sites.placeholder": "脸书网\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "清空网站",
   "sites.addAria": "添加网站",
   "sites.addConfirm": "添加",

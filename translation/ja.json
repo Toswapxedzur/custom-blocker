@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "許可された Web サイト (その他はすべてブロック)",
   "sites.allowlistLabel": "これらのサイト以外をすべてブロックします",
   "sites.allowlistHelp": "オンの場合、このグループは、以下にリストされているサイト (許可リスト) を除く Web 全体をブロックします。オフにすると、リストされたサイトのみがブロックされます。",
-  "sites.placeholder": "フェイスブック.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "サイトをクリア",
   "sites.addAria": "Web サイトを追加する",
   "sites.addConfirm": "追加",

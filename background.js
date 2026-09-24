@@ -222,6 +222,9 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
   };
 }
 
+// A site entry is a host ("youtube.com": that host and its subdomains) or a
+// host plus a path prefix ("youtube.com/shorts": only that path and everything
+// under it; owner 2026-09-24). Scheme, www., query and hash are dropped.
 function normalizeSiteInput(value) {
   const trimmed = String(value ?? "").trim().toLowerCase();
   if (!trimmed) return null;
@@ -231,10 +234,28 @@ function normalizeSiteInput(value) {
     let hostname = parsedUrl.hostname.trim().toLowerCase();
     if (!hostname) return null;
     if (hostname.startsWith("www.")) hostname = hostname.slice(4);
-    return hostname;
+    const path = parsedUrl.pathname.replace(/\/+$/, "");
+    return path && path !== "/" ? hostname + path : hostname;
   } catch {
     return null;
   }
+}
+
+function siteEntryParts(entry) {
+  const text = String(entry ?? "");
+  const slash = text.indexOf("/");
+  return slash < 0 ? { host: text, path: "" } : { host: text.slice(0, slash), path: text.slice(slash) };
+}
+
+// Does `entry` cover this hostname + pathname? Host entries ignore the path;
+// path entries need the path itself or a child of it (segment boundary, so
+// "youtube.com/short" never matches "/shorts").
+function siteEntryMatches(hostname, pathname, entry) {
+  const { host, path } = siteEntryParts(entry);
+  if (!hostnameMatchesSite(hostname, host)) return false;
+  if (!path) return true;
+  const current = String(pathname || "/").toLowerCase().replace(/\/+$/, "") || "/";
+  return current === path || current.startsWith(path + "/");
 }
 
 // Platform group-type vocabulary + entity/mode normalisation now lives in
@@ -723,9 +744,9 @@ let __blockedHostnamesCache = [];
 // site -> where its block lands (see cbWorkerBlockTarget); "" = the plain message page.
 let __blockedTargetsCache = new Map();
 
-function isHostnameBlockedByCache(hostname) {
+function isUrlBlockedByCache(hostname, pathname) {
   if (!hostname) return false;
-  return __blockedHostnamesCache.some((blocked) => hostnameMatchesSite(hostname, blocked));
+  return __blockedHostnamesCache.some((entry) => siteEntryMatches(hostname, pathname, entry));
 }
 
 // The group's "when blocked" field, resolved for the redirect fast path the
@@ -749,14 +770,15 @@ function cbWorkerBlockTarget(value) {
 // leave the field blank get "" (plain message page).
 function getBlockingTargets(groups, usageTimersMs, groupSnoozes, now) {
   const targets = new Map();
-  for (const hostname of getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now)) {
-    const blocking = getRelevantSiteGroupsForHostname(hostname, groups, groupSnoozes, now).filter(
+  for (const entry of getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now)) {
+    const { host, path } = siteEntryParts(entry);
+    const blocking = getRelevantSiteGroupsForUrl(host, path || "/", groups, groupSnoozes, now).filter(
       (group) =>
         group.mode === "instant" ||
         (isBlockingTimedMode(group.mode) && (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group))
     );
     const chosen = blocking.find((group) => typeof group.fallbackUrl === "string" && group.fallbackUrl.trim());
-    targets.set(hostname, chosen ? cbWorkerBlockTarget(chosen.fallbackUrl) : "");
+    targets.set(entry, chosen ? cbWorkerBlockTarget(chosen.fallbackUrl) : "");
   }
   return targets;
 }
@@ -922,9 +944,9 @@ function reversed(list) {
 //                                (i.e. "block everything except these").
 // Used for "site" and "custom" groups. An allowlist group with an empty list
 // blocks the entire web — that is a valid (if drastic) lockdown config.
-function siteListBlocks(group, hostname) {
+function siteListBlocks(group, hostname, pathname) {
   if (!hostname) return false;
-  const inList = group.sites.some((site) => hostnameMatchesSite(hostname, site));
+  const inList = group.sites.some((entry) => siteEntryMatches(hostname, pathname, entry));
   return group.allowlist ? !inList : inList;
 }
 
@@ -935,8 +957,8 @@ function groupUsesSiteList(group) {
   return Boolean(group.allowlist) || (Array.isArray(group.sites) && group.sites.length > 0);
 }
 
-function matchesSiteGroup(group, hostname) {
-  return siteListBlocks(group, hostname);
+function matchesSiteGroup(group, hostname, pathname) {
+  return siteListBlocks(group, hostname, pathname);
 }
 
 function getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now) {
@@ -949,21 +971,21 @@ function getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now) {
       // a declarative domain list (block / "block all except"). Only let a
       // custom group affect the page-block decision when it is actually
       // configured, so unconfigured custom groups behave exactly as before.
-      return groupUsesSiteList(group) && siteListBlocks(group, pageContext.hostname);
+      return groupUsesSiteList(group) && siteListBlocks(group, pageContext.hostname, pageContext.pathname);
     }
     if (isPlatformProfileGroupType(group.groupType)) return matchesProfileGroup(group, pageContext);
-    return matchesSiteGroup(group, pageContext.hostname);
+    return matchesSiteGroup(group, pageContext.hostname, pageContext.pathname);
   });
 }
 
-function getRelevantSiteGroupsForHostname(hostname, groups, groupSnoozes, now) {
+function getRelevantSiteGroupsForUrl(hostname, pathname, groups, groupSnoozes, now) {
   return reversed(groups).filter(
     (group) =>
       group.groupType === "site" &&
       group.enabled &&
       isGroupActiveNow(group, now) &&
       !getActiveSnooze(group.id, groupSnoozes, now) &&
-      matchesSiteGroup(group, hostname)
+      matchesSiteGroup(group, hostname, pathname)
   );
 }
 
@@ -1285,15 +1307,17 @@ async function getState() {
 function getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now) {
   // Custom groups never block whole sites. Only site groups (instant or
   // timed) contribute hostnames to the redirect fast-path cache.
-  const hostnames = new Set(
+  // Entries are hosts or host/path prefixes; each is tested as the URL it names.
+  const entries = new Set(
     groups.filter((group) => group.groupType === "site").flatMap((group) => group.sites)
   );
-  const blockedHostnames = [];
+  const blockedEntries = [];
 
-  for (const hostname of hostnames) {
-    const relevantGroups = getRelevantSiteGroupsForHostname(hostname, groups, groupSnoozes, now);
+  for (const entry of entries) {
+    const { host, path } = siteEntryParts(entry);
+    const relevantGroups = getRelevantSiteGroupsForUrl(host, path || "/", groups, groupSnoozes, now);
     if (relevantGroups.some((group) => group.mode === "instant")) {
-      blockedHostnames.push(hostname);
+      blockedEntries.push(entry);
       continue;
     }
     if (
@@ -1302,11 +1326,11 @@ function getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now) {
           isBlockingTimedMode(group.mode) && (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group)
       )
     ) {
-      blockedHostnames.push(hostname);
+      blockedEntries.push(entry);
     }
   }
 
-  return sanitizeBlockingDomains(blockedHostnames);
+  return sanitizeBlockingDomains(blockedEntries);
 }
 
 // Whether a platform group should actually hide matched content right now
@@ -1522,8 +1546,8 @@ function buildPageSession(
   );
   const surfaceHides = buildSurfaceHideSelectors(pageContext, groups, groupSnoozes, now);
   const currentBlockedHostnames = getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now);
-  const blockedByHostname = currentBlockedHostnames.some((hostname) =>
-    pageContext.hostname && hostnameMatchesSite(pageContext.hostname, hostname)
+  const blockedByHostname = currentBlockedHostnames.some((entry) =>
+    pageContext.hostname && siteEntryMatches(pageContext.hostname, pageContext.pathname, entry)
   );
   // Page-level blocking (full exit) only comes from page-matched groups. Feed
   // exposure never redirects the page — it just enforces the feed filter
@@ -1643,9 +1667,9 @@ async function syncBlockingRules() {
 // Redirect target for a fully-blocked site: the blocking group's address or
 // message when it has one, else the message page, which renders the "blocked"
 // screen without loading any of the blocked site's content.
-function blockedRedirectUrl(hostname) {
-  for (const [site, target] of __blockedTargetsCache) {
-    if (target && hostnameMatchesSite(hostname, site)) return target;
+function blockedRedirectUrl(hostname, pathname) {
+  for (const [entry, target] of __blockedTargetsCache) {
+    if (target && siteEntryMatches(hostname, pathname, entry)) return target;
   }
   try {
     return chrome.runtime.getURL("message-page.html");
@@ -3418,8 +3442,10 @@ if (chrome.webNavigation && chrome.webNavigation.onBeforeNavigate) {
     const url = String(details.url || "");
     if (!/^https?:/i.test(url)) return;
     const hostname = hostnameOf(url);
-    if (!isHostnameBlockedByCache(hostname)) return;
-    const target = blockedRedirectUrl(hostname);
+    let pathname = "/";
+    try { pathname = new URL(url).pathname; } catch {}
+    if (!isUrlBlockedByCache(hostname, pathname)) return;
+    const target = blockedRedirectUrl(hostname, pathname);
     chrome.tabs.update(details.tabId, { url: target }).catch(() => {});
   });
 }

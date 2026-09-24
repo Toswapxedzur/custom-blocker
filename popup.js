@@ -1523,10 +1523,19 @@ function normalizeSiteInput(value) {
       hostname = hostname.slice(4);
     }
 
-    return hostname;
+    // A path prefix scopes the entry to that path and everything under it
+    // ("youtube.com/shorts"); a bare host covers the host and its subdomains.
+    const path = parsedUrl.pathname.replace(/\/+$/, "");
+    return path && path !== "/" ? hostname + path : hostname;
   } catch {
     return null;
   }
+}
+
+function siteEntryHost(entry) {
+  const text = String(entry ?? "");
+  const slash = text.indexOf("/");
+  return slash < 0 ? text : text.slice(0, slash);
 }
 
 // normalizeYouTubeCreatorInput now comes from platform-profiles.js.
@@ -1636,7 +1645,7 @@ function renderBlockedSites() {
     chip.setAttribute("role", "listitem");
     chip.title = host;
 
-    chip.appendChild(makeSiteIconElement(host));
+    chip.appendChild(makeSiteIconElement(siteEntryHost(host)));
 
     const label = document.createElement("span");
     label.className = "site-chip-name";

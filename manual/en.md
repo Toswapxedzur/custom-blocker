@@ -142,7 +142,7 @@ Reset to defaults is a **global settings** operation. It discards extension-wide
 
 ### 3.1 Default website group
 
-A Site group owns a line-separated website list. Entries are normalized into host/domain form. A host entry matches that host and all of its subdomains.
+A Site group owns a line-separated website list. Entries are normalized into host form, optionally with a path prefix. A host entry (`youtube.com`) matches that host and all of its subdomains. A host/path entry (`youtube.com/shorts`, `reddit.com/r/all`) matches only that path and everything under it, on that host and its subdomains; the rest of the host stays untouched. Path entries apply in the browser extension only — the desktop apps block whole hosts and skip them on import.
 
 | Setting | Result |
 | --- | --- |
@@ -893,7 +893,7 @@ Use this checklist when auditing a release or reproducing behaviour:
 
 1. Confirm the group has a non-empty unique name, correct type, enabled state, and intended list/order.
 2. For normal groups, confirm active weekday, valid local time window, no active snooze, and non-frozen editing state.
-3. For a Site group, test exact host, subdomain, and (for allowlist) a host outside the list.
+3. For a Site group, test exact host, subdomain, a path entry against a sibling path, and (for allowlist) a host outside the list.
 4. For a platform group, separately test page-level matching, targeted item/card matching, author mode, content-form mode, and each enabled surface hide.
 5. For timed normal groups, verify visible-page accrual, allowance expiry or count-up non-blocking behaviour, and reset interval.
 6. For Custom rules, run syntax check, Run, inspect handler count/logs, test every registered built-in event, then test a reload/navigation.

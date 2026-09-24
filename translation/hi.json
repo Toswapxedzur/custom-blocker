@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "अनुमत वेबसाइटें (बाकी सब कुछ अवरुद्ध)",
   "sites.allowlistLabel": "इन साइटों को छोड़कर सभी को ब्लॉक करें",
   "sites.allowlistHelp": "चालू होने पर, यह समूह नीचे सूचीबद्ध साइटों (एक अनुमति सूची) को छोड़कर पूरे वेब को ब्लॉक कर देता है। बंद होने पर, यह केवल सूचीबद्ध साइटों को ब्लॉक कर देता है।",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "साइटें साफ़ करें",
   "sites.addAria": "वेबसाइटें जोड़ें",
   "sites.addConfirm": "जोड़ें",

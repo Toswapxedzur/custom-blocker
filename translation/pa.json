@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "ਮਨਜ਼ੂਰਸ਼ੁਦਾ ਵੈੱਬਸਾਈਟਾਂ (ਹੋਰ ਸਭ ਕੁਝ ਬਲੌਕ ਕੀਤਾ ਗਿਆ)",
   "sites.allowlistLabel": "ਇਹਨਾਂ ਸਾਈਟਾਂ ਨੂੰ ਛੱਡ ਕੇ ਹਰ ਚੀਜ਼ ਨੂੰ ਬਲੌਕ ਕਰੋ",
   "sites.allowlistHelp": "ਚਾਲੂ ਹੋਣ 'ਤੇ, ਇਹ ਸਮੂਹ ਹੇਠਾਂ ਸੂਚੀਬੱਧ ਸਾਈਟਾਂ (ਇੱਕ ਅਨੁਮਤੀ ਸੂਚੀ) ਨੂੰ ਛੱਡ ਕੇ ਪੂਰੇ ਵੈੱਬ ਨੂੰ ਬਲੌਕ ਕਰਦਾ ਹੈ। ਬੰਦ ਹੋਣ 'ਤੇ, ਇਹ ਸਿਰਫ਼ ਸੂਚੀਬੱਧ ਸਾਈਟਾਂ ਨੂੰ ਬਲੌਕ ਕਰਦਾ ਹੈ।",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "ਸਾਈਟਾਂ ਸਾਫ਼ ਕਰੋ",
   "sites.addAria": "ਵੈੱਬਸਾਈਟਾਂ ਸ਼ਾਮਲ ਕਰੋ",
   "sites.addConfirm": "ਸ਼ਾਮਲ ਕਰੋ",
