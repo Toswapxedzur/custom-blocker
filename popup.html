@@ -799,42 +799,6 @@
               <h4 class="settings-col-title" data-i18n="settings.colBehavior">Behavior</h4>
         <div class="settings-grid">
           <div>
-            <label class="label" for="settingsTickRate" data-i18n="settings.tickRate">
-              Tick rate (ms)
-            </label>
-            <input
-              id="settingsTickRate"
-              type="number"
-              min="250"
-              max="60000"
-              step="50"
-              inputmode="numeric"
-              placeholder="1000"
-              data-i18n-placeholder="settings.tickRatePlaceholder"
-            />
-            <p class="field-help" data-i18n="settings.tickRateHelp">
-              How often the shared tickEvent fires across all tabs. Lower values are more responsive but use more CPU.
-            </p>
-          </div>
-          <div>
-            <label class="label" for="settingsAutosaveDebounce" data-i18n="settings.autosaveDebounce">
-              Autosave debounce (ms)
-            </label>
-            <input
-              id="settingsAutosaveDebounce"
-              type="number"
-              min="0"
-              max="5000"
-              step="50"
-              inputmode="numeric"
-              placeholder="400"
-              data-i18n-placeholder="settings.autosaveDebouncePlaceholder"
-            />
-            <p class="field-help" data-i18n="settings.autosaveDebounceHelp">
-              How long the popup waits after the last keystroke before persisting your edits.
-            </p>
-          </div>
-          <div>
             <label class="label" for="settingsDefaultSnoozeMinutes" data-i18n="settings.defaultSnoozeMinutes">
               Default snooze duration (minutes)
             </label>
@@ -866,22 +830,6 @@
             </p>
           </div>
         </div>
-
-        <label class="checkbox-row compact" for="settingsDebugMode">
-          <input id="settingsDebugMode" type="checkbox" />
-          <span data-i18n="settings.debugMode">Debug mode</span>
-        </label>
-        <p class="field-help" data-i18n="settings.debugModeHelp">
-          When on, shows the on-page debug overlay for custom rules and emits verbose [CustomBlocker] / [CustomBlocker:trace] console output. Your own helpers.log() calls always work regardless.
-        </p>
-
-        <label class="checkbox-row compact" for="settingsShowOnPageLogToasts">
-          <input id="settingsShowOnPageLogToasts" type="checkbox" />
-          <span data-i18n="settings.showOnPageLogToasts">Show custom rule logs on web pages</span>
-        </label>
-        <p class="field-help" data-i18n="settings.showOnPageLogToastsHelp">
-          When off, helpers.log(), warn(), and error() still appear in the popup Log panel but do not show page toasts. Rules can use logScreen() for screen-only toasts.
-        </p>
 
             </section>
 
