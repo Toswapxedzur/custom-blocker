@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "เว็บไซต์ที่อนุญาต (ทุกอย่างถูกบล็อก)",
   "sites.allowlistLabel": "บล็อกทุกอย่างยกเว้นไซต์เหล่านี้",
   "sites.allowlistHelp": "เมื่อเปิด กลุ่มนี้จะบล็อกทั้งเว็บ ยกเว้นเว็บไซต์ที่แสดงด้านล่าง (รายการที่อนุญาต) เมื่อปิด จะบล็อกเฉพาะไซต์ที่อยู่ในรายการเท่านั้น",
-  "sites.placeholder": "facebook.com\nyoutube.com\nข่าว.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "ล้างไซต์",
   "sites.addAria": "เพิ่มเว็บไซต์",
   "sites.addConfirm": "เพิ่ม",

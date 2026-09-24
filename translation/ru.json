@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "Разрешенные веб-сайты (все остальное заблокировано)",
   "sites.allowlistLabel": "Блокировать все, кроме этих сайтов",
   "sites.allowlistHelp": "Если эта группа включена, эта группа блокирует всю сеть, кроме сайтов, перечисленных ниже (белый список). В выключенном состоянии блокируются только перечисленные сайты.",
-  "sites.placeholder": "Facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "Очистить сайты",
   "sites.addAria": "Добавить веб-сайты",
   "sites.addConfirm": "Добавить",

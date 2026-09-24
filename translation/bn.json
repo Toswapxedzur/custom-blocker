@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "অনুমোদিত ওয়েবসাইট (অন্য সবকিছু অবরুদ্ধ)",
   "sites.allowlistLabel": "এই সাইটগুলি ছাড়া সবকিছু ব্লক করুন",
   "sites.allowlistHelp": "চালু হলে, এই গ্রুপটি নীচে তালিকাভুক্ত সাইটগুলি (একটি অনুমোদিত তালিকা) ছাড়া সম্পূর্ণ ওয়েব ব্লক করে। বন্ধ হলে, এটি শুধুমাত্র তালিকাভুক্ত সাইটগুলিকে ব্লক করে।",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "সাফ সাইট",
   "sites.addAria": "ওয়েবসাইট যোগ করুন",
   "sites.addConfirm": "যোগ করুন",

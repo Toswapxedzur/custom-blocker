@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "Toegestane websites (al het andere geblokkeerd)",
   "sites.allowlistLabel": "Blokkeer alles behalve deze sites",
   "sites.allowlistHelp": "Indien ingeschakeld, blokkeert deze groep het hele internet, behalve de onderstaande sites (een toelatingslijst). Als het is uitgeschakeld, worden alleen de vermelde sites geblokkeerd.",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnieuws.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "Duidelijke sites",
   "sites.addAria": "Websites toevoegen",
   "sites.addConfirm": "Toevoegen",

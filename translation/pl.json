@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "Dozwolone strony internetowe (wszystkie inne zablokowane)",
   "sites.allowlistLabel": "Blokuj wszystko oprócz tych witryn",
   "sites.allowlistHelp": "Gdy jest włączona, ta grupa blokuje całą sieć z wyjątkiem witryn wymienionych poniżej (lista dozwolonych). Gdy jest wyłączony, blokuje tylko wymienione witryny.",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "Wyczyść witryny",
   "sites.addAria": "Dodaj strony internetowe",
   "sites.addConfirm": "Dodaj",

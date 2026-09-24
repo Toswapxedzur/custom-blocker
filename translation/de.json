@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "Erlaubte Websites (alles andere blockiert)",
   "sites.allowlistLabel": "Blockieren Sie alles außer diesen Websites",
   "sites.allowlistHelp": "Wenn diese Option aktiviert ist, blockiert diese Gruppe das gesamte Web mit Ausnahme der unten aufgeführten Websites (eine Zulassungsliste). Wenn diese Option deaktiviert ist, werden nur die aufgelisteten Websites blockiert.",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "Löschen Sie Websites",
   "sites.addAria": "Websites hinzufügen",
   "sites.addConfirm": "Hinzufugen",

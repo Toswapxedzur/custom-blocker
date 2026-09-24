@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "İzin verilen web siteleri (diğer her şey engellendi)",
   "sites.allowlistLabel": "Bu siteler dışındaki her şeyi engelle",
   "sites.allowlistHelp": "Bu grup açık olduğunda, aşağıda listelenen siteler (izin verilenler listesi) dışında tüm web'i engeller. Kapalıyken yalnızca listelenen siteleri engeller.",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "Siteleri Temizle",
   "sites.addAria": "Web siteleri ekleyin",
   "sites.addConfirm": "Ekle",
