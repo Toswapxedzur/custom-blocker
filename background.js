@@ -40,6 +40,11 @@ if (typeof importScripts === "function") {
     console.error("[CustomBlocker] importScripts(platform-profiles.js) failed", error);
   }
   try {
+    if (typeof CBGroupScopes === "undefined") importScripts("group-scopes.js");
+  } catch (error) {
+    console.error("[CustomBlocker] importScripts(group-scopes.js) failed", error);
+  }
+  try {
     if (typeof VaultClassifierExtensionContract === "undefined") importScripts("vault-classifier-contract.js");
     importScripts("vault-classifier-bridge.js", "local-hub-auth.js");
   } catch (error) {
@@ -416,11 +421,29 @@ function normalizeTagList(raw) {
   return out;
 }
 
+// The context's own normalizers for the line fields whose normalization
+// differs between the worker and the popup (see group-scopes.js).
+const cbScopeNormalizers = {
+  normalizeSiteInput: (value) => normalizeSiteInput(value),
+  normalizeTagFilterMode: (value) => normalizeTagFilterMode(value),
+  normalizeTagList: (value) => normalizeTagList(value),
+  clampTagConfidence: (value, fallback) => clampTagConfidence(value, fallback)
+};
+
+// Sanitizes stored / patched groups into the canonical shape: policy fields +
+// `scopes` (group-scopes.js). Input may be canonical (a stored group), flat
+// (the popup's form model, a legacy store, an MCP patch of flat fields) or
+// canonical with flat fields patched on top — flat fields always describe the
+// intended lines, so they win over lines merged underneath.
 function sanitizeGroups(groups) {
   if (!Array.isArray(groups)) return [];
 
   return groups
-    .map((group, index) => {
+    .map((input, index) => {
+      const hasLines = CBGroupScopes.hasScopeLines(input);
+      const flatPatched = CBGroupScopes.hasFlatScopeFields(input);
+      const group = hasLines ? { ...CBGroupScopes.flatFromScopes(input), ...input } : input;
+      const useStoredLines = hasLines && !flatPatched;
       const baseGroup = createDefaultGroup(normalizeGroupType(group?.groupType));
       const hasStoredDays = Array.isArray(group?.activeDays);
       const rawDays = hasStoredDays ? group.activeDays : createDefaultDays();
@@ -450,7 +473,7 @@ function sanitizeGroups(groups) {
 
       const normalizedGroupType = normalizeGroupType(group?.groupType);
 
-      return {
+      const normalized = {
         ...baseGroup,
         id: typeof group?.id === "string" && group.id ? group.id : baseGroup.id,
         name:
@@ -561,6 +584,14 @@ function sanitizeGroups(groups) {
           Number(group.lastSourceUpdatedAt) > 0
             ? Number(group.lastSourceUpdatedAt)
             : null
+      };
+      const scopes = useStoredLines
+        ? CBGroupScopes.sanitizeScopeLines(input.scopes, normalizedGroupType, cbScopeNormalizers)
+        : CBGroupScopes.scopeLinesFromFlat(normalized, normalizedGroupType);
+      return {
+        ...CBGroupScopes.withoutFlatScopeFields(normalized),
+        groupType: CBGroupScopes.deriveGroupType(scopes, normalizedGroupType),
+        scopes
       };
     })
     .filter((group) => group.name);
@@ -935,28 +966,93 @@ function reversed(list) {
 // matchesDiscordGroup / matchesTwitterGroup) plus the matchesProfileGroup
 // dispatcher all live in platform-profiles.js and are provided as globals.
 
-// Does this group's domain list block `hostname` right now? (Mode/active/snooze
-// are handled by callers; this is the pure domain-set verdict.)
-//   blocklist (allowlist=false): block iff hostname is in the list.
-//   allowlist (allowlist=true):  block iff hostname is NOT in the list
-//                                (i.e. "block everything except these").
-// Used for "site" and "custom" groups. An allowlist group with an empty list
-// blocks the entire web — that is a valid (if drastic) lockdown config.
-function siteListBlocks(group, hostname, pathname) {
-  if (!hostname) return false;
-  const inList = group.sites.some((entry) => siteEntryMatches(hostname, pathname, entry));
-  return group.allowlist ? !inList : inList;
+// Does a group's site line block `hostname` + `pathname` right now? (Mode /
+// active / snooze are handled by callers; this is the pure list verdict.)
+//   blocklist (sitesExcept=false): block iff the URL is in the list.
+//   allowlist (sitesExcept=true):  block iff the URL is NOT in the list
+//                                  ("block everything except these").
+// Used for "site" and "custom" groups. An allowlist line with an empty list
+// blocks the entire web — a valid (if drastic) lockdown config.
+function cbSiteLine(group) {
+  return (Array.isArray(group?.scopes) ? group.scopes : []).find((line) => line.surface === "site") || null;
 }
 
-// True when a group carries a meaningful domain configuration (so an unconfigured
-// custom group — empty blocklist — never accidentally participates in page
-// blocking, while an allowlist group always does, even with an empty list).
+function siteLineBlocks(line, hostname, pathname) {
+  if (!line || !hostname) return false;
+  const sites = Array.isArray(line.sites) ? line.sites : [];
+  const inList = sites.some((entry) => siteEntryMatches(hostname, pathname, entry));
+  return line.sitesExcept ? !inList : inList;
+}
+
+// True when a group carries a meaningful site line (so an unconfigured custom
+// group — no list — never accidentally participates in page blocking, while an
+// allowlist line always does, even with an empty list).
 function groupUsesSiteList(group) {
-  return Boolean(group.allowlist) || (Array.isArray(group.sites) && group.sites.length > 0);
+  const line = cbSiteLine(group);
+  return Boolean(line) && (Boolean(line.sitesExcept) || (Array.isArray(line.sites) && line.sites.length > 0));
 }
 
 function matchesSiteGroup(group, hostname, pathname) {
-  return siteListBlocks(group, hostname, pathname);
+  return siteLineBlocks(cbSiteLine(group), hostname, pathname);
+}
+
+// ── Scope lines → the platform matchers ────────────────────────────────────
+// The registry matchers read a flat platform shape; a line is presented to
+// them as that shape. Only page surfaces can match a page: an untagged
+// "pages" line through the platform matcher (home check off), a "home" line
+// through the home check alone (its source axis names nothing), a site line
+// through the site list. Items, shelves and tagged pages lines never match a
+// page here — tagged pages are decided by the content script from the tag
+// entry's pageEffect, exactly as before.
+function cbLineView(group, line, overrides) {
+  const platform = line?.platform || group.groupType;
+  return {
+    id: group.id,
+    groupType: platform,
+    platformVideoMode: line?.form || "all",
+    sourceMode: line?.sourceMode || "all",
+    sources: Array.isArray(line?.sources) ? line.sources : [],
+    discordMode: line?.discordMode || "all",
+    discordTargets: Array.isArray(line?.discordTargets) ? line.discordTargets : [],
+    blockHomePage: false,
+    ...overrides
+  };
+}
+
+// The group's source axis (its untagged items/pages line), for the helpers
+// that gate on "does this group's author scope cover the current page".
+function cbGroupSourceLine(group) {
+  return (Array.isArray(group?.scopes) ? group.scopes : []).find(
+    (line) => (line.surface === "items" || line.surface === "pages") && !line.tagFilter
+  ) || null;
+}
+
+function cbGroupSourceAxisView(group) {
+  const line = cbGroupSourceLine(group);
+  return line
+    ? cbLineView(group, line)
+    : cbLineView(group, null, { sourceMode: "nobody", discordMode: "include", discordTargets: [] });
+}
+
+function cbLineMatchesPage(group, line, pageContext) {
+  if (!line) return false;
+  if (line.surface === "site") return siteLineBlocks(line, pageContext.hostname, pageContext.pathname);
+  if (line.surface === "pages") {
+    if (line.tagFilter) return false;
+    return matchesProfileGroup(cbLineView(group, line), pageContext);
+  }
+  if (line.surface === "home") {
+    return matchesProfileGroup(
+      cbLineView(group, line, { blockHomePage: true, sourceMode: "nobody", discordMode: "include", discordTargets: [] }),
+      pageContext
+    );
+  }
+  return false;
+}
+
+function cbGroupMatchesPage(group, pageContext) {
+  const lines = Array.isArray(group?.scopes) ? group.scopes : [];
+  return lines.some((line) => cbLineMatchesPage(group, line, pageContext));
 }
 
 function getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now) {
@@ -966,13 +1062,11 @@ function getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now) {
     }
     if (group.groupType === "custom") {
       // Custom groups still run their JS in content.js, but they may ALSO carry
-      // a declarative domain list (block / "block all except"). Only let a
-      // custom group affect the page-block decision when it is actually
-      // configured, so unconfigured custom groups behave exactly as before.
-      return groupUsesSiteList(group) && siteListBlocks(group, pageContext.hostname, pageContext.pathname);
+      // a declarative site line (block / "block all except"). Only let a custom
+      // group affect the page-block decision when it is actually configured.
+      return groupUsesSiteList(group) && matchesSiteGroup(group, pageContext.hostname, pageContext.pathname);
     }
-    if (isPlatformProfileGroupType(group.groupType)) return matchesProfileGroup(group, pageContext);
-    return matchesSiteGroup(group, pageContext.hostname, pageContext.pathname);
+    return cbGroupMatchesPage(group, pageContext);
   });
 }
 
@@ -1304,10 +1398,12 @@ async function getState() {
 
 function getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now) {
   // Custom groups never block whole sites. Only site groups (instant or
-  // timed) contribute hostnames to the redirect fast-path cache.
+  // timed) contribute entries to the redirect fast-path cache.
   // Entries are hosts or host/path prefixes; each is tested as the URL it names.
   const entries = new Set(
-    groups.filter((group) => group.groupType === "site").flatMap((group) => group.sites)
+    groups
+      .filter((group) => group.groupType === "site")
+      .flatMap((group) => { const line = cbSiteLine(group); return line && Array.isArray(line.sites) ? line.sites : []; })
   );
   const blockedEntries = [];
 
@@ -1341,31 +1437,45 @@ function isPlatformBlockEnforcing(group, usageTimersMs) {
   return (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group);
 }
 
-// Emit a group's content-tag filter as a SEPARATE feed-filter entry (own id +
-// effect), independent of the author/subreddit axis. Works for any platform
-// whose feed cards carry classifier tags (youtube, feed platforms like
-// bilibili, and reddit). content.js matchesFeedFilter does the tag matching.
-function pushTagFilterEntry(filters, group, enforce) {
-  const tagMode = normalizeTagFilterMode(group.platformTagMode);
+// Emit a tagged "items" line as a SEPARATE feed-filter entry (own id + effect
+// from the line's action), independent of the source axis. Works for any
+// platform whose feed cards carry classifier tags. A tagged "pages" line with
+// the same filter turns into the entry's pageEffect, which content.js applies
+// to the page's own entry. content.js matchesFeedFilter does the tag matching.
+function cbSameTagFilter(a, b) {
+  if (!a || !b) return false;
+  return a.mode === b.mode
+    && a.defaultConfidence === b.defaultConfidence
+    && Boolean(a.blockUntagged) === Boolean(b.blockUntagged)
+    && JSON.stringify(a.tags) === JSON.stringify(b.tags);
+}
+
+function pushTagFilterEntry(filters, group, line, enforce) {
+  const tagFilter = line?.tagFilter;
+  if (!tagFilter) return;
+  const tagMode = normalizeTagFilterMode(tagFilter.mode);
   if (tagMode !== "include" && tagMode !== "exclude") return;
-  const tagList = normalizeTagList(group.platformTags);
+  const tagList = normalizeTagList(tagFilter.tags);
   // A block-list with nothing to block is inert — unless it blocks untagged content.
   const hasBlockingEntry = tagList.some((entry) => !entry.except);
-  if (tagMode === "include" && !hasBlockingEntry && !group.platformTagBlockUntagged) return;
+  if (tagMode === "include" && !hasBlockingEntry && !tagFilter.blockUntagged) return;
+  const pagesLine = (Array.isArray(group.scopes) ? group.scopes : []).find(
+    (candidate) => candidate.surface === "pages" && candidate.tagFilter && cbSameTagFilter(candidate.tagFilter, tagFilter)
+  );
   filters.push({
     id: group.id + "␟tag",
     baseGroupId: group.id,
-    site: group.groupType,
+    site: line.platform || group.groupType,
     tagFilter: {
       mode: tagMode,
       tags: tagList,
-      defaultConfidence: clampTagConfidence(group.platformTagDefaultConfidence, 4),
-      blockUntagged: Boolean(group.platformTagBlockUntagged)
+      defaultConfidence: clampTagConfidence(tagFilter.defaultConfidence, 4),
+      blockUntagged: Boolean(tagFilter.blockUntagged)
     },
-    effectVerdict: group.platformTagEffect === "block" ? "hide" : "dim",
+    effectVerdict: line.action === "hide" ? "hide" : "dim",
     // content.js evaluates the page's own entry against this same filter.
-    pageEffect: group.platformTagBlockPage !== false ? "block" : "allow",
-    tagCoverUntilTagged: group.platformTagCoverUntilTagged === true,
+    pageEffect: pagesLine ? "block" : "allow",
+    tagCoverUntilTagged: tagFilter.coverUntilTagged === true,
     enforce
   });
 }
@@ -1374,122 +1484,85 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
   const filters = [];
   const currentSite = pageContext.videoSite || getPlatformGroupTypeForHost(pageContext.hostname);
   const orderedGroups = reversed(groups);
+  const kind = currentSite ? CBGroupScopes.platformKind(currentSite) : null;
+  const onReddit = Boolean(pageContext.isRedditPage);
+  if (!currentSite && !onReddit) return filters;
 
-  if (currentSite) {
-    for (const group of orderedGroups) {
-      if (
-        !isPlatformVideoGroupType(group.groupType) ||
-        group.groupType !== currentSite ||
-        !group.enabled ||
-        !isGroupActiveNow(group, now) ||
-        getActiveSnooze(group.id, groupSnoozes, now)
-      ) {
+  for (const group of orderedGroups) {
+    if (!group.enabled || !isGroupActiveNow(group, now) || getActiveSnooze(group.id, groupSnoozes, now)) continue;
+    const lines = Array.isArray(group.scopes) ? group.scopes : [];
+    const itemLines = lines.filter((line) => line.surface === "items");
+    if (itemLines.length === 0) continue;
+    const platform = itemLines[0].platform;
+    // Reddit pages carry no videoSite; every other platform is keyed by host.
+    if (onReddit ? platform !== "reddit" : platform !== currentSite) continue;
+    // `enforce` decides whether matched cards are actually hidden: instant
+    // always, after-minutes only past its allowance, count-up "timer" never.
+    const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
+    for (const line of itemLines) {
+      if (line.tagFilter) {
+        // Content-tag line: independent of the source axis. Applies regardless.
+        pushTagFilterEntry(filters, group, line, enforce);
         continue;
       }
-      // `enforce` decides whether matched cards are actually hidden: instant
-      // always, after-minutes only past its allowance, count-up "timer" never.
-      const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
-      // Author filter: emitted only for its active modes. "nobody"/other → the
-      // author axis blocks nothing, but the group's TAG filter may still apply.
-      const authorMode = normalizeSourceMode(group.sourceMode, group.sources);
-      if (authorMode === "all" || authorMode === "include" || authorMode === "exclude") {
+      const authorMode = normalizeSourceMode(line.sourceMode, line.sources);
+      const lineKind = CBGroupScopes.platformKind(platform);
+      if (lineKind === "video") {
+        // Video platforms: "all" hides every card too; include/exclude trim by author.
+        if (authorMode === "all" || authorMode === "include" || authorMode === "exclude") {
+          filters.push({
+            id: group.id,
+            site: platform,
+            videoMode: normalizeVideoMode(line.form),
+            authorMode,
+            authors: [...line.sources],
+            enforce
+          });
+        }
+      } else if (authorMode === "include" || authorMode === "exclude") {
+        // Reddit and feed platforms: "all" blocks the page (matcher) and
+        // "nobody" blocks nothing; only include/exclude trim individual cards.
         filters.push({
           id: group.id,
-          site: group.groupType,
-          videoMode: normalizeVideoMode(group.platformVideoMode),
+          site: platform,
           authorMode,
-          authors: [...group.sources],
+          authors: [...line.sources],
           enforce
         });
       }
-      // Content-tag filter: independent of the author mode. Applies regardless.
-      pushTagFilterEntry(filters, group, enforce);
-    }
-  }
-
-  if (pageContext.isRedditPage) {
-    for (const group of orderedGroups) {
-      if (
-        group.groupType !== "reddit" ||
-        !group.enabled ||
-        !isGroupActiveNow(group, now) ||
-        getActiveSnooze(group.id, groupSnoozes, now)
-      ) {
-        continue;
-      }
-      const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
-      const authorMode = normalizeSourceMode(group.sourceMode, group.sources);
-      // Subreddit (source) filter: only include/exclude trim feed cards; "all"
-      // blocks the page (matcher) and "nobody" blocks nothing. The tag filter
-      // below is independent and applies regardless.
-      if (authorMode === "include" || authorMode === "exclude") {
-        filters.push({
-          id: group.id,
-          site: "reddit",
-          authorMode,
-          authors: [...group.sources],
-          enforce
-        });
-      }
-      pushTagFilterEntry(filters, group, enforce);
-    }
-  }
-
-  if (currentSite && isPlatformFeedGroupType(currentSite)) {
-    for (const group of orderedGroups) {
-      if (
-        group.groupType !== currentSite ||
-        !group.enabled ||
-        !isGroupActiveNow(group, now) ||
-        getActiveSnooze(group.id, groupSnoozes, now)
-      ) {
-        continue;
-      }
-      const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
-      const authorMode = normalizeSourceMode(group.sourceMode, group.sources);
-      // Mode "all" blocks the whole page (handled by the matcher); "nobody"
-      // blocks nothing. Only include/exclude trim individual feed cards. The tag
-      // filter below is independent and applies regardless of the source mode.
-      if (authorMode === "include" || authorMode === "exclude") {
-        filters.push({
-          id: group.id,
-          site: currentSite,
-          authorMode,
-          authors: [...group.sources],
-          enforce
-        });
-      }
-      pushTagFilterEntry(filters, group, enforce);
     }
   }
 
   return filters;
 }
 
-// Collects the "hide elements" (surface-hide) CSS selectors contributed by
-// every active platform group whose type matches the current host. These are
+// Collects the "hide elements" (shelf) CSS selectors contributed by every
+// active platform group's shelf lines on the current host. These are
 // independent of the coarse blocking predicate — a group can hide the Shorts
 // button or promoted posts without blocking the page.
 function buildSurfaceHideSelectors(pageContext, groups, groupSnoozes, now) {
   const selectors = new Set();
   for (const group of groups) {
     if (!isPlatformProfileGroupType(group.groupType)) continue;
-    if (!Array.isArray(group.surfaceHides) || group.surfaceHides.length === 0) continue;
+    const shelves = (Array.isArray(group.scopes) ? group.scopes : []).filter((line) => line.surface === "shelf" && line.shelf);
+    if (shelves.length === 0) continue;
     if (!group.enabled || !isGroupActiveNow(group, now) || getActiveSnooze(group.id, groupSnoozes, now)) {
       continue;
     }
-    if (!isPlatformHost(group.groupType, pageContext.hostname)) continue;
+    const platform = shelves[0].platform || group.groupType;
+    if (!isPlatformHost(platform, pageContext.hostname)) continue;
+    const ids = shelves.map((line) => line.shelf);
 
     // App-scoped hides (site chrome / content types) apply whenever the group
     // is active on the host.
-    for (const sel of getSurfaceHideSelectors(group.groupType, group.surfaceHides, "app")) {
+    for (const sel of getSurfaceHideSelectors(platform, ids, "app")) {
       selectors.add(sel);
     }
 
     // Entry-scoped hides (e.g. YouTube comments) are tied to a targeted entry,
-    // so only emit them when the current page matches the group's author scope.
-    const entrySelectors = getSurfaceHideSelectors(group.groupType, group.surfaceHides, "entry");
-    if (entrySelectors.length > 0 && platformGroupAuthorAxisMatchesPage(group, pageContext)) {
+    // so only emit them when the current page matches the group's source scope.
+    const entrySelectors = getSurfaceHideSelectors(platform, ids, "entry");
+    if (entrySelectors.length > 0 && platformGroupAuthorAxisMatchesPage(cbGroupSourceAxisView(group), pageContext)) {
       for (const sel of entrySelectors) selectors.add(sel);
     }
   }

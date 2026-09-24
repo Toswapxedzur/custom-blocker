@@ -1268,7 +1268,7 @@ function applyClusterShared(group, shared) {
   // Mark our contribution as up to date so we don't echo it back to the hub.
   state.clusterSyncSent[group.id] = JSON.stringify(buildSyncContribution(next));
   if (changed) {
-    chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: state.groups }).catch(() => {});
+    chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: toStoredGroups(state.groups) }).catch(() => {});
   }
 }
 
@@ -3111,7 +3111,11 @@ function sanitizeGroups(groups) {
     return [];
   }
 
-  const sanitized = groups.map((group) => {
+  const sanitized = groups.map((input) => {
+    // Stored groups are canonical (policy + scope lines, see group-scopes.js);
+    // the editor works on the flat form model, so lines are flattened here and
+    // re-lined by toStoredGroup() on every save.
+    const group = CBGroupScopes.hasScopeLines(input) ? { ...CBGroupScopes.flatFromScopes(input), ...input } : input;
     const baseGroup = createDefaultGroup(normalizeGroupType(group?.groupType));
     const normalizedGroupType = normalizeGroupType(group?.groupType);
     const rawTimeWindowsText =
@@ -3239,6 +3243,29 @@ function sanitizeGroups(groups) {
   });
 
   return dedupeGroupNames(sanitized);
+}
+
+// The popup's own normalizers for the line fields whose normalization differs
+// between the worker and the popup (see group-scopes.js).
+const cbScopeNormalizers = {
+  normalizeSiteInput: (value) => normalizeSiteInput(value),
+  normalizeTagFilterMode: (value) => normalizeTagFilterModeChoice(value),
+  normalizeTagList: (value) => parseTagListTextarea(Array.isArray(value) ? tagListToText(value) : String(value ?? "")),
+  clampTagConfidence: (value, fallback) => clampTagFilterConfidence(value, fallback)
+};
+
+// Flat form model → the canonical stored shape (policy fields + scope lines).
+function toStoredGroup(group) {
+  const scopes = CBGroupScopes.scopeLinesFromFlat(group, group.groupType);
+  return {
+    ...CBGroupScopes.withoutFlatScopeFields(group),
+    groupType: CBGroupScopes.deriveGroupType(scopes, group.groupType),
+    scopes
+  };
+}
+
+function toStoredGroups(groups) {
+  return (Array.isArray(groups) ? groups : []).map(toStoredGroup);
 }
 
 function sanitizeUsageTimers(value, groups) {
@@ -4937,7 +4964,7 @@ function flushAutosaveOnExit() {
     // settings modal's Save button, and re-emitting on every teardown
     // would race two open popups against each other.
     chrome.storage.local.set({
-      [BLOCKED_GROUPS_KEY]: state.groups,
+      [BLOCKED_GROUPS_KEY]: toStoredGroups(state.groups),
       [USAGE_TIMERS_KEY]: state.usageTimersMs,
       [USAGE_RESET_AT_KEY]: state.usageResetAtMs,
       [USAGE_BUCKETS_KEY]: state.usageBucketsMs,
@@ -5011,7 +5038,7 @@ async function persistState(message) {
   state.suppressGroupStorageUpdatesUntil = Date.now() + 1000;
 
   await chrome.storage.local.set({
-    [BLOCKED_GROUPS_KEY]: state.groups,
+    [BLOCKED_GROUPS_KEY]: toStoredGroups(state.groups),
     [USAGE_TIMERS_KEY]: state.usageTimersMs,
     [USAGE_RESET_AT_KEY]: state.usageResetAtMs,
     [USAGE_BUCKETS_KEY]: state.usageBucketsMs,
@@ -7519,7 +7546,7 @@ async function initializePopupApp() {
 
   await loadGroups();
   await chrome.storage.local.set({
-    [BLOCKED_GROUPS_KEY]: state.groups,
+    [BLOCKED_GROUPS_KEY]: toStoredGroups(state.groups),
     [GLOBAL_SETTINGS_KEY]: state.globalSettings
   });
   await loadLogFeedSnapshot();

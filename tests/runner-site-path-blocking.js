@@ -19,7 +19,7 @@ function extract(file, name) {
   return source.slice(start, end + 1);
 }
 const worker = vm.createContext({ URL });
-vm.runInContext(["normalizeSiteInput", "hostnameMatchesSite", "siteEntryParts", "siteEntryMatches", "siteListBlocks"].map((n) => extract("background.js", n)).join("\n"), worker);
+vm.runInContext(["normalizeSiteInput", "hostnameMatchesSite", "siteEntryParts", "siteEntryMatches", "siteLineBlocks"].map((n) => extract("background.js", n)).join("\n"), worker);
 const popup = vm.createContext({ URL });
 vm.runInContext(extract("popup.js", "normalizeSiteInput"), popup);
 
@@ -27,7 +27,7 @@ let pass = 0; let fail = 0;
 const check = (label, ok, got) => { if (ok) { pass += 1; console.log(`PASS ${label}`); } else { fail += 1; console.log(`FAIL ${label} — got ${JSON.stringify(got)}`); } };
 const norm = (v) => vm.runInContext(`normalizeSiteInput(${JSON.stringify(v)})`, worker);
 const matches = (h, p, e) => vm.runInContext(`siteEntryMatches(${JSON.stringify(h)}, ${JSON.stringify(p)}, ${JSON.stringify(e)})`, worker);
-const blocks = (group, h, p) => vm.runInContext(`siteListBlocks(${JSON.stringify(group)}, ${JSON.stringify(h)}, ${JSON.stringify(p)})`, worker);
+const blocks = (line, h, p) => vm.runInContext(`siteLineBlocks(${JSON.stringify(line)}, ${JSON.stringify(h)}, ${JSON.stringify(p)})`, worker);
 
 const normCases = [
   ["a bare host stays a host", "YouTube.com", "youtube.com"],
@@ -53,10 +53,10 @@ check("a path entry leaves the rest of the host alone", !matches("youtube.com", 
 check("a path entry with a trailing slash in the URL still matches", matches("reddit.com", "/r/all/", "reddit.com/r/all"));
 check("path matching is case-insensitive", matches("reddit.com", "/R/All", "reddit.com/r/all"));
 
-const blocklist = { allowlist: false, sites: ["youtube.com/shorts", "reddit.com/r/all"] };
+const blocklist = { surface: "site", sitesExcept: false, sites: ["youtube.com/shorts", "reddit.com/r/all"] };
 check("blocklist: the scoped path is blocked", blocks(blocklist, "youtube.com", "/shorts/xyz"));
 check("blocklist: the rest of the host is not", !blocks(blocklist, "youtube.com", "/watch"));
-const allowlist = { allowlist: true, sites: ["example.com/docs"] };
+const allowlist = { surface: "site", sitesExcept: true, sites: ["example.com/docs"] };
 check("allowlist: only the scoped path is allowed", !blocks(allowlist, "example.com", "/docs/intro"));
 check("allowlist: the rest of the host is blocked", blocks(allowlist, "example.com", "/pricing"));
 check("allowlist: other hosts are blocked", blocks(allowlist, "other.com", "/"));
