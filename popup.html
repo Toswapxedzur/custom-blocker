@@ -12,7 +12,14 @@
     <main class="popup">
       <header class="hero">
         <div class="hero-topbar">
-          <div>
+          <!-- Desktop host: scene switch (Vault / Classifier / Activity) replaces the title. -->
+          <nav class="scene-tabs desktop-only" id="sceneTabs" aria-label="Scene">
+            <button type="button" class="scene-tab is-active" data-scene="vault" data-i18n="scene.vault">Vault</button>
+            <button type="button" class="scene-tab" data-scene="classifier" data-i18n="scene.classifier">Classifier</button>
+            <button type="button" class="scene-tab" data-scene="activity" data-i18n="scene.activity">Activity</button>
+            <span class="scene-underline" aria-hidden="true"></span>
+          </nav>
+          <div class="browser-only">
             <h1 data-i18n="app.shortTitle">Adamancia Vault</h1>
           </div>
           <div class="hero-actions">
@@ -227,18 +234,22 @@
               </button>
             </div>
 
-            <!-- Read-only mirror of the blocked-list type owned by the linked
-                 app (apps here on the browser). Shown only for clustered
-                 Default groups; styled translucent because it is not editable
-                 from this side. -->
-            <div id="bridgeMirrorSection" class="bridge-mirror-section hidden">
-              <label class="label" id="bridgeMirrorLabel" data-i18n="connectionGroup.mirrorApps">
-                Blocked applications
-              </label>
-              <p class="field-help" id="bridgeMirrorHint" data-i18n="connectionGroup.mirrorAppsHint">
-                Managed on the linked app. Shown here read-only.
-              </p>
-              <div id="bridgeMirrorList" class="bridge-mirror-list" role="list"></div>
+          </section>
+
+          <!-- The Apps entry: desktop applications ({ id, name }). Editable only
+               in the desktop app (it knows the installed apps); read-only
+               chips here when a linked group carries the entry. -->
+          <section id="appsSettingsSection" class="hidden">
+            <label class="label" data-i18n="apps.label">Blocked applications</label>
+            <p id="appsHelp" class="field-help" data-i18n="apps.help">
+              Add the applications you want this group to block. Click the plus tile to search your installed apps.
+            </p>
+            <input id="blockedAppsData" type="hidden" />
+            <div id="blockedAppsList" class="app-chip-list" role="list"></div>
+            <div class="actions desktop-only">
+              <button id="clearAppsButton" type="button" class="secondary danger" data-i18n="apps.clearButton">
+                Clear Apps
+              </button>
             </div>
           </section>
 
@@ -668,6 +679,48 @@
       </div>
     </div>
 
+    <!-- Desktop host only: the app-blocking permission gate and the app picker. -->
+    <div id="permissionModal" class="modal hidden">
+      <div class="modal-card">
+        <h3 data-i18n="permission.title">Enable necessary control</h3>
+        <p class="modal-copy" data-i18n="permission.message">
+          Grant Accessibility permission so the app can enforce app blocking. Without it, blocking cannot run.
+        </p>
+        <div class="modal-actions">
+          <button id="permissionCancelButton" type="button" class="secondary" data-i18n="permission.cancel">Cancel</button>
+          <button id="permissionGrantButton" type="button" data-i18n="permission.grant">Grant access</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="appPickerModal" class="modal hidden">
+      <div class="modal-card app-picker-card">
+        <div class="manual-modal-header">
+          <div>
+            <h3 data-i18n="apps.pickerTitle">Add an application</h3>
+            <p class="modal-copy" data-i18n="apps.pickerCopy">
+              Search your installed applications and choose one to block.
+            </p>
+          </div>
+          <button id="appPickerCloseButton" type="button" class="secondary" data-i18n="manual.close">
+            Close
+          </button>
+        </div>
+        <input
+          id="appPickerSearch"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          data-i18n-placeholder="apps.searchPlaceholder"
+          placeholder="Type an app name..."
+        />
+        <div id="appPickerResults" class="app-picker-results" role="listbox"></div>
+        <p id="appPickerEmpty" class="field-help hidden" data-i18n="apps.noResults">
+          No matching applications found.
+        </p>
+      </div>
+    </div>
+
     <div id="manualModal" class="modal hidden">
       <div class="modal-card manual-modal-card">
         <div class="manual-modal-header">
@@ -790,6 +843,25 @@
             </section>
           </div>
         </div>
+
+        <section class="section-card settings-section-card desktop-only">
+          <div class="section-header">
+            <div>
+              <h3 data-i18n="settings.deviceControlTitle">Device Control</h3>
+              <p id="deviceControlCopy" class="section-copy" data-i18n="settings.deviceControlCopyMissing">
+                App blocking needs Accessibility permission. Grant it so blocking can run.
+              </p>
+            </div>
+          </div>
+          <div class="field-actions">
+            <button id="deviceControlButton" type="button" class="secondary" data-i18n="settings.deviceControlManage">
+              Manage permission
+            </button>
+          </div>
+          <p id="deviceControlStatus" class="field-help" data-i18n="settings.deviceControlStatusMissing">
+            Accessibility permission missing. App blocking cannot run.
+          </p>
+        </section>
 
         <div class="modal-actions">
           <button id="settingsResetButton" type="button" class="secondary danger" data-i18n="settings.reset">

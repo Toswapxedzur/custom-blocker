@@ -6,16 +6,18 @@
 //
 //   surface  | what the line names                          | legal actions
 //   site     | host or host/path entries (+ "everything except") | block
+//   apps     | desktop applications ({id, name}; enforced by the desktop apps) | block
 //   items    | feed cards of a platform (form / sources / tags)  | hide, dim
 //   pages    | the content's own page (form / sources / tags)    | block
 //   home     | the platform's home feed                          | block
 //   shelf    | one platform surface (Shorts shelf, comments, …)  | hide
 //
-// A group's lines may name several platforms (and a site list); the group
-// applies to their union. The editor still works one platform at a time: the
-// flat form fields are the view of ONE platform's lines (flatFromScopes with
-// that platform), and saving merges that view back over the group's other
-// lines (mergeFlatIntoScopes). Normal groups only block/hide/dim — exceptions
+// A group's lines may name several ENTRIES — a site list, an app list, one or
+// more platforms; the group applies to their union. The editor works one entry
+// at a time: the flat form fields are the view of ONE entry's lines
+// (flatFromScopes with that entry key), and saving merges that view back over
+// the group's other lines (mergeFlatIntoScopes). Entry keys: "site", "apps",
+// or a platform id. Normal groups only block/hide/dim — exceptions
 // are custom rules (allow()), never lines.
 //
 // Loaded by the service worker, the popup and the tests; depends on the
@@ -23,7 +25,7 @@
 (function (global) {
   "use strict";
 
-  const SCOPE_SURFACES = ["site", "items", "pages", "home", "shelf"];
+  const SCOPE_SURFACES = ["site", "apps", "items", "pages", "home", "shelf"];
   const SCOPE_ACTIONS = ["block", "hide", "dim"];
 
   function scopeLegalActions(surface) {
@@ -36,7 +38,7 @@
   // the flat sanitizer still migrates. Their presence on an input marks it as
   // a flat (form or legacy) group, or as a flat patch over a scoped group.
   const FLAT_SCOPE_FIELDS = [
-    "sites", "allowlist", "blockHomePage", "platformVideoMode",
+    "sites", "allowlist", "apps", "blockHomePage", "platformVideoMode",
     "sourceMode", "sources", "platformAuthorMode", "platformAuthors", "redditMode", "redditSubreddits",
     "platformTagMode", "platformTags", "platformTagDefaultConfidence", "platformTagBlockUntagged",
     "platformTagEffect", "platformTagBlockPage", "platformTagCoverUntilTagged",
@@ -61,6 +63,7 @@
   }
 
   function platformKind(groupType) {
+    if (groupType === "apps") return "apps";
     const type = global.normalizeGroupType ? global.normalizeGroupType(groupType) : String(groupType || "");
     if (type === "site" || type === "custom") return type;
     if (type === "discord") return "discord";
@@ -74,27 +77,47 @@
     return Boolean(global.isPlatformProfileGroupType && global.isPlatformProfileGroupType(value));
   }
 
-  // The "platform" a line belongs to for the editor: a platform id, or "site"
-  // for a site line. Every line of one platform is edited as one form view.
+  // The entry a line belongs to for the editor: "site" for the site list,
+  // "apps" for the app list, else the line's platform id. Every line of one
+  // entry is edited as one form view.
   function linePlatformKey(line) {
-    return line && line.platform ? line.platform : "site";
+    if (!line) return "site";
+    if (line.surface === "apps") return "apps";
+    return line.platform ? line.platform : "site";
+  }
+
+  function normalizeEntryKey(key) {
+    if (key === "apps") return "apps";
+    if (!key || key === "custom" || key === "site") return "site";
+    return global.normalizeGroupType ? global.normalizeGroupType(key) : String(key);
   }
 
   function lineBelongsTo(line, platform) {
-    const key = platform && platform !== "custom" ? platform : "site";
-    return linePlatformKey(line) === key;
+    return linePlatformKey(line) === normalizeEntryKey(platform);
   }
 
-  // The platforms a group applies to, in line order ("site" for a site list).
-  // A platform group without lines still reports its group type.
+  // Desktop applications: {id: bundle id, name}. Deduplicated by id.
+  function normalizeAppList(value) {
+    const seen = new Set();
+    const out = [];
+    for (const entry of Array.isArray(value) ? value : []) {
+      const id = typeof entry === "string" ? entry.trim() : entry && typeof entry.id === "string" ? entry.id.trim() : "";
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const name = entry && typeof entry.name === "string" ? entry.name.trim() : "";
+      out.push({ id, name });
+    }
+    return out;
+  }
+
+  // The entries a group applies to, in line order ("site" for a site list,
+  // "apps" for an app list, else the platform id).
   function groupPlatforms(group) {
     const out = [];
     for (const line of Array.isArray(group?.scopes) ? group.scopes : []) {
       const key = linePlatformKey(line);
       if (!out.includes(key)) out.push(key);
     }
-    const type = global.normalizeGroupType ? global.normalizeGroupType(group?.groupType) : String(group?.groupType || "site");
-    if (out.length === 0 && type !== "custom") out.push(type);
     return out;
   }
 
@@ -109,7 +132,7 @@
 
   // One key order for every line, whichever path built it, so a re-sanitized
   // store is byte-identical (storage change detection relies on that).
-  const LINE_KEY_ORDER = ["id", "surface", "platform", "action", "sites", "sitesExcept", "form", "sourceMode", "sources", "discordMode", "discordTargets", "tagFilter", "shelf"];
+  const LINE_KEY_ORDER = ["id", "surface", "platform", "action", "sites", "sitesExcept", "apps", "form", "sourceMode", "sources", "discordMode", "discordTargets", "tagFilter", "shelf"];
   function orderLine(line) {
     const out = {};
     for (const key of LINE_KEY_ORDER) if (Object.prototype.hasOwnProperty.call(line, key)) out[key] = line[key];
@@ -129,14 +152,18 @@
   // Flat (already normalized) group → scope lines. This is the one-time
   // migration for stored groups AND the save path for the phase-1 editor.
   function scopeLinesFromFlat(flat, groupType) {
-    const type = global.normalizeGroupType ? global.normalizeGroupType(groupType ?? flat?.groupType) : String(groupType ?? flat?.groupType ?? "site");
-    const kind = platformKind(type);
+    const kind = platformKind(groupType ?? flat?.groupType);
+    const type = kind === "apps" ? "apps" : global.normalizeGroupType ? global.normalizeGroupType(groupType ?? flat?.groupType) : String(groupType ?? flat?.groupType ?? "site");
     const lines = [];
     const counters = {};
     const push = (line) => {
       counters[line.surface] = (counters[line.surface] || 0) + 1;
       lines.push(orderLine({ id: `${line.surface}-${counters[line.surface]}`, ...line }));
     };
+    if (kind === "apps") {
+      push({ surface: "apps", platform: null, action: "block", apps: normalizeAppList(flat?.apps) });
+      return lines;
+    }
     const sites = Array.isArray(flat?.sites) ? [...flat.sites] : [];
     const sitesExcept = Boolean(flat?.allowlist);
 
@@ -197,11 +224,11 @@
   // its active platform view; `platform` defaults to the group type). Only the
   // lines of that platform are read; a site list is the "site" view.
   function flatFromScopes(group, platform) {
-    const type = global.normalizeGroupType ? global.normalizeGroupType(platform ?? group?.groupType) : String(platform ?? group?.groupType ?? "site");
+    const type = normalizeEntryKey(platform ?? group?.groupType);
     const lines = (Array.isArray(group?.scopes) ? group.scopes : []).filter((line) => lineBelongsTo(line, type));
     const kind = platformKind(type);
     const flat = {
-      sites: [], allowlist: false, blockHomePage: false, platformVideoMode: "all",
+      sites: [], allowlist: false, apps: [], blockHomePage: false, platformVideoMode: "all",
       sourceMode: "all", sources: [],
       platformTagMode: "all", platformTags: [], platformTagDefaultConfidence: 4, platformTagBlockUntagged: false,
       platformTagEffect: "dim", platformTagBlockPage: true, platformTagCoverUntilTagged: false,
@@ -212,7 +239,9 @@
       flat.sites = Array.isArray(siteLine.sites) ? [...siteLine.sites] : [];
       flat.allowlist = Boolean(siteLine.sitesExcept);
     }
-    if (kind === "site" || kind === "custom") return flat;
+    const appsLine = lines.find((line) => line.surface === "apps");
+    if (appsLine) flat.apps = normalizeAppList(appsLine.apps);
+    if (kind === "site" || kind === "custom" || kind === "apps") return flat;
 
     const sourceLine = lines.find((line) => (line.surface === "items" || line.surface === "pages") && !line.tagFilter);
     if (kind === "discord") {
@@ -248,11 +277,13 @@
   // lines: that platform's lines are replaced, every other platform's lines
   // are kept as they were. Custom groups only ever carry their site line.
   function mergeFlatIntoScopes(scopes, flat, platform) {
-    const type = global.normalizeGroupType ? global.normalizeGroupType(platform ?? flat?.groupType) : String(platform ?? flat?.groupType ?? "site");
-    const kept = type === "custom"
+    const raw = platform ?? flat?.groupType;
+    const isCustom = (global.normalizeGroupType ? global.normalizeGroupType(raw) : raw) === "custom" && raw !== "apps";
+    const key = normalizeEntryKey(raw);
+    const kept = isCustom
       ? []
-      : (Array.isArray(scopes) ? scopes : []).filter((line) => !lineBelongsTo(line, type));
-    return renumberLines([...kept, ...scopeLinesFromFlat(flat, type)]);
+      : (Array.isArray(scopes) ? scopes : []).filter((line) => !lineBelongsTo(line, key));
+    return renumberLines([...kept, ...scopeLinesFromFlat(flat, isCustom ? "custom" : key)]);
   }
 
   // Validate scope lines that arrive already shaped (a stored group, a
@@ -274,6 +305,9 @@
       if (surface === "site") {
         line.sites = [...new Set((Array.isArray(raw.sites) ? raw.sites : []).map(n.normalizeSiteInput).filter(Boolean))];
         line.sitesExcept = Boolean(raw.sitesExcept);
+      } else if (surface === "apps") {
+        if (isCustom) continue;
+        line.apps = normalizeAppList(raw.apps);
       } else {
         // A platform line names its own platform; an old line without one
         // belongs to the group's platform. Custom groups have no platform lines.
@@ -344,7 +378,7 @@
     SCOPE_SURFACES, SCOPE_ACTIONS, FLAT_SCOPE_FIELDS,
     scopeLegalActions, hasFlatScopeFields, hasScopeLines, withoutFlatScopeFields,
     scopeLinesFromFlat, flatFromScopes, mergeFlatIntoScopes, sanitizeScopeLines, deriveGroupType, platformKind,
-    linePlatformKey, lineBelongsTo, groupPlatforms
+    linePlatformKey, lineBelongsTo, normalizeEntryKey, groupPlatforms, normalizeAppList
   });
   global.CBGroupScopes = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

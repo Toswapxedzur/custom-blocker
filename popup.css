@@ -622,74 +622,6 @@ textarea:focus {
    translucent + non-interactive so it is visibly "view only" on this side, and
    styled identically on every platform so a linked Default group looks the
    same in the browser and the Mac app. */
-.bridge-mirror-section {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--gold-50);
-  box-shadow: inset 3px 0 0 var(--gold-700);
-  opacity: 0.62;
-  pointer-events: none;
-  filter: saturate(0.85);
-}
-
-.bridge-mirror-section .label {
-  margin-bottom: 2px;
-}
-
-.bridge-mirror-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.bridge-mirror-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: #ffffff;
-  box-shadow: inset 0 0 0 1px rgba(161, 98, 7, 0.35);
-  color: var(--gold-text);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.bridge-mirror-icon {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  object-fit: contain;
-}
-
-.bridge-mirror-monogram {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--gold-200);
-  color: var(--gold-text);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.bridge-mirror-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.bridge-mirror-empty {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--gold-text);
-}
-
 .ai-prompt-panel {
   margin-top: 10px;
   padding: 10px;
@@ -1849,3 +1781,134 @@ code {
 .classifier-status.is-online { color: #157347; background: #e6f4ea; }
 .classifier-status.is-offline { color: #b02a37; background: #fbe9eb; }
 .classifier-status-help { color: #b02a37; margin-top: 6px; }
+
+/* ── Desktop host ────────────────────────────────────────────────────────────
+   The desktop app hosts this same editor in a web view. `.desktop-only`
+   markup (scene tabs, Apps entry controls, permission gate, Device Control)
+   shows only there; `.browser-only` markup only in a browser. */
+body:not(.is-native-desktop) .desktop-only {
+  display: none !important;
+}
+
+body.is-native-desktop .browser-only {
+  display: none !important;
+}
+
+/* Scene switch (Vault / Classifier / Activity) — three text labels with a
+   sliding blue underline. Borderless; the underline is the only chrome. */
+.scene-tabs {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  padding-bottom: 8px;
+}
+.scene-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.scene-tab:hover {
+  color: #64748b;
+}
+.scene-tab.is-active {
+  color: #1f2937;
+}
+.scene-underline {
+.app-chip-list {
+  gap: 10px;
+.app-chip {
+  gap: 8px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 12px;
+  max-width: 220px;
+  transition: box-shadow 120ms ease, transform 120ms ease;
+.app-chip:hover {
+  box-shadow: inset 0 0 0 1px var(--navy-300), 0 6px 16px rgba(30, 58, 138, 0.12);
+.app-chip-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  flex: 0 0 auto;
+  object-fit: contain;
+.app-chip-monogram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--navy-700);
+  font-weight: 700;
+  font-size: 14px;
+.app-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+.app-chip-remove {
+  top: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  background: var(--red-text, #991b1b);
+  font-size: 14px;
+.app-chip:hover .app-chip-remove,
+.app-chip:focus-within .app-chip-remove {
+.app-chip-add {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  font-size: 24px;
+.app-chip-add:hover:not(:disabled) {
+.app-chip-add:disabled {
+/* ----- App picker modal ----- */
+
+.app-picker-card {
+  width: min(520px, 100%);
+  max-height: min(82vh, 720px);
+  overflow: hidden;
+#appPickerSearch {
+  margin: 4px 0 12px;
+.app-picker-results {
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
+.app-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 10px;
+  background: #f8fafc;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+  cursor: pointer;
+  transition: background 120ms ease, box-shadow 120ms ease;
+.app-picker-row:hover {
+  background: #eef2ff;
+  box-shadow: inset 0 0 0 1px var(--navy-300);
+}
+
+.app-picker-row-text {
+  flex-direction: column;
+  min-width: 0;
+
+.app-picker-row-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+.app-picker-row-id {
+

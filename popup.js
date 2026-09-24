@@ -224,6 +224,9 @@ function detectProgramId() {
 
 const LOCAL_PROGRAM_ID = detectProgramId();
 const IS_NATIVE_DESKTOP = isNativeHost();
+// The desktop app hosts this same editor; `.desktop-only` / `.browser-only`
+// markup is shown or hidden by this one class (see popup.css).
+document.body.classList.toggle("is-native-desktop", IS_NATIVE_DESKTOP);
 
 const DEFAULT_ALLOWED_MINUTES = 15;
 const DEFAULT_RESET_INTERVAL_HOURS = 24;
@@ -291,6 +294,23 @@ const blockingRulesField = document.getElementById("blockingRules");
 const blockingRulesLint = document.getElementById("blockingRulesLint");
 const platformRulesCard = document.getElementById("platformRulesCard");
 const groupScopesSection = document.getElementById("groupScopesSection");
+const appsSettingsSection = document.getElementById("appsSettingsSection");
+const appsHelp = document.getElementById("appsHelp");
+const blockedAppsData = document.getElementById("blockedAppsData");
+const blockedAppsList = document.getElementById("blockedAppsList");
+const clearAppsButton = document.getElementById("clearAppsButton");
+const appPickerModal = document.getElementById("appPickerModal");
+const appPickerSearch = document.getElementById("appPickerSearch");
+const appPickerResults = document.getElementById("appPickerResults");
+const appPickerEmpty = document.getElementById("appPickerEmpty");
+const appPickerCloseButton = document.getElementById("appPickerCloseButton");
+const deviceControlButton = document.getElementById("deviceControlButton");
+const deviceControlCopy = document.getElementById("deviceControlCopy");
+const deviceControlStatus = document.getElementById("deviceControlStatus");
+const permissionModal = document.getElementById("permissionModal");
+const permissionGrantButton = document.getElementById("permissionGrantButton");
+const permissionCancelButton = document.getElementById("permissionCancelButton");
+let blockedAppsEditable = false;
 const groupScopesList = document.getElementById("groupScopesList");
 const groupScopesAdd = document.getElementById("groupScopesAdd");
 const platformVideoCard = document.getElementById("platformVideoFields");
@@ -441,7 +461,6 @@ const state = {
   clusters: [],
   // Read-only mirror of the shared pools per clustered group:
   //   { [groupId]: { sites: [...], apps: [...] } }
-  clusterMirror: {},
   // Hub's shared cumulative snooze total per clustered group (display only). We
   // show max(local total, this) so the figure reflects snoozes accrued on any
   // member without merging into — and thus double-counting — the local counter.
@@ -730,8 +749,32 @@ function setLocalFolderChooseButtonLabel(key) {
   localFolderChooseButton.textContent = t(key);
 }
 
+// The desktop host pushes the local-folder grant state here (connected + name).
+window.__cbLocalFolderStatus = function (payload) {
+  if (!localFolderStatus) return;
+  const connected = Boolean(payload && payload.connected);
+  const name = payload && typeof payload.name === "string" ? payload.name : "";
+  if (localFolderChooseButton) {
+    localFolderChooseButton.disabled = false;
+    localFolderChooseButton.textContent = t("settings.localFolderChoose");
+  }
+  if (localFolderRevokeButton) {
+    localFolderRevokeButton.classList.remove("hidden");
+    localFolderRevokeButton.disabled = !connected;
+  }
+  localFolderStatus.textContent = connected
+    ? t("settings.localFolderStatusConnected").replace("{name}", name || t("settings.localFolderUnknownName"))
+    : t("settings.localFolderStatusNone");
+};
+
 async function renderLocalFolderStatus() {
   if (!localFolderStatus) return;
+  // Desktop: the folder grant is native (the web view has no directory picker);
+  // ask the host for the current grant and let __cbLocalFolderStatus render it.
+  if (IS_NATIVE_DESKTOP) {
+    postToNativeShell({ kind: "local-folder-status" });
+    return;
+  }
   if (!("showDirectoryPicker" in window)) {
     localFolderHandle = null;
     localFolderStatus.textContent = t("settings.localFolderUnsupported");
@@ -835,8 +878,6 @@ function applyConnectionStatus(raw) {
     error: typeof incoming.error === "string" ? incoming.error : "",
     hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
-  // The bridge mirror lives in the editor (always visible), so keep it fresh.
-  refreshBridgeMirror();
   if (!wasOnline && bridgeIsOnline()) {
     announceGroups();
     requestClusters();
@@ -873,8 +914,10 @@ function bridgeIsOnline() {
   return s.state === "connected" || s.state === "running";
 }
 
+// Every group can link with a same-named group on another program (owner
+// 2026-09-24: the whole definition — policy and every entry — is shared).
 function isBridgeEligibleGroup(group) {
-  return Boolean(group) && (group.groupType === "site" || group.groupType === "custom");
+  return Boolean(group);
 }
 
 // A cluster is "fully online" only when our own bridge link is live AND every
@@ -906,93 +949,6 @@ function clusterLocalGroup(cluster) {
 }
 
 
-// For a clustered Default (site) group, renders the blocked-list type this
-// endpoint does NOT own as a read-only, translucent mirror beside the editable
-// list. Browsers own websites and mirror the shared apps; the Mac owns apps and
-// mirrors the shared websites. Both platforms use the same chip styling so the
-// linked group looks identical on either side.
-function renderBridgeMirror(group) {
-  const section = document.getElementById("bridgeMirrorSection");
-  if (!section) return;
-  const cluster = group ? groupConnectionCluster(group) : null;
-  if (!group || group.groupType !== "site" || !cluster) {
-    section.classList.add("hidden");
-    return;
-  }
-  const shared = (cluster && cluster.shared) || state.clusterMirror[group.id] || {};
-  const showApps = !bridgeOwnsApps(); // we own sites here, so mirror apps
-  const items = showApps
-    ? (Array.isArray(shared.apps) ? shared.apps : [])
-    : (Array.isArray(shared.sites) ? shared.sites : []);
-
-  const labelEl = document.getElementById("bridgeMirrorLabel");
-  const hintEl = document.getElementById("bridgeMirrorHint");
-  if (labelEl) {
-    labelEl.textContent = showApps
-      ? t("connectionGroup.mirrorApps")
-      : t("connectionGroup.mirrorSites");
-  }
-  if (hintEl) {
-    hintEl.textContent = showApps
-      ? t("connectionGroup.mirrorAppsHint")
-      : t("connectionGroup.mirrorSitesHint");
-  }
-
-  section.classList.remove("hidden");
-  const list = document.getElementById("bridgeMirrorList");
-  if (!list) return;
-  list.innerHTML = "";
-  if (items.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "bridge-mirror-empty";
-    empty.textContent = t("connectionGroup.mirrorEmpty");
-    list.appendChild(empty);
-    return;
-  }
-  for (const item of items) {
-    const isObj = item && typeof item === "object";
-    const name = typeof item === "string" ? item : (isObj && item.name) || "";
-    if (!name) continue;
-    const chip = document.createElement("div");
-    chip.className = "bridge-mirror-chip";
-    chip.setAttribute("role", "listitem");
-    chip.title = name;
-
-    // Icon: app mirrors carry a shared icon data URL from the owning Mac (fall
-    // back to a monogram); site mirrors resolve a favicon locally where a helper
-    // exists. Keeps the mirror visually consistent with the native lists.
-    let iconEl = null;
-    if (showApps) {
-      const iconUrl = isObj && typeof item.icon === "string" ? item.icon : "";
-      if (iconUrl) {
-        iconEl = document.createElement("img");
-        iconEl.className = "bridge-mirror-icon";
-        iconEl.src = iconUrl;
-        iconEl.alt = "";
-      } else {
-        iconEl = document.createElement("span");
-        iconEl.className = "bridge-mirror-icon bridge-mirror-monogram";
-        iconEl.textContent = name.charAt(0).toUpperCase();
-      }
-    } else if (typeof makeSiteIconElement === "function") {
-      iconEl = makeSiteIconElement(name);
-      iconEl.classList.add("bridge-mirror-icon");
-    }
-    if (iconEl) chip.appendChild(iconEl);
-
-    const label = document.createElement("span");
-    label.className = "bridge-mirror-name";
-    label.textContent = name;
-    chip.appendChild(label);
-
-    list.appendChild(chip);
-  }
-}
-
-function refreshBridgeMirror() {
-  renderBridgeMirror(getSelectedGroup());
-}
-
 // Re-tag group cards with the bridge-linked cluster indicator without a full rebuild.
 function updateGroupCardBridgeBadges() {
   const cards = groupList.querySelectorAll(".group-card");
@@ -1015,6 +971,11 @@ function clearBridgeWarn(key) {
   bridgeWarned.delete(key);
 }
 
+function isUserEditing() {
+  const active = document.activeElement;
+  return Boolean(active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT"));
+}
+
 function applyClusters(list) {
   const incoming = Array.isArray(list) ? list : Array.isArray(list?.clusters) ? list.clusters : [];
   const incomingJSON = JSON.stringify(incoming);
@@ -1031,31 +992,23 @@ function applyClusters(list) {
       applyClusterShared(group, cluster.shared);
     } else {
       // Freshly-formed cluster: the hub's first snapshot carries no `shared`
-      // until each member has contributed its owned list. Force our owned-list
-      // contribution to be (re)sent so the peer's mirror fills on the FIRST
-      // connect instead of staying blank until a later edit.
+      // until a member has contributed. Force our contribution to be (re)sent
+      // so the group definition is shared on the FIRST connect.
       delete state.clusterSyncSent[group.id];
     }
-  }
-  // Drop mirrors for groups no longer clustered.
-  for (const groupId of Object.keys(state.clusterMirror)) {
-    const group = state.groups.find((g) => g.id === groupId);
-    if (!group || !groupConnectionCluster(group)) delete state.clusterMirror[groupId];
   }
   for (const groupId of Object.keys(state.clusterSnoozeTotalsMs)) {
     const group = state.groups.find((g) => g.id === groupId);
     if (!group || !groupConnectionCluster(group)) delete state.clusterSnoozeTotalsMs[groupId];
   }
   updateGroupCardBridgeBadges();
-  // Re-render the editor so synced scalar changes show, unless the user is
-  // actively typing in a field (don't clobber in-progress input).
-  const active = document.activeElement;
-  const editing =
-    active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT");
+  // Re-render the editor so synced changes show, unless the user is actively
+  // typing in a field (don't clobber in-progress input).
+  const editing = isUserEditing();
   if (getSelectedGroup() && !editing) {
     renderEditor();
   } else {
-    refreshBridgeMirror();
+    renderGroupList();
   }
   // Warn once per offline episode: if we're linked but a cluster member is
   // offline (e.g. the Mac app isn't open), shared changes won't sync until it's
@@ -1096,9 +1049,9 @@ function requestClusters() {
   } catch (_) {}
 }
 
-// Tell the hub which Default/Custom groups exist here (by saved name + type +
-// freeze state) so it can validate connection requests against same-named
-// groups. Sent on load, after group edits, and when the bridge comes online.
+// Tell the hub which groups exist here (by saved name + freeze state) so it
+// links same-named groups. Sent on load, after group edits, and when the
+// bridge comes online.
 function announceGroups() {
   const groups = (Array.isArray(state.groups) ? state.groups : [])
     .filter(isBridgeEligibleGroup)
@@ -1107,7 +1060,6 @@ function announceGroups() {
       // instance, so a same-named group created after a delete won't re-join.
       id: g.id,
       name: g.name,
-      type: g.groupType,
       frozen: getFreezeStatus(g, Date.now()).isFrozen
     }));
   try {
@@ -1142,34 +1094,19 @@ const SYNC_SCALAR_FIELDS = [
   "freezeModeChoice",
   "strictFreezeHours",
   "frozenAtMs",
-  "blockHomePage",
-  "allowlist",
   "fallbackUrl"
 ];
 
-// This endpoint owns (can edit + contributes) one blocked-list type: the Mac
-// owns apps, browsers own domains. The other type is a read-only mirror.
-function bridgeOwnsApps() {
-  return IS_NATIVE_DESKTOP;
-}
-
+// A member's contribution is the whole group definition: the policy scalars and
+// every entry's lines (websites, apps, platforms). Each member enforces the
+// lines it can and forwards the rest. The live usage budget is NOT in here: it
+// is reported as deltas by the accrual owner only (the browser's background
+// heartbeat, the Mac's frontmost-app sampler), and the popup only folds the
+// hub's shared total back into the local counter (applyClusterShared).
 function buildSyncContribution(group) {
   const scalars = {};
   for (const field of SYNC_SCALAR_FIELDS) scalars[field] = group[field];
-  const contribution = { scalars };
-  if (group.groupType === "site") {
-    if (bridgeOwnsApps()) {
-      contribution.apps = Array.isArray(group.apps) ? group.apps : [];
-    } else {
-      contribution.sites = Array.isArray(group.sites) ? group.sites : [];
-    }
-    // NOTE: the live usage budget is reported as deltas by the accrual owner
-    // only — the browser's background heartbeat (cbReportClusterUsage) and the
-    // Mac's in-process frontmost-app sampler (reportLocalUsage). The popup is
-    // display-only for usage: it folds the hub's shared total back into the
-    // local counter (applyClusterShared) but never reports it, so the popup and
-    // background can't double-count the same accrual.
-  }
+  const contribution = { scalars, scopes: toStoredGroup(group).scopes };
   // Active snooze runtime is shared so a snooze started on any member applies to
   // every linked member (newest start wins). The entry carries all of its own
   // timing (start/until/cooldown), so each side enforces and expires it
@@ -1199,15 +1136,16 @@ function adoptSharedSnooze(group, raw, now = Date.now()) {
   return entry;
 }
 
-// Writes the hub's shared settings onto a local member group (scalars + freeze)
-// and records the shared list pools as a read-only mirror. The owned list is
-// never overwritten (the user keeps editing their own type).
+// Writes the hub's shared definition onto a local member group: the policy
+// scalars and, when the hub carries them, every entry's lines. The lines
+// replace ours wholesale (every member edits the one shared definition, so a
+// deletion elsewhere is a deletion here); the entry in view is re-read.
 function applyClusterShared(group, shared) {
   if (!group || !shared || typeof shared !== "object") return;
   const scalars = shared.scalars && typeof shared.scalars === "object" ? shared.scalars : {};
   const idx = state.groups.findIndex((g) => g.id === group.id);
   if (idx < 0) return;
-  const next = { ...state.groups[idx] };
+  let next = { ...state.groups[idx] };
   let changed = false;
   for (const field of SYNC_SCALAR_FIELDS) {
     if (
@@ -1218,11 +1156,20 @@ function applyClusterShared(group, shared) {
       changed = true;
     }
   }
+  if (Array.isArray(shared.scopes)) {
+    const stored = toStoredGroup(next);
+    const incoming = CBGroupScopes.sanitizeScopeLines(shared.scopes, stored.groupType, cbScopeNormalizers);
+    if (JSON.stringify(incoming) !== JSON.stringify(stored.scopes)) {
+      next = viewGroupOnPlatform({ ...stored, scopes: incoming }, activeEntryKey(next));
+      changed = true;
+      // The form's draft describes the entry in view; refresh it unless the
+      // user is typing in it right now (their edit then wins, latest-edit-wins).
+      if (!(group.id === state.selectedGroupId && isUserEditing())) {
+        state.drafts[group.id] = groupToDraft(next);
+      }
+    }
+  }
   state.groups[idx] = next;
-  state.clusterMirror[group.id] = {
-    sites: Array.isArray(shared.sites) ? shared.sites : [],
-    apps: Array.isArray(shared.apps) ? shared.apps : []
-  };
   if (Number.isFinite(shared.ts)) state.groupEditTs[group.id] = shared.ts;
 
   // Display-only shared snooze total (max across the cluster). Never written
@@ -1236,7 +1183,7 @@ function applyClusterShared(group, shared) {
   // elapsed timer (display + enforcement) reflects time spent on every member.
   // We never overwrite our own future accrual — the background keeps adding to
   // this value and reporting it back, and the hub measures only the new delta.
-  if (next.groupType === "site" && !next.rollingLimit && Number.isFinite(shared.usageMs)) {
+  if (!next.rollingLimit && Number.isFinite(shared.usageMs)) {
     const incomingUsage = Math.max(0, Number(shared.usageMs) || 0);
     if ((Number(state.usageTimersMs[group.id]) || 0) !== incomingUsage) {
       state.usageTimersMs[group.id] = incomingUsage;
@@ -1621,6 +1568,267 @@ function commitBlockedSites(sites) {
   scheduleAutosave();
   renderBlockedSites();
 }
+
+// ── Apps entry (desktop applications) ───────────────────────────────────────
+// An app is { id: <bundle id>, name: <display name> }. The list is editable only
+// where an installed-app inventory exists (the desktop app seeds
+// window.__cbAppInventory: id + name + icon); elsewhere the chips are read-only
+// and the entry arrives through a linked group.
+
+function getAppInventory() {
+  return Array.isArray(window.__cbAppInventory) ? window.__cbAppInventory : [];
+}
+
+function findInventoryApp(bundleId) {
+  if (!bundleId) return null;
+  return getAppInventory().find((entry) => entry && entry.id === bundleId) || null;
+}
+
+function appDisplayName(app) {
+  if (!app) return "";
+  if (typeof app.name === "string" && app.name.trim()) return app.name.trim();
+  const fromInventory = findInventoryApp(app.id);
+  if (fromInventory && fromInventory.name) return fromInventory.name;
+  return app.id || "";
+}
+
+function parseAppsData(value) {
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    return CBGroupScopes.normalizeAppList(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
+function serializeApps(apps) {
+  return JSON.stringify(CBGroupScopes.normalizeAppList(apps));
+}
+
+function getDraftApps() {
+  return blockedAppsData ? parseAppsData(blockedAppsData.value) : [];
+}
+
+// Writes the working app list into the hidden backing field and runs the same
+// stash + autosave path the site list uses.
+function commitBlockedApps(apps) {
+  if (!blockedAppsData) return;
+  blockedAppsData.value = serializeApps(apps);
+  stashCurrentDraft();
+  renderBlockedApps();
+  renderGroupList();
+  scheduleAutosave();
+}
+
+function makeAppIconElement(app) {
+  const inventoryApp = findInventoryApp(app.id) || app;
+  const iconUrl = inventoryApp && typeof inventoryApp.icon === "string" ? inventoryApp.icon : "";
+  if (iconUrl) {
+    const img = document.createElement("img");
+    img.className = "app-chip-icon";
+    img.src = iconUrl;
+    img.alt = "";
+    return img;
+  }
+  const monogram = document.createElement("span");
+  monogram.className = "app-chip-icon app-chip-monogram";
+  monogram.textContent = (appDisplayName(app) || "?").charAt(0).toUpperCase();
+  return monogram;
+}
+
+function renderBlockedApps() {
+  if (!blockedAppsList) return;
+  blockedAppsList.innerHTML = "";
+  for (const app of getDraftApps()) {
+    const chip = document.createElement("div");
+    chip.className = "app-chip";
+    chip.setAttribute("role", "listitem");
+    chip.title = app.id;
+    chip.appendChild(makeAppIconElement(app));
+    const label = document.createElement("span");
+    label.className = "app-chip-name";
+    label.textContent = appDisplayName(app);
+    chip.appendChild(label);
+    if (blockedAppsEditable) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "app-chip-remove";
+      remove.setAttribute("aria-label", t("apps.removeAria", { name: appDisplayName(app) }));
+      remove.textContent = "−"; // minus sign
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        commitBlockedApps(getDraftApps().filter((item) => item.id !== app.id));
+      });
+      chip.appendChild(remove);
+    }
+    blockedAppsList.appendChild(chip);
+  }
+  if (!blockedAppsEditable) return;
+  const addTile = document.createElement("button");
+  addTile.type = "button";
+  addTile.className = "app-chip-add";
+  addTile.setAttribute("aria-label", t("apps.addAria"));
+  addTile.textContent = "+";
+  addTile.addEventListener("click", () => openAppPicker());
+  blockedAppsList.appendChild(addTile);
+}
+
+function openAppPicker() {
+  if (!blockedAppsEditable || !appPickerModal) return;
+  appPickerSearch.value = "";
+  renderAppPickerResults("");
+  appPickerModal.classList.remove("hidden");
+  window.setTimeout(() => appPickerSearch.focus(), 0);
+}
+
+function closeAppPicker() {
+  if (appPickerModal) appPickerModal.classList.add("hidden");
+}
+
+function renderAppPickerResults(query) {
+  if (!appPickerResults) return;
+  const normalizedQuery = String(query || "").trim().toLowerCase();
+  const alreadyBlocked = new Set(getDraftApps().map((app) => app.id));
+  const matches = getAppInventory()
+    .filter((app) => {
+      if (!app || !app.id || alreadyBlocked.has(app.id)) return false;
+      if (!normalizedQuery) return true;
+      const name = (app.name || "").toLowerCase();
+      return name.includes(normalizedQuery) || app.id.toLowerCase().includes(normalizedQuery);
+    })
+    .slice(0, 60);
+  appPickerResults.innerHTML = "";
+  for (const app of matches) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "app-picker-row";
+    row.setAttribute("role", "option");
+    row.appendChild(makeAppIconElement(app));
+    const text = document.createElement("span");
+    text.className = "app-picker-row-text";
+    const name = document.createElement("span");
+    name.className = "app-picker-row-name";
+    name.textContent = app.name || app.id;
+    const sub = document.createElement("span");
+    sub.className = "app-picker-row-id";
+    sub.textContent = app.id;
+    text.appendChild(name);
+    text.appendChild(sub);
+    row.appendChild(text);
+    row.addEventListener("click", () => {
+      commitBlockedApps([...getDraftApps(), { id: app.id, name: app.name || app.id }]);
+      closeAppPicker();
+    });
+    appPickerResults.appendChild(row);
+  }
+  if (appPickerEmpty) appPickerEmpty.classList.toggle("hidden", matches.length > 0);
+}
+
+if (appPickerSearch) {
+  appPickerSearch.addEventListener("input", () => renderAppPickerResults(appPickerSearch.value));
+}
+if (appPickerCloseButton) {
+  appPickerCloseButton.addEventListener("click", () => closeAppPicker());
+}
+if (appPickerModal) {
+  appPickerModal.addEventListener("click", (event) => {
+    if (event.target === appPickerModal) closeAppPicker();
+  });
+}
+if (clearAppsButton) {
+  clearAppsButton.addEventListener("click", () => {
+    if (blockedAppsEditable) commitBlockedApps([]);
+  });
+}
+// Re-render chips when the desktop host (re)seeds the app inventory so icons
+// and names resolve once the data arrives.
+window.__cbOnAppInventory = function () {
+  try {
+    renderBlockedApps();
+  } catch (_) {}
+};
+
+// ── Desktop shell (the desktop app hosts this editor in a web view) ─────────
+// Scene tabs (Vault / Classifier / Activity), the app-blocking permission gate
+// and the Device Control settings section exist only there; the markup is
+// `.desktop-only` and these hooks are no-ops in a browser.
+
+function postToNativeShell(payload) {
+  try {
+    window.webkit.messageHandlers.cbBridge.postMessage(payload);
+  } catch (_) {}
+}
+
+let __cbAppBlockingGranted = null;
+
+function applyPermissionState(granted) {
+  __cbAppBlockingGranted = granted;
+  const isGranted = granted === true;
+  // The native host is the authority: once macOS granted Accessibility, clear
+  // the request modal instead of leaving a stale prompt.
+  if (isGranted && permissionModal) permissionModal.classList.add("hidden");
+  if (deviceControlCopy) {
+    deviceControlCopy.textContent = t(isGranted ? "settings.deviceControlCopyGranted" : "settings.deviceControlCopyMissing");
+  }
+  if (deviceControlStatus) {
+    deviceControlStatus.textContent = t(isGranted ? "settings.deviceControlStatusGranted" : "settings.deviceControlStatusMissing");
+  }
+}
+
+// Shows the grant modal only when permission is currently missing. Invoked by
+// the native host when the app is opened/activated.
+window.__cbPromptPermissionOnOpen = function () {
+  if (permissionModal && __cbAppBlockingGranted === false) permissionModal.classList.remove("hidden");
+};
+
+// The native host pushes the current permission state here (~1x/second).
+window.__cbPermissionState = (payload) => {
+  try {
+    const data = typeof payload === "string" ? JSON.parse(payload) : payload;
+    applyPermissionState(data?.appBlockingGranted === true ? true : data?.appBlockingGranted === false ? false : null);
+  } catch (error) {
+    console.error("Failed to apply permission state.", error);
+  }
+};
+
+if (permissionGrantButton) {
+  permissionGrantButton.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ type: "request-app-blocking-permission" });
+  });
+}
+if (permissionCancelButton) {
+  permissionCancelButton.addEventListener("click", () => {
+    if (permissionModal) permissionModal.classList.add("hidden");
+  });
+}
+if (deviceControlButton) {
+  deviceControlButton.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ type: "open-permission-settings" });
+  });
+}
+
+// Scene switch in the hero header: tapping another scene posts to the native
+// shell, which swaps the visible web view. The underline tracks the active tab.
+(function initSceneTabs() {
+  const tabs = document.getElementById("sceneTabs");
+  if (!tabs || !IS_NATIVE_DESKTOP) return;
+  const underline = tabs.querySelector(".scene-underline");
+  function position() {
+    const active = tabs.querySelector(".scene-tab.is-active");
+    if (!active || !underline) return;
+    underline.style.width = active.offsetWidth + "px";
+    underline.style.transform = "translateX(" + active.offsetLeft + "px)";
+  }
+  tabs.addEventListener("click", (event) => {
+    const button = event.target.closest(".scene-tab");
+    if (!button || button.classList.contains("is-active")) return;
+    postToNativeShell({ kind: "switch-scene", scene: button.dataset.scene });
+  });
+  position();
+  window.addEventListener("resize", position);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(position);
+  setTimeout(position, 60);
+})();
 
 function renderBlockedSites() {
   if (!blockedSitesList) {
@@ -3050,8 +3258,14 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     parentalPasswordSalt: null,
     sites: [],
     // false → `sites` is a blocklist; true → `sites` is an allowlist
-    // ("block everything except these"). Only site groups use this list.
+    // ("block everything except these").
     allowlist: false,
+    apps: [],
+    // The entry the cards edit: a new Default group opens on its Websites
+    // entry in the browser and on its Apps entry in the desktop app.
+    entryView: normalizedGroupType === "custom"
+      ? "custom"
+      : normalizedGroupType === "site" && IS_NATIVE_DESKTOP ? "apps" : normalizedGroupType,
     blockHomePage: false,
     fallbackUrl: ""
   };
@@ -3099,7 +3313,17 @@ function sanitizeGroups(groups) {
     // Stored groups are canonical (policy + scope lines, see group-scopes.js);
     // the editor works on the flat form model, so lines are flattened here and
     // re-lined by toStoredGroup() on every save.
-    const group = CBGroupScopes.hasScopeLines(input) ? { ...CBGroupScopes.flatFromScopes(input), ...input } : input;
+    // The entry in view ("site" | "apps" | platform): in-memory only, defaults
+    // to the stored type (the desktop opens a Default group on its Apps entry).
+    const rawType = normalizeGroupType(input?.groupType);
+    const entryView = rawType === "custom"
+      ? "custom"
+      : typeof input?.entryView === "string" && input.entryView
+        ? CBGroupScopes.normalizeEntryKey(input.entryView)
+        : rawType === "site" && IS_NATIVE_DESKTOP
+          ? "apps"
+          : rawType;
+    const group = CBGroupScopes.hasScopeLines(input) ? { ...CBGroupScopes.flatFromScopes(input, entryView), ...input } : input;
     const baseGroup = createDefaultGroup(normalizeGroupType(group?.groupType));
     const normalizedGroupType = normalizeGroupType(group?.groupType);
     const rawTimeWindowsText =
@@ -3125,7 +3349,7 @@ function sanitizeGroups(groups) {
       : Array.isArray(group?.sources) ? group.sources : [];
     const rawSourceMode = hasLegacy ? legacyMode : group?.sourceMode;
     const rawDiscordTargets = Array.isArray(group?.discordTargets) ? group.discordTargets : [];
-    const ownsSiteList = normalizedGroupType === "site";
+    const ownsSiteList = entryView === "site";
 
     return {
       ...baseGroup,
@@ -3221,6 +3445,8 @@ function sanitizeGroups(groups) {
         ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
         : [],
       allowlist: ownsSiteList && Boolean(group?.allowlist),
+      apps: entryView === "apps" ? CBGroupScopes.normalizeAppList(group?.apps) : [],
+      entryView,
       blockHomePage: Boolean(group?.blockHomePage),
       fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
       // Every platform's lines (the group type's are also mirrored by the flat
@@ -3247,12 +3473,20 @@ const cbScopeNormalizers = {
 // The form describes the platform in view (group.groupType); its lines replace
 // that platform's, the group's other platforms keep theirs.
 function toStoredGroup(group) {
-  const scopes = CBGroupScopes.mergeFlatIntoScopes(group.scopes, group, group.groupType);
+  const scopes = CBGroupScopes.mergeFlatIntoScopes(group.scopes, group, activeEntryKey(group));
+  const { entryView, ...rest } = CBGroupScopes.withoutFlatScopeFields(group);
   return {
-    ...CBGroupScopes.withoutFlatScopeFields(group),
+    ...rest,
     groupType: CBGroupScopes.deriveGroupType(scopes, group.groupType),
     scopes
   };
+}
+
+// The entry whose lines the cards edit: "site", "apps", a platform id, or
+// "custom" (custom groups have no entries).
+function activeEntryKey(group) {
+  if (!group || group.groupType === "custom") return "custom";
+  return CBGroupScopes.normalizeEntryKey(group.entryView || group.groupType);
 }
 
 function toStoredGroups(groups) {
@@ -3467,6 +3701,7 @@ function groupToDraft(group) {
     activeDays: [...group.activeDays],
     timeWindowsText: group.timeWindowsText,
     sitesText: group.sites.join("\n"),
+    appsData: serializeApps(group.apps || []),
     platformVideoMode: normalizeVideoMode(group.platformVideoMode),
     sourceMode: normalizeSourceMode(group.sourceMode, group.sources),
     sourcesText: group.sources.join("\n"),
@@ -4065,6 +4300,9 @@ function getGroupMetaText(group, draft, now = Date.now()) {
     );
   } else if (group.groupType === "custom") {
     pieces.push(t("meta.customRules"));
+  } else if (activeEntryKey(group) === "apps") {
+    const appCount = draft ? parseAppsData(draft.appsData).length : (group.apps || []).length;
+    pieces.push(`${appCount} ${t("meta.appCount", { suffix: appCount === 1 ? "" : "s" })}`);
   } else {
     const siteCount = draft
       ? parseSiteTextareaValue(draft.sitesText).validSites.length
@@ -4479,6 +4717,8 @@ function renderEditor(now = Date.now()) {
     customSettingsCard.classList.add("hidden");
     if (platformRulesCard) platformRulesCard.classList.add("hidden");
     if (groupScopesSection) groupScopesSection.classList.add("hidden");
+    if (appsSettingsSection) appsSettingsSection.classList.add("hidden");
+    blockedAppsEditable = false;
     platformVideoCard.classList.add("hidden");
     discordSettingsCard.classList.add("hidden");
     if (surfaceHidesSection) surfaceHidesSection.classList.add("hidden");
@@ -4551,6 +4791,9 @@ function renderEditor(now = Date.now()) {
   const isDiscordGroup = group.groupType === "discord";
   const isCustomGroup = group.groupType === "custom";
   const isPlatformProfileGroup = isPlatformProfileGroupType(group.groupType);
+  const entryKey = activeEntryKey(group);
+  const isSiteView = entryKey === "site";
+  const isAppsView = entryKey === "apps";
 
   if (aiPromptInput) {
     if (isCustomGroup) {
@@ -4595,6 +4838,7 @@ function renderEditor(now = Date.now()) {
     draft?.snoozeConfirmations ?? String(group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS);
   scheduleWindowsField.value = draft?.timeWindowsText ?? group.timeWindowsText;
   blockedSitesField.value = draft?.sitesText ?? group.sites.join("\n");
+  if (blockedAppsData) blockedAppsData.value = draft?.appsData ?? serializeApps(group.apps || []);
   blockingRulesField.value = draft?.blockingRulesText ?? group.blockingRulesText;
   platformAuthorsField.value = draft?.sourcesText ?? group.sources.join("\n");
   platformVideoModeField.value = draft?.platformVideoMode ?? group.platformVideoMode;
@@ -4667,9 +4911,14 @@ function renderEditor(now = Date.now()) {
     fallbackUrlSection.classList.toggle("hidden", isCustomGroup);
   }
   scheduleSection.classList.toggle("hidden", isCustomGroup);
-  // Website groups own the domain list and its allowlist toggle. Custom rules
-  // define their own behavior, so they never carry a hidden site boundary.
-  siteSettingsSection.classList.toggle("hidden", isPlatformProfileGroup || isCustomGroup);
+  // The cards show the entry in view: the website list, the app list, or the
+  // platform card. Custom rules define their own behavior and have no entries.
+  siteSettingsSection.classList.toggle("hidden", !isSiteView);
+  if (appsSettingsSection) appsSettingsSection.classList.toggle("hidden", !isAppsView);
+  blockedAppsEditable = editable && isAppsView && IS_NATIVE_DESKTOP;
+  if (appsHelp) appsHelp.textContent = t(IS_NATIVE_DESKTOP ? "apps.help" : "apps.readOnlyHint");
+  if (clearAppsButton) clearAppsButton.disabled = !blockedAppsEditable;
+  renderBlockedApps();
 
   const allowlistOn = Boolean(draft?.allowlist ?? group.allowlist);
   if (siteAllowlistField) siteAllowlistField.checked = allowlistOn;
@@ -4689,16 +4938,9 @@ function renderEditor(now = Date.now()) {
   snoozeCooldownField.disabled = !editable || !allowSnoozeField.checked || freezeStatus.isFrozen;
   snoozeConfirmationsField.disabled = !editable || !allowSnoozeField.checked;
   scheduleWindowsField.disabled = !editable || isCustomGroup;
-  // When a Default group is clustered, only the domain-owner (browsers) may edit
-  // the blocked-domain list; the Mac (app-owner) sees domains as a read-only
-  // mirror in the connection panel.
-  const domainsMirrored =
-    group.groupType === "site" && bridgeOwnsApps() && Boolean(groupConnectionCluster(group));
-  blockedSitesField.disabled =
-    !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
+  blockedSitesField.disabled = !editable || !isSiteView;
   if (siteAllowlistField) {
-    siteAllowlistField.disabled =
-      !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
+    siteAllowlistField.disabled = !editable || !isSiteView;
   }
   blockingRulesField.disabled = !editable || !isCustomGroup;
   const currentAuthorMode = normalizeSourceMode(platformAuthorModeField.value);
@@ -4711,7 +4953,7 @@ function renderEditor(now = Date.now()) {
   discordModeField.disabled = !editable || !isDiscordGroup;
   discordTargetsField.disabled = !editable || !isDiscordGroup || discordModeField.value === "all";
   clearSitesButton.disabled =
-    !editable || isPlatformProfileGroup || isCustomGroup || domainsMirrored;
+    !editable || !isSiteView;
   renderBlockedSites();
   refreshChipField(platformAuthorsField);
   refreshChipField(discordTargetsField);
@@ -4753,7 +4995,6 @@ function renderEditor(now = Date.now()) {
   updateUsageSummary(group, draft, now);
   updateFreezeUI(group, now);
   updateSnoozeUI(group, now);
-  renderBridgeMirror(group);
   updateBlockingRulesEditor();
 }
 
@@ -4878,6 +5119,7 @@ function stashCurrentDraft() {
     timeWindowsText: scheduleWindowsField.value,
     sitesText: blockedSitesField.value,
     allowlist: siteAllowlistField.checked,
+    appsData: blockedAppsData ? blockedAppsData.value : "[]",
     blockingRulesText: blockingRulesField.value,
     platformVideoMode: platformVideoModeField.value,
     sourceMode: platformAuthorModeField.value,
@@ -5104,19 +5346,27 @@ async function addGroup(groupType = DEFAULT_GROUP_TYPE) {
 
 function groupPlatformKeys(group) {
   const keys = CBGroupScopes.groupPlatforms(group);
-  const active = normalizeGroupType(group.groupType);
+  const active = activeEntryKey(group);
   if (active !== "custom" && !keys.includes(active)) keys.push(active);
   return keys;
 }
 
 function platformKeyLabel(key) {
-  return key === "site" ? t("scopes.websites") : getGroupTypeLabel(key);
+  if (key === "site") return t("scopes.websites");
+  if (key === "apps") return t("scopes.apps");
+  return getGroupTypeLabel(key);
 }
 
-// The stored (canonical) group seen through one platform: its policy, every
-// platform's lines, and the flat form fields of `platform`.
-function viewGroupOnPlatform(stored, platform) {
-  return { ...stored, groupType: platform, ...CBGroupScopes.flatFromScopes(stored, platform) };
+// The stored (canonical) group seen through one entry: its policy, every
+// entry's lines, and the flat form fields of `key`.
+function viewGroupOnPlatform(stored, key) {
+  const entry = CBGroupScopes.normalizeEntryKey(key);
+  return {
+    ...stored,
+    groupType: entry === "site" || entry === "apps" ? "site" : entry,
+    entryView: entry,
+    ...CBGroupScopes.flatFromScopes(stored, entry)
+  };
 }
 
 // Fold the form into the selected group (as autosave does) and return the
@@ -5131,23 +5381,22 @@ async function commitSelectedGroupLines() {
   return toStoredGroup(current);
 }
 
-// Show `platform` in the cards; a platform the group does not name yet is
-// added with the same defaults a new group of that platform would get.
-async function setGroupPlatformView(platform) {
-  const key = platform === "site" ? "site" : normalizeGroupType(platform);
+// Show the entry `key` in the cards; an entry the group does not name yet is
+// added with the same defaults a new group of that kind would get.
+async function setGroupPlatformView(key) {
+  const entry = CBGroupScopes.normalizeEntryKey(key);
   const stored = await commitSelectedGroupLines();
-  if (!stored || key === "custom" || stored.groupType === "custom") {
+  if (!stored || stored.groupType === "custom") {
     render();
     return;
   }
-  const known = groupPlatformKeys(stored).includes(key);
-  let next = viewGroupOnPlatform(stored, key);
-  if (!known) {
-    const defaults = createDefaultGroup(key);
+  const known = CBGroupScopes.groupPlatforms(stored).includes(entry);
+  let next = viewGroupOnPlatform(stored, entry);
+  if (!known && entry !== "site" && entry !== "apps") {
+    const defaults = createDefaultGroup(entry);
     for (const field of CBGroupScopes.FLAT_SCOPE_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(defaults, field)) next[field] = defaults[field];
     }
-    next = { ...next, groupType: key };
   }
   state.groups = state.groups.map((item) => (item.id === stored.id ? next : item));
   state.drafts[stored.id] = groupToDraft(next);
@@ -5175,7 +5424,8 @@ async function removeGroupPlatform(platform) {
     render();
     return;
   }
-  const nextKey = remaining.includes(stored.groupType) ? stored.groupType : remaining[0];
+  const current = activeEntryKey(group);
+  const nextKey = remaining.includes(current) ? current : remaining[0];
   const next = viewGroupOnPlatform({ ...stored, scopes }, nextKey);
   state.groups = state.groups.map((item) => (item.id === stored.id ? next : item));
   state.drafts[stored.id] = groupToDraft(next);
@@ -5190,7 +5440,7 @@ function renderGroupScopes(group, editable) {
   if (isCustom) return;
 
   const keys = groupPlatformKeys(group);
-  const active = normalizeGroupType(group.groupType);
+  const active = activeEntryKey(group);
   groupScopesList.innerHTML = "";
   for (const key of keys) {
     const chip = document.createElement("div");
@@ -5236,14 +5486,15 @@ function renderGroupScopes(group, editable) {
     groupScopesList.appendChild(chip);
   }
 
-  // Platforms (and the site list) the group does not name yet.
+  // Entries the group does not name yet. Apps can only be edited where an
+  // app inventory exists (the desktop app), so only the desktop offers them.
   groupScopesAdd.innerHTML = "";
   const placeholder = document.createElement("option");
   placeholder.value = "";
   placeholder.textContent = t("scopes.add");
   placeholder.selected = true;
   groupScopesAdd.appendChild(placeholder);
-  for (const key of ["site", ...PLATFORM_GROUP_TYPES]) {
+  for (const key of ["site", ...(IS_NATIVE_DESKTOP ? ["apps"] : []), ...PLATFORM_GROUP_TYPES]) {
     if (keys.includes(key)) continue;
     const option = document.createElement("option");
     option.value = key;
@@ -5492,8 +5743,9 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
     fail(new Error(t("status.invalidTimeWindows", { list: timeWindows.invalidLines.join(", ") })));
   }
 
-  // Only website groups own a domain list.
-  const usesSiteList = group.groupType === "site";
+  // The website list belongs to the Websites entry, the app list to Apps.
+  const entryKey = activeEntryKey(group);
+  const usesSiteList = entryKey === "site";
 
   if (usesSiteList && siteResults.invalidSites.length > 0) {
     fail(new Error(t("status.invalidSites", { list: siteResults.invalidSites.join(", ") })));
@@ -5559,9 +5811,9 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
       discordMode: group.groupType === "discord" ? discordMode : group.discordMode,
       blockingRulesText: isCustomGroup ? blockingRulesText : group.blockingRulesText,
       sites: usesSiteList ? siteResults.validSites : [],
-      // Blocklist (false) vs "block all except" (true). Only website groups
-      // can carry an allowlist.
+      // Blocklist (false) vs "block all except" (true).
       allowlist: usesSiteList ? Boolean(draft.allowlist) : false,
+      apps: entryKey === "apps" ? parseAppsData(draft.appsData) : [],
       blockHomePage: Boolean(draft.blockHomePage),
       // Custom groups redirect via setRedirectLink() inside the rule;
       // strip any legacy fallbackUrl on save.
@@ -7205,6 +7457,10 @@ if (classifierTaggingModeField) {
 
 if (localFolderChooseButton) {
   localFolderChooseButton.addEventListener("click", () => {
+    if (IS_NATIVE_DESKTOP) {
+      postToNativeShell({ kind: "local-folder-choose" });
+      return;
+    }
     chooseLocalFolder().catch((error) => {
       if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
     });
@@ -7213,6 +7469,10 @@ if (localFolderChooseButton) {
 
 if (localFolderRevokeButton) {
   localFolderRevokeButton.addEventListener("click", () => {
+    if (IS_NATIVE_DESKTOP) {
+      postToNativeShell({ kind: "local-folder-revoke" });
+      return;
+    }
     revokeLocalFolder().catch((error) => {
       if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
     });
