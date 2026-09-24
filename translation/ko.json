@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "작성자 필터링은 {platform}에 적용됩니다. 짧은/긴 선택기는 페이지 유형을 식별할 수 있는 지원되는 비디오 사이트에서도 작동합니다.",
   "platform.help.generic": "작성자 필터링은 작성자 식별자가 감지될 수 있는 경우 적용됩니다. 콘텐츠 유형은 해당 페이지 양식이 감지 가능한 경우 {shortLabel}, {longLabel} 및 {postLabel}에 매핑됩니다.",
   "platform.short.youtube": "반바지",

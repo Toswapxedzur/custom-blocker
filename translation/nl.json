@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "Auteursfiltering is van toepassing op {platform}. De korte-vs-lange-selector werkt ook op ondersteunde videosites als hun paginatype kan worden geïdentificeerd.",
   "platform.help.generic": "Auteursfiltering is van toepassing wanneer auteurs-ID's kunnen worden gedetecteerd. Inhoudstypen worden toegewezen aan {shortLabel}, {longLabel} en {postLabel} wanneer deze paginaformulieren detecteerbaar zijn.",
   "platform.short.youtube": "Korte broek",

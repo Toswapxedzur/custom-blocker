@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "Il filtro dell'autore si applica su {platform}. Il selettore breve/lungo funziona anche sui siti di video supportati quando è possibile identificare il tipo di pagina.",
   "platform.help.generic": "Il filtro dell'autore si applica quando è possibile rilevare gli identificatori dell'autore. I tipi di contenuto vengono mappati a {shortLabel}, {longLabel} e {postLabel} quando tali moduli di pagina sono rilevabili.",
   "platform.short.youtube": "Pantaloncini",

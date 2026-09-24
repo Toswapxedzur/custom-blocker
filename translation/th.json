@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "การกรองผู้เขียนมีผลกับ {platform} ตัวเลือกแบบสั้นและแบบยาวยังใช้งานได้บนไซต์วิดีโอที่รองรับเมื่อสามารถระบุประเภทเพจได้",
   "platform.help.generic": "การกรองผู้เขียนจะใช้เมื่อสามารถตรวจพบตัวระบุผู้เขียนได้ ประเภทเนื้อหาแมปกับ {shortLabel}, {longLabel} และ {postLabel} เมื่อตรวจพบรูปแบบหน้าเหล่านั้น",
   "platform.short.youtube": "กางเกงขาสั้น",

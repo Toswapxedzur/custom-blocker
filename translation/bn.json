@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "লেখক ফিল্টারিং {platform} এ প্রযোজ্য। সংক্ষিপ্ত-বনাম-দীর্ঘ নির্বাচক সমর্থিত ভিডিও সাইটগুলিতেও কাজ করে যখন তাদের পৃষ্ঠার ধরন সনাক্ত করা যায়।",
   "platform.help.generic": "লেখক শনাক্তকারী সনাক্ত করা গেলে লেখক ফিল্টারিং প্রযোজ্য। বিষয়বস্তুর ধরন {shortLabel}, {longLabel}, এবং {postLabel} তে ম্যাপ করে যখন সেই পৃষ্ঠা ফর্মগুলি সনাক্ত করা যায়।",
   "platform.short.youtube": "শর্টস",

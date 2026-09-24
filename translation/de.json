@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "Die Autorenfilterung gilt für {platform}. Der Short-vs-Long-Selektor funktioniert auch auf unterstützten Videoseiten, wenn deren Seitentyp identifiziert werden kann.",
   "platform.help.generic": "Die Autorenfilterung wird angewendet, wenn Autorenidentifikatoren erkannt werden können. Inhaltstypen werden {shortLabel}, {longLabel} und {postLabel} zugeordnet, wenn diese Seitenformen erkennbar sind.",
   "platform.short.youtube": "Shorts",

@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "Yazar filtrelemesi {platform} üzerinde uygulanır. Kısa ve uzun seçici, sayfa türü tanımlanabildiğinde desteklenen video sitelerinde de çalışır.",
   "platform.help.generic": "Yazar filtreleme, yazar tanımlayıcıları tespit edilebildiğinde uygulanır. İçerik türleri, bu sayfa formları algılanabildiğinde {shortLabel}, {longLabel} ve {postLabel} ile eşleşir.",
   "platform.short.youtube": "Şort",
