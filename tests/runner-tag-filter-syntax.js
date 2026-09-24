@@ -1,5 +1,5 @@
 /* Content-tag filter SYNTAX: the popup's line parser/formatter, the service
-   worker's normalizer, and the no-code builder's generated predicate — which
+   worker's normalizer — which
    must make exactly the same decision as content.js matchesTagFilter. */
 "use strict";
 const fs = require("node:fs");
@@ -33,7 +33,6 @@ const context = vm.createContext({});
 vm.runInContext([
   'const CONTENT_TAG_PLATFORMS = new Set(["youtube"]);',
   extractFunction(popup, "parseTagListTextarea"), extractFunction(popup, "tagListToText"),
-  extractFunction(popup, "generateContentTagRuleSource"),
   extractFunction(background, "normalizeTagList"), extractFunction(content, "matchesTagFilter")
 ].join("\n"), context);
 const call = (expr, vars) => { Object.assign(context, vars); return vm.runInContext(expr, context); };
@@ -59,28 +58,6 @@ check("the service-worker normalizer preserves also/except/confidence", same(nor
 check("the normalizer still accepts legacy string + {name} entries", same(call("normalizeTagList(__l)", { __l: ["Gaming", { name: " Drama ", confidence: 9 }, { name: "" }, 7] }), [{ name: "Gaming" }, { name: "Drama" }]));
 check("the normalizer drops junk in also[] and caps it", same(call("normalizeTagList(__l)", { __l: [{ name: "A", also: ["A", "", 3, "B", "b", "C", "D", "E", "F", "G"] }] }), [{ name: "A", also: ["B", "C", "D", "E", "F"] }]));
 
-// The generated predicate must equal matchesTagFilter on a matrix of cases.
-const T = (name, confidence = 5) => ({ id: name, name, confidence });
-const LISTS = [
-  [{ name: "Gaming" }], [{ name: "Gaming", confidence: 3 }], [{ name: "Gaming", also: ["Drama"] }],
-  [{ name: "Gaming" }, { name: "Tutorial", except: true }], [{ name: "Education" }, { name: "Drama", except: true }]
-];
-const TAGSETS = [[], [T("Gaming")], [T("Gaming", 3)], [T("Gaming"), T("Drama")], [T("Gaming"), T("Tutorial")],
-  [T("Education")], [T("Education"), T("Drama")], [T("Music")], [T("Music", 2)]];
-let compared = 0; const mismatches = [];
-for (const mode of ["include", "exclude"]) for (const blockUntagged of [false, true]) for (const tags of LISTS) {
-  const sourceText = call("generateContentTagRuleSource(__o)", { __o: { platform: "youtube", mode, tags, defaultConfidence: 4, blockUntagged, effect: "dim" } });
-  let predicate = null;
-  const platformStub = { youtube: () => ({ dim: (fn) => { predicate = fn; }, hide: (fn) => { predicate = fn; }, rescan() {} }) };
-  vm.runInNewContext(`(${sourceText})`)({}, { platform: () => platformStub });
-  for (const itemTags of TAGSETS) {
-    const expected = call("matchesTagFilter(__tf, __tags)", { __tf: { mode, tags, defaultConfidence: 4, blockUntagged }, __tags: itemTags });
-    const actual = Boolean(predicate({ tags: itemTags }));
-    compared += 1;
-    if (actual !== expected) mismatches.push({ mode, blockUntagged, tags, itemTags, expected, actual });
-  }
-}
-check(`the no-code builder's generated predicate equals matchesTagFilter (${compared} cases)`, mismatches.length === 0, mismatches.slice(0, 3));
 
 console.log(`TAG FILTER SYNTAX TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");

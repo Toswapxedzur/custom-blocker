@@ -40,9 +40,9 @@ The following terminology is used throughout:
 | Custom group | A group that owns a JavaScript rule and its event registrations. Its rule decides its behaviour. |
 | Match | The page, feed item, or platform surface satisfies a group's configured conditions. |
 | Active | The group is enabled, eligible for its schedule, and not currently snoozed. Custom groups are not governed by the normal schedule UI. |
-| Block | Prevent the current top-level page from remaining usable, normally by redirecting to its fallback target. |
+| Block | Prevent the current top-level page from remaining usable: redirect to the group's address, show its message, or fall back to the plain block. |
 | Hide | Remove or conceal an element/card in the currently rendered page. Hiding is not a network block. |
-| Fallback URL | A group-specific redirect target. If blank, the global fallback is used. |
+| Redirect address or message | One field per group. A web address redirects the blocked tab there; any other text is shown on Vault's block page; blank means the plain block. Extension only — the desktop apps cannot redirect. |
 | Allow/exception effect | A platform-card verdict that rescues matching content from lower-priority hide rules. It is not a general website allowlist. |
 
 ## 2. Group model and common lifecycle
@@ -72,8 +72,7 @@ Disabled groups are retained but do not participate in normal matching, timers, 
 | Time windows | Zero or more local-time windows, one per line, written as HHMM-HHMM. |
 | Freeze mode | None, Frozen, Strict frozen, or Parental frozen. |
 | Snooze policy | Whether the group allows snooze, with duration/delay/cooldown/confirmation controls for normal groups. |
-| Fallback URL | Destination used if the group blocks a page. |
-| Skip to next | When provided in the editor, asks the normal blocking flow to move past the blocked target rather than remain on it. |
+| Redirect address or message | Where a block lands: a web address to open, or a message to show on the block page. |
 
 ### 2.4 Normal group behaviours
 
@@ -150,7 +149,7 @@ A Site group owns a line-separated website list. Entries are normalized into hos
 | Block everything except these sites off | The list is a blocklist. A matching host is blocked. |
 | Block everything except these sites on | The list is an allowlist. Every host not in the list is blocked. An empty allowlist is therefore an intentional full-web lockdown. |
 | Block home page | Applies the group's policy to the configured browser start/home surface where that control is available. |
-| Fallback URL | Redirect destination for a block. A blank group value falls back to the global default. |
+| Redirect address or message | A web address opens instead of the blocked page. Any other text — a reminder, a quote — is shown on Vault's block page. Blank keeps the plain block. |
 
 The normal Site-group domain list is the only declarative whole-site list exposed by the editor. Platform groups match their own platform and configured platform conditions instead.
 
@@ -275,7 +274,6 @@ Global settings apply to the extension rather than one group.
 | Debug mode | Off | Enables verbose Custom-rule trace output and the on-page debug log overlay. It does not control whether a rule's ordinary log calls reach the popup log. |
 | Show custom-rule logs on web pages | On | Controls ordinary page log toasts. Rule authors can still request screen-only or popup-only output explicitly. |
 | Default snooze duration | 30 minutes | Seed used when creating new normal groups. Existing groups retain their own duration. |
-| Default fallback URL | about:blank | Used when a blocking group has no group-specific fallback URL. |
 | Help classify creators | Off | Explicit opt-in. It sends encountered YouTube channel ids only to the configured classification service; it does not send titles or watch history. |
 | Local File Folder | None | Optional folder capability for Custom rules. See section 9. |
 
