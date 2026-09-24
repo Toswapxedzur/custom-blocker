@@ -299,8 +299,6 @@ The extension also has these user-visible feedback surfaces:
 
 For Custom groups, the Rules field stores source text. Run first performs the rule syntax preflight and only loads the source when that succeeds. The editor also performs local source linting as text changes. The visible **Let AI Code** control opens a prompt field and copies a code-generation bundle containing the user's request, current rule, and a generated reference to the current Custom-rule API. It does not contact an AI service or automatically change the rule.
 
-The Templates control opens the template browser. A template, when one is shipped, has a title, description, tags, parameters, and generated preview. Applying it replaces the current Rules text after confirmation. The currently shipped template catalog is empty; the browser remains available for future curated templates and must not be treated as a source of active rules.
-
 ## 5. Custom-rule language
 
 ### 5.1 Rule source forms

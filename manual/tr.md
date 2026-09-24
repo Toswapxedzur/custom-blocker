@@ -271,8 +271,6 @@ Uzantı ayrıca kullanıcının görebileceği şu geri bildirim yüzeylerine de
 
 Özel gruplar için Kurallar alanı kaynak metni saklar. Önce Çalıştır, kural sözdizimi ön kontrolünü gerçekleştirir ve yalnızca bu başarılı olduğunda kaynağı yükler. Editör ayrıca metin değiştikçe yerel kaynak astarlama işlemini de gerçekleştirir. Görünür **Let AI Code** kontrolü bir bilgi istemi alanı açar ve kullanıcının isteğini, geçerli kuralı ve geçerli Özel kural API'sine oluşturulmuş bir referansı içeren bir kod oluşturma paketini kopyalar. Bir AI hizmetiyle iletişim kurmaz veya kuralı otomatik olarak değiştirmez.
 
-Şablonlar kontrolü şablon tarayıcısını açar. Bir şablon gönderildiğinde bir başlığa, açıklamaya, etiketlere, parametrelere ve oluşturulmuş bir önizlemeye sahiptir. Bunun uygulanması, onaylandıktan sonra geçerli Kurallar metninin yerine geçer. Şu anda gönderilen şablon kataloğu boş; tarayıcı gelecekteki seçilmiş şablonlar için kullanılabilir durumda kalır ve etkin kuralların kaynağı olarak değerlendirilmemelidir.
-
 ## 5. Özel kural dili
 
 ### 5.1 Kural kaynağı formları

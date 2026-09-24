@@ -355,9 +355,6 @@
             </div>
             <p id="blockingRulesLint" class="code-editor-lint" aria-live="polite"></p>
             <div class="field-actions">
-              <button id="openRuleTemplatesButton" type="button" class="secondary weird" data-i18n="custom.templates">
-                Templates
-              </button>
               <button id="runCustomGroupButton" type="button" class="weird" data-i18n="custom.runButton">
                 Run
               </button>
@@ -907,47 +904,11 @@
       </div>
     </div>
 
-    <div id="templateModal" class="modal hidden">
-      <div class="modal-card template-modal-card">
-        <div class="manual-modal-header">
-          <div>
-            <h3 data-i18n="custom.templatesTitle">Custom Rule Templates</h3>
-            <p id="templateStatus" class="modal-copy" data-i18n="custom.templatesCopy">
-              Pick a preset, tweak its parameters, then apply it to replace the current rule.
-            </p>
-          </div>
-          <button id="templateCloseButton" type="button" class="secondary" data-i18n="manual.close">
-            Close
-          </button>
-        </div>
-        <div class="template-filter-row">
-          <span data-i18n="custom.templateFilterLabel">Filter</span>
-          <div id="templateFilter" class="template-filter-scroller" aria-label="Template filters" data-i18n-aria-label="custom.templateFilterAriaLabel"></div>
-        </div>
-        <div id="templateGrid" class="template-grid"></div>
-        <div class="modal-actions">
-          <button id="templateApplyButton" type="button" class="weird" data-i18n="custom.applyTemplate" disabled>
-            Apply preset
-          </button>
-        </div>
-      </div>
-    </div>
-
     <script src="browser-compat.js"></script>
     <script src="bridge-protocol.js"></script>
     <script src="platform-profiles.js"></script>
     <script src="translations.js"></script>
     <script src="popup-markdown.js"></script>
-    <!--
-      Custom rule templates are split into category files under
-      templates/. template-utils.js MUST load first because it
-      defines window.CB_REGISTER_TEMPLATES, window.quoteJs and
-      window.minutesToMsLiteral, which every category file uses.
-      popup.js consumes window.__CUSTOM_BLOCKER_TEMPLATES, so all
-      category files must run before it.
-    -->
-    <script src="templates/template-utils.js"></script>
-    <script src="templates/examples.js"></script>
     <script src="custom-rule-ai-reference.js"></script>
     <script src="popup.js"></script>
   </body>

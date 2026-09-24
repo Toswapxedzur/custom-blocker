@@ -271,8 +271,6 @@ L'extension dispose également de ces surfaces de commentaires visibles par l'ut
 
 Pour les groupes personnalisés, le champ Règles stocke le texte source. Run first effectue le contrôle en amont de la syntaxe des règles et ne charge la source que lorsque cela réussit. L'éditeur effectue également le peluchage de la source locale à mesure que le texte change. Le contrôle visible **Let AI Code** ouvre un champ d'invite et copie un ensemble de génération de code contenant la demande de l'utilisateur, la règle actuelle et une référence générée à l'API de règle personnalisée actuelle. Il ne contacte pas un service d’IA et ne modifie pas automatiquement la règle.
 
-Le contrôle Modèles ouvre le navigateur de modèles. Un modèle, lorsqu'il est expédié, comporte un titre, une description, des balises, des paramètres et un aperçu généré. Son application remplace le texte actuel des règles après confirmation. Le catalogue de modèles actuellement livré est vide ; le navigateur reste disponible pour les futurs modèles sélectionnés et ne doit pas être traité comme une source de règles actives.
-
 ## 5. Langage de règles personnalisées
 
 ### 5.1 Formulaires sources de règles

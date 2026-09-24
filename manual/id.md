@@ -271,8 +271,6 @@ Ekstensi ini juga memiliki permukaan masukan yang terlihat oleh pengguna berikut
 
 Untuk Grup kustom, bidang Aturan menyimpan teks sumber. Jalankan terlebih dahulu menjalankan prapenerbangan sintaksis aturan dan hanya memuat sumber jika berhasil. Editor juga melakukan linting sumber lokal saat teks berubah. Kontrol **Biarkan Kode AI** yang terlihat membuka kolom perintah dan menyalin paket pembuatan kode yang berisi permintaan pengguna, aturan saat ini, dan referensi yang dihasilkan ke API Aturan Kustom saat ini. Itu tidak menghubungi layanan AI atau secara otomatis mengubah aturan.
 
-Kontrol Templat membuka browser templat. Sebuah templat, ketika dikirimkan, memiliki judul, deskripsi, tag, parameter, dan pratinjau yang dihasilkan. Menerapkannya akan menggantikan teks Aturan saat ini setelah konfirmasi. Katalog templat yang dikirimkan saat ini kosong; browser tetap tersedia untuk template yang dikurasi di masa mendatang dan tidak boleh diperlakukan sebagai sumber aturan aktif.
-
 ## 5. Bahasa aturan khusus
 
 ### 5.1 Formulir sumber aturan
