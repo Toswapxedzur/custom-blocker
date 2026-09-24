@@ -880,11 +880,11 @@ Vault probes rapidly first and then continues slower reconnect attempts for as l
 
 ### 11.1 Automatic group linking
 
-Linking is automatic and always on. Whenever a peer program is present on the hub, a group is joined into a shared cluster with every same-named, same-type group across the connected programs. There is no program picker and no connect or disconnect action: clusters form and dissolve on their own as peers and groups come and go. A read-only mirror in the group editor shows the linked side's blocked list (browsers own websites and mirror the shared apps; the Mac owns apps and mirrors the shared websites).
+Linking is automatic and always on. Whenever a peer program is present on the hub, a group is joined into a shared cluster with every same-named group across the connected programs, whatever entries each names. There is no program picker and no connect or disconnect action: clusters form and dissolve on their own as peers and groups come and go.
 
-The bridge synchronizes shared scalar policy for supported linked groups, including normal blocking mode, allowance/reset values, snooze settings, active days/windows, freeze state/choice/duration, homepage policy, allowlist setting, fallback URL, and skip-to-next policy. It also coordinates usage and snooze state for cluster members.
+A linked group is one definition everywhere: its policy (blocking mode, allowance and reset values, snooze settings, active days and windows, freeze state, redirect address or message) and every Applies-to entry (the website list, the app list, each platform's filters). When two groups first link, their entries are combined; from then on the latest edit wins, on whichever program it was made. Freeze is the exception: the most restrictive freeze across the members wins. Each program enforces the entries it can (a browser: websites and platforms; the desktop app: websites and applications) and keeps the others for the linked programs. The app list is edited on the desktop app, which knows the installed applications; a browser shows it read-only. The bridge also coordinates usage and snooze state for cluster members.
 
-The bridge does not promise that every product-specific field, platform selector, Custom source text, or browser-specific capability is transferable to a different program.
+Custom source text and browser-specific capabilities are not transferable to a different program.
 
 Frozen bridge clusters require all relevant members to be online for freeze-state actions that need coordinated mutation. A connection is local transport, not a cloud backup or remote-control channel.
 
