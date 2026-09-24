@@ -141,8 +141,6 @@ let latestSurfaceHides = [];
 let latestExposedGroupIds = [];
 let extensionContextInvalid = false;
 let sessionFallbackUrl = "";
-let sessionSkipToNext = false;
-let consecutiveSkipCount = 0;
 
 function isExtensionContextValid() {
   if (extensionContextInvalid) return false;
@@ -1559,47 +1557,23 @@ function isScrollBasedVideoPage() {
   return false;
 }
 
-function trySkipToNextVideo() {
-  const hostname = normalizeHostname(location.hostname);
-  const pathname = String(location.pathname || "/");
-
-  if (isYouTubeHost(hostname) && pathname.startsWith("/shorts/")) {
-    const nextBtn =
-      document.querySelector("#navigation-button-down button") ||
-      document.querySelector("ytd-shorts [aria-label*='Next']") ||
-      document.querySelector("ytd-shorts [aria-label*='next']");
-    if (nextBtn) { nextBtn.click(); return true; }
-    const activeReel = document.querySelector("ytd-reel-video-renderer[is-active]");
-    const nextAnchor = activeReel?.nextElementSibling?.querySelector("a#thumbnail, a.reel-item-endpoint");
-    if (nextAnchor?.href) {
-      try { location.replace(nextAnchor.href); } catch { location.href = nextAnchor.href; }
-      return true;
-    }
-    return false;
+// The group's "when blocked" field holds ONE value with two meanings (owner
+// 2026-09-24): a web address sends the tab there; any other text is shown on
+// Vault's own message page; blank = the plain block (main page / close /
+// about:blank). A scheme-less host like "example.com/focus" counts as an
+// address; a sentence does not. Returns the URL to load, or "" for the plain block.
+function cbBlockTarget(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return "";
+  if (/^(https?|about|chrome-extension|moz-extension|safari-web-extension):/i.test(text)) return text;
+  if (!/\s/.test(text) && /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(text)) return "https://" + text;
+  try {
+    return chrome.runtime.getURL("message-page.html") + "?msg=" + encodeURIComponent(text);
+  } catch {
+    return "";
   }
-  if (hostname === "tiktok.com" || hostname.endsWith(".tiktok.com")) {
-    const nextBtn =
-      document.querySelector('[data-e2e="arrow-right"]') ||
-      document.querySelector('[data-e2e="feed-go-to-next-video"]') ||
-      document.querySelector('button[aria-label*="Next"]') ||
-      document.querySelector('button[aria-label*="next"]');
-    if (nextBtn) {
-      nextBtn.click();
-    } else {
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-    }
-    return true;
-  }
-  if (hostname === "instagram.com" || hostname.endsWith(".instagram.com")) {
-    const nextBtn =
-      document.querySelector('button[aria-label="Next"]') ||
-      document.querySelector('[aria-label*="Next reel"]');
-    if (nextBtn) { nextBtn.click(); return true; }
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-    return true;
-  }
-  return false;
 }
+if (typeof window !== "undefined") window.cbBlockTarget = cbBlockTarget;
 
 function attemptExitPage() {
   if (exitAttempted) return;
@@ -1607,17 +1581,9 @@ function attemptExitPage() {
 
   if (overlay) overlay.container.textContent = "0:00";
 
-  if (sessionSkipToNext && isScrollBasedVideoPage() && consecutiveSkipCount < 10) {
-    if (trySkipToNextVideo()) {
-      consecutiveSkipCount++;
-      exitAttempted = false;
-      return;
-    }
-  }
-  consecutiveSkipCount = 0;
-
-  if (sessionFallbackUrl) {
-    try { location.replace(sessionFallbackUrl); } catch { location.href = sessionFallbackUrl; }
+  const target = cbBlockTarget(sessionFallbackUrl);
+  if (target) {
+    try { location.replace(target); } catch { location.href = target; }
     return;
   }
 
@@ -1686,9 +1652,6 @@ function handleSession(session) {
 
   sessionFallbackUrl =
     typeof session.fallbackUrl === "string" ? session.fallbackUrl.trim() : "";
-  sessionSkipToNext = Boolean(session.skipToNextOnBlock);
-
-  if (!shouldExitPage) consecutiveSkipCount = 0;
 
   // Keep the heartbeat alive while platform feed filters are active even with no
   // visible timer, so exposure-based usage timers keep accruing on the feed.

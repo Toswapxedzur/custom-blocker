@@ -172,16 +172,16 @@
           </div>
 
           <div id="fallbackUrlSection">
-            <label class="label" for="fallbackUrl" data-i18n="filter.fallbackUrl">Redirect URL when blocked</label>
+            <label class="label" for="fallbackUrl" data-i18n="filter.fallbackUrl">When blocked: redirect address or message</label>
             <input
               id="fallbackUrl"
               type="text"
-              placeholder="about:blank (default)"
+              placeholder="https://example.com — or a message to show"
               data-i18n-placeholder="filter.fallbackUrlPlaceholder"
               spellcheck="false"
             />
             <p class="field-help" data-i18n="filter.fallbackUrlHelp">
-              When blocked, redirect here. Leave empty to use the default behavior.
+              A web address sends the blocked tab there. Any other text is shown on Vault's block page instead — a reminder, a quote, a motivation speech. Leave empty for the plain block.
             </p>
           </div>
 
@@ -284,62 +284,6 @@
               </div>
             </div>
 
-            <details id="contentTagBuilder" class="content-tag-builder" open>
-              <summary data-i18n="contentTag.title">Block a content tag (no code)</summary>
-              <p class="field-help" data-i18n="contentTag.help">
-                Pick a platform and a content tag from the Vault classifier. Matching videos are blocked without writing any code.
-              </p>
-              <div class="content-tag-row">
-                <label class="label" for="contentTagPlatform" data-i18n="contentTag.platform">Platform</label>
-                <select id="contentTagPlatform">
-                  <option value="youtube" data-i18n="groupType.youtube">YouTube</option>
-                  <option value="tiktok" data-i18n="groupType.tiktok">TikTok</option>
-                  <option value="instagram" data-i18n="groupType.instagram">Instagram</option>
-                  <option value="facebook" data-i18n="groupType.facebook">Facebook</option>
-                  <option value="twitch" data-i18n="groupType.twitch">Twitch</option>
-                </select>
-                <p class="field-help" data-i18n="contentTag.platformHint">Reddit and Bilibili: use the Content tag filter on a Reddit or Bilibili rule group instead — custom rules cannot read those feeds yet.</p>
-              </div>
-              <div class="content-tag-row">
-                <label class="label" for="contentTagMode" data-i18n="contentTag.mode">Rule</label>
-                <select id="contentTagMode">
-                  <option value="include" data-i18n="contentTag.modeInclude">Block certain tags</option>
-                  <option value="exclude" data-i18n="contentTag.modeExclude">Block all except certain tags</option>
-                </select>
-              </div>
-              <div class="content-tag-row">
-                <label class="label" for="contentTagNames" data-i18n="contentTag.tags">Content tags</label>
-                <textarea id="contentTagNames" rows="4" autocomplete="off" spellcheck="false"
-                  placeholder="Gaming&#10;Drama @3" data-i18n-placeholder="contentTag.tagsPlaceholder"></textarea>
-                <div id="contentTagSuggestions" class="tag-suggestions hidden"></div>
-              </div>
-              <div class="content-tag-row">
-                <label class="label" for="contentTagConfidence" data-i18n="contentTag.confidence">Default minimum confidence</label>
-                <select id="contentTagConfidence">
-                  <option value="3">≥ 3</option>
-                  <option value="4" selected>≥ 4</option>
-                  <option value="5" data-i18n="contentTag.confidence5">≥ 5 (only very confident)</option>
-                </select>
-              </div>
-              <div class="content-tag-row">
-                <label class="label" for="contentTagEffect" data-i18n="contentTag.effect">When it matches</label>
-                <select id="contentTagEffect">
-                  <option value="dim" data-i18n="contentTag.effectDim">Black out the thumbnail (correctable)</option>
-                  <option value="block" data-i18n="contentTag.effectHide">Hide the video entirely</option>
-                </select>
-              </div>
-              <label id="contentTagBlockUntaggedRow" class="checkbox-row compact hidden" for="contentTagBlockUntagged">
-                <input id="contentTagBlockUntagged" type="checkbox" />
-                <span data-i18n="contentTag.blockUntagged">Also block videos with no confident tag</span>
-              </label>
-              <div class="field-actions">
-                <button id="contentTagApplyButton" type="button" class="weird" data-i18n="contentTag.apply">Block these tags</button>
-                <span id="contentTagStatus" class="run-status"></span>
-              </div>
-              <p class="field-help" data-i18n="contentTag.advancedNote">
-                Applying generates a rule below, which advanced users can fine-tune.
-              </p>
-            </details>
 
             <div id="blockingRulesEditor" class="code-editor">
               <pre id="blockingRulesHighlight" class="code-editor-highlight" aria-hidden="true"></pre>
@@ -447,15 +391,6 @@
                 <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
               </label>
 
-              <div id="skipToNextOnBlockRow">
-                <label class="checkbox-row compact" for="skipToNextOnBlock">
-                  <input id="skipToNextOnBlock" type="checkbox" />
-                  <span data-i18n="filter.skipToNextOnBlock">Skip to next video when blocked</span>
-                </label>
-                <p class="field-help" data-i18n="filter.skipToNextOnBlockHelp">
-                  For scroll-based feeds (Shorts, TikTok, Reels), skip to the next video instead of redirecting when blocked.
-                </p>
-              </div>
             </div>
 
             <!-- Content-tag filter: shown for any platform whose feed cards
@@ -812,20 +747,7 @@
               Snooze length used when creating new non-custom groups.
             </p>
           </div>
-          <div>
-            <label class="label" for="settingsDefaultFallbackUrl" data-i18n="settings.defaultFallbackUrl">
-              Default fallback URL
-            </label>
-            <input
-              id="settingsDefaultFallbackUrl"
-              type="text"
-              placeholder="about:blank"
-              data-i18n-placeholder="settings.defaultFallbackUrlPlaceholder"
-            />
-            <p class="field-help" data-i18n="settings.defaultFallbackUrlHelp">
-              Used when a group does not specify its own fallback URL.
-            </p>
-          </div>
+
         </div>
 
             </section>

@@ -190,8 +190,7 @@ const DEFAULT_GLOBAL_SETTINGS = {
   // The user-facing helpers.log() output continues to flow regardless.
   debugMode: false,
   showOnPageLogToasts: true,
-  defaultSnoozeMinutes: 30,
-  defaultFallbackUrl: "about:blank"
+  defaultSnoozeMinutes: 30
 };
 const TICK_RATE_MIN_MS = 250;
 const TICK_RATE_MAX_MS = 60_000;
@@ -319,8 +318,6 @@ const platformTagBlockUntaggedField = document.getElementById("platformTagBlockU
 const platformTagBlockPageField = document.getElementById("platformTagBlockPage");
 const platformTagCoverUntilTaggedField = document.getElementById("platformTagCoverUntilTagged");
 const platformBlockHomePageField = document.getElementById("platformBlockHomePage");
-const skipToNextOnBlockRow = document.getElementById("skipToNextOnBlockRow");
-const skipToNextOnBlockField = document.getElementById("skipToNextOnBlock");
 const redditSettingsCard = document.getElementById("redditFields");
 const redditModeField = document.getElementById("redditMode");
 const redditSubredditsField = document.getElementById("redditSubreddits");
@@ -371,16 +368,6 @@ const runCustomGroupButton = document.getElementById("runCustomGroupButton");
 const checkSyntaxButton = document.getElementById("checkSyntaxButton");
 const runCustomGroupStatus = document.getElementById("runCustomGroupStatus");
 // No-code content-tag rule builder (inside the custom editor).
-const contentTagBuilder = document.getElementById("contentTagBuilder");
-const contentTagPlatformField = document.getElementById("contentTagPlatform");
-const contentTagModeField = document.getElementById("contentTagMode");
-const contentTagNamesField = document.getElementById("contentTagNames");
-const contentTagConfidenceField = document.getElementById("contentTagConfidence");
-const contentTagEffectField = document.getElementById("contentTagEffect");
-const contentTagBlockUntaggedRow = document.getElementById("contentTagBlockUntaggedRow");
-const contentTagBlockUntaggedField = document.getElementById("contentTagBlockUntagged");
-const contentTagApplyButton = document.getElementById("contentTagApplyButton");
-const contentTagStatus = document.getElementById("contentTagStatus");
 const aiPromptPanel = document.getElementById("aiPromptPanel");
 const aiPromptInput = document.getElementById("aiPromptInput");
 const aiPromptCopyButton = document.getElementById("aiPromptCopyButton");
@@ -401,7 +388,6 @@ const settingsButton = document.getElementById("settingsButton");
 const settingsModal = document.getElementById("settingsModal");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
 const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
-const settingsDefaultFallbackUrlField = document.getElementById("settingsDefaultFallbackUrl");
 const localFolderChooseButton = document.getElementById("localFolderChooseButton");
 const localFolderRevokeButton = document.getElementById("localFolderRevokeButton");
 const localFolderStatus = document.getElementById("localFolderStatus");
@@ -1156,8 +1142,7 @@ const SYNC_SCALAR_FIELDS = [
   "frozenAtMs",
   "blockHomePage",
   "allowlist",
-  "fallbackUrl",
-  "skipToNextOnBlock"
+  "fallbackUrl"
 ];
 
 // This endpoint owns (can edit + contributes) one blocked-list type: the Mac
@@ -1320,7 +1305,6 @@ function syncAllClusters() {
 function syncSettingsFormFromState() {
   const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
   if (settingsDefaultSnoozeMinutesField) settingsDefaultSnoozeMinutesField.value = String(s.defaultSnoozeMinutes);
-  if (settingsDefaultFallbackUrlField) settingsDefaultFallbackUrlField.value = s.defaultFallbackUrl ?? "";
   if (settingsStatus) settingsStatus.textContent = "";
 }
 
@@ -1350,8 +1334,7 @@ async function saveSettingsFromForm() {
     autosaveDebounceMs: state.globalSettings?.autosaveDebounceMs,
     debugMode: state.globalSettings?.debugMode,
     showOnPageLogToasts: state.globalSettings?.showOnPageLogToasts,
-    defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
-    defaultFallbackUrl: settingsDefaultFallbackUrlField?.value
+    defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value
   };
   const sanitized = sanitizeGlobalSettings(draft);
   state.globalSettings = sanitized;
@@ -2007,8 +1990,6 @@ function sanitizeGlobalSettings(raw) {
     const parsed = Number.parseFloat(src.defaultSnoozeMinutes);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_GLOBAL_SETTINGS.defaultSnoozeMinutes;
   })();
-  const defaultFallbackUrl =
-    typeof src.defaultFallbackUrl === "string" ? src.defaultFallbackUrl.trim() : "";
   // Migrate the old `showDebugOverlay` key (which defaulted to true)
   // to the new `debugMode` key (which defaults to false). If the user
   // had previously SET showDebugOverlay we honor it; otherwise we
@@ -2022,8 +2003,7 @@ function sanitizeGlobalSettings(raw) {
     autosaveDebounceMs,
     debugMode,
     showOnPageLogToasts,
-    defaultSnoozeMinutes,
-    defaultFallbackUrl
+    defaultSnoozeMinutes
   };
   return out;
 }
@@ -3103,8 +3083,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     allowlist: false,
     blockHomePage: false,
     effect: "block",
-    fallbackUrl: state.globalSettings?.defaultFallbackUrl ?? "",
-    skipToNextOnBlock: false
+    fallbackUrl: ""
   };
 }
 
@@ -3262,8 +3241,7 @@ function sanitizeGroups(groups) {
       allowlist: ownsSiteList && Boolean(group?.allowlist),
       blockHomePage: Boolean(group?.blockHomePage),
       effect: group?.effect === "allow" ? "allow" : "block",
-      fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
-      skipToNextOnBlock: Boolean(group?.skipToNextOnBlock)
+      fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : ""
     };
   });
 
@@ -3386,8 +3364,7 @@ function getSerializableGroupSnapshot(group) {
     allowlist: Boolean(group.allowlist),
     blockHomePage: Boolean(group.blockHomePage),
     effect: group.effect === "allow" ? "allow" : "block",
-    fallbackUrl: group.fallbackUrl ?? "",
-    skipToNextOnBlock: Boolean(group.skipToNextOnBlock)
+    fallbackUrl: group.fallbackUrl ?? ""
   };
 }
 
@@ -3510,7 +3487,6 @@ function groupToDraft(group) {
     allowlist: Boolean(group.allowlist),
     effect: group.effect === "allow" ? "allow" : "block",
     fallbackUrl: group.fallbackUrl ?? "",
-    skipToNextOnBlock: Boolean(group.skipToNextOnBlock),
     freezeModeChoice: normalizeFreezeModeChoice(group)
   };
 }
@@ -4419,8 +4395,6 @@ function renderEditor(now = Date.now()) {
     fallbackUrlField.value = "";
     if (groupEffectField) groupEffectField.value = "block";
     if (groupEffectSection) groupEffectSection.classList.add("hidden");
-    skipToNextOnBlockField.checked = false;
-    skipToNextOnBlockRow.classList.add("hidden");
     blockModeSection.classList.remove("hidden");
     timedSettings.classList.add("hidden");
     customSettingsCard.classList.add("hidden");
@@ -4466,7 +4440,6 @@ function renderEditor(now = Date.now()) {
     redditBlockHomePageField.disabled = true;
     discordBlockHomePageField.disabled = true;
     fallbackUrlField.disabled = true;
-    skipToNextOnBlockField.disabled = true;
     state.aiPromptGroupId = null;
     if (aiPromptPanel) {
       aiPromptPanel.classList.add("hidden");
@@ -4603,9 +4576,6 @@ function renderEditor(now = Date.now()) {
   }
   groupEffectField.value = (draft?.effect ?? group.effect) === "allow" ? "allow" : "block";
 
-  const isScrollPlatform = ["youtube", "tiktok", "instagram"].includes(group.groupType);
-  skipToNextOnBlockRow.classList.toggle("hidden", !isPlatformVideoGroup || !isScrollPlatform);
-  skipToNextOnBlockField.checked = Boolean(draft?.skipToNextOnBlock ?? group.skipToNextOnBlock);
 
   freezeModeField.value = freezeStatus.isFrozen
     ? freezeStatus.isParental
@@ -4693,7 +4663,6 @@ function renderEditor(now = Date.now()) {
   discordBlockHomePageField.disabled = !editable || !isDiscordGroup;
   fallbackUrlField.disabled = !editable;
   if (groupEffectField) groupEffectField.disabled = !editable;
-  skipToNextOnBlockField.disabled = !editable || !isPlatformVideoGroup || !isScrollPlatform;
   if (runCustomGroupButton) {
     runCustomGroupButton.disabled = !editable || !isCustomGroup;
   }
@@ -4873,8 +4842,7 @@ function stashCurrentDraft() {
           : false,
     surfaceHides: readSurfaceHidesFromForm(),
     effect: groupEffectField.value === "allow" ? "allow" : "block",
-    fallbackUrl: fallbackUrlField.value,
-    skipToNextOnBlock: skipToNextOnBlockField.checked
+    fallbackUrl: fallbackUrlField.value
   };
 }
 
@@ -5064,8 +5032,7 @@ function resetPlatformCriteriaFor(group, groupType) {
     discordMode: defaults.discordMode,
     discordTargets: defaults.discordTargets,
     surfaceHides: defaults.surfaceHides,
-    blockHomePage: defaults.blockHomePage,
-    skipToNextOnBlock: defaults.skipToNextOnBlock
+    blockHomePage: defaults.blockHomePage
   };
 }
 
@@ -5443,7 +5410,6 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
         : typeof draft.fallbackUrl === "string"
         ? draft.fallbackUrl.trim()
         : "",
-      skipToNextOnBlock: Boolean(draft.skipToNextOnBlock),
       freezeModeChoice: normalizeFreezeModeChoice({
         freezeModeChoice: draft.freezeModeChoice,
         freezeMode: group.freezeMode,
@@ -6748,40 +6714,6 @@ const CONTENT_TAG_PLATFORMS = new Set(["youtube", "tiktok", "instagram", "facebo
 // Supports a LIST of tags (each with an optional per-tag confidence over the
 // default), "block certain tags" (include) / "block all except" (exclude), and
 // a configurable untagged behavior for the exclude case.
-function generateContentTagRuleSource({ platform, mode, tags, defaultConfidence, blockUntagged, effect }) {
-  const p = CONTENT_TAG_PLATFORMS.has(platform) ? platform : "youtube";
-  const method = effect === "block" ? "hide" : "dim";
-  const def = Math.min(5, Math.max(1, Number(defaultConfidence) || 4));
-  // Resolve each tag's threshold now, so the generated predicate stays simple.
-  // n = names that must ALL be present (AND), c = threshold, x = carve-out.
-  const list = (Array.isArray(tags) ? tags : []).map((e) => ({
-    n: [String(e && e.name), ...(Array.isArray(e && e.also) ? e.also.map(String) : [])],
-    c: Number.isFinite(e && e.confidence) ? Math.min(5, Math.max(1, e.confidence)) : def,
-    x: Boolean(e && e.except)
-  }));
-  const listLiteral = JSON.stringify(list);
-  const isExclude = mode === "exclude";
-  // Same decision as the platform tag filter (content.js matchesTagFilter).
-  const body =
-    "    const list = " + listLiteral + ";\n" +
-    "    const tags = Array.isArray(item.tags) ? item.tags : [];\n" +
-    "    const hit = (e) => e.n.every((n) => tags.some((t) => t && t.name === n && (t.confidence || 0) >= e.c));\n" +
-    "    const listMatch = list.some((e) => !e.x && hit(e)) && !list.some((e) => e.x && hit(e));\n" +
-    "    if (listMatch) return " + (isExclude ? "false" : "true") + ";\n" +
-    "    const hasConfident = tags.some((t) => (t && t.confidence || 0) >= " + def + ");\n" +
-    "    if (!hasConfident) return " + (blockUntagged ? "true" : "false") + ";\n" +
-    "    return " + (isExclude ? "true" : "false") + ";\n";
-  return (
-    "(events, helpers) => {\n" +
-    "  const p = helpers.platform()." + p + "();\n" +
-    "  p." + method + "((item) => {\n" +
-    body +
-    "  });\n" +
-    "  p.rescan();\n" +
-    "}\n"
-  );
-}
-
 // ── Classifier tag-name suggestions ──────────────────────────────────────
 // Clickable chips under a tag-list textarea, fed by the classifier's own
 // taxonomy for that platform (so a filter names tags that actually exist — a
@@ -6850,7 +6782,7 @@ function refreshTagSuggestions(container, textarea, platform) {
   });
 }
 
-// Keep chip "used" state live while typing, and follow the builder's platform.
+// Keep chip "used" state live while typing.
 function bindTagSuggestions(containerId, textarea, platformOf) {
   const container = document.getElementById(containerId);
   if (!container || !textarea) return;
@@ -6860,60 +6792,6 @@ function bindTagSuggestions(containerId, textarea, platformOf) {
   });
 }
 bindTagSuggestions("platformTagSuggestions", platformTagsField, () => String(getSelectedGroup()?.groupType || ""));
-bindTagSuggestions("contentTagSuggestions", contentTagNamesField, () => contentTagPlatformField?.value || "youtube");
-if (contentTagPlatformField) {
-  const refreshBuilderSuggestions = () => refreshTagSuggestions(
-    document.getElementById("contentTagSuggestions"), contentTagNamesField, contentTagPlatformField.value || "youtube"
-  );
-  contentTagPlatformField.addEventListener("change", refreshBuilderSuggestions);
-  contentTagNamesField?.addEventListener("focus", refreshBuilderSuggestions, { once: true });
-}
-
-function setContentTagStatus(text, isError) {
-  if (!contentTagStatus) return;
-  contentTagStatus.textContent = text || "";
-  contentTagStatus.className = isError ? "run-status error" : "run-status";
-}
-
-// The untagged toggle only matters for "block all except" (allow-list) mode.
-function syncContentTagBuilderMode() {
-  if (!contentTagBlockUntaggedRow) return;
-  const isExclude = contentTagModeField?.value === "exclude";
-  contentTagBlockUntaggedRow.classList.toggle("hidden", !isExclude);
-}
-if (contentTagModeField) {
-  contentTagModeField.addEventListener("change", syncContentTagBuilderMode);
-}
-
-if (contentTagApplyButton) {
-  contentTagApplyButton.addEventListener("click", async () => {
-    const group = getSelectedGroup();
-    if (!group || group.groupType !== "custom" || blockingRulesField.disabled) return;
-    const platform = contentTagPlatformField?.value || "youtube";
-    const mode = contentTagModeField?.value === "exclude" ? "exclude" : "include";
-    const tags = parseTagListTextarea(contentTagNamesField?.value || "");
-    if (tags.length === 0) {
-      setContentTagStatus(t("contentTag.needTag"), true);
-      contentTagNamesField?.focus();
-      return;
-    }
-    const defaultConfidence = Number(contentTagConfidenceField?.value) || 4;
-    const effect = contentTagEffectField?.value === "block" ? "block" : "dim";
-    const blockUntagged = Boolean(contentTagBlockUntaggedField?.checked);
-    // Generate the rule into the shared source field, then run it through the
-    // same compile+activate pipeline as the Run button (no manual step).
-    blockingRulesField.value = generateContentTagRuleSource({
-      platform, mode, tags, defaultConfidence, blockUntagged, effect
-    });
-    stashCurrentDraft();
-    render();
-    scheduleAutosave();
-    setContentTagStatus(t("contentTag.applying"), false);
-    await runSelectedCustomGroup();
-    setContentTagStatus(t("contentTag.applied", { count: tags.length }), false);
-  });
-}
-
 function toggleAiPromptPanel() {
   const group = getSelectedGroup();
   if (!group || group.groupType !== "custom") return;
@@ -7058,7 +6936,7 @@ discordModeField.addEventListener("change", () => {
   scheduleAutosave();
 });
 
-for (const field of [platformBlockHomePageField, redditBlockHomePageField, discordBlockHomePageField, skipToNextOnBlockField]) {
+for (const field of [platformBlockHomePageField, redditBlockHomePageField, discordBlockHomePageField]) {
   field.addEventListener("change", () => {
     stashCurrentDraft();
     renderGroupList();
