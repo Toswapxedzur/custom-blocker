@@ -217,7 +217,6 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     // "custom" groups; the feed-level `effect` flag below is unrelated.
     allowlist: false,
     blockHomePage: false,
-    effect: "block",
     fallbackUrl: ""
   };
 }
@@ -458,7 +457,10 @@ function sanitizeGroups(groups) {
           typeof group?.name === "string" && group.name.trim()
             ? group.name.trim()
             : `${baseGroup.name} ${index + 1}`,
-        enabled: Boolean(group?.enabled),
+        // The group-level "allow" exception effect was removed (owner 2026-09-24:
+        // exceptions live in custom rules). A stored exception group must not
+        // silently turn into a blocking group, so it is kept but disabled.
+        enabled: Boolean(group?.enabled) && group?.effect !== "allow",
         groupType: normalizedGroupType,
         mode: normalizeBlockingMode(group?.mode),
         allowedMinutes: parseAllowedMinutes(group?.allowedMinutes) ?? DEFAULT_ALLOWED_MINUTES,
@@ -540,10 +542,6 @@ function sanitizeGroups(groups) {
         // See defaultGroup(): blocklist (false) vs "block all except" (true).
         allowlist: Boolean(group?.allowlist),
         blockHomePage: Boolean(group?.blockHomePage),
-        // Cascade effect for platform-profile groups: "allow" makes the group a
-        // whitelist/exception. Stored for all groups but only honored for
-        // platform groups (see buildFeedOrder); defaults to "block".
-        effect: group?.effect === "allow" ? "allow" : "block",
         // One field: a web address redirects the blocked tab there, any other
         // text is shown on Vault's message page, blank = the plain block
         // (owner 2026-09-24). The content script decides which it is.
@@ -1584,19 +1582,10 @@ function buildPageSession(
 
 // Group priority + effect for the content-side cascade. Order is the group's
 // list position (index 0 = top of the list = highest priority, "first wins").
-// effect "allow" is a whitelist/exception that rescues matched content from
-// lower-priority block groups — but ONLY platform-profile groups may use it
-// (custom rules express exceptions in JS; default groups don't touch feeds).
-// Everything else is forced to "block".
+// Normal groups only block; exceptions are written as custom rules (allow()).
 function buildFeedOrder(groups) {
   if (!Array.isArray(groups)) return [];
-  return groups.map((group) => ({
-    id: group.id,
-    effect:
-      isPlatformProfileGroupType(group?.groupType) && group?.effect === "allow"
-        ? "allow"
-        : "block"
-  }));
+  return groups.map((group) => ({ id: group.id }));
 }
 
 async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now, usageBucketsMs = {}) {

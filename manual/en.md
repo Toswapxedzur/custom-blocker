@@ -43,7 +43,6 @@ The following terminology is used throughout:
 | Block | Prevent the current top-level page from remaining usable: redirect to the group's address, show its message, or fall back to the plain block. |
 | Hide | Remove or conceal an element/card in the currently rendered page. Hiding is not a network block. |
 | Redirect address or message | One field per group. A web address redirects the blocked tab there; any other text is shown on Vault's block page; blank means the plain block. Extension only — the desktop apps cannot redirect. |
-| Allow/exception effect | A platform-card verdict that rescues matching content from lower-priority hide rules. It is not a general website allowlist. |
 
 ## 2. Group model and common lifecycle
 
@@ -53,7 +52,7 @@ Every stored group has a stable id, a name, a type, an enabled flag, and common 
 
 More than one group can match the same page. Vault evaluates stored groups from the end of the displayed list toward the beginning. Treat lower items in the list as later/higher-precedence matches when designing overlapping rules.
 
-For ordinary top-level site blocking, any applicable blocking group can make the page unavailable. For feed-card filtering, the platform cascade uses each matching group's order and effect: a later matching allow/exception can rescue an item from lower-priority blocking predicates. This exception behaviour is limited to the platform-card filtering surface; it does not undo a normal whole-page site block.
+For ordinary top-level site blocking, any applicable blocking group can make the page unavailable. For feed-card filtering, the platform cascade uses each matching group's order: the top-most matching group decides. Normal groups only block; the one exception mechanism is a custom rule's allow() verdict, which rescues an item from lower-priority blocking groups.
 
 ### 2.2 Enabled state
 
