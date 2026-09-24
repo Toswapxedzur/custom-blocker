@@ -699,10 +699,20 @@ function cbContentBlockProfile() {
   return (id && CB_CONTENT_BLOCK_PROFILES[id]) || null;
 }
 
-function cbFindMedia(card) {
+// Every media element the profile names inside `card`, top-most matches only
+// (a player wraps its component; one panel covers both). A tweet may carry a
+// photo AND a video side by side, and a grid several photos — each must be
+// covered, or the block leaks through the ones after the first.
+function cbFindMediaAll(card) {
   const profile = cbContentBlockProfile();
-  if (!profile) return null;
-  try { return card.querySelector(profile.media); } catch { return null; }
+  if (!profile) return [];
+  let nodes;
+  try { nodes = [...card.querySelectorAll(profile.media)]; } catch { return []; }
+  return nodes.filter((media) => !nodes.some((other) => other !== media && other.contains(media)));
+}
+
+function cbFindMedia(card) {
+  return cbFindMediaAll(card)[0] || null;
 }
 
 // Vault pill hosts, registered by the tag pipeline. Kept in a private WeakSet
@@ -749,34 +759,43 @@ function cbEnsureRelative(el) {
   try { if (getComputedStyle(el).position === "static") el.style.position = "relative"; } catch {}
 }
 
-// Black out a card's thumbnail (idempotent; re-renders if the host recycled the
+// One opaque panel over a media element (idempotent).
+function cbCoverMedia(media, zIndex) {
+  cbEnsureRelative(media);
+  if (media.querySelector(":scope > .cb-block-panel")) return;
+  const panel = document.createElement("div");
+  panel.className = "cb-block-panel";
+  panel.setAttribute("style", `position:absolute;inset:0;z-index:${zIndex};background:#000;`);
+  media.appendChild(panel);
+}
+
+function cbUncoverMedia(media) {
+  media.querySelector(":scope > .cb-block-panel")?.remove();
+  if (media.dataset && media.dataset.cbPrevPos !== undefined) {
+    if (media.dataset.cbPrevPos) media.style.position = media.dataset.cbPrevPos;
+    else media.style.removeProperty("position");
+    delete media.dataset.cbPrevPos;
+  }
+}
+
+// Black out a card's thumbnails (idempotent; re-renders if the host recycled a
 // panel away). No controls — the block is driven purely by the tags.
 function dimElement(card) {
   if (!card) return;
-  const media = cbFindMedia(card);
-  if (!media) return; // no thumbnail to black → skip, never black the whole card
-  const hasPanel = !!media.querySelector(":scope > .cb-block-panel");
-  if (card.dataset.cbContentBlocked === "true" && hasPanel) return;
+  const medias = cbFindMediaAll(card);
+  if (medias.length === 0) return; // no thumbnail to black → skip, never black the whole card
+  if (card.dataset.cbContentBlocked === "true"
+      && medias.every((media) => media.querySelector(":scope > .cb-block-panel"))) return;
   card.dataset.cbContentBlocked = "true";
   cbInstallClickInterceptor();
-  cbEnsureRelative(media);
-  media.querySelector(":scope > .cb-block-panel")?.remove();
-  const panel = document.createElement("div");
-  panel.className = "cb-block-panel";
-  panel.setAttribute("style", "position:absolute;inset:0;z-index:60;background:#000;");
-  media.appendChild(panel);
+  for (const media of medias) cbCoverMedia(media, 60);
 }
 
 // allow verdict (or the tag no longer qualifies) → restore the card instantly.
 function undimElement(card) {
   if (!card || card.dataset.cbContentBlocked !== "true") return;
-  const media = cbFindMedia(card) || card;
-  media.querySelector(":scope > .cb-block-panel")?.remove();
-  if (media.dataset.cbPrevPos !== undefined) {
-    if (media.dataset.cbPrevPos) media.style.position = media.dataset.cbPrevPos;
-    else media.style.removeProperty("position");
-    delete media.dataset.cbPrevPos;
-  }
+  const medias = cbFindMediaAll(card);
+  for (const media of medias.length > 0 ? medias : [card]) cbUncoverMedia(media);
   delete card.dataset.cbContentBlocked;
 }
 
@@ -942,12 +961,20 @@ function cbTagPageEntryMatchesLocation(entryID, loc) {
 
 // The page's main content per platform: a document-level player (YouTube,
 // Bilibili) or the observed post's own media/body (Reddit).
-function cbFindPagePlayer(root) {
+// Every player/media element the profile names for the page, top-most matches
+// only — a post page can show a photo beside a video; all of them are covered.
+function cbFindPagePlayers(root) {
   const profile = cbContentBlockProfile();
-  if (!profile) return null;
+  if (!profile) return [];
   const scope = profile.pageScope === "root" ? root : document;
-  if (!scope || typeof scope.querySelector !== "function") return null;
-  try { return scope.querySelector(profile.page); } catch { return null; }
+  if (!scope || typeof scope.querySelectorAll !== "function") return [];
+  let nodes;
+  try { nodes = [...scope.querySelectorAll(profile.page)]; } catch { return []; }
+  return nodes.filter((player) => !nodes.some((other) => other !== player && other.contains(player)));
+}
+
+function cbFindPagePlayer(root) {
+  return cbFindPagePlayers(root)[0] || null;
 }
 
 // While the page is blocked, any attempt to play (autoplay, the keyboard
@@ -959,33 +986,23 @@ function cbKeepPausedWhileBlocked(event) {
 }
 
 function cbBlackOutPagePlayer(root) {
-  const player = cbFindPagePlayer(root);
-  if (!player) return false;
-  cbEnsureRelative(player);
-  if (!player.querySelector(":scope > .cb-block-panel")) {
-    const panel = document.createElement("div");
-    panel.className = "cb-block-panel";
-    panel.setAttribute("style", "position:absolute;inset:0;z-index:2147483000;background:#000;");
-    player.appendChild(panel);
-  }
-  for (const video of player.querySelectorAll("video")) {
-    try { video.pause(); } catch {}
-    video.addEventListener("play", cbKeepPausedWhileBlocked, true);
-    video.addEventListener("playing", cbKeepPausedWhileBlocked, true);
+  const players = cbFindPagePlayers(root);
+  if (players.length === 0) return false;
+  for (const player of players) {
+    cbCoverMedia(player, 2147483000);
+    for (const video of player.querySelectorAll("video")) {
+      try { video.pause(); } catch {}
+      video.addEventListener("play", cbKeepPausedWhileBlocked, true);
+      video.addEventListener("playing", cbKeepPausedWhileBlocked, true);
+    }
   }
   if (root && root.dataset) root.dataset.cbContentBlocked = "true";
   return true;
 }
 
 function cbClearPagePlayer(root) {
-  const player = cbFindPagePlayer(root);
-  if (player) {
-    player.querySelector(":scope > .cb-block-panel")?.remove();
-    if (player.dataset && player.dataset.cbPrevPos !== undefined) {
-      if (player.dataset.cbPrevPos) player.style.position = player.dataset.cbPrevPos;
-      else player.style.removeProperty("position");
-      delete player.dataset.cbPrevPos;
-    }
+  for (const player of cbFindPagePlayers(root)) {
+    cbUncoverMedia(player);
     for (const video of player.querySelectorAll("video")) {
       video.removeEventListener("play", cbKeepPausedWhileBlocked, true);
       video.removeEventListener("playing", cbKeepPausedWhileBlocked, true);

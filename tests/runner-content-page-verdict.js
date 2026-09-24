@@ -38,6 +38,7 @@ class FakeEl {
   remove() { if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this); this.parent = null; }
   querySelector(sel) { return sel === ":scope > .cb-block-panel" ? (this.children.find((c) => c.className === "cb-block-panel") || null) : null; }
   querySelectorAll(sel) { return sel === "video" ? this.children.filter((c) => c.tag === "video") : []; }
+  contains(node) { for (let n = node; n; n = n.parent) if (n === this) return true; return false; }
   addEventListener(type, fn, capture) { this.listeners.push({ type, fn, capture }); }
   removeEventListener(type, fn) { this.listeners = this.listeners.filter((l) => !(l.type === type && l.fn === fn)); }
 }
@@ -50,6 +51,7 @@ const document = {
   player: null,
   // A document-level lookup answers the YouTube and Bilibili player selectors.
   querySelector(sel) { return (sel.includes("#movie_player") || sel.includes("#bilibili-player")) ? this.player : null; },
+  querySelectorAll(sel) { const p = this.querySelector(sel); return p ? [p] : []; },
   createElement(tag) { return new FakeEl(tag); }
 };
 const context = vm.createContext({
@@ -60,8 +62,9 @@ const context = vm.createContext({
 vm.runInContext([
   extractBlock("CB_CONTENT_BLOCK_PROFILES"), extractDecl("CB_PAGE_BLOCK_RETRY_MS"), extractDecl("CB_PAGE_BLOCK_RETRIES"),
   "let cbTagPageBlockedEntry = \"\";", "let cbTagPageRetryTimer = null;",
-  extractFunction("cbContentBlockPlatformID"), extractFunction("cbContentBlockProfile"), extractFunction("cbFindMedia"),
-  extractFunction("cbEnsureRelative"), extractFunction("cbTagPageEntryMatchesLocation"), extractFunction("cbFindPagePlayer"),
+  extractFunction("cbContentBlockPlatformID"), extractFunction("cbContentBlockProfile"), extractFunction("cbFindMediaAll"), extractFunction("cbFindMedia"),
+  extractFunction("cbEnsureRelative"), extractFunction("cbCoverMedia"), extractFunction("cbUncoverMedia"),
+  extractFunction("cbTagPageEntryMatchesLocation"), extractFunction("cbFindPagePlayers"), extractFunction("cbFindPagePlayer"),
   extractFunction("cbKeepPausedWhileBlocked"), extractFunction("cbBlackOutPagePlayer"), extractFunction("cbClearPagePlayer"),
   extractFunction("cbApplyTagPagePolicy")
 ].join("\n"), context);
@@ -129,6 +132,7 @@ setTimeout(() => {
   const body = new FakeEl("div");
   const postRoot = new FakeEl("shreddit-post");
   postRoot.querySelector = (sel) => (sel.includes('[slot="text-body"]') ? body : null);
+  postRoot.querySelectorAll = (sel) => (sel.includes('[slot="text-body"]') ? [body] : []);
   context.__root = postRoot;
   check("Reddit: a foreign post id never blacks out the page", apply("block", "reddit:post:other") === false && !panelOf(body));
   check("Reddit: the page's own post id blacks out the post body (root-scoped)", apply("block", "reddit:post:p0st1") === true && panelOf(body) && postRoot.dataset.cbContentBlocked === "true");
@@ -138,6 +142,7 @@ setTimeout(() => {
   const card = new FakeEl("shreddit-post");
   const thumb = new FakeEl("div");
   card.querySelector = (sel) => (sel.includes('[slot="thumbnail"]') ? thumb : null);
+  card.querySelectorAll = (sel) => (sel.includes('[slot="thumbnail"]') ? [thumb] : []);
   context.__card = card;
   check("Reddit feed card: cbFindMedia resolves the thumbnail via the profile", vm.runInContext("cbFindMedia(__card)", context) === thumb);
   context.location = { hostname: "example.com", href: "https://example.com/", search: "", pathname: "/" };

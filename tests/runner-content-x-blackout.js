@@ -63,19 +63,23 @@ class El {
   contains(node) { for (let n = node; n; n = n.parentElement) if (n === this) return true; return false; }
 }
 
-function tweet({ statusID, handle, photo }) {
+function tweet({ statusID, handle, photo, video }) {
   const cell = new El("div", { "data-testid": "cellInnerDiv" });
   const article = new El("article", { "data-testid": "tweet" });
   const name = new El("div", { "data-testid": "User-Name" }).append(new El("a", { href: `/${handle}` }), new El("a", { href: `/${handle}/status/${statusID}` }));
   const text = new El("div", { "data-testid": "tweetText" });
   article.append(name, text);
   if (photo) article.append(new El("div", { "data-testid": "tweetPhoto" }).append(new El("img", { src: "https://pbs.twimg.com/media/x.jpg" })));
+  // A video player wraps its component: both match the profile, one panel covers both.
+  if (video) article.append(new El("div", { "data-testid": "videoPlayer" }).append(new El("div", { "data-testid": "videoComponent" }).append(new El("video"))));
   cell.append(article);
   return { cell, article };
 }
 const news = tweet({ statusID: "1", handle: "bbcchinese", photo: true });
 const gaming = tweet({ statusID: "2", handle: "someone", photo: true });
-const body = new El("body").append(news.cell, gaming.cell);
+// Photo AND video side by side (seen live 2026-09-24: only the first was covered, the video stayed open).
+const mixed = tweet({ statusID: "3", handle: "reporter", photo: true, video: true });
+const body = new El("body").append(news.cell, gaming.cell, mixed.cell);
 const document = {
   body, documentElement: body,
   querySelectorAll: (s) => body.querySelectorAll(s),
@@ -84,7 +88,7 @@ const document = {
   addEventListener() {}
 };
 // The tag pipeline: pills live on the ARTICLES; lookup by containment (tag-ui's stateForCard).
-const tagsByArticle = new Map([[news.article, [{ id: "t1", name: "News & Politics", confidence: 5 }]], [gaming.article, [{ id: "t2", name: "Gaming", confidence: 5 }]]]);
+const tagsByArticle = new Map([[news.article, [{ id: "t1", name: "News & Politics", confidence: 5 }]], [gaming.article, [{ id: "t2", name: "Gaming", confidence: 5 }]], [mixed.article, [{ id: "t1", name: "News & Politics", confidence: 5 }]]]);
 const resolve = (rootEl) => { if (tagsByArticle.has(rootEl)) return rootEl; let found = null; for (const a of tagsByArticle.keys()) if (rootEl.contains(a)) { if (found) return null; found = a; } return found; };
 
 const context = vm.createContext({
@@ -102,7 +106,7 @@ vm.runInContext([
   "let latestFeedFilters = []; let latestSurfaceHides = []; let latestExposedGroupIds = []; let feedApplyRafId = null; let cbTagPageContext = null; let cbDebugMode = false; function cbDebugLog() {}",
   "const cbVerdictLedger = new WeakMap(); const cbTrackedCards = new Set(); let cbGroupIndex = new Map(); let cbGroupEffect = new Map(); let cbGroupOrderKey = '';",
   extractBlock("CB_CONTENT_BLOCK_PROFILES"),
-  ...["normalizeHostname", "getCurrentFeedSite", "cbContentBlockPlatformID", "cbContentBlockProfile", "cbFindMedia", "getFeedCardElements", "getFeedCardTags", "getFeedCardData",
+  ...["normalizeHostname", "getCurrentFeedSite", "cbContentBlockPlatformID", "cbContentBlockProfile", "cbFindMediaAll", "cbFindMedia", "cbCoverMedia", "cbUncoverMedia", "getFeedCardElements", "getFeedCardTags", "getFeedCardData",
       "matchesTagFilter", "matchesFeedFilter", "cbSetGroupOrder", "cbEffectVerdict", "cbSetCardVerdict", "cbClearSource", "cbResolveCardVerdict", "cbApplyCard",
       "cbEnsureRelative", "dimElement", "undimElement", "hideElement", "showElement", "applyFeedFilters", "extractRedditSubredditFromCard", "isPostCard", "getFeedCardHref", "getFeedCardCreators"].map(extractFunction)
 ].join("\n"), context);
@@ -113,10 +117,17 @@ vm.runInContext("latestFeedFilters = __filters; applyFeedFilters();", context);
 let pass = 0, fail = 0;
 const check = (label, ok, detail) => { if (ok) { pass++; console.log(`PASS ${label}`); } else { fail++; console.log(`FAIL ${label}${detail ? " — " + detail : ""}`); } };
 check("the site resolves to twitter on x.com", vm.runInContext("getCurrentFeedSite()", context) === "twitter");
-check("the filter's cards are the timeline cells", vm.runInContext("getFeedCardElements('twitter').length", context) === 2);
+check("the filter's cards are the timeline cells", vm.runInContext("getFeedCardElements('twitter').length", context) === 3);
 check("a matching tweet's photo is blacked out in place", news.cell.dataset.cbContentBlocked === "true" && news.cell.querySelector('[data-testid="tweetPhoto"]').children.some((c) => c.className === "cb-block-panel"), JSON.stringify(news.cell.dataset));
 check("a non-matching tweet is untouched", news.cell !== gaming.cell && gaming.cell.dataset.cbContentBlocked === undefined && !gaming.cell.querySelector(".cb-block-panel"));
+const panelsOf = (el) => el.querySelectorAll(".cb-block-panel");
+const covered = (el, testid) => el.querySelector(`[data-testid="${testid}"]`).children.some((c) => c.className === "cb-block-panel");
+check("a photo AND a video in one tweet are both covered", mixed.cell.dataset.cbContentBlocked === "true" && covered(mixed.cell, "tweetPhoto") && covered(mixed.cell, "videoPlayer"), JSON.stringify(mixed.cell.dataset));
+check("a player's inner component is not covered twice (top-most match only)", !covered(mixed.cell, "videoComponent") && panelsOf(mixed.cell).length === 2);
+vm.runInContext("applyFeedFilters();", context);
+check("a second pass is idempotent", panelsOf(mixed.cell).length === 2 && panelsOf(news.cell).length === 1);
 vm.runInContext("latestFeedFilters = []; applyFeedFilters();", context);
 check("removing the filter lifts the blackout", news.cell.dataset.cbContentBlocked === undefined && !news.cell.querySelector(".cb-block-panel"));
+check("removing the filter lifts every panel of the mixed tweet", mixed.cell.dataset.cbContentBlocked === undefined && panelsOf(mixed.cell).length === 0);
 console.log(fail ? "__CB_TEST_RESULT__: FAIL" : "__CB_TEST_RESULT__: OK");
 if (fail) process.exitCode = 1;
