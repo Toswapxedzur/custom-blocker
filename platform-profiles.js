@@ -1372,7 +1372,7 @@ const PLATFORM_PROFILES = {
       mode: "sourceMode",
       list: "sources",
       labelKey: "reddit.subreddits",
-      placeholderKey: "reddit.subredditsPlaceholder"
+      placeholderKey: "platform.placeholder.reddit"
     },
     feed: {
       cardSelectors: [
