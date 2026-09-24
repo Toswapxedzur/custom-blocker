@@ -120,6 +120,17 @@ check("a group left with only a site list becomes a site group", siteOnly.groupT
 const legacy = sanitize([{ id: "l1", name: "L", groupType: "reddit", enabled: true, scopes: [{ surface: "items", action: "hide", sourceMode: "all" }] }])[0];
 check("a stored line without a platform takes the group's", legacy.scopes[0].platform === "reddit", legacy.scopes);
 
+// Apps entry (desktop applications) + a website list patched onto a platform group.
+const withApps = sanitize([{ ...group, scopes: [...group.scopes, { surface: "apps", action: "block", apps: [{ id: "com.apple.Safari", name: "Safari" }, "com.apple.Safari", { id: "com.x.y" }] }] }])[0];
+check("an apps line is kept, deduplicated by bundle id, on any normal group", S.groupPlatforms(withApps).join(",") === "youtube,reddit,twitter,site,apps" && S.flatFromScopes(withApps, "apps").apps.length === 2, withApps.scopes.at(-1));
+context.__groups = [withApps];
+check("apps lines never match a page and emit no feed filters", session("https://example.com/", "/", { u1: 30 * 60 * 1000 }).shouldExitPage === true && session("https://x.com/home", "/home", { u1: 30 * 60 * 1000 }).shouldExitPage === false && feed("https://www.youtube.com/", "/").length === 1, withApps.scopes.length);
+context.__groups = [group];
+const customApps = sanitize([{ id: "c1", name: "C", groupType: "custom", enabled: true, scopes: [{ surface: "apps", action: "block", apps: [{ id: "a" }] }] }])[0];
+check("a custom group drops apps lines", customApps.scopes.length === 0, customApps.scopes);
+const ytPatched = sanitize([{ id: "y1", name: "Y", groupType: "youtube", enabled: true, scopes: S.scopeLinesFromFlat({ sourceMode: "all" }, "youtube"), sites: ["docs.example.org"] }])[0];
+check("a `sites` patch on a platform group adds its Websites entry", S.groupPlatforms(ytPatched).join(",") === "youtube,site" && S.flatFromScopes(ytPatched, "site").sites.join() === "docs.example.org" && S.flatFromScopes(ytPatched, "youtube").sourceMode === "all", ytPatched.scopes);
+
 console.log(`SCOPES UNION TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
 if (fail) process.exitCode = 1;
