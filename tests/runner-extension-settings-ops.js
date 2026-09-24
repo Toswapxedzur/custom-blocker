@@ -109,6 +109,12 @@ async function op(operation, body) {
   const modern = await op("settings-set-group", { id: la.id, patch: { sourceMode: "include", sources: ["@other"] } });
   check("the new pair patches directly", modern?.body?.group?.sourceMode === "include" && modern.body.group.sources.length === 1, modern);
 
+  // The group-level "allow" exception effect is gone (owner 2026-09-24); a
+  // stored exception group is kept but disabled, never turned into a block.
+  const legacyAllow = await op("settings-create-group", { groupType: "youtube", patch: { name: "Old exception", enabled: true, effect: "allow" } });
+  const oa = legacyAllow?.body?.group;
+  check("a legacy allow-effect group comes back disabled and without the field", oa && oa.enabled === false && !("effect" in oa), oa);
+
   const missing = await op("settings-set-group", { id: "nope", patch: { enabled: true } });
   check("patching an unknown group fails", missing?.error === "group-not-found", missing);
 

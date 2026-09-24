@@ -801,12 +801,9 @@ function undimElement(card) {
 // an opinion decides — so the outcome is independent of the sync-platform vs
 // async-custom timing race.
 //
-//   • Order/effect come from the background ("feedOrder"): list position
-//     (index 0 = top = highest priority) and a per-group effect.
-//   • effect "allow" turns a match into a rescue verdict that overrides a
-//     lower-priority block group; "block" hides. Only platform-profile groups
-//     can be "allow" (enforced in the background); custom/default are always
-//     "block".
+//   • Order comes from the background ("feedOrder"): list position (index 0 =
+//     top = highest priority). Normal groups only block; a custom rule's
+//     allow() verdict is the one rescue that overrides a lower-priority block.
 //   • Application is idempotent per card (hide/show only on change), so
 //     repeated passes never churn the DOM.
 // ────────────────────────────────────────────────────────────────────────
@@ -818,26 +815,21 @@ const cbVerdictLedger = new WeakMap();
 // pruned on each sweep to avoid leaks.
 const cbTrackedCards = new Set();
 let cbGroupIndex = new Map(); // groupId -> order index (0 = highest priority)
-let cbGroupEffect = new Map(); // groupId -> "block" | "allow"
 let cbGroupOrderKey = "";
 
 function cbSetGroupOrder(order) {
-  const key = Array.isArray(order)
-    ? order.map((g) => `${g && g.id}:${g && g.effect === "allow" ? "a" : "b"}`).join("|")
-    : "";
+  const key = Array.isArray(order) ? order.map((g) => `${g && g.id}`).join("|") : "";
   const changed = key !== cbGroupOrderKey;
   cbGroupOrderKey = key;
   cbGroupIndex = new Map();
-  cbGroupEffect = new Map();
   if (Array.isArray(order)) {
     order.forEach((group, index) => {
       if (!group || typeof group.id !== "string") return;
       cbGroupIndex.set(group.id, index);
-      cbGroupEffect.set(group.id, group.effect === "allow" ? "allow" : "block");
     });
   }
-  // Custom verdicts bake in priority/effect at evaluation time and are skipped
-  // by the signature cache; if order/effect changed, force re-evaluation so
+  // Custom verdicts bake in priority at evaluation time and are skipped by
+  // the signature cache; if the order changed, force re-evaluation so
   // they resolve against the new priorities. (Platform verdicts re-derive every
   // pass, so they need nothing here.)
   if (changed) {
@@ -850,10 +842,6 @@ function cbSetGroupOrder(order) {
       __cb_schedulePredicateScan();
     }
   }
-}
-
-function cbEffectVerdict(groupId) {
-  return cbGroupEffect.get(groupId) === "allow" ? "allow" : "hide";
 }
 
 // Record (verdict) or clear (null) one group's opinion of a card.
@@ -1206,11 +1194,10 @@ function applyFeedFilters() {
           // synthetic sibling of its group, so credit the real group id.
           exposed.add(filter.baseGroupId || filter.id);
           // Tag filters carry their own effect (dim = blackout, hide = remove);
-          // author/video filters use the group's block/allow effect.
-          const verdict = filter.effectVerdict || cbEffectVerdict(filter.id);
-          // Allow filters always rescue; block filters only hide while
-          // enforcing (instant, or a count-down past its allowance).
-          if (verdict === "allow" || filter.enforce !== false) {
+          // author/video filters hide. Filters only act while enforcing
+          // (instant, or a count-down past its allowance).
+          const verdict = filter.effectVerdict || "hide";
+          if (filter.enforce !== false) {
             cbSetCardVerdict(card, filter.id, verdict, "platform");
           }
         }
@@ -1240,8 +1227,7 @@ function applyFeedFilters() {
 
 // Nav buttons / shelves (e.g. the Shorts shelf) are page chrome, not feed
 // cards, so they're hidden via the surface-hide marker (restored each pass by
-// applySurfaceHides) rather than entering the per-card cascade. Allow-effect
-// filters are exceptions and never hide chrome.
+// applySurfaceHides) rather than entering the per-card cascade.
 function applyNavShelfHides() {
   const currentSite = getCurrentFeedSite();
   if (currentSite !== "youtube") return;
@@ -1249,7 +1235,6 @@ function applyNavShelfHides() {
     if (filter?.site !== "youtube") continue;
     if (filter.tagFilter) continue; // content-tag filters act on cards, not chrome
     if (filter.enforce === false) continue;
-    if (cbEffectVerdict(filter.id) === "allow") continue;
     for (const navElement of collectNavElementsToHide(filter)) hideSurfaceElement(navElement);
     for (const shelfElement of collectFormShelvesToHide(filter)) hideSurfaceElement(shelfElement);
   }
@@ -3719,19 +3704,13 @@ async function __cb_scanFeedPredicates() {
       for (const groupId of evaluatedGroups) cbSetCardVerdict(card, groupId, null, "custom");
       const matched =
         results[i] && Array.isArray(results[i].matchedGroups) ? results[i].matchedGroups : [];
-      // Per-predicate effect: allow() records a rescue verdict, hide() a block
-      // verdict. Falls back to the group effect for older replies without an
-      // effects map.
+      // Per-predicate effect: allow() records a rescue verdict, dim() blacks
+      // out the thumbnail in place, hide() removes the card; anything else
+      // (older replies without an effects map) hides.
       const effects = (results[i] && results[i].effects) || {};
       for (const groupId of matched) {
-        // allow → rescue; dim → black out the thumbnail in place; block → hide
-        // the card. Falls back to the group effect for older replies.
         const effect = effects[groupId];
-        const verdict = effect === "allow"
-          ? "allow"
-          : effect === "dim"
-            ? "dim"
-            : (effect === "block" ? "hide" : cbEffectVerdict(groupId));
+        const verdict = effect === "allow" ? "allow" : effect === "dim" ? "dim" : "hide";
         cbSetCardVerdict(card, groupId, verdict, "custom");
       }
       cbCustomSigCache.set(card, batch[i].sig);
