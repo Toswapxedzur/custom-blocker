@@ -331,8 +331,6 @@ const surfaceHidesTitle = document.getElementById("surfaceHidesTitle");
 const surfaceHidesHelp = document.getElementById("surfaceHidesHelp");
 const fallbackUrlSection = document.getElementById("fallbackUrlSection");
 const fallbackUrlField = document.getElementById("fallbackUrl");
-const groupEffectSection = document.getElementById("groupEffectSection");
-const groupEffectField = document.getElementById("groupEffect");
 const freezeSummary = document.getElementById("freezeSummary");
 const freezeSetup = document.getElementById("freezeSetup");
 const freezeModeField = document.getElementById("freezeMode");
@@ -3071,7 +3069,6 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     // ("block everything except these"). Only site groups use this list.
     allowlist: false,
     blockHomePage: false,
-    effect: "block",
     fallbackUrl: ""
   };
 }
@@ -3149,7 +3146,9 @@ function sanitizeGroups(groups) {
         typeof group?.name === "string" && group.name.trim()
           ? group.name.trim()
           : baseGroup.name,
-      enabled: Boolean(group?.enabled),
+      // Legacy "allow" exception groups stay disabled rather than turning
+      // into blocking groups (the effect was removed 2026-09-24).
+      enabled: Boolean(group?.enabled) && group?.effect !== "allow",
       groupType: normalizedGroupType,
       mode: normalizeBlockingMode(group?.mode),
       allowedMinutes:
@@ -3235,7 +3234,6 @@ function sanitizeGroups(groups) {
         : [],
       allowlist: ownsSiteList && Boolean(group?.allowlist),
       blockHomePage: Boolean(group?.blockHomePage),
-      effect: group?.effect === "allow" ? "allow" : "block",
       fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : ""
     };
   });
@@ -3358,7 +3356,6 @@ function getSerializableGroupSnapshot(group) {
     sites: [...group.sites],
     allowlist: Boolean(group.allowlist),
     blockHomePage: Boolean(group.blockHomePage),
-    effect: group.effect === "allow" ? "allow" : "block",
     fallbackUrl: group.fallbackUrl ?? ""
   };
 }
@@ -3480,7 +3477,6 @@ function groupToDraft(group) {
     blockingRulesText: group.blockingRulesText,
     blockHomePage: Boolean(group.blockHomePage),
     allowlist: Boolean(group.allowlist),
-    effect: group.effect === "allow" ? "allow" : "block",
     fallbackUrl: group.fallbackUrl ?? "",
     freezeModeChoice: normalizeFreezeModeChoice(group)
   };
@@ -4469,8 +4465,6 @@ function renderEditor(now = Date.now()) {
     platformBlockHomePageField.checked = false;
     discordBlockHomePageField.checked = false;
     fallbackUrlField.value = "";
-    if (groupEffectField) groupEffectField.value = "block";
-    if (groupEffectSection) groupEffectSection.classList.add("hidden");
     blockModeSection.classList.remove("hidden");
     timedSettings.classList.add("hidden");
     customSettingsCard.classList.add("hidden");
@@ -4639,13 +4633,7 @@ function renderEditor(now = Date.now()) {
 
   fallbackUrlField.value = draft?.fallbackUrl ?? group.fallbackUrl ?? "";
 
-  // Rule effect (block vs allow/exception) is a platform-profile-only feature:
-  // those groups are coarse and can't express exceptions in JS the way custom
   // rules can.
-  if (groupEffectSection) {
-    groupEffectSection.classList.toggle("hidden", !isPlatformProfileGroup);
-  }
-  groupEffectField.value = (draft?.effect ?? group.effect) === "allow" ? "allow" : "block";
 
 
   freezeModeField.value = freezeStatus.isFrozen
@@ -4729,7 +4717,6 @@ function renderEditor(now = Date.now()) {
   platformBlockHomePageField.disabled = !editable || !usesAuthorAxis;
   discordBlockHomePageField.disabled = !editable || !isDiscordGroup;
   fallbackUrlField.disabled = !editable;
-  if (groupEffectField) groupEffectField.disabled = !editable;
   if (runCustomGroupButton) {
     runCustomGroupButton.disabled = !editable || !isCustomGroup;
   }
@@ -4906,7 +4893,6 @@ function stashCurrentDraft() {
         ? discordBlockHomePageField.checked
         : false,
     surfaceHides: readSurfaceHidesFromForm(),
-    effect: groupEffectField.value === "allow" ? "allow" : "block",
     fallbackUrl: fallbackUrlField.value
   };
 }
@@ -5483,12 +5469,6 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
       // can carry an allowlist.
       allowlist: usesSiteList ? Boolean(draft.allowlist) : false,
       blockHomePage: Boolean(draft.blockHomePage),
-      // Only platform-profile groups expose the effect toggle; force "block"
-      // for everything else so custom/default groups can't become exceptions.
-      effect:
-        isPlatformProfileGroupType(group.groupType) && draft.effect === "allow"
-          ? "allow"
-          : "block",
       // Custom groups redirect via setRedirectLink() inside the rule;
       // strip any legacy fallbackUrl on save.
       fallbackUrl: isCustomGroup
@@ -7027,15 +7007,6 @@ discordModeField.addEventListener("change", () => {
 for (const field of [platformBlockHomePageField, discordBlockHomePageField]) {
   field.addEventListener("change", () => {
     stashCurrentDraft();
-    renderGroupList();
-    scheduleAutosave();
-  });
-}
-
-if (groupEffectField) {
-  groupEffectField.addEventListener("change", () => {
-    stashCurrentDraft();
-    render();
     renderGroupList();
     scheduleAutosave();
   });
