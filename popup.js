@@ -407,10 +407,6 @@ const templateApplyButton = document.getElementById("templateApplyButton");
 const settingsButton = document.getElementById("settingsButton");
 const settingsModal = document.getElementById("settingsModal");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
-const settingsTickRateField = document.getElementById("settingsTickRate");
-const settingsAutosaveDebounceField = document.getElementById("settingsAutosaveDebounce");
-const settingsDebugModeField = document.getElementById("settingsDebugMode");
-const settingsShowOnPageLogToastsField = document.getElementById("settingsShowOnPageLogToasts");
 const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
 const settingsDefaultFallbackUrlField = document.getElementById("settingsDefaultFallbackUrl");
 const localFolderChooseButton = document.getElementById("localFolderChooseButton");
@@ -1334,10 +1330,6 @@ function syncAllClusters() {
 
 function syncSettingsFormFromState() {
   const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
-  if (settingsTickRateField) settingsTickRateField.value = String(s.tickRateMs);
-  if (settingsAutosaveDebounceField) settingsAutosaveDebounceField.value = String(s.autosaveDebounceMs);
-  if (settingsDebugModeField) settingsDebugModeField.checked = Boolean(s.debugMode);
-  if (settingsShowOnPageLogToastsField) settingsShowOnPageLogToastsField.checked = s.showOnPageLogToasts !== false;
   if (settingsDefaultSnoozeMinutesField) settingsDefaultSnoozeMinutesField.value = String(s.defaultSnoozeMinutes);
   if (settingsDefaultFallbackUrlField) settingsDefaultFallbackUrlField.value = s.defaultFallbackUrl ?? "";
   if (settingsStatus) settingsStatus.textContent = "";
@@ -1362,10 +1354,13 @@ function closeSettings() {
 
 async function saveSettingsFromForm() {
   const draft = {
-    tickRateMs: settingsTickRateField?.value,
-    autosaveDebounceMs: settingsAutosaveDebounceField?.value,
-    debugMode: settingsDebugModeField?.checked ?? false,
-    showOnPageLogToasts: settingsShowOnPageLogToastsField?.checked ?? true,
+    // Dev/engine values are no longer surfaced in the UI (debug + tick/debounce
+    // are dev-only / fixed defaults); carry the stored values through a save so a
+    // developer's storage-set debug flag is not reset.
+    tickRateMs: state.globalSettings?.tickRateMs,
+    autosaveDebounceMs: state.globalSettings?.autosaveDebounceMs,
+    debugMode: state.globalSettings?.debugMode,
+    showOnPageLogToasts: state.globalSettings?.showOnPageLogToasts,
     defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
     defaultFallbackUrl: settingsDefaultFallbackUrlField?.value
   };
@@ -7555,10 +7550,6 @@ if (settingsModal) {
 // Global settings auto-save: persist on every committed edit (no Save button).
 {
   const settingsAutoSaveFields = [
-    settingsTickRateField,
-    settingsAutosaveDebounceField,
-    settingsDebugModeField,
-    settingsShowOnPageLogToastsField,
     settingsDefaultSnoozeMinutesField,
     settingsDefaultFallbackUrlField
   ];
