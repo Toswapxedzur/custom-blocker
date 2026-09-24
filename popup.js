@@ -290,7 +290,9 @@ const blockingRulesHighlight = document.getElementById("blockingRulesHighlight")
 const blockingRulesField = document.getElementById("blockingRules");
 const blockingRulesLint = document.getElementById("blockingRulesLint");
 const platformRulesCard = document.getElementById("platformRulesCard");
-const platformRulePlatformField = document.getElementById("platformRulePlatform");
+const groupScopesSection = document.getElementById("groupScopesSection");
+const groupScopesList = document.getElementById("groupScopesList");
+const groupScopesAdd = document.getElementById("groupScopesAdd");
 const platformVideoCard = document.getElementById("platformVideoFields");
 const platformVideoTitle = document.getElementById("platformRulesTitle");
 const platformVideoCopy = document.getElementById("platformRulesCopy");
@@ -2295,24 +2297,6 @@ function applyPlatformRulesHeader(groupType) {
   if (platformVideoCopy) platformVideoCopy.textContent = t("platform.rulesCopy", { platform });
 }
 
-// A Platform rule has one platform at a time. Populate the selector from the
-// same registry that drives its capabilities so adding a platform never creates
-// a second editor or a stale hard-coded option list.
-function applyPlatformRuleSelection(groupType) {
-  if (!platformRulePlatformField) return;
-
-  const selectedType = normalizeGroupType(groupType);
-  platformRulePlatformField.innerHTML = "";
-  for (const type of PLATFORM_GROUP_TYPES) {
-    const option = document.createElement("option");
-    option.value = type;
-    option.textContent = getPlatformDisplayName(type);
-    option.selected = type === selectedType;
-    platformRulePlatformField.appendChild(option);
-  }
-  platformRulePlatformField.value = selectedType;
-}
-
 // Builds the author/account mode dropdown for the current platform.
 function rebuildAuthorModeOptions(type) {
   const isTwitter = type === "twitter";
@@ -3238,7 +3222,12 @@ function sanitizeGroups(groups) {
         : [],
       allowlist: ownsSiteList && Boolean(group?.allowlist),
       blockHomePage: Boolean(group?.blockHomePage),
-      fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : ""
+      fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
+      // Every platform's lines (the group type's are also mirrored by the flat
+      // fields above, which the cards edit); merged back by toStoredGroup().
+      scopes: CBGroupScopes.hasScopeLines(input)
+        ? CBGroupScopes.sanitizeScopeLines(input.scopes, normalizedGroupType, cbScopeNormalizers)
+        : []
     };
   });
 
@@ -3255,8 +3244,10 @@ const cbScopeNormalizers = {
 };
 
 // Flat form model → the canonical stored shape (policy fields + scope lines).
+// The form describes the platform in view (group.groupType); its lines replace
+// that platform's, the group's other platforms keep theirs.
 function toStoredGroup(group) {
-  const scopes = CBGroupScopes.scopeLinesFromFlat(group, group.groupType);
+  const scopes = CBGroupScopes.mergeFlatIntoScopes(group.scopes, group, group.groupType);
   return {
     ...CBGroupScopes.withoutFlatScopeFields(group),
     groupType: CBGroupScopes.deriveGroupType(scopes, group.groupType),
@@ -3342,11 +3333,15 @@ function sanitizeSnoozeTotals(value, groups) {
   return totals;
 }
 
+// The transfer string carries the canonical shape: the policy and every
+// platform's lines (an older flat string still imports through the sanitizer).
 function getSerializableGroupSnapshot(group) {
+  const stored = toStoredGroup(group);
   return {
+    scopes: stored.scopes,
     name: group.name,
     enabled: group.enabled,
-    groupType: group.groupType,
+    groupType: stored.groupType,
     mode: group.mode,
     allowedMinutes: group.allowedMinutes,
     resetIntervalHours: group.resetIntervalHours,
@@ -3360,19 +3355,6 @@ function getSerializableGroupSnapshot(group) {
     snoozeConfirmations: group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS,
     activeDays: [...group.activeDays],
     timeWindowsText: group.timeWindowsText,
-    platformVideoMode: group.platformVideoMode,
-    sourceMode: group.sourceMode,
-    sources: [...group.sources],
-    platformTagMode: normalizeTagFilterModeChoice(group.platformTagMode),
-    platformTags: Array.isArray(group.platformTags) ? group.platformTags.map((e) => ({ ...e })) : [],
-    platformTagDefaultConfidence: clampTagFilterConfidence(group.platformTagDefaultConfidence, 4),
-    platformTagBlockUntagged: Boolean(group.platformTagBlockUntagged),
-    platformTagBlockPage: group.platformTagBlockPage !== false,
-    platformTagCoverUntilTagged: group.platformTagCoverUntilTagged === true,
-    platformTagEffect: group.platformTagEffect === "block" ? "block" : "dim",
-    discordMode: group.discordMode,
-    discordTargets: [...group.discordTargets],
-    surfaceHides: [...(group.surfaceHides ?? [])],
     blockingRulesText: group.blockingRulesText,
     freezeMode: group.freezeMode,
     freezeModeChoice: normalizeFreezeModeChoice(group),
@@ -3380,9 +3362,6 @@ function getSerializableGroupSnapshot(group) {
     frozenAtMs: group.freezeMode === "none" ? null : group.frozenAtMs,
     parentalPasswordHash: group.parentalPasswordHash ?? null,
     parentalPasswordSalt: group.parentalPasswordSalt ?? null,
-    sites: [...group.sites],
-    allowlist: Boolean(group.allowlist),
-    blockHomePage: Boolean(group.blockHomePage),
     fallbackUrl: group.fallbackUrl ?? ""
   };
 }
@@ -4030,7 +4009,10 @@ function getGroupMetaText(group, draft, now = Date.now()) {
   const snooze = getCurrentSnooze(group.id, now);
   const snoozePhase = getSnoozePhase(snooze, now);
   const freezeStatus = getFreezeStatus(group, now);
-  const pieces = [getGroupTypeLabel(group.groupType)];
+  const platformKeys = group.groupType === "custom" ? [] : groupPlatformKeys(group);
+  const pieces = [
+    platformKeys.length > 1 ? platformKeys.map(platformKeyLabel).join(" + ") : getGroupTypeLabel(group.groupType)
+  ];
 
   if (isPlatformVideoGroupType(group.groupType)) {
     const draftAuthors = parsePlatformAuthorsTextarea(
@@ -4496,7 +4478,7 @@ function renderEditor(now = Date.now()) {
     timedSettings.classList.add("hidden");
     customSettingsCard.classList.add("hidden");
     if (platformRulesCard) platformRulesCard.classList.add("hidden");
-    if (platformRulePlatformField) platformRulePlatformField.disabled = true;
+    if (groupScopesSection) groupScopesSection.classList.add("hidden");
     platformVideoCard.classList.add("hidden");
     discordSettingsCard.classList.add("hidden");
     if (surfaceHidesSection) surfaceHidesSection.classList.add("hidden");
@@ -4584,7 +4566,6 @@ function renderEditor(now = Date.now()) {
 
   if (isPlatformProfileGroup) {
     applyPlatformRulesHeader(group.groupType);
-    applyPlatformRuleSelection(group.groupType);
   }
   if (usesAuthorAxis) {
     applyPlatformVideoUi(group.groupType);
@@ -4678,9 +4659,7 @@ function renderEditor(now = Date.now()) {
   if (platformRulesCard) {
     platformRulesCard.classList.toggle("hidden", !isPlatformProfileGroup);
   }
-  if (platformRulePlatformField) {
-    platformRulePlatformField.disabled = !editable || !isPlatformProfileGroup;
-  }
+  renderGroupScopes(group, editable);
   platformVideoCard.classList.toggle("hidden", !usesAuthorAxis);
   discordSettingsCard.classList.toggle("hidden", !isDiscordGroup);
   renderSurfaceHides(group, draft, editable);
@@ -5116,73 +5095,169 @@ async function addGroup(groupType = DEFAULT_GROUP_TYPE) {
   groupNameField.select();
 }
 
-function resetPlatformCriteriaFor(group, groupType) {
-  const defaults = createDefaultGroup(groupType);
-  return {
-    ...group,
-    groupType: defaults.groupType,
-    platformVideoMode: defaults.platformVideoMode,
-    sourceMode: defaults.sourceMode,
-    sources: defaults.sources,
-    discordMode: defaults.discordMode,
-    discordTargets: defaults.discordTargets,
-    surfaceHides: defaults.surfaceHides,
-    blockHomePage: defaults.blockHomePage
-  };
+// ── "Applies to": the platforms a group names ──────────────────────────────
+// A group's lines may name several platforms and a site list; the group acts
+// on their union. The cards edit ONE of them at a time: group.groupType is
+// the platform in view and the flat form fields are that platform's lines
+// (group-scopes.js flatFromScopes). Switching the view first folds the form
+// into the group's lines, then reads the next platform's lines into the form.
+
+function groupPlatformKeys(group) {
+  const keys = CBGroupScopes.groupPlatforms(group);
+  const active = normalizeGroupType(group.groupType);
+  if (active !== "custom" && !keys.includes(active)) keys.push(active);
+  return keys;
 }
 
-async function changeSelectedPlatformRule(groupType) {
-  const requestedType = normalizeGroupType(groupType);
-  if (!isPlatformProfileGroupType(requestedType)) {
+function platformKeyLabel(key) {
+  return key === "site" ? t("scopes.websites") : getGroupTypeLabel(key);
+}
+
+// The stored (canonical) group seen through one platform: its policy, every
+// platform's lines, and the flat form fields of `platform`.
+function viewGroupOnPlatform(stored, platform) {
+  return { ...stored, groupType: platform, ...CBGroupScopes.flatFromScopes(stored, platform) };
+}
+
+// Fold the form into the selected group (as autosave does) and return the
+// group in its canonical shape: policy + every platform's lines.
+async function commitSelectedGroupLines() {
+  stashCurrentDraft();
+  await flushAutosave();
+  const group = getSelectedGroup();
+  if (!group || !isGroupEditable(group)) return null;
+  const draft = getDraftForGroup(group.id);
+  const current = draft ? buildUpdatedGroupFromDraft(group, draft, { strict: false }).updatedGroup : group;
+  return toStoredGroup(current);
+}
+
+// Show `platform` in the cards; a platform the group does not name yet is
+// added with the same defaults a new group of that platform would get.
+async function setGroupPlatformView(platform) {
+  const key = platform === "site" ? "site" : normalizeGroupType(platform);
+  const stored = await commitSelectedGroupLines();
+  if (!stored || key === "custom" || stored.groupType === "custom") {
     render();
     return;
   }
+  const known = groupPlatformKeys(stored).includes(key);
+  let next = viewGroupOnPlatform(stored, key);
+  if (!known) {
+    const defaults = createDefaultGroup(key);
+    for (const field of CBGroupScopes.FLAT_SCOPE_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(defaults, field)) next[field] = defaults[field];
+    }
+    next = { ...next, groupType: key };
+  }
+  state.groups = state.groups.map((item) => (item.id === stored.id ? next : item));
+  state.drafts[stored.id] = groupToDraft(next);
+  await persistState();
+  render();
+}
 
-  const currentGroup = getSelectedGroup();
-  if (
-    !currentGroup ||
-    !isPlatformProfileGroupType(currentGroup.groupType) ||
-    !isGroupEditable(currentGroup)
-  ) {
+// Drop every line of `platform`; the view moves to a platform that remains.
+async function removeGroupPlatform(platform) {
+  const group = getSelectedGroup();
+  if (!group || !isGroupEditable(group) || groupPlatformKeys(group).length <= 1) {
     render();
     return;
   }
-  if (currentGroup.groupType === requestedType) return;
-
-  // Prevent a second change event from racing the confirmation and draft flush.
-  if (platformRulePlatformField) platformRulePlatformField.disabled = true;
   const confirmed = await cbDialog.confirm(
-    t("platform.changeWarning", {
-      from: getPlatformDisplayName(currentGroup.groupType),
-      to: getPlatformDisplayName(requestedType)
-    }),
+    t("scopes.removeWarning", { name: platformKeyLabel(platform) }),
     { danger: true, confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
   );
   if (!confirmed) {
     render();
     return;
   }
-
-  stashCurrentDraft();
-  await flushAutosave();
-  const group = getSelectedGroup();
-  if (!group || !isPlatformProfileGroupType(group.groupType) || !isGroupEditable(group)) {
+  const stored = await commitSelectedGroupLines();
+  if (!stored) {
     render();
     return;
   }
-  if (group.groupType === requestedType) {
+  const scopes = stored.scopes.filter((line) => !CBGroupScopes.lineBelongsTo(line, platform));
+  const remaining = [...new Set(scopes.map((line) => CBGroupScopes.linePlatformKey(line)))];
+  if (remaining.length === 0) {
     render();
     return;
   }
-
-  // Every platform parses different identifiers and exposes different surface
-  // controls. Start those criteria fresh instead of retaining invisible rules
-  // that could accidentally become active on the newly selected platform.
-  const updatedGroup = resetPlatformCriteriaFor(group, requestedType);
-  state.groups = state.groups.map((item) => (item.id === group.id ? updatedGroup : item));
-  state.drafts[group.id] = groupToDraft(updatedGroup);
+  const nextKey = remaining.includes(stored.groupType) ? stored.groupType : remaining[0];
+  const next = viewGroupOnPlatform({ ...stored, scopes }, nextKey);
+  state.groups = state.groups.map((item) => (item.id === stored.id ? next : item));
+  state.drafts[stored.id] = groupToDraft(next);
   await persistState();
   render();
+}
+
+function renderGroupScopes(group, editable) {
+  if (!groupScopesSection || !groupScopesList || !groupScopesAdd) return;
+  const isCustom = group.groupType === "custom";
+  groupScopesSection.classList.toggle("hidden", isCustom);
+  if (isCustom) return;
+
+  const keys = groupPlatformKeys(group);
+  const active = normalizeGroupType(group.groupType);
+  groupScopesList.innerHTML = "";
+  for (const key of keys) {
+    const chip = document.createElement("div");
+    chip.className = `site-chip scope-chip${key === active ? " active" : ""}`;
+    chip.setAttribute("role", "listitem");
+    chip.tabIndex = 0;
+    chip.setAttribute("aria-pressed", key === active ? "true" : "false");
+    const label = document.createElement("span");
+    label.className = "site-chip-name";
+    label.textContent = platformKeyLabel(key);
+    chip.appendChild(label);
+    const open = () => {
+      if (key === active) return;
+      setGroupPlatformView(key).catch((error) => {
+        console.error("Failed to switch the group's platform view.", error);
+        setStatus(t("status.errorSaveGroup"), true);
+        render();
+      });
+    };
+    chip.addEventListener("click", open);
+    chip.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        open();
+      }
+    });
+    if (editable && keys.length > 1) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "site-chip-remove";
+      remove.setAttribute("aria-label", t("scopes.removeAria", { name: platformKeyLabel(key) }));
+      remove.textContent = "\u2212"; // minus sign
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        removeGroupPlatform(key).catch((error) => {
+          console.error("Failed to remove the platform from the group.", error);
+          setStatus(t("status.errorSaveGroup"), true);
+          render();
+        });
+      });
+      chip.appendChild(remove);
+    }
+    groupScopesList.appendChild(chip);
+  }
+
+  // Platforms (and the site list) the group does not name yet.
+  groupScopesAdd.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = t("scopes.add");
+  placeholder.selected = true;
+  groupScopesAdd.appendChild(placeholder);
+  for (const key of ["site", ...PLATFORM_GROUP_TYPES]) {
+    if (keys.includes(key)) continue;
+    const option = document.createElement("option");
+    option.value = key;
+    option.textContent = platformKeyLabel(key);
+    groupScopesAdd.appendChild(option);
+  }
+  groupScopesAdd.value = "";
+  groupScopesAdd.disabled = !editable || groupScopesAdd.options.length <= 1;
 }
 
 async function deleteAllGroups() {
@@ -6968,10 +7043,12 @@ platformVideoModeField.addEventListener("change", () => {
   scheduleAutosave();
 });
 
-if (platformRulePlatformField) {
-  platformRulePlatformField.addEventListener("change", () => {
-    changeSelectedPlatformRule(platformRulePlatformField.value).catch((error) => {
-      console.error("Failed to change the platform rule.", error);
+if (groupScopesAdd) {
+  groupScopesAdd.addEventListener("change", () => {
+    const key = groupScopesAdd.value;
+    if (!key) return;
+    setGroupPlatformView(key).catch((error) => {
+      console.error("Failed to add the platform to the group.", error);
       setStatus(t("status.errorSaveGroup"), true);
       render();
     });

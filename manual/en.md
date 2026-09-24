@@ -48,6 +48,8 @@ The following terminology is used throughout:
 
 Every stored group has a stable id, a name, a type, an enabled flag, and common policy fields. A new normal group is enabled by default. A group can be selected, saved by the editor's autosave behaviour, reordered, exported, imported, frozen, unfrozen, snoozed, disabled, or deleted.
 
+A normal group is one policy (when: mode, allowance, schedule, snooze, lock, redirect) applied to everything the group names. The editor's **Applies to** row lists what it names: a website list and/or one or more platforms. The group acts on their union — one allowance, one timer, one schedule across all of them — and the cards below the row edit the selected entry's filters (its sources, tags, content form, home feed and hide-element controls). Adding an entry starts it with the same defaults a new group of that platform gets; removing one drops its filters. The group's type is the platform shown first. Custom groups have no Applies-to row; their rule is the group.
+
 ### 2.1 Ordering and overlap
 
 More than one group can match the same page. Vault evaluates stored groups from the end of the displayed list toward the beginning. Treat lower items in the list as later/higher-precedence matches when designing overlapping rules.
@@ -150,11 +152,11 @@ A Site group owns a line-separated website list. Entries are normalized into hos
 | Block home page | Applies the group's policy to the configured browser start/home surface where that control is available. |
 | Redirect address or message | A web address opens instead of the blocked page. Any other text — a reminder, a quote — is shown on Vault's block page. Blank keeps the plain block. |
 
-The normal Site-group domain list is the only declarative whole-site list exposed by the editor. Platform groups match their own platform and configured platform conditions instead.
+The website list is the only declarative whole-site list exposed by the editor; a group that also names platforms carries it as its **Websites** entry. Platform entries match their own platform and configured platform conditions instead.
 
 ### 3.2 Video-platform groups
 
-YouTube, TikTok, Facebook, Instagram, and Twitch are video-platform groups. Each is limited to its own platform host. A group can target content form, source scope (creators or accounts), the platform's home feed, and optional hide-element controls.
+YouTube, TikTok, Facebook, Instagram, and Twitch are video-platform groups. Each platform entry is limited to its own platform host (a group may name several platforms; see section 2). A group can target content form, source scope (creators or accounts), the platform's home feed, and optional hide-element controls.
 
 Creators, accounts and subreddits are the group's **sources**. The source modes are:
 

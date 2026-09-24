@@ -175,6 +175,15 @@
             </p>
           </div>
 
+          <!-- Where the group applies: one chip per platform (and "Websites"
+               for its site list). The cards below edit the selected chip's
+               lines; the group acts on the union of every chip. -->
+          <section id="groupScopesSection" class="hidden">
+            <label class="label" for="groupScopesAdd" data-i18n="scopes.label">Applies to</label>
+            <div id="groupScopesList" class="site-chip-list" role="list"></div>
+            <select id="groupScopesAdd" class="scope-add-select"></select>
+          </section>
+
           <section id="siteSettingsSection">
             <label class="label" id="siteSettingsLabel" data-i18n="sites.label">Blocked websites</label>
 
@@ -337,11 +346,6 @@
                 <h3 id="platformRulesTitle"></h3>
                 <p id="platformRulesCopy" class="section-copy"></p>
               </div>
-            </div>
-
-            <div class="platform-rule-picker">
-              <label class="label" for="platformRulePlatform" data-i18n="platform.select">Platform</label>
-              <select id="platformRulePlatform"></select>
             </div>
 
             <!-- Verified card/content controls. Kept immediately below the
