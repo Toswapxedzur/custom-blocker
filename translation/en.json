@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "Author filtering applies on {platform}. The short-vs-long selector also works on supported video sites when their page type can be identified.",
   "platform.help.generic": "Author filtering applies when author identifiers can be detected. Content types map to {shortLabel}, {longLabel}, and {postLabel} when those page forms are detectable.",
   "platform.short.youtube": "Shorts",

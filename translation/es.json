@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "El filtrado de autor se aplica en {platform}. El selector de corto versus largo también funciona en sitios de videos compatibles cuando se puede identificar su tipo de página.",
   "platform.help.generic": "El filtrado de autores se aplica cuando se pueden detectar identificadores de autores. Los tipos de contenido se asignan a {shortLabel}, {longLabel} y {postLabel} cuando esos formularios de página son detectables.",
   "platform.short.youtube": "Bermudas",

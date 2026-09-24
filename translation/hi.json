@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "लेखक फ़िल्टरिंग {platform} पर लागू होती है। लघु-बनाम-लंबा चयनकर्ता समर्थित वीडियो साइटों पर भी काम करता है जब उनके पृष्ठ प्रकार की पहचान की जा सकती है।",
   "platform.help.generic": "लेखक फ़िल्टरिंग तब लागू होती है जब लेखक पहचानकर्ताओं का पता लगाया जा सकता है। जब उन पेज फॉर्मों का पता लगाया जा सके तो सामग्री प्रकार {shortLabel}, {longLabel}, और {postLabel} पर मैप हो जाते हैं।",
   "platform.short.youtube": "शॉर्ट्स",

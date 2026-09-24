@@ -181,8 +181,6 @@
   "scopes.websites": "Websites",
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
-  "scopes.removeWarning": "Remove {name} from this group? Its filters here are dropped.",
-  "scopes.lastAria": "{name} (the group's only platform)",
   "platform.help.youtube": "A filtragem de autor se aplica em {platform}. O seletor curto versus longo também funciona em sites de vídeo suportados quando o tipo de página pode ser identificado.",
   "platform.help.generic": "A filtragem de autor se aplica quando identificadores de autor podem ser detectados. Os tipos de conteúdo são mapeados para {shortLabel}, {longLabel} e {postLabel} quando esses formulários de página são detectáveis.",
   "platform.short.youtube": "Calções",

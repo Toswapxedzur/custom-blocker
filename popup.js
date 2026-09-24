@@ -5162,14 +5162,8 @@ async function removeGroupPlatform(platform) {
     render();
     return;
   }
-  const confirmed = await cbDialog.confirm(
-    t("scopes.removeWarning", { name: platformKeyLabel(platform) }),
-    { danger: true, confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
-  );
-  if (!confirmed) {
-    render();
-    return;
-  }
+  // No confirmation (owner 2026-09-24): removing an entry drops its filters,
+  // like removing a site chip.
   const stored = await commitSelectedGroupLines();
   if (!stored) {
     render();
