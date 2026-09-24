@@ -884,7 +884,10 @@ function cbResolveCardVerdict(card) {
   if (!entry || entry.size === 0) return "show";
   let bestIndex = Infinity;
   let bestVerdict = null;
-  for (const [groupId, value] of entry) {
+  for (const [filterId, value] of entry) {
+    // Platform verdicts are keyed by feed-filter id (`<group id>␟<line id>`);
+    // priority is the group's, so resolve the group part.
+    const groupId = filterId.split("␟")[0];
     const index = cbGroupIndex.has(groupId)
       ? cbGroupIndex.get(groupId)
       : Number.MAX_SAFE_INTEGER;

@@ -108,7 +108,13 @@ const now = Date.UTC(2026, 8, 24, 12, 0, 0); // a Thursday
 
 let pass = 0; let fail = 0;
 const check = (label, ok, detail) => { if (ok) pass += 1; else { fail += 1; console.log(`FAIL ${label}\n  ${detail}`); } };
-const strip = (v) => JSON.stringify(v, (k, val) => (k === "id" && typeof val === "string" && val.includes("␟") ? val.split("␟")[0] + "␟tag" : val));
+// Feed-filter ids are per line since phase 2 (`<group>␟<line>`); the old worker
+// used `<group>` / `<group>␟tag`. Compare the group part plus the entry kind.
+const strip = (v) => JSON.stringify(v, function (k, val) {
+  if (k === "id" && typeof val === "string" && val.includes("␟")) return val.split("␟")[0] + (this && this.tagFilter ? "␟tag" : "");
+  if (k === "baseGroupId" && this && !this.tagFilter) return undefined;
+  return val;
+});
 
 const oldGroups = vm.runInContext(`sanitizeGroups(${JSON.stringify(groups)})`, oldCtx);
 const newGroups = vm.runInContext(`sanitizeGroups(${JSON.stringify(groups)})`, newCtx);

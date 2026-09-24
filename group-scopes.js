@@ -11,10 +11,12 @@
 //   home     | the platform's home feed                          | block
 //   shelf    | one platform surface (Shorts shelf, comments, …)  | hide
 //
-// Phase 1 keeps every group on one platform and edits it through the same
-// forms as before: the flat form fields and the scope lines are two views of
-// the same thing, converted here in both directions. Normal groups only
-// block/hide/dim — exceptions are custom rules (allow()), never lines.
+// A group's lines may name several platforms (and a site list); the group
+// applies to their union. The editor still works one platform at a time: the
+// flat form fields are the view of ONE platform's lines (flatFromScopes with
+// that platform), and saving merges that view back over the group's other
+// lines (mergeFlatIntoScopes). Normal groups only block/hide/dim — exceptions
+// are custom rules (allow()), never lines.
 //
 // Loaded by the service worker, the popup and the tests; depends on the
 // platform registry (platform-profiles.js) being loaded first.
@@ -66,6 +68,43 @@
     if (type === "reddit") return "reddit";
     if (global.isPlatformFeedGroupType && global.isPlatformFeedGroupType(type)) return "feed";
     return global.isPlatformProfileGroupType && global.isPlatformProfileGroupType(type) ? "feed" : "site";
+  }
+
+  function isPlatformType(value) {
+    return Boolean(global.isPlatformProfileGroupType && global.isPlatformProfileGroupType(value));
+  }
+
+  // The "platform" a line belongs to for the editor: a platform id, or "site"
+  // for a site line. Every line of one platform is edited as one form view.
+  function linePlatformKey(line) {
+    return line && line.platform ? line.platform : "site";
+  }
+
+  function lineBelongsTo(line, platform) {
+    const key = platform && platform !== "custom" ? platform : "site";
+    return linePlatformKey(line) === key;
+  }
+
+  // The platforms a group applies to, in line order ("site" for a site list).
+  // A platform group without lines still reports its group type.
+  function groupPlatforms(group) {
+    const out = [];
+    for (const line of Array.isArray(group?.scopes) ? group.scopes : []) {
+      const key = linePlatformKey(line);
+      if (!out.includes(key)) out.push(key);
+    }
+    const type = global.normalizeGroupType ? global.normalizeGroupType(group?.groupType) : String(group?.groupType || "site");
+    if (out.length === 0 && type !== "custom") out.push(type);
+    return out;
+  }
+
+  // Give every line a unique id within the group (surface + running number).
+  function renumberLines(lines) {
+    const counters = {};
+    return lines.map((line) => {
+      counters[line.surface] = (counters[line.surface] || 0) + 1;
+      return orderLine({ ...line, id: `${line.surface}-${counters[line.surface]}` });
+    });
   }
 
   // One key order for every line, whichever path built it, so a re-sanitized
@@ -154,11 +193,12 @@
     return lines;
   }
 
-  // Scope lines → the flat form fields (the phase-1 editor's model, and the
-  // shape the feed-filter / matcher code consumed before lines existed).
-  function flatFromScopes(group) {
-    const lines = Array.isArray(group?.scopes) ? group.scopes : [];
-    const type = global.normalizeGroupType ? global.normalizeGroupType(group?.groupType) : String(group?.groupType || "site");
+  // Scope lines → the flat form fields of ONE platform (the editor's model for
+  // its active platform view; `platform` defaults to the group type). Only the
+  // lines of that platform are read; a site list is the "site" view.
+  function flatFromScopes(group, platform) {
+    const type = global.normalizeGroupType ? global.normalizeGroupType(platform ?? group?.groupType) : String(platform ?? group?.groupType ?? "site");
+    const lines = (Array.isArray(group?.scopes) ? group.scopes : []).filter((line) => lineBelongsTo(line, type));
     const kind = platformKind(type);
     const flat = {
       sites: [], allowlist: false, blockHomePage: false, platformVideoMode: "all",
@@ -204,12 +244,23 @@
     return flat;
   }
 
+  // The editor's flat view of one platform, written back over the group's
+  // lines: that platform's lines are replaced, every other platform's lines
+  // are kept as they were. Custom groups only ever carry their site line.
+  function mergeFlatIntoScopes(scopes, flat, platform) {
+    const type = global.normalizeGroupType ? global.normalizeGroupType(platform ?? flat?.groupType) : String(platform ?? flat?.groupType ?? "site");
+    const kept = type === "custom"
+      ? []
+      : (Array.isArray(scopes) ? scopes : []).filter((line) => !lineBelongsTo(line, type));
+    return renumberLines([...kept, ...scopeLinesFromFlat(flat, type)]);
+  }
+
   // Validate scope lines that arrive already shaped (a stored group, a
   // new-style patch). `n` supplies the context's own normalizers for the
   // fields that differ between the worker and the popup (tags, site entries).
   function sanitizeScopeLines(rawLines, groupType, n) {
     const type = global.normalizeGroupType ? global.normalizeGroupType(groupType) : String(groupType || "site");
-    const kind = platformKind(type);
+    const isCustom = type === "custom";
     const out = [];
     const counters = {};
     const list = Array.isArray(rawLines) ? rawLines : [];
@@ -221,16 +272,20 @@
       const action = legal.includes(raw.action) ? raw.action : legal[0];
       const line = { id: "", surface, platform: null, action };
       if (surface === "site") {
-        if (kind !== "site" && kind !== "custom") continue;
         line.sites = [...new Set((Array.isArray(raw.sites) ? raw.sites : []).map(n.normalizeSiteInput).filter(Boolean))];
         line.sitesExcept = Boolean(raw.sitesExcept);
       } else {
-        if (kind === "site" || kind === "custom") continue;
-        line.platform = type;
+        // A platform line names its own platform; an old line without one
+        // belongs to the group's platform. Custom groups have no platform lines.
+        if (isCustom) continue;
+        const platform = isPlatformType(raw.platform) ? raw.platform : isPlatformType(type) ? type : null;
+        if (!platform) continue;
+        const kind = platformKind(platform);
+        line.platform = platform;
         if (surface === "home") {
           // nothing else
         } else if (surface === "shelf") {
-          const ids = global.normalizeSurfaceHides ? global.normalizeSurfaceHides([raw.shelf], type) : [raw.shelf];
+          const ids = global.normalizeSurfaceHides ? global.normalizeSurfaceHides([raw.shelf], platform) : [raw.shelf];
           if (ids.length === 0) continue;
           line.shelf = ids[0];
         } else {
@@ -240,7 +295,7 @@
             line.discordMode = global.normalizeDiscordMode(raw.discordMode, targets);
             line.discordTargets = targets;
           } else {
-            const sources = [...new Set((Array.isArray(raw.sources) ? raw.sources : []).map((value) => global.normalizeSourceInput(value, type)).filter(Boolean))];
+            const sources = [...new Set((Array.isArray(raw.sources) ? raw.sources : []).map((value) => global.normalizeSourceInput(value, platform)).filter(Boolean))];
             line.sourceMode = global.normalizeSourceMode(raw.sourceMode, sources);
             // A "nobody" line names nothing: drop it (the absence of source lines is "nobody").
             if (line.sourceMode === "nobody") continue;
@@ -271,20 +326,25 @@
     return out;
   }
 
-  // The group type is derived from the lines: the platform they name, else a
-  // site group. A custom group keeps its type (its rule is the group).
+  // The group type is the platform the editor shows first: the group's own
+  // type when its lines still name it, else the first platform the lines name,
+  // else a site group (a platform group without lines keeps its type). A
+  // custom group keeps its type (its rule is the group).
   function deriveGroupType(lines, fallbackType) {
     const fallback = global.normalizeGroupType ? global.normalizeGroupType(fallbackType) : String(fallbackType || "site");
     if (fallback === "custom") return "custom";
-    const platformLine = (Array.isArray(lines) ? lines : []).find((line) => line.platform);
+    const list = Array.isArray(lines) ? lines : [];
+    if (list.some((line) => lineBelongsTo(line, fallback))) return fallback;
+    const platformLine = list.find((line) => line.platform);
     if (platformLine) return platformLine.platform;
-    return fallback;
+    return list.some((line) => line.surface === "site") ? "site" : fallback;
   }
 
   const api = Object.freeze({
     SCOPE_SURFACES, SCOPE_ACTIONS, FLAT_SCOPE_FIELDS,
     scopeLegalActions, hasFlatScopeFields, hasScopeLines, withoutFlatScopeFields,
-    scopeLinesFromFlat, flatFromScopes, sanitizeScopeLines, deriveGroupType, platformKind
+    scopeLinesFromFlat, flatFromScopes, mergeFlatIntoScopes, sanitizeScopeLines, deriveGroupType, platformKind,
+    linePlatformKey, lineBelongsTo, groupPlatforms
   });
   global.CBGroupScopes = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
