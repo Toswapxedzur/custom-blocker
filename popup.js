@@ -287,7 +287,6 @@ const blockingRulesEditor = document.getElementById("blockingRulesEditor");
 const blockingRulesHighlight = document.getElementById("blockingRulesHighlight");
 const blockingRulesField = document.getElementById("blockingRules");
 const blockingRulesLint = document.getElementById("blockingRulesLint");
-const openRuleTemplatesButton = document.getElementById("openRuleTemplatesButton");
 const platformRulesCard = document.getElementById("platformRulesCard");
 const platformRulePlatformField = document.getElementById("platformRulePlatform");
 const platformVideoCard = document.getElementById("platformVideoFields");
@@ -398,12 +397,6 @@ const manualModal = document.getElementById("manualModal");
 const manualStatus = document.getElementById("manualStatus");
 const manualContent = document.getElementById("manualContent");
 const manualCloseButton = document.getElementById("manualCloseButton");
-const templateModal = document.getElementById("templateModal");
-const templateGrid = document.getElementById("templateGrid");
-const templateStatus = document.getElementById("templateStatus");
-const templateCloseButton = document.getElementById("templateCloseButton");
-const templateFilterField = document.getElementById("templateFilter");
-const templateApplyButton = document.getElementById("templateApplyButton");
 const settingsButton = document.getElementById("settingsButton");
 const settingsModal = document.getElementById("settingsModal");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
@@ -438,11 +431,7 @@ const state = {
   confirmIntervalId: null,
   unfreezeFlow: null,
   isManualOpen: false,
-  isTemplateOpen: false,
   manualCache: {},
-  selectedTemplateId: null,
-  templateFilterTags: [],
-  templateDrafts: {},
   suppressGroupStorageUpdatesUntil: 0,
   panelWidth: 300,
   aiPromptGroupId: null,
@@ -2639,313 +2628,6 @@ function getLocalizedUnfreezeMessages() {
   );
 }
 
-// Templates live in templates/*.js; each file calls
-// CB_REGISTER_TEMPLATES(...) which appends to
-// window.__CUSTOM_BLOCKER_TEMPLATES. popup.html loads those
-// scripts before popup.js so the array is fully populated by
-// the time we reach this line.
-const CUSTOM_RULE_TEMPLATES = Array.isArray(window.__CUSTOM_BLOCKER_TEMPLATES)
-  ? window.__CUSTOM_BLOCKER_TEMPLATES.slice()
-  : [];
-
-function normalizeTemplateTag(tag) {
-  return String(tag ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-
-function getTemplateTags(template) {
-  return [...new Set((Array.isArray(template?.tags) ? template.tags : []).map(normalizeTemplateTag).filter(Boolean))];
-}
-
-// Preferred chip order. Categories cluster on the left, then short-form
-// /addiction-prone platforms, then the rest. Tags not in this list keep
-// their template-discovery order at the tail. Reorder these lines to
-// reorder the visible chips.
-const TEMPLATE_TAG_PREFERRED_ORDER = [
-  // Categories — broad concerns first, narrower ones after.
-  "timer",
-  "count-up",
-  "schedule",
-  "feed",
-  "shorts",
-  "redirect",
-  "focus",
-  "nudge",
-  "persistence",
-  "dom",
-  "debug",
-  // Platforms — clustered by similarity (short-video first).
-  "youtube",
-  "tiktok",
-  "instagram",
-  "facebook",
-  "reddit",
-  "twitter",
-  "twitch",
-  "discord",
-  "site"
-];
-
-function getTemplateFilterOptions() {
-  const seen = new Set();
-  const collected = new Set();
-
-  for (const template of CUSTOM_RULE_TEMPLATES) {
-    for (const tag of getTemplateTags(template)) {
-      collected.add(tag);
-    }
-  }
-
-  const ordered = [];
-  for (const tag of TEMPLATE_TAG_PREFERRED_ORDER) {
-    if (collected.has(tag) && !seen.has(tag)) {
-      seen.add(tag);
-      ordered.push(tag);
-    }
-  }
-  // Append any tag the templates introduced that isn't in the curated
-  // list — keeps new templates working without forcing every author to
-  // edit the order array. They sort alphabetically for stability.
-  const tail = Array.from(collected).filter((t) => !seen.has(t)).sort();
-  for (const tag of tail) ordered.push(tag);
-
-  return ordered.map((tag) => {
-    const translationKey = `custom.templateTag.${tag}`;
-    const translated = t(translationKey);
-    return {
-      value: tag,
-      label:
-        translated !== translationKey
-          ? translated
-          : tag.replace(/-/g, " ").replace(/\b\w/g, (character) => character.toUpperCase())
-    };
-  });
-}
-
-function getFilteredTemplates() {
-  if (!Array.isArray(state.templateFilterTags) || state.templateFilterTags.length === 0) {
-    return CUSTOM_RULE_TEMPLATES;
-  }
-  return CUSTOM_RULE_TEMPLATES.filter((template) => {
-    const templateTags = getTemplateTags(template);
-    return state.templateFilterTags.every((tag) => templateTags.includes(tag));
-  });
-}
-
-function renderTemplateFilter() {
-  if (!templateFilterField) {
-    return;
-  }
-
-  const options = getTemplateFilterOptions();
-  const previousScrollLeft = templateFilterField.scrollLeft;
-  const activeTags = [...new Set((Array.isArray(state.templateFilterTags) ? state.templateFilterTags : []).map(normalizeTemplateTag).filter(Boolean))];
-  state.templateFilterTags = activeTags.filter((tag) =>
-    options.some((option) => option.value === tag)
-  );
-
-  templateFilterField.replaceChildren(
-    ...options.map((option) => {
-      const element = document.createElement("button");
-      element.type = "button";
-      element.className = `template-filter-chip${state.templateFilterTags.includes(option.value) ? " active" : ""}`;
-      element.dataset.templateFilterTag = option.value;
-      element.textContent = option.label;
-      element.setAttribute("aria-pressed", state.templateFilterTags.includes(option.value) ? "true" : "false");
-      return element;
-    })
-  );
-  templateFilterField.scrollLeft = previousScrollLeft;
-}
-
-function getTemplateById(templateId) {
-  return CUSTOM_RULE_TEMPLATES.find((template) => template.id === templateId) ?? null;
-}
-
-function getTemplateDraft(templateId) {
-  if (!state.templateDrafts[templateId]) {
-    const template = getTemplateById(templateId);
-    if (!template) return {};
-    state.templateDrafts[templateId] = Object.fromEntries(
-      template.params.map((param) => [param.id, param.defaultValue])
-    );
-  }
-  return state.templateDrafts[templateId];
-}
-
-function buildTemplatePreview(template, draft) {
-  try {
-    return template.buildCode(draft);
-  } catch (error) {
-    console.error(`Failed to build preview for template "${template.id}".`, error);
-    return `// ${t("custom.templatesError")}`;
-  }
-}
-
-function createTemplateCardElement(template) {
-  const draft = getTemplateDraft(template.id);
-  const preview = buildTemplatePreview(template, draft);
-
-  const card = document.createElement("article");
-  card.className = `template-card ${template.id === state.selectedTemplateId ? "selected" : ""}`;
-  card.dataset.templateCard = template.id;
-
-  const title = document.createElement("h4");
-  title.textContent = template.title;
-  card.appendChild(title);
-
-  const copy = document.createElement("p");
-  copy.className = "template-card-copy";
-  copy.textContent = template.description;
-  card.appendChild(copy);
-
-  const paramGrid = document.createElement("div");
-  paramGrid.className = "template-param-grid";
-
-  for (const param of template.params) {
-    const label = document.createElement("label");
-    if (param.span === 2) {
-      label.classList.add("span-2");
-    }
-
-    const labelText = document.createElement("span");
-    labelText.textContent = param.label;
-    label.appendChild(labelText);
-
-    const input = document.createElement("input");
-    input.dataset.templateId = template.id;
-    input.dataset.paramId = param.id;
-
-    if (param.type === "checkbox") {
-      input.type = "checkbox";
-      input.checked = Boolean(draft[param.id]);
-    } else {
-      input.type = param.type;
-      input.value = String(draft[param.id] ?? "");
-      if (param.min !== undefined) input.min = String(param.min);
-      if (param.max !== undefined) input.max = String(param.max);
-      if (param.step !== undefined) input.step = String(param.step);
-    }
-
-    label.appendChild(input);
-    paramGrid.appendChild(label);
-  }
-
-  card.appendChild(paramGrid);
-
-  const pre = document.createElement("pre");
-  const code = document.createElement("code");
-  code.innerHTML = highlightCustomRuleSource(preview);
-  pre.appendChild(code);
-  card.appendChild(pre);
-
-  return card;
-}
-
-function renderTemplateModal() {
-  if (!templateModal || !templateGrid || !templateStatus || !templateApplyButton) {
-    return;
-  }
-
-  if (!state.isTemplateOpen) {
-    templateModal.classList.add("hidden");
-    return;
-  }
-
-  try {
-    const previousScrollTop = templateGrid.scrollTop;
-    renderTemplateFilter();
-
-    const filteredTemplates = getFilteredTemplates();
-    if (!filteredTemplates.some((template) => template.id === state.selectedTemplateId)) {
-      state.selectedTemplateId = filteredTemplates[0]?.id ?? null;
-    }
-
-    if (filteredTemplates.length === 0) {
-      templateGrid.innerHTML = `<div class="empty-state">${escapeHtml(t("custom.templatesNoMatches"))}</div>`;
-    } else {
-      templateGrid.replaceChildren(
-        ...filteredTemplates.map((template) => createTemplateCardElement(template))
-      );
-    }
-    templateGrid.scrollTop = previousScrollTop;
-  } catch (error) {
-    console.error("Failed to render template browser.", error);
-    templateGrid.innerHTML = `<div class="empty-state">${escapeHtml(t("custom.templatesError"))}</div>`;
-    templateStatus.textContent = t("custom.templatesError");
-    templateApplyButton.disabled = true;
-    templateModal.classList.remove("hidden");
-    return;
-  }
-
-  templateStatus.textContent = state.selectedTemplateId
-    ? t("custom.templateSelected", { name: getTemplateById(state.selectedTemplateId)?.title ?? "" })
-    : getFilteredTemplates().length === 0
-      ? t("custom.templatesNoMatches")
-      : t("custom.templatesCopy");
-  templateApplyButton.disabled = !state.selectedTemplateId;
-  templateModal.classList.remove("hidden");
-}
-
-function openTemplateModal() {
-  const group = getSelectedGroup();
-  if (!group || group.groupType !== "custom") {
-    return;
-  }
-
-  state.isTemplateOpen = true;
-  const filteredTemplates = getFilteredTemplates();
-  if (!filteredTemplates.some((template) => template.id === state.selectedTemplateId)) {
-    state.selectedTemplateId = filteredTemplates[0]?.id ?? null;
-  }
-  if (templateModal) {
-    templateModal.classList.remove("hidden");
-  }
-  if (templateStatus) {
-    templateStatus.textContent = t("custom.templatesLoading");
-  }
-  renderTemplateModal();
-}
-
-function closeTemplateModal() {
-  state.isTemplateOpen = false;
-  if (templateModal) {
-    templateModal.classList.add("hidden");
-  }
-}
-
-async function applyTemplatePreset() {
-  const template = getTemplateById(state.selectedTemplateId);
-  const group = getSelectedGroup();
-  if (!template || !group || group.groupType !== "custom" || blockingRulesField.disabled) {
-    return;
-  }
-
-  const nextCode = template.buildCode(getTemplateDraft(template.id));
-  const currentCode = String(blockingRulesField.value ?? "").trim();
-  const shouldReplace =
-    !currentCode ||
-    (await cbDialog.confirm(t("custom.confirmReplaceTemplate"), {
-      danger: true,
-      confirmText: t("modal.confirm"),
-      cancelText: t("modal.cancel")
-    }));
-  if (!shouldReplace) {
-    return;
-  }
-
-  blockingRulesField.value = nextCode;
-  stashCurrentDraft();
-  closeTemplateModal();
-  render();
-  scheduleAutosave();
-  setStatus(t("status.templateApplied", { name: template.title }));
-}
-
 const CUSTOM_RULE_KEYWORDS = new Set([
   "async", "await", "break", "case", "catch", "class", "const", "continue",
   "debugger", "default", "delete", "do", "else", "export", "extends", "finally",
@@ -5012,9 +4694,6 @@ function renderEditor(now = Date.now()) {
   fallbackUrlField.disabled = !editable;
   if (groupEffectField) groupEffectField.disabled = !editable;
   skipToNextOnBlockField.disabled = !editable || !isPlatformVideoGroup || !isScrollPlatform;
-  if (openRuleTemplatesButton) {
-    openRuleTemplatesButton.disabled = !editable || !isCustomGroup;
-  }
   if (runCustomGroupButton) {
     runCustomGroupButton.disabled = !editable || !isCustomGroup;
   }
@@ -5057,7 +4736,6 @@ function render(now = Date.now()) {
   updateBulkActionsUI(now);
   renderEditor(now);
   renderUnfreezeModal(now);
-  renderTemplateModal();
   filterLogFeedByGroup();
 }
 
@@ -5257,7 +4935,6 @@ function selectGroup(groupId) {
   }
 
   closeUnfreezeFlow();
-  closeTemplateModal();
   stashCurrentDraft();
   flushAutosave()
     .catch((error) => {
@@ -5592,7 +5269,6 @@ async function importIntoSelectedGroup() {
     state.usageResetAtMs[group.id] = Date.now();
     delete state.groupSnoozes[group.id];
     state.groupSnoozeTotalsMs[group.id] = 0;
-    closeTemplateModal();
 
     await persistState(t("status.importedGroup", { name: replacementGroup.name }));
     render();
@@ -7291,84 +6967,6 @@ if (aiPromptCopyButton) {
   });
 }
 
-if (openRuleTemplatesButton) {
-  openRuleTemplatesButton.addEventListener("click", () => {
-    try {
-      openTemplateModal();
-    } catch (error) {
-      console.error("Failed to open custom rule templates.", error);
-      setStatus(t("status.errorApplyTemplate"), true);
-    }
-  });
-}
-
-if (templateFilterField) {
-  templateFilterField.addEventListener("click", (event) => {
-    const chip = event.target.closest("[data-template-filter-tag]");
-    if (!chip) {
-      return;
-    }
-    const tag = normalizeTemplateTag(chip.dataset.templateFilterTag);
-    if (!tag) {
-      return;
-    }
-    const nextTags = new Set(state.templateFilterTags);
-    if (nextTags.has(tag)) {
-      nextTags.delete(tag);
-    } else {
-      nextTags.add(tag);
-    }
-    state.templateFilterTags = [...nextTags];
-    renderTemplateModal();
-  });
-}
-
-if (templateGrid) {
-  templateGrid.addEventListener("click", (event) => {
-    if (event.target.closest("input, label, button, textarea, select")) {
-      return;
-    }
-    const card = event.target.closest("[data-template-card]");
-    if (!card) return;
-    state.selectedTemplateId = card.dataset.templateCard;
-    renderTemplateModal();
-  });
-
-  templateGrid.addEventListener("input", (event) => {
-    const field = event.target.closest("[data-template-id][data-param-id]");
-    if (!field) return;
-    const templateId = field.dataset.templateId;
-    const paramId = field.dataset.paramId;
-    const template = getTemplateById(templateId);
-    if (!template) return;
-    const param = template.params.find((item) => item.id === paramId);
-    if (!param) return;
-    const selectionStart = typeof field.selectionStart === "number" ? field.selectionStart : null;
-    const selectionEnd = typeof field.selectionEnd === "number" ? field.selectionEnd : null;
-    const previousScrollTop = templateGrid.scrollTop;
-    const draft = getTemplateDraft(templateId);
-    draft[paramId] = param.type === "checkbox" ? field.checked : field.value;
-    state.selectedTemplateId = templateId;
-    renderTemplateModal();
-    templateGrid.scrollTop = previousScrollTop;
-    const nextField = templateGrid.querySelector(
-      `[data-template-id="${templateId}"][data-param-id="${paramId}"]`
-    );
-    if (nextField) {
-      if (typeof nextField.focus === "function") {
-        nextField.focus({ preventScroll: true });
-      }
-      if (
-        selectionStart !== null &&
-        typeof nextField.setSelectionRange === "function" &&
-        document.activeElement === nextField
-      ) {
-        nextField.setSelectionRange(selectionStart, selectionEnd ?? selectionStart);
-      }
-    }
-  });
-}
-
 setupPlatformChipInputs();
 
 platformAuthorsField.addEventListener("input", () => {
@@ -7685,34 +7283,11 @@ manualCloseButton.addEventListener("click", () => {
   closeManual();
 });
 
-if (templateCloseButton) {
-  templateCloseButton.addEventListener("click", () => {
-    closeTemplateModal();
-  });
-}
-
-if (templateApplyButton) {
-  templateApplyButton.addEventListener("click", () => {
-    applyTemplatePreset().catch((error) => {
-      console.error("Failed to apply custom rule template.", error);
-      setStatus(t("status.errorApplyTemplate"), true);
-    });
-  });
-}
-
 manualModal.addEventListener("click", (event) => {
   if (event.target === manualModal) {
     closeManual();
   }
 });
-
-if (templateModal) {
-  templateModal.addEventListener("click", (event) => {
-    if (event.target === templateModal) {
-      closeTemplateModal();
-    }
-  });
-}
 
 confirmProceedButton.addEventListener("click", () => {
   const confirmationKind = state.unfreezeFlow?.kind;
@@ -7745,8 +7320,6 @@ window.addEventListener("keydown", (event) => {
       closeSettings();
     } else if (state.isManualOpen) {
       closeManual();
-    } else if (state.isTemplateOpen) {
-      closeTemplateModal();
     } else if (state.unfreezeFlow) {
       closeUnfreezeFlow();
     }

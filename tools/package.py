@@ -105,7 +105,6 @@ VAULT_CLASSIFIER_FILES = [
 INCLUDE_DIRS = [
     "_locales",
     "icons",
-    "templates",
     "translation",
     "manual",
 ]

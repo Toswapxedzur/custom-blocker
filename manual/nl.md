@@ -269,8 +269,6 @@ De extensie heeft ook deze voor de gebruiker zichtbare feedbackoppervlakken:
 
 Voor aangepaste groepen wordt in het veld Regels de brontekst opgeslagen. Eerst uitvoeren voert de preflight van de syntaxis van de regel uit en laadt de bron pas als dat lukt. De editor voert ook lokale bronvermeldingen uit als tekst verandert. Het zichtbare besturingselement **Let AI Code** opent een promptveld en kopieert een bundel voor het genereren van code met daarin het verzoek van de gebruiker, de huidige regel en een gegenereerde verwijzing naar de huidige aangepaste regel-API. Er wordt geen contact opgenomen met een AI-service en de regel wordt niet automatisch gewijzigd.
 
-Het besturingselement Sjablonen opent de sjabloonbrowser. Wanneer een sjabloon wordt verzonden, heeft deze een titel, beschrijving, tags, parameters en een gegenereerd voorbeeld. Als u deze toepast, wordt na bevestiging de huidige regeltekst vervangen. De momenteel verzonden sjablooncatalogus is leeg; de browser blijft beschikbaar voor toekomstige beheerde sjablonen en mag niet worden behandeld als een bron van actieve regels.
-
 ## 5. Taal op maat
 
 ### 5.1 Regelbronformulieren

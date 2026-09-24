@@ -271,8 +271,6 @@ A extensão também possui estas superfícies de feedback visíveis ao usuário:
 
 Para grupos personalizados, o campo Regras armazena o texto de origem. Run primeiro executa a simulação da sintaxe da regra e só carrega a origem quando isso é bem-sucedido. O editor também executa linting de origem local à medida que o texto muda. O controle visível **Let AI Code** abre um campo de prompt e copia um pacote de geração de código contendo a solicitação do usuário, a regra atual e uma referência gerada para a API de regra personalizada atual. Ele não entra em contato com um serviço de IA nem altera automaticamente a regra.
 
-O controle Modelos abre o navegador de modelos. Um modelo, quando enviado, possui título, descrição, tags, parâmetros e visualização gerada. Aplicá-lo substitui o texto atual das Regras após a confirmação. O catálogo de modelos enviado atualmente está vazio; o navegador permanece disponível para futuros modelos selecionados e não deve ser tratado como uma fonte de regras ativas.
-
 ## 5. Linguagem de regras personalizadas
 
 ### 5.1 Formulários de origem de regras

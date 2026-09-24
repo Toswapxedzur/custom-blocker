@@ -271,8 +271,6 @@ La extensión también tiene estas superficies de comentarios visibles para el u
 
 Para grupos personalizados, el campo Reglas almacena el texto fuente. Ejecutar primero realiza la verificación previa de la sintaxis de la regla y solo carga el código fuente cuando se realiza correctamente. El editor también realiza linting de fuentes locales a medida que cambia el texto. El control visible **Let AI Code** abre un campo de solicitud y copia un paquete de generación de código que contiene la solicitud del usuario, la regla actual y una referencia generada a la API de regla personalizada actual. No se pone en contacto con un servicio de IA ni cambia automáticamente la regla.
 
-El control Plantillas abre el navegador de plantillas. Una plantilla, cuando se envía, tiene un título, descripción, etiquetas, parámetros y vista previa generada. Su aplicación reemplaza el texto de Reglas actual después de la confirmación. El catálogo de plantillas enviado actualmente está vacío; el navegador permanece disponible para futuras plantillas seleccionadas y no debe tratarse como una fuente de reglas activas.
-
 ## 5. Idioma de reglas personalizadas
 
 ### 5.1 Formularios fuente de reglas

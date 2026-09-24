@@ -271,8 +271,6 @@ L'estensione dispone anche di queste superfici di feedback visibili all'utente:
 
 Per i gruppi personalizzati, il campo Regole memorizza il testo di origine. Esegui prima esegue il preflight della sintassi della regola e carica l'origine solo quando l'operazione ha esito positivo. L'editor esegue anche il linting della fonte locale quando il testo cambia. Il controllo visibile **Let AI Code** apre un campo di richiesta e copia un bundle di generazione del codice contenente la richiesta dell'utente, la regola corrente e un riferimento generato all'API della regola personalizzata corrente. Non contatta un servizio AI né modifica automaticamente la regola.
 
-Il controllo Modelli apre il browser dei modelli. Un modello, quando viene spedito, ha un titolo, una descrizione, tag, parametri e un'anteprima generata. L'applicazione sostituisce il testo attuale delle Regole dopo la conferma. Il catalogo dei modelli attualmente spedito è vuoto; il browser rimane disponibile per futuri modelli curati e non deve essere trattato come una fonte di regole attive.
-
 ## 5. Linguaggio delle regole personalizzate
 
 ### 5.1 Moduli sorgente delle regole
