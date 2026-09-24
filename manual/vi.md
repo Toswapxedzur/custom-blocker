@@ -271,8 +271,6 @@ Tiện ích mở rộng cũng có các bề mặt phản hồi mà người dùn
 
 Đối với các nhóm Tùy chỉnh, trường Quy tắc lưu trữ văn bản nguồn. Lần chạy đầu tiên thực hiện preflight cú pháp quy tắc và chỉ tải nguồn khi thành công. Trình chỉnh sửa cũng thực hiện tìm lỗi mã nguồn cục bộ khi văn bản thay đổi. Kiểm soát **Let AI Code** hiển thị sẽ mở ra trường lời nhắc và sao chép gói tạo mã chứa yêu cầu của người dùng, quy tắc hiện tại và tham chiếu được tạo tới API quy tắc tùy chỉnh hiện tại. Nó không liên hệ với dịch vụ AI hoặc tự động thay đổi quy tắc.
 
-Điều khiển Mẫu sẽ mở trình duyệt mẫu. Một mẫu khi được vận chuyển sẽ có tiêu đề, mô tả, thẻ, thông số và bản xem trước được tạo. Áp dụng nó sẽ thay thế văn bản Quy tắc hiện tại sau khi xác nhận. Danh mục mẫu hiện đang được vận chuyển trống; trình duyệt vẫn có sẵn cho các mẫu được sắp xếp trong tương lai và không được coi là nguồn của các quy tắc hoạt động.
-
 ## 5. Ngôn ngữ quy tắc tùy chỉnh
 
 ### 5.1 Biểu mẫu nguồn quy tắc

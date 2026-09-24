@@ -271,8 +271,6 @@ Rozszerzenie ma również następujące widoczne dla użytkownika powierzchnie z
 
 W przypadku grup niestandardowych pole Reguły przechowuje tekst źródłowy. Uruchom najpierw wykonuje wstępną inspekcję składni reguły i ładuje źródło tylko wtedy, gdy się to powiedzie. Edytor wykonuje również linting lokalnego źródła w przypadku zmiany tekstu. Widoczna kontrolka **Pozwól AI Code** otwiera pole zachęty i kopiuje pakiet generowania kodu zawierający żądanie użytkownika, bieżącą regułę i wygenerowane odniesienie do bieżącego interfejsu API reguł niestandardowych. Nie kontaktuje się z usługą AI ani nie zmienia automatycznie reguły.
 
-Kontrolka Szablony otwiera przeglądarkę szablonów. Szablon po wysłaniu ma tytuł, opis, znaczniki, parametry i wygenerowany podgląd. Zastosowanie go zastępuje aktualny tekst Regulaminu po potwierdzeniu. Aktualnie dostarczony katalog szablonów jest pusty; przeglądarka pozostaje dostępna dla przyszłych szablonów wyselekcjonowanych i nie należy jej traktować jako źródła aktywnych reguł.
-
 ## 5. Język reguł niestandardowych
 
 ### 5.1 Formularze źródłowe reguł

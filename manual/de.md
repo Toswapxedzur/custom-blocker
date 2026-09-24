@@ -271,8 +271,6 @@ Die Erweiterung verfügt außerdem über diese für den Benutzer sichtbaren Feed
 
 Für benutzerdefinierte Gruppen speichert das Feld „Regeln“ den Quelltext. „Zuerst ausführen“ führt den Regelsyntax-Preflight durch und lädt die Quelle erst, wenn dies erfolgreich ist. Der Editor führt bei Textänderungen auch lokales Quell-Linting durch. Das sichtbare Steuerelement **Let AI Code** öffnet ein Eingabeaufforderungsfeld und kopiert ein Codegenerierungspaket, das die Anfrage des Benutzers, die aktuelle Regel und einen generierten Verweis auf die aktuelle API für benutzerdefinierte Regeln enthält. Es kontaktiert keinen KI-Dienst und ändert die Regel nicht automatisch.
 
-Das Templates-Steuerelement öffnet den Vorlagenbrowser. Wenn eine Vorlage versendet wird, verfügt sie über einen Titel, eine Beschreibung, Tags, Parameter und eine generierte Vorschau. Durch die Anwendung wird nach der Bestätigung der aktuelle Regeltext ersetzt. Der aktuell ausgelieferte Vorlagenkatalog ist leer; Der Browser bleibt für zukünftige kuratierte Vorlagen verfügbar und darf nicht als Quelle aktiver Regeln behandelt werden.
-
 ## 5. Benutzerdefinierte Regelsprache
 
 ### 5.1 Regelquellenformulare

@@ -9,7 +9,7 @@ The source code is the product contract. The English in-app manual at [manual/en
 - Default website groups with blocklist or allowlist behavior, optional redirect, immediate blocking, time allowance, or countdown.
 - Dedicated groups for YouTube, TikTok, Facebook, Instagram, Twitch, Reddit, Discord, and Twitter / X.
 - Platform-specific filters and optional hide-element controls where the current platform profile supports them.
-- Custom JavaScript groups with syntax checking, templates, run controls, a controlled runtime, and a log feed.
+- Custom JavaScript groups with syntax checking, run controls, a controlled runtime, and a log feed.
 - Per-group schedules, freeze modes, snooze controls, import/export, and automatic save.
 - Optional local-folder access for supported Custom-rule text, CSV, and JSON operations.
 - Optional connection to a native Vault bridge hub for explicitly linked groups.
