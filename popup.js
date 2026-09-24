@@ -7109,10 +7109,7 @@ if (settingsModal) {
 
 // Global settings auto-save: persist on every committed edit (no Save button).
 {
-  const settingsAutoSaveFields = [
-    settingsDefaultSnoozeMinutesField,
-    settingsDefaultFallbackUrlField
-  ];
+  const settingsAutoSaveFields = [settingsDefaultSnoozeMinutesField];
   const autoSaveSettings = () => {
     saveSettingsFromForm().catch((error) => {
       console.error("Failed to save global settings.", error);
