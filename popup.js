@@ -4633,8 +4633,6 @@ function renderEditor(now = Date.now()) {
 
   fallbackUrlField.value = draft?.fallbackUrl ?? group.fallbackUrl ?? "";
 
-  // rules can.
-
 
   freezeModeField.value = freezeStatus.isFrozen
     ? freezeStatus.isParental
