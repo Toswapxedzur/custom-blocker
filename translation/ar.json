@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "المواقع المسموح بها (كل شيء آخر محظور)",
   "sites.allowlistLabel": "قم بحظر كل شيء ما عدا هذه المواقع",
   "sites.allowlistHelp": "عند تفعيل هذه المجموعة، تحظر الويب بالكامل باستثناء المواقع المدرجة أدناه (القائمة المسموح بها). عند إيقافه، يقوم بحظر المواقع المدرجة فقط.",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "مسح المواقع",
   "sites.addAria": "أضف مواقع الويب",
   "sites.addConfirm": "يضيف",

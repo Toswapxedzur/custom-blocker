@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "Sites permitidos (todo o resto bloqueado)",
   "sites.allowlistLabel": "Bloqueie tudo, exceto esses sites",
   "sites.allowlistHelp": "Quando ativado, esse grupo bloqueia toda a Web, exceto os sites listados abaixo (uma lista de permissões). Quando desativado, bloqueia apenas os sites listados.",
-  "sites.placeholder": "facebook.com\nyoutube. com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "Limpar sites",
   "sites.addAria": "Adicionar sites",
   "sites.addConfirm": "Adicionar",

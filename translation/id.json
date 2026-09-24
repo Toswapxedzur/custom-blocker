@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "Situs web yang diizinkan (yang lainnya diblokir)",
   "sites.allowlistLabel": "Blokir semuanya kecuali situs-situs ini",
   "sites.allowlistHelp": "Jika aktif, grup ini memblokir seluruh web kecuali situs yang tercantum di bawah (daftar yang diizinkan). Jika tidak aktif, itu hanya memblokir situs yang terdaftar.",
-  "sites.placeholder": "facebook.com\nyoutube.com\nberita.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "Hapus Situs",
   "sites.addAria": "Tambahkan situs web",
   "sites.addConfirm": "Tambah",

@@ -329,7 +329,7 @@
   "sites.allowlistedLabel": "Các trang web được phép (mọi thứ khác bị chặn)",
   "sites.allowlistLabel": "Chặn mọi thứ ngoại trừ những trang web này",
   "sites.allowlistHelp": "Khi bật, nhóm này sẽ chặn toàn bộ trang web ngoại trừ các trang web được liệt kê bên dưới (danh sách cho phép). Khi tắt, nó chỉ chặn các trang được liệt kê.",
-  "sites.placeholder": "facebook.com\nyoutube.com\nnews.ycombinator.com",
+  "sites.placeholder": "facebook.com\nyoutube.com/shorts\nnews.ycombinator.com",
   "sites.clearButton": "Xóa trang web",
   "sites.addAria": "Thêm trang web",
   "sites.addConfirm": "Them",
