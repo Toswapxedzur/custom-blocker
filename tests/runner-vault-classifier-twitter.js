@@ -126,7 +126,7 @@ setTimeout(() => {
     "the account avatar is the source icon; the tweet's own photo never travels": Boolean(feed && feed.entry.evidence.metadata.sourceIconURL === "https://pbs.twimg.com/profile_images/2095429081026154496/didtFNy0_x96.jpg" && !JSON.stringify(feed).includes("pbs.twimg.com/media")),
     "hashtags ride as supplied tags": Boolean(feed && feed.entry.evidence.suppliedTags.includes("#BrawlStars")),
     "one pill per tweet, on the inner article (never the wrapping cell)": observations.filter((v) => v.entryID === "twitter:status:2102730439869837540").every((v) => v.root === main.article) && observations.every((v) => v.root !== main.cell && v.root !== reply.cell),
-    "a reply in the conversation is its own feed card": Boolean(replyFeed && replyFeed.entry.sourceID === "twitter:account:someone") && observations.some((v) => v.root === reply.article && v.kind === "card"),
+    "a reply under the post is a comment: never collected, never pilled (owner 2026-09-24)": !replyFeed && !observations.some((v) => v.root === reply.article),
     "the status page's own tweet routes the page verdict, exactly once, and shares the feed id": observations.filter((v) => v.kind === "page").length === 1 && observations.some((v) => v.kind === "page" && v.root === main.article && v.entryID === "twitter:status:2102730439869837540") && Boolean(page)
   };
   let failed = false;

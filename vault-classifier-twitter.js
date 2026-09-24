@@ -68,11 +68,17 @@
       const cards = candidates.filter(
         (card) => !candidates.some((other) => other !== card && card.contains?.(other))
       );
+      // On a post's own page every other article in the conversation is a
+      // reply, a thread parent or a recommendation — comments, not feed cards
+      // (owner 2026-09-24: "every comment also gets a tag, should not happen").
+      // Only the page's post is tagged there; the timelines tag everything.
+      const page = pageRoute(global.location);
       for (const card of cards) {
         const entry = core.firstAnchor(card, ['a[href*="/status/"]'], isStatus);
         if (!entry) continue;
         const route = statusRoute(entry.href);
         if (!route) continue;
+        if (page && route.statusID !== page.statusID) continue;
         const sourceURL = `${new URL(entry.href).origin}/${route.handle}`;
         const source = profileAnchor(card, route.handle);
         const textRoot = tweetTextElement(card);
