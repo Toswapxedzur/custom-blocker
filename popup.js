@@ -4499,9 +4499,10 @@ function renderGroupList(now = Date.now()) {
 
     topline.append(dragHandle, name);
     textWrap.append(topline, meta);
-    if (quickAddOn) {
+    if (quickAddOn && isGroupEditable(group)) {
       // The badge chooses this group as the quick-add target: the tiny "+" on
-      // pages and in the desktop app appends the current site / app here.
+      // pages and in the desktop app appends the current site / app here. A
+      // locked group takes no edits, so it offers no badge.
       const badge = document.createElement("button");
       badge.type = "button";
       badge.className = "quick-add-badge";

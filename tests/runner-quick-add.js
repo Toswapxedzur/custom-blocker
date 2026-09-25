@@ -1,9 +1,8 @@
-/* The quick-add "+" (owner 2026-09-25): off by default; it means "block this
-   page". The page's most detailed site entry (host + path, never query or
-   fragment) is appended to the chosen group's Websites entry, creating it when
-   missing; on an "everything except" list the entries letting the page through
-   are removed instead. It only tightens, so a locked group accepts it. A
-   repeat click changes nothing; custom groups cannot be targets. */
+/* The quick-add "+" (owner 2026-09-25): off by default; it just adds an entry.
+   The page's most detailed site entry (host + path, never query or fragment)
+   is appended to the chosen group's Websites entry, creating it when missing,
+   whatever kind of list it is. A repeat click changes nothing; custom groups
+   cannot be targets; a locked group takes no edits, so it is no target. */
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -58,7 +57,8 @@ check("only web pages qualify", run(`cbQuickAddEntry("chrome://extensions")`) ==
     base({ id: "y1", name: "YT", groupType: "youtube", sourceMode: "all" }),
     base({ id: "s1", name: "Sites", groupType: "site", sites: ["old.example.com"] }),
     base({ id: "c1", name: "Rule", groupType: "custom", blockingRulesText: "(m,d,n,h,mi,u,helpers) => false" }),
-    base({ id: "a1", name: "Work only", groupType: "site", sites: ["work.com", "docs.example.com/guide"], allowlist: true, freezeMode: "frozen" }),
+    base({ id: "o1", name: "Work only", groupType: "site", sites: ["work.com"], allowlist: true }),
+    base({ id: "a1", name: "Locked allowlist", groupType: "site", sites: ["work.com"], allowlist: true, freezeMode: "frozen" }),
     base({ id: "f1", name: "Locked", groupType: "site", sites: ["old.example.org"], freezeMode: "strict", frozenAtMs: Date.now() })
   ])})`);
   await context.chrome.storage.local.set({ blockedGroups: groups, globalSettings: { quickAddEnabled: false }, quickAddGroupId: "y1" });
@@ -90,20 +90,18 @@ check("only web pages qualify", run(`cbQuickAddEntry("chrome://extensions")`) ==
   const sites = stored.find((g) => g.id === "s1");
   check("a site group's existing list grows", sites.scopes.find((l) => l.surface === "site").sites.join() === "old.example.com,news.example.com", sites.scopes);
 
-  // "+" means "block this page": it only tightens, so a locked group accepts it.
-  await context.chrome.storage.local.set({ quickAddGroupId: "a1" });
-  result = await run(`cbQuickAdd("https://docs.example.com/guide/intro")`);
-  stored = (await context.chrome.storage.local.get("blockedGroups")).blockedGroups;
-  let allow = stored.find((g) => g.id === "a1").scopes.find((l) => l.surface === "site");
-  check("on an allowlist, '+' removes the entries that let the page through", result.added === false && result.removed.join() === "docs.example.com/guide" && allow.sitesExcept === true && allow.sites.join() === "work.com", allow);
+  await context.chrome.storage.local.set({ quickAddGroupId: "o1" });
   result = await run(`cbQuickAdd("https://reddit.com/r/x")`);
   stored = (await context.chrome.storage.local.get("blockedGroups")).blockedGroups;
-  allow = stored.find((g) => g.id === "a1").scopes.find((l) => l.surface === "site");
-  check("an already blocked page leaves the allowlist alone", result.removed.length === 0 && allow.sites.join() === "work.com", allow);
-  await context.chrome.storage.local.set({ quickAddGroupId: "f1" });
-  result = await run(`cbQuickAdd("https://new.example.org/")`);
-  stored = (await context.chrome.storage.local.get("blockedGroups")).blockedGroups;
-  check("a locked blocklist still gains the page (tightening only)", result.added === true && stored.find((g) => g.id === "f1").scopes.find((l) => l.surface === "site").sites.join() === "old.example.org,new.example.org", stored.find((g) => g.id === "f1").scopes);
+  const allow = stored.find((g) => g.id === "o1").scopes.find((l) => l.surface === "site");
+  check("on an 'everything except' list, '+' still just adds the entry", result.added === true && allow.sitesExcept === true && allow.sites.join() === "work.com,reddit.com/r/x", allow);
+
+  for (const locked of ["a1", "f1"]) {
+    await context.chrome.storage.local.set({ quickAddGroupId: locked });
+    state = await run(`cbQuickAddState()`);
+    err = ""; try { await run(`cbQuickAdd("https://new.example.org/")`); } catch (e) { err = String(e.message || e); }
+    check(`a locked group (${locked}) is no target and takes no entry`, state.enabled === false && err === "quick-add-off", { state, err });
+  }
 
   await context.chrome.storage.local.set({ quickAddGroupId: "c1" });
   state = await run(`cbQuickAddState()`);
