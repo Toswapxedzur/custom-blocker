@@ -1843,7 +1843,11 @@ function ensureHeartbeat() {
       lastHeartbeatAt = now;
       return;
     }
-    const elapsedMs = now - lastHeartbeatAt;
+    // A covered page is not time on the page: while the cover is up (whatever
+    // group or rule put it there) no group's budget runs, exactly as if the
+    // tab were on about:blank. The tick still goes out to keep the session live.
+    const covered = Boolean(cbCover.dialog && cbCover.dialog.open);
+    const elapsedMs = covered ? 0 : now - lastHeartbeatAt;
     lastHeartbeatAt = now;
     safeSendMessage(
       {
