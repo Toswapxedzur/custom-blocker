@@ -1855,24 +1855,23 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
   );
   const accrualGroups = relevantTimedGroups.concat(exposedTimedGroups);
 
-  // A page covered by an instant group accrues nothing. A pause the user has
-  // already let through covers nothing, so it must not stop other groups'
-  // budgets on the same page.
-  const coveredByInstant = relevantGroups.some(
-    (group) => group.mode === "instant" && !(pausePassed && cbGroupPageAction(group, pageContext) === "pause")
+  // A covered page is not time on the page: whatever covers it (an instant
+  // group, a spent allowance, a pause not yet let through) no group's budget
+  // runs, as if the tab were on about:blank. A pause already let through
+  // covers nothing, so the other groups' budgets run there. (The content
+  // script also sends no elapsed time while its cover is up, which catches
+  // covers only the page knows about, like a custom rule's.)
+  const current = buildPageSession(
+    pageContext,
+    groups,
+    usageTimersMs,
+    usageResetAtMs,
+    groupSnoozes,
+    now,
+    exposedGroupIds,
+    pausePassed
   );
-  if (accrualGroups.length === 0 || coveredByInstant) {
-    return buildPageSession(
-      pageContext,
-      groups,
-      usageTimersMs,
-      usageResetAtMs,
-      groupSnoozes,
-      now,
-      exposedGroupIds,
-      pausePassed
-    );
-  }
+  if (accrualGroups.length === 0 || current.exit) return current;
 
   const nextTimers = { ...usageTimersMs };
   const nextBuckets = { ...(usageBucketsMs ?? {}) };
