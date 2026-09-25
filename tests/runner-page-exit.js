@@ -162,6 +162,14 @@ check("blockedRedirectUrl is empty for a covering site and the address for a nav
   timers = (await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {};
   check("after Continue, the other group's budget runs", timers.t1 === 5000, timers);
 
+  // …and a page covered for any reason counts for no group: here a spent
+  // allowance covers it, and another timed group on the same site stays still.
+  const spent = base({ id: "x1", name: "Spent", groupType: "site", sites: ["news.example.com"], mode: "after-minutes", allowedMinutes: 1 });
+  await context.chrome.storage.local.set({ blockedGroups: sanitize([spent, timed]), usageTimersMs: { x1: 60000, t1: 0 } });
+  await run(`applyElapsedTime(${pageCtx}, 5000, [], false)`);
+  timers = (await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {};
+  check("a page covered by a spent allowance counts for no other group", timers.t1 === 0 && timers.x1 === 60000, timers);
+
   // 7. Passes and muted tabs survive the worker stopping; a pass's end is a transition.
   const passUntil = Date.now() + 60_000;
   run(`cbPausePasses.set(11, { host: "news.example.com", until: ${passUntil} }); cbSaveCoverState();`);
