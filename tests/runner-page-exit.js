@@ -67,7 +67,8 @@ let pass = 0; let fail = 0;
 const check = (label, ok, detail) => { if (ok) { pass += 1; console.log(`PASS ${label}`); } else { fail += 1; console.log(`FAIL ${label} — ${typeof detail === "string" ? detail : JSON.stringify(detail)}`); } };
 const run = (expr) => vm.runInContext(expr, context);
 const sanitize = (groups) => run(`sanitizeGroups(${JSON.stringify(groups)})`);
-const now = Date.UTC(2026, 8, 25, 12, 0, 0);
+// The real clock: pass and snooze expiry are checked against Date.now().
+const now = Date.now();
 const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const base = (over) => ({ enabled: true, mode: "instant", allowedMinutes: 15, activeDays: days, timeWindowsText: "", snoozeMinutes: 5, snoozeActivationDelayMinutes: 0, snoozeCooldownMinutes: 1, snoozeConfirmations: 2, ...over });
 const pc = (url, pathname) => { const u = new URL(url); return run(`normalizePageContext(${JSON.stringify({ url, hostname: u.hostname, pathname })})`); };
