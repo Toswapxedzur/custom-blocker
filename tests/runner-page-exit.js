@@ -11,6 +11,9 @@ const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const sentFrames = [];
+// Session storage outlives a worker; a second context sharing it is a restart.
+const sessionStore = new Map();
+const alarmsCreated = [];
 function makeContext() {
   const storage = new Map();
   const inert = () => new Proxy(function () {}, { get: (_t, p) => (p === "addListener" || p === "removeListener" || p === "hasListener") ? () => {} : inert(), apply: () => Promise.resolve(undefined) });
@@ -22,7 +25,11 @@ function makeContext() {
         set: (obj, cb) => { for (const [k, v] of Object.entries(obj)) storage.set(k, JSON.parse(JSON.stringify(v))); if (cb) cb(); return Promise.resolve(); },
         remove: () => Promise.resolve(), getBytesInUse: () => Promise.resolve(0)
       },
-      session: { get: () => Promise.resolve({}), set: () => Promise.resolve(), remove: () => Promise.resolve() },
+      session: {
+        get: (key) => Promise.resolve(sessionStore.has(key) ? { [key]: JSON.parse(JSON.stringify(sessionStore.get(key))) } : {}),
+        set: (obj) => { for (const [k, v] of Object.entries(obj)) sessionStore.set(k, JSON.parse(JSON.stringify(v))); return Promise.resolve(); },
+        remove: () => Promise.resolve()
+      },
       onChanged: { addListener() {}, removeListener() {}, hasListener: () => false }
     },
     tabs: new Proxy({
@@ -30,7 +37,7 @@ function makeContext() {
       update: (id, props) => { tabs.updates.push([id, props]); if ("muted" in props) tabs.muted.set(id, props.muted ? "ext" : false); return Promise.resolve({ id }); },
       sendMessage: (id, msg) => { tabs.messages.push([id, msg]); return Promise.resolve({ ok: true }); }
     }, { get: (t, p) => (p in t ? t[p] : inert()) }),
-    alarms: { clear: () => Promise.resolve(), create: () => Promise.resolve(), onAlarm: { addListener() {} } },
+    alarms: { clear: () => Promise.resolve(), create: (_name, info) => { alarmsCreated.push(info); return Promise.resolve(); }, onAlarm: { addListener() {} } },
     runtime: new Proxy({ id: "t", getManifest: () => ({ version: "0" }), getURL: (p) => `chrome-extension://t/${p}`, lastError: null }, { get: (t, p) => (p in t ? t[p] : inert()) })
   }, { get: (t, p) => (p in t ? t[p] : inert()) });
   const ctx = vm.createContext({
@@ -46,11 +53,15 @@ function makeContext() {
   ctx.self = ctx; ctx.globalThis = ctx; ctx.window = ctx; ctx.__tabs = tabs;
   return ctx;
 }
-const context = makeContext();
-for (const file of ["platform-profiles.js", "group-scopes.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
-  const p = path.join(root, file); if (!fs.existsSync(p)) continue;
-  vm.runInContext(fs.readFileSync(p, "utf8"), context, { filename: file });
+function loadWorker() {
+  const ctx = makeContext();
+  for (const file of ["platform-profiles.js", "group-scopes.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
+    const p = path.join(root, file); if (!fs.existsSync(p)) continue;
+    vm.runInContext(fs.readFileSync(p, "utf8"), ctx, { filename: file });
+  }
+  return ctx;
 }
+const context = loadWorker();
 
 let pass = 0; let fail = 0;
 const check = (label, ok, detail) => { if (ok) { pass += 1; console.log(`PASS ${label}`); } else { fail += 1; console.log(`FAIL ${label} — ${typeof detail === "string" ? detail : JSON.stringify(detail)}`); } };
@@ -139,6 +150,29 @@ check("blockedRedirectUrl is empty for a covering site and the address for a nav
   check("a group with snooze off refuses", err === "snooze-disabled", err);
   s = session([base({ id: "g1", name: "Sites", groupType: "site", sites: ["example.com"] })], "https://example.com/", "/", { snoozes: { g1: entry } });
   check("the snoozed group no longer blocks the page", !s.shouldExitPage, s);
+
+  // 6. A passed pause covers nothing, so it must not stop another group's budget.
+  const timed = base({ id: "t1", name: "Timed news", groupType: "site", sites: ["news.example.com"], mode: "after-minutes", allowedMinutes: 30 });
+  await context.chrome.storage.local.set({ blockedGroups: sanitize([pauseSite, timed]), usageTimersMs: {}, usageResetAtMs: {}, groupSnoozes: {} });
+  const pageCtx = JSON.stringify({ url: "https://news.example.com/x", hostname: "news.example.com", pathname: "/x" });
+  await run(`applyElapsedTime(${pageCtx}, 5000, [], false)`);
+  let timers = (await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {};
+  check("while the pause covers the page, nothing accrues", !(timers.t1 > 0), timers);
+  await run(`applyElapsedTime(${pageCtx}, 5000, [], true)`);
+  timers = (await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {};
+  check("after Continue, the other group's budget runs", timers.t1 === 5000, timers);
+
+  // 7. Passes and muted tabs survive the worker stopping; a pass's end is a transition.
+  const passUntil = Date.now() + 60_000;
+  run(`cbPausePasses.set(11, { host: "news.example.com", until: ${passUntil} }); cbSaveCoverState();`);
+  await run(`cbSetTabCovered(12, true)`);
+  alarmsCreated.length = 0;
+  await run(`scheduleNextTransitionAlarm([], {}, {}, Date.now())`);
+  check("the transition alarm fires when a pause pass ends", alarmsCreated.length === 1 && alarmsCreated[0].when === passUntil, alarmsCreated);
+  const restarted = loadWorker();
+  await vm.runInContext(`cbCoverStateReady`, restarted);
+  check("a restarted worker still honours the pass", vm.runInContext(`cbPausePassActive(11, "news.example.com")`, restarted) === true);
+  check("…and still knows which tab it muted", vm.runInContext(`cbMutedTabs.has(12)`, restarted) === true);
 
   console.log(`PAGE EXIT TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");

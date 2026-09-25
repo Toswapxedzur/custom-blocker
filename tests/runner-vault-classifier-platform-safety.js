@@ -115,64 +115,6 @@ function image(src) {
   return element({ tagName: "IMG", attrs: { src } });
 }
 
-// TikTok: the video URL normalizes to the same creator identity as the
-// profile URL, but only the exact profile anchor may supply the source icon.
-{
-  const thumbnail = image("https://p16-sign-va.tiktokcdn.com/post-thumbnail.jpeg");
-  const avatar = image("https://p16-sign-va.tiktokcdn.com/profile-avatar.jpeg");
-  const ownTag = element({ text: "#guide" });
-  const commentTag = element({ text: "#comment" });
-  const description = element({
-    text: "Creator caption #guide",
-    queryAll: { 'a[href*="/tag/"]': [ownTag] }
-  });
-  const entry = element({
-    tagName: "A",
-    href: "https://www.tiktok.com/@visible/video/123456789",
-    text: "Watch video",
-    queryAll: { img: [thumbnail] }
-  });
-  const source = element({
-    tagName: "A",
-    href: "https://www.tiktok.com/@visible",
-    text: "@visible",
-    queryAll: { img: [avatar] }
-  });
-  const title = element({ text: "Visible short" });
-  const card = element({ queryAll: {
-    'a[href*="/video/"]': [entry],
-    "a[href]": [entry, source],
-    '[data-e2e*="title"]': [title],
-    '[data-testid*="title"]': [],
-    "h1, h2, h3": [],
-    '[data-e2e="browse-video-desc"]': [],
-    '[data-e2e*="video-desc"]': [],
-    '[data-e2e*="desc"]': [description],
-    '[data-testid*="desc"]': [],
-    'a[href*="/tag/"]': [ownTag, commentTag]
-  } });
-  const document = documentFixture({
-    '[data-e2e="recommend-list-item-container"]': [card],
-    '[data-e2e="search-card"]': [],
-    '[data-e2e="video-item"]': [],
-    '[data-e2e*="feed-item"]': []
-  });
-  const run = harness("tiktok", "vault-classifier-tiktok.js", {
-    href: "https://www.tiktok.com/foryou",
-    hostname: "www.tiktok.com",
-    pathname: "/foryou"
-  }, document);
-  run.scan();
-  const entryResult = run.collected[0];
-  assert("TikTok uses the exact creator control instead of the thumbnail link",
-    run.collected.length === 1
-      && entryResult.evidence.metadata.sourceURL === "https://www.tiktok.com/@visible"
-      && entryResult.evidence.metadata.sourceIconURL === "https://p16-sign-va.tiktokcdn.com/profile-avatar.jpeg"
-      && entryResult.evidence.suppliedTags.join(",") === "#guide"
-      && !JSON.stringify(entryResult).includes("post-thumbnail"),
-    run.collected);
-}
-
 // Twitch: live preview and channel profile links may share the same href.
 // Element role, rather than href inequality, distinguishes the source.
 {

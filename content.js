@@ -667,14 +667,6 @@ const CB_CONTENT_BLOCK_PROFILES = Object.freeze({
     links: /\/status\//,
     page: '[data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="tweetPhoto"], [data-testid="card.wrapper"], [data-testid="card.layoutLarge.media"], [data-testid="card.layoutSmall.media"]',
     pageScope: "root"
-  },
-  // TikTok: grid/search cards carry a cover picture; the For You feed and the
-  // video page render the player in a feed-video / browse-video container.
-  tiktok: {
-    media: '[data-e2e="feed-video"], [data-e2e="browse-video"], video, picture, img',
-    links: /\/video\//,
-    page: '[data-e2e="browse-video"], [data-e2e="feed-video"], video',
-    pageScope: "document"
   }
 });
 
@@ -684,7 +676,6 @@ function cbContentBlockPlatformID(hostname) {
   if (host === "reddit.com" || host.endsWith(".reddit.com")) return "reddit";
   if (host === "bilibili.com" || host.endsWith(".bilibili.com")) return "bilibili";
   if (host === "x.com" || host.endsWith(".x.com") || host === "twitter.com" || host.endsWith(".twitter.com")) return "twitter";
-  if (host === "tiktok.com" || host.endsWith(".tiktok.com")) return "tiktok";
   return null;
 }
 
@@ -1794,7 +1785,7 @@ function cbMountQuickAdd(target) {
     });
     cbQuickAddButton = button;
   }
-  cbQuickAddButton.title = "Add this site to " + target.groupName;
+  cbQuickAddButton.title = "Block this page in " + target.groupName;
   if (!cbQuickAddButton.isConnected) document.documentElement.appendChild(cbQuickAddButton);
 }
 
@@ -4319,7 +4310,7 @@ if (document.readyState === "loading") {
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message !== "object") return false;
-    if (message.type === "custom-timers-refresh") {
+    if (message.type === "session-refresh") {
       scheduleRefreshSession(0);
       sendResponse({ ok: true });
       return true;

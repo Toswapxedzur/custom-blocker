@@ -33,7 +33,6 @@
   // media, thumbnails, attachments, and comment-author images.
   const SOURCE_ICON_HOSTS = Object.freeze({
     youtube: ["youtube.com", "yt3.ggpht.com", "yt3.googleusercontent.com", "googleusercontent.com"],
-    tiktok: ["tiktok.com", "tiktokcdn.com", "tiktokcdn-us.com", "muscdn.com", "ibytedtos.com"],
     facebook: ["facebook.com", "fbcdn.net", "fbsbx.com"],
     instagram: ["instagram.com", "cdninstagram.com", "fbcdn.net"],
     twitch: ["twitch.tv", "jtvnw.net"],
@@ -436,7 +435,6 @@
     const host = parsed.hostname;
     switch (platform) {
       case "youtube": return host === "youtube.com" || host.endsWith(".youtube.com");
-      case "tiktok": return host === "tiktok.com" || host.endsWith(".tiktok.com");
       case "facebook": return host === "facebook.com" || host.endsWith(".facebook.com");
       case "instagram": return host === "instagram.com" || host.endsWith(".instagram.com");
       case "twitch": return host === "twitch.tv" || host.endsWith(".twitch.tv") || host === "clips.twitch.tv";
