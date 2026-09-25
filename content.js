@@ -1785,7 +1785,7 @@ function cbMountQuickAdd(target) {
     });
     cbQuickAddButton = button;
   }
-  cbQuickAddButton.title = "Block this page in " + target.groupName;
+  cbQuickAddButton.title = "Add this site to " + target.groupName;
   if (!cbQuickAddButton.isConnected) document.documentElement.appendChild(cbQuickAddButton);
 }
 

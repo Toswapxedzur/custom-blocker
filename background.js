@@ -2457,7 +2457,9 @@ async function cbQuickAddState() {
   if (!enabled || !groupId) return { enabled: false, groupId: "", groupName: "" };
   const { groups } = await getState();
   const group = groups.find((item) => item.id === groupId && item.groupType !== "custom");
-  if (!group) return { enabled: false, groupId: "", groupName: "" };
+  // "+" is an edit, and a locked group takes no edits (as in the editor), so
+  // the button is hidden while its target is locked.
+  if (!group || cbGroupIsLocked(group)) return { enabled: false, groupId: "", groupName: "" };
   return { enabled: true, groupId: group.id, groupName: group.name };
 }
 
@@ -2476,22 +2478,11 @@ async function cbQuickAdd(url) {
     line = { surface: "site", platform: null, action: "block", sites: [], sitesExcept: false };
     scopes.push(line);
   }
-  // "+" always means "block this page", so it can only tighten a group (and is
-  // therefore allowed on a locked one). A blocklist gains the entry; an
-  // "everything except" list loses the entries that let this page through.
-  const page = new URL(url);
-  const hostname = page.hostname.replace(/^www\./, "").toLowerCase();
-  let sites = Array.isArray(line.sites) ? [...line.sites] : [];
-  let added = false;
-  let removed = [];
-  if (line.sitesExcept) {
-    removed = sites.filter((site) => siteEntryMatches(hostname, page.pathname, site));
-    sites = sites.filter((site) => !removed.includes(site));
-  } else if (!sites.includes(entry)) {
-    sites.push(entry);
-    added = true;
-  }
-  if (!added && removed.length === 0) return { entry, added, removed, groupName: group.name };
+  // "+" just adds an entry to the list, whatever kind of list it is.
+  const sites = Array.isArray(line.sites) ? [...line.sites] : [];
+  const added = !sites.includes(entry);
+  if (!added) return { entry, added, groupName: group.name };
+  sites.push(entry);
   line.sites = sites;
   const [next] = sanitizeGroups([{ ...group, scopes }]);
   const nextGroups = groups.map((item, at) => (at === index ? next : item));
@@ -2501,7 +2492,7 @@ async function cbQuickAdd(url) {
   try {
     cbConnection.sendWS({ kind: "group-sync", program: cbDetectProgramId(), groupName: next.name, ts: Date.now(), scopes: next.scopes });
   } catch (_) {}
-  return { entry, added, removed, groupName: next.name };
+  return { entry, added, groupName: next.name };
 }
 
 // ── In-place cover support ──────────────────────────────────────────────────
