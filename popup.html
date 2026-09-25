@@ -178,7 +178,7 @@
               spellcheck="false"
             />
             <p class="field-help" data-i18n="filter.fallbackUrlHelp">
-              A web address sends the blocked tab there. Any other text is shown on Vault's block page instead — a reminder, a quote, a motivation speech. Leave empty for the plain block.
+              Leave empty and a blocked page is covered in place — nothing on it is lost, and it comes back when the block lifts. Any other text is shown on that cover. A web address sends the tab there instead.
             </p>
           </div>
 
@@ -189,6 +189,20 @@
             <label class="label" for="groupScopesAdd" data-i18n="scopes.label">Applies to</label>
             <div id="groupScopesList" class="site-chip-list" role="list"></div>
             <select id="groupScopesAdd" class="scope-add-select"></select>
+
+            <!-- The page action of the entry in view: cover its blocked pages,
+                 or pause first (a countdown, then Continue lets the page through). -->
+            <div id="pageActionRow" class="page-action-row">
+              <label class="label" for="pageAction" data-i18n="scopes.pageAction">When a page of this entry is blocked</label>
+              <select id="pageAction">
+                <option value="block" data-i18n="scopes.pageActionBlock">Cover the page</option>
+                <option value="pause" data-i18n="scopes.pageActionPause">Pause first, then let it through</option>
+              </select>
+              <div id="pauseSecondsRow" class="hidden">
+                <label class="label" for="pauseSeconds" data-i18n="scopes.pauseSeconds">Pause for (seconds)</label>
+                <input id="pauseSeconds" type="number" min="1" max="600" step="1" inputmode="numeric" placeholder="10" />
+              </div>
+            </div>
           </section>
 
           <section id="siteSettingsSection">

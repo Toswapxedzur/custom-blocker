@@ -177,6 +177,10 @@
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
   "scopes.apps": "Apps",
+  "scopes.pageAction": "When a page of this entry is blocked",
+  "scopes.pageActionBlock": "Cover the page",
+  "scopes.pageActionPause": "Pause first, then let it through",
+  "scopes.pauseSeconds": "Pause for (seconds)",
   "platform.help.youtube": "A filtragem de autor se aplica em {platform}. O seletor curto versus longo também funciona em sites de vídeo suportados quando o tipo de página pode ser identificado.",
   "platform.help.generic": "A filtragem de autor se aplica quando identificadores de autor podem ser detectados. Os tipos de conteúdo são mapeados para {shortLabel}, {longLabel} e {postLabel} quando esses formulários de página são detectáveis.",
   "platform.short.youtube": "Calções",
@@ -410,7 +414,7 @@
   "filter.blockHomePageDiscordHelp": "Bloqueia a tela inicial do Discórdia DMs (/channels/@me).",
   "filter.fallbackUrl": "When blocked: redirect address or message",
   "filter.fallbackUrlPlaceholder": "https://example.com — or a message to show",
-  "filter.fallbackUrlHelp": "A web address sends the blocked tab there. Any other text is shown on Vault's block page instead — a reminder, a quote, a motivation speech. Leave empty for the plain block.",
+  "filter.fallbackUrlHelp": "Leave empty and a blocked page is covered in place — nothing on it is lost, and it comes back when the block lifts. Any other text is shown on that cover. A web address sends the tab there instead.",
   "filter.platformAuthorsPlaceholder": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\ncanal/UC...",
   "freeze.summary.notFrozen": "Congele este grupo para impedir edições futuras.",
   "freeze.summary.frozen": "Congelado.",
@@ -528,5 +532,6 @@
   "scene.vault": "Vault",
   "scene.classifier": "Classifier",
   "scene.activity": "Activity",
-  "apps.readOnlyHint": "Edited in the linked desktop app. Shown here read-only."
+  "apps.readOnlyHint": "Edited in the linked desktop app. Shown here read-only.",
+  "status.invalidPauseSeconds": "Pause seconds must be a whole number from 1 to 600."
 }

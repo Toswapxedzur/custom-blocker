@@ -244,6 +244,9 @@ const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const UNFREEZE_CONFIRMATIONS_REQUIRED = 1;
 const UNFREEZE_CONFIRMATION_INTERVAL_MS = 5000;
 const DEFAULT_SNOOZE_CONFIRMATIONS = 0;
+// The pause action's countdown (seconds a page is held before Continue).
+const DEFAULT_PAUSE_SECONDS = 10;
+const MAX_PAUSE_SECONDS = 600;
 const MIN_GROUP_PANEL_WIDTH = 260;
 const MAX_GROUP_PANEL_WIDTH = 760;
 const DAY_NAMES = [
@@ -313,6 +316,10 @@ const permissionCancelButton = document.getElementById("permissionCancelButton")
 let blockedAppsEditable = false;
 const groupScopesList = document.getElementById("groupScopesList");
 const groupScopesAdd = document.getElementById("groupScopesAdd");
+const pageActionRow = document.getElementById("pageActionRow");
+const pageActionField = document.getElementById("pageAction");
+const pauseSecondsRow = document.getElementById("pauseSecondsRow");
+const pauseSecondsField = document.getElementById("pauseSeconds");
 const platformVideoCard = document.getElementById("platformVideoFields");
 const platformVideoTitle = document.getElementById("platformRulesTitle");
 const platformVideoCopy = document.getElementById("platformRulesCopy");
@@ -1094,7 +1101,8 @@ const SYNC_SCALAR_FIELDS = [
   "freezeModeChoice",
   "strictFreezeHours",
   "frozenAtMs",
-  "fallbackUrl"
+  "fallbackUrl",
+  "pauseSeconds"
 ];
 
 // A member's contribution is the whole group definition: the policy scalars and
@@ -2184,6 +2192,12 @@ function parseSnoozeCooldownMinutes(value) {
   return parsed !== null && parsed <= MAX_SNOOZE_COOLDOWN_MINUTES ? parsed : null;
 }
 
+function parsePauseSeconds(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1 || parsed > MAX_PAUSE_SECONDS) return null;
+  return parsed;
+}
+
 function parseSnoozeConfirmations(value) {
   const trimmed = String(value ?? "").trim();
   if (!/^\d+$/.test(trimmed)) return null;
@@ -3270,7 +3284,9 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
       ? "custom"
       : normalizedGroupType === "site" && IS_NATIVE_DESKTOP ? "apps" : normalizedGroupType,
     blockHomePage: false,
-    fallbackUrl: ""
+    pageAction: "block",
+    fallbackUrl: "",
+    pauseSeconds: DEFAULT_PAUSE_SECONDS
   };
 }
 
@@ -3450,7 +3466,9 @@ function sanitizeGroups(groups) {
       allowlist: ownsSiteList && Boolean(group?.allowlist),
       apps: CBGroupScopes.normalizeAppList(group?.apps),
       blockHomePage: Boolean(group?.blockHomePage),
-      fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : ""
+      pageAction: group?.pageAction === "pause" ? "pause" : "block",
+      fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
+      pauseSeconds: parsePauseSeconds(group?.pauseSeconds) ?? DEFAULT_PAUSE_SECONDS
     };
     // Every entry's lines. A stored group carries them; a flat group (an older
     // store, an import) gets its type's lines plus an Apps entry when it has a
@@ -3605,7 +3623,8 @@ function getSerializableGroupSnapshot(group) {
     frozenAtMs: group.freezeMode === "none" ? null : group.frozenAtMs,
     parentalPasswordHash: group.parentalPasswordHash ?? null,
     parentalPasswordSalt: group.parentalPasswordSalt ?? null,
-    fallbackUrl: group.fallbackUrl ?? ""
+    fallbackUrl: group.fallbackUrl ?? "",
+    pauseSeconds: group.pauseSeconds ?? DEFAULT_PAUSE_SECONDS
   };
 }
 
@@ -3728,6 +3747,8 @@ function groupToDraft(group) {
     blockHomePage: Boolean(group.blockHomePage),
     allowlist: Boolean(group.allowlist),
     fallbackUrl: group.fallbackUrl ?? "",
+    pageAction: group.pageAction === "pause" ? "pause" : "block",
+    pauseSeconds: String(group.pauseSeconds ?? DEFAULT_PAUSE_SECONDS),
     freezeModeChoice: normalizeFreezeModeChoice(group)
   };
 }
@@ -4726,6 +4747,7 @@ function renderEditor(now = Date.now()) {
     customSettingsCard.classList.add("hidden");
     if (platformRulesCard) platformRulesCard.classList.add("hidden");
     if (groupScopesSection) groupScopesSection.classList.add("hidden");
+    if (pageActionRow) pageActionRow.classList.add("hidden");
     if (appsSettingsSection) appsSettingsSection.classList.add("hidden");
     blockedAppsEditable = false;
     platformVideoCard.classList.add("hidden");
@@ -4893,6 +4915,8 @@ function renderEditor(now = Date.now()) {
   discordBlockHomePageField.checked = blockHomePageValue;
 
   fallbackUrlField.value = draft?.fallbackUrl ?? group.fallbackUrl ?? "";
+  if (pageActionField) pageActionField.value = (draft?.pageAction ?? group.pageAction) === "pause" ? "pause" : "block";
+  if (pauseSecondsField) pauseSecondsField.value = draft?.pauseSeconds ?? String(group.pauseSeconds ?? DEFAULT_PAUSE_SECONDS);
 
 
   freezeModeField.value = freezeStatus.isFrozen
@@ -4913,6 +4937,14 @@ function renderEditor(now = Date.now()) {
     platformRulesCard.classList.toggle("hidden", !isPlatformProfileGroup);
   }
   renderGroupScopes(group, editable);
+  // The page action belongs to entries that have pages: the website list and
+  // platforms (apps have none; custom rules decide for themselves).
+  if (pageActionRow) {
+    pageActionRow.classList.toggle("hidden", isCustomGroup || isAppsView);
+    if (pageActionField) pageActionField.disabled = !editable;
+    if (pauseSecondsField) pauseSecondsField.disabled = !editable;
+    if (pauseSecondsRow) pauseSecondsRow.classList.toggle("hidden", (pageActionField ? pageActionField.value : "block") !== "pause");
+  }
   platformVideoCard.classList.toggle("hidden", !usesAuthorAxis);
   discordSettingsCard.classList.toggle("hidden", !isDiscordGroup);
   renderSurfaceHides(group, draft, editable);
@@ -5148,7 +5180,9 @@ function stashCurrentDraft() {
         ? discordBlockHomePageField.checked
         : false,
     surfaceHides: readSurfaceHidesFromForm(),
-    fallbackUrl: fallbackUrlField.value
+    fallbackUrl: fallbackUrlField.value,
+    pageAction: pageActionField ? pageActionField.value : "block",
+    pauseSeconds: pauseSecondsField ? pauseSecondsField.value : ""
   };
 }
 
@@ -5716,6 +5750,10 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
   const snoozeActivationDelayMinutes = parseSnoozeDelayMinutes(draft.snoozeActivationDelayMinutes);
   const snoozeCooldownMinutes = parseSnoozeCooldownMinutes(draft.snoozeCooldownMinutes);
   const snoozeConfirmations = parseSnoozeConfirmations(draft.snoozeConfirmations);
+  const pauseSeconds = parsePauseSeconds(draft.pauseSeconds);
+  if (pauseSeconds === null && draft.pageAction === "pause") {
+    fail(new Error(t("status.invalidPauseSeconds")));
+  }
   const timeWindows = parseTimeWindowsText(draft.timeWindowsText);
   const siteResults = parseSiteTextareaValue(draft.sitesText);
   const authorResults = parsePlatformAuthorsTextarea(group.groupType, draft.sourcesText);
@@ -5835,6 +5873,8 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
         : typeof draft.fallbackUrl === "string"
         ? draft.fallbackUrl.trim()
         : "",
+      pageAction: !isCustomGroup && draft.pageAction === "pause" ? "pause" : "block",
+      pauseSeconds: isCustomGroup ? group.pauseSeconds : pauseSeconds ?? group.pauseSeconds,
       freezeModeChoice: normalizeFreezeModeChoice({
         freezeModeChoice: draft.freezeModeChoice,
         freezeMode: group.freezeMode,
@@ -7387,6 +7427,21 @@ fallbackUrlField.addEventListener("input", () => {
   stashCurrentDraft();
   scheduleAutosave();
 });
+
+if (pageActionField) {
+  pageActionField.addEventListener("change", () => {
+    if (pauseSecondsRow) pauseSecondsRow.classList.toggle("hidden", pageActionField.value !== "pause");
+    stashCurrentDraft();
+    renderGroupList();
+    scheduleAutosave();
+  });
+}
+if (pauseSecondsField) {
+  pauseSecondsField.addEventListener("input", () => {
+    stashCurrentDraft();
+    scheduleAutosave();
+  });
+}
 
 dayCheckboxes.forEach((checkbox) => {
   checkbox.addEventListener("change", () => {

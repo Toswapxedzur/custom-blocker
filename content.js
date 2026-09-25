@@ -140,7 +140,6 @@ let latestSurfaceHides = [];
 // Reported with the heartbeat so the usage timer only accrues on exposure.
 let latestExposedGroupIds = [];
 let extensionContextInvalid = false;
-let sessionFallbackUrl = "";
 
 function isExtensionContextValid() {
   if (extensionContextInvalid) return false;
@@ -171,6 +170,7 @@ function shutdownContentScript() {
     overlay.container.parentNode.removeChild(overlay.container);
   }
   overlay = null;
+  try { cbHideCover(); } catch {}
 }
 
 function safeSendMessage(message, callback) {
@@ -1480,50 +1480,6 @@ function applyOverlayLineStyle(el, style) {
   }
 }
 
-function canScriptCloseWindow() {
-  try { return Boolean(window.opener); } catch { return false; }
-}
-
-function getMainPageRedirectUrl() {
-  const hostname = normalizeHostname(location.hostname);
-  if (!hostname) return null;
-  if (isYouTubeHost(hostname)) return "https://www.youtube.com/";
-  if (isRedditHost(hostname)) return "https://www.reddit.com/";
-  if (isDiscordHost(hostname)) return "https://discord.com/channels/@me";
-  if (hostname === "tiktok.com" || hostname.endsWith(".tiktok.com")) return "https://www.tiktok.com/";
-  if (hostname === "instagram.com" || hostname.endsWith(".instagram.com")) return "https://www.instagram.com/";
-  if (hostname === "facebook.com" || hostname.endsWith(".facebook.com")) return "https://www.facebook.com/";
-  if (
-    hostname === "twitch.tv" ||
-    hostname.endsWith(".twitch.tv") ||
-    hostname === "clips.twitch.tv"
-  ) return "https://www.twitch.tv/";
-  if (hostname === "vimeo.com" || hostname.endsWith(".vimeo.com")) return "https://vimeo.com/";
-  if (hostname === "dailymotion.com" || hostname.endsWith(".dailymotion.com") || hostname === "dai.ly")
-    return "https://www.dailymotion.com/";
-  // Unknown hosts should fall back to about:blank. Redirecting to `${origin}/`
-  // can trap us in a same-site reload loop when the entire host is blocked.
-  return null;
-}
-
-function isMainPageView() {
-  const hostname = normalizeHostname(location.hostname);
-  const pathname = String(location.pathname || "/");
-  const search = String(location.search || "");
-  const hash = String(location.hash || "");
-  if (isDiscordHost(hostname) && pathname === "/channels/@me" && search.length === 0 && hash.length === 0) return true;
-  if (isYouTubeHost(hostname) && (pathname === "/" || pathname.startsWith("/feed/")) && search.length === 0 && hash.length === 0) return true;
-  return pathname === "/" && search.length === 0 && hash.length === 0;
-}
-
-function tryRedirectToMainPage() {
-  if (isMainPageView()) return false;
-  const redirectUrl = getMainPageRedirectUrl();
-  if (!redirectUrl) return false;
-  try { location.replace(redirectUrl); } catch { location.href = redirectUrl; }
-  return true;
-}
-
 function isScrollBasedVideoPage() {
   const hostname = normalizeHostname(location.hostname);
   const pathname = String(location.pathname || "/");
@@ -1540,39 +1496,292 @@ function isScrollBasedVideoPage() {
   return false;
 }
 
-// The group's "when blocked" field holds ONE value with two meanings (owner
-// 2026-09-24): a web address sends the tab there; any other text is shown on
-// Vault's own message page; blank = the plain block (main page / close /
-// about:blank). A scheme-less host like "example.com/focus" counts as an
-// address; a sentence does not. Returns the URL to load, or "" for the plain block.
-function cbBlockTarget(value) {
+// The group's "when blocked" field, read the same way by the worker (redirect
+// fast path) and here: a web address or a scheme-less host is an ADDRESS the
+// tab is sent to; any other text is a MESSAGE shown on the in-place cover;
+// blank is the plain cover. Only an address ever leaves the page.
+function cbBlockExit(value) {
   const text = typeof value === "string" ? value.trim() : "";
-  if (!text) return "";
-  if (/^(https?|about|chrome-extension|moz-extension|safari-web-extension):/i.test(text)) return text;
-  if (!/\s/.test(text) && /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(text)) return "https://" + text;
-  try {
-    return chrome.runtime.getURL("message-page.html") + "?msg=" + encodeURIComponent(text);
-  } catch {
-    return "";
-  }
+  if (!text) return { navigate: "", message: "" };
+  if (/^(https?|about|chrome-extension|moz-extension|safari-web-extension):/i.test(text)) return { navigate: text, message: "" };
+  if (!/\s/.test(text) && /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(text)) return { navigate: "https://" + text, message: "" };
+  return { navigate: "", message: text };
 }
-if (typeof window !== "undefined") window.cbBlockTarget = cbBlockTarget;
+if (typeof window !== "undefined") window.cbBlockExit = cbBlockExit;
 
-function attemptExitPage() {
-  if (exitAttempted) return;
-  exitAttempted = true;
+// ── The cover ───────────────────────────────────────────────────────────────
+// A blocked page is covered IN PLACE (owner 2026-09-25): a modal <dialog> in
+// the browser's top layer, the page underneath left untouched (scroll, forms,
+// app state), its media paused and the tab muted by the worker. When the block
+// lifts the cover comes off and everything is as it was. Nothing is
+// remembered or restored because nothing is lost. The same cover carries the
+// pause countdown (intention gate) and the snooze button.
+const CB_COVER_ID = "cb-vault-cover";
+const CB_COVER_POLL_MS = 3000;
+const CB_SNOOZE_CONFIRM_INTERVAL_MS = 5000;
 
-  if (overlay) overlay.container.textContent = "0:00";
+const cbCover = {
+  dialog: null,
+  exit: null,
+  pollId: null,
+  countdownId: null,
+  confirmId: null,
+  inerted: [],
+  prevOverflow: null,
+  watcher: null,
+  mediaListener: null,
+  countdownLeft: 0,
+  confirmationsLeft: 0,
+  nextConfirmAt: 0,
+  statusText: ""
+};
 
-  const target = cbBlockTarget(sessionFallbackUrl);
-  if (target) {
-    try { location.replace(target); } catch { location.href = target; }
+// Every <video>/<audio> in the document, shadow roots included.
+function cbAllMedia(root = document, out = []) {
+  let nodes = [];
+  try { nodes = root.querySelectorAll("video, audio, *"); } catch { return out; }
+  for (const node of nodes) {
+    if (node.tagName === "VIDEO" || node.tagName === "AUDIO") out.push(node);
+    if (node.shadowRoot) cbAllMedia(node.shadowRoot, out);
+  }
+  return out;
+}
+
+function cbPauseAllMedia() {
+  for (const media of cbAllMedia()) {
+    try { if (!media.paused) media.pause(); } catch {}
+  }
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch {}
+  try { if (document.pictureInPictureElement) document.exitPictureInPicture(); } catch {}
+}
+
+function cbCoverIsUp() {
+  return Boolean(cbCover.dialog && cbCover.dialog.isConnected && cbCover.exit);
+}
+
+function cbCoverStyle() {
+  return `
+    #${CB_COVER_ID} { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
+      background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%); color: #f8fafc; font-family: Arial, Helvetica, sans-serif; z-index: 2147483647; }
+    #${CB_COVER_ID}::backdrop { background: #0f172a; }
+    #${CB_COVER_ID} .cb-shell { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 32px; box-sizing: border-box; text-align: center; }
+    #${CB_COVER_ID} .cb-logo { width: 96px; height: 96px; border-radius: 24px; box-shadow: 0 18px 40px rgba(15, 23, 42, 0.42); background: rgba(255, 255, 255, 0.05); }
+    #${CB_COVER_ID} .cb-title { font-size: clamp(28px, 5vw, 56px); font-weight: 700; line-height: 1.2; max-width: min(900px, 90vw); white-space: pre-wrap; word-break: break-word; margin: 0; }
+    #${CB_COVER_ID} .cb-sub { margin: 0; font-size: 16px; color: rgba(248, 250, 252, 0.72); }
+    #${CB_COVER_ID} .cb-countdown { font-size: clamp(40px, 8vw, 88px); font-weight: 700; font-variant-numeric: tabular-nums; margin: 0; }
+    #${CB_COVER_ID} button { font: inherit; font-size: 15px; font-weight: 600; padding: 10px 22px; border-radius: 10px; border: 0; cursor: pointer; }
+    #${CB_COVER_ID} button:disabled { opacity: 0.45; cursor: default; }
+    #${CB_COVER_ID} .cb-continue { background: #f8fafc; color: #0f172a; }
+    #${CB_COVER_ID} .cb-snooze-panel { background: #fdf2f8; color: #334155; border-radius: 16px; padding: 16px 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: min(360px, 90vw); box-shadow: inset 4px 0 0 #be185d; }
+    #${CB_COVER_ID} .cb-snooze-panel h3 { margin: 0; font-size: 15px; color: #6b3350; }
+    #${CB_COVER_ID} .cb-snooze-button { background: #be185d; color: #ffffff; }
+    #${CB_COVER_ID} .cb-snooze-button:hover:not(:disabled) { background: #9d174d; }
+    #${CB_COVER_ID} .cb-status { margin: 0; font-size: 13px; color: #6b3350; min-height: 1.2em; }
+    #${CB_COVER_ID} .cb-foot { margin: 0; color: rgba(248, 250, 252, 0.6); font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
+  `;
+}
+
+function cbCoverElement(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+
+function cbShowCover(exit) {
+  if (!exit || !document.documentElement) return;
+  const first = !cbCoverIsUp();
+  const previous = cbCover.exit;
+  cbCover.exit = exit;
+  if (first) {
+    const dialog = document.createElement("dialog");
+    dialog.id = CB_COVER_ID;
+    const style = document.createElement("style");
+    style.textContent = cbCoverStyle();
+    dialog.appendChild(style);
+    dialog.appendChild(cbCoverElement("div", "cb-shell"));
+    dialog.addEventListener("cancel", (event) => event.preventDefault());
+    dialog.addEventListener("close", () => { if (cbCover.exit) cbReopenCover(); });
+    cbCover.dialog = dialog;
+    document.documentElement.appendChild(dialog);
+    try { dialog.showModal(); } catch { dialog.setAttribute("open", ""); }
+    // The page underneath: no clicks, no keys, no scrolling — but untouched.
+    cbCover.inerted = [];
+    for (const el of Array.from(document.body ? document.body.children : [])) {
+      if (el === dialog || el.inert) continue;
+      el.inert = true;
+      cbCover.inerted.push(el);
+    }
+    cbCover.prevOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    // Media stays paused while covered; nothing resumes on its own at lift.
+    cbPauseAllMedia();
+    cbCover.mediaListener = (event) => {
+      const media = event.target;
+      if (cbCover.exit && media && typeof media.pause === "function") { try { media.pause(); } catch {} }
+    };
+    document.addEventListener("play", cbCover.mediaListener, true);
+    // The site cannot remove the cover: put it back if it goes.
+    cbCover.watcher = new MutationObserver(() => { if (cbCover.exit && !cbCover.dialog.isConnected) cbReopenCover(); });
+    cbCover.watcher.observe(document.documentElement, { childList: true });
+    safeSendMessage({ type: "cover-state", covered: true });
+    // Pause countdown and snooze confirmations start fresh.
+    cbCover.countdownLeft = exit.action === "pause" ? Math.max(1, Number(exit.pauseSeconds) || 10) : 0;
+    cbCover.confirmationsLeft = 0;
+    cbCover.nextConfirmAt = 0;
+    cbCover.statusText = "";
+    if (cbCover.countdownLeft > 0) {
+      cbCover.countdownId = window.setInterval(() => {
+        cbCover.countdownLeft = Math.max(0, cbCover.countdownLeft - 1);
+        cbRenderCover();
+        if (cbCover.countdownLeft === 0 && cbCover.countdownId !== null) { window.clearInterval(cbCover.countdownId); cbCover.countdownId = null; }
+      }, 1000);
+    }
+    cbCover.pollId = window.setInterval(() => { if (!document.hidden) refreshSession(); }, CB_COVER_POLL_MS);
+  } else if (previous && (previous.action !== exit.action || previous.groupId !== exit.groupId)) {
+    // A different group or action took over: the countdown restarts, the
+    // confirmation flow does not survive.
+    cbCover.countdownLeft = exit.action === "pause" ? Math.max(1, Number(exit.pauseSeconds) || 10) : 0;
+    cbCover.confirmationsLeft = 0;
+  }
+  cbRenderCover();
+}
+
+function cbReopenCover() {
+  const dialog = cbCover.dialog;
+  if (!dialog || !cbCover.exit) return;
+  if (!dialog.isConnected) document.documentElement.appendChild(dialog);
+  if (!dialog.open) { try { dialog.showModal(); } catch { dialog.setAttribute("open", ""); } }
+}
+
+function cbHideCover() {
+  if (!cbCover.dialog) return;
+  cbCover.exit = null;
+  for (const id of ["pollId", "countdownId", "confirmId"]) {
+    if (cbCover[id] !== null) { window.clearInterval(cbCover[id]); cbCover[id] = null; }
+  }
+  if (cbCover.watcher) { cbCover.watcher.disconnect(); cbCover.watcher = null; }
+  if (cbCover.mediaListener) { document.removeEventListener("play", cbCover.mediaListener, true); cbCover.mediaListener = null; }
+  for (const el of cbCover.inerted) { try { el.inert = false; } catch {} }
+  cbCover.inerted = [];
+  if (cbCover.prevOverflow !== null) { document.documentElement.style.overflow = cbCover.prevOverflow; cbCover.prevOverflow = null; }
+  try { cbCover.dialog.close(); } catch {}
+  cbCover.dialog.remove();
+  cbCover.dialog = null;
+  safeSendMessage({ type: "cover-state", covered: false });
+}
+
+function cbRenderCover() {
+  const exit = cbCover.exit;
+  const dialog = cbCover.dialog;
+  if (!exit || !dialog) return;
+  const shell = dialog.querySelector(".cb-shell");
+  if (!shell) return;
+  shell.textContent = "";
+  const logo = cbCoverElement("img", "cb-logo");
+  logo.alt = "";
+  try { logo.src = chrome.runtime.getURL("icons/adamancia-vault-lock-v3-128.png"); } catch {}
+  shell.appendChild(logo);
+  const isPause = exit.action === "pause";
+  const title = exit.message
+    ? exit.message
+    : isPause ? "Take a moment" : exit.groupName ? "Blocked by " + exit.groupName : "Blocked";
+  shell.appendChild(cbCoverElement("h1", "cb-title", title));
+  if (exit.message && exit.groupName) shell.appendChild(cbCoverElement("p", "cb-sub", (isPause ? "Paused by " : "Blocked by ") + exit.groupName));
+
+  if (isPause) {
+    if (cbCover.countdownLeft > 0) {
+      shell.appendChild(cbCoverElement("p", "cb-countdown", String(cbCover.countdownLeft)));
+    }
+    const go = cbCoverElement("button", "cb-continue", cbCover.countdownLeft > 0 ? "Continue in " + cbCover.countdownLeft + "s" : "Continue");
+    go.disabled = cbCover.countdownLeft > 0;
+    go.addEventListener("click", () => {
+      go.disabled = true;
+      safeSendMessage({ type: "pause-pass" }, () => refreshSession());
+    });
+    shell.appendChild(go);
+  }
+
+  if (exit.allowSnooze) {
+    const panel = cbCoverElement("div", "cb-snooze-panel");
+    panel.appendChild(cbCoverElement("h3", "", "Snooze"));
+    const phase = exit.snoozePhase || "none";
+    const button = cbCoverElement("button", "cb-snooze-button", "Start Snooze");
+    let status = cbCover.statusText;
+    if (phase === "pending") { button.disabled = true; status = status || "A snooze is scheduled and will start shortly."; }
+    else if (phase === "cooldown") { button.disabled = true; status = status || "Snooze cooldown — try again in a moment."; }
+    else if (cbCover.confirmationsLeft > 0) {
+      const waitMs = cbCover.nextConfirmAt - Date.now();
+      button.textContent = waitMs > 0
+        ? "Confirm (" + cbCover.confirmationsLeft + " left, " + Math.ceil(waitMs / 1000) + "s)"
+        : "Confirm (" + cbCover.confirmationsLeft + " left)";
+      button.disabled = waitMs > 0;
+    }
+    button.addEventListener("click", () => cbCoverSnoozePress());
+    panel.appendChild(button);
+    panel.appendChild(cbCoverElement("p", "cb-status", status));
+    shell.appendChild(panel);
+  }
+  shell.appendChild(cbCoverElement("p", "cb-foot", "Adamancia Vault"));
+}
+
+// The popup's snooze flow without its settings: the group's confirmation
+// steps (spaced like the popup's), then the worker starts the same snooze
+// entry and shares it with linked members.
+function cbCoverSnoozePress() {
+  const exit = cbCover.exit;
+  if (!exit || !exit.allowSnooze) return;
+  const needed = Math.max(0, Number(exit.snoozeConfirmations) || 0);
+  if (cbCover.confirmationsLeft === 0 && needed > 0 && cbCover.nextConfirmAt === 0) {
+    cbCover.confirmationsLeft = needed;
+    cbCover.nextConfirmAt = Date.now() + CB_SNOOZE_CONFIRM_INTERVAL_MS;
+    cbCover.statusText = "This snooze needs " + needed + " confirmation step(s), " + (CB_SNOOZE_CONFIRM_INTERVAL_MS / 1000) + " seconds apart.";
+    if (cbCover.confirmId === null) cbCover.confirmId = window.setInterval(() => cbRenderCover(), 250);
+    cbRenderCover();
     return;
   }
+  if (cbCover.confirmationsLeft > 0) {
+    if (Date.now() < cbCover.nextConfirmAt) return;
+    cbCover.confirmationsLeft -= 1;
+    cbCover.nextConfirmAt = Date.now() + CB_SNOOZE_CONFIRM_INTERVAL_MS;
+    if (cbCover.confirmationsLeft > 0) { cbRenderCover(); return; }
+  }
+  if (cbCover.confirmId !== null) { window.clearInterval(cbCover.confirmId); cbCover.confirmId = null; }
+  cbCover.nextConfirmAt = 0;
+  cbCover.statusText = "Starting…";
+  cbRenderCover();
+  safeSendMessage({ type: "start-snooze", groupId: exit.groupId }, (response) => {
+    if (!response || !response.ok) {
+      cbCover.statusText = response && response.error ? "Snooze not started: " + response.error : "Snooze not started.";
+      cbRenderCover();
+      return;
+    }
+    const startsIn = Number(response.snooze && response.snooze.startsAtMs) - Date.now();
+    cbCover.statusText = startsIn > 1000 ? "Snooze starts in " + Math.ceil(startsIn / 60000) + " min." : "";
+    refreshSession();
+  });
+}
 
-  if (tryRedirectToMainPage()) return;
-  if (canScriptCloseWindow()) window.close();
-  try { location.replace("about:blank"); } catch { location.href = "about:blank"; }
+// Apply the worker's exit decision for this page: leave for an address, or
+// cover in place (block or pause). Custom rules' own redirect helper still
+// navigates on its own.
+function cbApplyExit(exit) {
+  if (!exit) { cbHideCover(); return; }
+  if (exit.action === "navigate" && exit.target) {
+    if (exitAttempted) return;
+    exitAttempted = true;
+    cbHideCover();
+    if (overlay) overlay.container.textContent = "0:00";
+    try { location.replace(exit.target); } catch { location.href = exit.target; }
+    return;
+  }
+  cbShowCover(exit);
+}
+
+// A custom rule asked to block this page (blockPageOnVisit / home-feed hide):
+// the plain cover, no snooze (custom groups do not snooze).
+function attemptExitPage() {
+  cbShowCover({ action: "cover", target: "", message: "", groupId: "", groupName: "", allowSnooze: false });
 }
 
 function stopHeartbeat() {
@@ -1624,7 +1833,8 @@ function handleSession(session) {
   lastSessionRefreshAt = now;
 
   const items = Array.isArray(session.items) ? session.items : [];
-  const shouldExitPage = Boolean(session.shouldExitPage);
+  const exit = session.exit && typeof session.exit === "object" ? session.exit : null;
+  const shouldExitPage = Boolean(session.shouldExitPage) && Boolean(exit);
 
   updateOverlay(items, !shouldExitPage && (session.showTimer || items.length > 0));
   // Order/effect must be set before applying filters so verdicts resolve
@@ -1633,8 +1843,14 @@ function handleSession(session) {
   updateFeedFilters(session.feedFilters);
   updateSurfaceHides(session.surfaceHides);
 
-  sessionFallbackUrl =
-    typeof session.fallbackUrl === "string" ? session.fallbackUrl.trim() : "";
+  // A covered page is not being used: no visible-page time accrues under the
+  // cover; the cover's own poll keeps asking until the block lifts.
+  if (shouldExitPage) {
+    stopHeartbeat();
+    cbApplyExit(exit);
+    return;
+  }
+  cbHideCover();
 
   // Keep the heartbeat alive while platform feed filters are active even with no
   // visible timer, so exposure-based usage timers keep accruing on the feed.
@@ -1645,8 +1861,6 @@ function handleSession(session) {
   } else {
     ensureHeartbeat();
   }
-
-  if (shouldExitPage) attemptExitPage();
 }
 
 function scheduleRefreshSession(delayMs = 100) {
@@ -4061,6 +4275,11 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
     if (!message || typeof message !== "object") return false;
     if (message.type === "custom-timers-refresh") {
       scheduleRefreshSession(0);
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === "cover-media") {
+      if (message.paused) cbPauseAllMedia();
       sendResponse({ ok: true });
       return true;
     }
