@@ -2136,7 +2136,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   // when a block window starts must get covered now).
   cbCoverStateReady
     .then(() => syncBlockingRules())
-    .then(() => broadcastSessionRefresh())
+    .then(() => cbRecheckEnforcement())
     .catch((error) => {
       console.error("Failed to sync blocking rules after alarm.", error);
     });
@@ -2203,8 +2203,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         cbPausePasses.set(tabId, { host, until: Date.now() + PAUSE_PASS_MS });
         cbSaveCoverState();
         sendResponse({ ok: true });
-        // The pass's end is a transition: the alarm re-checks the open page then.
+        // The pass's end is a transition: the alarm re-checks the open page
+        // then; the recheck records the pass so its end reads as a change.
         syncBlockingRules().catch(() => {});
+        cbScheduleRecheck();
       });
       return true;
     }
@@ -3403,6 +3405,71 @@ function scheduleCustomPanelRefreshBroadcast(delayMs = 100, groupIds = []) {
       try { console.warn("[CustomBlocker] custom panel refresh broadcast failed", error); } catch (_) {}
     });
   }, delayMs);
+}
+
+// ── Push on change (owner 2026-09-25) ──────────────────────────────────────
+// The worker keeps one small state — which groups enforce right now, their
+// snooze phase, and the live pause passes — and asks open pages to re-check
+// only when that state or a group's definition changes. Pages no longer
+// re-ask on every storage write (usage is saved several times a second) nor
+// poll while covered; the time tick only counts time. Elements stay the
+// page's business: on a push it re-applies the rules to its own content.
+let cbEnforcementSignature = null;
+let cbRecheckTimer = null;
+let cbRecheckDefinition = false;
+
+function cbGroupEnforcing(group, usageTimersMs, groupSnoozes, now) {
+  if (!group || !group.enabled || !isGroupActiveNow(group, now) || getActiveSnooze(group.id, groupSnoozes, now)) return false;
+  if (group.groupType === "custom") return true;
+  return isPlatformBlockEnforcing(group, usageTimersMs);
+}
+
+function cbEnforcementState(groups, usageTimersMs, groupSnoozes, now) {
+  return JSON.stringify({
+    groups: groups.map((group) => [
+      group.id,
+      cbGroupEnforcing(group, usageTimersMs, groupSnoozes, now),
+      getSnoozePhase(groupSnoozes[group.id], now)
+    ]),
+    passes: [...cbPausePasses.entries()].filter(([, pass]) => pass && pass.until > now).map(([tabId, pass]) => [tabId, pass.host])
+  });
+}
+
+// Recomputes the state; pushes when it (or, with `definitionChanged`, a
+// group's definition) changed. Returns whether it pushed.
+async function cbRecheckEnforcement({ definitionChanged = false } = {}) {
+  await cbCoverStateReady;
+  const now = Date.now();
+  const { groups, usageTimersMs, groupSnoozes } = await getState();
+  const next = cbEnforcementState(groups, usageTimersMs, groupSnoozes, now);
+  const changed = definitionChanged || next !== cbEnforcementSignature;
+  cbEnforcementSignature = next;
+  if (changed) await broadcastSessionRefresh();
+  return changed;
+}
+
+// Coalesces a burst of inputs (several storage keys written together) into
+// one recheck.
+function cbScheduleRecheck({ definitionChanged = false } = {}) {
+  if (definitionChanged) cbRecheckDefinition = true;
+  if (cbRecheckTimer !== null) return;
+  cbRecheckTimer = setTimeout(() => {
+    const definition = cbRecheckDefinition;
+    cbRecheckDefinition = false;
+    cbRecheckTimer = null;
+    cbRecheckEnforcement({ definitionChanged: definition }).catch(() => {});
+  }, 50);
+}
+
+if (chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes[BLOCKED_GROUPS_KEY] || changes[CB_GLOBAL_SETTINGS_KEY]) {
+      cbScheduleRecheck({ definitionChanged: true });
+    } else if (changes[USAGE_TIMERS_KEY] || changes[USAGE_RESET_AT_KEY] || changes[USAGE_BUCKETS_KEY] || changes[GROUP_SNOOZES_KEY]) {
+      cbScheduleRecheck();
+    }
+  });
 }
 
 // Asks every open page to re-fetch its session (cover, timers, feed filters).

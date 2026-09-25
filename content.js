@@ -1509,13 +1509,11 @@ if (typeof window !== "undefined") window.cbBlockExit = cbBlockExit;
 // remembered or restored because nothing is lost. The same cover carries the
 // pause countdown (intention gate) and the snooze button.
 const CB_COVER_ID = "cb-vault-cover";
-const CB_COVER_POLL_MS = 3000;
 const CB_SNOOZE_CONFIRM_INTERVAL_MS = 5000;
 
 const cbCover = {
   dialog: null,
   exit: null,
-  pollId: null,
   countdownId: null,
   confirmId: null,
   inerted: [],
@@ -1629,7 +1627,6 @@ function cbShowCover(exit) {
         if (cbCover.countdownLeft === 0 && cbCover.countdownId !== null) { window.clearInterval(cbCover.countdownId); cbCover.countdownId = null; }
       }, 1000);
     }
-    cbCover.pollId = window.setInterval(() => { if (!document.hidden) refreshSession(); }, CB_COVER_POLL_MS);
   } else if (previous && (previous.action !== exit.action || previous.groupId !== exit.groupId)) {
     // A different group or action took over: the countdown restarts, the
     // confirmation flow does not survive.
@@ -1649,7 +1646,7 @@ function cbReopenCover() {
 function cbHideCover() {
   if (!cbCover.dialog) return;
   cbCover.exit = null;
-  for (const id of ["pollId", "countdownId", "confirmId"]) {
+  for (const id of ["countdownId", "confirmId"]) {
     if (cbCover[id] !== null) { window.clearInterval(cbCover[id]); cbCover[id] = null; }
   }
   if (cbCover.watcher) { cbCover.watcher.disconnect(); cbCover.watcher = null; }
@@ -1883,7 +1880,7 @@ function handleSession(session) {
   updateSurfaceHides(session.surfaceHides);
 
   // A covered page is not being used: no visible-page time accrues under the
-  // cover; the cover's own poll keeps asking until the block lifts.
+  // cover. The worker pushes "session-refresh" when the block lifts.
   if (shouldExitPage) {
     stopHeartbeat();
     cbApplyExit(exit);
@@ -2075,16 +2072,9 @@ if (/^https?:$/i.test(location.protocol)) {
         return;
       }
       if (areaName !== "local") return;
+      // Block state is pushed by the worker when it changes ("session-refresh");
+      // only the quick-add button follows storage directly.
       if (changes.globalSettings || changes.quickAddGroupId || changes.blockedGroups) cbRefreshQuickAdd();
-      if (
-        !changes.blockedGroups &&
-        !changes.usageTimersMs &&
-        !changes.usageResetAtMs &&
-        !changes.groupSnoozes
-      ) {
-        return;
-      }
-      scheduleRefreshSession();
     });
   } catch (error) {
     if (isContextInvalidatedError(error)) shutdownContentScript();
