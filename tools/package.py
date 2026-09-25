@@ -94,7 +94,6 @@ VAULT_CLASSIFIER_FILES = [
     "local-hub-auth.js",
     "vault-classifier-collector-core.js",
     "vault-classifier-youtube.js",
-    "vault-classifier-tiktok.js",
     "vault-classifier-facebook.js",
     "vault-classifier-instagram.js",
     "vault-classifier-twitch.js",

@@ -39,7 +39,7 @@ const context = vm.createContext({
   chrome,
   console: { debug(...parts) { debugLogs.push(parts.join(" ")); }, error() {} },
   document,
-  location: { href: "https://www.tiktok.com/@visible/video/123", hostname: "www.tiktok.com", pathname: "/@visible/video/123" },
+  location: { href: "https://x.com/visible/status/123", hostname: "x.com", pathname: "/visible/status/123" },
   MutationObserver: class {
     constructor(callback) { this.callback = callback; observers.push(this); }
     observe(_root, options) { this.options = options; }
@@ -85,15 +85,15 @@ const matchingStatusRoot = Collector.matchingContentRoot("twitter", {
   querySelectorAll(selector) { return selector === "article" ? [unrelatedStatusRoot, requestedStatusRoot] : []; }
 }, ["article"], "https://x.com/visible/status/222", "https://x.com/visible/status/222");
 Collector.start({
-  platform: "tiktok",
-  matchesPage: (location) => location.hostname === "www.tiktok.com",
+  platform: "twitter",
+  matchesPage: (location) => location.hostname === "x.com",
   scan({ collect }) {
     collect({
       presentationRoot: feedRoot,
-      entryID: "tiktok:video:123",
-      sourceKind: "creator",
-      entryURL: "https://www.tiktok.com/@visible/video/123",
-      sourceURL: "https://www.tiktok.com/@visible",
+      entryID: "twitter:status:123",
+      sourceKind: "account",
+      entryURL: "https://x.com/visible/status/123",
+      sourceURL: "https://x.com/visible",
       sourceName: "Visible creator",
       title: "Visible short",
       sourceIconURL,
@@ -103,11 +103,11 @@ Collector.start({
   scanPage({ collect }) {
     collect({
       presentationRoot: pageRoot,
-      entryID: "tiktok:video:456",
+      entryID: "twitter:status:456",
       surface: "page",
-      sourceKind: "creator",
-      entryURL: "https://www.tiktok.com/@visible/video/456",
-      sourceURL: "https://www.tiktok.com/@visible",
+      sourceKind: "account",
+      entryURL: "https://x.com/visible/status/456",
+      sourceURL: "https://x.com/visible",
       sourceName: "Visible creator",
       title: "Visible page title",
       text: "Visible rendered description",
@@ -119,33 +119,33 @@ Collector.start({
 });
 
 setTimeout(() => {
-  sourceIconURL = "https://p16-sign-va.tiktokcdn.com/visible-source-icon.jpeg";
+  sourceIconURL = "https://pbs.twimg.com/profile_images/1/visible-source-icon.jpeg";
   observers.forEach((observer) => observer.callback([{ type: "attributes", target: { matches: (selector) => selector === "img, source" } }]));
 }, 350);
 
 setTimeout(() => {
   const collections = messages.filter((message) => message.type === "vault-classifier-collect");
   const diagnostics = messages.filter((message) => message.type === "vault-classifier-diagnostic");
-  const initial = collections.find((message) => message.entry?.entryID === "tiktok:video:123" && !message.entry?.evidence?.metadata?.sourceIconURL);
-  const enriched = collections.find((message) => message.entry?.entryID === "tiktok:video:123" && message.entry?.evidence?.metadata?.sourceIconURL);
-  const page = collections.find((message) => message.entry?.entryID === "tiktok:video:456");
+  const initial = collections.find((message) => message.entry?.entryID === "twitter:status:123" && !message.entry?.evidence?.metadata?.sourceIconURL);
+  const enriched = collections.find((message) => message.entry?.entryID === "twitter:status:123" && message.entry?.evidence?.metadata?.sourceIconURL);
+  const page = collections.find((message) => message.entry?.entryID === "twitter:status:456");
   const passed = Boolean(
     initial
-    && enriched?.entry?.evidence?.metadata?.sourceIconURL === "https://p16-sign-va.tiktokcdn.com/visible-source-icon.jpeg"
+    && enriched?.entry?.evidence?.metadata?.sourceIconURL === "https://pbs.twimg.com/profile_images/1/visible-source-icon.jpeg"
     && page?.entry?.surface === "page"
     && page?.entry?.evidence?.text === "Visible rendered description"
     && diagnostics.some((message) => message.event === "collector-started")
     && diagnostics.some((message) => message.event === "page-evidence-ready")
-    // TikTok joined the pill platforms on 2026-09-23: the feed card and the page's
-    // own entry each get exactly one pill, keyed by the video, routed as card/page.
+    // A pill platform: the feed card and the page's own entry each get exactly
+    // one pill, keyed by the entry, routed as card/page.
     // (The feed card is re-observed on its enrichment delivery; tag-ui dedupes by key.)
-    && tagPresentations.some((value) => value.root === feedRoot && value.kind === "card" && value.entryID === "tiktok:video:123")
-    && tagPresentations.some((value) => value.root === pageRoot && value.kind === "page" && value.entryID === "tiktok:video:456")
+    && tagPresentations.some((value) => value.root === feedRoot && value.kind === "card" && value.entryID === "twitter:status:123")
+    && tagPresentations.some((value) => value.root === pageRoot && value.kind === "page" && value.entryID === "twitter:status:456")
     && tagPresentations.every((value) => value.root === feedRoot || value.root === pageRoot)
     && matchingStatusRoot === requestedStatusRoot
     && observers.some((observer) => observer.options?.attributeFilter?.includes("src"))
-    && debugLogs.includes("[VaultClassifier:source-icon] tiktok:debug-ready")
-    && debugLogs.includes("[VaultClassifier:source-icon] tiktok:source-ready")
+    && debugLogs.includes("[VaultClassifier:source-icon] twitter:debug-ready")
+    && debugLogs.includes("[VaultClassifier:source-icon] twitter:source-ready")
     && debugLogs.every((entry) => !/Visible|123|source-icon\.jpeg/.test(entry))
   );
   if (passed) {

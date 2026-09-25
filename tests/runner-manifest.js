@@ -46,7 +46,6 @@ const genericCollectorPresent = (manifest.content_scripts || []).some((entry) =>
 );
 const dedicatedCollectorScripts = [
   "vault-classifier-collector-core.js",
-  "vault-classifier-tiktok.js",
   "vault-classifier-facebook.js",
   "vault-classifier-instagram.js",
   "vault-classifier-twitch.js",
