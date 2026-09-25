@@ -80,9 +80,9 @@ const groups = [
   base({ id: "cu2", groupType: "custom", name: "Custom bare", blockingRulesText: "(m,d,n,h,mi,u,helpers) => false" }),
   base({ id: "off1", groupType: "youtube", name: "Disabled", enabled: false, sourceMode: "all" }),
   base({ id: "al1", groupType: "youtube", name: "Legacy allow", effect: "allow", sourceMode: "include", sources: ["@x"] }),
-  base({ id: "tm1", groupType: "bilibili", name: "Count-up", mode: "timer", sourceMode: "all", platformTagMode: "include", platformTags: [{ name: "Gaming" }] }),
+  base({ id: "tm1", groupType: "bilibili", name: "Timed tags", mode: "after-minutes", sourceMode: "all", platformTagMode: "include", platformTags: [{ name: "Gaming" }] }),
   base({ id: "sch1", groupType: "youtube", name: "Weekend only", activeDays: ["saturday", "sunday"], sourceMode: "all" }),
-  base({ id: "site3", groupType: "site", name: "Timer site", mode: "timer", sites: ["news.ycombinator.com"] })
+  base({ id: "site3", groupType: "site", name: "Timed site", mode: "after-minutes", sites: ["news.ycombinator.com"] })
 ];
 
 const pages = [

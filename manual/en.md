@@ -66,7 +66,7 @@ Disabled groups are retained but do not participate in normal matching, timers, 
 | --- | --- |
 | Name | Non-empty, trimmed, and unique case-insensitively within this endpoint. The bridge also identifies linkable groups by name and type, so stable names matter. |
 | Enabled | Enables or disables normal matching. |
-| Behaviour | Instant block, block after an allowance, or timer/count-up. Custom groups use their own rule rather than this normal behaviour selector. |
+| Behaviour | Instant block or block after an allowance. Custom groups use their own rule rather than this normal behaviour selector. |
 | Allowed minutes | Positive number used by the block-after-allowance behaviour. New groups default to 15 minutes. |
 | Reset interval hours | Positive number used by timed normal groups. New groups default to 24 hours. |
 | Active days | Monday through Sunday. A normal group is inactive when the current local weekday is not selected. |
@@ -84,7 +84,6 @@ The normal editor offers three behaviours:
 | --- | --- |
 | Block immediately | Once the group is active and matches, the normal page-block decision is immediate. |
 | Block after a number of minutes | Matching visible-page time accrues toward the configured allowance. When the allowance is exhausted, the normal group blocks until its usage period is reset or the group is otherwise inactive/snoozed. |
-| Timer (count up, no block) | Matching visible-page time is recorded and can be displayed. This mode never blocks merely because its timer reaches a value. |
 
 Timed usage is based on visible-page time. It is not intended to charge time while a page is hidden in a background tab. The reset interval is a rolling policy interval for the normal timed group. Normal timers are independent by group.
 
@@ -905,7 +904,7 @@ Use this checklist when auditing a release or reproducing behaviour:
 2. For normal groups, confirm active weekday, valid local time window, no active snooze, and non-frozen editing state.
 3. For a Site group, test exact host, subdomain, a path entry against a sibling path, and (for allowlist) a host outside the list.
 4. For a platform group, separately test page-level matching, targeted item/card matching, author mode, content-form mode, and each enabled surface hide.
-5. For timed normal groups, verify visible-page accrual, allowance expiry or count-up non-blocking behaviour, and reset interval.
+5. For timed normal groups, verify visible-page accrual, allowance expiry, and reset interval.
 6. For Custom rules, run syntax check, Run, inspect handler count/logs, test every registered built-in event, then test a reload/navigation.
 7. Test each Custom timer at scope boundaries and at zero; verify that any block is explicit in the rule.
 8. Test panels with each control value, disabled state, submit/cancel/close action, and panelEvent handler.

@@ -2336,14 +2336,15 @@ function createDefaultDays() {
 // normalizeGroupType now comes from platform-profiles.js.
 
 function normalizeBlockingMode(value) {
-  if (value === "after-minutes" || value === "timer") {
-    return value;
-  }
+  if (value === "after-minutes") return value;
+  // Crash guard: the count-up "timer" mode was removed 2026-09-25; such a
+  // group carries on as a normal timed group with its stored allowance.
+  if (value === "timer") return "after-minutes";
   return "instant";
 }
 
 function isTimedBlockingMode(mode) {
-  return mode === "after-minutes" || mode === "timer";
+  return mode === "after-minutes";
 }
 
 function getGroupTypeLabel(groupType) {
@@ -4274,10 +4275,7 @@ function collectSelectedDays() {
 
 function getEffectiveGroup(group, draft) {
   const mode = normalizeBlockingMode(draft?.mode ?? group.mode);
-  const allowedMinutes =
-    mode === "timer"
-      ? group.resetIntervalHours * 60
-      : parseAllowedMinutes(draft?.allowedMinutes) ?? group.allowedMinutes;
+  const allowedMinutes = parseAllowedMinutes(draft?.allowedMinutes) ?? group.allowedMinutes;
   const resetIntervalHours =
     parseResetIntervalHours(draft?.resetIntervalHours) ?? group.resetIntervalHours;
   return {
@@ -4374,10 +4372,6 @@ function getGroupMetaText(group, draft, now = Date.now()) {
     pieces.push(`${t("meta.snoozeCooldown")} ${formatDurationMs(snooze.cooldownUntilMs - now)}`);
   } else if (effectiveGroup.mode === "instant") {
     pieces.push(t("meta.instantBlock"));
-  } else if (effectiveGroup.mode === "timer") {
-    // Count-up stopwatch: show elapsed time, not a countdown.
-    const usageState = getDisplayUsageState(effectiveGroup, now);
-    pieces.push(`${formatDurationMs(usageState.usedMs)} ${t("meta.elapsed")}`);
   } else {
     const remainingMs = Math.max(
       effectiveGroup.allowedMinutes * MS_PER_MINUTE - getDisplayUsageState(effectiveGroup, now).usedMs,
@@ -4586,20 +4580,11 @@ function updateUsageSummary(group, draft, now = Date.now()) {
     hours: formatHours(displayGroup.resetIntervalHours),
     suffix: displayGroup.resetIntervalHours === 1 ? "" : "s"
   };
-  let text;
-  if (mode === "timer") {
-    // Count-up stopwatch: show elapsed time used this window.
-    text = t(rolling ? "timed.summaryTimerRolling" : "timed.summaryTimer", {
-      ...vars,
-      time: formatDurationMs(usageState.usedMs)
-    });
-  } else {
-    const remainingMs = Math.max(displayGroup.allowedMinutes * MS_PER_MINUTE - usageState.usedMs, 0);
-    text = t(rolling ? "timed.summaryRolling" : "timed.summary", {
-      ...vars,
-      time: formatDurationMs(remainingMs)
-    });
-  }
+  const remainingMs = Math.max(displayGroup.allowedMinutes * MS_PER_MINUTE - usageState.usedMs, 0);
+  let text = t(rolling ? "timed.summaryRolling" : "timed.summary", {
+    ...vars,
+    time: formatDurationMs(remainingMs)
+  });
   if (Number.isFinite(usageState.nextResetAtMs)) {
     text += " " + t(rolling ? "timed.nextReturn" : "timed.nextReset", {
       time: formatResetClock(usageState.nextResetAtMs, now)
@@ -4982,7 +4967,6 @@ function renderEditor(now = Date.now()) {
 
   blockModeSection.classList.toggle("hidden", isCustomGroup);
   timedSettings.classList.toggle("hidden", !isTimedMode || isCustomGroup);
-  allowedMinutesRow.classList.toggle("hidden", selectedMode === "timer");
   strictFreezeSettings.classList.toggle("hidden", freezeModeField.value !== "strict");
   customSettingsCard.classList.toggle("hidden", !isCustomGroup);
   if (platformRulesCard) {
@@ -5023,7 +5007,7 @@ function renderEditor(now = Date.now()) {
   groupNameField.disabled = !editable;
   groupEnabledField.disabled = !editable;
   blockModeField.disabled = !editable || isCustomGroup;
-  allowedMinutesField.disabled = !editable || !isTimedMode || selectedMode === "timer" || isCustomGroup;
+  allowedMinutesField.disabled = !editable || !isTimedMode || isCustomGroup;
   resetIntervalHoursField.disabled = !editable || !isTimedMode || isCustomGroup;
   resetAtMidnightField.disabled = !editable || !isTimedMode || isCustomGroup;
   rollingLimitField.disabled = !editable || !isTimedMode || isCustomGroup;

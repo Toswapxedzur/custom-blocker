@@ -278,21 +278,17 @@ function siteEntryMatches(hostname, pathname, entry) {
 // normalizeDiscordTargetInput are provided as globals from there.
 
 function normalizeBlockingMode(value) {
-  if (value === "after-minutes" || value === "timer") return value;
+  if (value === "after-minutes") return value;
+  // Crash guard for stores written before 2026-09-25: the count-up "timer"
+  // mode is gone (Activity tracks usage on its own); such a group keeps its
+  // allowance and reset settings as a normal timed group.
+  if (value === "timer") return "after-minutes";
   return "instant";
 }
 
-// A "timed" mode owns a usage timer that accrues while the filter matches.
-// Both the count-down allowance ("after-minutes") and the count-up stopwatch
-// ("timer") accrue and surface an overlay item.
+// The timed mode owns a usage timer that accrues while the filter matches and
+// blocks once the allowance is spent.
 function isTimedBlockingMode(mode) {
-  return mode === "after-minutes" || mode === "timer";
-}
-
-// A "blocking timed" mode actually blocks once its threshold is reached.
-// "timer" is now a pure count-up stopwatch — it tracks time but never blocks —
-// so only "after-minutes" qualifies here.
-function isBlockingTimedMode(mode) {
   return mode === "after-minutes";
 }
 
@@ -829,7 +825,7 @@ function getBlockingTargets(groups, usageTimersMs, groupSnoozes, now) {
     const blocking = getRelevantSiteGroupsForUrl(host, path || "/", groups, groupSnoozes, now).filter(
       (group) =>
         group.mode === "instant" ||
-        (isBlockingTimedMode(group.mode) && (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group))
+        (isTimedBlockingMode(group.mode) && (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group))
     );
     const chosen = blocking.find((group) => typeof group.fallbackUrl === "string" && group.fallbackUrl.trim());
     targets.set(entry, chosen ? cbBlockExit(chosen.fallbackUrl).navigate : "");
@@ -838,9 +834,7 @@ function getBlockingTargets(groups, usageTimersMs, groupSnoozes, now) {
 }
 
 function getAllowedMs(group) {
-  return group.mode === "timer"
-    ? getResetIntervalMs(group)
-    : group.allowedMinutes * MS_PER_MINUTE;
+  return group.allowedMinutes * MS_PER_MINUTE;
 }
 
 function getResetIntervalMs(group) {
@@ -1200,18 +1194,12 @@ function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now, usa
     .filter((group) => isTimedBlockingMode(group.mode))
     .map((group) => {
       const usedMs = usageTimersMs[group.id] ?? 0;
-      const isBlockingMode = isBlockingTimedMode(group.mode);
-      const remainingMs = isBlockingMode ? Math.max(getAllowedMs(group) - usedMs, 0) : Number.POSITIVE_INFINITY;
-      // Count-down (after-minutes) shows the remaining allowance; the count-up
-      // "timer" stopwatch shows elapsed time instead.
-      const countsUp = group.mode === "timer";
-      const displayMs = countsUp ? usedMs : remainingMs;
+      const remainingMs = Math.max(getAllowedMs(group) - usedMs, 0);
       return {
         id: group.id,
         name: group.name,
         groupType: group.groupType,
         mode: group.mode,
-        countsUp,
         usedMs,
         allowedMinutes: group.allowedMinutes,
         resetIntervalHours: group.resetIntervalHours,
@@ -1223,17 +1211,12 @@ function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now, usa
           ? cbNextReturnMs(usageBucketsMs[group.id], group, now)
           : cbNextResetMs(cbPeriodStartMs(usageResetAtMs[group.id] ?? now, group, now), group, now),
         remainingMs,
-        displayMs,
-        blocksNow: isBlockingMode && usedMs >= getAllowedMs(group)
+        displayMs: remainingMs,
+        blocksNow: usedMs >= getAllowedMs(group)
       };
     })
-    // Count-up items sort after count-down ones; within each, by display value.
-    .sort((left, right) => {
-      if (left.countsUp !== right.countsUp) return left.countsUp ? 1 : -1;
-      const leftKey = Number.isFinite(left.displayMs) ? left.displayMs : Number.POSITIVE_INFINITY;
-      const rightKey = Number.isFinite(right.displayMs) ? right.displayMs : Number.POSITIVE_INFINITY;
-      return leftKey - rightKey || left.name.localeCompare(right.name);
-    });
+    // Least time left first.
+    .sort((left, right) => left.remainingMs - right.remainingMs || left.name.localeCompare(right.name));
 }
 
 // One-time migration (2026-09-24): the global "default fallback URL" setting
@@ -1447,7 +1430,7 @@ function getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now) {
     if (
       relevantGroups.some(
         (group) =>
-          isBlockingTimedMode(group.mode) && (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group)
+          isTimedBlockingMode(group.mode) && (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group)
       )
     ) {
       blockedEntries.push(entry);
@@ -1459,11 +1442,9 @@ function getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now) {
 
 // Whether a platform group should actually hide matched content right now
 // (vs. merely measuring exposure for its usage timer): instant always blocks,
-// "after-minutes" blocks only after its allowance is spent, and the count-up
-// "timer" stopwatch never blocks.
+// "after-minutes" only after its allowance is spent.
 function isPlatformBlockEnforcing(group, usageTimersMs) {
   if (group.mode === "instant") return true;
-  if (!isBlockingTimedMode(group.mode)) return false;
   return (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group);
 }
 
@@ -1536,7 +1517,7 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
     );
     if (itemLines.length === 0) continue;
     // `enforce` decides whether matched cards are actually hidden: instant
-    // always, after-minutes only past its allowance, count-up "timer" never.
+    // always, after-minutes only past its allowance.
     const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
     for (const line of itemLines) {
       const platform = line.platform;
@@ -1686,7 +1667,7 @@ function buildPageSession(
   if (blockedNow) {
     const blockingGroups = relevantGroups.filter((group) => {
       if (group.mode === "instant") return true;
-      if (isBlockingTimedMode(group.mode)) {
+      if (isTimedBlockingMode(group.mode)) {
         const usedMs = usageTimersMs[group.id] ?? 0;
         return usedMs >= getAllowedMs(group);
       }
@@ -1897,10 +1878,9 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     const thresholdMs = getAllowedMs(group);
     let nextValue;
     if (group.rollingLimit) {
-      // Rolling limit: book the time into this minute (capped at the allowance
-      // for a blocking group, like the fixed budget); the timer is the total
-      // still inside the window.
-      const room = isBlockingTimedMode(group.mode) ? Math.max(0, thresholdMs - currentValue) : boundedElapsedMs;
+      // Rolling limit: book the time into this minute (capped at the allowance,
+      // like the fixed budget); the timer is the total still inside the window.
+      const room = Math.max(0, thresholdMs - currentValue);
       const added = Math.min(boundedElapsedMs, room);
       const buckets = { ...(nextBuckets[group.id] ?? {}) };
       if (added > 0) {
@@ -1912,16 +1892,13 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
       bucketsChanged = true;
       nextValue = cbBucketsUsedMs(nextBuckets[group.id]);
     } else {
-      nextValue =
-        isBlockingTimedMode(group.mode)
-          ? Math.min(currentValue + boundedElapsedMs, thresholdMs)
-          : Math.max(0, currentValue + boundedElapsedMs);
+      nextValue = Math.min(currentValue + boundedElapsedMs, thresholdMs);
     }
     if (nextValue !== currentValue) {
       nextTimers[group.id] = nextValue;
       changed = true;
     }
-    if (isBlockingTimedMode(group.mode) && nextValue >= thresholdMs) reachedLimit = true;
+    if (nextValue >= thresholdMs) reachedLimit = true;
   }
 
   if (changed || bucketsChanged) {
