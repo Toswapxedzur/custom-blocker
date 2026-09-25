@@ -1779,6 +1779,11 @@ async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes,
     }
   }
 
+  // A pause pass ending re-covers the page it let through.
+  for (const pass of cbPausePasses.values()) {
+    if (pass?.until > now) candidateTimes.push(pass.until);
+  }
+
   await chrome.alarms.clear(TRANSITION_ALARM_NAME);
   if (candidateTimes.length === 0) return;
   await chrome.alarms.create(TRANSITION_ALARM_NAME, { when: Math.min(...candidateTimes) });
@@ -1850,10 +1855,13 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
   );
   const accrualGroups = relevantTimedGroups.concat(exposedTimedGroups);
 
-  if (
-    accrualGroups.length === 0 ||
-    relevantGroups.some((group) => group.mode === "instant")
-  ) {
+  // A page covered by an instant group accrues nothing. A pause the user has
+  // already let through covers nothing, so it must not stop other groups'
+  // budgets on the same page.
+  const coveredByInstant = relevantGroups.some(
+    (group) => group.mode === "instant" && !(pausePassed && cbGroupPageAction(group, pageContext) === "pause")
+  );
+  if (accrualGroups.length === 0 || coveredByInstant) {
     return buildPageSession(
       pageContext,
       groups,
@@ -2120,9 +2128,15 @@ chrome.action.onClicked.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== TRANSITION_ALARM_NAME) return;
-  syncBlockingRules().catch((error) => {
-    console.error("Failed to sync blocking rules after alarm.", error);
-  });
+  // A schedule window, snooze, budget period or pause pass just changed:
+  // re-check every open page too, not only the next navigation (a tab open
+  // when a block window starts must get covered now).
+  cbCoverStateReady
+    .then(() => syncBlockingRules())
+    .then(() => broadcastSessionRefresh())
+    .catch((error) => {
+      console.error("Failed to sync blocking rules after alarm.", error);
+    });
 });
 
 // Activity log (browser feeders): drive the flush/settings-refresh alarm and
@@ -2182,11 +2196,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = sender?.tab?.id ?? null;
     const host = hostnameOf(sender?.tab?.url || sender?.url || "");
     if (typeof tabId === "number" && host) {
-      cbPausePasses.set(tabId, { host, until: Date.now() + PAUSE_PASS_MS });
-      sendResponse({ ok: true });
-    } else {
-      sendResponse({ ok: false });
+      cbCoverStateReady.then(() => {
+        cbPausePasses.set(tabId, { host, until: Date.now() + PAUSE_PASS_MS });
+        cbSaveCoverState();
+        sendResponse({ ok: true });
+        // The pass's end is a transition: the alarm re-checks the open page then.
+        syncBlockingRules().catch(() => {});
+      });
+      return true;
     }
+    sendResponse({ ok: false });
     return false;
   }
 
@@ -2219,7 +2238,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "get-page-session") {
     const tabId = sender?.tab?.id ?? null;
     const tabUrl = sender?.tab?.url || sender?.url || "";
-    getPageSession(message.pageContext ?? message.hostname, cbPausePassActive(tabId, hostnameOf(tabUrl)))
+    cbCoverStateReady
+      .then(() => getPageSession(message.pageContext ?? message.hostname, cbPausePassActive(tabId, hostnameOf(tabUrl))))
       .then(async (payload) => {
         // Dispatch a zero-elapsed heartbeat so the initial session
         // response includes any custom timer items whose domain
@@ -2295,7 +2315,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ? message.exposedGroupIds
       : [];
     queueUsageTimerUpdate(() =>
-      applyElapsedTime(message.pageContext ?? message.hostname, heartbeatElapsedMs, heartbeatExposedIds, cbPausePassActive(tabId, hostnameOf(tabUrl)))
+      cbCoverStateReady.then(() =>
+        applyElapsedTime(message.pageContext ?? message.hostname, heartbeatElapsedMs, heartbeatExposedIds, cbPausePassActive(tabId, hostnameOf(tabUrl)))
+      )
     )
       .then(async (payload) => {
         // Drive custom-rule timers from the same visibility-aware
@@ -2454,9 +2476,22 @@ async function cbQuickAdd(url) {
     line = { surface: "site", platform: null, action: "block", sites: [], sitesExcept: false };
     scopes.push(line);
   }
-  const sites = Array.isArray(line.sites) ? [...line.sites] : [];
-  const added = !sites.includes(entry);
-  if (added) sites.push(entry);
+  // "+" always means "block this page", so it can only tighten a group (and is
+  // therefore allowed on a locked one). A blocklist gains the entry; an
+  // "everything except" list loses the entries that let this page through.
+  const page = new URL(url);
+  const hostname = page.hostname.replace(/^www\./, "").toLowerCase();
+  let sites = Array.isArray(line.sites) ? [...line.sites] : [];
+  let added = false;
+  let removed = [];
+  if (line.sitesExcept) {
+    removed = sites.filter((site) => siteEntryMatches(hostname, page.pathname, site));
+    sites = sites.filter((site) => !removed.includes(site));
+  } else if (!sites.includes(entry)) {
+    sites.push(entry);
+    added = true;
+  }
+  if (!added && removed.length === 0) return { entry, added, removed, groupName: group.name };
   line.sites = sites;
   const [next] = sanitizeGroups([{ ...group, scopes }]);
   const nextGroups = groups.map((item, at) => (at === index ? next : item));
@@ -2466,7 +2501,7 @@ async function cbQuickAdd(url) {
   try {
     cbConnection.sendWS({ kind: "group-sync", program: cbDetectProgramId(), groupName: next.name, ts: Date.now(), scopes: next.scopes });
   } catch (_) {}
-  return { entry, added, groupName: next.name };
+  return { entry, added, removed, groupName: next.name };
 }
 
 // ── In-place cover support ──────────────────────────────────────────────────
@@ -2474,6 +2509,31 @@ async function cbQuickAdd(url) {
 const cbPausePasses = new Map();
 // Tabs this extension muted for a cover (never unmute a tab the user muted).
 const cbMutedTabs = new Set();
+// Chrome stops an idle worker while a covered or passed tab sits in the
+// background; both maps are mirrored to session storage so a new worker still
+// honours the pass and still unmutes the tab when its cover lifts. Handlers
+// that read them wait for this.
+const CB_COVER_STATE_KEY = "cbCoverState";
+const cbCoverStateReady = (async () => {
+  try {
+    if (!chrome.storage?.session) return;
+    const stored = (await chrome.storage.session.get(CB_COVER_STATE_KEY))?.[CB_COVER_STATE_KEY];
+    const now = Date.now();
+    for (const [tabId, pass] of Array.isArray(stored?.passes) ? stored.passes : []) {
+      if (pass && pass.until > now && !cbPausePasses.has(Number(tabId))) cbPausePasses.set(Number(tabId), pass);
+    }
+    for (const tabId of Array.isArray(stored?.muted) ? stored.muted : []) cbMutedTabs.add(Number(tabId));
+  } catch (_) {}
+})();
+
+function cbSaveCoverState() {
+  try {
+    if (!chrome.storage?.session) return;
+    chrome.storage.session
+      .set({ [CB_COVER_STATE_KEY]: { passes: [...cbPausePasses.entries()], muted: [...cbMutedTabs] } })
+      .catch(() => {});
+  } catch (_) {}
+}
 
 function cbPausePassActive(tabId, hostname) {
   if (typeof tabId !== "number" || !hostname) return false;
@@ -2481,21 +2541,25 @@ function cbPausePassActive(tabId, hostname) {
   if (!pass) return false;
   if (pass.until <= Date.now() || pass.host !== hostname) {
     cbPausePasses.delete(tabId);
+    cbSaveCoverState();
     return false;
   }
   return true;
 }
 
 async function cbSetTabCovered(tabId, covered) {
+  await cbCoverStateReady;
   try {
     if (covered) {
       const tab = await chrome.tabs.get(tabId);
       if (!tab?.mutedInfo?.muted) {
         await chrome.tabs.update(tabId, { muted: true });
         cbMutedTabs.add(tabId);
+        cbSaveCoverState();
       }
     } else if (cbMutedTabs.has(tabId)) {
       cbMutedTabs.delete(tabId);
+      cbSaveCoverState();
       await chrome.tabs.update(tabId, { muted: false });
     }
   } catch (_) {}
@@ -3319,7 +3383,7 @@ function scheduleCustomTimerRefreshBroadcast(delayMs = 100) {
   }
   customTimerRefreshTimeoutId = setTimeout(() => {
     customTimerRefreshTimeoutId = null;
-    broadcastCustomTimerRefresh().catch((error) => {
+    broadcastSessionRefresh().catch((error) => {
       try { console.warn("[CustomBlocker] custom timer refresh broadcast failed", error); } catch (_) {}
     });
   }, delayMs);
@@ -3347,7 +3411,8 @@ function scheduleCustomPanelRefreshBroadcast(delayMs = 100, groupIds = []) {
   }, delayMs);
 }
 
-async function broadcastCustomTimerRefresh() {
+// Asks every open page to re-fetch its session (cover, timers, feed filters).
+async function broadcastSessionRefresh() {
   if (!chrome.tabs || !chrome.tabs.query) return;
   const tabs = await chrome.tabs.query({});
   await Promise.all(
@@ -3355,7 +3420,7 @@ async function broadcastCustomTimerRefresh() {
       if (!tab || typeof tab.id !== "number") return;
       const url = tab.url || tab.pendingUrl || "";
       if (url && !/^https?:/i.test(url)) return;
-      await trySendApply(tab.id, { type: "custom-timers-refresh" });
+      await trySendApply(tab.id, { type: "session-refresh" });
     })
   );
 }
@@ -3641,8 +3706,7 @@ if (chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener(async (tabId, _info) => {
     const previous = previousTabUrls.get(tabId);
     previousTabUrls.delete(tabId);
-    cbPausePasses.delete(tabId);
-    cbMutedTabs.delete(tabId);
+    if (cbPausePasses.delete(tabId) | cbMutedTabs.delete(tabId)) cbSaveCoverState();
     // The tab is gone — any apply messages we queued for it will never
     // be drained, so clear that entry too to keep both in-memory and
     // session-persisted state from leaking forever.

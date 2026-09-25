@@ -106,11 +106,10 @@ assert("retains readable evidence after frame trimming", fitted && Boolean(fitte
 assert("parses canonical YouTube watch and Shorts IDs", VC.youtubeVideoIDFromURL("/watch?v=dQw4w9WgXcQ", "https://www.youtube.com/feed") === "dQw4w9WgXcQ" && VC.youtubeVideoIDFromURL("https://m.youtube.com/shorts/dQw4w9WgXcQ") === "dQw4w9WgXcQ");
 assert("rejects lookalike YouTube origins", VC.youtubeVideoIDFromURL("https://youtube.com.evil/watch?v=dQw4w9WgXcQ") === null && !VC.isTrustedYouTubeURL("https://youtube.com.evil/watch?v=dQw4w9WgXcQ"));
 assert("recognizes only YouTube sender origins", VC.isTrustedYouTubeURL("https://www.youtube.com/watch?v=dQw4w9WgXcQ") && VC.isTrustedYouTubeURL("https://m.youtube.com/feed"));
-assert("recognizes only reviewed public-content collector origins", VC.isTrustedCollectionURL("tiktok", "https://www.tiktok.com/@creator/video/123") && VC.isTrustedCollectionURL("discord", "https://discord.com/channels/123456/234567/345678") && !VC.isTrustedCollectionURL("discord", "https://discord.com/channels/@me/234567") && !VC.isTrustedCollectionURL("tiktok", "https://tiktok.com.evil/@creator/video/123"));
+assert("recognizes only reviewed public-content collector origins", VC.isTrustedCollectionURL("instagram", "https://www.instagram.com/p/post-id/") && VC.isTrustedCollectionURL("discord", "https://discord.com/channels/123456/234567/345678") && !VC.isTrustedCollectionURL("discord", "https://discord.com/channels/@me/234567") && !VC.isTrustedCollectionURL("instagram", "https://instagram.com.evil/p/post-id/"));
 assert("accepts only reviewed source-icon asset hosts", VC.isTrustedSourceIconURL("youtube", "https://yt3.ggpht.com/channel-icon=s88") && VC.isTrustedSourceIconURL("twitter", "https://pbs.twimg.com/profile_images/1/icon.jpg") && VC.isTrustedSourceIconURL("reddit", "https://styles.redditmedia.com/t5_example/styles/communityIcon.png") && VC.isTrustedSourceIconURL("discord", "https://cdn.discordapp.com/icons/123456/icon.png") && !VC.isTrustedSourceIconURL("youtube", "https://images.example/icon.png") && !VC.isTrustedSourceIconURL("youtube", "http://yt3.ggpht.com/icon.png"));
 
 const collectorFixtures = [
-  ["tiktok", "creator", "https://www.tiktok.com/@creator/video/123", "https://www.tiktok.com/@creator"],
   ["facebook", "creator", "https://www.facebook.com/reel/123", "https://www.facebook.com/creator"],
   ["instagram", "creator", "https://www.instagram.com/p/post-id/", "https://www.instagram.com/creator/"],
   ["twitch", "creator", "https://www.twitch.tv/videos/123", "https://www.twitch.tv/creator"],
@@ -138,32 +137,32 @@ assert("retains a reviewed source URL for every source kind", sourceURLsStayAvai
 const discordCollectedEntry = collectedEntries.find((entry) => entry?.platform === "discord");
 assert("keeps Discord server messages server-scoped without post-media metadata", discordCollectedEntry?.sourceID === "discord:server:123456" && discordCollectedEntry?.evidence.metadata.sourceURL === "https://discord.com/channels/123456/234567" && discordCollectedEntry?.evidence.metadata.sourceIconURL === undefined);
 const sourceIconEntry = Collector.makeCollectedEntry({
-  platform: "tiktok",
+  platform: "instagram",
   sourceKind: "creator",
-  entryURL: "https://www.tiktok.com/@creator/video/123",
-  sourceURL: "https://www.tiktok.com/@creator",
-  sourceIconURL: "https://p16-sign-va.tiktokcdn.com/source-icon.jpeg",
+  entryURL: "https://www.instagram.com/p/post-id/",
+  sourceURL: "https://www.instagram.com/creator/",
+  sourceIconURL: "https://scontent.cdninstagram.com/source-icon.jpeg",
   title: "Visible creator entry",
   sourceName: "Visible creator"
 });
 const rejectedSourceIconEntry = Collector.makeCollectedEntry({
-  platform: "tiktok",
+  platform: "instagram",
   sourceKind: "creator",
-  entryURL: "https://www.tiktok.com/@creator/video/123",
-  sourceURL: "https://www.tiktok.com/@creator",
+  entryURL: "https://www.instagram.com/p/post-id/",
+  sourceURL: "https://www.instagram.com/creator/",
   sourceIconURL: "https://images.example/post-media.jpeg",
   title: "Visible creator entry",
   sourceName: "Visible creator"
 });
-assert("retains only a verified source icon URL", sourceIconEntry?.evidence.metadata.sourceIconURL === "https://p16-sign-va.tiktokcdn.com/source-icon.jpeg" && rejectedSourceIconEntry?.evidence.metadata.sourceIconURL === undefined);
+assert("retains only a verified source icon URL", sourceIconEntry?.evidence.metadata.sourceIconURL === "https://scontent.cdninstagram.com/source-icon.jpeg" && rejectedSourceIconEntry?.evidence.metadata.sourceIconURL === undefined);
 assert("rejects a collector entry without a reviewed source identity", Collector.makeCollectedEntry({ platform: "kick", sourceKind: "creator", entryURL: "https://kick.com/example", title: "Unknown card" }) === null);
 const enrichedPageEntry = Collector.makeCollectedEntry({
-  platform: "tiktok",
-  entryID: "tiktok:video:123",
+  platform: "instagram",
+  entryID: "instagram:post:123",
   surface: "page",
   sourceKind: "creator",
-  entryURL: "https://www.tiktok.com/@creator/video/123",
-  sourceURL: "https://www.tiktok.com/@creator",
+  entryURL: "https://www.instagram.com/p/post-id/",
+  sourceURL: "https://www.instagram.com/creator/",
   sourceName: "Visible creator",
   title: "Visible page title",
   text: "Visible rendered description",
@@ -171,7 +170,7 @@ const enrichedPageEntry = Collector.makeCollectedEntry({
   suppliedTags: ["gaming", "gaming", "guide"],
   metadata: { published: "today", ignored: { nested: true } }
 });
-assert("gives every dedicated collector YouTube-style bounded page evidence", enrichedPageEntry?.entryID === "tiktok:video:123" && enrichedPageEntry?.surface === "page" && enrichedPageEntry?.evidence.text === "Visible rendered description" && enrichedPageEntry?.evidence.summary === "Visible rendered summary" && JSON.stringify(enrichedPageEntry?.evidence.suppliedTags) === JSON.stringify(["gaming", "guide"]) && enrichedPageEntry?.evidence.metadata.published === "today" && enrichedPageEntry?.evidence.metadata.ignored === undefined);
+assert("gives every dedicated collector YouTube-style bounded page evidence", enrichedPageEntry?.entryID === "instagram:post:123" && enrichedPageEntry?.surface === "page" && enrichedPageEntry?.evidence.text === "Visible rendered description" && enrichedPageEntry?.evidence.summary === "Visible rendered summary" && JSON.stringify(enrichedPageEntry?.evidence.suppliedTags) === JSON.stringify(["gaming", "guide"]) && enrichedPageEntry?.evidence.metadata.published === "today" && enrichedPageEntry?.evidence.metadata.ignored === undefined);
 
 const fingerprintOne = VC.entryFingerprint(VC.normalizeEvidence({
   platform: "youtube", surface: "page", evidence: { title: "A title", text: "A description", metadata: { b: "2", a: "1" } }
