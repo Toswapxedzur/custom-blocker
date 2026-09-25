@@ -5,6 +5,8 @@ const USAGE_BUCKETS_KEY = "usageBucketsMs";
 const GROUP_SNOOZES_KEY = "groupSnoozes";
 const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
 const GLOBAL_SETTINGS_KEY = "globalSettings";
+// The group the quick-add "+" appends to (chosen by its card's badge).
+const QUICK_ADD_GROUP_KEY = "quickAddGroupId";
 const LAYOUT_WIDTH_STORAGE_KEY = "custom-blocker-groups-panel-width";
 const LANGUAGE_STORAGE_KEY = "custom-blocker-language";
 const LANGUAGE_FALLBACKS = Object.freeze({
@@ -191,6 +193,8 @@ const DEFAULT_GLOBAL_SETTINGS = {
   // The user-facing helpers.log() output continues to flow regardless.
   debugMode: false,
   showOnPageLogToasts: true,
+  // The tiny floating "+" on pages and in the desktop app (off by default).
+  quickAddEnabled: false,
   defaultSnoozeMinutes: 30
 };
 const TICK_RATE_MIN_MS = 250;
@@ -414,6 +418,7 @@ const settingsButton = document.getElementById("settingsButton");
 const settingsModal = document.getElementById("settingsModal");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
 const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
+const settingsQuickAddField = document.getElementById("settingsQuickAdd");
 const localFolderChooseButton = document.getElementById("localFolderChooseButton");
 const localFolderRevokeButton = document.getElementById("localFolderRevokeButton");
 const localFolderStatus = document.getElementById("localFolderStatus");
@@ -481,7 +486,8 @@ const state = {
   pendingPriorityGroups: new Set(),
   // Serialized last-applied cluster list, so repeated identical pushes (the Mac
   // hub re-pushes every second) don't trigger needless re-renders.
-  clustersLastJSON: ""
+  clustersLastJSON: "",
+  quickAddGroupId: ""
 };
 
 // This remains separate from the group-sync connection. Its browser evidence
@@ -1265,6 +1271,7 @@ function syncAllClusters() {
 function syncSettingsFormFromState() {
   const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
   if (settingsDefaultSnoozeMinutesField) settingsDefaultSnoozeMinutesField.value = String(s.defaultSnoozeMinutes);
+  if (settingsQuickAddField) settingsQuickAddField.checked = s.quickAddEnabled === true;
   if (settingsStatus) settingsStatus.textContent = "";
 }
 
@@ -1294,7 +1301,8 @@ async function saveSettingsFromForm() {
     autosaveDebounceMs: state.globalSettings?.autosaveDebounceMs,
     debugMode: state.globalSettings?.debugMode,
     showOnPageLogToasts: state.globalSettings?.showOnPageLogToasts,
-    defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value
+    defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
+    quickAddEnabled: settingsQuickAddField ? settingsQuickAddField.checked : state.globalSettings?.quickAddEnabled
   };
   const sanitized = sanitizeGlobalSettings(draft);
   state.globalSettings = sanitized;
@@ -1307,6 +1315,7 @@ async function saveSettingsFromForm() {
     setStatus(t("settings.saved"));
     // Reflect any clamping that sanitize did back into the form.
     syncSettingsFormFromState();
+    renderGroupList();
   } catch (error) {
     if (settingsStatus) {
       settingsStatus.textContent = String(error?.message ?? error);
@@ -2236,7 +2245,8 @@ function sanitizeGlobalSettings(raw) {
     autosaveDebounceMs,
     debugMode,
     showOnPageLogToasts,
-    defaultSnoozeMinutes
+    defaultSnoozeMinutes,
+    quickAddEnabled: src.quickAddEnabled === true
   };
   return out;
 }
@@ -4442,6 +4452,10 @@ function renderGroupList(now = Date.now()) {
     if (groupConnectionCluster(group)) {
       card.classList.add("bridge-connected");
     }
+    const quickAddOn = state.globalSettings?.quickAddEnabled === true && group.groupType !== "custom";
+    if (quickAddOn && group.id === state.quickAddGroupId) {
+      card.classList.add("quick-add-target");
+    }
 
     const header = document.createElement("div");
     header.className = "group-card-header";
@@ -4480,7 +4494,25 @@ function renderGroupList(now = Date.now()) {
 
     topline.append(dragHandle, name);
     textWrap.append(topline, meta);
-    header.append(textWrap, toggle);
+    if (quickAddOn) {
+      // The badge chooses this group as the quick-add target: the tiny "+" on
+      // pages and in the desktop app appends the current site / app here.
+      const badge = document.createElement("button");
+      badge.type = "button";
+      badge.className = "quick-add-badge";
+      badge.textContent = "+";
+      badge.title = t("groups.quickAddBadge");
+      badge.setAttribute("aria-label", t("groups.quickAddBadge") + ": " + group.name);
+      badge.setAttribute("aria-pressed", group.id === state.quickAddGroupId ? "true" : "false");
+      badge.addEventListener("mousedown", (event) => event.stopPropagation());
+      badge.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setQuickAddGroup(group.id);
+      });
+      header.append(textWrap, badge, toggle);
+    } else {
+      header.append(textWrap, toggle);
+    }
     card.appendChild(header);
 
     // mousedown anywhere on the card (except on the toggle, which manages
@@ -4506,6 +4538,14 @@ function renderGroupList(now = Date.now()) {
 
     groupList.appendChild(card);
   }
+}
+
+// The chosen quick-add group: persistent until another badge is clicked; the
+// editor shows it (owner 2026-09-25).
+function setQuickAddGroup(groupId) {
+  state.quickAddGroupId = groupId;
+  chrome.storage.local.set({ [QUICK_ADD_GROUP_KEY]: groupId }).catch(() => {});
+  selectGroup(groupId);
 }
 
 function formatResetClock(ms, now) {
@@ -5283,7 +5323,8 @@ async function loadStoredState() {
     [USAGE_BUCKETS_KEY]: {},
     [GROUP_SNOOZES_KEY]: {},
     [GROUP_SNOOZE_TOTALS_KEY]: {},
-    [GLOBAL_SETTINGS_KEY]: { ...DEFAULT_GLOBAL_SETTINGS }
+    [GLOBAL_SETTINGS_KEY]: { ...DEFAULT_GLOBAL_SETTINGS },
+    [QUICK_ADD_GROUP_KEY]: ""
   });
 
   const groups = sanitizeGroups(result[BLOCKED_GROUPS_KEY]);
@@ -5291,6 +5332,7 @@ async function loadStoredState() {
   cbDebugMode = settings.debugMode === true;
 
   return {
+    quickAddGroupId: typeof result[QUICK_ADD_GROUP_KEY] === "string" ? result[QUICK_ADD_GROUP_KEY] : "",
     groups,
     usageTimersMs: sanitizeUsageTimers(result[USAGE_TIMERS_KEY], groups),
     usageResetAtMs: sanitizeResetTimes(result[USAGE_RESET_AT_KEY], groups),
@@ -5333,6 +5375,7 @@ async function loadGroups() {
   state.groupSnoozes = loaded.groupSnoozes;
   state.groupSnoozeTotalsMs = loaded.groupSnoozeTotalsMs;
   state.globalSettings = loaded.globalSettings;
+  state.quickAddGroupId = loaded.quickAddGroupId;
   state.selectedGroupId = state.groups[0]?.id ?? null;
   state.drafts = {};
   render();
@@ -6848,6 +6891,11 @@ function syncExternalState(changes) {
     }
   }
 
+  if (changes[QUICK_ADD_GROUP_KEY]) {
+    state.quickAddGroupId = typeof changes[QUICK_ADD_GROUP_KEY].newValue === "string" ? changes[QUICK_ADD_GROUP_KEY].newValue : "";
+    renderGroupList();
+  }
+
   if (
     changes[BLOCKED_GROUPS_KEY] &&
     Date.now() > state.suppressGroupStorageUpdatesUntil
@@ -6858,6 +6906,10 @@ function syncExternalState(changes) {
       state.selectedGroupId = state.groups[0]?.id ?? null;
     }
     render();
+    // A group edited outside this editor (the quick-add "+", an AI tool, the
+    // desktop app) is shared with linked members like an edit made here.
+    announceGroups();
+    syncAllClusters();
     return;
   }
 

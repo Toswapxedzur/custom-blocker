@@ -2213,6 +2213,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  // The floating "+" (content.js): is it on, and which group does it append to?
+  if (message?.type === "quick-add-state") {
+    cbQuickAddState()
+      .then((state) => sendResponse(state))
+      .catch(() => sendResponse({ enabled: false, groupId: "", groupName: "" }));
+    return true;
+  }
+
+  // The floating "+" was clicked: append the sender's page to the chosen group.
+  if (message?.type === "quick-add") {
+    const url = sender?.tab?.url || sender?.url || "";
+    cbQuickAdd(url)
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
+    return true;
+  }
+
   // Snooze started from the cover's panel (the popup's flow without its
   // settings): same entry, same enforcement, shared with linked members.
   if (message?.type === "start-snooze") {
@@ -2417,6 +2434,63 @@ const TICK_ALARM_NAME = "custom-blocker-event-tick";
 const TICK_ALARM_PERIOD_MINUTES = 1;
 
 const previousTabUrls = new Map(); // tabId -> { url, hostname }
+
+// ── Quick add (the floating "+") ────────────────────────────────────────────
+// Off by default. The user chooses the target group by its badge in the
+// editor; the "+" on a page appends the page's most detailed site entry
+// (host + path, never query or fragment) to that group's Websites entry.
+const CB_QUICK_ADD_GROUP_KEY = "quickAddGroupId";
+
+function cbQuickAddEntry(url) {
+  try {
+    const parsed = new URL(String(url || ""));
+    if (!/^https?:$/i.test(parsed.protocol)) return null;
+    return normalizeSiteInput(parsed.hostname + parsed.pathname);
+  } catch (_) {
+    return null;
+  }
+}
+
+async function cbQuickAddState() {
+  const stored = await chrome.storage.local.get({ [CB_GLOBAL_SETTINGS_KEY]: {}, [CB_QUICK_ADD_GROUP_KEY]: "" });
+  const enabled = stored[CB_GLOBAL_SETTINGS_KEY]?.quickAddEnabled === true;
+  const groupId = typeof stored[CB_QUICK_ADD_GROUP_KEY] === "string" ? stored[CB_QUICK_ADD_GROUP_KEY] : "";
+  if (!enabled || !groupId) return { enabled: false, groupId: "", groupName: "" };
+  const { groups } = await getState();
+  const group = groups.find((item) => item.id === groupId && item.groupType !== "custom");
+  if (!group) return { enabled: false, groupId: "", groupName: "" };
+  return { enabled: true, groupId: group.id, groupName: group.name };
+}
+
+async function cbQuickAdd(url) {
+  const target = await cbQuickAddState();
+  if (!target.enabled) throw new Error("quick-add-off");
+  const entry = cbQuickAddEntry(url);
+  if (!entry) throw new Error("not-a-web-page");
+  const { groups } = await getState();
+  const index = groups.findIndex((item) => item.id === target.groupId);
+  if (index < 0) throw new Error("group-not-found");
+  const group = groups[index];
+  const scopes = Array.isArray(group.scopes) ? group.scopes.map((line) => ({ ...line })) : [];
+  let line = scopes.find((candidate) => candidate.surface === "site");
+  if (!line) {
+    line = { surface: "site", platform: null, action: "block", sites: [], sitesExcept: false };
+    scopes.push(line);
+  }
+  const sites = Array.isArray(line.sites) ? [...line.sites] : [];
+  const added = !sites.includes(entry);
+  if (added) sites.push(entry);
+  line.sites = sites;
+  const [next] = sanitizeGroups([{ ...group, scopes }]);
+  const nextGroups = groups.map((item, at) => (at === index ? next : item));
+  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: nextGroups });
+  await syncBlockingRules();
+  // Linked members get the new entry now, not when the editor next opens.
+  try {
+    cbConnection.sendWS({ kind: "group-sync", program: cbDetectProgramId(), groupName: next.name, ts: Date.now(), scopes: next.scopes });
+  } catch (_) {}
+  return { entry, added, groupName: next.name };
+}
 
 // ── In-place cover support ──────────────────────────────────────────────────
 // tabId -> { host, until }: a page let through after a pause countdown.
@@ -4794,7 +4868,8 @@ async function cbBrowserRequestBody(operation, body) {
         autosaveDebounceMs: Math.round(clamp(merged.autosaveDebounceMs, 0, 10_000, 400)),
         debugMode: merged.debugMode === true,
         showOnPageLogToasts: merged.showOnPageLogToasts !== false,
-        defaultSnoozeMinutes: (() => { const n = Number.parseFloat(merged.defaultSnoozeMinutes); return Number.isFinite(n) && n > 0 ? n : 5; })()
+        defaultSnoozeMinutes: (() => { const n = Number.parseFloat(merged.defaultSnoozeMinutes); return Number.isFinite(n) && n > 0 ? n : 5; })(),
+        quickAddEnabled: merged.quickAddEnabled === true
       };
       await chrome.storage.local.set({ [CB_GLOBAL_SETTINGS_KEY]: next });
       return { globalSettings: next };
