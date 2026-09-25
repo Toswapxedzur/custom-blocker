@@ -35,7 +35,8 @@ function makeContext() {
     tabs: new Proxy({
       get: (id) => Promise.resolve({ id, mutedInfo: { muted: tabs.muted.get(id) === "user" } }),
       update: (id, props) => { tabs.updates.push([id, props]); if ("muted" in props) tabs.muted.set(id, props.muted ? "ext" : false); return Promise.resolve({ id }); },
-      sendMessage: (id, msg) => { tabs.messages.push([id, msg]); return Promise.resolve({ ok: true }); }
+      sendMessage: (id, msg) => { tabs.messages.push([id, msg]); return Promise.resolve({ ok: true }); },
+      query: () => Promise.resolve([{ id: 21, url: "https://news.example.com/x" }, { id: 22, url: "https://other.example.org/" }])
     }, { get: (t, p) => (p in t ? t[p] : inert()) }),
     alarms: { clear: () => Promise.resolve(), create: (_name, info) => { alarmsCreated.push(info); return Promise.resolve(); }, onAlarm: { addListener() {} } },
     runtime: new Proxy({ id: "t", getManifest: () => ({ version: "0" }), getURL: (p) => `chrome-extension://t/${p}`, lastError: null }, { get: (t, p) => (p in t ? t[p] : inert()) })
@@ -182,6 +183,28 @@ check("blockedRedirectUrl is empty for a covering site and the address for a nav
   await vm.runInContext(`cbCoverStateReady`, restarted);
   check("a restarted worker still honours the pass", vm.runInContext(`cbPausePassActive(11, "news.example.com")`, restarted) === true);
   check("…and still knows which tab it muted", vm.runInContext(`cbMutedTabs.has(12)`, restarted) === true);
+
+  // 8. Push on change: open pages hear from the worker only when the state
+  //    (which groups enforce, snooze phases, passes) or a definition changes.
+  const pushes = () => context.__tabs.messages.filter(([, m]) => m && m.type === "session-refresh").length;
+  await context.chrome.storage.local.set({ blockedGroups: sanitize([timed]), usageTimersMs: { t1: 0 }, groupSnoozes: {} });
+  await run(`cbRecheckEnforcement()`);
+  context.__tabs.messages.length = 0;
+  await context.chrome.storage.local.set({ usageTimersMs: { t1: 60_000 } });
+  let pushed = await run(`cbRecheckEnforcement()`);
+  check("usage that changes no group's state pushes nothing", pushed === false && pushes() === 0, context.__tabs.messages);
+  await context.chrome.storage.local.set({ usageTimersMs: { t1: 30 * 60_000 } });
+  pushed = await run(`cbRecheckEnforcement()`);
+  check("the allowance running out pushes to every open page", pushed === true && pushes() === 2, context.__tabs.messages);
+  context.__tabs.messages.length = 0;
+  pushed = await run(`cbRecheckEnforcement()`);
+  check("…once: the same state again pushes nothing", pushed === false && pushes() === 0);
+  pushed = await run(`cbRecheckEnforcement({ definitionChanged: true })`);
+  check("an edited group definition pushes", pushed === true && pushes() === 2);
+  context.__tabs.messages.length = 0;
+  await context.chrome.storage.local.set({ groupSnoozes: { t1: { startsAtMs: Date.now() - 1000, untilMs: Date.now() + 600_000, cooldownUntilMs: Date.now() + 660_000 } } });
+  pushed = await run(`cbRecheckEnforcement()`);
+  check("a snooze starting pushes", pushed === true && pushes() === 2, context.__tabs.messages);
 
   console.log(`PAGE EXIT TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
