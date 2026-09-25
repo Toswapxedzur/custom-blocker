@@ -1303,6 +1303,10 @@ function applyRuntimeNormalizations(
       }
       continue;
     }
+    // A linked group's period belongs to the hub (the Mac side): it resets
+    // there and this endpoint adopts the reset total (applySharedToStorage).
+    // With no hub reachable the group is on its own and resets here.
+    if (cbGroupLinkedToHub(group)) continue;
     const periodStart = cbPeriodStartMs(nextResetAt[group.id], group, now);
     if (periodStart === nextResetAt[group.id]) continue;
     nextTimers[group.id] = 0;
@@ -4204,10 +4208,21 @@ function cbDetectProgramId() {
 // can report ONLY this endpoint's own accrual as a positive delta. It must be
 // rebased to the hub's shared total whenever we fold that total into local
 // storage (see applySharedToStorage), otherwise another member's contribution
-// would be re-reported as ours and double-count. `cbClusterUsageReset` tracks
-// the reset anchor we last reported so a window rollover is forwarded once.
+// would be re-reported as ours and double-count.
 const cbClusterUsageBaseline = {};
-const cbClusterUsageReset = {};
+
+// True while `group` is in a cluster and the hub (hosted by the Mac app) is
+// reachable: the hub then owns the shared budget and its period.
+function cbGroupLinkedToHub(group) {
+  try {
+    const clusters = Array.isArray(cbConnection.clusters) ? cbConnection.clusters : [];
+    if (clusters.length === 0 || !cbConnection.routeIsReady("macapp")) return false;
+    const program = cbDetectProgramId();
+    return clusters.some((cluster) => self.CBBridgeProtocol.clusterForGroup([cluster], group, program) === cluster);
+  } catch (_) {
+    return false;
+  }
+}
 
 // Reports this endpoint's usage *increment* to the hub for any clustered Default
 // group so the one shared live budget keeps accumulating even while the popup is
@@ -4250,12 +4265,10 @@ function cbReportClusterUsage(groups, timers, resets, bucketDeltas = {}, buckets
       const hasBaseline = Object.prototype.hasOwnProperty.call(cbClusterUsageBaseline, g.id);
       const baseline = hasBaseline ? cbClusterUsageBaseline[g.id] : current;
       const delta = Math.max(0, current - baseline);
-      const resetChanged = (Number(cbClusterUsageReset[g.id]) || 0) !== resetAt;
       cbClusterUsageBaseline[g.id] = current;
-      cbClusterUsageReset[g.id] = resetAt;
-      // Nothing new to tell the hub: no local accrual, not our first report, and
-      // the window didn't roll over.
-      if (delta <= 0 && hasBaseline && !resetChanged) continue;
+      // Nothing new to tell the hub: no local accrual and not our first report.
+      // (Our anchor only seeds the hub's period; the hub resets it, not us.)
+      if (delta <= 0 && hasBaseline) continue;
       cbConnection.sendWS({
         kind: "group-sync",
         program,
@@ -4272,10 +4285,9 @@ function cbReportClusterUsage(groups, timers, resets, bucketDeltas = {}, buckets
 // Rebase the usage delta baseline to the hub's shared total for a group. Called
 // after folding the shared budget into local storage so the next reported delta
 // reflects only fresh local accrual on top of the shared total.
-function cbRebaseClusterUsage(groupId, sharedMs, resetAt) {
+function cbRebaseClusterUsage(groupId, sharedMs) {
   if (!groupId) return;
   cbClusterUsageBaseline[groupId] = Math.max(0, Number(sharedMs) || 0);
-  if (Number.isFinite(resetAt)) cbClusterUsageReset[groupId] = Number(resetAt) || 0;
 }
 
 const cbConnection = {
@@ -4459,7 +4471,7 @@ const cbConnection = {
         }
         // Rebase the delta baseline to the shared total so our next reported
         // increment counts only fresh local accrual (never re-reports peers').
-        cbRebaseClusterUsage(grp.id, incoming, Number(shared.usageResetAtMs) || 0);
+        cbRebaseClusterUsage(grp.id, incoming);
       }
       if (usageChanged) {
         await chrome.storage.local.set({
