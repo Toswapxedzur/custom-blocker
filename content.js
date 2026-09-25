@@ -171,6 +171,7 @@ function shutdownContentScript() {
   }
   overlay = null;
   try { cbHideCover(); } catch {}
+  try { cbUnmountQuickAdd(); } catch {}
 }
 
 function safeSendMessage(message, callback) {
@@ -1762,6 +1763,49 @@ function cbCoverSnoozePress() {
   });
 }
 
+// ── The quick-add "+" ───────────────────────────────────────────────────────
+// A tiny floating "+" at the bottom right (off by default; the user turns it
+// on in Settings and chooses a target group by its badge). One click appends
+// this page's site entry to that group; the worker does the append.
+const CB_QUICK_ADD_ID = "cb-vault-quick-add";
+let cbQuickAddButton = null;
+
+function cbMountQuickAdd(target) {
+  if (!target || !target.enabled) { cbUnmountQuickAdd(); return; }
+  if (!document.documentElement || window.top !== window) return;
+  if (!cbQuickAddButton) {
+    const button = document.createElement("button");
+    button.id = CB_QUICK_ADD_ID;
+    button.type = "button";
+    button.textContent = "+";
+    button.setAttribute("style", "position:fixed;right:8px;bottom:8px;width:18px;height:18px;margin:0;padding:0;border:0;border-radius:50%;background:#0f172a;color:#f8fafc;font:700 14px/18px Arial,Helvetica,sans-serif;text-align:center;z-index:2147483646;opacity:0.55;cursor:pointer;box-shadow:0 2px 6px rgba(15,23,42,0.35);");
+    button.addEventListener("mouseenter", () => { button.style.opacity = "1"; });
+    button.addEventListener("mouseleave", () => { button.style.opacity = "0.55"; });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      button.disabled = true;
+      safeSendMessage({ type: "quick-add" }, (response) => {
+        button.disabled = false;
+        button.textContent = response && response.ok ? "✓" : "!";
+        window.setTimeout(() => { button.textContent = "+"; }, 1200);
+        if (response && response.ok) refreshSession();
+      });
+    });
+    cbQuickAddButton = button;
+  }
+  cbQuickAddButton.title = "Add this site to " + target.groupName;
+  if (!cbQuickAddButton.isConnected) document.documentElement.appendChild(cbQuickAddButton);
+}
+
+function cbUnmountQuickAdd() {
+  if (cbQuickAddButton) { cbQuickAddButton.remove(); cbQuickAddButton = null; }
+}
+
+function cbRefreshQuickAdd() {
+  safeSendMessage({ type: "quick-add-state" }, (target) => cbMountQuickAdd(target));
+}
+
 // Apply the worker's exit decision for this page: leave for an address, or
 // cover in place (block or pause). Custom rules' own redirect helper still
 // navigates on its own.
@@ -1963,6 +2007,7 @@ function refreshPanels(extraPanelGroups = []) {
 
 if (/^https?:$/i.test(location.protocol)) {
   refreshSession();
+  cbRefreshQuickAdd();
   // Author bylines may resolve after initial load, so refresh the page matcher.
   scheduleSessionResolveRetries();
 
@@ -2034,12 +2079,13 @@ if (/^https?:$/i.test(location.protocol)) {
         shutdownContentScript();
         return;
       }
+      if (areaName !== "local") return;
+      if (changes.globalSettings || changes.quickAddGroupId || changes.blockedGroups) cbRefreshQuickAdd();
       if (
-        areaName !== "local" ||
-        (!changes.blockedGroups &&
-          !changes.usageTimersMs &&
-          !changes.usageResetAtMs &&
-          !changes.groupSnoozes)
+        !changes.blockedGroups &&
+        !changes.usageTimersMs &&
+        !changes.usageResetAtMs &&
+        !changes.groupSnoozes
       ) {
         return;
       }
