@@ -258,6 +258,13 @@
             <p id="appsHelp" class="field-help" data-i18n="apps.help">
               Add the applications you want this group to block. Click the plus tile to search your installed apps.
             </p>
+            <label class="checkbox-row compact desktop-only" for="appsAllowlist">
+              <input id="appsAllowlist" type="checkbox" />
+              <span data-i18n="apps.allowlistLabel">Block every application except these</span>
+            </label>
+            <p class="field-help desktop-only" data-i18n="apps.allowlistHelp">
+              When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.
+            </p>
             <input id="blockedAppsData" type="hidden" />
             <div id="blockedAppsList" class="app-chip-list" role="list"></div>
             <div class="actions desktop-only">

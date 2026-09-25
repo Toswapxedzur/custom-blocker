@@ -126,6 +126,8 @@ check("an apps line is kept, deduplicated by bundle id, on any normal group", S.
 context.__groups = [withApps];
 check("apps lines never match a page and emit no feed filters", session("https://example.com/", "/", { u1: 30 * 60 * 1000 }).shouldExitPage === true && session("https://x.com/home", "/home", { u1: 30 * 60 * 1000 }).shouldExitPage === false && feed("https://www.youtube.com/", "/").length === 1, withApps.scopes.length);
 context.__groups = [group];
+const appsExcept = sanitize([{ ...group, scopes: [...group.scopes, { surface: "apps", action: "block", apps: [{ id: "com.apple.Safari" }], appsExcept: true }] }])[0];
+check("an apps line can be 'everything except' (the desktop's allowlist)", appsExcept.scopes.at(-1).appsExcept === true && S.flatFromScopes(appsExcept, "apps").appsAllowlist === true && S.mergeFlatIntoScopes([], { apps: [], appsAllowlist: true }, "apps")[0].appsExcept === true, appsExcept.scopes.at(-1));
 const customApps = sanitize([{ id: "c1", name: "C", groupType: "custom", enabled: true, scopes: [{ surface: "apps", action: "block", apps: [{ id: "a" }] }] }])[0];
 check("a custom group drops apps lines", customApps.scopes.length === 0, customApps.scopes);
 const ytPatched = sanitize([{ id: "y1", name: "Y", groupType: "youtube", enabled: true, scopes: S.scopeLinesFromFlat({ sourceMode: "all" }, "youtube"), sites: ["docs.example.org"] }])[0];

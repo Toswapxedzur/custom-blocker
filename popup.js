@@ -305,6 +305,7 @@ const appsSettingsSection = document.getElementById("appsSettingsSection");
 const appsHelp = document.getElementById("appsHelp");
 const blockedAppsData = document.getElementById("blockedAppsData");
 const blockedAppsList = document.getElementById("blockedAppsList");
+const appsAllowlistField = document.getElementById("appsAllowlist");
 const clearAppsButton = document.getElementById("clearAppsButton");
 const appPickerModal = document.getElementById("appPickerModal");
 const appPickerSearch = document.getElementById("appPickerSearch");
@@ -1758,6 +1759,13 @@ if (appPickerModal) {
 if (clearAppsButton) {
   clearAppsButton.addEventListener("click", () => {
     if (blockedAppsEditable) commitBlockedApps([]);
+  });
+}
+if (appsAllowlistField) {
+  appsAllowlistField.addEventListener("change", () => {
+    stashCurrentDraft();
+    renderGroupList();
+    scheduleAutosave();
   });
 }
 // Re-render chips when the desktop host (re)seeds the app inventory so icons
@@ -3288,6 +3296,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     // ("block everything except these").
     allowlist: false,
     apps: [],
+    appsAllowlist: false,
     // The entry the cards edit: a new Default group opens on its Websites
     // entry in the browser and on its Apps entry in the desktop app.
     entryView: normalizedGroupType === "custom"
@@ -3475,6 +3484,7 @@ function sanitizeGroups(groups) {
         : [],
       allowlist: ownsSiteList && Boolean(group?.allowlist),
       apps: CBGroupScopes.normalizeAppList(group?.apps),
+      appsAllowlist: Boolean(group?.appsAllowlist),
       blockHomePage: Boolean(group?.blockHomePage),
       pageAction: group?.pageAction === "pause" ? "pause" : "block",
       fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
@@ -3740,6 +3750,7 @@ function groupToDraft(group) {
     timeWindowsText: group.timeWindowsText,
     sitesText: group.sites.join("\n"),
     appsData: serializeApps(group.apps || []),
+    appsAllowlist: Boolean(group.appsAllowlist),
     platformVideoMode: normalizeVideoMode(group.platformVideoMode),
     sourceMode: normalizeSourceMode(group.sourceMode, group.sources),
     sourcesText: group.sources.join("\n"),
@@ -4910,6 +4921,7 @@ function renderEditor(now = Date.now()) {
   scheduleWindowsField.value = draft?.timeWindowsText ?? group.timeWindowsText;
   blockedSitesField.value = draft?.sitesText ?? group.sites.join("\n");
   if (blockedAppsData) blockedAppsData.value = draft?.appsData ?? serializeApps(group.apps || []);
+  if (appsAllowlistField) appsAllowlistField.checked = Boolean(draft?.appsAllowlist ?? group.appsAllowlist);
   blockingRulesField.value = draft?.blockingRulesText ?? group.blockingRulesText;
   platformAuthorsField.value = draft?.sourcesText ?? group.sources.join("\n");
   platformVideoModeField.value = draft?.platformVideoMode ?? group.platformVideoMode;
@@ -4997,6 +5009,7 @@ function renderEditor(now = Date.now()) {
   siteSettingsSection.classList.toggle("hidden", !isSiteView);
   if (appsSettingsSection) appsSettingsSection.classList.toggle("hidden", !isAppsView);
   blockedAppsEditable = editable && isAppsView && IS_NATIVE_DESKTOP;
+  if (appsAllowlistField) appsAllowlistField.disabled = !blockedAppsEditable;
   if (appsHelp) appsHelp.textContent = t(IS_NATIVE_DESKTOP ? "apps.help" : "apps.readOnlyHint");
   if (clearAppsButton) clearAppsButton.disabled = !blockedAppsEditable;
   renderBlockedApps();
@@ -5201,6 +5214,7 @@ function stashCurrentDraft() {
     sitesText: blockedSitesField.value,
     allowlist: siteAllowlistField.checked,
     appsData: blockedAppsData ? blockedAppsData.value : "[]",
+    appsAllowlist: appsAllowlistField ? appsAllowlistField.checked : false,
     blockingRulesText: blockingRulesField.value,
     platformVideoMode: platformVideoModeField.value,
     sourceMode: platformAuthorModeField.value,
@@ -5908,6 +5922,7 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
       // Blocklist (false) vs "block all except" (true).
       allowlist: usesSiteList ? Boolean(draft.allowlist) : false,
       apps: entryKey === "apps" ? parseAppsData(draft.appsData) : [],
+      appsAllowlist: entryKey === "apps" ? Boolean(draft.appsAllowlist) : false,
       blockHomePage: Boolean(draft.blockHomePage),
       // Custom groups redirect via setRedirectLink() inside the rule;
       // strip any legacy fallbackUrl on save.

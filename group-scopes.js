@@ -6,7 +6,7 @@
 //
 //   surface  | what the line names                          | legal actions
 //   site     | host or host/path entries (+ "everything except") | block, pause
-//   apps     | desktop applications ({id, name}; enforced by the desktop apps) | block
+//   apps     | desktop applications ({id, name}, + "everything except"; enforced by the desktop apps) | block
 //   items    | feed cards of a platform (form / sources / tags)  | hide, dim
 //   pages    | the content's own page (form / sources / tags)    | block, pause
 //
@@ -44,7 +44,7 @@
   // the flat sanitizer still migrates. Their presence on an input marks it as
   // a flat (form or legacy) group, or as a flat patch over a scoped group.
   const FLAT_SCOPE_FIELDS = [
-    "sites", "allowlist", "apps", "blockHomePage", "platformVideoMode",
+    "sites", "allowlist", "apps", "appsAllowlist", "blockHomePage", "platformVideoMode",
     "sourceMode", "sources", "platformAuthorMode", "platformAuthors", "redditMode", "redditSubreddits",
     "platformTagMode", "platformTags", "platformTagDefaultConfidence", "platformTagBlockUntagged",
     "platformTagEffect", "platformTagBlockPage", "platformTagCoverUntilTagged",
@@ -138,7 +138,7 @@
 
   // One key order for every line, whichever path built it, so a re-sanitized
   // store is byte-identical (storage change detection relies on that).
-  const LINE_KEY_ORDER = ["id", "surface", "platform", "action", "sites", "sitesExcept", "apps", "form", "sourceMode", "sources", "discordMode", "discordTargets", "tagFilter", "shelf"];
+  const LINE_KEY_ORDER = ["id", "surface", "platform", "action", "sites", "sitesExcept", "apps", "appsExcept", "form", "sourceMode", "sources", "discordMode", "discordTargets", "tagFilter", "shelf"];
   function orderLine(line) {
     const out = {};
     for (const key of LINE_KEY_ORDER) if (Object.prototype.hasOwnProperty.call(line, key)) out[key] = line[key];
@@ -167,7 +167,8 @@
       lines.push(orderLine({ id: `${line.surface}-${counters[line.surface]}`, ...line }));
     };
     if (kind === "apps") {
-      push({ surface: "apps", platform: null, action: "block", apps: normalizeAppList(flat?.apps) });
+      // Like the site list: a blocklist, or "block every application except these".
+      push({ surface: "apps", platform: null, action: "block", apps: normalizeAppList(flat?.apps), appsExcept: Boolean(flat?.appsAllowlist) });
       return lines;
     }
     const sites = Array.isArray(flat?.sites) ? [...flat.sites] : [];
@@ -237,7 +238,7 @@
     const lines = (Array.isArray(group?.scopes) ? group.scopes : []).filter((line) => lineBelongsTo(line, type));
     const kind = platformKind(type);
     const flat = {
-      sites: [], allowlist: false, apps: [], blockHomePage: false, platformVideoMode: "all",
+      sites: [], allowlist: false, apps: [], appsAllowlist: false, blockHomePage: false, platformVideoMode: "all",
       sourceMode: "all", sources: [],
       platformTagMode: "all", platformTags: [], platformTagDefaultConfidence: 4, platformTagBlockUntagged: false,
       platformTagEffect: "dim", platformTagBlockPage: true, platformTagCoverUntilTagged: false,
@@ -250,7 +251,10 @@
       flat.pageAction = siteLine.action === "pause" ? "pause" : "block";
     }
     const appsLine = lines.find((line) => line.surface === "apps");
-    if (appsLine) flat.apps = normalizeAppList(appsLine.apps);
+    if (appsLine) {
+      flat.apps = normalizeAppList(appsLine.apps);
+      flat.appsAllowlist = Boolean(appsLine.appsExcept);
+    }
     if (kind === "site" || kind === "custom" || kind === "apps") return flat;
 
     const sourceLine = lines.find((line) => (line.surface === "items" || line.surface === "pages") && !line.tagFilter);
@@ -320,6 +324,7 @@
       } else if (surface === "apps") {
         if (isCustom) continue;
         line.apps = normalizeAppList(raw.apps);
+        line.appsExcept = Boolean(raw.appsExcept);
       } else {
         // A platform line names its own platform; an old line without one
         // belongs to the group's platform. Custom groups have no platform lines.
