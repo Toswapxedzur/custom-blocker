@@ -1624,6 +1624,12 @@ code {
   margin-top: 8px;
 }
 
+.page-action-row {
+  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+}
+
 .site-chip-icon {
   width: 16px;
   height: 16px;

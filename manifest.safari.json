@@ -21,6 +21,12 @@
       "matches": ["<all_urls>"],
       "js": ["browser-compat.js", "platform-profiles.js", "helpers.js", "content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["cover-frame.js"],
+      "all_frames": true,
+      "run_at": "document_idle"
     }
   ],
   "action": {

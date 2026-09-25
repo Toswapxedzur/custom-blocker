@@ -51,6 +51,7 @@ COMMON_TOP_LEVEL_FILES = [
     "background.js",
     "bridge-protocol.js",
     "content.js",
+    "cover-frame.js",
     "platform-profiles.js",
     "group-scopes.js",
     "helpers.js",

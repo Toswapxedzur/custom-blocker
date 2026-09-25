@@ -5,10 +5,15 @@
 // every line ends in one ACTION (what happens to what it matched):
 //
 //   surface  | what the line names                          | legal actions
-//   site     | host or host/path entries (+ "everything except") | block
+//   site     | host or host/path entries (+ "everything except") | block, pause
 //   apps     | desktop applications ({id, name}; enforced by the desktop apps) | block
 //   items    | feed cards of a platform (form / sources / tags)  | hide, dim
-//   pages    | the content's own page (form / sources / tags)    | block
+//   pages    | the content's own page (form / sources / tags)    | block, pause
+//
+// "block" covers the page in place (or sends the tab to the group's address);
+// "pause" is the intention gate: the same cover with a countdown, after which
+// the page is let through for that tab. Tagged pages are blacked out in
+// place and only block.
 //   home     | the platform's home feed                          | block
 //   shelf    | one platform surface (Shorts shelf, comments, …)  | hide
 //
@@ -26,11 +31,12 @@
   "use strict";
 
   const SCOPE_SURFACES = ["site", "apps", "items", "pages", "home", "shelf"];
-  const SCOPE_ACTIONS = ["block", "hide", "dim"];
+  const SCOPE_ACTIONS = ["block", "pause", "hide", "dim"];
 
   function scopeLegalActions(surface) {
     if (surface === "items") return ["hide", "dim"];
     if (surface === "shelf") return ["hide"];
+    if (surface === "site" || surface === "pages") return ["block", "pause"];
     return ["block"];
   }
 
@@ -42,7 +48,7 @@
     "sourceMode", "sources", "platformAuthorMode", "platformAuthors", "redditMode", "redditSubreddits",
     "platformTagMode", "platformTags", "platformTagDefaultConfidence", "platformTagBlockUntagged",
     "platformTagEffect", "platformTagBlockPage", "platformTagCoverUntilTagged",
-    "discordMode", "discordTargets", "surfaceHides"
+    "discordMode", "discordTargets", "surfaceHides", "pageAction"
   ];
 
   function hasFlatScopeFields(group) {
@@ -166,11 +172,14 @@
     }
     const sites = Array.isArray(flat?.sites) ? [...flat.sites] : [];
     const sitesExcept = Boolean(flat?.allowlist);
+    // The entry's page action (block | pause) applies to its site line and its
+    // untagged pages lines; custom groups only block.
+    const pageAction = kind !== "custom" && flat?.pageAction === "pause" ? "pause" : "block";
 
     if (kind === "site" || kind === "custom") {
       // A custom group's declarative list is optional; a site group always has one.
       if (kind === "site" || sites.length > 0 || sitesExcept) {
-        push({ surface: "site", platform: null, sites, sitesExcept, action: "block" });
+        push({ surface: "site", platform: null, sites, sitesExcept, action: pageAction });
       }
       return lines;
     }
@@ -181,7 +190,7 @@
         surface: "pages", platform: type, form: "all",
         discordMode: flat?.discordMode || "all",
         discordTargets: Array.isArray(flat?.discordTargets) ? [...flat.discordTargets] : [],
-        tagFilter: null, action: "block"
+        tagFilter: null, action: pageAction
       });
     } else {
       const sourceMode = flat?.sourceMode || "all";
@@ -189,7 +198,7 @@
       // "nobody": the source axis matches nothing — no source lines at all.
       if (sourceMode !== "nobody") {
         push({ surface: "items", platform: type, form, sourceMode, sources: [...sources], tagFilter: null, action: "hide" });
-        push({ surface: "pages", platform: type, form, sourceMode, sources: [...sources], tagFilter: null, action: "block" });
+        push({ surface: "pages", platform: type, form, sourceMode, sources: [...sources], tagFilter: null, action: pageAction });
       }
       const tagMode = flat?.platformTagMode;
       if (tagMode === "include" || tagMode === "exclude") {
@@ -232,18 +241,21 @@
       sourceMode: "all", sources: [],
       platformTagMode: "all", platformTags: [], platformTagDefaultConfidence: 4, platformTagBlockUntagged: false,
       platformTagEffect: "dim", platformTagBlockPage: true, platformTagCoverUntilTagged: false,
-      discordMode: "all", discordTargets: [], surfaceHides: []
+      discordMode: "all", discordTargets: [], surfaceHides: [], pageAction: "block"
     };
     const siteLine = lines.find((line) => line.surface === "site");
     if (siteLine) {
       flat.sites = Array.isArray(siteLine.sites) ? [...siteLine.sites] : [];
       flat.allowlist = Boolean(siteLine.sitesExcept);
+      flat.pageAction = siteLine.action === "pause" ? "pause" : "block";
     }
     const appsLine = lines.find((line) => line.surface === "apps");
     if (appsLine) flat.apps = normalizeAppList(appsLine.apps);
     if (kind === "site" || kind === "custom" || kind === "apps") return flat;
 
     const sourceLine = lines.find((line) => (line.surface === "items" || line.surface === "pages") && !line.tagFilter);
+    const pagesLine = lines.find((line) => line.surface === "pages" && !line.tagFilter);
+    if (pagesLine) flat.pageAction = pagesLine.action === "pause" ? "pause" : "block";
     if (kind === "discord") {
       if (sourceLine) {
         flat.discordMode = sourceLine.discordMode || "all";
@@ -337,6 +349,8 @@
           }
           if (raw.tagFilter && typeof raw.tagFilter === "object") {
             const mode = n.normalizeTagFilterMode(raw.tagFilter.mode);
+            // A tagged page is blacked out in place; it never pauses.
+            if ((mode === "include" || mode === "exclude") && surface === "pages") line.action = "block";
             if (mode === "include" || mode === "exclude") {
               line.tagFilter = {
                 mode,

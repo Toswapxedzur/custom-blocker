@@ -73,7 +73,8 @@ Disabled groups are retained but do not participate in normal matching, timers, 
 | Time windows | Zero or more local-time windows, one per line, written as HHMM-HHMM. |
 | Freeze mode | None, Frozen, Strict frozen, or Parental frozen. |
 | Snooze policy | Whether the group allows snooze, with duration/delay/cooldown/confirmation controls for normal groups. |
-| Redirect address or message | Where a block lands: a web address to open, or a message to show on the block page. |
+| Redirect address or message | What a blocked page shows. Blank: the page is covered in place. Text: that text is shown on the cover. A web address: the tab is sent there instead. |
+| Pause for (seconds) | The countdown of the pause action (see the Applies-to entries). |
 
 ### 2.4 Normal group behaviours
 
@@ -86,6 +87,10 @@ The normal editor offers three behaviours:
 | Timer (count up, no block) | Matching visible-page time is recorded and can be displayed. This mode never blocks merely because its timer reaches a value. |
 
 Timed usage is based on visible-page time. It is not intended to charge time while a page is hidden in a background tab. The reset interval is a rolling policy interval for the normal timed group. Normal timers are independent by group.
+
+**Where a block lands.** By default a blocked page is covered in place: a full-window cover in the browser's top layer, the page underneath untouched. Its scroll position, form fields, video position and application state are kept; every video and audio on the page is paused and the tab is muted while covered. When the block lifts (allowance reset, schedule, snooze) the cover comes off and the page is as it was. Nothing is remembered or restored, because nothing is lost. A group whose "when blocked" field holds a web address sends the tab there instead; any other text is shown on the cover. The cover carries the group's Snooze button (the same confirmation steps as the editor; a snooze started there is shared with linked programs). A tab left covered for long is an idle tab: the browser may discard it on its own and reload it on return, where it is covered again.
+
+**Pause.** Each Applies-to entry (the website list, each platform) can pause instead of block: the same cover shows a countdown of the group's pause seconds, then a Continue button lets the page through for that tab, on that site, for a while. A blocking entry always wins over a pausing one. Tagged content pages are blacked out in place and never pause. The pause action applies only in the browser extension; the desktop apps do not enforce a paused website list.
 
 ### 2.5 Schedules
 
