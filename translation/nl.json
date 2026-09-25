@@ -177,6 +177,10 @@
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
   "scopes.apps": "Apps",
+  "scopes.pageAction": "When a page of this entry is blocked",
+  "scopes.pageActionBlock": "Cover the page",
+  "scopes.pageActionPause": "Pause first, then let it through",
+  "scopes.pauseSeconds": "Pause for (seconds)",
   "platform.help.youtube": "Auteursfiltering is van toepassing op {platform}. De korte-vs-lange-selector werkt ook op ondersteunde videosites als hun paginatype kan worden geïdentificeerd.",
   "platform.help.generic": "Auteursfiltering is van toepassing wanneer auteurs-ID's kunnen worden gedetecteerd. Inhoudstypen worden toegewezen aan {shortLabel}, {longLabel} en {postLabel} wanneer deze paginaformulieren detecteerbaar zijn.",
   "platform.short.youtube": "Korte broek",
@@ -410,7 +414,7 @@
   "filter.blockHomePageDiscordHelp": "Blokkeert het chatdienst DM-startscherm (/channels/@me).",
   "filter.fallbackUrl": "When blocked: redirect address or message",
   "filter.fallbackUrlPlaceholder": "https://example.com — or a message to show",
-  "filter.fallbackUrlHelp": "A web address sends the blocked tab there. Any other text is shown on Vault's block page instead — a reminder, a quote, a motivation speech. Leave empty for the plain block.",
+  "filter.fallbackUrlHelp": "Leave empty and a blocked page is covered in place — nothing on it is lost, and it comes back when the block lifts. Any other text is shown on that cover. A web address sends the tab there instead.",
   "filter.platformAuthorsPlaceholder": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nkanaal/UC...",
   "freeze.summary.notFrozen": "Bevries deze groep om toekomstige bewerkingen te stoppen.",
   "freeze.summary.frozen": "Bevroren.",
@@ -528,5 +532,6 @@
   "scene.vault": "Vault",
   "scene.classifier": "Classifier",
   "scene.activity": "Activity",
-  "apps.readOnlyHint": "Edited in the linked desktop app. Shown here read-only."
+  "apps.readOnlyHint": "Edited in the linked desktop app. Shown here read-only.",
+  "status.invalidPauseSeconds": "Pause seconds must be a whole number from 1 to 600."
 }

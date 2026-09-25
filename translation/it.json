@@ -177,6 +177,10 @@
   "scopes.add": "Add a platform…",
   "scopes.removeAria": "Remove {name} from this group",
   "scopes.apps": "Apps",
+  "scopes.pageAction": "When a page of this entry is blocked",
+  "scopes.pageActionBlock": "Cover the page",
+  "scopes.pageActionPause": "Pause first, then let it through",
+  "scopes.pauseSeconds": "Pause for (seconds)",
   "platform.help.youtube": "Il filtro dell'autore si applica su {platform}. Il selettore breve/lungo funziona anche sui siti di video supportati quando è possibile identificare il tipo di pagina.",
   "platform.help.generic": "Il filtro dell'autore si applica quando è possibile rilevare gli identificatori dell'autore. I tipi di contenuto vengono mappati a {shortLabel}, {longLabel} e {postLabel} quando tali moduli di pagina sono rilevabili.",
   "platform.short.youtube": "Pantaloncini",
@@ -410,7 +414,7 @@
   "filter.blockHomePageDiscordHelp": "Blocca la schermata home di Discor DMs (/channels/@me).",
   "filter.fallbackUrl": "When blocked: redirect address or message",
   "filter.fallbackUrlPlaceholder": "https://example.com — or a message to show",
-  "filter.fallbackUrlHelp": "A web address sends the blocked tab there. Any other text is shown on Vault's block page instead — a reminder, a quote, a motivation speech. Leave empty for the plain block.",
+  "filter.fallbackUrlHelp": "Leave empty and a blocked page is covered in place — nothing on it is lost, and it comes back when the block lifts. Any other text is shown on that cover. A web address sends the tab there instead.",
   "filter.platformAuthorsPlaceholder": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\ncanale/UC...",
   "freeze.summary.notFrozen": "Blocca questo gruppo per interrompere le modifiche future.",
   "freeze.summary.frozen": "Congelato.",
@@ -528,5 +532,6 @@
   "scene.vault": "Vault",
   "scene.classifier": "Classifier",
   "scene.activity": "Activity",
-  "apps.readOnlyHint": "Edited in the linked desktop app. Shown here read-only."
+  "apps.readOnlyHint": "Edited in the linked desktop app. Shown here read-only.",
+  "status.invalidPauseSeconds": "Pause seconds must be a whole number from 1 to 600."
 }

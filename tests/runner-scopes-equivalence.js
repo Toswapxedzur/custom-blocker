@@ -129,14 +129,18 @@ for (const state of usageStates) {
   const oldHosts = vm.runInContext(`getBlockingHostnames(__groups, __timers, __snoozes, ${now})`, oldCtx);
   const newHosts = vm.runInContext(`getBlockingHostnames(__groups, __timers, __snoozes, ${now})`, newCtx);
   check(`blocked-site entries (${state.label})`, strip(oldHosts) === strip(newHosts), `${strip(oldHosts)} vs ${strip(newHosts)}`);
-  const oldTargets = vm.runInContext(`[...getBlockingTargets(__groups, __timers, __snoozes, ${now}).entries()]`, oldCtx);
+  // Since 2026-09-25 a text message covers the page in place instead of
+  // sending the tab to the message page: the old worker's message-page
+  // targets compare as "no navigation".
+  const oldTargets = vm.runInContext(`[...getBlockingTargets(__groups, __timers, __snoozes, ${now}).entries()]`, oldCtx)
+    .map(([entry, target]) => [entry, /message-page\.html/.test(String(target)) ? "" : target]);
   const newTargets = vm.runInContext(`[...getBlockingTargets(__groups, __timers, __snoozes, ${now}).entries()]`, newCtx);
   check(`redirect targets (${state.label})`, strip(oldTargets) === strip(newTargets), `${strip(oldTargets)} vs ${strip(newTargets)}`);
   for (const [url, pathname] of pages) {
     oldCtx.__pc = pageContextFor(oldCtx, url, pathname); newCtx.__pc = pageContextFor(newCtx, url, pathname);
     for (const exposed of [[], ["yt2", "rd1"]]) {
       oldCtx.__exposed = exposed; newCtx.__exposed = exposed;
-      const expr = `(() => { const s = buildPageSession(__pc, __groups, __timers, {}, __snoozes, ${now}, __exposed); return { shouldExitPage: s.shouldExitPage, showTimer: s.showTimer, items: s.items.map((i) => ({ id: i.id, blocksNow: i.blocksNow })), feedFilters: s.feedFilters, surfaceHides: s.surfaceHides, feedOrder: s.feedOrder, fallbackUrl: s.fallbackUrl }; })()`;
+      const expr = `(() => { const s = buildPageSession(__pc, __groups, __timers, {}, __snoozes, ${now}, __exposed); return { shouldExitPage: s.shouldExitPage, showTimer: s.showTimer, items: s.items.map((i) => ({ id: i.id, blocksNow: i.blocksNow })), feedFilters: s.feedFilters, surfaceHides: s.surfaceHides, feedOrder: s.feedOrder }; })()`;
       const oldS = vm.runInContext(expr, oldCtx); const newS = vm.runInContext(expr, newCtx);
       compared += 1;
       check(`page session ${url} (${state.label}, exposed ${exposed.length})`, strip(oldS) === strip(newS), `old ${strip(oldS)}\n  new ${strip(newS)}`);
