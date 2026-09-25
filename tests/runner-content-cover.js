@@ -89,7 +89,7 @@ const code = [
   "function shutdownContentScript() {}",
   "let refreshCalls = 0; function refreshSession() { refreshCalls += 1; }",
   extractFunction("safeSendMessage"),
-  extractLine("const CB_COVER_ID"), extractLine("const CB_COVER_POLL_MS"), extractLine("const CB_SNOOZE_CONFIRM_INTERVAL_MS"),
+  extractLine("const CB_COVER_ID"), extractLine("const CB_SNOOZE_CONFIRM_INTERVAL_MS"),
   extractConst("cbCover"),
   ...["cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "attemptExitPage"].map(extractFunction)
 ].join("\n");
@@ -118,7 +118,7 @@ video.play();
 check("media the site restarts under the cover is paused again", video.paused === true);
 check("the worker is told to mute the tab", sent.some((m) => m.type === "cover-state" && m.covered === true), sent);
 check("the message and the group show on the cover", dialog().querySelectorAll("h1")[0].textContent === "Go work" && dialog().querySelectorAll("p").some((p) => p.textContent === "Blocked by Sites"));
-check("the cover polls the worker until the block lifts", [...timers.intervals.values()].some((t) => t.ms === 3000));
+check("the cover does not poll: the worker pushes when the block lifts", ![...timers.intervals.values()].some((t) => t.ms === 3000));
 check("no navigation happened", ctx.location.replaced === null);
 // The site removes the cover → it is put back.
 dialog().remove(); ctx.__observer.fn();
