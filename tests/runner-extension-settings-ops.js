@@ -158,6 +158,11 @@ async function op(operation, body) {
   const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
   const mk = async (name) => (await op("settings-create-group", { groupType: "site", patch: { name, sites: ["a.example"], activeDays: days } })).body.group.id;
   const [a, b, c] = [await mk("Lock A"), await mk("Lock B"), await mk("Lock C")];
+  await op("settings-set-global", { patch: { defaultSnoozeMinutes: 7 } });
+  const unnamed1 = (await op("settings-create-group", { groupType: "site" }))?.body?.group;
+  const unnamed2 = (await op("settings-create-group", { groupType: "site" }))?.body?.group;
+  check("unnamed tool-created groups get free numbered names, like the editor's", unnamed1 && unnamed2 && unnamed1.name !== unnamed2.name && / 2$/.test(unnamed2.name), [unnamed1?.name, unnamed2?.name]);
+  check("…and the user's default snooze length", unnamed1?.snoozeMinutes === 7, unnamed1?.snoozeMinutes);
   const dup = await op("settings-create-group", { groupType: "site", patch: { name: "lock a" } });
   check("a name another group has (any case) is refused", dup?.error === "duplicate-name", dup);
 
