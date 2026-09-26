@@ -3577,14 +3577,6 @@ function sanitizeSnoozes(value, groups) {
     const cooldownUntilMs = Number.parseInt(snooze?.cooldownUntilMs, 10);
     const confirmationCount = parseSnoozeConfirmations(snooze?.confirmationCount);
     const activeMsApplied = Boolean(snooze?.activeMsApplied);
-    // "none" means the group was not frozen when it was snoozed, so it must NOT
-    // be refrozen on expiry. Preserve it (and default missing values to "none").
-    const refreezeMode =
-      snooze?.refreezeMode === "strict" ||
-      snooze?.refreezeMode === "frozen" ||
-      snooze?.refreezeMode === "parental"
-        ? snooze.refreezeMode
-        : "none";
 
     if (
       Number.isFinite(startsAtMs) &&
@@ -3598,8 +3590,7 @@ function sanitizeSnoozes(value, groups) {
         untilMs,
         cooldownUntilMs,
         confirmationCount: confirmationCount ?? 0,
-        activeMsApplied,
-        refreezeMode
+        activeMsApplied
       };
     }
   }
@@ -6395,7 +6386,6 @@ function closeUnfreezeFlow() {
 }
 
 function createSnoozeEntry(
-  group,
   { snoozeMinutes, activationDelayMinutes, cooldownMinutes, confirmationCount },
   now = Date.now()
 ) {
@@ -6406,39 +6396,8 @@ function createSnoozeEntry(
     untilMs,
     cooldownUntilMs: untilMs + cooldownMinutes * MS_PER_MINUTE,
     confirmationCount,
-    activeMsApplied: false,
-    // Remember the freeze state at snooze time so we restore exactly that on
-    // expiry. "none" means the group was unfrozen and must stay unfrozen.
-    refreezeMode:
-      group.freezeMode === "strict" ||
-      group.freezeMode === "parental" ||
-      group.freezeMode === "frozen"
-        ? group.freezeMode
-        : "none"
+    activeMsApplied: false
   };
-}
-
-function maybeRefreezeGroupAfterSnooze(groupId, snooze, now = Date.now()) {
-  const group = state.groups.find((item) => item.id === groupId);
-  if (!group || group.freezeMode !== "none") {
-    return;
-  }
-  // Only refreeze if the group was actually frozen when it was snoozed.
-  const refreezeMode = snooze?.refreezeMode;
-  if (
-    refreezeMode !== "strict" &&
-    refreezeMode !== "parental" &&
-    refreezeMode !== "frozen"
-  ) {
-    return;
-  }
-  const nextGroup = {
-    ...group,
-    freezeMode: refreezeMode,
-    frozenAtMs: now
-  };
-  state.groups = state.groups.map((item) => (item.id === groupId ? nextGroup : item));
-  state.drafts[groupId] = groupToDraft(nextGroup);
 }
 
 function showSnoozeNotice(group, snoozeEntry, totalBeforeMs) {
@@ -6548,7 +6507,6 @@ async function handleUnfreezeConfirm() {
       const confirmationCount = group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS;
       const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
       const snoozeEntry = createSnoozeEntry(
-        group,
         {
           snoozeMinutes,
           activationDelayMinutes,
@@ -6726,7 +6684,6 @@ async function startSnooze() {
   const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
   if (snoozeConfirmations === 0) {
     const snoozeEntry = createSnoozeEntry(
-      group,
       {
         snoozeMinutes,
         activationDelayMinutes: snoozeActivationDelayMinutes,
@@ -6790,7 +6747,6 @@ async function endSnooze() {
     const cooldownDurationMs = Math.max(0, snooze.cooldownUntilMs - snooze.untilMs);
     state.groupSnoozeTotalsMs[group.id] =
       Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0) + elapsedActiveMs;
-    maybeRefreezeGroupAfterSnooze(group.id, snooze, now);
     if (cooldownDurationMs > 0) {
       state.groupSnoozes[group.id] = {
         ...snooze,

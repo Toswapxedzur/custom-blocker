@@ -664,13 +664,8 @@ function sanitizeSnoozes(value, groups, now) {
     const cooldownUntilMs = Number.parseInt(snooze?.cooldownUntilMs, 10);
     const confirmationCount = parseSnoozeConfirmations(snooze?.confirmationCount);
     const activeMsApplied = Boolean(snooze?.activeMsApplied);
-    // "none" means the group was unfrozen when snoozed and must stay unfrozen.
-    const refreezeMode =
-      snooze?.refreezeMode === "strict" ||
-      snooze?.refreezeMode === "frozen" ||
-      snooze?.refreezeMode === "parental"
-        ? snooze.refreezeMode
-        : "none";
+    // Snooze and Lock mode are independent (a stored `refreezeMode` from
+    // before 2026-09-26 is dropped here).
     if (
       Number.isFinite(startsAtMs) &&
       Number.isFinite(untilMs) &&
@@ -683,8 +678,7 @@ function sanitizeSnoozes(value, groups, now) {
         untilMs,
         cooldownUntilMs,
         confirmationCount: confirmationCount ?? DEFAULT_SNOOZE_CONFIRMATIONS,
-        activeMsApplied,
-        refreezeMode
+        activeMsApplied
       };
     }
   }
@@ -787,23 +781,8 @@ function normalizePageContext(input) {
   };
 }
 
-// Native network-level blocking (declarativeNetRequest) has been removed.
-// Whole-site blocking now happens entirely via redirect: syncBlockingRules
-// refreshes this cache and the webNavigation.onBeforeNavigate fast-path
-// redirects matching main-frame navigations to the message page before the
-// blocked page paints. The content-script `shouldExitPage` path remains as a
-// second line of defence for in-page (SPA) navigations.
-let __blockedHostnamesCache = [];
-// site -> where its block lands (see cbWorkerBlockTarget); "" = the plain message page.
-let __blockedTargetsCache = new Map();
-
-function isUrlBlockedByCache(hostname, pathname) {
-  if (!hostname) return false;
-  return __blockedHostnamesCache.some((entry) => siteEntryMatches(hostname, pathname, entry));
-}
-
-// The group's "when blocked" field, read the same way by the worker (redirect
-// fast path) and by content.js (page-level blocks): a web address or a
+// The group's "when blocked" field, read the same way by the worker (early
+// redirect) and by content.js (page-level blocks): a web address or a
 // scheme-less host is an ADDRESS the tab is sent to; any other text is a
 // MESSAGE shown on the in-place cover; blank is the plain cover. Only an
 // address ever leaves the page (owner 2026-09-25: the cover is the default).
@@ -813,24 +792,6 @@ function cbBlockExit(value) {
   if (/^(https?|about|chrome-extension|moz-extension|safari-web-extension):/i.test(text)) return { navigate: text, message: "" };
   if (!/\s/.test(text) && /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(text)) return { navigate: "https://" + text, message: "" };
   return { navigate: "", message: text };
-}
-
-// For every blocked site, the ADDRESS of the top-most group that blocks it
-// right now and sends the tab away; sites whose blocking groups cover in
-// place (blank field or a message) get "" and are left to load.
-function getBlockingTargets(groups, usageTimersMs, groupSnoozes, now) {
-  const targets = new Map();
-  for (const entry of getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now)) {
-    const { host, path } = siteEntryParts(entry);
-    const blocking = getRelevantSiteGroupsForUrl(host, path || "/", groups, groupSnoozes, now).filter(
-      (group) =>
-        group.mode === "instant" ||
-        (isTimedBlockingMode(group.mode) && (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group))
-    );
-    const chosen = blocking.find((group) => typeof group.fallbackUrl === "string" && group.fallbackUrl.trim());
-    targets.set(entry, chosen ? cbBlockExit(chosen.fallbackUrl).navigate : "");
-  }
-  return targets;
 }
 
 function getAllowedMs(group) {
@@ -970,16 +931,6 @@ function isGroupActiveNow(group, now) {
   });
 }
 
-function sanitizeBlockingDomains(domains) {
-  return [...new Set((Array.isArray(domains) ? domains : []).map(normalizeSiteInput).filter(Boolean))];
-}
-
-// All "iterate over groups" helpers reverse the storage order so that the
-// last group in the list is consulted first.
-function reversed(list) {
-  return [...list].reverse();
-}
-
 // matchesVideoMode, isHomeFeedPage, isPlatformHost and the per-platform
 // matchers (matchesPlatformVideoGroup / matchesRedditGroup /
 // matchesDiscordGroup / matchesTwitterGroup) plus the matchesProfileGroup
@@ -1075,32 +1026,20 @@ function cbGroupMatchesPage(group, pageContext) {
   return lines.some((line) => cbLineMatchesPage(group, line, pageContext));
 }
 
-function getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now) {
-  return reversed(groups).filter((group) => {
-    if (!group.enabled || !isGroupActiveNow(group, now) || getActiveSnooze(group.id, groupSnoozes, now)) {
-      return false;
-    }
-    if (group.groupType === "custom") {
-      // Custom groups still run their JS in content.js, but they may ALSO carry
-      // a declarative site line (block / "block all except"). Only let a custom
-      // group affect the page-block decision when it is actually configured.
-      return groupUsesSiteList(group) && matchesSiteGroup(group, pageContext.hostname, pageContext.pathname);
-    }
-    return cbGroupMatchesPage(group, pageContext);
-  });
+// Does this group's page lines name this page? (Its policy is the caller's.)
+// Custom groups still run their JS in content.js, but they may ALSO carry a
+// declarative site line (block / "block all except"); only a configured one
+// takes part in the page decision.
+function cbGroupBlocksPage(group, pageContext) {
+  if (group.groupType === "custom") {
+    return groupUsesSiteList(group) && matchesSiteGroup(group, pageContext.hostname, pageContext.pathname);
+  }
+  return cbGroupMatchesPage(group, pageContext);
 }
 
-function getRelevantSiteGroupsForUrl(hostname, pathname, groups, groupSnoozes, now) {
-  // Any normal group with a site line blocks sites; custom groups never do
-  // here (their list only feeds the page decision, see getRelevantGroupsForPage).
-  return reversed(groups).filter(
-    (group) =>
-      group.groupType !== "custom" &&
-      group.enabled &&
-      isGroupActiveNow(group, now) &&
-      !getActiveSnooze(group.id, groupSnoozes, now) &&
-      matchesSiteGroup(group, hostname, pathname)
-  );
+// Groups in effect right now that name this page, in list order (top first).
+function getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now) {
+  return groups.filter((group) => cbGroupActive(group, groupSnoozes, now) && cbGroupBlocksPage(group, pageContext));
 }
 
 // Merges custom timer snapshots from a sandbox dispatch result into
@@ -1326,21 +1265,6 @@ function applyRuntimeNormalizations(
         Math.max(0, Number(nextSnoozeTotals[groupId]) || 0) +
         Math.max(0, snooze.untilMs - snooze.startsAtMs);
       nextSnoozes[groupId] = { ...snooze, activeMsApplied: true };
-      const groupIndex = nextGroups.findIndex((group) => group.id === groupId);
-      // Only refreeze if the group was actually frozen when it was snoozed.
-      if (
-        groupIndex >= 0 &&
-        nextGroups[groupIndex].freezeMode === "none" &&
-        (snooze.refreezeMode === "strict" ||
-          snooze.refreezeMode === "parental" ||
-          snooze.refreezeMode === "frozen")
-      ) {
-        nextGroups[groupIndex] = {
-          ...nextGroups[groupIndex],
-          freezeMode: snooze.refreezeMode,
-          frozenAtMs: now
-        };
-      }
       changed = true;
       if (snooze.cooldownUntilMs <= now) {
         delete nextSnoozes[groupId];
@@ -1411,39 +1335,6 @@ async function getState() {
   };
 }
 
-function getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now) {
-  // Custom groups never block whole sites. Every other group's site line
-  // (instant or timed) contributes entries to the redirect fast-path cache.
-  // Entries are hosts or host/path prefixes; each is tested as the URL it names.
-  // Only site lines that BLOCK take part: a "pause" line lets the page load
-  // and is decided by the content script (the cover with a countdown).
-  const entries = new Set(
-    groups
-      .filter((group) => group.groupType !== "custom")
-      .flatMap((group) => { const line = cbSiteLine(group); return line && line.action !== "pause" && Array.isArray(line.sites) ? line.sites : []; })
-  );
-  const blockedEntries = [];
-
-  for (const entry of entries) {
-    const { host, path } = siteEntryParts(entry);
-    const relevantGroups = getRelevantSiteGroupsForUrl(host, path || "/", groups, groupSnoozes, now);
-    if (relevantGroups.some((group) => group.mode === "instant")) {
-      blockedEntries.push(entry);
-      continue;
-    }
-    if (
-      relevantGroups.some(
-        (group) =>
-          isTimedBlockingMode(group.mode) && (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group)
-      )
-    ) {
-      blockedEntries.push(entry);
-    }
-  }
-
-  return sanitizeBlockingDomains(blockedEntries);
-}
-
 // Whether a platform group should actually hide matched content right now
 // (vs. merely measuring exposure for its usage timer): instant always blocks,
 // "after-minutes" only after its allowance is spent.
@@ -1505,13 +1396,12 @@ function pushTagFilterEntry(filters, group, line, enforce) {
 function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnoozes, now) {
   const filters = [];
   const currentSite = pageContext.videoSite || getPlatformGroupTypeForHost(pageContext.hostname);
-  const orderedGroups = reversed(groups);
   const kind = currentSite ? CBGroupScopes.platformKind(currentSite) : null;
   const onReddit = Boolean(pageContext.isRedditPage);
   if (!currentSite && !onReddit) return filters;
 
-  for (const group of orderedGroups) {
-    if (!group.enabled || !isGroupActiveNow(group, now) || getActiveSnooze(group.id, groupSnoozes, now)) continue;
+  for (const group of groups) {
+    if (!cbGroupActive(group, groupSnoozes, now)) continue;
     const lines = Array.isArray(group.scopes) ? group.scopes : [];
     // A group may name several platforms; only its lines for THIS page's
     // platform apply. Reddit pages carry no videoSite; every other platform
@@ -1520,9 +1410,10 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
       (line) => line.surface === "items" && (onReddit ? line.platform === "reddit" : line.platform === currentSite)
     );
     if (itemLines.length === 0) continue;
-    // `enforce` decides whether matched cards are actually hidden: instant
-    // always, after-minutes only past its allowance.
-    const enforce = isPlatformBlockEnforcing(group, usageTimersMs);
+    // `enforce` decides whether matched cards are actually hidden (the one
+    // gate every line uses); a timed group not yet spent still reports
+    // exposure so its allowance runs.
+    const enforce = cbGroupEnforcing(group, usageTimersMs, groupSnoozes, now);
     for (const line of itemLines) {
       const platform = line.platform;
       if (line.tagFilter) {
@@ -1567,16 +1458,15 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
 // active platform group's shelf lines on the current host. These are
 // independent of the coarse blocking predicate — a group can hide the Shorts
 // button or promoted posts without blocking the page.
-function buildSurfaceHideSelectors(pageContext, groups, groupSnoozes, now) {
+function buildSurfaceHideSelectors(pageContext, groups, usageTimersMs, groupSnoozes, now) {
   const selectors = new Set();
   for (const group of groups) {
     const shelves = (Array.isArray(group.scopes) ? group.scopes : []).filter(
       (line) => line.surface === "shelf" && line.shelf && isPlatformHost(line.platform, pageContext.hostname)
     );
     if (shelves.length === 0) continue;
-    if (!group.enabled || !isGroupActiveNow(group, now) || getActiveSnooze(group.id, groupSnoozes, now)) {
-      continue;
-    }
+    // The one gate: a timed group hides shelves only once its allowance is spent.
+    if (!cbGroupEnforcing(group, usageTimersMs, groupSnoozes, now)) continue;
     // A group may carry shelf lines for several platforms; only this host's apply.
     const byPlatform = new Map();
     for (const line of shelves) {
@@ -1629,7 +1519,7 @@ function buildPageSession(
   groupSnoozes,
   now,
   exposedGroupIds = [],
-  pausePassed = false
+  passedGroupIds = new Set()
 ) {
   const relevantGroups = getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now);
   const relevantTimedItems = buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now);
@@ -1649,56 +1539,9 @@ function buildPageSession(
     groupSnoozes,
     now
   );
-  const surfaceHides = buildSurfaceHideSelectors(pageContext, groups, groupSnoozes, now);
-  const currentBlockedHostnames = getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now);
-  const blockedByHostname = currentBlockedHostnames.some((entry) =>
-    pageContext.hostname && siteEntryMatches(pageContext.hostname, pageContext.pathname, entry)
-  );
-  // Page-level blocking (full exit) only comes from page-matched groups. Feed
-  // exposure never redirects the page — it just enforces the feed filter
-  // (handled by buildPlatformFeedFilters) and shows the overlay.
-  const blockedNow =
-    blockedByHostname ||
-    relevantGroups.some((group) => group.mode === "instant") ||
-    relevantTimedItems.some((item) => item.blocksNow);
-
-  // What happens to a blocked page (owner 2026-09-25): the highest-priority
-  // group that blocks decides. "navigate" only when that group's field is an
-  // address; otherwise the content script covers the page in place, and
-  // "pause" when every acting group's matching line is the pause action (a
-  // countdown, then the page is let through for this tab).
-  let exit = null;
-  if (blockedNow) {
-    const blockingGroups = relevantGroups.filter((group) => {
-      if (group.mode === "instant") return true;
-      if (isTimedBlockingMode(group.mode)) {
-        const usedMs = usageTimersMs[group.id] ?? 0;
-        return usedMs >= getAllowedMs(group);
-      }
-      return false;
-    });
-    const acting = blockingGroups.filter(
-      (group) => !(pausePassed && cbGroupPageAction(group, pageContext) === "pause")
-    );
-    const lead = acting.find((group) => cbGroupPageAction(group, pageContext) === "block") || acting[0];
-    if (lead) {
-      const action = cbGroupPageAction(lead, pageContext);
-      const withField = acting.find((group) => typeof group.fallbackUrl === "string" && group.fallbackUrl.trim());
-      const field = cbBlockExit(withField ? withField.fallbackUrl : "");
-      const snooze = groupSnoozes[lead.id];
-      exit = {
-        action: action === "pause" ? "pause" : field.navigate ? "navigate" : "cover",
-        target: field.navigate,
-        message: field.message,
-        groupId: lead.id,
-        groupName: lead.name,
-        pauseSeconds: lead.pauseSeconds ?? DEFAULT_PAUSE_SECONDS,
-        allowSnooze: lead.groupType !== "custom" && lead.allowSnooze !== false,
-        snoozeConfirmations: lead.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS,
-        snoozePhase: getSnoozePhase(snooze, now)
-      };
-    }
-  }
+  const surfaceHides = buildSurfaceHideSelectors(pageContext, groups, usageTimersMs, groupSnoozes, now);
+  const lead = cbPageLead(pageContext, groups, usageTimersMs, groupSnoozes, now, passedGroupIds);
+  const exit = lead ? cbLeadExit(lead, pageContext, groupSnoozes, now) : null;
 
   return {
     showTimer: !exit && timedItems.length > 0,
@@ -1712,13 +1555,48 @@ function buildPageSession(
   };
 }
 
+// The page decision (owner 2026-09-26). Blocking is the union of every group,
+// and the groups are walked from the top of the list: the first one that
+// blocks this page decides everything about how it looks (cover, message,
+// pause, Snooze, redirect). A pause that this tab has passed for THAT group
+// lets the walk go on, so the next group down decides, or nothing does.
+function cbPageLead(pageContext, groups, usageTimersMs, groupSnoozes, now, passedGroupIds = new Set()) {
+  if (!pageContext.hostname) return null;
+  for (const group of groups) {
+    if (!cbGroupEnforcing(group, usageTimersMs, groupSnoozes, now)) continue;
+    if (!cbGroupBlocksPage(group, pageContext)) continue;
+    if (passedGroupIds.has(group.id) && cbGroupPageAction(group, pageContext) === "pause") continue;
+    return group;
+  }
+  return null;
+}
+
+// How the lead group's block looks: its pause countdown, or its field — an
+// address sends the tab there, any other text shows on the cover. A pause
+// never redirects (it lets the page through after the countdown).
+function cbLeadExit(lead, pageContext, groupSnoozes, now) {
+  const pause = cbGroupPageAction(lead, pageContext) === "pause";
+  const field = cbBlockExit(typeof lead.fallbackUrl === "string" ? lead.fallbackUrl : "");
+  return {
+    action: pause ? "pause" : field.navigate ? "navigate" : "cover",
+    target: pause ? "" : field.navigate,
+    message: field.message,
+    groupId: lead.id,
+    groupName: lead.name,
+    pauseSeconds: lead.pauseSeconds ?? DEFAULT_PAUSE_SECONDS,
+    allowSnooze: lead.groupType !== "custom" && lead.allowSnooze !== false,
+    snoozeConfirmations: lead.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS,
+    snoozePhase: getSnoozePhase(groupSnoozes[lead.id], now)
+  };
+}
+
 // The page action of a group on this page: "block" when any of its matching
-// site / pages lines blocks, "pause" when they all pause.
+// site / pages / home lines blocks, "pause" when they all pause.
 function cbGroupPageAction(group, pageContext) {
   const lines = Array.isArray(group?.scopes) ? group.scopes : [];
   let sawPause = false;
   for (const line of lines) {
-    if (line.surface !== "site" && line.surface !== "pages") continue;
+    if (line.surface !== "site" && line.surface !== "pages" && line.surface !== "home") continue;
     if (!cbLineMatchesPage(group, line, pageContext)) continue;
     if (line.action !== "pause") return "block";
     sawPause = true;
@@ -1795,26 +1673,11 @@ async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes,
 
 async function syncBlockingRules() {
   const now = Date.now();
-  const { groups, usageTimersMs, usageResetAtMs, usageBucketsMs, groupSnoozes } = await getState();
-
-  // Refresh the redirect fast-path cache (replaces declarativeNetRequest).
-  __blockedHostnamesCache = getBlockingHostnames(groups, usageTimersMs, groupSnoozes, now);
-  __blockedTargetsCache = getBlockingTargets(groups, usageTimersMs, groupSnoozes, now);
-
+  const { groups, usageResetAtMs, usageBucketsMs, groupSnoozes } = await getState();
   await scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now, usageBucketsMs);
 }
 
-// Redirect target for a fully-blocked site: the blocking group's address when
-// it has one, else "" — the page then loads and the content script covers it
-// in place on arrival (nothing on the page is lost).
-function blockedRedirectUrl(hostname, pathname) {
-  for (const [entry, target] of __blockedTargetsCache) {
-    if (target && siteEntryMatches(hostname, pathname, entry)) return target;
-  }
-  return "";
-}
-
-async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInput, pausePassed = false) {
+async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInput, passedGroupIds = new Set()) {
   const pageContext = normalizePageContext(pageContextInput);
   const exposedGroupIds = Array.isArray(exposedGroupIdsInput)
     ? exposedGroupIdsInput.filter((id) => typeof id === "string")
@@ -1873,7 +1736,7 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     groupSnoozes,
     now,
     exposedGroupIds,
-    pausePassed
+    passedGroupIds
   );
   if (accrualGroups.length === 0 || current.exit) return current;
 
@@ -1932,11 +1795,11 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     groupSnoozes,
     now,
     exposedGroupIds,
-    pausePassed
+    passedGroupIds
   );
 }
 
-async function getPageSession(pageContextInput, pausePassed = false) {
+async function getPageSession(pageContextInput, passedGroupIds = new Set()) {
   await waitForUsageTimerUpdates();
 
   const pageContext = normalizePageContext(pageContextInput);
@@ -1970,7 +1833,7 @@ async function getPageSession(pageContextInput, pausePassed = false) {
     groupSnoozes,
     now,
     [],
-    pausePassed
+    passedGroupIds
   );
 }
 
@@ -2198,9 +2061,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "pause-pass") {
     const tabId = sender?.tab?.id ?? null;
     const host = hostnameOf(sender?.tab?.url || sender?.url || "");
-    if (typeof tabId === "number" && host) {
+    const groupId = typeof message.groupId === "string" ? message.groupId : "";
+    if (typeof tabId === "number" && host && groupId) {
       cbCoverStateReady.then(() => {
-        cbPausePasses.set(tabId, { host, until: Date.now() + PAUSE_PASS_MS });
+        // Continue belongs to the group whose pause it was; the page is then
+        // re-decided, so a group further down may still block it.
+        cbPausePasses.set(cbPauseKey(tabId, groupId), { host, until: Date.now() + PAUSE_PASS_MS });
         cbSaveCoverState();
         sendResponse({ ok: true });
         // The pass's end is a transition: the alarm re-checks the open page
@@ -2244,7 +2110,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = sender?.tab?.id ?? null;
     const tabUrl = sender?.tab?.url || sender?.url || "";
     cbCoverStateReady
-      .then(() => getPageSession(message.pageContext ?? message.hostname, cbPausePassActive(tabId, hostnameOf(tabUrl))))
+      .then(() => getPageSession(message.pageContext ?? message.hostname, cbPausePassedGroups(tabId, hostnameOf(tabUrl))))
       .then(async (payload) => {
         // Dispatch a zero-elapsed heartbeat so the initial session
         // response includes any custom timer items whose domain
@@ -2321,7 +2187,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       : [];
     queueUsageTimerUpdate(() =>
       cbCoverStateReady.then(() =>
-        applyElapsedTime(message.pageContext ?? message.hostname, heartbeatElapsedMs, heartbeatExposedIds, cbPausePassActive(tabId, hostnameOf(tabUrl)))
+        applyElapsedTime(message.pageContext ?? message.hostname, heartbeatElapsedMs, heartbeatExposedIds, cbPausePassedGroups(tabId, hostnameOf(tabUrl)))
       )
     )
       .then(async (payload) => {
@@ -2501,7 +2367,8 @@ async function cbQuickAdd(url) {
 }
 
 // ── In-place cover support ──────────────────────────────────────────────────
-// tabId -> { host, until }: a page let through after a pause countdown.
+// "<tabId>␟<groupId>" -> { host, until }: a group's pause this tab passed
+// (Continue), on that host, for a while. Other groups still decide.
 const cbPausePasses = new Map();
 // Tabs this extension muted for a cover (never unmute a tab the user muted).
 const cbMutedTabs = new Set();
@@ -2515,8 +2382,8 @@ const cbCoverStateReady = (async () => {
     if (!chrome.storage?.session) return;
     const stored = (await chrome.storage.session.get(CB_COVER_STATE_KEY))?.[CB_COVER_STATE_KEY];
     const now = Date.now();
-    for (const [tabId, pass] of Array.isArray(stored?.passes) ? stored.passes : []) {
-      if (pass && pass.until > now && !cbPausePasses.has(Number(tabId))) cbPausePasses.set(Number(tabId), pass);
+    for (const [key, pass] of Array.isArray(stored?.passes) ? stored.passes : []) {
+      if (typeof key === "string" && pass && pass.until > now && !cbPausePasses.has(key)) cbPausePasses.set(key, pass);
     }
     for (const tabId of Array.isArray(stored?.muted) ? stored.muted : []) cbMutedTabs.add(Number(tabId));
   } catch (_) {}
@@ -2531,16 +2398,24 @@ function cbSaveCoverState() {
   } catch (_) {}
 }
 
-function cbPausePassActive(tabId, hostname) {
-  if (typeof tabId !== "number" || !hostname) return false;
-  const pass = cbPausePasses.get(tabId);
-  if (!pass) return false;
-  if (pass.until <= Date.now() || pass.host !== hostname) {
-    cbPausePasses.delete(tabId);
-    cbSaveCoverState();
-    return false;
+function cbPauseKey(tabId, groupId) {
+  return `${tabId}␟${groupId}`;
+}
+
+// The groups whose pause this tab has passed on this host, right now.
+function cbPausePassedGroups(tabId, hostname) {
+  const passed = new Set();
+  if (typeof tabId !== "number" || !hostname) return passed;
+  const prefix = `${tabId}␟`;
+  const now = Date.now();
+  let expired = false;
+  for (const [key, pass] of cbPausePasses) {
+    if (!key.startsWith(prefix)) continue;
+    if (!pass || pass.until <= now) { cbPausePasses.delete(key); expired = true; continue; }
+    if (pass.host === hostname) passed.add(key.slice(prefix.length));
   }
-  return true;
+  if (expired) cbSaveCoverState();
+  return passed;
 }
 
 async function cbSetTabCovered(tabId, covered) {
@@ -2583,11 +2458,7 @@ async function cbStartSnooze(groupId, now = Date.now()) {
     untilMs,
     cooldownUntilMs: untilMs + (group.snoozeCooldownMinutes ?? 0) * MS_PER_MINUTE,
     confirmationCount: group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS,
-    activeMsApplied: false,
-    refreezeMode:
-      group.freezeMode === "strict" || group.freezeMode === "parental" || group.freezeMode === "frozen"
-        ? group.freezeMode
-        : "none"
+    activeMsApplied: false
   };
   const next = { ...groupSnoozes, [group.id]: entry };
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: next });
@@ -3418,8 +3289,16 @@ let cbEnforcementSignature = null;
 let cbRecheckTimer = null;
 let cbRecheckDefinition = false;
 
+// In effect right now: on, inside its schedule, not snoozed.
+function cbGroupActive(group, groupSnoozes, now) {
+  return Boolean(group) && group.enabled && isGroupActiveNow(group, now) && !getActiveSnooze(group.id, groupSnoozes, now);
+}
+
+// The one gate every line goes through (pages, feed cards, home, shelves):
+// the group is in effect and blocks now — immediately, or once its allowance
+// is spent. Custom groups decide in their own rule.
 function cbGroupEnforcing(group, usageTimersMs, groupSnoozes, now) {
-  if (!group || !group.enabled || !isGroupActiveNow(group, now) || getActiveSnooze(group.id, groupSnoozes, now)) return false;
+  if (!cbGroupActive(group, groupSnoozes, now)) return false;
   if (group.groupType === "custom") return true;
   return isPlatformBlockEnforcing(group, usageTimersMs);
 }
@@ -3431,7 +3310,7 @@ function cbEnforcementState(groups, usageTimersMs, groupSnoozes, now) {
       cbGroupEnforcing(group, usageTimersMs, groupSnoozes, now),
       getSnoozePhase(groupSnoozes[group.id], now)
     ]),
-    passes: [...cbPausePasses.entries()].filter(([, pass]) => pass && pass.until > now).map(([tabId, pass]) => [tabId, pass.host])
+    passes: [...cbPausePasses.entries()].filter(([, pass]) => pass && pass.until > now).map(([key, pass]) => [key, pass.host])
   });
 }
 
@@ -3767,7 +3646,11 @@ if (chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener(async (tabId, _info) => {
     const previous = previousTabUrls.get(tabId);
     previousTabUrls.delete(tabId);
-    if (cbPausePasses.delete(tabId) | cbMutedTabs.delete(tabId)) cbSaveCoverState();
+    let dropped = cbMutedTabs.delete(tabId);
+    for (const key of [...cbPausePasses.keys()]) {
+      if (key.startsWith(`${tabId}␟`)) { cbPausePasses.delete(key); dropped = true; }
+    }
+    if (dropped) cbSaveCoverState();
     // The tab is gone — any apply messages we queued for it will never
     // be drained, so clear that entry too to keep both in-memory and
     // session-persisted state from leaking forever.
@@ -3873,24 +3756,32 @@ if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
   });
 }
 
-// Redirect fast-path for whole-site blocks whose group sends the tab to an
-// ADDRESS. onBeforeNavigate fires before the request is sent, so nothing of
-// the blocked page is painted. Groups that cover in place are not intercepted
-// here: the page loads and the content script covers it on arrival. Only
-// top-level (main-frame) navigations are intercepted.
+// Early redirect: before a top-level navigation is sent, ask the SAME page
+// decision the page itself gets (cbPageLead). Only when it says "send the tab
+// to this address" does the tab leave before anything paints; a cover or a
+// pause lets the page load and the content script shows it on arrival. A
+// decision that needs the page (a creator, a tag) is simply made on arrival.
 if (chrome.webNavigation && chrome.webNavigation.onBeforeNavigate) {
   chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     if (!details || details.frameId !== 0) return;
     const url = String(details.url || "");
     if (!/^https?:/i.test(url)) return;
-    const hostname = hostnameOf(url);
-    let pathname = "/";
-    try { pathname = new URL(url).pathname; } catch {}
-    if (!isUrlBlockedByCache(hostname, pathname)) return;
-    const target = blockedRedirectUrl(hostname, pathname);
-    if (!target) return;
-    chrome.tabs.update(details.tabId, { url: target }).catch(() => {});
+    cbEarlyRedirect(details.tabId, url).catch(() => {});
   });
+}
+
+async function cbEarlyRedirect(tabId, url) {
+  await cbCoverStateReady;
+  const hostname = hostnameOf(url);
+  let pathname = "/";
+  try { pathname = new URL(url).pathname; } catch {}
+  const pageContext = normalizePageContext({ url, hostname, pathname });
+  const now = Date.now();
+  const { groups, usageTimersMs, groupSnoozes } = await getState();
+  const lead = cbPageLead(pageContext, groups, usageTimersMs, groupSnoozes, now, cbPausePassedGroups(tabId, hostname));
+  const target = lead ? cbLeadExit(lead, pageContext, groupSnoozes, now).target : "";
+  if (target) await chrome.tabs.update(tabId, { url: target });
+  return target;
 }
 
 const lastTickSecondByTab = new Map();
@@ -4978,7 +4869,7 @@ async function cbBrowserRequestBody(operation, body) {
         autosaveDebounceMs: Math.round(clamp(merged.autosaveDebounceMs, 0, 10_000, 400)),
         debugMode: merged.debugMode === true,
         showOnPageLogToasts: merged.showOnPageLogToasts !== false,
-        defaultSnoozeMinutes: (() => { const n = Number.parseFloat(merged.defaultSnoozeMinutes); return Number.isFinite(n) && n > 0 ? n : 5; })(),
+        defaultSnoozeMinutes: (() => { const n = Number.parseFloat(merged.defaultSnoozeMinutes); return Number.isFinite(n) && n > 0 ? n : DEFAULT_SNOOZE_MINUTES; })(),
         quickAddEnabled: merged.quickAddEnabled === true
       };
       await chrome.storage.local.set({ [CB_GLOBAL_SETTINGS_KEY]: next });

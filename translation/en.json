@@ -410,7 +410,7 @@
   "filter.blockHomePageDiscordHelp": "Blocks the Discord DMs home screen (/channels/@me).",
   "filter.fallbackUrl": "When blocked: redirect address or message",
   "filter.fallbackUrlPlaceholder": "https://example.com — or a message to show",
-  "filter.fallbackUrlHelp": "Leave empty and a blocked page is covered in place — nothing on it is lost, and it comes back when the block lifts. Any other text is shown on that cover. A web address sends the tab there instead.",
+  "filter.fallbackUrlHelp": "Leave empty and a blocked page is covered in place — nothing on it is lost, and it comes back when the block lifts. Any other text is shown on that cover. A web address sends the tab there instead (a pause never redirects).",
   "filter.platformAuthorsPlaceholder": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nchannel/UC...",
   "freeze.summary.notFrozen": "Freeze this group to stop future edits.",
   "freeze.summary.frozen": "Frozen.",

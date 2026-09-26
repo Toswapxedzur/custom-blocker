@@ -129,5 +129,21 @@ check("a second pass is idempotent", panelsOf(mixed.cell).length === 2 && panels
 vm.runInContext("latestFeedFilters = []; applyFeedFilters();", context);
 check("removing the filter lifts the blackout", news.cell.dataset.cbContentBlocked === undefined && !news.cell.querySelector(".cb-block-panel"));
 check("removing the filter lifts every panel of the mixed tweet", mixed.cell.dataset.cbContentBlocked === undefined && panelsOf(mixed.cell).length === 0);
+// Card verdicts walk from the top of the list (owner 2026-09-26): hides and
+// dims add up — hide wins, hiding a dimmed card is no conflict — until a
+// custom rule's allow(), which rescues the card from every group below it.
+const verdict = (opinions) => {
+  vm.runInContext(`cbSetGroupOrder([{ id: "a" }, { id: "b" }, { id: "c" }])`, context);
+  context.__card = {};
+  for (const [group, v, src] of opinions) {
+    context.__v = [group, v, src || "platform"];
+    vm.runInContext("cbSetCardVerdict(__card, __v[0], __v[1], __v[2])", context);
+  }
+  return vm.runInContext("cbResolveCardVerdict(__card)", context);
+};
+check("hide beats dim whatever the order", verdict([["a", "dim"], ["c", "hide"]]) === "hide" && verdict([["a", "hide"], ["c", "dim"]]) === "hide");
+check("dim alone dims", verdict([["b", "dim"]]) === "dim");
+check("an allow() rescues the card from the groups below it", verdict([["a", "allow", "custom"], ["b", "hide"]]) === "show");
+check("…but not from the groups above it", verdict([["a", "dim"], ["b", "allow", "custom"], ["c", "hide"]]) === "dim");
 console.log(fail ? "__CB_TEST_RESULT__: FAIL" : "__CB_TEST_RESULT__: OK");
 if (fail) process.exitCode = 1;
