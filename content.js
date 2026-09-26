@@ -114,7 +114,6 @@ function mountOverlay() {
 let overlay = null;
 let exitAttempted = false;
 let heartbeatIntervalId = null;
-let navigationPollIntervalId = null;
 let lastHeartbeatAt = Date.now();
 let lastKnownUrl = location.href;
 let refreshDebounceTimeoutId = null;
@@ -148,17 +147,12 @@ function shutdownContentScript() {
     window.clearTimeout(refreshDebounceTimeoutId);
     refreshDebounceTimeoutId = null;
   }
-  if (navigationPollIntervalId !== null) {
-    window.clearInterval(navigationPollIntervalId);
-    navigationPollIntervalId = null;
-  }
   if (overlay?.container?.parentNode) {
     overlay.container.parentNode.removeChild(overlay.container);
   }
   overlay = null;
   // The extension was updated or reloaded under this page: a blocked page
-  // stays covered (its buttons are gone with the old extension) until it is
-  // reloaded, when the new extension decides again.
+  // stays covered until the new extension reloads it and decides again.
   try { cbStopCoverTimers(); } catch {}
   try { cbUnmountQuickAdd(); } catch {}
 }
@@ -2027,24 +2021,6 @@ if (/^https?:$/i.test(location.protocol)) {
     if (isContextInvalidatedError(error)) shutdownContentScript();
   }
 
-  // The one navigation signal: the page's own address. A single-page app
-  // changes it without a load (history API, hash, Back); every browser lets a
-  // content script read it, while webNavigation's history events are missing
-  // in Safari and a pushState hook in this isolated world never sees the
-  // page's own calls.
-  navigationPollIntervalId = window.setInterval(() => {
-    if (extensionContextInvalid) {
-      window.clearInterval(navigationPollIntervalId);
-      navigationPollIntervalId = null;
-      return;
-    }
-    if (!isExtensionContextValid()) {
-      shutdownContentScript();
-      return;
-    }
-    if (location.href !== lastKnownUrl) cbOnNavigated();
-  }, 500);
-
   window.addEventListener(
     "pagehide",
     () => {
@@ -2052,7 +2028,6 @@ if (/^https?:$/i.test(location.protocol)) {
       stopFeedObserver();
       restoreHiddenFeedCards();
       if (refreshDebounceTimeoutId !== null) window.clearTimeout(refreshDebounceTimeoutId);
-      if (navigationPollIntervalId !== null) window.clearInterval(navigationPollIntervalId);
     },
     { once: true }
   );
@@ -4232,6 +4207,14 @@ if (document.readyState === "loading") {
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message !== "object") return false;
+    // The worker saw this page's address change without a load (history API,
+    // a new #hash): the one navigation signal (Chromium first, owner
+    // 2026-09-27).
+    if (message.type === "page-navigated") {
+      if (location.href !== lastKnownUrl) cbOnNavigated();
+      sendResponse({ ok: true });
+      return true;
+    }
     if (message.type === "session-refresh") {
       scheduleRefreshSession(0);
       sendResponse({ ok: true });
