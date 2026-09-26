@@ -794,6 +794,15 @@
               Snooze length used when creating new non-custom groups.
             </p>
           </div>
+          <div class="desktop-only">
+            <label class="label" for="settingsCloseRetrySeconds" data-i18n="settings.closeRetrySeconds">
+              Ask a closed app to quit again every (seconds)
+            </label>
+            <input id="settingsCloseRetrySeconds" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+            <p class="field-help" data-i18n="settings.closeRetrySecondsHelp">
+              When a custom rule closes an app, the app is asked to quit normally; if it stays open (for example to keep unsaved work), it is left open. Above 0, it is asked again this often while it stays open.
+            </p>
+          </div>
           <div>
             <label class="checkbox-row compact" for="settingsQuickAdd">
               <input id="settingsQuickAdd" type="checkbox" />
@@ -905,6 +914,7 @@
     <script src="bridge-protocol.js"></script>
     <script src="platform-profiles.js"></script>
     <script src="group-scopes.js"></script>
+    <script src="parental-pin.js"></script>
     <script src="translations.js"></script>
     <script src="popup-markdown.js"></script>
     <script src="custom-rule-ai-reference.js"></script>

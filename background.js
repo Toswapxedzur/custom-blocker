@@ -43,6 +43,11 @@ if (typeof importScripts === "function") {
     console.error("[CustomBlocker] importScripts(group-scopes.js) failed", error);
   }
   try {
+    if (typeof CBParentalPin === "undefined") importScripts("parental-pin.js");
+  } catch (error) {
+    console.error("[CustomBlocker] importScripts(parental-pin.js) failed", error);
+  }
+  try {
     if (typeof VaultClassifierExtensionContract === "undefined") importScripts("vault-classifier-contract.js");
     importScripts("vault-classifier-bridge.js", "local-hub-auth.js");
   } catch (error) {
@@ -4869,13 +4874,108 @@ const CB_BROWSER_REQUEST_OPERATIONS = Object.freeze([
   "settings-create-group",
   "settings-delete-group",
   "settings-set-classifier",
-  "settings-set-global"
+  "settings-set-global",
+  "settings-lock-group",
+  "settings-unlock-group",
+  "settings-move-group"
 ]);
 const CB_CLASSIFIER_SETTINGS_STORAGE_KEY = "vaultClassifierSettings";
 const CB_TAGGING_MODES = Object.freeze(["whenFiltering", "always", "paused"]);
 
 function cbGroupIsLocked(group) {
   return Boolean(group) && group.freezeMode !== "none" && group.freezeMode !== undefined;
+}
+
+// Locking and unlocking from a tool pass the editor's own gates (owner
+// 2026-09-26: a tool may do what the user can, no more, no less):
+// - a parental lock needs the group's PIN (or sets it, as the guardian
+//   settings do when none exists yet), through the shared retry wait;
+// - a strict lock opens only after its hours;
+// - every other unlock is the editor's confirmation: ask, wait 5 s, confirm.
+const CB_UNFREEZE_CONFIRMATION_INTERVAL_MS = 5000; // popup UNFREEZE_CONFIRMATION_INTERVAL_MS
+const CB_UNLOCK_REQUEST_TTL_MS = 5 * 60 * 1000;
+const CB_UNLOCK_REQUESTS_KEY = "cbUnlockRequests";
+
+async function cbCheckPinForTool(group, pin) {
+  const stored = (await chrome.storage.local.get({ [CBParentalPin.ATTEMPTS_KEY]: {} }))[CBParentalPin.ATTEMPTS_KEY];
+  const result = await CBParentalPin.check(stored, group, String(pin || ""), Date.now());
+  await chrome.storage.local.set({ [CBParentalPin.ATTEMPTS_KEY]: result.attempts });
+  if (result.waiting) throw new Error(`pin-wait:${Math.ceil(result.waitMs / 1000)}`);
+  if (!result.ok) throw new Error(`pin-wrong:${Math.ceil(result.waitMs / 1000)}`);
+  return result.upgradedHash ? { parentalPasswordHash: result.upgradedHash } : {};
+}
+
+async function cbWriteGroupFields(groups, index, fields) {
+  const next = groups.slice();
+  next[index] = { ...groups[index], ...fields };
+  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+  cbShareGroupChange(next, next[index]);
+  return next[index];
+}
+
+async function cbLockGroupForTool(input) {
+  const { groups } = await getState();
+  const index = groups.findIndex((group) => group.id === input.id);
+  if (index < 0) throw new Error("group-not-found");
+  const group = groups[index];
+  if (cbGroupIsLocked(group)) throw new Error("group-locked");
+  const mode = input.mode;
+  const now = Date.now();
+  const fields = { freezeMode: mode, freezeModeChoice: mode, frozenAtMs: now, freezeChangedAtMs: now };
+  if (mode === "strict") {
+    const hours = input.strictHours === undefined ? group.strictFreezeHours : parseStrictFreezeHours(input.strictHours);
+    if (hours === null) throw new Error("invalid-strict-hours: 0 < hours <= 72");
+    fields.strictFreezeHours = hours;
+  } else if (mode === "parental") {
+    if (group.parentalPasswordHash) {
+      Object.assign(fields, await cbCheckPinForTool(group, input.pin));
+    } else {
+      if (!CBParentalPin.isValidParentalPin(String(input.pin || ""))) throw new Error("pin-required: a 6-digit PIN becomes the group's parental PIN");
+      Object.assign(fields, await CBParentalPin.newPinFields(String(input.pin)));
+    }
+  } else if (mode !== "frozen") {
+    throw new Error("invalid-mode: frozen | strict | parental");
+  }
+  return cbWriteGroupFields(groups, index, fields);
+}
+
+async function cbUnlockGroupForTool(input) {
+  const { groups } = await getState();
+  const index = groups.findIndex((group) => group.id === input.id);
+  if (index < 0) throw new Error("group-not-found");
+  const group = groups[index];
+  if (!cbGroupIsLocked(group)) throw new Error("not-locked");
+  const now = Date.now();
+  const unlocked = { freezeMode: "none", frozenAtMs: null, freezeChangedAtMs: now };
+  if (group.freezeMode === "parental" && group.parentalPasswordHash) {
+    const upgrade = await cbCheckPinForTool(group, input.pin);
+    return { unlocked: true, group: cbPublicGroup(await cbWriteGroupFields(groups, index, { ...upgrade, ...unlocked })) };
+  }
+  if (group.freezeMode === "strict") {
+    const opensAtMs = (Number(group.frozenAtMs) || 0) + (Number(group.strictFreezeHours) || 0) * MS_PER_HOUR;
+    if (opensAtMs > now) throw new Error(`strict-wait:${new Date(opensAtMs).toISOString()}`);
+  }
+  if (group.freezeMode === "parental") {
+    // No PIN set: nothing to gate against, as in the editor.
+    return { unlocked: true, group: cbPublicGroup(await cbWriteGroupFields(groups, index, unlocked)) };
+  }
+  // The confirmation: the first call asks, a call with confirm: true at least
+  // 5 s later unlocks.
+  const session = chrome.storage.session || chrome.storage.local;
+  const requests = { ...((await session.get({ [CB_UNLOCK_REQUESTS_KEY]: {} }))[CB_UNLOCK_REQUESTS_KEY] || {}) };
+  const request = requests[group.id];
+  const live = request && now - request.askedAtMs < CB_UNLOCK_REQUEST_TTL_MS;
+  if (input.confirm === true && live) {
+    const readyAtMs = request.askedAtMs + CB_UNFREEZE_CONFIRMATION_INTERVAL_MS;
+    if (now < readyAtMs) throw new Error(`confirm-wait:${Math.ceil((readyAtMs - now) / 1000)}`);
+    delete requests[group.id];
+    await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
+    return { unlocked: true, group: cbPublicGroup(await cbWriteGroupFields(groups, index, unlocked)) };
+  }
+  requests[group.id] = { askedAtMs: now };
+  await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
+  return { unlocked: false, confirmAfterSeconds: CB_UNFREEZE_CONFIRMATION_INTERVAL_MS / 1000,
+    next: "call again with confirm: true after the wait (within 5 minutes)" };
 }
 
 async function cbBrowserRequestBody(operation, body) {
@@ -4948,6 +5048,26 @@ async function cbBrowserRequestBody(operation, body) {
       cbShareGroupChange(next, null);
       return { deleted: id };
     }
+    case "settings-lock-group":
+      return { group: cbPublicGroup(await cbLockGroupForTool({ ...input, id: typeof input.id === "string" ? input.id : "" })) };
+    case "settings-unlock-group":
+      return cbUnlockGroupForTool({ ...input, id: typeof input.id === "string" ? input.id : "" });
+    case "settings-move-group": {
+      // The group list's order (drag in the editor); a locked group stays put.
+      // Order is this device's own: it is not shared with linked devices.
+      const id = typeof input.id === "string" ? input.id : "";
+      const { groups } = await getState();
+      const from = groups.findIndex((group) => group.id === id);
+      if (from < 0) throw new Error("group-not-found");
+      if (cbGroupIsLocked(groups[from])) throw new Error("group-locked");
+      const to = Number(input.index);
+      if (!Number.isInteger(to) || to < 0 || to >= groups.length) throw new Error(`invalid-index: 0…${groups.length - 1}`);
+      const next = groups.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+      return { order: next.map((group) => group.id) };
+    }
     case "settings-set-classifier": {
       const stored = await chrome.storage.local.get(CB_CLASSIFIER_SETTINGS_STORAGE_KEY);
       const current = stored?.[CB_CLASSIFIER_SETTINGS_STORAGE_KEY] && typeof stored[CB_CLASSIFIER_SETTINGS_STORAGE_KEY] === "object"
@@ -4979,7 +5099,8 @@ async function cbBrowserRequestBody(operation, body) {
         debugMode: merged.debugMode === true,
         showOnPageLogToasts: merged.showOnPageLogToasts !== false,
         defaultSnoozeMinutes: (() => { const n = Number.parseFloat(merged.defaultSnoozeMinutes); return Number.isFinite(n) && n > 0 ? n : DEFAULT_SNOOZE_MINUTES; })(),
-        quickAddEnabled: merged.quickAddEnabled === true
+        quickAddEnabled: merged.quickAddEnabled === true,
+        closeRetrySeconds: Math.round(clamp(merged.closeRetrySeconds, 0, 86_400, 0))
       };
       await chrome.storage.local.set({ [CB_GLOBAL_SETTINGS_KEY]: next });
       return { globalSettings: next };

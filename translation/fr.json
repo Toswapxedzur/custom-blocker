@@ -21,6 +21,8 @@
   "settings.defaultSnoozeMinutes": "Durée de répétition par défaut (minutes)",
   "settings.defaultSnoozeMinutesHelp": "Durée de répétition utilisée lors de la création de nouveaux groupes non personnalisés.",
   "settings.defaultSnoozeMinutesPlaceholder": "30",
+  "settings.closeRetrySeconds": "Ask a closed app to quit again every (seconds)",
+  "settings.closeRetrySecondsHelp": "When a custom rule closes an app, the app is asked to quit normally; if it stays open (for example to keep unsaved work), it is left open. Above 0, it is asked again this often while it stays open.",
   "settings.reset": "Réinitialiser aux valeurs par défaut",
   "settings.saved": "Paramètres enregistrés.",
   "connectionGroup.warnMemberOffline": "Un programme lié est hors ligne : ouvrez-le pour maintenir la synchronisation des groupes liés.",

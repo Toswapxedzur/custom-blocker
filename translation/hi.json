@@ -21,6 +21,8 @@
   "settings.defaultSnoozeMinutes": "डिफ़ॉल्ट स्नूज़ अवधि (मिनट)",
   "settings.defaultSnoozeMinutesHelp": "नए गैर-कस्टम समूह बनाते समय स्नूज़ लंबाई का उपयोग किया जाता है।",
   "settings.defaultSnoozeMinutesPlaceholder": "30",
+  "settings.closeRetrySeconds": "Ask a closed app to quit again every (seconds)",
+  "settings.closeRetrySecondsHelp": "When a custom rule closes an app, the app is asked to quit normally; if it stays open (for example to keep unsaved work), it is left open. Above 0, it is asked again this often while it stays open.",
   "settings.reset": "डिफ़ॉल्ट पर पुनः सेट करें",
   "settings.saved": "सेटिंग्स को सहेजा गया।",
   "connectionGroup.warnMemberOffline": "एक लिंक किया गया प्रोग्राम ऑफ़लाइन है - लिंक किए गए समूहों को सिंक में रखने के लिए इसे खोलें।",

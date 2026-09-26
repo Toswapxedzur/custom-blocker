@@ -21,6 +21,8 @@
   "settings.defaultSnoozeMinutes": "ਡਿਫੌਲਟ ਸਨੂਜ਼ ਦੀ ਮਿਆਦ (ਮਿੰਟ)",
   "settings.defaultSnoozeMinutesHelp": "ਨਵੇਂ ਗੈਰ-ਵਿਉਂਤਬੱਧ ਸਮੂਹ ਬਣਾਉਣ ਵੇਲੇ ਵਰਤੀ ਗਈ ਸਨੂਜ਼ ਲੰਬਾਈ।",
   "settings.defaultSnoozeMinutesPlaceholder": "30",
+  "settings.closeRetrySeconds": "Ask a closed app to quit again every (seconds)",
+  "settings.closeRetrySecondsHelp": "When a custom rule closes an app, the app is asked to quit normally; if it stays open (for example to keep unsaved work), it is left open. Above 0, it is asked again this often while it stays open.",
   "settings.reset": "ਪੂਰਵ-ਨਿਰਧਾਰਤ 'ਤੇ ਰੀਸੈਟ ਕਰੋ",
   "settings.saved": "ਸੈਟਿੰਗਾਂ ਰੱਖਿਅਤ ਕੀਤੀਆਂ।",
   "connectionGroup.warnMemberOffline": "ਇੱਕ ਲਿੰਕ ਕੀਤਾ ਪ੍ਰੋਗਰਾਮ ਔਫਲਾਈਨ ਹੈ — ਲਿੰਕ ਕੀਤੇ ਸਮੂਹਾਂ ਨੂੰ ਸਿੰਕ ਵਿੱਚ ਰੱਖਣ ਲਈ ਇਸਨੂੰ ਖੋਲ੍ਹੋ।",

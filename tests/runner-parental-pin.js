@@ -22,6 +22,7 @@ function makeContext({ subtle }) {
   const ctx = vm.createContext({
     TextEncoder,
     crypto: subtle ? globalThis.crypto : { getRandomValues: (a) => nodeCrypto.getRandomValues(a) },
+    Uint8Array, Int32Array, Uint32Array, DataView, Math, Number, String, RegExp, Object, Promise,
     Date: { now: () => now },
     chrome: {
       storage: {
@@ -40,7 +41,10 @@ function makeContext({ subtle }) {
     persistGroupFields: (id, fields) => { persisted.push({ id, fields }); return Promise.resolve(); }
   });
   ctx.globalThis = ctx;
+  vm.runInContext(fs.readFileSync(path.join(root, "parental-pin.js"), "utf8"), ctx, { filename: "parental-pin.js" });
   vm.runInContext(source.slice(start, end), ctx, { filename: "popup.js#parental-pin" });
+  // The module's pieces the checks below reach for by name.
+  vm.runInContext("var hashParentalPin = CBParentalPin.hashParentalPin, pbkdf2Hex = CBParentalPin.pbkdf2Hex, legacyFallbackPinHash = CBParentalPin.legacyFallbackPinHash, pinRetryDelayMs = CBParentalPin.retryDelayMs; async function verifyGroupParentalPin(group, pin) { const r = await CBParentalPin.verify(group, pin); if (r.upgradedHash) { group.parentalPasswordHash = r.upgradedHash; await persistGroupFields(group.id, { parentalPasswordHash: r.upgradedHash }); } return r.ok; }", ctx);
   return { ctx, statuses, persisted, advance: (ms) => { now += ms; } };
 }
 
