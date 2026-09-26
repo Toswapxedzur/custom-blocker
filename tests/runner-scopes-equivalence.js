@@ -45,7 +45,7 @@ function makeContext() {
   return context;
 }
 
-const files = ["platform-profiles.js", "group-scopes.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"];
+const files = ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"];
 const oldCtx = makeContext();
 for (const file of files) {
   if (file === "group-scopes.js") continue; // did not exist before

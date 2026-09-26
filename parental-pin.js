@@ -193,29 +193,72 @@
     return Math.min(1000 * 2 ** Math.max(0, failures - 1), RETRY_CAP_MS);
   }
 
-  // → { ok, waitMs, upgradedHash, attempts }. waitMs > 0 with ok false: still
-  // inside the wait (the PIN was not checked) or, after a wrong PIN, the new
+  // → { ok, waiting, waitMs, upgradedHash, attempts }. `waiting`: still inside
+  // the wait (the PIN was not checked). After a wrong PIN, waitMs is the new
   // wait. `attempts` is the map to store back.
-  async function check(attemptsInput, group, pin, now) {
+  function stillWaiting(attemptsInput, group, now) {
     const attempts = attemptsInput && typeof attemptsInput === "object" ? { ...attemptsInput } : {};
-    const entry = attempts[group.id] || { failures: 0, retryAtMs: 0 };
-    if (Number(entry.retryAtMs) > now) {
-      return { ok: false, waiting: true, waitMs: entry.retryAtMs - now, attempts };
-    }
-    const result = await verify(group, pin);
+    const entry = attempts[group.id];
+    if (entry && Number(entry.retryAtMs) > now) return { ok: false, waiting: true, waitMs: entry.retryAtMs - now, attempts };
+    return null;
+  }
+  function settle(attemptsInput, group, result, now) {
+    const attempts = attemptsInput && typeof attemptsInput === "object" ? { ...attemptsInput } : {};
     if (result.ok) {
       delete attempts[group.id];
-      return { ok: true, waitMs: 0, upgradedHash: result.upgradedHash, attempts };
+      return { ok: true, waiting: false, waitMs: 0, upgradedHash: result.upgradedHash, attempts };
     }
-    const failures = (Number(entry.failures) || 0) + 1;
+    const failures = (Number(attempts[group.id]?.failures) || 0) + 1;
     const waitMs = retryDelayMs(failures);
     attempts[group.id] = { failures, retryAtMs: now + waitMs };
     return { ok: false, waiting: false, waitMs, attempts };
   }
+  async function check(attempts, group, pin, now) {
+    return stillWaiting(attempts, group, now) || settle(attempts, group, await verify(group, pin), now);
+  }
+
+  // Synchronous twins for engines without promises driven by an event loop
+  // (the Mac app's tools run this file in JavaScriptCore): plain-JS PBKDF2,
+  // identical output.
+  function pbkdf2HexSync(pin, saltHex, rounds) {
+    // A host may supply the same standard PBKDF2 natively (the Mac app's
+    // JavaScriptCore runs without a JIT, where 100k plain-JS rounds take
+    // seconds); the output is identical.
+    if (typeof global.__nativePbkdf2Hex === "function") return global.__nativePbkdf2Hex(String(pin), String(saltHex), rounds);
+    const encoder = new TextEncoder();
+    return [...pbkdf2Sha256Js(encoder.encode(String(pin)), encoder.encode(String(saltHex)), rounds)]
+      .map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  function hashParentalPinSync(pin, saltHex) {
+    return `${PARENTAL_PIN_HASH_PREFIX}${PARENTAL_PIN_ROUNDS}$${pbkdf2HexSync(pin, saltHex, PARENTAL_PIN_ROUNDS)}`;
+  }
+  function newPinFieldsSync(pin) {
+    const salt = randomSaltHex();
+    return { parentalPasswordSalt: salt, parentalPasswordHash: hashParentalPinSync(pin, salt) };
+  }
+  function verifySync(group, pin) {
+    if (!group || !group.parentalPasswordHash || !group.parentalPasswordSalt) return { ok: false };
+    if (!isValidParentalPin(pin)) return { ok: false };
+    const stored = String(group.parentalPasswordHash);
+    const salt = group.parentalPasswordSalt;
+    if (stored.startsWith(PARENTAL_PIN_HASH_PREFIX)) {
+      const [, roundsText, hex] = stored.split("$");
+      const rounds = Number.parseInt(roundsText, 10);
+      if (!Number.isFinite(rounds) || rounds < 1 || !hex) return { ok: false };
+      return { ok: constantTimeEqual(pbkdf2HexSync(pin, salt, rounds), hex) };
+    }
+    const legacy = stored.startsWith("fb") ? legacyFallbackPinHash(pin, salt) : legacyParentalPinHash(pin, salt);
+    if (!constantTimeEqual(legacy, stored)) return { ok: false };
+    return { ok: true, upgradedHash: hashParentalPinSync(pin, salt) };
+  }
+  function checkSync(attempts, group, pin, now) {
+    return stillWaiting(attempts, group, now) || settle(attempts, group, verifySync(group, pin), now);
+  }
 
   const api = Object.freeze({
     PARENTAL_PIN_LENGTH, ATTEMPTS_KEY, isValidParentalPin, hashParentalPin, newPinFields,
-    verify, check, retryDelayMs, pbkdf2Hex, legacyFallbackPinHash
+    verify, check, retryDelayMs, pbkdf2Hex, legacyFallbackPinHash,
+    verifySync, checkSync, newPinFieldsSync
   });
   global.CBParentalPin = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

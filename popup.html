@@ -558,33 +558,26 @@
               </button>
             </div>
 
-            <p id="freezeBridgeNotice" class="field-help bridge-offline-notice hidden" data-i18n="freeze.bridgeOffline">
-              Freeze can't be changed while a linked program is offline.
-            </p>
-
             <div id="freezeSetup" class="freeze-setup">
               <div class="settings-grid">
                 <div>
-                  <label class="label" for="freezeMode" data-i18n="freeze.mode">Freeze mode</label>
-                  <select id="freezeMode">
-                    <option value="frozen" data-i18n="freeze.frozenOption">Frozen</option>
-                    <option value="strict" data-i18n="freeze.strictOption">Strict frozen</option>
-                    <option value="parental" data-i18n="freeze.parentalOption">Parental frozen</option>
-                  </select>
-                </div>
-
-                <div id="strictFreezeSettings" class="hidden">
-                  <label class="label" for="strictFreezeHours" data-i18n="freeze.unlockAfter">Unlock after (hours)</label>
+                  <label class="label" for="lockWaitHours" data-i18n="freeze.waitHours">Can't be unfrozen for (hours)</label>
                   <input
-                    id="strictFreezeHours"
+                    id="lockWaitHours"
                     type="number"
-                    min="0.1"
+                    min="0"
                     max="72"
                     step="0.1"
                     inputmode="decimal"
-                    placeholder="24"
-                    data-i18n-placeholder="freeze.unlockAfterPlaceholder"
+                    placeholder="0"
                   />
+                  <p class="field-help" data-i18n="freeze.waitHelp">
+                    0 = no wait. While frozen the wait can only be made longer.
+                  </p>
+                </div>
+                <div>
+                  <span class="label" data-i18n="freeze.pinLabel">PIN</span>
+                  <p id="lockPinStatus" class="field-help"></p>
                 </div>
               </div>
 
@@ -592,7 +585,7 @@
                 <button
                   id="parentalSettingsButton"
                   type="button"
-                  class="secondary hidden parental-settings-button"
+                  class="secondary parental-settings-button"
                   data-i18n-title="freeze.parentalSettings"
                   title="Guardian password settings"
                   aria-label="Guardian password settings"
@@ -915,6 +908,7 @@
     <script src="platform-profiles.js"></script>
     <script src="group-scopes.js"></script>
     <script src="parental-pin.js"></script>
+    <script src="group-actions.js"></script>
     <script src="translations.js"></script>
     <script src="popup-markdown.js"></script>
     <script src="custom-rule-ai-reference.js"></script>

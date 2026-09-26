@@ -44,8 +44,9 @@ if (typeof importScripts === "function") {
   }
   try {
     if (typeof CBParentalPin === "undefined") importScripts("parental-pin.js");
+    if (typeof CBGroupActions === "undefined") importScripts("group-actions.js");
   } catch (error) {
-    console.error("[CustomBlocker] importScripts(parental-pin.js) failed", error);
+    console.error("[CustomBlocker] importScripts(parental-pin.js / group-actions.js) failed", error);
   }
   try {
     if (typeof VaultClassifierExtensionContract === "undefined") importScripts("vault-classifier-contract.js");
@@ -101,7 +102,6 @@ const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
 
 const DEFAULT_ALLOWED_MINUTES = 15;
 const DEFAULT_RESET_INTERVAL_HOURS = 24;
-const DEFAULT_STRICT_FREEZE_HOURS = 24;
 const DEFAULT_SNOOZE_MINUTES = 30;
 const DEFAULT_SNOOZE_CONFIRMATIONS = 0;
 // The pause action's countdown (seconds a page is held before Continue).
@@ -222,11 +222,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     surfaceHides: [],
     blockingRulesText:
       "(month, dayOfMonth, dayName, hour, minute, url, helpers) => false",
-    freezeMode: "none",
-    strictFreezeHours: DEFAULT_STRICT_FREEZE_HOURS,
-    frozenAtMs: null,
-    parentalPasswordHash: null,
-    parentalPasswordSalt: null,
+    ...CBGroupActions.normalizeLock({}),
     sites: [],
     // allowlist=false → the `sites` list is a blocklist (block those domains,
     // pass everything else). allowlist=true → the `sites` list is an allowlist
@@ -306,11 +302,6 @@ function parseAllowedMinutes(value) {
 function parseResetIntervalHours(value) {
   const parsed = Number.parseFloat(String(value ?? "").trim());
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseStrictFreezeHours(value) {
-  const parsed = Number.parseFloat(String(value ?? "").trim());
-  return Number.isFinite(parsed) && parsed > 0 && parsed <= 72 ? parsed : null;
 }
 
 function parseSnoozeMinutes(value) {
@@ -554,39 +545,8 @@ function sanitizeGroups(groups) {
           typeof group?.blockingRulesText === "string" && group.blockingRulesText.trim()
             ? group.blockingRulesText.trim()
             : baseGroup.blockingRulesText,
-        freezeMode:
-          group?.freezeMode === "strict" ||
-          group?.freezeMode === "frozen" ||
-          group?.freezeMode === "parental"
-            ? group.freezeMode
-            : "none",
-        // The lock mode picked for the next freeze (kept by the editor; the
-        // worker must not drop it when it rewrites groups).
-        freezeModeChoice: ["frozen", "strict", "parental"].includes(group?.freezeModeChoice)
-          ? group.freezeModeChoice
-          : ["frozen", "strict", "parental"].includes(group?.freezeMode)
-            ? group.freezeMode
-            : typeof group?.parentalPasswordHash === "string" && group.parentalPasswordHash ? "parental" : "frozen",
-        // When the lock last changed on any device: the newest change wins
-        // across linked devices (ConnectionHub.mergeFreezeLocked).
-        freezeChangedAtMs:
-          Number.isFinite(Number(group?.freezeChangedAtMs)) && Number(group.freezeChangedAtMs) > 0
-            ? Number(group.freezeChangedAtMs)
-            : 0,
-        strictFreezeHours:
-          parseStrictFreezeHours(group?.strictFreezeHours) ?? DEFAULT_STRICT_FREEZE_HOURS,
-        frozenAtMs:
-          Number.isFinite(Number(group?.frozenAtMs)) && Number(group.frozenAtMs) > 0
-            ? Number(group.frozenAtMs)
-            : null,
-        parentalPasswordHash:
-          typeof group?.parentalPasswordHash === "string" && group.parentalPasswordHash
-            ? group.parentalPasswordHash
-            : null,
-        parentalPasswordSalt:
-          typeof group?.parentalPasswordSalt === "string" && group.parentalPasswordSalt
-            ? group.parentalPasswordSalt
-            : null,
+        // The lock: parallel gates (wait / PIN), see group-actions.js.
+        ...CBGroupActions.normalizeLock(group),
         sites: Array.isArray(group?.sites)
           ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
           : [],
@@ -4225,7 +4185,8 @@ function cbShareGroupChange(groups, group) {
       groupName: group.name,
       ts: Date.now(),
       scalars,
-      scopes: group.scopes
+      scopes: group.scopes,
+      ...CBGroupActions.lockContribution(group)
     });
   } catch (_) {}
 }
@@ -4457,6 +4418,12 @@ const cbConnection = {
           groups[idx][field] = scalars[field];
           changed = true;
         }
+      }
+      // The link's one lock (owned by the hub, versioned).
+      const withLock = CBGroupActions.adoptLock(groups[idx], cluster.shared.lock);
+      if (withLock !== groups[idx]) {
+        groups[idx] = withLock;
+        changed = true;
       }
       // An empty list means "nothing shared yet", never "delete everything".
       const scopes = cluster.shared.scopes;
@@ -4883,18 +4850,28 @@ const CB_CLASSIFIER_SETTINGS_STORAGE_KEY = "vaultClassifierSettings";
 const CB_TAGGING_MODES = Object.freeze(["whenFiltering", "always", "paused"]);
 
 function cbGroupIsLocked(group) {
-  return Boolean(group) && group.freezeMode !== "none" && group.freezeMode !== undefined;
+  return CBGroupActions.isLocked(group);
 }
 
 // Locking and unlocking from a tool pass the editor's own gates (owner
-// 2026-09-26: a tool may do what the user can, no more, no less):
-// - a parental lock needs the group's PIN (or sets it, as the guardian
-//   settings do when none exists yet), through the shared retry wait;
-// - a strict lock opens only after its hours;
-// - every other unlock is the editor's confirmation: ask, wait 5 s, confirm.
-const CB_UNFREEZE_CONFIRMATION_INTERVAL_MS = 5000; // popup UNFREEZE_CONFIRMATION_INTERVAL_MS
+// 2026-09-26: a tool may do what the user can, no more, no less). The rules
+// are group-actions.js, shared with the editor and the Mac app's tools:
+// - lock: the gates (waitHours, pin) are set, then the group is frozen; on a
+//   frozen group the same call can only make the lock stricter;
+// - unlock: the wait must be over, the PIN (when set) checked through the
+//   shared retry wait, then the confirmation — the first call asks, each call
+//   with confirm: true at least 5 s after the previous one counts one of the
+//   CBGroupActions.CONFIRMATIONS steps.
 const CB_UNLOCK_REQUEST_TTL_MS = 5 * 60 * 1000;
 const CB_UNLOCK_REQUESTS_KEY = "cbUnlockRequests";
+
+// A patch never carries the lock: it changes only through lock / unlock.
+function cbWithoutLockFields(patch) {
+  const safe = { ...patch };
+  for (const field of [...CBGroupActions.LOCK_FIELDS, "lockSyncedVersion",
+    "freezeMode", "freezeModeChoice", "strictFreezeHours", "frozenAtMs", "freezeChangedAtMs"]) delete safe[field];
+  return safe;
+}
 
 async function cbCheckPinForTool(group, pin) {
   const stored = (await chrome.storage.local.get({ [CBParentalPin.ATTEMPTS_KEY]: {} }))[CBParentalPin.ATTEMPTS_KEY];
@@ -4905,38 +4882,34 @@ async function cbCheckPinForTool(group, pin) {
   return result.upgradedHash ? { parentalPasswordHash: result.upgradedHash } : {};
 }
 
-async function cbWriteGroupFields(groups, index, fields) {
+async function cbWriteGroup(groups, index, group) {
   const next = groups.slice();
-  next[index] = { ...groups[index], ...fields };
+  next[index] = group;
   await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
-  cbShareGroupChange(next, next[index]);
-  return next[index];
+  cbShareGroupChange(next, group);
+  return group;
 }
 
 async function cbLockGroupForTool(input) {
   const { groups } = await getState();
   const index = groups.findIndex((group) => group.id === input.id);
   if (index < 0) throw new Error("group-not-found");
-  const group = groups[index];
-  if (cbGroupIsLocked(group)) throw new Error("group-locked");
-  const mode = input.mode;
+  let group = groups[index];
+  const pin = input.pin === undefined ? undefined : String(input.pin);
+  if (pin !== undefined && !CBParentalPin.isValidParentalPin(pin)) throw new Error("invalid-pin: 6 digits");
+  let pinFields;
+  if (pin !== undefined && !CBGroupActions.hasPin(group)) pinFields = await CBParentalPin.newPinFields(pin);
+  if (pin !== undefined && CBGroupActions.hasPin(group)) throw new Error("pin-already-set");
   const now = Date.now();
-  const fields = { freezeMode: mode, freezeModeChoice: mode, frozenAtMs: now, freezeChangedAtMs: now };
-  if (mode === "strict") {
-    const hours = input.strictHours === undefined ? group.strictFreezeHours : parseStrictFreezeHours(input.strictHours);
-    if (hours === null) throw new Error("invalid-strict-hours: 0 < hours <= 72");
-    fields.strictFreezeHours = hours;
-  } else if (mode === "parental") {
-    if (group.parentalPasswordHash) {
-      Object.assign(fields, await cbCheckPinForTool(group, input.pin));
-    } else {
-      if (!CBParentalPin.isValidParentalPin(String(input.pin || ""))) throw new Error("pin-required: a 6-digit PIN becomes the group's parental PIN");
-      Object.assign(fields, await CBParentalPin.newPinFields(String(input.pin)));
-    }
-  } else if (mode !== "frozen") {
-    throw new Error("invalid-mode: frozen | strict | parental");
+  let result;
+  if (CBGroupActions.isLocked(group)) {
+    result = CBGroupActions.tighten(group, { waitHours: input.waitHours, pinFields });
+  } else {
+    result = CBGroupActions.setGates(group, { waitHours: input.waitHours, pinFields });
+    if (!result.error) result = CBGroupActions.lock(result.group, now);
   }
-  return cbWriteGroupFields(groups, index, fields);
+  if (result.error) throw new Error(result.error);
+  return cbWriteGroup(groups, index, result.group);
 }
 
 async function cbUnlockGroupForTool(input) {
@@ -4944,38 +4917,33 @@ async function cbUnlockGroupForTool(input) {
   const index = groups.findIndex((group) => group.id === input.id);
   if (index < 0) throw new Error("group-not-found");
   const group = groups[index];
-  if (!cbGroupIsLocked(group)) throw new Error("not-locked");
   const now = Date.now();
-  const unlocked = { freezeMode: "none", frozenAtMs: null, freezeChangedAtMs: now };
-  if (group.freezeMode === "parental" && group.parentalPasswordHash) {
-    const upgrade = await cbCheckPinForTool(group, input.pin);
-    return { unlocked: true, group: cbPublicGroup(await cbWriteGroupFields(groups, index, { ...upgrade, ...unlocked })) };
-  }
-  if (group.freezeMode === "strict") {
-    const opensAtMs = (Number(group.frozenAtMs) || 0) + (Number(group.strictFreezeHours) || 0) * MS_PER_HOUR;
-    if (opensAtMs > now) throw new Error(`strict-wait:${new Date(opensAtMs).toISOString()}`);
-  }
-  if (group.freezeMode === "parental") {
-    // No PIN set: nothing to gate against, as in the editor.
-    return { unlocked: true, group: cbPublicGroup(await cbWriteGroupFields(groups, index, unlocked)) };
-  }
-  // The confirmation: the first call asks, a call with confirm: true at least
-  // 5 s later unlocks.
+  const plan = CBGroupActions.unlockPlan(group, now);
+  if (plan.error) throw new Error(plan.waitUntilMs ? `strict-wait:${new Date(plan.waitUntilMs).toISOString()}` : plan.error);
   const session = chrome.storage.session || chrome.storage.local;
   const requests = { ...((await session.get({ [CB_UNLOCK_REQUESTS_KEY]: {} }))[CB_UNLOCK_REQUESTS_KEY] || {}) };
-  const request = requests[group.id];
-  const live = request && now - request.askedAtMs < CB_UNLOCK_REQUEST_TTL_MS;
-  if (input.confirm === true && live) {
-    const readyAtMs = request.askedAtMs + CB_UNFREEZE_CONFIRMATION_INTERVAL_MS;
-    if (now < readyAtMs) throw new Error(`confirm-wait:${Math.ceil((readyAtMs - now) / 1000)}`);
-    delete requests[group.id];
+  let request = requests[group.id];
+  // A request belongs to one lock version and expires.
+  if (request && (request.lockVersion !== group.lockVersion || now - request.askedAtMs > CB_UNLOCK_REQUEST_TTL_MS)) request = null;
+  if (input.confirm !== true || !request) {
+    let upgrade = {};
+    if (plan.needsPin) upgrade = await cbCheckPinForTool(group, input.pin);
+    if (upgrade.parentalPasswordHash) await cbWriteGroup(groups, index, { ...group, ...upgrade });
+    requests[group.id] = { askedAtMs: now, lockVersion: group.lockVersion, confirm: CBGroupActions.confirmStart(now) };
     await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
-    return { unlocked: true, group: cbPublicGroup(await cbWriteGroupFields(groups, index, unlocked)) };
+    return { unlocked: false, confirmationsLeft: plan.confirmations, confirmAfterSeconds: plan.intervalMs / 1000,
+      next: "call again with confirm: true every 5 s until confirmationsLeft is 0 (within 5 minutes)" };
   }
-  requests[group.id] = { askedAtMs: now };
+  const step = CBGroupActions.confirmStep(request.confirm, now);
+  if (step.waitMs > 0) throw new Error(`confirm-wait:${Math.ceil(step.waitMs / 1000)}`);
+  if (!step.done) {
+    requests[group.id] = { ...request, confirm: step.state };
+    await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
+    return { unlocked: false, confirmationsLeft: step.state.left, confirmAfterSeconds: plan.intervalMs / 1000 };
+  }
+  delete requests[group.id];
   await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
-  return { unlocked: false, confirmAfterSeconds: CB_UNFREEZE_CONFIRMATION_INTERVAL_MS / 1000,
-    next: "call again with confirm: true after the wait (within 5 minutes)" };
+  return { unlocked: true, group: cbPublicGroup(await cbWriteGroup(groups, index, CBGroupActions.unlock(group))) };
 }
 
 async function cbBrowserRequestBody(operation, body) {
@@ -5005,7 +4973,7 @@ async function cbBrowserRequestBody(operation, body) {
       const patch = input.patch && typeof input.patch === "object" && !Array.isArray(input.patch) ? input.patch : {};
       // A lock is the user's to set, in the editor: a created group never
       // starts locked (same fields the edit path strips).
-      const { freezeMode: _freeze, frozenAtMs: _frozenAt, freezeChangedAtMs: _changed, parentalPasswordHash: _hash, parentalPasswordSalt: _salt, ...safePatch } = patch;
+      const safePatch = cbWithoutLockFields(patch);
       const { groups } = await getState();
       // As the editor's New group: the user's default snooze length, and a
       // free numbered name when none is given ("Block Group 2").
@@ -5035,7 +5003,7 @@ async function cbBrowserRequestBody(operation, body) {
       if (index < 0) throw new Error("group-not-found");
       if (cbGroupIsLocked(groups[index])) throw new Error("group-locked");
       // The id and the lock state are never patchable — same as the popup.
-      const { id: _id, freezeMode: _freeze, frozenAtMs: _frozenAt, freezeChangedAtMs: _changed, parentalPasswordHash: _hash, parentalPasswordSalt: _salt, ...safePatch } = patch;
+      const { id: _id, ...safePatch } = cbWithoutLockFields(patch);
       const [group] = sanitizeGroups([{ ...groups[index], ...safePatch, id }]);
       if (!group) throw new Error("invalid-group");
       if (cbNameTaken(groups, group.name, id)) throw new Error("duplicate-name");
