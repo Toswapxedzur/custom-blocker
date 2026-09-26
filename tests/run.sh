@@ -157,6 +157,13 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'popup-boot' FAILED" >&2
   failed=1
 fi
+
+node_out=$(node tests/runner-popup-writes.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'popup-writes' FAILED" >&2
+  failed=1
+fi
 node_out=$(node tests/runner-scopes-migration.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then

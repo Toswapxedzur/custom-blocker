@@ -1931,10 +1931,6 @@ async function cbQuickAdd(url) {
   const nextGroups = groups.map((item, at) => (at === index ? next : item));
   await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: nextGroups });
   await cbScheduleTransitions();
-  // Linked members get the change now, as the whole definition (sending only
-  // the lines left the hub with no settings for this member, which let an
-  // older lock win the freeze merge).
-  cbShareGroupChange(nextGroups, next);
   return { entry, added, groupName: next.name };
 }
 
@@ -2036,7 +2032,6 @@ async function cbStartSnooze(groupId, now = Date.now()) {
   const next = { ...groupSnoozes, [group.id]: entry };
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: next });
   await cbScheduleTransitions();
-  cbShareSnooze(group, entry, now);
   return entry;
 }
 
@@ -3699,28 +3694,34 @@ function cbPublicGroup(group) {
   return { ...rest, hasParentalPin: Boolean(parentalPasswordHash) };
 }
 
-function cbNameTaken(groups, name, exceptId) {
-  const key = String(name || "").trim().toLowerCase();
-  return Boolean(key) && groups.some((group) => group.id !== exceptId && String(group.name || "").trim().toLowerCase() === key);
-}
+const cbNameTaken = CBGroupActions.nameTaken;
 
-// An edit that changes how a budget runs restarts it, as the editor's save
-// does (popup modeChanged / resetIntervalChanged): same edit, same result.
-async function cbRestartBudgetOnPolicyChange(before, after) {
-  if (!isTimedBlockingMode(after.mode)) return;
-  const periodChanged = after.groupType !== "custom" && (
-    before.resetIntervalHours !== after.resetIntervalHours ||
-    (before.resetAtMidnight === true) !== (after.resetAtMidnight === true) ||
-    (before.rollingLimit === true) !== (after.rollingLimit === true));
-  if (before.mode === after.mode && !periodChanged) return;
-  const stored = await chrome.storage.local.get([USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY]);
-  const timers = { ...(stored[USAGE_TIMERS_KEY] || {}) };
-  const resets = { ...(stored[USAGE_RESET_AT_KEY] || {}) };
-  const buckets = { ...(stored[USAGE_BUCKETS_KEY] || {}) };
-  timers[after.id] = 0;
-  resets[after.id] = Date.now();
-  delete buckets[after.id];
-  await chrome.storage.local.set({ [USAGE_TIMERS_KEY]: timers, [USAGE_RESET_AT_KEY]: resets, [USAGE_BUCKETS_KEY]: buckets });
+// The runtime state of stored groups belongs here (the editor writes only its
+// groups): an edit that changes how a budget runs restarts it
+// (CBGroupActions.budgetRestarts), and a deleted group leaves no per-group
+// entry behind — whoever changed the list (the editor, a tool, a link).
+async function cbApplyStoredGroupChange(oldValue, newValue) {
+  const before = new Map((Array.isArray(oldValue) ? oldValue : []).filter((g) => g && g.id).map((g) => [g.id, g]));
+  const after = (Array.isArray(newValue) ? newValue : []).filter((g) => g && g.id);
+  const present = new Set(after.map((g) => g.id));
+  const restart = after.filter((g) => before.has(g.id) && CBGroupActions.budgetRestarts(before.get(g.id), g)).map((g) => g.id);
+  const gone = [...before.keys()].filter((id) => !present.has(id));
+  if (restart.length === 0 && gone.length === 0) return;
+  const keys = [USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY, GROUP_SNOOZES_KEY, GROUP_SNOOZE_TOTALS_KEY, CBParentalPin.ATTEMPTS_KEY, CB_QUICK_ADD_GROUP_KEY];
+  const stored = await chrome.storage.local.get(keys);
+  const writes = {};
+  const edit = (key) => (writes[key] ??= { ...(stored[key] && typeof stored[key] === "object" ? stored[key] : {}) });
+  const now = Date.now();
+  for (const id of restart) {
+    edit(USAGE_TIMERS_KEY)[id] = 0;
+    edit(USAGE_RESET_AT_KEY)[id] = now;
+    delete edit(USAGE_BUCKETS_KEY)[id];
+  }
+  for (const id of gone) {
+    for (const key of keys.slice(0, 6)) if (stored[key] && id in stored[key]) delete edit(key)[id];
+    if (stored[CB_QUICK_ADD_GROUP_KEY] === id) writes[CB_QUICK_ADD_GROUP_KEY] = "";
+  }
+  if (Object.keys(writes).length) await chrome.storage.local.set(writes);
 }
 
 async function cbAnnounceStoredGroups(groups) {
@@ -3733,22 +3734,108 @@ async function cbAnnounceStoredGroups(groups) {
   if (cbConnection.routeIsReady("macapp")) cbConnection.sendWS(cbConnection.lastAnnounce);
 }
 
-function cbShareGroupChange(groups, group) {
+// ── Sharing linked groups (the worker owns it; owner 2026-09-26) ───────────
+// A linked group's definition or snooze is shared when its STORED copy
+// changes, whoever wrote it — the editor, a tool, the quick-add "+" — as Mac
+// Vault does each tick. What the link sends is adopted into storage
+// (applySharedToStorage), which records it here first, so it is not echoed.
+const cbDefinitionSeen = new Map();
+let cbRosterSeen = "";
+
+function cbDefinitionKey(group) {
+  const scalars = {};
+  for (const field of CB_SYNC_SCALAR_FIELDS) scalars[field] = group[field] ?? null;
+  return JSON.stringify({ scalars, scopes: Array.isArray(group.scopes) ? group.scopes : [], lock: CBGroupActions.lockUnit(group) });
+}
+
+function cbRosterKey(groups) {
+  return JSON.stringify(groups.map((group) => [group.id, group.name, cbGroupIsLocked(group)]));
+}
+
+const cbSharingReady = (async () => {
   try {
-    cbAnnounceStoredGroups(groups).catch(() => {});
-    if (!group || !cbConnection.routeIsReady("macapp")) return;
-    const scalars = {};
-    for (const field of CB_SYNC_SCALAR_FIELDS) scalars[field] = group[field];
-    cbConnection.sendWS({
-      kind: "group-sync",
-      program: cbDetectProgramId(),
-      groupName: group.name,
-      ts: Date.now(),
-      scalars,
-      scopes: group.scopes,
-      ...CBGroupActions.lockContribution(group)
-    });
+    const stored = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+    const groups = Array.isArray(stored) ? stored.filter((group) => group && group.id) : [];
+    for (const group of groups) if (!cbDefinitionSeen.has(group.id)) cbDefinitionSeen.set(group.id, cbDefinitionKey(group));
+    cbRosterSeen = cbRosterKey(groups);
   } catch (_) {}
+})();
+
+function cbSendDefinition(group, ts) {
+  const scalars = {};
+  for (const field of CB_SYNC_SCALAR_FIELDS) scalars[field] = group[field];
+  cbConnection.sendWS({
+    kind: "group-sync",
+    program: cbDetectProgramId(),
+    groupName: group.name,
+    ts,
+    scalars,
+    scopes: group.scopes,
+    ...CBGroupActions.lockContribution(group)
+  });
+}
+
+function cbShareStoredGroups(value) {
+  const groups = Array.isArray(value) ? value.filter((group) => group && group.id) : [];
+  const roster = cbRosterKey(groups);
+  if (roster !== cbRosterSeen) {
+    cbRosterSeen = roster;
+    cbAnnounceStoredGroups(groups).catch(() => {});
+  }
+  const present = new Set();
+  for (const group of groups) {
+    present.add(group.id);
+    const key = cbDefinitionKey(group);
+    if (cbDefinitionSeen.get(group.id) === key) continue;
+    cbDefinitionSeen.set(group.id, key);
+    if (cbConnection.routeIsReady("macapp") && cbGroupInLink(group)) cbSendDefinition(group, Date.now());
+  }
+  for (const id of [...cbDefinitionSeen.keys()]) if (!present.has(id)) cbDefinitionSeen.delete(id);
+}
+
+// A snooze started or ended here reaches the link as the newest change.
+function cbShareStoredSnoozes(value) {
+  if (!cbConnection.routeIsReady("macapp")) return;
+  const snoozes = value && typeof value === "object" ? value : {};
+  const program = cbDetectProgramId();
+  for (const cluster of Array.isArray(cbConnection.clusters) ? cbConnection.clusters : []) {
+    const member = (cluster?.members || []).find((m) => m && m.program === program);
+    const entry = member?.groupId ? snoozes[member.groupId] : null;
+    if (!entry || CBGroupActions.snoozeChangedAtMs(entry) <= (Number(cluster.shared?.snoozeTs) || 0)) continue;
+    cbShareSnooze({ name: cluster.groupName }, entry, Date.now());
+  }
+}
+
+// A group that just joined a link sends its definition once, at ts 0: its
+// lines are unioned into the link's and its settings never beat a newer edit.
+const cbJoinsSent = new Set();
+async function cbContributeJoins() {
+  const program = cbDetectProgramId();
+  const joining = (Array.isArray(cbConnection.clusters) ? cbConnection.clusters : []).filter((cluster) => {
+    const member = (cluster?.members || []).find((m) => m && m.program === program);
+    if (member?.contributed !== false) { cbJoinsSent.delete(cluster?.id); return false; }
+    return !cbJoinsSent.has(cluster.id);
+  });
+  if (joining.length === 0) return;
+  const stored = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+  const groups = Array.isArray(stored) ? stored : [];
+  for (const cluster of joining) {
+    const group = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
+    if (!group) continue;
+    cbJoinsSent.add(cluster.id);
+    cbSendDefinition(group, 0);
+  }
+}
+
+if (chrome.storage && chrome.storage.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes[BLOCKED_GROUPS_KEY]) {
+      cbSharingReady.then(() => cbShareStoredGroups(changes[BLOCKED_GROUPS_KEY].newValue)).catch(() => {});
+      cbApplyStoredGroupChange(changes[BLOCKED_GROUPS_KEY].oldValue, changes[BLOCKED_GROUPS_KEY].newValue).catch(() => {});
+    }
+    if (changes[GROUP_SNOOZES_KEY]) cbShareStoredSnoozes(changes[GROUP_SNOOZES_KEY].newValue);
+  });
 }
 
 // Scalar settings linked groups share (one list, in group-scopes.js).
@@ -4069,6 +4156,8 @@ const cbConnection = {
       }
     }
     if (changed) {
+      // What the link has is in sync by definition: record it before writing.
+      for (const group of groups) if (group && group.id) cbDefinitionSeen.set(group.id, cbDefinitionKey(group));
       try {
         await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
       } catch (_) {}
@@ -4394,7 +4483,7 @@ const cbConnection = {
         this.clusters = Array.isArray(msg.clusters) ? msg.clusters : [];
         cbSaveClusterCopy(this.clusters);
         this.broadcastClusters();
-        this.applySharedToStorage();
+        this.applySharedToStorage().then(() => cbContributeJoins()).catch(() => {});
         break;
       case "cluster-updated": {
         if (!this.routeIsReady("macapp")) break;
@@ -4411,7 +4500,7 @@ const cbConnection = {
         this.clusters = next;
         cbSaveClusterCopy(this.clusters);
         this.broadcastClusters();
-        this.applySharedToStorage();
+        this.applySharedToStorage().then(() => cbContributeJoins()).catch(() => {});
         break;
       }
       case "pong":
@@ -4539,7 +4628,6 @@ async function cbWriteGroup(groups, index, group) {
   const next = groups.slice();
   next[index] = group;
   await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
-  cbShareGroupChange(next, group);
   return group;
 }
 
@@ -4634,18 +4722,15 @@ async function cbSnoozeGroupForTool(input) {
 }
 
 async function cbEndSnoozeForTool(input) {
-  const { groups, groupSnoozes, groupSnoozeTotalsMs } = await getState();
+  const { groups, groupSnoozes } = await getState();
   const group = groups.find((item) => item.id === input.id);
   if (!group) throw new Error("group-not-found");
   const now = Date.now();
   const result = CBGroupActions.endSnoozeEntry(groupSnoozes[group.id], now);
   if (result.error) throw new Error(result.error);
-  await chrome.storage.local.set({
-    [GROUP_SNOOZES_KEY]: { ...groupSnoozes, [group.id]: result.entry },
-    [GROUP_SNOOZE_TOTALS_KEY]: { ...groupSnoozeTotalsMs, [group.id]: (Number(groupSnoozeTotalsMs[group.id]) || 0) + result.activeMs }
-  });
+  // The time it ran is counted once, like a snooze that ran out (getState).
+  await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: { ...groupSnoozes, [group.id]: result.entry } });
   await cbScheduleTransitions();
-  cbShareSnooze(group, result.entry, now);
   return { ended: true, snooze: result.entry };
 }
 
@@ -4685,7 +4770,8 @@ async function cbBrowserRequestBody(operation, body) {
       const defaultSnooze = Number.parseFloat(storedGlobal?.defaultSnoozeMinutes);
       if (Number.isFinite(defaultSnooze) && defaultSnooze > 0) base.snoozeMinutes = defaultSnooze;
       if (typeof safePatch.name !== "string" || !safePatch.name.trim()) {
-        for (let n = 2; cbNameTaken(groups, base.name); n += 1) base.name = `${base.name.replace(/ \d+$/, "")} ${n}`;
+        const root = base.name;
+        base.name = CBGroupActions.freeName(groups, (n) => (n === 1 ? root : `${root} ${n}`));
       }
       const draft = { ...base, ...safePatch, groupType };
       const [group] = sanitizeGroups([draft]);
@@ -4694,7 +4780,6 @@ async function cbBrowserRequestBody(operation, body) {
       if (cbNameTaken(groups, group.name)) throw new Error("duplicate-name");
       const next = [...groups, group];
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
-      cbShareGroupChange(next, group);
       return { group: cbPublicGroup(group) };
     }
     case "settings-set-group": {
@@ -4713,8 +4798,6 @@ async function cbBrowserRequestBody(operation, body) {
       const next = groups.slice();
       next[index] = group;
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
-      await cbRestartBudgetOnPolicyChange(groups[index], group);
-      cbShareGroupChange(next, group);
       return { group: cbPublicGroup(group) };
     }
     case "settings-delete-group": {
@@ -4725,7 +4808,6 @@ async function cbBrowserRequestBody(operation, body) {
       if (cbGroupIsLocked(group)) throw new Error("group-locked");
       const next = groups.filter((candidate) => candidate.id !== id);
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
-      cbShareGroupChange(next, null);
       return { deleted: id };
     }
     case "settings-lock-group":
@@ -5040,39 +5122,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case "connection-status":
       sendResponse({ ok: true, status: cbConnection.statusForTarget("macapp") });
       return false;
-    case "groups-announce":
-      cbConnection.lastAnnounce = {
-        kind: "groups-announce",
-        program: message.program,
-        groups: Array.isArray(message.groups) ? message.groups : []
-      };
-      if (cbConnection.routeIsReady("macapp")) cbConnection.sendWS(cbConnection.lastAnnounce);
-      sendResponse({ ok: true });
-      return false;
     case "clusters-status":
       sendResponse({ ok: true, clusters: cbConnection.clusters });
-      return false;
-    case "group-sync":
-      if (!cbConnection.routeIsReady("macapp")) { sendResponse({ ok: false, error: "macapp-unavailable" }); return false; }
-      cbConnection.sendWS({
-        kind: "group-sync",
-        program: message.program,
-        groupName: message.groupName,
-        ts: message.ts,
-        priority: message.priority === true,
-        // The whole definition: policy scalars + every entry's lines.
-        scalars: message.scalars,
-        scopes: message.scopes,
-        // Active-snooze runtime must be relayed too — without these the popup's
-        // snooze never reaches the hub and a snooze started on one member never
-        // propagates to its linked peers.
-        snooze: message.snooze,
-        snoozeTs: message.snoozeTs,
-        // The link's one lock, with the version it was made on.
-        lock: message.lock,
-        lockBase: message.lockBase
-      });
-      sendResponse({ ok: true });
       return false;
     default:
       return false;

@@ -260,12 +260,14 @@
   function endSnoozeEntry(entry, now) {
     const phase = snoozePhase(entry, now);
     if (phase === "pending") {
-      return { entry: { ...entry, startsAtMs: now, untilMs: now, cooldownUntilMs: now, activeMsApplied: true, changedAtMs: now }, activeMs: 0 };
+      return { entry: { ...entry, startsAtMs: now, untilMs: now, cooldownUntilMs: now, changedAtMs: now }, activeMs: 0 };
     }
     if (phase === "active") {
       const cooldownMs = Math.max(0, entry.cooldownUntilMs - entry.untilMs);
       return {
-        entry: { ...entry, untilMs: now, cooldownUntilMs: now + cooldownMs, activeMsApplied: true, changedAtMs: now },
+        // The snooze now ran until `now`: its owner (the service worker, Mac
+        // Vault) adds that time to the total once, as for one that ran out.
+        entry: { ...entry, untilMs: now, cooldownUntilMs: now + cooldownMs, changedAtMs: now },
         activeMs: Math.max(0, now - entry.startsAtMs)
       };
     }
@@ -581,6 +583,35 @@
     return out;
   }
 
+  // ── Group names: unique per device (case and outer spaces ignored) ──────
+  function nameKey(name) {
+    return String(name || "").trim().toLowerCase();
+  }
+
+  function nameTaken(groups, name, exceptId) {
+    const key = nameKey(name);
+    return Boolean(key) && (Array.isArray(groups) ? groups : []).some((group) => group && group.id !== exceptId && nameKey(group.name) === key);
+  }
+
+  // The first free name of a numbered pattern: pattern(start), pattern(start + 1), …
+  function freeName(groups, pattern, start = 1) {
+    let n = start;
+    while (nameTaken(groups, pattern(n))) n += 1;
+    return pattern(n);
+  }
+
+  // An edit that changes how a group's budget runs (its mode, or the period of
+  // a timed group) restarts the budget — whoever made it; the runtime owner
+  // (the service worker, Mac Vault) applies it.
+  function budgetRestarts(before, after) {
+    if (!before || !after || !isTimedBlockingMode(after.mode)) return false;
+    if (before.mode !== after.mode) return true;
+    return after.groupType !== "custom" && (
+      Number(before.resetIntervalHours) !== Number(after.resetIntervalHours) ||
+      (before.resetAtMidnight === true) !== (after.resetAtMidnight === true) ||
+      (before.rollingLimit === true) !== (after.rollingLimit === true));
+  }
+
   // ── Global settings ─────────────────────────────────────────────────────
   const DEFAULT_GLOBAL_SETTINGS = Object.freeze({
     tickRateMs: 1000,
@@ -638,7 +669,8 @@
     getAllowedMs, getResetIntervalMs, cbStartOfDayMs, cbNextMidnightMs, cbPeriodStartMs, cbNextResetMs,
     cbUsageBucketStartMs, cbPruneUsageBuckets, cbBucketsUsedMs, cbNextReturnMs,
     sanitizeUsageTimers, sanitizeSnoozeTotals, sanitizeResetTimes, sanitizeUsageBuckets, sanitizeSnoozes,
-    DEFAULT_GLOBAL_SETTINGS, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, AUTOSAVE_DEBOUNCE_MAX_MS, sanitizeGlobalSettings
+    DEFAULT_GLOBAL_SETTINGS, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, AUTOSAVE_DEBOUNCE_MAX_MS, sanitizeGlobalSettings,
+    nameTaken, freeName, budgetRestarts
   });
   global.CBGroupActions = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
