@@ -1568,23 +1568,34 @@ async function runInstallMigrations(details) {
   }
 }
 
-// After an update the old pages keep their covers, and the tabs the old
-// worker muted stay muted: adopt those (Chrome names the extension that muted
-// a tab) so the next load or lift unmutes them.
-async function cbAdoptMutedTabs() {
+// After an update the old pages' content scripts are gone (their covers can no
+// longer snooze or lift): every blocked tab is reloaded, so the new extension
+// decides it again (owner 2026-09-27). A tab the old worker muted (Chrome names
+// the extension that muted it) was covered, so it is reloaded too, and adopted
+// so the new load unmutes it.
+async function cbReloadBlockedTabsAfterUpdate() {
   await cbCoverStateReady;
   const tabs = await chrome.tabs.query({});
+  const { groups, usageTimersMs, groupSnoozes } = await getState();
+  const now = Date.now();
   let adopted = false;
   for (const tab of tabs) {
-    const info = tab?.mutedInfo;
-    if (typeof tab?.id !== "number" || !info?.muted || info.reason !== "extension" || info.extensionId !== chrome.runtime.id) continue;
-    if (!cbMutedTabs.has(tab.id)) { cbMutedTabs.add(tab.id); adopted = true; }
+    if (typeof tab?.id !== "number" || !/^https?:/i.test(tab.url || "")) continue;
+    const info = tab.mutedInfo;
+    const mutedByUs = Boolean(info?.muted && info.reason === "extension" && info.extensionId === chrome.runtime.id);
+    if (mutedByUs && !cbMutedTabs.has(tab.id)) { cbMutedTabs.add(tab.id); adopted = true; }
+    let blocked = false;
+    try {
+      const url = new URL(tab.url);
+      blocked = Boolean(cbPageLead(normalizePageContext({ url: url.href, hostname: url.hostname, pathname: url.pathname }), groups, usageTimersMs, groupSnoozes, now));
+    } catch (_) {}
+    if (blocked || mutedByUs) chrome.tabs.reload(tab.id).catch(() => {});
   }
   if (adopted) cbSaveCoverState();
 }
 
 chrome.runtime.onInstalled.addListener((details) => {
-  if (details?.reason === "update") cbAdoptMutedTabs().catch(() => {});
+  if (details?.reason === "update") cbReloadBlockedTabsAfterUpdate().catch(() => {});
   // Migrations run first so the transition alarm sees the post-migration
   // groups.
   runInstallMigrations(details)
@@ -3291,6 +3302,8 @@ async function handleCommittedWebNavigation(details, transition = "commit") {
   // Skip no-op history replaces (identical URL) so frequent replaceState calls
   // don't spam webChangedEvent; genuine reloads still arrive via onCommitted.
   if (transition === "history" && previous && previousUrl === nextUrl) return;
+  // The page's one navigation signal: its address changed without a load.
+  if (transition === "history") trySendApply(tabId, { type: "page-navigated" }).catch(() => {});
 
   previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
   scheduleSessionFlush();
@@ -3330,10 +3343,11 @@ if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
   });
 }
 
-// In-page navigations (history.pushState/replaceState) — required so SPA route
-// changes (e.g. YouTube home → /shorts/...) emit webChangedEvent too.
-if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
-  chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
+// In-page navigations (history API, a new #hash) — so single-page app route
+// changes (e.g. YouTube home → /shorts/...) reach the rules and the page.
+for (const event of ["onHistoryStateUpdated", "onReferenceFragmentUpdated"]) {
+  if (!chrome.webNavigation || !chrome.webNavigation[event]) continue;
+  chrome.webNavigation[event].addListener((details) => {
     handleCommittedWebNavigation(details, "history").catch((error) => {
       try { console.warn("[CustomBlocker] history navigation dispatch failed", error); } catch (_) {}
     });
