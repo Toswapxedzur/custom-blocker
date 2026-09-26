@@ -54,6 +54,7 @@ COMMON_TOP_LEVEL_FILES = [
     "cover-frame.js",
     "platform-profiles.js",
     "group-scopes.js",
+    "parental-pin.js",
     "helpers.js",
     "browser-compat.js",
     "popup.html",
@@ -101,6 +102,10 @@ VAULT_CLASSIFIER_FILES = [
     "vault-classifier-discord.js",
     "vault-classifier-twitter.js",
     "vault-classifier-bilibili.js",
+    # The Activity log's browser feeders: the worker imports vault-activity.js;
+    # the manifest declares vault-activity-content.js.
+    "vault-activity.js",
+    "vault-activity-content.js",
 ]
 
 INCLUDE_DIRS = [
