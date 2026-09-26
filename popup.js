@@ -1112,19 +1112,6 @@ function buildSyncContribution(group) {
   return contribution;
 }
 
-// Validates a snooze record received from the hub for a specific group and
-// returns a sanitized entry, or null if invalid or already fully expired (we
-// never re-adopt a snooze whose cooldown has passed — that would fight local
-// expiry and flip-flop the state).
-function adoptSharedSnooze(group, raw, now = Date.now()) {
-  if (!group || !raw || typeof raw !== "object") return null;
-  const sanitized = sanitizeSnoozes({ [group.id]: raw }, [group]);
-  const entry = sanitized[group.id];
-  if (!entry) return null;
-  if (Number(entry.cooldownUntilMs) <= now) return null;
-  return entry;
-}
-
 // Writes the hub's shared definition onto a local member group: the policy
 // scalars and, when the hub carries them, every entry's lines. The lines
 // replace ours wholesale (every member edits the one shared definition, so a
@@ -1197,22 +1184,13 @@ function applyClusterShared(group, shared) {
     }
   }
 
-  // Adopt a newer shared snooze (newest start wins) so a snooze started on a
-  // linked member activates here too. Liveness is checked inside adoptSharedSnooze.
+  // Adopt a newer shared snooze change (a start or an end) from a linked member.
   const sharedSnoozeTs = Number(shared.snoozeTs) || 0;
   if (sharedSnoozeTs > 0 && shared.snooze && typeof shared.snooze === "object") {
-    const localEntry = state.groupSnoozes[group.id];
-    const localTs = localEntry ? Number(localEntry.changedAtMs || localEntry.startsAtMs) || 0 : 0;
-    if (sharedSnoozeTs > localTs) {
-      const adopted = adoptSharedSnooze(next, shared.snooze);
-      if (adopted) {
-        state.groupSnoozes[group.id] = adopted;
-        chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: state.groupSnoozes }).catch(() => {});
-      } else if (localEntry) {
-        // The newer change on another device ended the snooze: end ours too.
-        delete state.groupSnoozes[group.id];
-        chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: state.groupSnoozes }).catch(() => {});
-      }
+    const adopted = CBGroupActions.adoptSnooze(state.groupSnoozes[group.id], shared.snooze, sharedSnoozeTs);
+    if (adopted) {
+      state.groupSnoozes[group.id] = adopted;
+      chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: state.groupSnoozes }).catch(() => {});
     }
   }
 
@@ -3496,39 +3474,11 @@ function sanitizeResetTimes(value, groups) {
 function sanitizeSnoozes(value, groups) {
   const groupIds = new Set(groups.map((group) => group.id));
   const snoozes = {};
-
-  for (const [groupId, snooze] of Object.entries(value ?? {})) {
-    if (!groupIds.has(groupId)) {
-      continue;
-    }
-
-    const startsAtMs = Number.parseInt(snooze?.startsAtMs, 10);
-    const untilMs = Number.parseInt(snooze?.untilMs, 10);
-    const cooldownUntilMs = Number.parseInt(snooze?.cooldownUntilMs, 10);
-    const confirmationCount = parseSnoozeConfirmations(snooze?.confirmationCount);
-    const activeMsApplied = Boolean(snooze?.activeMsApplied);
-    const changedAtMs = Number.isFinite(Number(snooze?.changedAtMs)) && Number(snooze.changedAtMs) > 0
-      ? Number(snooze.changedAtMs)
-      : 0;
-
-    if (
-      Number.isFinite(startsAtMs) &&
-      Number.isFinite(untilMs) &&
-      Number.isFinite(cooldownUntilMs) &&
-      startsAtMs <= untilMs &&
-      untilMs <= cooldownUntilMs
-    ) {
-      snoozes[groupId] = {
-        startsAtMs,
-        untilMs,
-        cooldownUntilMs,
-        confirmationCount: confirmationCount ?? 0,
-        activeMsApplied,
-        ...(changedAtMs ? { changedAtMs } : {})
-      };
-    }
+  for (const [groupId, raw] of Object.entries(value ?? {})) {
+    if (!groupIds.has(groupId)) continue;
+    const entry = CBGroupActions.sanitizeSnoozeEntry(raw);
+    if (entry) snoozes[groupId] = entry;
   }
-
   return snoozes;
 }
 
@@ -3813,11 +3763,7 @@ function getDisplayUsageState(group, now = Date.now()) {
 }
 
 function getSnoozePhase(snooze, now = Date.now()) {
-  if (!snooze) return "none";
-  if (Number.isFinite(snooze.startsAtMs) && now < snooze.startsAtMs) return "pending";
-  if (Number.isFinite(snooze.untilMs) && now < snooze.untilMs) return "active";
-  if (Number.isFinite(snooze.cooldownUntilMs) && now < snooze.cooldownUntilMs) return "cooldown";
-  return "none";
+  return CBGroupActions.snoozePhase(snooze, now);
 }
 
 function getCurrentSnooze(groupId, now = Date.now()) {
@@ -6183,22 +6129,6 @@ function closeUnfreezeFlow() {
   }
 }
 
-function createSnoozeEntry(
-  { snoozeMinutes, activationDelayMinutes, cooldownMinutes, confirmationCount },
-  now = Date.now()
-) {
-  const startsAtMs = now + activationDelayMinutes * MS_PER_MINUTE;
-  const untilMs = startsAtMs + snoozeMinutes * MS_PER_MINUTE;
-  return {
-    startsAtMs,
-    untilMs,
-    cooldownUntilMs: untilMs + cooldownMinutes * MS_PER_MINUTE,
-    confirmationCount,
-    activeMsApplied: false,
-    changedAtMs: now
-  };
-}
-
 function showSnoozeNotice(group, snoozeEntry, totalBeforeMs) {
   const activationDelayMs = Math.max(0, snoozeEntry.startsAtMs - Date.now());
   cbDialog.alert(
@@ -6290,42 +6220,8 @@ async function handleUnfreezeConfirm() {
 
     if (state.unfreezeFlow.kind === "snooze") {
       const group = state.groups.find((item) => item.id === state.unfreezeFlow.groupId);
-      if (!group) {
-        closeUnfreezeFlow();
-        return;
-      }
-      const snoozeMinutes = state.unfreezeFlow.snoozeMinutes ?? group.snoozeMinutes;
-      const activationDelayMinutes =
-        state.unfreezeFlow.snoozeActivationDelayMinutes ?? group.snoozeActivationDelayMinutes;
-      const cooldownMinutes =
-        state.unfreezeFlow.snoozeCooldownMinutes ?? group.snoozeCooldownMinutes;
-      const confirmationCount = group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS;
-      const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
-      const snoozeEntry = createSnoozeEntry(
-        {
-          snoozeMinutes,
-          activationDelayMinutes,
-          cooldownMinutes,
-          confirmationCount
-        },
-        now
-      );
-      state.groupSnoozes[group.id] = snoozeEntry;
-      await persistState(
-        activationDelayMinutes > 0
-          ? t("status.snoozeScheduled", {
-              name: group.name,
-              delay: formatDurationMs(snoozeEntry.startsAtMs - now)
-            })
-          : t("status.snoozed", {
-              name: group.name,
-              minutes: snoozeMinutes,
-              suffix: snoozeMinutes === 1 ? "" : "s"
-            })
-      );
       closeUnfreezeFlow();
-      render();
-      showSnoozeNotice(group, snoozeEntry, totalBeforeMs);
+      if (group) await applySnoozeStart(group);
       return;
     }
 
@@ -6404,100 +6300,16 @@ async function startSnooze() {
     return;
   }
 
-  if (currentSnoozePhase === "pending") {
-    setSnoozeWarning(
-      t("snooze.warning.pending", {
-        time: formatDurationMs(currentSnooze.startsAtMs - Date.now())
-      })
-    );
+  // The rules are group-actions.js; the snooze uses the group's SAVED
+  // settings (the autosave above), the same ones the cover and linked devices use.
+  const plan = CBGroupActions.snoozePlan(group, state.groupSnoozes[group.id], Date.now());
+  if (plan.error) {
+    showSnoozeInProgress(currentSnooze, currentSnoozePhase);
     return;
   }
-
-  if (currentSnoozePhase === "active") {
-    setSnoozeWarning(
-      t("snooze.warning.active", {
-        time: formatDurationMs(currentSnooze.untilMs - Date.now())
-      })
-    );
-    return;
-  }
-
-  if (currentSnoozePhase === "cooldown") {
-    setSnoozeWarning(
-      t("snooze.warning.cooldown", {
-        time: formatDurationMs(currentSnooze.cooldownUntilMs - Date.now())
-      })
-    );
-    return;
-  }
-
-  const snoozeMinutesValue = freezeStatus.isFrozen
-    ? String(group.snoozeMinutes)
-    : snoozeMinutesField.value;
-  const snoozeMinutes = parseSnoozeMinutes(snoozeMinutesValue);
-  const snoozeActivationDelayValue = freezeStatus.isFrozen
-    ? String(group.snoozeActivationDelayMinutes ?? DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES)
-    : snoozeActivationDelayField.value;
-  const snoozeActivationDelayMinutes = parseSnoozeDelayMinutes(snoozeActivationDelayValue);
-  const snoozeCooldownValue = freezeStatus.isFrozen
-    ? String(group.snoozeCooldownMinutes ?? DEFAULT_SNOOZE_COOLDOWN_MINUTES)
-    : snoozeCooldownField.value;
-  const snoozeCooldownMinutes = parseSnoozeCooldownMinutes(snoozeCooldownValue);
-  const snoozeConfirmationsValue = freezeStatus.isFrozen
-    ? String(group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS)
-    : snoozeConfirmationsField.value;
-  const snoozeConfirmations = parseSnoozeConfirmations(snoozeConfirmationsValue);
-
-  if (snoozeMinutes === null) {
-    setSnoozeWarning(t("snooze.warning.invalidMinutes"));
-    return;
-  }
-
-  if (snoozeConfirmations === null) {
-    setSnoozeWarning(t("snooze.warning.invalidConfirmations"));
-    return;
-  }
-
-  if (snoozeActivationDelayMinutes === null) {
-    setSnoozeWarning(t("snooze.warning.invalidActivationDelay"));
-    return;
-  }
-
-  if (snoozeCooldownMinutes === null) {
-    setSnoozeWarning(
-      t("snooze.warning.invalidCooldown", { max: formatHours(MAX_SNOOZE_COOLDOWN_MINUTES) })
-    );
-    return;
-  }
-
   setSnoozeWarning("");
-  const now = Date.now();
-  const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
-  if (snoozeConfirmations === 0) {
-    const snoozeEntry = createSnoozeEntry(
-      {
-        snoozeMinutes,
-        activationDelayMinutes: snoozeActivationDelayMinutes,
-        cooldownMinutes: snoozeCooldownMinutes,
-        confirmationCount: 0
-      },
-      now
-    );
-    state.groupSnoozes[group.id] = snoozeEntry;
-    await persistState(
-      snoozeActivationDelayMinutes > 0
-        ? t("status.snoozeScheduled", {
-            name: group.name,
-            delay: formatDurationMs(snoozeEntry.startsAtMs - now)
-          })
-        : t("status.snoozed", {
-            name: group.name,
-            minutes: snoozeMinutes,
-            suffix: snoozeMinutes === 1 ? "" : "s"
-          })
-    );
-    render();
-    showSnoozeNotice(group, snoozeEntry, totalBeforeMs);
+  if (plan.confirmations === 0) {
+    await applySnoozeStart(group);
     return;
   }
 
@@ -6505,11 +6317,8 @@ async function startSnooze() {
     kind: "snooze",
     groupId: group.id,
     label: group.name,
-    confirmationsLeft: snoozeConfirmations,
-    nextAllowedAtMs: now + UNFREEZE_CONFIRMATION_INTERVAL_MS,
-    snoozeMinutes,
-    snoozeActivationDelayMinutes,
-    snoozeCooldownMinutes
+    confirmationsLeft: plan.confirmations,
+    nextAllowedAtMs: Date.now() + UNFREEZE_CONFIRMATION_INTERVAL_MS
   };
 
   if (state.confirmIntervalId !== null) {
@@ -6521,42 +6330,49 @@ async function startSnooze() {
   renderUnfreezeModal();
 }
 
+function showSnoozeInProgress(entry, phase) {
+  const now = Date.now();
+  if (phase === "pending") {
+    setSnoozeWarning(t("snooze.warning.pending", { time: formatDurationMs(entry.startsAtMs - now) }));
+  } else if (phase === "active") {
+    setSnoozeWarning(t("snooze.warning.active", { time: formatDurationMs(entry.untilMs - now) }));
+  } else if (phase === "cooldown") {
+    setSnoozeWarning(t("snooze.warning.cooldown", { time: formatDurationMs(entry.cooldownUntilMs - now) }));
+  }
+}
+
+// Starts the snooze after its confirmation. The plan is taken again here: a
+// snooze started meanwhile (the cover, a linked device) is not replaced.
+async function applySnoozeStart(group) {
+  const now = Date.now();
+  const current = state.groupSnoozes[group.id];
+  if (CBGroupActions.snoozePlan(group, current, now).error) {
+    showSnoozeInProgress(current, getSnoozePhase(current, now));
+    render();
+    return;
+  }
+  const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
+  const snoozeEntry = CBGroupActions.snoozeEntry(group, now);
+  state.groupSnoozes[group.id] = snoozeEntry;
+  const minutes = Number(group.snoozeMinutes) || 0;
+  await persistState(
+    snoozeEntry.startsAtMs > now
+      ? t("status.snoozeScheduled", { name: group.name, delay: formatDurationMs(snoozeEntry.startsAtMs - now) })
+      : t("status.snoozed", { name: group.name, minutes, suffix: minutes === 1 ? "" : "s" })
+  );
+  render();
+  showSnoozeNotice(group, snoozeEntry, totalBeforeMs);
+}
+
 async function endSnooze() {
   const group = getSelectedGroup();
-  const now = Date.now();
-  const snooze = group ? getCurrentSnooze(group.id, now) : null;
-
-  if (!group || !snooze) {
-    return;
-  }
-
-  // Ending keeps an ENDED entry (stamped now) instead of deleting it, so the
-  // end reaches linked devices (newest change wins) before the entry expires.
-  const phase = getSnoozePhase(snooze, now);
-  if (phase === "pending") {
-    state.groupSnoozes[group.id] = {
-      ...snooze,
-      startsAtMs: now,
-      untilMs: now,
-      cooldownUntilMs: now,
-      activeMsApplied: true,
-      changedAtMs: now
-    };
-  } else if (phase === "active") {
-    const elapsedActiveMs = Math.max(0, Math.min(now, snooze.untilMs) - snooze.startsAtMs);
-    const cooldownDurationMs = Math.max(0, snooze.cooldownUntilMs - snooze.untilMs);
-    state.groupSnoozeTotalsMs[group.id] =
-      Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0) + elapsedActiveMs;
-    state.groupSnoozes[group.id] = {
-      ...snooze,
-      untilMs: now,
-      cooldownUntilMs: now + cooldownDurationMs,
-      activeMsApplied: true,
-      changedAtMs: now
-    };
-  } else {
-    return;
-  }
+  if (!group) return;
+  // Ending keeps an ENDED entry (stamped now) so the end reaches linked
+  // devices as the newest change (group-actions.js).
+  const result = CBGroupActions.endSnoozeEntry(state.groupSnoozes[group.id], Date.now());
+  if (result.error) return;
+  state.groupSnoozes[group.id] = result.entry;
+  state.groupSnoozeTotalsMs[group.id] = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0) + result.activeMs;
   await persistState(t("status.endedSnooze", { name: group.name }));
   render();
 }

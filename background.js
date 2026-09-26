@@ -635,35 +635,10 @@ function sanitizeUsageBuckets(value, groups) {
 function sanitizeSnoozes(value, groups, now) {
   const groupIds = new Set(groups.map((group) => group.id));
   const sanitized = {};
-  for (const [groupId, snooze] of Object.entries(value ?? {})) {
+  for (const [groupId, raw] of Object.entries(value ?? {})) {
     if (!groupIds.has(groupId)) continue;
-    const startsAtMs = Number.parseInt(snooze?.startsAtMs, 10);
-    const untilMs = Number.parseInt(snooze?.untilMs, 10);
-    const cooldownUntilMs = Number.parseInt(snooze?.cooldownUntilMs, 10);
-    const confirmationCount = parseSnoozeConfirmations(snooze?.confirmationCount);
-    const activeMsApplied = Boolean(snooze?.activeMsApplied);
-    // When the entry last changed (started or ended): the newest change wins
-    // across linked devices. Snooze and Lock mode are independent (a stored
-    // `refreezeMode` from before 2026-09-26 is dropped here).
-    const changedAtMs = Number.isFinite(Number(snooze?.changedAtMs)) && Number(snooze.changedAtMs) > 0
-      ? Number(snooze.changedAtMs)
-      : 0;
-    if (
-      Number.isFinite(startsAtMs) &&
-      Number.isFinite(untilMs) &&
-      Number.isFinite(cooldownUntilMs) &&
-      startsAtMs <= untilMs &&
-      untilMs <= cooldownUntilMs
-    ) {
-      sanitized[groupId] = {
-        startsAtMs,
-        untilMs,
-        cooldownUntilMs,
-        confirmationCount: confirmationCount ?? DEFAULT_SNOOZE_CONFIRMATIONS,
-        activeMsApplied,
-        ...(changedAtMs ? { changedAtMs } : {})
-      };
-    }
+    const entry = CBGroupActions.sanitizeSnoozeEntry(raw);
+    if (entry) sanitized[groupId] = entry;
   }
   return sanitized;
 }
@@ -859,11 +834,7 @@ function cbNextReturnMs(buckets, group, nowMs) {
 }
 
 function getSnoozePhase(snooze, now) {
-  if (!snooze) return "none";
-  if (Number.isFinite(snooze.startsAtMs) && now < snooze.startsAtMs) return "pending";
-  if (Number.isFinite(snooze.untilMs) && now < snooze.untilMs) return "active";
-  if (Number.isFinite(snooze.cooldownUntilMs) && now < snooze.cooldownUntilMs) return "cooldown";
-  return "none";
+  return CBGroupActions.snoozePhase(snooze, now);
 }
 
 function getActiveSnooze(groupId, groupSnoozes, now) {
@@ -1236,27 +1207,20 @@ function applyRuntimeNormalizations(
     changed = true;
   }
 
+  // A snooze that ran out adds its time to the group's total once. The entry
+  // itself stays (group-actions.js: a group's last entry is never deleted), so
+  // an older one shared by another device is never taken back.
   for (const [groupId, snooze] of Object.entries(nextSnoozes)) {
     if (!snooze) {
       delete nextSnoozes[groupId];
       changed = true;
       continue;
     }
-
     if (!snooze.activeMsApplied && now >= snooze.untilMs) {
       nextSnoozeTotals[groupId] =
         Math.max(0, Number(nextSnoozeTotals[groupId]) || 0) +
         Math.max(0, snooze.untilMs - snooze.startsAtMs);
       nextSnoozes[groupId] = { ...snooze, activeMsApplied: true };
-      changed = true;
-      if (snooze.cooldownUntilMs <= now) {
-        delete nextSnoozes[groupId];
-      }
-      continue;
-    }
-
-    if (snooze.cooldownUntilMs <= now) {
-      delete nextSnoozes[groupId];
       changed = true;
     }
   }
@@ -1733,6 +1697,10 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
   let bucketsChanged = false;
   let reachedLimit = false;
 
+  // Linked groups while the hub is away: this browser runs them and keeps the
+  // time apart for the hand-over (cbHandOverOfflineUsage).
+  const hubAway = !cbConnection.routeIsReady("macapp");
+  const offlineDeltas = {};
   for (const group of accrualGroups) {
     const currentValue = nextTimers[group.id] ?? 0;
     const thresholdMs = getAllowedMs(group);
@@ -1752,12 +1720,14 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
         const minute = String(cbUsageBucketStartMs(now));
         buckets[minute] = (Number(buckets[minute]) || 0) + added;
         bucketDeltas[group.id] = { [minute]: added };
+        if (hubAway && cbGroupInLink(group)) offlineDeltas[group.id] = { ms: 0, buckets: { [minute]: added } };
       }
       nextBuckets[group.id] = cbPruneUsageBuckets(buckets, group, now);
       bucketsChanged = true;
       nextValue = cbBucketsUsedMs(nextBuckets[group.id]);
     } else {
       nextValue = Math.min(currentValue + groupElapsedMs, thresholdMs);
+      if (hubAway && nextValue > currentValue && cbGroupInLink(group)) offlineDeltas[group.id] = { ms: nextValue - currentValue };
     }
     if (nextValue !== currentValue) {
       nextTimers[group.id] = nextValue;
@@ -1773,6 +1743,7 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     // Report accrual to the hub so clustered Default groups keep one shared
     // live budget even while this browser's popup is closed.
     cbReportClusterUsage(accrualGroups, nextTimers, usageResetAtMs, bucketDeltas, nextBuckets);
+    await cbRecordOfflineUsage(offlineDeltas, usageResetAtMs);
   }
   if (reachedLimit) {
     await syncBlockingRules();
@@ -2448,21 +2419,18 @@ async function cbStartSnooze(groupId, now = Date.now()) {
   const { groups, groupSnoozes } = await getState();
   const group = groups.find((item) => item.id === groupId);
   if (!group) throw new Error("group-not-found");
-  if (group.groupType === "custom" || group.allowSnooze === false) throw new Error("snooze-disabled");
-  if (getSnoozePhase(groupSnoozes[group.id], now) !== "none") throw new Error("snooze-in-progress");
-  const startsAtMs = now + (group.snoozeActivationDelayMinutes ?? 0) * MS_PER_MINUTE;
-  const untilMs = startsAtMs + group.snoozeMinutes * MS_PER_MINUTE;
-  const entry = {
-    startsAtMs,
-    untilMs,
-    cooldownUntilMs: untilMs + (group.snoozeCooldownMinutes ?? 0) * MS_PER_MINUTE,
-    confirmationCount: group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS,
-    activeMsApplied: false,
-    changedAtMs: now
-  };
+  const plan = CBGroupActions.snoozePlan(group, groupSnoozes[group.id], now);
+  if (plan.error) throw new Error(plan.error);
+  const entry = CBGroupActions.snoozeEntry(group, now);
   const next = { ...groupSnoozes, [group.id]: entry };
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: next });
   await syncBlockingRules();
+  cbShareSnooze(group, entry, now);
+  return entry;
+}
+
+// A snooze change reaches linked members at once (the newest change wins).
+function cbShareSnooze(group, entry, now) {
   try {
     cbConnection.sendWS({
       kind: "group-sync",
@@ -2470,10 +2438,9 @@ async function cbStartSnooze(groupId, now = Date.now()) {
       groupName: group.name,
       ts: now,
       snooze: entry,
-      snoozeTs: entry.changedAtMs
+      snoozeTs: CBGroupActions.snoozeChangedAtMs(entry)
     });
   } catch (_) {}
-  return entry;
 }
 const pendingApplyByTab = new Map(); // tabId -> Array<applyMessage>
 const PENDING_APPLY_MAX_PER_TAB = 32;
@@ -4216,6 +4183,82 @@ const cbClusterUsageBaseline = {};
 
 // True while `group` is in a cluster and the hub (hosted by the Mac app) is
 // reachable: the hub then owns the shared budget and its period.
+// Owner 2026-09-26: this browser keeps a copy of its links, so while Mac Vault
+// is away it still knows which groups are linked. It then runs those groups
+// itself and keeps the time it counts for them apart (per budget period);
+// when the hub is back that time is handed over as an increment the hub adds
+// — two browsers' offline time adds up — and nothing counted is lost.
+const CB_CLUSTER_COPY_KEY = "cbClusterCopy";
+const CB_OFFLINE_USAGE_KEY = "cbOfflineUsage";
+let cbClusterCopy = [];
+(async () => {
+  try {
+    const stored = (await chrome.storage.local.get({ [CB_CLUSTER_COPY_KEY]: [] }))[CB_CLUSTER_COPY_KEY];
+    if (Array.isArray(stored) && cbClusterCopy.length === 0) cbClusterCopy = stored;
+  } catch (_) {}
+})();
+
+function cbSaveClusterCopy(clusters) {
+  cbClusterCopy = Array.isArray(clusters) ? clusters : [];
+  try {
+    chrome.storage.local.set({ [CB_CLUSTER_COPY_KEY]: cbClusterCopy.map((c) => ({ id: c.id, groupName: c.groupName, members: c.members })) }).catch(() => {});
+  } catch (_) {}
+}
+
+// Linked (per the copy), whether or not the hub is reachable right now.
+function cbGroupInLink(group) {
+  try {
+    const program = cbDetectProgramId();
+    return cbClusterCopy.some((cluster) => self.CBBridgeProtocol.clusterForGroup([cluster], group, program) === cluster);
+  } catch (_) {
+    return false;
+  }
+}
+
+// Time counted for linked groups while the hub was away, per group:
+// { anchorMs, ms, buckets }. `anchorMs` is the budget period it belongs to.
+async function cbRecordOfflineUsage(deltas, anchors) {
+  if (Object.keys(deltas).length === 0) return;
+  const stored = { ...((await chrome.storage.local.get({ [CB_OFFLINE_USAGE_KEY]: {} }))[CB_OFFLINE_USAGE_KEY] || {}) };
+  for (const [groupId, delta] of Object.entries(deltas)) {
+    const anchorMs = Number(anchors[groupId]) || 0;
+    const entry = stored[groupId] && stored[groupId].anchorMs === anchorMs ? stored[groupId] : { anchorMs, ms: 0, buckets: {} };
+    entry.ms += delta.ms || 0;
+    for (const [minute, ms] of Object.entries(delta.buckets || {})) entry.buckets[minute] = (Number(entry.buckets[minute]) || 0) + ms;
+    stored[groupId] = entry;
+  }
+  await chrome.storage.local.set({ [CB_OFFLINE_USAGE_KEY]: stored });
+}
+
+// Hands the offline time of linked groups to the hub (it adds it when the
+// period still matches) and returns it by group, so the local counters can
+// show shared + handed-over time at once.
+async function cbHandOverOfflineUsage(groupsByCluster) {
+  const stored = (await chrome.storage.local.get({ [CB_OFFLINE_USAGE_KEY]: {} }))[CB_OFFLINE_USAGE_KEY] || {};
+  const program = cbDetectProgramId();
+  const handed = {};
+  const remaining = { ...stored };
+  for (const { group } of groupsByCluster) {
+    const entry = stored[group.id];
+    if (!entry) continue;
+    delete remaining[group.id];
+    if (!(entry.ms > 0) && Object.keys(entry.buckets || {}).length === 0) continue;
+    cbConnection.sendWS({
+      kind: "group-sync",
+      program,
+      groupName: group.name,
+      usageResetAtMs: 0,
+      ...(group.rollingLimit
+        ? { usageBuckets: entry.buckets }
+        : { usageDeltaMs: entry.ms, usageDeltaAnchorMs: entry.anchorMs }),
+      ts: Date.now()
+    });
+    handed[group.id] = entry;
+  }
+  await chrome.storage.local.set({ [CB_OFFLINE_USAGE_KEY]: remaining });
+  return handed;
+}
+
 function cbGroupLinkedToHub(group) {
   try {
     const clusters = Array.isArray(cbConnection.clusters) ? cbConnection.clusters : [];
@@ -4459,6 +4502,10 @@ const cbConnection = {
           ? usageStore[USAGE_RESET_AT_KEY]
           : {};
       let usageChanged = false;
+      const linkedGroups = relevant
+        .map((cluster) => ({ cluster, group: self.CBBridgeProtocol.groupForCluster(groups, cluster, program) }))
+        .filter((entry) => entry.group && entry.group.id);
+      const handed = await cbHandOverOfflineUsage(linkedGroups);
       for (const cluster of relevant) {
         const shared = cluster.shared;
         if (!shared) continue;
@@ -4467,7 +4514,9 @@ const cbConnection = {
         if (grp.rollingLimit) {
           // Rolling limit: adopt the hub's shared per-minute usage; the timer is
           // what is still inside this group's window.
-          const pruned = cbPruneUsageBuckets(shared.usageBuckets, grp, Date.now());
+          const merged = { ...(shared.usageBuckets || {}) };
+          for (const [minute, ms] of Object.entries(handed[grp.id]?.buckets || {})) merged[minute] = (Number(merged[minute]) || 0) + ms;
+          const pruned = cbPruneUsageBuckets(merged, grp, Date.now());
           if (JSON.stringify(pruned) !== JSON.stringify(bucketStore[grp.id] ?? {})) {
             bucketStore[grp.id] = pruned;
             timers[grp.id] = cbBucketsUsedMs(pruned);
@@ -4476,7 +4525,11 @@ const cbConnection = {
           continue;
         }
         if (!Number.isFinite(shared.usageMs)) continue;
-        const incoming = Math.max(0, Number(shared.usageMs) || 0);
+        // Shared total plus what this browser just handed over for the same
+        // period (the hub's broadcast of the sum follows).
+        const offline = handed[grp.id];
+        const incoming = Math.max(0, Number(shared.usageMs) || 0) +
+          (offline && offline.anchorMs === Number(shared.usageResetAtMs) ? offline.ms : 0);
         if ((Number(timers[grp.id]) || 0) !== incoming) {
           timers[grp.id] = incoming;
           usageChanged = true;
@@ -4521,17 +4574,9 @@ const cbConnection = {
         if (sharedSnoozeTs <= 0 || !shared.snooze || typeof shared.snooze !== "object") continue;
         const grp = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
         if (!grp || !grp.id) continue;
-        const localEntry = snoozes[grp.id];
-        const localTs = localEntry ? Number(localEntry.changedAtMs || localEntry.startsAtMs) || 0 : 0;
-        if (sharedSnoozeTs <= localTs) continue;
-        const sanitized = sanitizeSnoozes({ [grp.id]: shared.snooze }, [grp], now);
-        const entry = sanitized[grp.id];
-        if (entry && Number(entry.cooldownUntilMs) > now) {
-          snoozes[grp.id] = entry;
-          snoozeChanged = true;
-        } else if (localEntry) {
-          // The newer change on another device ended the snooze: end ours too.
-          delete snoozes[grp.id];
+        const adopted = CBGroupActions.adoptSnooze(snoozes[grp.id], shared.snooze, sharedSnoozeTs);
+        if (adopted) {
+          snoozes[grp.id] = adopted;
           snoozeChanged = true;
         }
       }
@@ -4743,6 +4788,7 @@ const cbConnection = {
       case "clusters":
         if (!this.routeIsReady("macapp")) break;
         this.clusters = Array.isArray(msg.clusters) ? msg.clusters : [];
+        cbSaveClusterCopy(this.clusters);
         this.broadcastClusters();
         this.applySharedToStorage();
         break;
@@ -4759,6 +4805,7 @@ const cbConnection = {
           next.push(msg.cluster);
         }
         this.clusters = next;
+        cbSaveClusterCopy(this.clusters);
         this.broadcastClusters();
         this.applySharedToStorage();
         break;
@@ -4844,7 +4891,9 @@ const CB_BROWSER_REQUEST_OPERATIONS = Object.freeze([
   "settings-set-global",
   "settings-lock-group",
   "settings-unlock-group",
-  "settings-move-group"
+  "settings-move-group",
+  "settings-snooze-group",
+  "settings-end-snooze"
 ]);
 const CB_CLASSIFIER_SETTINGS_STORAGE_KEY = "vaultClassifierSettings";
 const CB_TAGGING_MODES = Object.freeze(["whenFiltering", "always", "paused"]);
@@ -4912,6 +4961,37 @@ async function cbLockGroupForTool(input) {
   return cbWriteGroup(groups, index, result.group);
 }
 
+// The confirmation a tool walks through, as the editor's modal: the first
+// call asks (running `onAsk` first — e.g. the PIN), then each call with
+// confirm: true at least 5 s after the previous one counts a step. A pending
+// confirmation belongs to one `tag` (e.g. the lock version) and expires.
+// → { done: true } | { left }.
+async function cbToolConfirmation(key, count, tag, confirm, now, onAsk) {
+  const session = chrome.storage.session || chrome.storage.local;
+  const requests = { ...((await session.get({ [CB_UNLOCK_REQUESTS_KEY]: {} }))[CB_UNLOCK_REQUESTS_KEY] || {}) };
+  let request = requests[key];
+  if (request && (request.tag !== tag || now - request.askedAtMs > CB_UNLOCK_REQUEST_TTL_MS)) request = null;
+  if (confirm !== true || !request) {
+    if (onAsk) await onAsk();
+    if (count <= 0) return { done: true };
+    requests[key] = { askedAtMs: now, tag, confirm: CBGroupActions.confirmStart(now, count) };
+    await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
+    return { left: count };
+  }
+  const step = CBGroupActions.confirmStep(request.confirm, now);
+  if (step.waitMs > 0) throw new Error(`confirm-wait:${Math.ceil(step.waitMs / 1000)}`);
+  if (!step.done) {
+    requests[key] = { ...request, confirm: step.state };
+    await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
+    return { left: step.state.left };
+  }
+  delete requests[key];
+  await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
+  return { done: true };
+}
+
+const CB_CONFIRM_NEXT = "call again with confirm: true every 5 s until confirmationsLeft is 0 (within 5 minutes)";
+
 async function cbUnlockGroupForTool(input) {
   const { groups } = await getState();
   const index = groups.findIndex((group) => group.id === input.id);
@@ -4920,30 +5000,43 @@ async function cbUnlockGroupForTool(input) {
   const now = Date.now();
   const plan = CBGroupActions.unlockPlan(group, now);
   if (plan.error) throw new Error(plan.waitUntilMs ? `strict-wait:${new Date(plan.waitUntilMs).toISOString()}` : plan.error);
-  const session = chrome.storage.session || chrome.storage.local;
-  const requests = { ...((await session.get({ [CB_UNLOCK_REQUESTS_KEY]: {} }))[CB_UNLOCK_REQUESTS_KEY] || {}) };
-  let request = requests[group.id];
-  // A request belongs to one lock version and expires.
-  if (request && (request.lockVersion !== group.lockVersion || now - request.askedAtMs > CB_UNLOCK_REQUEST_TTL_MS)) request = null;
-  if (input.confirm !== true || !request) {
-    let upgrade = {};
-    if (plan.needsPin) upgrade = await cbCheckPinForTool(group, input.pin);
+  const step = await cbToolConfirmation(`unlock:${group.id}`, plan.confirmations, group.lockVersion, input.confirm, now, async () => {
+    if (!plan.needsPin) return;
+    const upgrade = await cbCheckPinForTool(group, input.pin);
     if (upgrade.parentalPasswordHash) await cbWriteGroup(groups, index, { ...group, ...upgrade });
-    requests[group.id] = { askedAtMs: now, lockVersion: group.lockVersion, confirm: CBGroupActions.confirmStart(now) };
-    await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
-    return { unlocked: false, confirmationsLeft: plan.confirmations, confirmAfterSeconds: plan.intervalMs / 1000,
-      next: "call again with confirm: true every 5 s until confirmationsLeft is 0 (within 5 minutes)" };
-  }
-  const step = CBGroupActions.confirmStep(request.confirm, now);
-  if (step.waitMs > 0) throw new Error(`confirm-wait:${Math.ceil(step.waitMs / 1000)}`);
-  if (!step.done) {
-    requests[group.id] = { ...request, confirm: step.state };
-    await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
-    return { unlocked: false, confirmationsLeft: step.state.left, confirmAfterSeconds: plan.intervalMs / 1000 };
-  }
-  delete requests[group.id];
-  await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
+  });
+  if (!step.done) return { unlocked: false, confirmationsLeft: step.left, confirmAfterSeconds: plan.intervalMs / 1000, next: CB_CONFIRM_NEXT };
   return { unlocked: true, group: cbPublicGroup(await cbWriteGroup(groups, index, CBGroupActions.unlock(group))) };
+}
+
+// Snooze from a tool: the editor's rules (group-actions.js) with the group's
+// own confirmation count; ending early keeps the ended entry (shared).
+async function cbSnoozeGroupForTool(input) {
+  const { groups, groupSnoozes } = await getState();
+  const group = groups.find((item) => item.id === input.id);
+  if (!group) throw new Error("group-not-found");
+  const now = Date.now();
+  const plan = CBGroupActions.snoozePlan(group, groupSnoozes[group.id], now);
+  if (plan.error) throw new Error(plan.error);
+  const step = await cbToolConfirmation(`snooze:${group.id}`, plan.confirmations, "snooze", input.confirm, now);
+  if (!step.done) return { snoozed: false, confirmationsLeft: step.left, confirmAfterSeconds: plan.intervalMs / 1000, next: CB_CONFIRM_NEXT };
+  return { snoozed: true, snooze: await cbStartSnooze(group.id, Date.now()) };
+}
+
+async function cbEndSnoozeForTool(input) {
+  const { groups, groupSnoozes, groupSnoozeTotalsMs } = await getState();
+  const group = groups.find((item) => item.id === input.id);
+  if (!group) throw new Error("group-not-found");
+  const now = Date.now();
+  const result = CBGroupActions.endSnoozeEntry(groupSnoozes[group.id], now);
+  if (result.error) throw new Error(result.error);
+  await chrome.storage.local.set({
+    [GROUP_SNOOZES_KEY]: { ...groupSnoozes, [group.id]: result.entry },
+    [GROUP_SNOOZE_TOTALS_KEY]: { ...groupSnoozeTotalsMs, [group.id]: (Number(groupSnoozeTotalsMs[group.id]) || 0) + result.activeMs }
+  });
+  await syncBlockingRules();
+  cbShareSnooze(group, result.entry, now);
+  return { ended: true, snooze: result.entry };
 }
 
 async function cbBrowserRequestBody(operation, body) {
@@ -5029,6 +5122,10 @@ async function cbBrowserRequestBody(operation, body) {
       return { group: cbPublicGroup(await cbLockGroupForTool({ ...input, id: typeof input.id === "string" ? input.id : "" })) };
     case "settings-unlock-group":
       return cbUnlockGroupForTool({ ...input, id: typeof input.id === "string" ? input.id : "" });
+    case "settings-snooze-group":
+      return cbSnoozeGroupForTool({ ...input, id: typeof input.id === "string" ? input.id : "" });
+    case "settings-end-snooze":
+      return cbEndSnoozeForTool({ id: typeof input.id === "string" ? input.id : "" });
     case "settings-move-group": {
       // The group list's order (drag in the editor); a locked group stays put.
       // Order is this device's own: it is not shared with linked devices.

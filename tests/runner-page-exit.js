@@ -257,7 +257,15 @@ check("a pause never redirects", s.exit.action === "pause" && s.exit.target === 
   const after = (await context.chrome.storage.local.get("blockedGroups")).blockedGroups.find((g) => g.id === "L1");
   check("the worker adopts shared entries, not only settings", after.scopes.find((l) => l.surface === "site").sites.join() === "new.example.com" && after.pauseSeconds === 9, after);
   const snoozesAfter = (await context.chrome.storage.local.get("groupSnoozes")).groupSnoozes || {};
-  check("a snooze ended on another device ends here too", !snoozesAfter.L1, snoozesAfter);
+  check("a snooze ended on another device ends here too (its ended entry is kept as the latest change)",
+    snoozesAfter.L1 && run(`CBGroupActions.snoozePhase(${JSON.stringify(snoozesAfter.L1)}, Date.now())`) === "none" && snoozesAfter.L1.changedAtMs === nowMs - 1000, snoozesAfter);
+  // An older shared entry is not taken back over the ended one.
+  context.__clusters[0].shared.snooze = { startsAtMs: nowMs - 60000, untilMs: nowMs + 600000, cooldownUntilMs: nowMs + 600000, changedAtMs: nowMs - 60000 };
+  context.__clusters[0].shared.snoozeTs = nowMs - 60000;
+  run(`cbConnection.clusters = __clusters;`);
+  await run(`cbConnection.applySharedToStorage()`);
+  const stillEnded = ((await context.chrome.storage.local.get("groupSnoozes")).groupSnoozes || {}).L1;
+  check("an older snooze from the hub is never taken back after it ended", stillEnded && stillEnded.changedAtMs === nowMs - 1000, stillEnded);
   check("one list of shared settings; the lock is not among them (it travels as a versioned unit)",
     run("CB_SYNC_SCALAR_FIELDS").includes("pauseSeconds") &&
     !["lockedAtMs", "lockWaitHours", "parentalPasswordHash", "parentalPasswordSalt", "lockVersion"].some((f) => run("CB_SYNC_SCALAR_FIELDS").includes(f)) &&
