@@ -246,6 +246,7 @@
   "freeze.gate.wait": "wait {time}",
   "freeze.gate.pin": "the PIN",
   "freeze.gate.confirm": "{count} confirmations",
+  "link.enforceOnly": "Mac Vault is away: this linked group is only enforced here until it's back; it can't be changed meanwhile.",
   "snooze.title": "Snooze",
   "snooze.endButton": "End Snooze",
   "snooze.allow": "Allow snooze for this group",
