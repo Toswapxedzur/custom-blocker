@@ -1091,26 +1091,7 @@ function announceGroups() {
 // folded back into every member's local timer (see applyClusterShared).
 // ---------------------------------------------------------------------------
 
-const SYNC_SCALAR_FIELDS = [
-  "mode",
-  "allowedMinutes",
-  "resetIntervalHours",
-  "resetAtMidnight",
-  "rollingLimit",
-  "allowSnooze",
-  "snoozeMinutes",
-  "snoozeActivationDelayMinutes",
-  "snoozeCooldownMinutes",
-  "snoozeConfirmations",
-  "activeDays",
-  "timeWindowsText",
-  "freezeMode",
-  "freezeModeChoice",
-  "strictFreezeHours",
-  "frozenAtMs",
-  "fallbackUrl",
-  "pauseSeconds"
-];
+const SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
 
 // A member's contribution is the whole group definition: the policy scalars and
 // every entry's lines (websites, apps, platforms). Each member enforces the
@@ -1126,10 +1107,12 @@ function buildSyncContribution(group) {
   // every linked member (newest start wins). The entry carries all of its own
   // timing (start/until/cooldown), so each side enforces and expires it
   // identically without needing to propagate the eventual clear.
+  // The newest change (a start OR an end) wins, so ending a snooze early ends
+  // it on every linked device.
   const snoozeEntry = state.groupSnoozes[group.id];
   if (snoozeEntry && Number.isFinite(Number(snoozeEntry.startsAtMs))) {
     contribution.snooze = snoozeEntry;
-    contribution.snoozeTs = Number(snoozeEntry.startsAtMs) || 0;
+    contribution.snoozeTs = Number(snoozeEntry.changedAtMs || snoozeEntry.startsAtMs) || 0;
   }
   // Cumulative snooze total is shared so every member can display the combined
   // figure. The hub keeps the max across members; folding is display-only
@@ -1222,11 +1205,15 @@ function applyClusterShared(group, shared) {
   const sharedSnoozeTs = Number(shared.snoozeTs) || 0;
   if (sharedSnoozeTs > 0 && shared.snooze && typeof shared.snooze === "object") {
     const localEntry = state.groupSnoozes[group.id];
-    const localTs = localEntry ? Number(localEntry.startsAtMs) || 0 : 0;
+    const localTs = localEntry ? Number(localEntry.changedAtMs || localEntry.startsAtMs) || 0 : 0;
     if (sharedSnoozeTs > localTs) {
       const adopted = adoptSharedSnooze(next, shared.snooze);
       if (adopted) {
         state.groupSnoozes[group.id] = adopted;
+        chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: state.groupSnoozes }).catch(() => {});
+      } else if (localEntry) {
+        // The newer change on another device ended the snooze: end ours too.
+        delete state.groupSnoozes[group.id];
         chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: state.groupSnoozes }).catch(() => {});
       }
     }
@@ -2075,11 +2062,11 @@ function setupPlatformChipInputs() {
 }
 
 // ── Content-tag filter helpers (platform rules) ──────────────────────────
-// Platforms whose feed-card pipeline can act on content tags (the three
-// parity platforms plus the video platforms that share YouTube's card model).
-const TAG_FILTER_PLATFORMS = new Set(["youtube", "instagram", "facebook", "twitch", "reddit", "bilibili", "twitter"]);
+// Tag controls show only where tagging exists (platform-profiles.js
+// TAGGING_PLATFORMS); the desktop app hosts the tagger. Saved tag filters are
+// kept either way, for linked devices that can tag.
 function isTagFilterCompatible(groupType) {
-  return TAG_FILTER_PLATFORMS.has(String(groupType || ""));
+  return isTaggingPlatform(groupType) && (IS_NATIVE_DESKTOP || taggingAvailableFor(LOCAL_PROGRAM_ID));
 }
 function normalizeTagFilterModeChoice(value) {
   return value === "include" || value === "exclude" ? value : "all";
@@ -3466,6 +3453,11 @@ function sanitizeGroups(groups) {
           ? group.freezeMode
           : "none",
       freezeModeChoice: normalizeFreezeModeChoice(group),
+      // When the lock last changed on any device (latest wins across links).
+      freezeChangedAtMs:
+        Number.isFinite(Number(group?.freezeChangedAtMs)) && Number(group.freezeChangedAtMs) > 0
+          ? Number(group.freezeChangedAtMs)
+          : 0,
       strictFreezeHours:
         parseStrictFreezeHours(group?.strictFreezeHours) ?? DEFAULT_STRICT_FREEZE_HOURS,
       frozenAtMs:
@@ -3577,6 +3569,9 @@ function sanitizeSnoozes(value, groups) {
     const cooldownUntilMs = Number.parseInt(snooze?.cooldownUntilMs, 10);
     const confirmationCount = parseSnoozeConfirmations(snooze?.confirmationCount);
     const activeMsApplied = Boolean(snooze?.activeMsApplied);
+    const changedAtMs = Number.isFinite(Number(snooze?.changedAtMs)) && Number(snooze.changedAtMs) > 0
+      ? Number(snooze.changedAtMs)
+      : 0;
 
     if (
       Number.isFinite(startsAtMs) &&
@@ -3590,7 +3585,8 @@ function sanitizeSnoozes(value, groups) {
         untilMs,
         cooldownUntilMs,
         confirmationCount: confirmationCount ?? 0,
-        activeMsApplied
+        activeMsApplied,
+        ...(changedAtMs ? { changedAtMs } : {})
       };
     }
   }
@@ -3631,6 +3627,7 @@ function getSerializableGroupSnapshot(group) {
     blockingRulesText: group.blockingRulesText,
     freezeMode: group.freezeMode,
     freezeModeChoice: normalizeFreezeModeChoice(group),
+    freezeChangedAtMs: group.freezeChangedAtMs || 0,
     strictFreezeHours: group.strictFreezeHours,
     frozenAtMs: group.freezeMode === "none" ? null : group.frozenAtMs,
     parentalPasswordHash: group.parentalPasswordHash ?? null,
@@ -6077,7 +6074,8 @@ async function applyFreeze() {
           ...item,
           freezeMode,
           strictFreezeHours: strictFreezeHours ?? item.strictFreezeHours,
-          frozenAtMs: now
+          frozenAtMs: now,
+          freezeChangedAtMs: now
         }
       : item
   );
@@ -6242,7 +6240,7 @@ async function applyParentalFreeze(group) {
       }
       await persistGroupFields(
         group.id,
-        { freezeMode: "parental", frozenAtMs: Date.now() },
+        { freezeMode: "parental", frozenAtMs: Date.now(), freezeChangedAtMs: Date.now() },
         t("status.frozen", { name: group.name })
       );
       return true;
@@ -6255,7 +6253,7 @@ function openParentalUnfreezeFlow(group) {
     // No password set: nothing to gate against, just unfreeze.
     persistGroupFields(
       group.id,
-      { freezeMode: "none", frozenAtMs: null },
+      { freezeMode: "none", frozenAtMs: null, freezeChangedAtMs: Date.now() },
       t("status.unfrozen", { name: group.name })
     );
     return;
@@ -6271,7 +6269,7 @@ function openParentalUnfreezeFlow(group) {
       }
       await persistGroupFields(
         group.id,
-        { freezeMode: "none", frozenAtMs: null },
+        { freezeMode: "none", frozenAtMs: null, freezeChangedAtMs: Date.now() },
         t("status.unfrozen", { name: group.name })
       );
       return true;
@@ -6396,7 +6394,8 @@ function createSnoozeEntry(
     untilMs,
     cooldownUntilMs: untilMs + cooldownMinutes * MS_PER_MINUTE,
     confirmationCount,
-    activeMsApplied: false
+    activeMsApplied: false,
+    changedAtMs: now
   };
 }
 
@@ -6546,7 +6545,8 @@ async function handleUnfreezeConfirm() {
         ? {
             ...item,
             freezeMode: "none",
-            frozenAtMs: null
+            frozenAtMs: null,
+            freezeChangedAtMs: Date.now()
           }
         : item
     );
@@ -6739,24 +6739,30 @@ async function endSnooze() {
     return;
   }
 
+  // Ending keeps an ENDED entry (stamped now) instead of deleting it, so the
+  // end reaches linked devices (newest change wins) before the entry expires.
   const phase = getSnoozePhase(snooze, now);
   if (phase === "pending") {
-    delete state.groupSnoozes[group.id];
+    state.groupSnoozes[group.id] = {
+      ...snooze,
+      startsAtMs: now,
+      untilMs: now,
+      cooldownUntilMs: now,
+      activeMsApplied: true,
+      changedAtMs: now
+    };
   } else if (phase === "active") {
     const elapsedActiveMs = Math.max(0, Math.min(now, snooze.untilMs) - snooze.startsAtMs);
     const cooldownDurationMs = Math.max(0, snooze.cooldownUntilMs - snooze.untilMs);
     state.groupSnoozeTotalsMs[group.id] =
       Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0) + elapsedActiveMs;
-    if (cooldownDurationMs > 0) {
-      state.groupSnoozes[group.id] = {
-        ...snooze,
-        untilMs: now,
-        cooldownUntilMs: now + cooldownDurationMs,
-        activeMsApplied: true
-      };
-    } else {
-      delete state.groupSnoozes[group.id];
-    }
+    state.groupSnoozes[group.id] = {
+      ...snooze,
+      untilMs: now,
+      cooldownUntilMs: now + cooldownDurationMs,
+      activeMsApplied: true,
+      changedAtMs: now
+    };
   } else {
     return;
   }
@@ -7196,15 +7202,6 @@ if (runCustomGroupButton) {
   });
 }
 
-// Platforms whose feed-predicate engine can act on content tags (helpers.js
-// PLATFORM_LIST): the no-code builder emits `<platform>().dim|hide(...)` for these.
-const CONTENT_TAG_PLATFORMS = new Set(["youtube", "instagram", "facebook", "twitch", "reddit", "bilibili", "twitter"]);
-
-// Turn the no-code builder fields into a custom-rule source. Uses the platform
-// predicate's dim() (thumbnail blackout, correctable) or hide() (remove card).
-// Supports a LIST of tags (each with an optional per-tag confidence over the
-// default), "block certain tags" (include) / "block all except" (exclude), and
-// a configurable untagged behavior for the exclude case.
 // ── Classifier tag-name suggestions ──────────────────────────────────────
 // Clickable chips under a tag-list textarea, fed by the classifier's own
 // taxonomy for that platform (so a filter names tags that actually exist — a

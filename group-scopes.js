@@ -393,8 +393,21 @@
     return list.some((line) => line.surface === "site") ? "site" : fallback;
   }
 
+  // The policy settings linked groups share (the whole definition is these
+  // plus every entry's lines). One list for the editor and the worker.
+  // freezeChangedAtMs orders lock changes across devices (latest wins); the
+  // parental PIN travels with the lock so every device can ask for it.
+  const SYNC_SCALAR_FIELDS = Object.freeze([
+    "mode", "allowedMinutes", "resetIntervalHours", "resetAtMidnight", "rollingLimit",
+    "allowSnooze", "snoozeMinutes", "snoozeActivationDelayMinutes", "snoozeCooldownMinutes", "snoozeConfirmations",
+    "activeDays", "timeWindowsText",
+    "freezeMode", "freezeModeChoice", "strictFreezeHours", "frozenAtMs", "freezeChangedAtMs",
+    "parentalPasswordHash", "parentalPasswordSalt",
+    "fallbackUrl", "pauseSeconds"
+  ]);
+
   const api = Object.freeze({
-    SCOPE_SURFACES, SCOPE_ACTIONS, FLAT_SCOPE_FIELDS,
+    SCOPE_SURFACES, SCOPE_ACTIONS, FLAT_SCOPE_FIELDS, SYNC_SCALAR_FIELDS,
     scopeLegalActions, hasFlatScopeFields, hasScopeLines, withoutFlatScopeFields,
     scopeLinesFromFlat, flatFromScopes, mergeFlatIntoScopes, sanitizeScopeLines, deriveGroupType, platformKind,
     linePlatformKey, lineBelongsTo, normalizeEntryKey, groupPlatforms, normalizeAppList

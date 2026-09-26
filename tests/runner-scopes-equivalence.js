@@ -49,7 +49,11 @@ const files = ["platform-profiles.js", "group-scopes.js", "helpers.js", "local-h
 const oldCtx = makeContext();
 for (const file of files) {
   if (file === "group-scopes.js") continue; // did not exist before
-  let source; try { source = gitShow(file); } catch (_) { continue; }
+  // The platform matchers are a shared library, not part of the worker
+  // refactor this suite pins: both sides use today's (later owner-approved
+  // matcher changes — e.g. YouTube's own routes are not creators, a YouTube
+  // form stays on YouTube — are not worker differences).
+  let source; try { source = file === "platform-profiles.js" ? fs.readFileSync(path.join(root, file), "utf8") : gitShow(file); } catch (_) { continue; }
   try { vm.runInContext(source, oldCtx, { filename: "old/" + file }); } catch (e) { console.error("old load", file, e.message); }
 }
 const newCtx = makeContext();
