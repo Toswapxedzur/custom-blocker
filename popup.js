@@ -453,6 +453,8 @@ const state = {
   isManualOpen: false,
   manualCache: {},
   suppressGroupStorageUpdatesUntil: 0,
+  // The worker's copy of this browser's links (cbClusterCopy), for isEnforceOnly.
+  linkCopy: [],
   nameEditing: null,
   panelWidth: 300,
   aiPromptGroupId: null,
@@ -479,7 +481,6 @@ const state = {
   // Hub's shared cumulative snooze total per clustered group (display only). We
   // show max(local total, this) so the figure reflects snoozes accrued on any
   // member without merging into — and thus double-counting — the local counter.
-  clusterSnoozeTotalsMs: {},
   // Last contribution JSON we sent per group, so we don't echo applied state
   // back to the hub (loop suppression mirrors the hub's broadcast-on-change).
   clusterSyncSent: {},
@@ -886,6 +887,7 @@ async function revokeLocalFolder() {
 function applyConnectionStatus(raw) {
   const incoming = raw && typeof raw === "object" ? raw : {};
   const wasOnline = bridgeIsOnline();
+  const wasAway = macVaultAway();
   state.connectionStatus = {
     running: Boolean(incoming.running),
     state: typeof incoming.state === "string" ? incoming.state : "off",
@@ -894,6 +896,8 @@ function applyConnectionStatus(raw) {
     error: typeof incoming.error === "string" ? incoming.error : "",
     hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
+  // Linked groups turn enforce-only (or editable again) with Mac Vault.
+  if (wasAway !== macVaultAway()) render();
   if (!wasOnline && bridgeIsOnline()) {
     announceGroups();
     requestClusters();
@@ -1000,10 +1004,6 @@ function applyClusters(list) {
       delete state.clusterSyncSent[group.id];
     }
   }
-  for (const groupId of Object.keys(state.clusterSnoozeTotalsMs)) {
-    const group = state.groups.find((g) => g.id === groupId);
-    if (!group || !groupConnectionCluster(group)) delete state.clusterSnoozeTotalsMs[groupId];
-  }
   updateGroupCardBridgeBadges();
   // Re-render the editor so synced changes show, unless the user is actively
   // typing in a field (don't clobber in-progress input).
@@ -1105,10 +1105,6 @@ function buildSyncContribution(group) {
     contribution.snooze = snoozeEntry;
     contribution.snoozeTs = Number(snoozeEntry.changedAtMs || snoozeEntry.startsAtMs) || 0;
   }
-  // Cumulative snooze total is shared so every member can display the combined
-  // figure. The hub keeps the max across members; folding is display-only
-  // (see applyClusterShared / getDisplayedSnoozeTotalMs) to avoid double-count.
-  contribution.snoozeTotalMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
   return contribution;
 }
 
@@ -1157,12 +1153,12 @@ function applyClusterShared(group, shared) {
   state.groups[idx] = next;
   if (Number.isFinite(shared.ts)) state.groupEditTs[group.id] = shared.ts;
 
-  // Display-only shared snooze total (max across the cluster). Never written
-  // into the local accumulator so concurrent expiry can't double-count.
-  state.clusterSnoozeTotalsMs[group.id] = Math.max(
-    0,
-    Number(shared.snoozeTotalMs) || 0
-  );
+  // The link's snooze total is the hub's count: each snooze once, however
+  // many devices saw it.
+  if (Number.isFinite(Number(shared.snoozeTotalMs)) && Number(state.groupSnoozeTotalsMs[group.id]) !== Number(shared.snoozeTotalMs)) {
+    state.groupSnoozeTotalsMs[group.id] = Number(shared.snoozeTotalMs);
+    chrome.storage.local.set({ [GROUP_SNOOZE_TOTALS_KEY]: state.groupSnoozeTotalsMs }).catch(() => {});
+  }
 
   // Fold the hub's shared usage budget into our local counter so the live
   // elapsed timer (display + enforcement) reflects time spent on every member.
@@ -3777,10 +3773,7 @@ function getActiveSnooze(groupId, now = Date.now()) {
 }
 
 function getDisplayedSnoozeTotalMs(groupId, now = Date.now()) {
-  const baseTotal = Math.max(
-    Math.max(0, Number(state.groupSnoozeTotalsMs[groupId]) || 0),
-    Math.max(0, Number(state.clusterSnoozeTotalsMs[groupId]) || 0)
-  );
+  const baseTotal = Math.max(0, Number(state.groupSnoozeTotalsMs[groupId]) || 0);
   const snooze = state.groupSnoozes[groupId];
   if (getSnoozePhase(snooze, now) !== "active") {
     return baseTotal;
@@ -3802,7 +3795,31 @@ function getFreezeStatus(group, now = Date.now()) {
 }
 
 function isGroupEditable(group, now = Date.now()) {
-  return !getFreezeStatus(group, now).isFrozen;
+  return !getFreezeStatus(group, now).isFrozen && !isEnforceOnly(group);
+}
+
+// Owner 2026-09-26: Mac Vault holds a linked group's real state. While it is
+// away this browser only ENFORCES a linked group (from its copy of the links,
+// kept by the worker): nothing about the group can change — settings, entries,
+// freeze, snooze, delete — until Mac Vault is back.
+function macVaultAway() {
+  if (IS_NATIVE_DESKTOP) return false;
+  const s = state.connectionStatus || {};
+  return !((s.state === "connected" || s.state === "running") && s.hubProgram === "macapp");
+}
+
+// True (and says why) when the group is enforce-only right now.
+function refuseWhileMacVaultAway(group) {
+  if (!isEnforceOnly(group)) return false;
+  setStatus(t("link.enforceOnly"), true);
+  render();
+  return true;
+}
+
+function isEnforceOnly(group) {
+  if (!group || !macVaultAway()) return false;
+  const links = Array.isArray(state.linkCopy) ? state.linkCopy : [];
+  return links.some((cluster) => window.CBBridgeProtocol.clusterForGroup([cluster], group, LOCAL_PROGRAM_ID) === cluster);
 }
 
 // --- Parental password (per-group 6-digit PIN) ---------------------------
@@ -3827,8 +3844,9 @@ async function checkParentalPin(group, pin) {
   if (!result.ok) setStatus(t("freeze.pin.wrongWait", { seconds: Math.ceil(result.waitMs / 1000) }), true);
   try { await chrome.storage.local.set({ [CBParentalPin.ATTEMPTS_KEY]: result.attempts }); } catch (_) {}
   if (result.upgradedHash) {
-    group.parentalPasswordHash = result.upgradedHash;
-    Promise.resolve(persistGroupFields(group.id, { parentalPasswordHash: result.upgradedHash }, "")).catch(() => {});
+    const upgraded = CBGroupActions.upgradePinHash(state.groups.find((g) => g.id === group.id) || group, result.upgradedHash);
+    Object.assign(group, CBGroupActions.lockUnit(upgraded));
+    Promise.resolve(persistGroupFields(group.id, CBGroupActions.lockUnit(upgraded), "")).catch(() => {});
   }
   return result.ok;
 }
@@ -4408,16 +4426,23 @@ function updateFreezeUI(group, now = Date.now()) {
   // One lock with parallel gates: a wait and/or a PIN, and always the
   // confirmation. While frozen, the same controls only make it stricter.
   const freezeStatus = getFreezeStatus(group, now);
+  const enforceOnly = isEnforceOnly(group);
+  lockWaitHoursField.disabled = enforceOnly;
+  if (parentalSettingsButton) parentalSettingsButton.disabled = enforceOnly;
   freezeSetup.classList.remove("hidden");
   if (document.activeElement !== lockWaitHoursField) {
     lockWaitHoursField.value = freezeStatus.waitHours > 0 ? String(freezeStatus.waitHours) : "";
   }
   lockPinStatus.textContent = freezeStatus.hasParentalPassword ? t("freeze.pinSet") : t("freeze.pinNone");
   applyFreezeButton.textContent = freezeStatus.isFrozen ? t("freeze.tightenButton") : t("freeze.applyButton");
-  applyFreezeButton.disabled = false;
+  applyFreezeButton.disabled = enforceOnly;
   unfreezeButton.classList.toggle("hidden", !freezeStatus.isFrozen);
-  unfreezeButton.disabled = !freezeStatus.canUnfreeze;
+  unfreezeButton.disabled = !freezeStatus.canUnfreeze || enforceOnly;
 
+  if (enforceOnly) {
+    freezeSummary.textContent = t("link.enforceOnly");
+    return;
+  }
   if (!freezeStatus.isFrozen) {
     freezeSummary.textContent = t("freeze.summary.notFrozen");
     return;
@@ -4472,7 +4497,7 @@ function updateSnoozeUI(group, now = Date.now()) {
   }
 
   if (!snooze) {
-    startSnoozeButton.disabled = !allowSnooze;
+    startSnoozeButton.disabled = !allowSnooze || isEnforceOnly(group);
     snoozeSummary.textContent = !allowSnooze
       ? freezeStatus.isFrozen
         ? t("snooze.summary.disabledFrozen")
@@ -4494,11 +4519,13 @@ function updateSnoozeUI(group, now = Date.now()) {
       time: formatDurationMs(snooze.untilMs - snooze.startsAtMs)
     });
     endSnoozeButton.classList.remove("hidden");
+    endSnoozeButton.disabled = isEnforceOnly(group);
   } else if (snoozePhase === "active") {
     snoozeSummary.textContent = t("snooze.summary.active", {
       time: formatDurationMs(snooze.untilMs - now)
     });
     endSnoozeButton.classList.remove("hidden");
+    endSnoozeButton.disabled = isEnforceOnly(group);
   } else {
     snoozeSummary.textContent = t("snooze.summary.cooldown", {
       time: formatDurationMs(snooze.cooldownUntilMs - now)
@@ -5079,7 +5106,8 @@ async function loadStoredState() {
     [GROUP_SNOOZES_KEY]: {},
     [GROUP_SNOOZE_TOTALS_KEY]: {},
     [GLOBAL_SETTINGS_KEY]: { ...DEFAULT_GLOBAL_SETTINGS },
-    [QUICK_ADD_GROUP_KEY]: ""
+    [QUICK_ADD_GROUP_KEY]: "",
+    cbClusterCopy: []
   });
 
   const groups = sanitizeGroups(result[BLOCKED_GROUPS_KEY]);
@@ -5094,7 +5122,8 @@ async function loadStoredState() {
     usageBucketsMs: sanitizeUsageBuckets(result[USAGE_BUCKETS_KEY], groups),
     groupSnoozes: sanitizeSnoozes(result[GROUP_SNOOZES_KEY], groups),
     groupSnoozeTotalsMs: sanitizeSnoozeTotals(result[GROUP_SNOOZE_TOTALS_KEY], groups),
-    globalSettings: settings
+    globalSettings: settings,
+    linkCopy: Array.isArray(result.cbClusterCopy) ? result.cbClusterCopy : []
   };
 }
 
@@ -5131,6 +5160,7 @@ async function loadGroups() {
   state.groupSnoozeTotalsMs = loaded.groupSnoozeTotalsMs;
   state.globalSettings = loaded.globalSettings;
   state.quickAddGroupId = loaded.quickAddGroupId;
+  state.linkCopy = loaded.linkCopy;
   state.selectedGroupId = state.groups[0]?.id ?? null;
   state.drafts = {};
   render();
@@ -5383,6 +5413,8 @@ function deleteAllStillCovered(passedPinHashes, now = Date.now()) {
 
 async function deleteAllGroups() {
   await flushAutosave();
+  const away = state.groups.find(isEnforceOnly);
+  if (away && refuseWhileMacVaultAway(away)) return;
 
   const plan = CBGroupActions.deleteAllPlan(state.groups, Date.now());
   if (plan.error) {
@@ -5450,6 +5482,7 @@ async function deleteSelectedGroup() {
     return;
   }
 
+  if (refuseWhileMacVaultAway(group)) return;
   if (!isGroupEditable(group)) {
     setStatus(t("status.frozenCannotDelete"), true);
     render();
@@ -5864,7 +5897,7 @@ async function reorderGroups(draggedGroupId, insertIndex) {
 // hours are the wait gate; a PIN is set in the guardian settings (gear).
 async function applyFreeze() {
   const group = getSelectedGroup();
-  if (!group) return;
+  if (!group || refuseWhileMacVaultAway(group)) return;
   await flushAutosave();
   const current = getSelectedGroup();
   const now = Date.now();
@@ -5891,7 +5924,7 @@ async function applyFreeze() {
 // the confirmation — always (owner 2026-09-26).
 function openUnfreezeFlow() {
   const group = getSelectedGroup();
-  if (!group) return;
+  if (!group || refuseWhileMacVaultAway(group)) return;
   const plan = CBGroupActions.unlockPlan(group, Date.now());
   if (plan.error) {
     if (plan.waitUntilMs) setStatus(t("status.strictLocked"), true);
@@ -6025,6 +6058,7 @@ function openPinEntry({ title, description, onSubmit, onCancel }) {
 
 // Guardian settings overlay: set / verify / clear the group's password.
 function openParentalSettings(group) {
+  if (refuseWhileMacVaultAway(group)) return;
   const pinId = "settings-pin";
   const vals = {};
   let handle = null;
@@ -6252,7 +6286,7 @@ async function handleUnfreezeConfirm() {
 async function startSnooze() {
   let group = getSelectedGroup();
 
-  if (!group) {
+  if (!group || refuseWhileMacVaultAway(group)) {
     return;
   }
 
@@ -6366,7 +6400,7 @@ async function applySnoozeStart(group) {
 
 async function endSnooze() {
   const group = getSelectedGroup();
-  if (!group) return;
+  if (!group || refuseWhileMacVaultAway(group)) return;
   // Ending keeps an ENDED entry (stamped now) so the end reaches linked
   // devices as the newest change (group-actions.js).
   const result = CBGroupActions.endSnoozeEntry(state.groupSnoozes[group.id], Date.now());
@@ -6423,6 +6457,11 @@ function startResizingPanels(event) {
 
 function syncExternalState(changes) {
   let shouldRenderDynamicOnly = false;
+
+  if (changes.cbClusterCopy) {
+    state.linkCopy = Array.isArray(changes.cbClusterCopy.newValue) ? changes.cbClusterCopy.newValue : [];
+    render();
+  }
 
   if (changes[USAGE_TIMERS_KEY]) {
     state.usageTimersMs = sanitizeUsageTimers(changes[USAGE_TIMERS_KEY].newValue, state.groups);

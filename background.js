@@ -1534,7 +1534,8 @@ function cbLeadExit(lead, pageContext, groupSnoozes, now) {
     groupId: lead.id,
     groupName: lead.name,
     pauseSeconds: lead.pauseSeconds ?? DEFAULT_PAUSE_SECONDS,
-    allowSnooze: lead.groupType !== "custom" && lead.allowSnooze !== false,
+    // No Snooze on the cover while the group is enforce-only (Mac Vault away).
+    allowSnooze: lead.groupType !== "custom" && lead.allowSnooze !== false && !cbEnforceOnly(lead),
     snoozeConfirmations: lead.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS,
     snoozePhase: getSnoozePhase(groupSnoozes[lead.id], now)
   };
@@ -2292,7 +2293,7 @@ async function cbQuickAddState() {
   const group = groups.find((item) => item.id === groupId && item.groupType !== "custom");
   // "+" is an edit, and a locked group takes no edits (as in the editor), so
   // the button is hidden while its target is locked.
-  if (!group || cbGroupIsLocked(group)) return { enabled: false, groupId: "", groupName: "" };
+  if (!group || cbGroupIsLocked(group) || cbEnforceOnly(group)) return { enabled: false, groupId: "", groupName: "" };
   return { enabled: true, groupId: group.id, groupName: group.name };
 }
 
@@ -2419,6 +2420,7 @@ async function cbStartSnooze(groupId, now = Date.now()) {
   const { groups, groupSnoozes } = await getState();
   const group = groups.find((item) => item.id === groupId);
   if (!group) throw new Error("group-not-found");
+  if (cbEnforceOnly(group)) throw new Error("mac-vault-away");
   const plan = CBGroupActions.snoozePlan(group, groupSnoozes[group.id], now);
   if (plan.error) throw new Error(plan.error);
   const entry = CBGroupActions.snoozeEntry(group, now);
@@ -4259,6 +4261,13 @@ async function cbHandOverOfflineUsage(groupsByCluster) {
   return handed;
 }
 
+// Owner 2026-09-26: while Mac Vault is away, a linked group is only enforced
+// here — nothing about it may change (the editor, the cover's Snooze and the
+// quick-add "+" all refuse) until Mac Vault, which holds its state, is back.
+function cbEnforceOnly(group) {
+  return Boolean(group) && !cbConnection.routeIsReady("macapp") && cbGroupInLink(group);
+}
+
 function cbGroupLinkedToHub(group) {
   try {
     const clusters = Array.isArray(cbConnection.clusters) ? cbConnection.clusters : [];
@@ -4584,6 +4593,17 @@ const cbConnection = {
         await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: snoozes });
         await syncBlockingRules();
       }
+      // The link's snooze total is the hub's count (each snooze once).
+      const totals = { ...((await chrome.storage.local.get({ [GROUP_SNOOZE_TOTALS_KEY]: {} }))[GROUP_SNOOZE_TOTALS_KEY] || {}) };
+      let totalsChanged = false;
+      for (const cluster of relevant) {
+        const grp = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
+        const shared = Number(cluster.shared?.snoozeTotalMs);
+        if (!grp || !grp.id || !Number.isFinite(shared) || Number(totals[grp.id]) === shared) continue;
+        totals[grp.id] = shared;
+        totalsChanged = true;
+      }
+      if (totalsChanged) await chrome.storage.local.set({ [GROUP_SNOOZE_TOTALS_KEY]: totals });
     } catch (_) {}
   },
 
@@ -4972,7 +4992,9 @@ async function cbToolConfirmation(key, count, tag, confirm, now, onAsk) {
   let request = requests[key];
   if (request && (request.tag !== tag || now - request.askedAtMs > CB_UNLOCK_REQUEST_TTL_MS)) request = null;
   if (confirm !== true || !request) {
-    if (onAsk) await onAsk();
+    // `onAsk` may change what the confirmation is for (a PIN upgrade moves
+    // the lock version): it returns the new tag.
+    if (onAsk) tag = (await onAsk()) ?? tag;
     if (count <= 0) return { done: true };
     requests[key] = { askedAtMs: now, tag, confirm: CBGroupActions.confirmStart(now, count) };
     await session.set({ [CB_UNLOCK_REQUESTS_KEY]: requests });
@@ -5001,12 +5023,16 @@ async function cbUnlockGroupForTool(input) {
   const plan = CBGroupActions.unlockPlan(group, now);
   if (plan.error) throw new Error(plan.waitUntilMs ? `strict-wait:${new Date(plan.waitUntilMs).toISOString()}` : plan.error);
   const step = await cbToolConfirmation(`unlock:${group.id}`, plan.confirmations, group.lockVersion, input.confirm, now, async () => {
-    if (!plan.needsPin) return;
+    if (!plan.needsPin) return undefined;
     const upgrade = await cbCheckPinForTool(group, input.pin);
-    if (upgrade.parentalPasswordHash) await cbWriteGroup(groups, index, { ...group, ...upgrade });
+    if (!upgrade.parentalPasswordHash) return undefined;
+    const upgraded = await cbWriteGroup(groups, index, CBGroupActions.upgradePinHash(group, upgrade.parentalPasswordHash));
+    return upgraded.lockVersion;
   });
   if (!step.done) return { unlocked: false, confirmationsLeft: step.left, confirmAfterSeconds: plan.intervalMs / 1000, next: CB_CONFIRM_NEXT };
-  return { unlocked: true, group: cbPublicGroup(await cbWriteGroup(groups, index, CBGroupActions.unlock(group))) };
+  const fresh = (await getState()).groups;
+  const at = fresh.findIndex((g) => g.id === group.id);
+  return { unlocked: true, group: cbPublicGroup(await cbWriteGroup(fresh, at, CBGroupActions.unlock(fresh[at]))) };
 }
 
 // Snooze from a tool: the editor's rules (group-actions.js) with the group's
@@ -5468,8 +5494,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // propagates to its linked peers.
         snooze: message.snooze,
         snoozeTs: message.snoozeTs,
-        // Cumulative snooze total so the hub can share the cluster-wide max.
-        snoozeTotalMs: message.snoozeTotalMs
+        // The link's one lock, with the version it was made on.
+        lock: message.lock,
+        lockBase: message.lockBase
       });
       sendResponse({ ok: true });
       return false;

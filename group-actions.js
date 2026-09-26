@@ -135,6 +135,12 @@
     return { group: bump(group, fields) };
   }
 
+  // A PIN stored in an old format, upgraded on a correct entry: a lock change
+  // like any other (its version moves, so linked devices take it).
+  function upgradePinHash(group, hash) {
+    return bump(group, { parentalPasswordHash: hash });
+  }
+
   // What unlocking needs right now → { error } | { needsPin, confirmations,
   // intervalMs }. A holding wait gate is an error naming its end.
   function unlockPlan(group, now) {
@@ -306,7 +312,7 @@
   const api = Object.freeze({
     CONFIRMATIONS, CONFIRM_INTERVAL_MS, MAX_WAIT_HOURS, LOCK_FIELDS,
     parseWaitHours, normalizeLock, isLocked, hasPin, waitUntilMs, status,
-    lock, tighten, setGates, unlockPlan, unlock, deleteAllPlan, confirmStart, confirmStep,
+    lock, tighten, setGates, upgradePinHash, unlockPlan, unlock, deleteAllPlan, confirmStart, confirmStep,
     lockUnit, lockContribution, adoptLock,
     snoozePhase, snoozeChangedAtMs, sanitizeSnoozeEntry, snoozePlan, snoozeEntry, endSnoozeEntry, adoptSnooze
   });
