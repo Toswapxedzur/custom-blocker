@@ -91,7 +91,7 @@ const code = [
   extractFunction("safeSendMessage"),
   extractLine("const CB_COVER_ID"), extractLine("const CB_SNOOZE_CONFIRM_INTERVAL_MS"),
   extractConst("cbCover"),
-  ...["cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "attemptExitPage"].map(extractFunction)
+  ...["cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "attemptExitPage", "cbCustomCoverUp"].map(extractFunction)
 ].join("\n");
 vm.runInContext(code, ctx, { filename: "content-cover-extract.js" });
 const run = (expr) => vm.runInContext(expr, ctx);
@@ -164,6 +164,9 @@ check("an address leaves the page", ctx.location.replaced === "https://focus.exa
 // 6. A custom rule's block: plain cover, no snooze.
 run("exitAttempted = false; attemptExitPage();");
 check("a custom rule's block is the plain cover without snooze", dialog() && dialog().querySelectorAll("h1")[0].textContent === "Blocked" && !buttons().some((b) => b.className === "cb-snooze-button"));
+check("…and is marked as the rule's, so the worker's updates leave it up", run("cbCustomCoverUp()") === true);
+run(`cbApplyExit({ action: "cover", target: "", message: "", groupId: "g1", groupName: "Sites", allowSnooze: false, snoozeConfirmations: 0, snoozePhase: "none" })`);
+check("a worker block replaces it (and is not the rule's)", run("cbCustomCoverUp()") === false && run("cbCover.exit.groupName") === "Sites");
 
 console.log(`CONTENT COVER TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");

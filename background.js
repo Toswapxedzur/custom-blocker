@@ -552,6 +552,19 @@ function sanitizeGroups(groups) {
           group?.freezeMode === "parental"
             ? group.freezeMode
             : "none",
+        // The lock mode picked for the next freeze (kept by the editor; the
+        // worker must not drop it when it rewrites groups).
+        freezeModeChoice: ["frozen", "strict", "parental"].includes(group?.freezeModeChoice)
+          ? group.freezeModeChoice
+          : ["frozen", "strict", "parental"].includes(group?.freezeMode)
+            ? group.freezeMode
+            : typeof group?.parentalPasswordHash === "string" && group.parentalPasswordHash ? "parental" : "frozen",
+        // When the lock last changed on any device: the newest change wins
+        // across linked devices (ConnectionHub.mergeFreezeLocked).
+        freezeChangedAtMs:
+          Number.isFinite(Number(group?.freezeChangedAtMs)) && Number(group.freezeChangedAtMs) > 0
+            ? Number(group.freezeChangedAtMs)
+            : 0,
         strictFreezeHours:
           parseStrictFreezeHours(group?.strictFreezeHours) ?? DEFAULT_STRICT_FREEZE_HOURS,
         frozenAtMs:
@@ -661,8 +674,12 @@ function sanitizeSnoozes(value, groups, now) {
     const cooldownUntilMs = Number.parseInt(snooze?.cooldownUntilMs, 10);
     const confirmationCount = parseSnoozeConfirmations(snooze?.confirmationCount);
     const activeMsApplied = Boolean(snooze?.activeMsApplied);
-    // Snooze and Lock mode are independent (a stored `refreezeMode` from
-    // before 2026-09-26 is dropped here).
+    // When the entry last changed (started or ended): the newest change wins
+    // across linked devices. Snooze and Lock mode are independent (a stored
+    // `refreezeMode` from before 2026-09-26 is dropped here).
+    const changedAtMs = Number.isFinite(Number(snooze?.changedAtMs)) && Number(snooze.changedAtMs) > 0
+      ? Number(snooze.changedAtMs)
+      : 0;
     if (
       Number.isFinite(startsAtMs) &&
       Number.isFinite(untilMs) &&
@@ -675,7 +692,8 @@ function sanitizeSnoozes(value, groups, now) {
         untilMs,
         cooldownUntilMs,
         confirmationCount: confirmationCount ?? DEFAULT_SNOOZE_CONFIRMATIONS,
-        activeMsApplied
+        activeMsApplied,
+        ...(changedAtMs ? { changedAtMs } : {})
       };
     }
   }
@@ -1362,6 +1380,9 @@ function cbFeedFilterId(group, line) {
 function pushTagFilterEntry(filters, group, line, enforce) {
   const tagFilter = line?.tagFilter;
   if (!tagFilter) return;
+  // Only where tagging exists (see TAGGING_PLATFORMS): elsewhere a tag line is
+  // inert — kept for linked devices that can tag, never enforced here.
+  if (!isTaggingPlatform(line.platform) || !taggingAvailableFor(cbDetectProgramId())) return;
   const tagMode = normalizeTagFilterMode(tagFilter.mode);
   if (tagMode !== "include" && tagMode !== "exclude") return;
   const tagList = normalizeTagList(tagFilter.tags);
@@ -2455,7 +2476,8 @@ async function cbStartSnooze(groupId, now = Date.now()) {
     untilMs,
     cooldownUntilMs: untilMs + (group.snoozeCooldownMinutes ?? 0) * MS_PER_MINUTE,
     confirmationCount: group.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS,
-    activeMsApplied: false
+    activeMsApplied: false,
+    changedAtMs: now
   };
   const next = { ...groupSnoozes, [group.id]: entry };
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: next });
@@ -2467,7 +2489,7 @@ async function cbStartSnooze(groupId, now = Date.now()) {
       groupName: group.name,
       ts: now,
       snooze: entry,
-      snoozeTs: entry.startsAtMs
+      snoozeTs: entry.changedAtMs
     });
   } catch (_) {}
   return entry;
@@ -4123,28 +4145,8 @@ const CB_CONNECTION_BURST_INTERVAL_MS = 100;
 const CB_CONNECTION_BURST_WINDOW_MS = 5_000;
 const CB_CONNECTION_SLOW_INTERVAL_MS = 5_000;
 
-// Scalar settings synced across a cluster (kept in sync with popup.js).
-const CB_SYNC_SCALAR_FIELDS = [
-  "mode",
-  "allowedMinutes",
-  "resetIntervalHours",
-  "resetAtMidnight",
-  "rollingLimit",
-  "allowSnooze",
-  "snoozeMinutes",
-  "snoozeActivationDelayMinutes",
-  "snoozeCooldownMinutes",
-  "snoozeConfirmations",
-  "activeDays",
-  "timeWindowsText",
-  "freezeMode",
-  "freezeModeChoice",
-  "strictFreezeHours",
-  "frozenAtMs",
-  "blockHomePage",
-  "allowlist",
-  "fallbackUrl"
-];
+// Scalar settings linked groups share (one list, in group-scopes.js).
+const CB_SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
 
 function cbDetectProgramId() {
   let ua = "";
@@ -4330,9 +4332,9 @@ const cbConnection = {
     } catch (_) {}
   },
 
-  // Applies hub-authoritative shared scalar settings to local block groups so
-  // synced timer/freeze/snooze changes enforce even when the popup is closed.
-  // Only scalars are applied here; blocked-domain lists stay locally owned.
+  // Applies the hub-authoritative shared definition (policy settings and every
+  // entry's lines), usage and snooze to local groups, so a linked group
+  // enforces changes made elsewhere even when the popup is closed.
   async applySharedToStorage() {
     const program = cbDetectProgramId();
     const relevant = (Array.isArray(this.clusters) ? this.clusters : []).filter(
@@ -4352,11 +4354,13 @@ const cbConnection = {
     const groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
     let changed = false;
     for (const cluster of relevant) {
-      const scalars = cluster.shared.scalars;
-      if (!scalars || typeof scalars !== "object") continue;
       const localGroup = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
       const idx = localGroup ? groups.findIndex((g) => g && g.id === localGroup.id) : -1;
       if (idx < 0) continue;
+      // The whole shared definition — policy settings AND every entry's lines —
+      // is adopted here, so a linked group enforces an edit made on another
+      // device even while this browser's editor is closed.
+      const scalars = cluster.shared.scalars && typeof cluster.shared.scalars === "object" ? cluster.shared.scalars : {};
       for (const field of CB_SYNC_SCALAR_FIELDS) {
         if (
           Object.prototype.hasOwnProperty.call(scalars, field) &&
@@ -4365,6 +4369,12 @@ const cbConnection = {
           groups[idx][field] = scalars[field];
           changed = true;
         }
+      }
+      // An empty list means "nothing shared yet", never "delete everything".
+      const scopes = cluster.shared.scopes;
+      if (Array.isArray(scopes) && scopes.length > 0 && JSON.stringify(groups[idx].scopes) !== JSON.stringify(scopes)) {
+        groups[idx] = { ...groups[idx], scopes };
+        changed = true;
       }
     }
     if (changed) {
@@ -4457,13 +4467,18 @@ const cbConnection = {
         const grp = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
         if (!grp || !grp.id) continue;
         const localEntry = snoozes[grp.id];
-        const localTs = localEntry ? Number(localEntry.startsAtMs) || 0 : 0;
+        const localTs = localEntry ? Number(localEntry.changedAtMs || localEntry.startsAtMs) || 0 : 0;
         if (sharedSnoozeTs <= localTs) continue;
         const sanitized = sanitizeSnoozes({ [grp.id]: shared.snooze }, [grp], now);
         const entry = sanitized[grp.id];
-        if (!entry || Number(entry.cooldownUntilMs) <= now) continue;
-        snoozes[grp.id] = entry;
-        snoozeChanged = true;
+        if (entry && Number(entry.cooldownUntilMs) > now) {
+          snoozes[grp.id] = entry;
+          snoozeChanged = true;
+        } else if (localEntry) {
+          // The newer change on another device ended the snooze: end ours too.
+          delete snoozes[grp.id];
+          snoozeChanged = true;
+        }
       }
       if (snoozeChanged) {
         await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: snoozes });
@@ -4802,7 +4817,10 @@ async function cbBrowserRequestBody(operation, body) {
         throw new Error("unknown-group-type");
       }
       const patch = input.patch && typeof input.patch === "object" && !Array.isArray(input.patch) ? input.patch : {};
-      const draft = { ...createDefaultGroup(groupType), ...patch, groupType };
+      // A lock is the user's to set, in the editor: a created group never
+      // starts locked (same fields the edit path strips).
+      const { freezeMode: _freeze, frozenAtMs: _frozenAt, freezeChangedAtMs: _changed, parentalPasswordHash: _hash, parentalPasswordSalt: _salt, ...safePatch } = patch;
+      const draft = { ...createDefaultGroup(groupType), ...safePatch, groupType };
       const [group] = sanitizeGroups([draft]);
       if (!group) throw new Error("invalid-group");
       const { groups } = await getState();
@@ -4819,7 +4837,7 @@ async function cbBrowserRequestBody(operation, body) {
       if (index < 0) throw new Error("group-not-found");
       if (cbGroupIsLocked(groups[index])) throw new Error("group-locked");
       // The id and the lock state are never patchable — same as the popup.
-      const { id: _id, freezeMode: _freeze, frozenAtMs: _frozenAt, parentalPasswordHash: _hash, parentalPasswordSalt: _salt, ...safePatch } = patch;
+      const { id: _id, freezeMode: _freeze, frozenAtMs: _frozenAt, freezeChangedAtMs: _changed, parentalPasswordHash: _hash, parentalPasswordSalt: _salt, ...safePatch } = patch;
       const [group] = sanitizeGroups([{ ...groups[index], ...safePatch, id }]);
       if (!group) throw new Error("invalid-group");
       const next = groups.slice();

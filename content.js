@@ -1811,8 +1811,16 @@ function cbApplyExit(exit) {
 
 // A custom rule asked to block this page (blockPageOnVisit / home-feed hide):
 // the plain cover, no snooze (custom groups do not snooze).
+// A custom rule's page block. The worker's page decision doesn't know about
+// it, so the cover is marked as the rule's: the worker's session updates leave
+// it up, and it lifts when the page's address changes (the rules then decide
+// the new page).
 function attemptExitPage() {
-  cbShowCover({ action: "cover", target: "", message: "", groupId: "", groupName: "", allowSnooze: false });
+  cbShowCover({ action: "cover", target: "", message: "", groupId: "", groupName: "", allowSnooze: false, source: "custom" });
+}
+
+function cbCustomCoverUp() {
+  return Boolean(cbCover.dialog && cbCover.exit && cbCover.exit.source === "custom");
 }
 
 function stopHeartbeat() {
@@ -1885,7 +1893,7 @@ function handleSession(session) {
     cbApplyExit(exit);
     return;
   }
-  cbHideCover();
+  if (!cbCustomCoverUp()) cbHideCover();
 
   // Keep the heartbeat alive while platform feed filters are active even with no
   // visible timer, so exposure-based usage timers keep accruing on the feed.
@@ -2026,11 +2034,8 @@ if (/^https?:$/i.test(location.protocol)) {
   // title in the DOM. Triggering directly from pushState/replaceState
   // restarts the retry budget against the NEW URL with the NEW DOM.
   //
-  // We also reset exitAttempted so attemptExitPage() can fire again
-  // for the new short. exitAttempted is a one-shot guard meant to
-  // protect against race-y double-exits during a single page lifetime;
-  // a SPA URL transition is effectively a "new page lifetime" for
-  // scroll-based feeds.
+  // A custom rule's cover belonged to the previous address, so it lifts
+  // here; the rules re-run for the new one.
   function __cb_onSpaUrlChange() {
     try {
       // Cancel any pending retry from the previous URL — the URL it
@@ -2040,9 +2045,8 @@ if (/^https?:$/i.test(location.protocol)) {
         __cb_pagePredicateRetryTimer = null;
       }
       __cb_pagePredicateRetryUrl = null;
-      if (typeof isScrollBasedVideoPage === "function" && isScrollBasedVideoPage()) {
-        exitAttempted = false;
-      }
+      // A custom rule's cover belonged to the previous address.
+      if (cbCustomCoverUp()) cbHideCover();
       if (__cb_activePredicateSlots.size > 0) {
         // Defer one tick so the SPA can swap the active <h2> /
         // <ytd-reel-video-renderer is-active> before we read it.
