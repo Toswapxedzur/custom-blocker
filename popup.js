@@ -1,3 +1,18 @@
+// A group's policy rules (field defaults and parsers, time windows, budget
+// periods, runtime-state sanitizers, global settings): one copy, in
+// group-actions.js.
+const {
+  DAY_NAMES, DEFAULT_GROUP_TYPE, DEFAULT_ALLOWED_MINUTES, DEFAULT_RESET_INTERVAL_HOURS,
+  DEFAULT_SNOOZE_MINUTES, DEFAULT_SNOOZE_CONFIRMATIONS, DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
+  DEFAULT_SNOOZE_COOLDOWN_MINUTES, MAX_SNOOZE_COOLDOWN_MINUTES, DEFAULT_PAUSE_SECONDS,
+  MS_PER_MINUTE, createGroupId, createDefaultDays, normalizeBlockingMode, isTimedBlockingMode,
+  parseAllowedMinutes, parseResetIntervalHours, parseSnoozeMinutes, parseSnoozeDelayMinutes,
+  parseSnoozeCooldownMinutes, parsePauseSeconds, parseSnoozeConfirmations, parseTimeWindowsText,
+  cbStartOfDayMs, cbPeriodStartMs, cbNextResetMs, cbPruneUsageBuckets, cbBucketsUsedMs,
+  cbNextReturnMs, sanitizeUsageTimers, sanitizeSnoozeTotals, sanitizeResetTimes,
+  sanitizeUsageBuckets, sanitizeSnoozes, DEFAULT_GLOBAL_SETTINGS, AUTOSAVE_DEBOUNCE_MAX_MS,
+  sanitizeGlobalSettings
+} = CBGroupActions;
 const BLOCKED_GROUPS_KEY = "blockedGroups";
 const USAGE_TIMERS_KEY = "usageTimersMs";
 const USAGE_RESET_AT_KEY = "usageResetAtMs";
@@ -182,27 +197,6 @@ const cbDialog = (function () {
   };
 })();
 
-// Extension-wide preferences. Keep these defaults in sync with the
-// placeholder text in popup.html's Settings modal.
-const DEFAULT_GLOBAL_SETTINGS = {
-  tickRateMs: 1000,
-  autosaveDebounceMs: 400,
-  // Debug mode is off by default. When on it (a) shows the on-page
-  // debug log overlay for custom rules and (b) emits the
-  // [CustomBlocker:trace] / [CustomBlocker] dispatch console lines.
-  // The user-facing helpers.log() output continues to flow regardless.
-  debugMode: false,
-  showOnPageLogToasts: true,
-  // The tiny floating "+" on pages and in the desktop app (off by default).
-  quickAddEnabled: false,
-  defaultSnoozeMinutes: 30,
-  // Desktop: how often a blocked (or rule-closed) app that stayed open is asked
-  // to quit again, in minutes; 0 = never (owner 2026-09-26).
-  quitRetryMinutes: 0
-};
-const TICK_RATE_MIN_MS = 250;
-const TICK_RATE_MAX_MS = 60_000;
-const AUTOSAVE_DEBOUNCE_MAX_MS = 5_000;
 
 // Native and browser clients both connect out to the shared broker.
 function isNativeHost() {
@@ -218,15 +212,8 @@ function isNativeHost() {
 function detectProgramId() {
   if (isNativeHost()) return window.CBBridgeProtocol.nativeProgramId(window.__CB_DESKTOP_PROGRAM_ID);
   let ua = "";
-  try {
-    ua = navigator.userAgent || "";
-  } catch (_) {}
-  if (/\bEdg\//.test(ua)) return "edge";
-  if (/\bFirefox\//.test(ua)) return "firefox";
-  if (/\bOPR\//.test(ua) || /\bOpera\//.test(ua)) return "opera";
-  if (/\bChrome\//.test(ua)) return "chrome";
-  if (/\bSafari\//.test(ua)) return "safari";
-  return "browser";
+  try { ua = navigator.userAgent || ""; } catch (_) {}
+  return window.CBBridgeProtocol.browserProgramId(ua);
 }
 
 const LOCAL_PROGRAM_ID = detectProgramId();
@@ -235,35 +222,13 @@ const IS_NATIVE_DESKTOP = isNativeHost();
 // markup is shown or hidden by this one class (see popup.css).
 document.body.classList.toggle("is-native-desktop", IS_NATIVE_DESKTOP);
 
-const DEFAULT_ALLOWED_MINUTES = 15;
-const DEFAULT_RESET_INTERVAL_HOURS = 24;
-const DEFAULT_SNOOZE_MINUTES = 30;
-const DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES = 0;
-const DEFAULT_SNOOZE_COOLDOWN_MINUTES = 0;
-const DEFAULT_GROUP_TYPE = "site";
 const DEFAULT_PLATFORM_RULE_GROUP_TYPE = "youtube";
-const MAX_SNOOZE_COOLDOWN_MINUTES = 5;
 const MS_PER_SECOND = 1000;
-const MS_PER_MINUTE = 60 * MS_PER_SECOND;
-const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 // Every unlock and "delete all" ends with this confirmation (group-actions.js).
 const UNFREEZE_CONFIRMATIONS_REQUIRED = CBGroupActions.CONFIRMATIONS;
 const UNFREEZE_CONFIRMATION_INTERVAL_MS = CBGroupActions.CONFIRM_INTERVAL_MS;
-const DEFAULT_SNOOZE_CONFIRMATIONS = 0;
-// The pause action's countdown (seconds a page is held before Continue).
-const DEFAULT_PAUSE_SECONDS = 10;
-const MAX_PAUSE_SECONDS = 600;
 const MIN_GROUP_PANEL_WIDTH = 260;
 const MAX_GROUP_PANEL_WIDTH = 760;
-const DAY_NAMES = [
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-  "sunday"
-];
 
 const layout = document.getElementById("layout");
 const layoutResizer = document.getElementById("layoutResizer");
@@ -1368,10 +1333,6 @@ async function setLanguage(languageCode) {
   }
 }
 
-function createGroupId() {
-  return `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 function ensureStatusStack() {
   let stack = document.getElementById("statusStack");
 
@@ -1994,67 +1955,6 @@ function clampTagFilterConfidence(value, fallback) {
   const c = Number(value);
   return Number.isFinite(c) ? Math.min(5, Math.max(1, Math.round(c))) : fallback;
 }
-// One rule per line:
-//   Gaming            a tag
-//   Gaming @3         …with its own minimum confidence ("@N", ">=N", ">N", ":N")
-//   Gaming + Drama    AND — every tag on the line must be present (" + ", spaced;
-//                     "&" is left alone because real tag names contain it)
-//   !Tutorial         a carve-out — the list matches only if no "!" line does
-function parseTagListTextarea(value) {
-  if (typeof value !== "string") return [];
-  const seen = new Set();
-  const out = [];
-  for (const rawLine of value.split(/\r?\n/)) {
-    let line = rawLine.trim();
-    if (!line) continue;
-    let except = false;
-    if (line.startsWith("!")) {
-      except = true;
-      line = line.slice(1).trim();
-    }
-    let confidence;
-    const m = line.match(/\s*(?:@|>=?|:)\s*([1-5])\s*$/);
-    if (m) {
-      confidence = Number(m[1]);
-      line = line.slice(0, m.index).trim();
-    }
-    // A dangling AND operator ("Gaming +", a lone "+") is not a tag.
-    line = line.replace(/^(?:\+\s*)+|(?:\s*\+)+$/g, "").trim();
-    if (!line) continue;
-    const names = [];
-    const nameKeys = new Set();
-    for (const part of line.split(/\s+\+\s+/)) {
-      const partName = part.trim().slice(0, 100);
-      if (!partName || nameKeys.has(partName.toLowerCase())) continue;
-      nameKeys.add(partName.toLowerCase());
-      names.push(partName);
-      if (names.length >= 6) break;
-    }
-    if (!names.length) continue;
-    const key = (except ? "!" : "") + [...nameKeys].sort().join("+");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const entry = { name: names[0] };
-    if (confidence) entry.confidence = confidence;
-    if (names.length > 1) entry.also = names.slice(1);
-    if (except) entry.except = true;
-    out.push(entry);
-    if (out.length >= 100) break;
-  }
-  return out;
-}
-function tagListToText(list) {
-  if (!Array.isArray(list)) return "";
-  return list
-    .map((e) => {
-      if (!e || typeof e.name !== "string") return "";
-      const names = [e.name, ...(Array.isArray(e.also) ? e.also : [])].join(" + ");
-      return (e.except ? "!" : "") + names + (e.confidence ? ` @${e.confidence}` : "");
-    })
-    .filter(Boolean)
-    .join("\n");
-}
-
 function parsePlatformAuthorsTextarea(groupType, value) {
   const validAuthors = [];
   const invalidAuthors = [];
@@ -2081,137 +1981,10 @@ function parsePlatformAuthorsTextarea(groupType, value) {
   };
 }
 
-function parseAllowedMinutes(value) {
-  const parsed = Number.parseFloat(String(value ?? "").trim());
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseResetIntervalHours(value) {
-  const parsed = Number.parseFloat(String(value ?? "").trim());
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseSnoozeMinutes(value) {
-  const parsed = Number.parseFloat(String(value ?? "").trim());
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseSnoozeDelayMinutes(value) {
-  const trimmed = String(value ?? "").trim();
-  if (!trimmed) return 0;
-  const parsed = Number.parseFloat(trimmed);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function parseSnoozeCooldownMinutes(value) {
-  const parsed = parseSnoozeDelayMinutes(value);
-  return parsed !== null && parsed <= MAX_SNOOZE_COOLDOWN_MINUTES ? parsed : null;
-}
-
-function parsePauseSeconds(value) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1 || parsed > MAX_PAUSE_SECONDS) return null;
-  return parsed;
-}
-
-function parseSnoozeConfirmations(value) {
-  const trimmed = String(value ?? "").trim();
-  if (!/^\d+$/.test(trimmed)) return null;
-  const parsed = Number.parseInt(trimmed, 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
 function clampNumber(value, min, max, fallback) {
   const parsed = Number.parseFloat(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
-}
-
-function sanitizeGlobalSettings(raw) {
-  const src = raw && typeof raw === "object" ? raw : {};
-  const tickRateMs = Math.round(
-    clampNumber(src.tickRateMs, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, DEFAULT_GLOBAL_SETTINGS.tickRateMs)
-  );
-  const autosaveDebounceMs = Math.round(
-    clampNumber(src.autosaveDebounceMs, 0, AUTOSAVE_DEBOUNCE_MAX_MS, DEFAULT_GLOBAL_SETTINGS.autosaveDebounceMs)
-  );
-  const defaultSnoozeMinutes = (() => {
-    const parsed = Number.parseFloat(src.defaultSnoozeMinutes);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_GLOBAL_SETTINGS.defaultSnoozeMinutes;
-  })();
-  // Migrate the old `showDebugOverlay` key (which defaulted to true)
-  // to the new `debugMode` key (which defaults to false). If the user
-  // had previously SET showDebugOverlay we honor it; otherwise we
-  // start fresh with debug off.
-  const debugMode =
-    src.debugMode === true ||
-    (src.debugMode === undefined && src.showDebugOverlay === true);
-  const showOnPageLogToasts = src.showOnPageLogToasts !== false;
-  const out = {
-    tickRateMs,
-    autosaveDebounceMs,
-    debugMode,
-    showOnPageLogToasts,
-    defaultSnoozeMinutes,
-    quickAddEnabled: src.quickAddEnabled === true,
-    quitRetryMinutes: Math.round(clampNumber(src.quitRetryMinutes, 0, 1440, 0))
-  };
-  return out;
-}
-
-function normalizeTimeWindowLine(line) {
-  const match = String(line ?? "").trim().match(/^(\d{4})-(\d{4})$/);
-
-  if (!match) {
-    return null;
-  }
-
-  const [, start, end] = match;
-  const startHours = Number.parseInt(start.slice(0, 2), 10);
-  const startMinutes = Number.parseInt(start.slice(2), 10);
-  const endHours = Number.parseInt(end.slice(0, 2), 10);
-  const endMinutes = Number.parseInt(end.slice(2), 10);
-  const startTotalMinutes = startHours * 60 + startMinutes;
-  const endTotalMinutes = endHours * 60 + endMinutes;
-
-  if (
-    startHours > 23 ||
-    endHours > 23 ||
-    startMinutes > 59 ||
-    endMinutes > 59 ||
-    startTotalMinutes === endTotalMinutes
-  ) {
-    return null;
-  }
-
-  return `${start}-${end}`;
-}
-
-function parseTimeWindowsText(value) {
-  const normalizedLines = [];
-  const invalidLines = [];
-
-  for (const line of String(value ?? "").split(/\r?\n/)) {
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      continue;
-    }
-
-    const normalizedLine = normalizeTimeWindowLine(trimmed);
-
-    if (!normalizedLine) {
-      invalidLines.push(trimmed);
-      continue;
-    }
-
-    normalizedLines.push(normalizedLine);
-  }
-
-  return {
-    normalizedLines: [...new Set(normalizedLines)],
-    invalidLines
-  };
 }
 
 function formatDurationMs(totalMs) {
@@ -2229,23 +2002,7 @@ function formatHours(value) {
   return Number(value).toString();
 }
 
-function createDefaultDays() {
-  return [...DAY_NAMES];
-}
-
 // normalizeGroupType now comes from platform-profiles.js.
-
-function normalizeBlockingMode(value) {
-  if (value === "after-minutes") return value;
-  // Crash guard: the count-up "timer" mode was removed 2026-09-25; such a
-  // group carries on as a normal timed group with its stored allowance.
-  if (value === "timer") return "after-minutes";
-  return "instant";
-}
-
-function isTimedBlockingMode(mode) {
-  return mode === "after-minutes";
-}
 
 function getGroupTypeLabel(groupType) {
   const profile = PLATFORM_PROFILES?.[normalizeGroupType(groupType)];
@@ -3301,9 +3058,9 @@ function sanitizeGroups(groups) {
         )
       ],
       platformTagMode: normalizeTagFilterModeChoice(group?.platformTagMode),
-      platformTags: parseTagListTextarea(
-        Array.isArray(group?.platformTags) ? tagListToText(group.platformTags) : String(group?.platformTags ?? "")
-      ),
+      platformTags: Array.isArray(group?.platformTags)
+        ? CBGroupScopes.normalizeTagList(group.platformTags)
+        : CBGroupScopes.parseTagListText(String(group?.platformTags ?? "")),
       platformTagDefaultConfidence: clampTagFilterConfidence(group?.platformTagDefaultConfidence, 4),
       platformTagBlockUntagged: Boolean(group?.platformTagBlockUntagged),
       platformTagBlockPage: group?.platformTagBlockPage !== false,
@@ -3363,7 +3120,7 @@ function sanitizeGroups(groups) {
 const cbScopeNormalizers = {
   normalizeSiteInput: (value) => normalizeSiteInput(value),
   normalizeTagFilterMode: (value) => normalizeTagFilterModeChoice(value),
-  normalizeTagList: (value) => parseTagListTextarea(Array.isArray(value) ? tagListToText(value) : String(value ?? "")),
+  normalizeTagList: (value) => Array.isArray(value) ? CBGroupScopes.normalizeTagList(value) : CBGroupScopes.parseTagListText(String(value ?? "")),
   clampTagConfidence: (value, fallback) => clampTagFilterConfidence(value, fallback)
 };
 
@@ -3389,47 +3146,6 @@ function activeEntryKey(group) {
 
 function toStoredGroups(groups) {
   return (Array.isArray(groups) ? groups : []).map(toStoredGroup);
-}
-
-function sanitizeUsageTimers(value, groups) {
-  const timers = {};
-
-  for (const group of groups) {
-    timers[group.id] = Math.max(0, Number.parseInt(value?.[group.id], 10) || 0);
-  }
-
-  return timers;
-}
-
-function sanitizeResetTimes(value, groups) {
-  const now = Date.now();
-  const resetTimes = {};
-
-  for (const group of groups) {
-    const parsed = Number.parseInt(value?.[group.id], 10);
-    resetTimes[group.id] = Number.isFinite(parsed) && parsed > 0 ? parsed : now;
-  }
-
-  return resetTimes;
-}
-
-function sanitizeSnoozes(value, groups) {
-  const groupIds = new Set(groups.map((group) => group.id));
-  const snoozes = {};
-  for (const [groupId, raw] of Object.entries(value ?? {})) {
-    if (!groupIds.has(groupId)) continue;
-    const entry = CBGroupActions.sanitizeSnoozeEntry(raw);
-    if (entry) snoozes[groupId] = entry;
-  }
-  return snoozes;
-}
-
-function sanitizeSnoozeTotals(value, groups) {
-  const totals = {};
-  for (const group of groups) {
-    totals[group.id] = Math.max(0, Number.parseInt(value?.[group.id], 10) || 0);
-  }
-  return totals;
 }
 
 // The transfer string carries the canonical shape: the policy and every
@@ -3561,7 +3277,7 @@ function groupToDraft(group) {
     sourceMode: normalizeSourceMode(group.sourceMode, group.sources),
     sourcesText: group.sources.join("\n"),
     platformTagMode: normalizeTagFilterModeChoice(group.platformTagMode),
-    platformTagsText: tagListToText(group.platformTags),
+    platformTagsText: CBGroupScopes.tagListToText(group.platformTags),
     platformTagDefaultConfidence: clampTagFilterConfidence(group.platformTagDefaultConfidence, 4),
     platformTagBlockUntagged: Boolean(group.platformTagBlockUntagged),
     platformTagBlockPage: group.platformTagBlockPage !== false,
@@ -3607,78 +3323,6 @@ function markCustomGroupSourceActive(groupId, source) {
 function getDraftForGroup(groupId) {
   const group = state.groups.find((item) => item.id === groupId);
   return group ? state.drafts[groupId] ?? groupToDraft(group) : null;
-}
-
-function getResetIntervalMs(group) {
-  return group.resetIntervalHours * MS_PER_HOUR;
-}
-
-// Timed-group budget periods — kept identical to background.js (parity-tested).
-const USAGE_BUCKET_MS = MS_PER_MINUTE;
-
-function cbStartOfDayMs(nowMs) {
-  const day = new Date(nowMs);
-  day.setHours(0, 0, 0, 0);
-  return day.getTime();
-}
-
-function cbNextMidnightMs(nowMs) {
-  const day = new Date(cbStartOfDayMs(nowMs));
-  day.setDate(day.getDate() + 1);
-  return day.getTime();
-}
-
-function cbPeriodStartMs(anchorMs, group, nowMs) {
-  const interval = Math.max(0, getResetIntervalMs(group));
-  if (group.resetAtMidnight) {
-    const dayStart = cbStartOfDayMs(nowMs);
-    if (interval <= 0) return dayStart;
-    return dayStart + Math.floor((nowMs - dayStart) / interval) * interval;
-  }
-  if (interval <= 0 || nowMs - anchorMs < interval) return anchorMs;
-  return anchorMs + Math.floor((nowMs - anchorMs) / interval) * interval;
-}
-
-function cbNextResetMs(periodStartMs, group, nowMs) {
-  const interval = Math.max(0, getResetIntervalMs(group));
-  if (group.resetAtMidnight) {
-    const midnight = cbNextMidnightMs(nowMs);
-    return interval > 0 ? Math.min(periodStartMs + interval, midnight) : midnight;
-  }
-  return interval > 0 ? periodStartMs + interval : null;
-}
-
-function cbUsageBucketStartMs(nowMs) {
-  return Math.floor(nowMs / USAGE_BUCKET_MS) * USAGE_BUCKET_MS;
-}
-
-function cbPruneUsageBuckets(buckets, group, nowMs) {
-  let windowStart = nowMs - Math.max(0, getResetIntervalMs(group));
-  if (group.resetAtMidnight) windowStart = Math.max(windowStart, cbStartOfDayMs(nowMs));
-  const kept = {};
-  for (const [minute, used] of Object.entries(buckets ?? {})) {
-    const start = Number(minute);
-    const ms = Number(used);
-    // A minute counts until the whole minute has aged out of the window.
-    if (Number.isFinite(start) && Number.isFinite(ms) && ms > 0 && start + USAGE_BUCKET_MS > windowStart) {
-      kept[String(start)] = ms;
-    }
-  }
-  return kept;
-}
-
-function cbBucketsUsedMs(buckets) {
-  return Object.values(buckets ?? {}).reduce((sum, used) => sum + (Number(used) || 0), 0);
-}
-
-// When rolling time starts coming back: the oldest counted minute leaving the
-// window (or midnight clearing it). Null when nothing is counted.
-function cbNextReturnMs(buckets, group, nowMs) {
-  const minutes = Object.keys(buckets ?? {}).map(Number).filter(Number.isFinite);
-  if (minutes.length === 0) return null;
-  let next = Math.min(...minutes) + USAGE_BUCKET_MS + Math.max(0, getResetIntervalMs(group));
-  if (group.resetAtMidnight) next = Math.min(next, cbNextMidnightMs(nowMs));
-  return next;
 }
 
 function getDisplayUsageState(group, now = Date.now()) {
@@ -4659,7 +4303,7 @@ function renderEditor(now = Date.now()) {
   const tagCompatible = isTagFilterCompatible(group.groupType);
   const tagMode = normalizeTagFilterModeChoice(draft?.platformTagMode ?? group.platformTagMode);
   platformTagModeField.value = tagMode;
-  platformTagsField.value = draft?.platformTagsText ?? tagListToText(group.platformTags);
+  platformTagsField.value = draft?.platformTagsText ?? CBGroupScopes.tagListToText(group.platformTags);
   platformTagDefaultConfidenceField.value = String(
     clampTagFilterConfidence(draft?.platformTagDefaultConfidence ?? group.platformTagDefaultConfidence, 4)
   );
@@ -5027,22 +4671,6 @@ function selectGroup(groupId) {
       setSnoozeWarning("");
       render();
     });
-}
-
-function sanitizeUsageBuckets(value, groups) {
-  const sanitized = {};
-  for (const group of groups) {
-    const raw = value?.[group.id];
-    if (!raw || typeof raw !== "object") continue;
-    const buckets = {};
-    for (const [minute, used] of Object.entries(raw)) {
-      const start = Number(minute);
-      const ms = Number(used);
-      if (Number.isFinite(start) && Number.isFinite(ms) && ms > 0) buckets[String(start)] = ms;
-    }
-    sanitized[group.id] = buckets;
-  }
-  return sanitized;
 }
 
 async function loadStoredState() {
@@ -5681,7 +5309,7 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
         ? normalizeTagFilterModeChoice(draft.platformTagMode)
         : group.platformTagMode,
       platformTags: isTagFilterCompatible(group.groupType)
-        ? parseTagListTextarea(draft.platformTagsText)
+        ? CBGroupScopes.parseTagListText(draft.platformTagsText)
         : group.platformTags,
       platformTagDefaultConfidence: clampTagFilterConfidence(draft.platformTagDefaultConfidence, 4),
       platformTagBlockUntagged: Boolean(draft.platformTagBlockUntagged),
@@ -6850,7 +6478,7 @@ function fetchClassifierTagNames(platform) {
 }
 function usedTagNames(textarea) {
   const used = new Set();
-  for (const entry of parseTagListTextarea(textarea?.value || "")) {
+  for (const entry of CBGroupScopes.parseTagListText(textarea?.value || "")) {
     for (const name of [entry.name, ...(entry.also || [])]) used.add(name.toLowerCase());
   }
   return used;

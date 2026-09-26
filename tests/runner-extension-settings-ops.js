@@ -150,7 +150,7 @@ async function op(operation, body) {
   check("delete-group removes the group", deleted?.body?.deleted === g.id && !(storage.get("blockedGroups") || []).some((x) => x.id === g.id), deleted);
 
   const global = await op("settings-set-global", { patch: { debugMode: true, tickRateMs: 5 } });
-  check("set-global sanitizes like the popup (debug on, tick rate clamped)", global?.body?.globalSettings?.debugMode === true && global.body.globalSettings.tickRateMs === 100 && storage.get("globalSettings")?.debugMode === true, global);
+  check("set-global sanitizes like the popup (debug on, tick rate clamped)", global?.body?.globalSettings?.debugMode === true && global.body.globalSettings.tickRateMs === 250 && storage.get("globalSettings")?.debugMode === true, global);
   const globalOff = await op("settings-set-global", { patch: { debugMode: false } });
   check("set-global turns debug off again", globalOff?.body?.globalSettings?.debugMode === false, globalOff);
 

@@ -393,6 +393,102 @@
     return list.some((line) => line.surface === "site") ? "site" : fallback;
   }
 
+  // ── Tag lists (a tag line's names) ───────────────────────────────────────
+  // Each entry is { name, confidence?, also?, except? }:
+  //   confidence — overrides the filter default for this entry;
+  //   also       — further tags that must ALL be present too (AND: "A + B");
+  //   except     — a carve-out ("!A"): the list matches only if no carve-out does.
+  // Stored lists are normalized as entries; only text the user typed goes
+  // through the text syntax (one entry per line, the inverse of tagListToText).
+  function normalizeTagList(raw) {
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set();
+    const out = [];
+    const cleanName = (value) => (typeof value === "string" ? value.trim().slice(0, 100) : "");
+    for (const entry of raw) {
+      let name = null;
+      let confidence;
+      let also = [];
+      let except = false;
+      if (typeof entry === "string") {
+        name = entry;
+      } else if (entry && typeof entry === "object") {
+        name = entry.name;
+        confidence = entry.confidence;
+        if (Array.isArray(entry.also)) also = entry.also;
+        except = entry.except === true;
+      }
+      name = cleanName(name);
+      if (!name) continue;
+      const alsoSeen = new Set([name.toLowerCase()]);
+      const cleanAlso = [];
+      for (const extra of also) {
+        const extraName = cleanName(extra);
+        if (!extraName || alsoSeen.has(extraName.toLowerCase())) continue;
+        alsoSeen.add(extraName.toLowerCase());
+        cleanAlso.push(extraName);
+        if (cleanAlso.length >= 5) break;
+      }
+      const key = (except ? "!" : "") + [...alsoSeen].sort().join("+");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const c = Number(confidence);
+      const normalized = { name };
+      if (Number.isFinite(c) && c >= 1 && c <= 5) normalized.confidence = Math.round(c);
+      if (cleanAlso.length) normalized.also = cleanAlso;
+      if (except) normalized.except = true;
+      out.push(normalized);
+      if (out.length >= 100) break;
+    }
+    return out;
+  }
+
+  function parseTagListText(value) {
+    if (typeof value !== "string") return [];
+    const entries = [];
+    for (const rawLine of value.split(/\r?\n/)) {
+      let line = rawLine.trim();
+      if (!line) continue;
+      let except = false;
+      if (line.startsWith("!")) {
+        except = true;
+        line = line.slice(1).trim();
+      }
+      // "@3" anywhere at the end, or ">=3" / ">3" / ":3" after a space — so a
+      // tag named "Top:5" stays a name.
+      let confidence;
+      const m = line.match(/(?:\s*@\s*|\s+(?:>=?|:)\s*)([1-5])$/);
+      if (m) {
+        confidence = Number(m[1]);
+        line = line.slice(0, m.index).trim();
+      }
+      // AND is " + " with spaces; a dangling one ("Gaming +", a lone "+") is
+      // not a tag, while "C++" is a name.
+      line = line.replace(/^\+(?:\s+\+)*(?:\s+|$)|(?:^|\s+)\+(?:\s+\+)*$/g, "").trim();
+      if (!line) continue;
+      const names = line.split(/\s+\+\s+/).map((part) => part.trim()).filter(Boolean);
+      if (!names.length) continue;
+      const entry = { name: names[0] };
+      if (confidence) entry.confidence = confidence;
+      if (names.length > 1) entry.also = names.slice(1);
+      if (except) entry.except = true;
+      entries.push(entry);
+    }
+    return normalizeTagList(entries);
+  }
+
+  function tagListToText(list) {
+    if (!Array.isArray(list)) return "";
+    return list
+      .map((e) => {
+        if (!e || typeof e.name !== "string") return "";
+        const names = [e.name, ...(Array.isArray(e.also) ? e.also : [])].join(" + ");
+        return (e.except ? "!" : "") + names + (e.confidence ? ` @${e.confidence}` : "");
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
   // The policy settings linked groups share (the whole definition is these
   // plus every entry's lines). One list for the editor and the worker.
   // The lock is not among them: it travels as its own unit with a version
@@ -408,7 +504,8 @@
     SCOPE_SURFACES, SCOPE_ACTIONS, FLAT_SCOPE_FIELDS, SYNC_SCALAR_FIELDS,
     scopeLegalActions, hasFlatScopeFields, hasScopeLines, withoutFlatScopeFields,
     scopeLinesFromFlat, flatFromScopes, mergeFlatIntoScopes, sanitizeScopeLines, deriveGroupType, platformKind,
-    linePlatformKey, lineBelongsTo, normalizeEntryKey, groupPlatforms, normalizeAppList
+    linePlatformKey, lineBelongsTo, normalizeEntryKey, groupPlatforms, normalizeAppList,
+    normalizeTagList, parseTagListText, tagListToText
   });
   global.CBGroupScopes = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

@@ -65,6 +65,21 @@ if (typeof importScripts === "function") {
   }
 }
 
+// A group's policy rules (field defaults and parsers, time windows, budget
+// periods, runtime-state sanitizers): one copy, in group-actions.js.
+const {
+  DAY_NAMES, DEFAULT_GROUP_TYPE, DEFAULT_ALLOWED_MINUTES, DEFAULT_RESET_INTERVAL_HOURS,
+  DEFAULT_SNOOZE_MINUTES, DEFAULT_SNOOZE_CONFIRMATIONS, DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
+  DEFAULT_SNOOZE_COOLDOWN_MINUTES, DEFAULT_PAUSE_SECONDS, createGroupId, createDefaultDays,
+  getDayNameForDate, normalizeBlockingMode, isTimedBlockingMode, parseAllowedMinutes,
+  parseResetIntervalHours, parseSnoozeMinutes, parseSnoozeDelayMinutes, parseSnoozeCooldownMinutes,
+  parsePauseSeconds, parseSnoozeConfirmations, parseTimeWindowsText, parseTimeWindowToMinutes,
+  getAllowedMs, cbPeriodStartMs, cbNextResetMs, cbUsageBucketStartMs, cbPruneUsageBuckets,
+  cbBucketsUsedMs, cbNextReturnMs, sanitizeUsageTimers, sanitizeSnoozeTotals, sanitizeResetTimes,
+  sanitizeUsageBuckets, sanitizeSnoozes, isGroupActiveNow
+} = CBGroupActions;
+
+
 const helperBundle = self.__customBlockerHelpers;
 
 // Debug mode flag. False by default; user toggles it via Settings.
@@ -99,22 +114,9 @@ const USAGE_BUCKETS_KEY = "usageBucketsMs";
 const GROUP_SNOOZES_KEY = "groupSnoozes";
 const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
 
-const DEFAULT_ALLOWED_MINUTES = 15;
-const DEFAULT_RESET_INTERVAL_HOURS = 24;
-const DEFAULT_SNOOZE_MINUTES = 30;
-const DEFAULT_SNOOZE_CONFIRMATIONS = 0;
-// The pause action's countdown (seconds a page is held before Continue).
-const DEFAULT_PAUSE_SECONDS = 10;
-const MAX_PAUSE_SECONDS = 600;
 // A page let through after a pause countdown stays through for this long on
 // that tab and host (the pass ends earlier when the tab leaves the host).
 const PAUSE_PASS_MS = 15 * 60 * 1000;
-const DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES = 0;
-const DEFAULT_SNOOZE_COOLDOWN_MINUTES = 0;
-const DEFAULT_GROUP_TYPE = "site";
-const MAX_SNOOZE_COOLDOWN_MINUTES = 5;
-const MS_PER_MINUTE = 60 * 1000;
-const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const MAX_HEARTBEAT_MS = 5000;
 // Group id -> the wall-clock moment its budget has been counted up to (see
 // the accrual loop): time is counted once per group across visible tabs.
@@ -156,15 +158,6 @@ async function syncActionIconColorScheme(prefersDark) {
   }
 }
 
-const DAY_NAMES = [
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-  "sunday"
-];
 
 let usageTimerUpdateQueue = Promise.resolve();
 
@@ -178,14 +171,6 @@ function queueUsageTimerUpdate(task) {
 // Group + value normalisation. These run when storage is read so the rest
 // of the worker can assume well-formed data.
 // ────────────────────────────────────────────────────────────────────────
-
-function createGroupId() {
-  return `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function createDefaultDays() {
-  return [...DAY_NAMES];
-}
 
 function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
   const normalizedGroupType = normalizeGroupType(groupType);
@@ -274,96 +259,6 @@ function siteEntryMatches(hostname, pathname, entry) {
 // normalizeRedditSubredditInput, normalizeDiscordMode and
 // normalizeDiscordTargetInput are provided as globals from there.
 
-function normalizeBlockingMode(value) {
-  if (value === "after-minutes") return value;
-  // Crash guard for stores written before 2026-09-25: the count-up "timer"
-  // mode is gone (Activity tracks usage on its own); such a group keeps its
-  // allowance and reset settings as a normal timed group.
-  if (value === "timer") return "after-minutes";
-  return "instant";
-}
-
-// The timed mode owns a usage timer that accrues while the filter matches and
-// blocks once the allowance is spent.
-function isTimedBlockingMode(mode) {
-  return mode === "after-minutes";
-}
-
-function parseAllowedMinutes(value) {
-  const parsed = Number.parseFloat(String(value ?? "").trim());
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseResetIntervalHours(value) {
-  const parsed = Number.parseFloat(String(value ?? "").trim());
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseSnoozeMinutes(value) {
-  const parsed = Number.parseFloat(String(value ?? "").trim());
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseSnoozeDelayMinutes(value) {
-  const trimmed = String(value ?? "").trim();
-  if (!trimmed) return 0;
-  const parsed = Number.parseFloat(trimmed);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function parseSnoozeCooldownMinutes(value) {
-  const parsed = parseSnoozeDelayMinutes(value);
-  return parsed !== null && parsed <= MAX_SNOOZE_COOLDOWN_MINUTES ? parsed : null;
-}
-
-function parsePauseSeconds(value) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1 || parsed > MAX_PAUSE_SECONDS) return null;
-  return parsed;
-}
-
-function parseSnoozeConfirmations(value) {
-  const trimmed = String(value ?? "").trim();
-  if (!/^\d+$/.test(trimmed)) return null;
-  const parsed = Number.parseInt(trimmed, 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function normalizeTimeWindowLine(line) {
-  const match = String(line ?? "").trim().match(/^(\d{4})-(\d{4})$/);
-  if (!match) return null;
-  const [, start, end] = match;
-  const startHours = Number.parseInt(start.slice(0, 2), 10);
-  const startMinutes = Number.parseInt(start.slice(2), 10);
-  const endHours = Number.parseInt(end.slice(0, 2), 10);
-  const endMinutes = Number.parseInt(end.slice(2), 10);
-  const startTotal = startHours * 60 + startMinutes;
-  const endTotal = endHours * 60 + endMinutes;
-  if (
-    startHours > 23 ||
-    endHours > 23 ||
-    startMinutes > 59 ||
-    endMinutes > 59 ||
-    // An end before the start runs past midnight (2300-0100); only an empty
-    // window is invalid.
-    startTotal === endTotal
-  ) {
-    return null;
-  }
-  return `${start}-${end}`;
-}
-
-function parseTimeWindowsText(value) {
-  const lines = [];
-  for (const raw of String(value ?? "").split(/\r?\n/)) {
-    const trimmed = raw.trim();
-    if (!trimmed) continue;
-    const normalized = normalizeTimeWindowLine(trimmed);
-    if (normalized) lines.push(normalized);
-  }
-  return [...new Set(lines)];
-}
-
 // ── Content-tag filter (platform rules) normalizers ──────────────────────
 // A platform group can block by content tag (from the Vault classifier), like
 // the author filter but keyed on WHAT the content is. Modes: "all" (off),
@@ -375,59 +270,12 @@ function clampTagConfidence(value, fallback) {
   const c = Number(value);
   return Number.isFinite(c) ? Math.min(5, Math.max(1, Math.round(c))) : fallback;
 }
-// Each entry is { name, confidence?, also?, except? }:
-//   confidence — overrides the filter default for this entry;
-//   also       — further tags that must ALL be present too (AND: "A + B");
-//   except     — a carve-out ("!A"): the list matches only if no carve-out does.
-function normalizeTagList(raw) {
-  if (!Array.isArray(raw)) return [];
-  const seen = new Set();
-  const out = [];
-  const cleanName = (value) => (typeof value === "string" ? value.trim().slice(0, 100) : "");
-  for (const entry of raw) {
-    let name = null;
-    let confidence;
-    let also = [];
-    let except = false;
-    if (typeof entry === "string") {
-      name = entry;
-    } else if (entry && typeof entry === "object") {
-      name = entry.name;
-      confidence = entry.confidence;
-      if (Array.isArray(entry.also)) also = entry.also;
-      except = entry.except === true;
-    }
-    name = cleanName(name);
-    if (!name) continue;
-    const alsoSeen = new Set([name.toLowerCase()]);
-    const cleanAlso = [];
-    for (const extra of also) {
-      const extraName = cleanName(extra);
-      if (!extraName || alsoSeen.has(extraName.toLowerCase())) continue;
-      alsoSeen.add(extraName.toLowerCase());
-      cleanAlso.push(extraName);
-      if (cleanAlso.length >= 5) break;
-    }
-    const key = (except ? "!" : "") + [...alsoSeen].sort().join("+");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const c = Number(confidence);
-    const normalized = { name };
-    if (Number.isFinite(c) && c >= 1 && c <= 5) normalized.confidence = Math.round(c);
-    if (cleanAlso.length) normalized.also = cleanAlso;
-    if (except) normalized.except = true;
-    out.push(normalized);
-    if (out.length >= 100) break;
-  }
-  return out;
-}
-
 // The context's own normalizers for the line fields whose normalization
 // differs between the worker and the popup (see group-scopes.js).
 const cbScopeNormalizers = {
   normalizeSiteInput: (value) => normalizeSiteInput(value),
   normalizeTagFilterMode: (value) => normalizeTagFilterMode(value),
-  normalizeTagList: (value) => normalizeTagList(value),
+  normalizeTagList: (value) => CBGroupScopes.normalizeTagList(value),
   clampTagConfidence: (value, fallback) => clampTagConfidence(value, fallback)
 };
 
@@ -503,7 +351,7 @@ function sanitizeGroups(groups) {
         snoozeConfirmations:
           parseSnoozeConfirmations(group?.snoozeConfirmations) ?? DEFAULT_SNOOZE_CONFIRMATIONS,
         activeDays: hasStoredDays ? activeDays : createDefaultDays(),
-        timeWindowsText: parseTimeWindowsText(rawTimeWindowsText).join("\n"),
+        timeWindowsText: parseTimeWindowsText(rawTimeWindowsText).normalizedLines.join("\n"),
         platformVideoMode: normalizeVideoMode(group?.platformVideoMode),
         sourceMode: normalizeSourceMode(rawSourceMode, rawSources),
         sources: [
@@ -515,7 +363,7 @@ function sanitizeGroups(groups) {
         ],
         // Content-tag filter (platform rules): block by classifier tag.
         platformTagMode: normalizeTagFilterMode(group?.platformTagMode),
-        platformTags: normalizeTagList(group?.platformTags),
+        platformTags: CBGroupScopes.normalizeTagList(group?.platformTags),
         platformTagDefaultConfidence: clampTagConfidence(group?.platformTagDefaultConfidence, 4),
         platformTagBlockUntagged: Boolean(group?.platformTagBlockUntagged),
         platformTagEffect: group?.platformTagEffect === "block" ? "block" : "dim",
@@ -592,58 +440,6 @@ function sanitizeGroups(groups) {
       };
     })
     .filter((group) => group.name);
-}
-
-function sanitizeUsageTimers(value, groups) {
-  const sanitized = {};
-  for (const group of groups) {
-    sanitized[group.id] = Math.max(0, Number.parseInt(value?.[group.id], 10) || 0);
-  }
-  return sanitized;
-}
-
-function sanitizeResetTimes(value, groups, now) {
-  const sanitized = {};
-  for (const group of groups) {
-    const parsed = Number.parseInt(value?.[group.id], 10);
-    sanitized[group.id] = Number.isFinite(parsed) && parsed > 0 ? parsed : now;
-  }
-  return sanitized;
-}
-
-function sanitizeUsageBuckets(value, groups) {
-  const sanitized = {};
-  for (const group of groups) {
-    const raw = value?.[group.id];
-    if (!raw || typeof raw !== "object") continue;
-    const buckets = {};
-    for (const [minute, used] of Object.entries(raw)) {
-      const start = Number(minute);
-      const ms = Number(used);
-      if (Number.isFinite(start) && Number.isFinite(ms) && ms > 0) buckets[String(start)] = ms;
-    }
-    sanitized[group.id] = buckets;
-  }
-  return sanitized;
-}
-
-function sanitizeSnoozes(value, groups, now) {
-  const groupIds = new Set(groups.map((group) => group.id));
-  const sanitized = {};
-  for (const [groupId, raw] of Object.entries(value ?? {})) {
-    if (!groupIds.has(groupId)) continue;
-    const entry = CBGroupActions.sanitizeSnoozeEntry(raw);
-    if (entry) sanitized[groupId] = entry;
-  }
-  return sanitized;
-}
-
-function sanitizeSnoozeTotals(value, groups) {
-  const sanitized = {};
-  for (const group of groups) {
-    sanitized[group.id] = Math.max(0, Number.parseInt(value?.[group.id], 10) || 0);
-  }
-  return sanitized;
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -746,87 +542,6 @@ function cbBlockExit(value) {
   return { navigate: "", message: text };
 }
 
-function getAllowedMs(group) {
-  return group.allowedMinutes * MS_PER_MINUTE;
-}
-
-function getResetIntervalMs(group) {
-  return group.resetIntervalHours * MS_PER_HOUR;
-}
-
-// ── Timed-group budget periods (same rules as Mac Vault's UsageBudget.swift) ─
-// Fixed budget: resets every resetIntervalHours from the stored anchor, or — with
-// resetAtMidnight — on a grid restarted at local 00:00 each day (00:00, then every
-// N h; the last period of the day ends early at midnight). Rolling limit: usage is
-// kept per minute and counts until it is N h old; with resetAtMidnight the window
-// never reaches before today's 00:00.
-const USAGE_BUCKET_MS = MS_PER_MINUTE;
-
-function cbStartOfDayMs(nowMs) {
-  const day = new Date(nowMs);
-  day.setHours(0, 0, 0, 0);
-  return day.getTime();
-}
-
-function cbNextMidnightMs(nowMs) {
-  const day = new Date(cbStartOfDayMs(nowMs));
-  day.setDate(day.getDate() + 1);
-  return day.getTime();
-}
-
-function cbPeriodStartMs(anchorMs, group, nowMs) {
-  const interval = Math.max(0, getResetIntervalMs(group));
-  if (group.resetAtMidnight) {
-    const dayStart = cbStartOfDayMs(nowMs);
-    if (interval <= 0) return dayStart;
-    return dayStart + Math.floor((nowMs - dayStart) / interval) * interval;
-  }
-  if (interval <= 0 || nowMs - anchorMs < interval) return anchorMs;
-  return anchorMs + Math.floor((nowMs - anchorMs) / interval) * interval;
-}
-
-function cbNextResetMs(periodStartMs, group, nowMs) {
-  const interval = Math.max(0, getResetIntervalMs(group));
-  if (group.resetAtMidnight) {
-    const midnight = cbNextMidnightMs(nowMs);
-    return interval > 0 ? Math.min(periodStartMs + interval, midnight) : midnight;
-  }
-  return interval > 0 ? periodStartMs + interval : null;
-}
-
-function cbUsageBucketStartMs(nowMs) {
-  return Math.floor(nowMs / USAGE_BUCKET_MS) * USAGE_BUCKET_MS;
-}
-
-function cbPruneUsageBuckets(buckets, group, nowMs) {
-  let windowStart = nowMs - Math.max(0, getResetIntervalMs(group));
-  if (group.resetAtMidnight) windowStart = Math.max(windowStart, cbStartOfDayMs(nowMs));
-  const kept = {};
-  for (const [minute, used] of Object.entries(buckets ?? {})) {
-    const start = Number(minute);
-    const ms = Number(used);
-    // A minute counts until the whole minute has aged out of the window.
-    if (Number.isFinite(start) && Number.isFinite(ms) && ms > 0 && start + USAGE_BUCKET_MS > windowStart) {
-      kept[String(start)] = ms;
-    }
-  }
-  return kept;
-}
-
-function cbBucketsUsedMs(buckets) {
-  return Object.values(buckets ?? {}).reduce((sum, used) => sum + (Number(used) || 0), 0);
-}
-
-// When rolling time starts coming back: the oldest counted minute leaving the
-// window (or midnight clearing it). Null when nothing is counted.
-function cbNextReturnMs(buckets, group, nowMs) {
-  const minutes = Object.keys(buckets ?? {}).map(Number).filter(Number.isFinite);
-  if (minutes.length === 0) return null;
-  let next = Math.min(...minutes) + USAGE_BUCKET_MS + Math.max(0, getResetIntervalMs(group));
-  if (group.resetAtMidnight) next = Math.min(next, cbNextMidnightMs(nowMs));
-  return next;
-}
-
 function getSnoozePhase(snooze, now) {
   return CBGroupActions.snoozePhase(snooze, now);
 }
@@ -834,49 +549,6 @@ function getSnoozePhase(snooze, now) {
 function getActiveSnooze(groupId, groupSnoozes, now) {
   const snooze = groupSnoozes[groupId];
   return getSnoozePhase(snooze, now) === "active" ? snooze : null;
-}
-
-function getDayNameForDate(date) {
-  const day = date.getDay();
-  return DAY_NAMES[(day + 6) % 7];
-}
-
-function parseTimeWindowToMinutes(windowText) {
-  const [start, end] = windowText.split("-");
-  return {
-    startMinutes:
-      Number.parseInt(start.slice(0, 2), 10) * 60 + Number.parseInt(start.slice(2), 10),
-    endMinutes:
-      Number.parseInt(end.slice(0, 2), 10) * 60 + Number.parseInt(end.slice(2), 10)
-  };
-}
-
-function isGroupActiveNow(group, now) {
-  // Custom groups have no schedule UI — they're always "active" and rely on
-  // their JavaScript function to decide what to do. Schedule-based logic
-  // applies to every other group type.
-  if (group.groupType === "custom") return true;
-
-  const currentDate = new Date(now);
-  const todayActive = group.activeDays.includes(getDayNameForDate(currentDate));
-
-  const timeWindows = parseTimeWindowsText(group.timeWindowsText);
-  if (timeWindows.length === 0) return todayActive;
-
-  // The part of a window after midnight belongs to the day the window starts:
-  // Monday's 2300-0100 still runs at 00:30 on Tuesday even when Tuesday is not
-  // an active day, and needs Monday to be active.
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayActive = group.activeDays.includes(getDayNameForDate(yesterday));
-  const currentMinutes = currentDate.getHours() * 60 + currentDate.getMinutes();
-  return timeWindows.some((windowText) => {
-    const { startMinutes, endMinutes } = parseTimeWindowToMinutes(windowText);
-    if (endMinutes < startMinutes) {
-      return (todayActive && currentMinutes >= startMinutes) || (yesterdayActive && currentMinutes < endMinutes);
-    }
-    return todayActive && currentMinutes >= startMinutes && currentMinutes < endMinutes;
-  });
 }
 
 // matchesVideoMode, isHomeFeedPage, isPlatformHost and the per-platform
@@ -1311,7 +983,7 @@ function pushTagFilterEntry(filters, group, line, enforce) {
   if (!isTaggingPlatform(line.platform) || !taggingAvailableFor(cbDetectProgramId())) return;
   const tagMode = normalizeTagFilterMode(tagFilter.mode);
   if (tagMode !== "include" && tagMode !== "exclude") return;
-  const tagList = normalizeTagList(tagFilter.tags);
+  const tagList = CBGroupScopes.normalizeTagList(tagFilter.tags);
   // A block-list with nothing to block is inert — unless it blocks untagged content.
   const hasBlockingEntry = tagList.some((entry) => !entry.except);
   if (tagMode === "include" && !hasBlockingEntry && !tagFilter.blockUntagged) return;
@@ -1592,7 +1264,7 @@ async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes,
   }
 
   for (const group of groups) {
-    const timeWindows = parseTimeWindowsText(group.timeWindowsText);
+    const timeWindows = parseTimeWindowsText(group.timeWindowsText).normalizedLines;
     if (group.activeDays.length === 0 || timeWindows.length === 0) continue;
 
     // Start one day back: a window that crosses midnight and began yesterday
@@ -4084,15 +3756,8 @@ const CB_SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
 
 function cbDetectProgramId() {
   let ua = "";
-  try {
-    ua = (self.navigator && self.navigator.userAgent) || "";
-  } catch (_) {}
-  if (/\bEdg\//.test(ua)) return "edge";
-  if (/\bFirefox\//.test(ua)) return "firefox";
-  if (/\bOPR\//.test(ua) || /\bOpera\//.test(ua)) return "opera";
-  if (/\bChrome\//.test(ua)) return "chrome";
-  if (/\bSafari\//.test(ua)) return "safari";
-  return "browser";
+  try { ua = (self.navigator && self.navigator.userAgent) || ""; } catch (_) {}
+  return self.CBBridgeProtocol.browserProgramId(ua);
 }
 
 // Per-group baseline (the last absolute local usage we reported or folded) so we
@@ -5110,17 +4775,7 @@ async function cbBrowserRequestBody(operation, body) {
       const current = stored?.[CB_GLOBAL_SETTINGS_KEY] && typeof stored[CB_GLOBAL_SETTINGS_KEY] === "object" ? stored[CB_GLOBAL_SETTINGS_KEY] : {};
       const patch = input.patch && typeof input.patch === "object" && !Array.isArray(input.patch) ? input.patch : null;
       if (!patch) throw new Error("missing-patch");
-      const merged = { ...current, ...patch };
-      const clamp = (value, min, max, fallback) => { const n = Number(value); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback; };
-      const next = {
-        tickRateMs: Math.round(clamp(merged.tickRateMs, 100, 10_000, 250)),
-        autosaveDebounceMs: Math.round(clamp(merged.autosaveDebounceMs, 0, 10_000, 400)),
-        debugMode: merged.debugMode === true,
-        showOnPageLogToasts: merged.showOnPageLogToasts !== false,
-        defaultSnoozeMinutes: (() => { const n = Number.parseFloat(merged.defaultSnoozeMinutes); return Number.isFinite(n) && n > 0 ? n : DEFAULT_SNOOZE_MINUTES; })(),
-        quickAddEnabled: merged.quickAddEnabled === true,
-        quitRetryMinutes: Math.round(clamp(merged.quitRetryMinutes, 0, 1440, 0))
-      };
+      const next = CBGroupActions.sanitizeGlobalSettings({ ...current, ...patch });
       await chrome.storage.local.set({ [CB_GLOBAL_SETTINGS_KEY]: next });
       return { globalSettings: next };
     }
