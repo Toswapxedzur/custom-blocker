@@ -237,19 +237,18 @@ document.body.classList.toggle("is-native-desktop", IS_NATIVE_DESKTOP);
 
 const DEFAULT_ALLOWED_MINUTES = 15;
 const DEFAULT_RESET_INTERVAL_HOURS = 24;
-const DEFAULT_STRICT_FREEZE_HOURS = 24;
 const DEFAULT_SNOOZE_MINUTES = 30;
 const DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES = 0;
 const DEFAULT_SNOOZE_COOLDOWN_MINUTES = 0;
 const DEFAULT_GROUP_TYPE = "site";
 const DEFAULT_PLATFORM_RULE_GROUP_TYPE = "youtube";
-const MAX_STRICT_FREEZE_HOURS = 72;
 const MAX_SNOOZE_COOLDOWN_MINUTES = 5;
 const MS_PER_SECOND = 1000;
 const MS_PER_MINUTE = 60 * MS_PER_SECOND;
 const MS_PER_HOUR = 60 * MS_PER_MINUTE;
-const UNFREEZE_CONFIRMATIONS_REQUIRED = 1;
-const UNFREEZE_CONFIRMATION_INTERVAL_MS = 5000;
+// Every unlock and "delete all" ends with this confirmation (group-actions.js).
+const UNFREEZE_CONFIRMATIONS_REQUIRED = CBGroupActions.CONFIRMATIONS;
+const UNFREEZE_CONFIRMATION_INTERVAL_MS = CBGroupActions.CONFIRM_INTERVAL_MS;
 const DEFAULT_SNOOZE_CONFIRMATIONS = 0;
 // The pause action's countdown (seconds a page is held before Continue).
 const DEFAULT_PAUSE_SECONDS = 10;
@@ -370,12 +369,10 @@ const fallbackUrlSection = document.getElementById("fallbackUrlSection");
 const fallbackUrlField = document.getElementById("fallbackUrl");
 const freezeSummary = document.getElementById("freezeSummary");
 const freezeSetup = document.getElementById("freezeSetup");
-const freezeModeField = document.getElementById("freezeMode");
-const strictFreezeSettings = document.getElementById("strictFreezeSettings");
-const strictFreezeHoursField = document.getElementById("strictFreezeHours");
+const lockWaitHoursField = document.getElementById("lockWaitHours");
+const lockPinStatus = document.getElementById("lockPinStatus");
 const applyFreezeButton = document.getElementById("applyFreezeButton");
 const unfreezeButton = document.getElementById("unfreezeButton");
-const freezeBridgeNotice = document.getElementById("freezeBridgeNotice");
 const parentalSettingsButton = document.getElementById("parentalSettingsButton");
 const snoozeSummary = document.getElementById("snoozeSummary");
 const allowSnoozeField = document.getElementById("allowSnooze");
@@ -939,19 +936,6 @@ function isBridgeEligibleGroup(group) {
   return Boolean(group);
 }
 
-// A cluster is "fully online" only when our own bridge link is live AND every
-// member program reports online in the hub snapshot. When any member is offline
-// the cluster's shared memory can't be reconciled, so we lock down actions that
-// must not diverge while disconnected (notably freeze state changes).
-function clusterAllOnline(cluster) {
-  if (!cluster) return false;
-  if (!bridgeIsOnline()) return false;
-  if (cluster.allOnline === false) return false;
-  const members = Array.isArray(cluster.members) ? cluster.members : [];
-  if (members.length === 0) return false;
-  return members.every((m) => m && m.online !== false);
-}
-
 // The cluster (if any) this group currently belongs to, matched by this
 // endpoint's program id + the member's pinned group id. Membership is pinned to
 // the specific group instance that was linked, so deleting a group and later
@@ -1079,7 +1063,7 @@ function announceGroups() {
       // instance, so a same-named group created after a delete won't re-join.
       id: g.id,
       name: announcedName(g),
-      frozen: getFreezeStatus(g, Date.now()).isFrozen
+      frozen: CBGroupActions.isLocked(g)
     }));
   try {
     chrome.runtime.sendMessage({ type: "groups-announce", program: LOCAL_PROGRAM_ID, groups });
@@ -1107,7 +1091,9 @@ const SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
 function buildSyncContribution(group) {
   const scalars = {};
   for (const field of SYNC_SCALAR_FIELDS) scalars[field] = group[field];
-  const contribution = { scalars, scopes: toStoredGroup(group).scopes };
+  // The lock travels as one unit with the version it was made from (see
+  // group-actions.js): the hub takes it only on top of its current version.
+  const contribution = { scalars, scopes: toStoredGroup(group).scopes, ...CBGroupActions.lockContribution(group) };
   // Active snooze runtime is shared so a snooze started on any member applies to
   // every linked member (newest start wins). The entry carries all of its own
   // timing (start/until/cooldown), so each side enforces and expires it
@@ -1158,6 +1144,12 @@ function applyClusterShared(group, shared) {
       next[field] = scalars[field];
       changed = true;
     }
+  }
+  // The link's one lock (owned by the hub).
+  const withLock = CBGroupActions.adoptLock(next, shared.lock);
+  if (withLock !== next) {
+    next = withLock;
+    changed = true;
   }
   // The hub carries lines only once a member has contributed them; an empty
   // list is "nothing shared yet", never "delete every entry" (a group always
@@ -2177,13 +2169,6 @@ function parseAllowedMinutes(value) {
 function parseResetIntervalHours(value) {
   const parsed = Number.parseFloat(String(value ?? "").trim());
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseStrictFreezeHours(value) {
-  const parsed = Number.parseFloat(String(value ?? "").trim());
-  return Number.isFinite(parsed) && parsed > 0 && parsed <= MAX_STRICT_FREEZE_HOURS
-    ? parsed
-    : null;
 }
 
 function parseSnoozeMinutes(value) {
@@ -3270,12 +3255,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     surfaceHides: [],
     blockingRulesText: t("custom.defaultRule"),
     activeEventSource: "",
-    freezeMode: "none",
-    freezeModeChoice: "frozen",
-    strictFreezeHours: DEFAULT_STRICT_FREEZE_HOURS,
-    frozenAtMs: null,
-    parentalPasswordHash: null,
-    parentalPasswordSalt: null,
+    ...CBGroupActions.normalizeLock({}),
     sites: [],
     // false → `sites` is a blocklist; true → `sites` is an allowlist
     // ("block everything except these").
@@ -3292,21 +3272,6 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     fallbackUrl: "",
     pauseSeconds: DEFAULT_PAUSE_SECONDS
   };
-}
-
-// The freeze-mode dropdown is the user's chosen mode to apply on the NEXT
-// freeze. It is persisted per-group and kept SEPARATE from `freezeMode`
-// (the active-frozen state), so selecting a mode never freezes the group on
-// its own. Falls back to the active mode, then to a parental hint, then frozen.
-const FREEZE_MODE_CHOICES = ["frozen", "strict", "parental"];
-function normalizeFreezeModeChoice(group) {
-  const choice = group?.freezeModeChoice;
-  if (FREEZE_MODE_CHOICES.includes(choice)) return choice;
-  if (FREEZE_MODE_CHOICES.includes(group?.freezeMode)) return group.freezeMode;
-  if (typeof group?.parentalPasswordHash === "string" && group.parentalPasswordHash) {
-    return "parental";
-  }
-  return "frozen";
 }
 
 // Group names must be unique per endpoint so the web-app bridge can link
@@ -3443,32 +3408,8 @@ function sanitizeGroups(groups) {
       // loadCustomGroupSource and reconcileCustomGroupHandlers.
       activeEventSource:
         typeof group?.activeEventSource === "string" ? group.activeEventSource : "",
-      freezeMode:
-        group?.freezeMode === "strict" ||
-        group?.freezeMode === "frozen" ||
-        group?.freezeMode === "parental"
-          ? group.freezeMode
-          : "none",
-      freezeModeChoice: normalizeFreezeModeChoice(group),
-      // When the lock last changed on any device (latest wins across links).
-      freezeChangedAtMs:
-        Number.isFinite(Number(group?.freezeChangedAtMs)) && Number(group.freezeChangedAtMs) > 0
-          ? Number(group.freezeChangedAtMs)
-          : 0,
-      strictFreezeHours:
-        parseStrictFreezeHours(group?.strictFreezeHours) ?? DEFAULT_STRICT_FREEZE_HOURS,
-      frozenAtMs:
-        Number.isFinite(Number(group?.frozenAtMs)) && Number(group.frozenAtMs) > 0
-          ? Number(group.frozenAtMs)
-          : null,
-      parentalPasswordHash:
-        typeof group?.parentalPasswordHash === "string" && group.parentalPasswordHash
-          ? group.parentalPasswordHash
-          : null,
-      parentalPasswordSalt:
-        typeof group?.parentalPasswordSalt === "string" && group.parentalPasswordSalt
-          ? group.parentalPasswordSalt
-          : null,
+      // The lock: parallel gates (wait / PIN), see group-actions.js.
+      ...CBGroupActions.normalizeLock(group),
       sites: ownsSiteList && Array.isArray(group?.sites)
         ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
         : [],
@@ -3622,13 +3563,7 @@ function getSerializableGroupSnapshot(group) {
     activeDays: [...group.activeDays],
     timeWindowsText: group.timeWindowsText,
     blockingRulesText: group.blockingRulesText,
-    freezeMode: group.freezeMode,
-    freezeModeChoice: normalizeFreezeModeChoice(group),
-    freezeChangedAtMs: group.freezeChangedAtMs || 0,
-    strictFreezeHours: group.strictFreezeHours,
-    frozenAtMs: group.freezeMode === "none" ? null : group.frozenAtMs,
-    parentalPasswordHash: group.parentalPasswordHash ?? null,
-    parentalPasswordSalt: group.parentalPasswordSalt ?? null,
+    // The lock (and its PIN) is not part of an exported definition.
     fallbackUrl: group.fallbackUrl ?? "",
     pauseSeconds: group.pauseSeconds ?? DEFAULT_PAUSE_SECONDS
   };
@@ -3692,13 +3627,6 @@ function decodeGroupTransferString(value) {
     throw new Error(t("status.invalidImportGroup"));
   }
 
-  if (
-    (sanitizedGroup.freezeMode === "frozen" || sanitizedGroup.freezeMode === "strict") &&
-    !Number.isFinite(Number(sourceGroup?.frozenAtMs))
-  ) {
-    sanitizedGroup.frozenAtMs = Date.now();
-  }
-
   return sanitizedGroup;
 }
 
@@ -3755,8 +3683,7 @@ function groupToDraft(group) {
     allowlist: Boolean(group.allowlist),
     fallbackUrl: group.fallbackUrl ?? "",
     pageAction: group.pageAction === "pause" ? "pause" : "block",
-    pauseSeconds: String(group.pauseSeconds ?? DEFAULT_PAUSE_SECONDS),
-    freezeModeChoice: normalizeFreezeModeChoice(group)
+    pauseSeconds: String(group.pauseSeconds ?? DEFAULT_PAUSE_SECONDS)
   };
 }
 
@@ -3915,27 +3842,16 @@ function getDisplayedSnoozeTotalMs(groupId, now = Date.now()) {
   return baseTotal + Math.max(0, now - snooze.startsAtMs);
 }
 
+// The lock's state for the editor (the UI calls it "freeze"): locked or not,
+// and whether its wait gate still holds. The rules are group-actions.js.
 function getFreezeStatus(group, now = Date.now()) {
-  const isFrozen = group.freezeMode !== "none";
-  const isStrict = group.freezeMode === "strict";
-  const isParental = group.freezeMode === "parental";
-  const unlockedAtMs =
-    isStrict && group.frozenAtMs
-      ? group.frozenAtMs + group.strictFreezeHours * MS_PER_HOUR
-      : null;
-  const lockedRemainingMs =
-    unlockedAtMs && unlockedAtMs > now ? unlockedAtMs - now : 0;
-
+  const status = CBGroupActions.status(group, now);
   return {
-    isFrozen,
-    isStrict,
-    isParental,
-    hasParentalPassword: Boolean(group.parentalPasswordHash),
-    unlockedAtMs,
-    lockedRemainingMs,
-    // Parental groups are gated by password (verified separately), not by a
-    // time lock or the multi-step ritual.
-    canUnfreeze: isFrozen && (!isStrict || lockedRemainingMs <= 0)
+    isFrozen: status.locked,
+    hasParentalPassword: status.hasPin,
+    waitHours: status.waitHours,
+    lockedRemainingMs: status.waitRemainingMs,
+    canUnfreeze: status.locked && status.waitRemainingMs <= 0
   };
 }
 
@@ -3948,12 +3864,6 @@ function isGroupEditable(group, now = Date.now()) {
 // with the service worker's AI-tool operations).
 const PARENTAL_PIN_LENGTH = CBParentalPin.PARENTAL_PIN_LENGTH;
 const isValidParentalPin = CBParentalPin.isValidParentalPin;
-
-async function setGroupParentalPin(group, pin) {
-  if (!group || !isValidParentalPin(pin)) return false;
-  Object.assign(group, await CBParentalPin.newPinFields(pin));
-  return true;
-}
 
 // Every PIN prompt goes through this gate: a wrong PIN makes the next try wait
 // 1 s, 2 s, 4 s … up to 64 s; a PIN stored in an old format is upgraded.
@@ -4328,34 +4238,31 @@ function getGroupMetaText(group, draft, now = Date.now()) {
     pieces.push(`${formatDurationMs(remainingMs)} ${t("meta.left")}`);
   }
 
-  if (freezeStatus.isStrict) {
+  if (freezeStatus.isFrozen) {
     pieces.push(
       freezeStatus.lockedRemainingMs > 0
-        ? `${t("meta.strictFrozen")} ${formatDurationMs(freezeStatus.lockedRemainingMs)}`
-        : t("meta.strictFrozen")
+        ? `${t("meta.frozen")} ${formatDurationMs(freezeStatus.lockedRemainingMs)}`
+        : t("meta.frozen")
     );
-  } else if (freezeStatus.isFrozen) {
-    pieces.push(t("meta.frozen"));
   }
 
   pieces.push(group.enabled ? t("meta.enabled") : t("meta.disabled"));
   return pieces.join(" • ");
 }
 
+// A lock whose wait still holds keeps "delete all" closed (group-actions.js).
 function hasStrictLockedGroups(now = Date.now()) {
-  return state.groups.some((group) => {
-    const freezeStatus = getFreezeStatus(group, now);
-    return freezeStatus.isStrict && freezeStatus.lockedRemainingMs > 0;
-  });
+  return Boolean(CBGroupActions.deleteAllPlan(state.groups, now).error);
 }
 
 function hasFrozenGroups(now = Date.now()) {
   return state.groups.some((group) => getFreezeStatus(group, now).isFrozen);
 }
 
-function confirmDeleteAllFrozenGroups() {
+function confirmDeleteAllFrozenGroups(pinHashes = []) {
   state.unfreezeFlow = {
     kind: "delete-all",
+    pinHashes,
     label: t("groups.deleteAllButton"),
     confirmationsLeft: UNFREEZE_CONFIRMATIONS_REQUIRED,
     nextAllowedAtMs: Date.now() + UNFREEZE_CONFIRMATION_INTERVAL_MS
@@ -4546,71 +4453,36 @@ function updateFreezeUI(group, now = Date.now()) {
   if (!group) {
     freezeSummary.textContent = "";
     freezeSetup.classList.add("hidden");
-    strictFreezeSettings.classList.add("hidden");
-    if (parentalSettingsButton) parentalSettingsButton.classList.add("hidden");
     applyFreezeButton.disabled = true;
     unfreezeButton.classList.add("hidden");
     unfreezeButton.disabled = true;
     return;
   }
 
+  // One lock with parallel gates: a wait and/or a PIN, and always the
+  // confirmation. While frozen, the same controls only make it stricter.
   const freezeStatus = getFreezeStatus(group, now);
-  const strictDraftHours = parseStrictFreezeHours(strictFreezeHoursField.value);
-
-  // When a group is linked into a cluster but any member is offline, freeze
-  // state must NOT change (it can't be reconciled safely while disconnected).
-  // Lock the whole freeze control set and explain why.
-  const freezeCluster = groupConnectionCluster(group);
-  const freezeBridgeLocked = Boolean(freezeCluster) && !clusterAllOnline(freezeCluster);
-  if (freezeBridgeNotice) freezeBridgeNotice.classList.toggle("hidden", !freezeBridgeLocked);
-  if (freezeBridgeLocked) {
-    freezeSummary.textContent = freezeStatus.isFrozen
-      ? t("freeze.summary.frozen")
-      : t("freeze.summary.notFrozen");
-    freezeSetup.classList.add("hidden");
-    strictFreezeSettings.classList.add("hidden");
-    if (parentalSettingsButton) parentalSettingsButton.classList.add("hidden");
-    applyFreezeButton.disabled = true;
-    unfreezeButton.classList.toggle("hidden", !freezeStatus.isFrozen);
-    unfreezeButton.disabled = true;
-    freezeModeField.disabled = true;
-    return;
+  freezeSetup.classList.remove("hidden");
+  if (document.activeElement !== lockWaitHoursField) {
+    lockWaitHoursField.value = freezeStatus.waitHours > 0 ? String(freezeStatus.waitHours) : "";
   }
-  freezeModeField.disabled = false;
+  lockPinStatus.textContent = freezeStatus.hasParentalPassword ? t("freeze.pinSet") : t("freeze.pinNone");
+  applyFreezeButton.textContent = freezeStatus.isFrozen ? t("freeze.tightenButton") : t("freeze.applyButton");
+  applyFreezeButton.disabled = false;
+  unfreezeButton.classList.toggle("hidden", !freezeStatus.isFrozen);
+  unfreezeButton.disabled = !freezeStatus.canUnfreeze;
 
   if (!freezeStatus.isFrozen) {
-    const draftMode = freezeModeField.value;
     freezeSummary.textContent = t("freeze.summary.notFrozen");
-    freezeSetup.classList.remove("hidden");
-    strictFreezeSettings.classList.toggle("hidden", draftMode !== "strict");
-    if (parentalSettingsButton) {
-      parentalSettingsButton.classList.toggle("hidden", draftMode !== "parental");
-    }
-    applyFreezeButton.disabled = draftMode === "strict" && strictDraftHours === null;
-    unfreezeButton.classList.add("hidden");
-    unfreezeButton.disabled = true;
     return;
   }
-
-  freezeSetup.classList.add("hidden");
-  unfreezeButton.classList.remove("hidden");
-  unfreezeButton.disabled = !freezeStatus.canUnfreeze;
-  if (parentalSettingsButton) {
-    parentalSettingsButton.classList.toggle("hidden", !freezeStatus.isParental);
+  const gates = [];
+  if (freezeStatus.lockedRemainingMs > 0) {
+    gates.push(t("freeze.gate.wait", { time: formatDurationMs(freezeStatus.lockedRemainingMs) }));
   }
-
-  if (freezeStatus.isStrict && freezeStatus.lockedRemainingMs > 0) {
-    freezeSummary.textContent = t("freeze.summary.strictLocked", {
-      time: formatDurationMs(freezeStatus.lockedRemainingMs)
-    });
-    return;
-  }
-
-  freezeSummary.textContent = freezeStatus.isParental
-    ? t("freeze.summary.parental")
-    : freezeStatus.isStrict
-      ? t("freeze.summary.strictReady")
-      : t("freeze.summary.ready");
+  if (freezeStatus.hasParentalPassword) gates.push(t("freeze.gate.pin"));
+  gates.push(t("freeze.gate.confirm", { count: UNFREEZE_CONFIRMATIONS_REQUIRED }));
+  freezeSummary.textContent = t("freeze.summary.locked", { gates: gates.join(" · ") });
 }
 
 function updateSnoozeUI(group, now = Date.now()) {
@@ -4721,8 +4593,7 @@ function renderEditor(now = Date.now()) {
     discordModeField.value = "all";
     discordTargetsField.value = "";
     allowSnoozeField.checked = true;
-    freezeModeField.value = "frozen";
-    strictFreezeHoursField.value = "";
+    lockWaitHoursField.value = "";
     usageSummary.textContent = "";
     platformBlockHomePageField.checked = false;
     discordBlockHomePageField.checked = false;
@@ -4905,18 +4776,9 @@ function renderEditor(now = Date.now()) {
   if (pauseSecondsField) pauseSecondsField.value = draft?.pauseSeconds ?? String(group.pauseSeconds ?? DEFAULT_PAUSE_SECONDS);
 
 
-  freezeModeField.value = freezeStatus.isFrozen
-    ? freezeStatus.isParental
-      ? "parental"
-      : freezeStatus.isStrict
-        ? "strict"
-        : "frozen"
-    : draft?.freezeModeChoice ?? normalizeFreezeModeChoice(group);
-  strictFreezeHoursField.value = String(group.strictFreezeHours);
 
   blockModeSection.classList.toggle("hidden", isCustomGroup);
   timedSettings.classList.toggle("hidden", !isTimedMode || isCustomGroup);
-  strictFreezeSettings.classList.toggle("hidden", freezeModeField.value !== "strict");
   customSettingsCard.classList.toggle("hidden", !isCustomGroup);
   if (platformRulesCard) {
     platformRulesCard.classList.toggle("hidden", !isPlatformProfileGroup);
@@ -5557,22 +5419,27 @@ function askParentalPin(group) {
   });
 }
 
-async function unlockParentalGroupsForDeleteAll(now = Date.now()) {
-  const seen = new Set();
-  for (const group of state.groups) {
-    const status = getFreezeStatus(group, now);
-    if (!status.isFrozen || group.freezeMode !== "parental" || !group.parentalPasswordHash) continue;
-    if (seen.has(group.parentalPasswordHash)) continue;
+// "Delete all" must pass the union of every lock's gates (owner 2026-09-26):
+// no wait still holding, each distinct PIN once, then the confirmation. The
+// plan is taken again at the last confirm, so a lock that arrived meanwhile
+// (a linked device, a tool) stops the deletion instead of being skipped.
+async function unlockParentalGroupsForDeleteAll(plan) {
+  for (const group of plan.pinGroups) {
     if (!(await askParentalPin(group))) return false;
-    seen.add(group.parentalPasswordHash);
   }
   return true;
+}
+
+function deleteAllStillCovered(passedPinHashes, now = Date.now()) {
+  const plan = CBGroupActions.deleteAllPlan(state.groups, now);
+  return !plan.error && plan.pinHashes.every((hash) => passedPinHashes.includes(hash));
 }
 
 async function deleteAllGroups() {
   await flushAutosave();
 
-  if (hasStrictLockedGroups()) {
+  const plan = CBGroupActions.deleteAllPlan(state.groups, Date.now());
+  if (plan.error) {
     setStatus(t("status.bulkDeleteStrictLocked"), true);
     render();
     return;
@@ -5583,7 +5450,7 @@ async function deleteAllGroups() {
   }
 
   const confirmed = await cbDialog.confirm(
-    hasFrozenGroups() ? t("groups.deleteAllConfirmFrozen") : t("groups.deleteAllConfirm"),
+    plan.needsConfirmation ? t("groups.deleteAllConfirmFrozen") : t("groups.deleteAllConfirm"),
     { danger: true, confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
   );
 
@@ -5591,15 +5458,18 @@ async function deleteAllGroups() {
     return;
   }
 
-  // "Delete all" must unlock the union of every lock (owner 2026-09-26): each
-  // parental group's PIN (one prompt per distinct PIN), then the confirmation
-  // steps for the other locks; a strict countdown already refused above.
-  if (!(await unlockParentalGroupsForDeleteAll())) return;
+  if (!(await unlockParentalGroupsForDeleteAll(plan))) return;
 
-  if (hasFrozenGroups() && !confirmDeleteAllFrozenGroups()) {
+  if (plan.needsConfirmation) {
+    confirmDeleteAllFrozenGroups(plan.pinHashes);
     return;
   }
 
+  await clearAllGroups();
+}
+
+async function clearAllGroups() {
+  const ids = state.groups.map((group) => group.id);
   state.groups = [];
   state.drafts = {};
   state.usageTimersMs = {};
@@ -5610,7 +5480,20 @@ async function deleteAllGroups() {
   state.selectedGroupId = null;
 
   await persistState(t("status.bulkDeleted"));
+  await forgetGroupLeftovers(ids);
   render();
+}
+
+// Per-group data kept outside the group maps: a deleted group leaves none.
+async function forgetGroupLeftovers(ids) {
+  try {
+    const stored = await chrome.storage.local.get({ [CBParentalPin.ATTEMPTS_KEY]: {}, quickAddGroupId: "" });
+    const attempts = { ...(stored[CBParentalPin.ATTEMPTS_KEY] || {}) };
+    for (const id of ids) delete attempts[id];
+    const writes = { [CBParentalPin.ATTEMPTS_KEY]: attempts };
+    if (ids.includes(stored.quickAddGroupId)) writes.quickAddGroupId = "";
+    await chrome.storage.local.set(writes);
+  } catch (_) {}
 }
 
 async function deleteSelectedGroup() {
@@ -5637,6 +5520,7 @@ async function deleteSelectedGroup() {
   state.selectedGroupId = state.groups[0]?.id ?? null;
 
   await persistState(t("status.deleted", { name: group.name }));
+  await forgetGroupLeftovers([group.id]);
   render();
 }
 
@@ -5707,14 +5591,16 @@ async function importIntoSelectedGroup() {
       return;
     }
 
-    const replacementGroup = {
-      ...importedGroup,
-      id: group.id,
-      frozenAtMs:
-        importedGroup.freezeMode === "none"
-          ? null
-          : importedGroup.frozenAtMs ?? Date.now()
-    };
+    // An import replaces the definition, never the lock (the lock is not part
+    // of an exported group), and it keeps names unique like any edit.
+    const nameTaken = state.groups.some((other) =>
+      other.id !== group.id && (other.name || "").trim().toLowerCase() === importedGroup.name.trim().toLowerCase());
+    if (nameTaken) {
+      setStatus(t("status.duplicateName"), true);
+      return;
+    }
+    const replacementGroup = { ...importedGroup, ...CBGroupActions.lockUnit(group), id: group.id,
+      lockSyncedVersion: group.lockSyncedVersion };
 
     state.groups = state.groups.map((item) => (item.id === group.id ? replacementGroup : item));
     state.drafts[group.id] = groupToDraft(replacementGroup);
@@ -5897,12 +5783,7 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
         ? draft.fallbackUrl.trim()
         : "",
       pageAction: !isCustomGroup && draft.pageAction === "pause" ? "pause" : "block",
-      pauseSeconds: isCustomGroup ? group.pauseSeconds : pauseSeconds ?? group.pauseSeconds,
-      freezeModeChoice: normalizeFreezeModeChoice({
-        freezeModeChoice: draft.freezeModeChoice,
-        freezeMode: group.freezeMode,
-        parentalPasswordHash: group.parentalPasswordHash
-      })
+      pauseSeconds: isCustomGroup ? group.pauseSeconds : pauseSeconds ?? group.pauseSeconds
     },
     modeChanged: nextMode !== group.mode,
     resetIntervalChanged:
@@ -6033,90 +5914,70 @@ async function reorderGroups(draggedGroupId, insertIndex) {
   render();
 }
 
+// Freeze (unlocked) or make the freeze stricter (frozen): the wait field's
+// hours are the wait gate; a PIN is set in the guardian settings (gear).
 async function applyFreeze() {
   const group = getSelectedGroup();
-
-  if (!group || !isGroupEditable(group)) {
-    setStatus(t("status.alreadyFrozen"), true);
-    return;
-  }
-
+  if (!group) return;
   await flushAutosave();
-
-  if (freezeModeField.value === "parental") {
-    await applyParentalFreeze(group);
-    return;
-  }
-
-  const freezeMode = freezeModeField.value === "strict" ? "strict" : "frozen";
-  const strictFreezeHours =
-    freezeMode === "strict"
-      ? parseStrictFreezeHours(strictFreezeHoursField.value)
-      : group.strictFreezeHours;
-
-  if (freezeMode === "strict" && strictFreezeHours === null) {
-    setStatus(t("status.strictFreezeHours", { max: MAX_STRICT_FREEZE_HOURS }), true);
-    return;
-  }
-
+  const current = getSelectedGroup();
   const now = Date.now();
-  state.groups = state.groups.map((item) =>
-    item.id === group.id
-      ? {
-          ...item,
-          freezeMode,
-          strictFreezeHours: strictFreezeHours ?? item.strictFreezeHours,
-          frozenAtMs: now,
-          freezeChangedAtMs: now
-        }
-      : item
-  );
-
-  await persistState(t("status.frozen", { name: group.name }));
-  render();
-}
-
-function openUnfreezeFlow() {
-  const group = getSelectedGroup();
-
-  if (!group) {
+  if (!CBGroupActions.isLocked(current)) {
+    const hours = CBGroupActions.parseWaitHours(lockWaitHoursField.value);
+    if (hours === null) {
+      setStatus(t("status.strictFreezeHours", { max: CBGroupActions.MAX_WAIT_HOURS }), true);
+      return;
+    }
+    const result = CBGroupActions.lock({ ...current, lockWaitHours: hours }, now);
+    await persistGroupFields(current.id, CBGroupActions.lockUnit(result.group), t("status.frozen", { name: current.name }));
     return;
   }
-
-  const freezeStatus = getFreezeStatus(group);
-
-  if (!freezeStatus.isFrozen) {
-    return;
-  }
-
-  if (freezeStatus.isParental) {
-    openParentalUnfreezeFlow(group);
-    return;
-  }
-
-  if (!freezeStatus.canUnfreeze) {
-    setStatus(t("status.strictLocked"), true);
+  const result = CBGroupActions.tighten(current, { waitHours: lockWaitHoursField.value });
+  if (result.error) {
+    setStatus(result.error === "not-stricter" ? t("freeze.notStricter") : t("status.strictFreezeHours", { max: CBGroupActions.MAX_WAIT_HOURS }), true);
     render();
     return;
   }
+  await persistGroupFields(current.id, CBGroupActions.lockUnit(result.group), t("freeze.tightened"));
+}
 
-  state.unfreezeFlow = {
-    kind: "unfreeze",
-    groupId: group.id,
-    label: group.name,
-    confirmationsLeft: UNFREEZE_CONFIRMATIONS_REQUIRED,
-    nextAllowedAtMs: Date.now() + UNFREEZE_CONFIRMATION_INTERVAL_MS
-  };
-
-  if (state.confirmIntervalId !== null) {
-    window.clearInterval(state.confirmIntervalId);
+// Unfreeze passes every gate of the lock: its wait, its PIN (when set), then
+// the confirmation — always (owner 2026-09-26).
+function openUnfreezeFlow() {
+  const group = getSelectedGroup();
+  if (!group) return;
+  const plan = CBGroupActions.unlockPlan(group, Date.now());
+  if (plan.error) {
+    if (plan.waitUntilMs) setStatus(t("status.strictLocked"), true);
+    render();
+    return;
   }
-
-  state.confirmIntervalId = window.setInterval(() => {
+  const startConfirmation = () => {
+    state.unfreezeFlow = {
+      kind: "unfreeze",
+      groupId: group.id,
+      lockVersion: group.lockVersion,
+      label: group.name,
+      confirmationsLeft: UNFREEZE_CONFIRMATIONS_REQUIRED,
+      nextAllowedAtMs: Date.now() + UNFREEZE_CONFIRMATION_INTERVAL_MS
+    };
+    if (state.confirmIntervalId !== null) window.clearInterval(state.confirmIntervalId);
+    state.confirmIntervalId = window.setInterval(() => renderUnfreezeModal(), 250);
     renderUnfreezeModal();
-  }, 250);
-
-  renderUnfreezeModal();
+  };
+  if (!plan.needsPin) {
+    startConfirmation();
+    return;
+  }
+  openPinEntry({
+    title: t("freeze.pin.unfreezeTitle"),
+    description: t("freeze.pin.unfreezePrompt"),
+    onSubmit: async (pin) => {
+      if (!(await checkParentalPin(group, pin))) return false;
+      startConfirmation();
+      return true;
+    }
+  });
 }
 
 // --- Parental (password-gated) freeze flow ------------------------------
@@ -6216,52 +6077,6 @@ function openPinEntry({ title, description, onSubmit, onCancel }) {
   return handle;
 }
 
-async function applyParentalFreeze(group) {
-  if (!group.parentalPasswordHash) {
-    setStatus(t("freeze.pin.needPassword"), true);
-    openParentalSettings(group);
-    return;
-  }
-  openPinEntry({
-    title: t("freeze.pin.freezeTitle"),
-    description: t("freeze.pin.freezePrompt"),
-    onSubmit: async (pin) => {
-      if (!(await checkParentalPin(group, pin))) return false;
-      await persistGroupFields(
-        group.id,
-        { freezeMode: "parental", frozenAtMs: Date.now(), freezeChangedAtMs: Date.now() },
-        t("status.frozen", { name: group.name })
-      );
-      return true;
-    }
-  });
-}
-
-function openParentalUnfreezeFlow(group) {
-  if (!group.parentalPasswordHash) {
-    // No password set: nothing to gate against, just unfreeze.
-    persistGroupFields(
-      group.id,
-      { freezeMode: "none", frozenAtMs: null, freezeChangedAtMs: Date.now() },
-      t("status.unfrozen", { name: group.name })
-    );
-    return;
-  }
-  openPinEntry({
-    title: t("freeze.pin.unfreezeTitle"),
-    description: t("freeze.pin.unfreezePrompt"),
-    onSubmit: async (pin) => {
-      if (!(await checkParentalPin(group, pin))) return false;
-      await persistGroupFields(
-        group.id,
-        { freezeMode: "none", frozenAtMs: null, freezeChangedAtMs: Date.now() },
-        t("status.unfrozen", { name: group.name })
-      );
-      return true;
-    }
-  });
-}
-
 // Guardian settings overlay: set / verify / clear the group's password.
 function openParentalSettings(group) {
   const pinId = "settings-pin";
@@ -6287,7 +6102,10 @@ function openParentalSettings(group) {
     });
     if (hasPassword) {
       controls.push({ id: "settings-verify", type: "button", label: t("freeze.settings.verify") });
-      controls.push({ id: "settings-clear", type: "button", label: t("freeze.settings.clear") });
+      // Clearing the PIN loosens the lock: only while unfrozen.
+      if (!CBGroupActions.isLocked(currentGroup())) {
+        controls.push({ id: "settings-clear", type: "button", label: t("freeze.settings.clear") });
+      }
     } else {
       controls.push({ id: "settings-save", type: "button", label: t("freeze.settings.save"), action: "submit" });
     }
@@ -6321,16 +6139,17 @@ function openParentalSettings(group) {
         setStatus(t("freeze.pin.invalid"), true);
         return;
       }
-      const updated = { ...g };
-      await setGroupParentalPin(updated, pin);
-      await persistGroupFields(
-        g.id,
-        {
-          parentalPasswordHash: updated.parentalPasswordHash,
-          parentalPasswordSalt: updated.parentalPasswordSalt
-        },
-        t("freeze.settings.saved")
-      );
+      // A PIN on a frozen group makes it stricter; on an unfrozen one it is
+      // a gate the next freeze will carry.
+      const pinFields = await CBParentalPin.newPinFields(pin);
+      const result = CBGroupActions.isLocked(g)
+        ? CBGroupActions.tighten(g, { pinFields })
+        : CBGroupActions.setGates(g, { pinFields });
+      if (result.error) {
+        setStatus(t("status.frozenCannotChange"), true);
+        return;
+      }
+      await persistGroupFields(g.id, CBGroupActions.lockUnit(result.group), t("freeze.settings.saved"));
       rebuild();
       return;
     }
@@ -6340,11 +6159,12 @@ function openParentalSettings(group) {
     }
     if (id === "settings-clear") {
       if (!(await checkParentalPin(g, pin))) return;
-      await persistGroupFields(
-        g.id,
-        { parentalPasswordHash: null, parentalPasswordSalt: null },
-        t("freeze.settings.cleared")
-      );
+      const result = CBGroupActions.setGates(currentGroup(), { pinFields: null });
+      if (result.error) {
+        setStatus(t("status.frozenCannotChange"), true);
+        return;
+      }
+      await persistGroupFields(g.id, CBGroupActions.lockUnit(result.group), t("freeze.settings.cleared"));
       rebuild();
       return;
     }
@@ -6457,18 +6277,14 @@ async function handleUnfreezeConfirm() {
 
   if (state.unfreezeFlow.confirmationsLeft <= 1) {
     if (state.unfreezeFlow.kind === "delete-all") {
-      state.groups = [];
-      state.drafts = {};
-      state.usageTimersMs = {};
-      state.usageResetAtMs = {};
-      state.usageBucketsMs = {};
-      state.groupSnoozes = {};
-      state.groupSnoozeTotalsMs = {};
-      state.selectedGroupId = null;
-
-      await persistState(t("status.bulkDeleted"));
+      const passed = state.unfreezeFlow.pinHashes || [];
       closeUnfreezeFlow();
-      render();
+      if (!deleteAllStillCovered(passed)) {
+        setStatus(t("status.bulkDeleteStrictLocked"), true);
+        render();
+        return;
+      }
+      await clearAllGroups();
       return;
     }
 
@@ -6520,20 +6336,15 @@ async function handleUnfreezeConfirm() {
       return;
     }
 
-    state.groups = state.groups.map((item) =>
-      item.id === group.id
-        ? {
-            ...item,
-            freezeMode: "none",
-            frozenAtMs: null,
-            freezeChangedAtMs: Date.now()
-          }
-        : item
-    );
-
-    await persistState(t("status.unfrozen", { name: group.name }));
+    // The lock changed meanwhile (made stricter, or relocked elsewhere):
+    // this confirmation was for the old one.
+    if (group.lockVersion !== state.unfreezeFlow.lockVersion || CBGroupActions.unlockPlan(group, now).error) {
+      closeUnfreezeFlow();
+      render();
+      return;
+    }
     closeUnfreezeFlow();
-    render();
+    await persistGroupFields(group.id, CBGroupActions.lockUnit(CBGroupActions.unlock(group)), t("status.unfrozen", { name: group.name }));
     return;
   }
 
@@ -7470,21 +7281,19 @@ dayCheckboxes.forEach((checkbox) => {
   });
 });
 
-freezeModeField.addEventListener("change", () => {
-  const selected = getSelectedGroup();
-  if (selected) {
-    state.drafts[selected.id] = {
-      ...(state.drafts[selected.id] ?? groupToDraft(selected)),
-      freezeModeChoice: freezeModeField.value
-    };
-    scheduleAutosave();
+// The wait gate is a group setting while unfrozen (saved on change); while
+// frozen the field only feeds "Make stricter".
+lockWaitHoursField.addEventListener("change", () => {
+  const group = getSelectedGroup();
+  if (!group || CBGroupActions.isLocked(group)) return;
+  const hours = CBGroupActions.parseWaitHours(lockWaitHoursField.value);
+  if (hours === null) {
+    setStatus(t("status.strictFreezeHours", { max: CBGroupActions.MAX_WAIT_HOURS }), true);
+    return;
   }
-  strictFreezeSettings.classList.toggle("hidden", freezeModeField.value !== "strict");
-  updateFreezeUI(selected);
-});
-
-strictFreezeHoursField.addEventListener("input", () => {
-  updateFreezeUI(getSelectedGroup());
+  if (hours === (Number(group.lockWaitHours) || 0)) return;
+  const result = CBGroupActions.setGates(group, { waitHours: hours });
+  persistGroupFields(group.id, CBGroupActions.lockUnit(result.group), "").catch(() => {});
 });
 
 addGroupButton.addEventListener("click", () => {

@@ -55,6 +55,7 @@ COMMON_TOP_LEVEL_FILES = [
     "platform-profiles.js",
     "group-scopes.js",
     "parental-pin.js",
+    "group-actions.js",
     "helpers.js",
     "browser-compat.js",
     "popup.html",

@@ -56,7 +56,7 @@ function makeContext() {
 }
 function loadWorker() {
   const ctx = makeContext();
-  for (const file of ["platform-profiles.js", "group-scopes.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
+  for (const file of ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
     const p = path.join(root, file); if (!fs.existsSync(p)) continue;
     vm.runInContext(fs.readFileSync(p, "utf8"), ctx, { filename: file });
   }
@@ -258,15 +258,27 @@ check("a pause never redirects", s.exit.action === "pause" && s.exit.target === 
   check("the worker adopts shared entries, not only settings", after.scopes.find((l) => l.surface === "site").sites.join() === "new.example.com" && after.pauseSeconds === 9, after);
   const snoozesAfter = (await context.chrome.storage.local.get("groupSnoozes")).groupSnoozes || {};
   check("a snooze ended on another device ends here too", !snoozesAfter.L1, snoozesAfter);
-  check("one list of shared settings, with the lock change time and the PIN", ["pauseSeconds", "freezeChangedAtMs", "parentalPasswordHash", "parentalPasswordSalt"].every((f) => run("CB_SYNC_SCALAR_FIELDS").includes(f)) && !run("CB_SYNC_SCALAR_FIELDS").includes("allowlist") && run("CB_SYNC_SCALAR_FIELDS") === run("CBGroupScopes.SYNC_SCALAR_FIELDS"));
+  check("one list of shared settings; the lock is not among them (it travels as a versioned unit)",
+    run("CB_SYNC_SCALAR_FIELDS").includes("pauseSeconds") &&
+    !["lockedAtMs", "lockWaitHours", "parentalPasswordHash", "parentalPasswordSalt", "lockVersion"].some((f) => run("CB_SYNC_SCALAR_FIELDS").includes(f)) &&
+    !run("CB_SYNC_SCALAR_FIELDS").includes("allowlist") && run("CB_SYNC_SCALAR_FIELDS") === run("CBGroupScopes.SYNC_SCALAR_FIELDS"));
 
-  // 10. The worker keeps the editor's lock choice and lock change time.
-  const kept = sanitize([base({ id: "k1", name: "Keep", groupType: "site", sites: ["x.example"], freezeModeChoice: "strict", freezeChangedAtMs: 1234 })])[0];
-  check("the worker keeps the lock choice and its change time", kept.freezeModeChoice === "strict" && kept.freezeChangedAtMs === 1234, kept);
+  // 10. A lock stored before 2026-09-26 (exclusive modes) is kept, as gates.
+  const kept = sanitize([base({ id: "k1", name: "Keep", groupType: "site", sites: ["x.example"], freezeMode: "strict", frozenAtMs: 1234, strictFreezeHours: 5 })])[0];
+  check("an old strict lock stays locked, as a 5-hour wait gate", kept.lockedAtMs === 1234 && kept.lockWaitHours === 5 && !("freezeMode" in kept), kept);
+  const linkedLock = sanitize([base({ id: "k2", name: "Keep 2", groupType: "site", sites: ["x.example"] })])[0];
+  context.__clusters = [{ groupName: "Keep 2", members: [
+    { program: "chrome", groupName: "Keep 2", groupId: "k2" }, { program: "macapp", groupName: "Keep 2", groupId: "m2" }
+  ], shared: { scalars: {}, lock: { lockedAtMs: 777, lockWaitHours: 0, parentalPasswordHash: null, parentalPasswordSalt: null, lockVersion: 4 } } }];
+  await context.chrome.storage.local.set({ blockedGroups: [linkedLock] });
+  run(`cbConnection.clusters = __clusters;`);
+  await run(`cbConnection.applySharedToStorage()`);
+  const adopted = (await context.chrome.storage.local.get("blockedGroups")).blockedGroups.find((g) => g.id === "k2");
+  check("the worker adopts the link's lock with its version", adopted.lockedAtMs === 777 && adopted.lockVersion === 4 && adopted.lockSyncedVersion === 4, adopted);
 
   // 11. An AI tool cannot create a locked group.
-  const created = await run(`cbBrowserRequestBody("settings-create-group", { groupType: "site", patch: { name: "AI group", sites: ["ai.example"], freezeMode: "strict", frozenAtMs: Date.now(), strictFreezeHours: 72 } })`);
-  check("a created group never starts locked", created.group.freezeMode === "none" && created.group.frozenAtMs === null, created.group);
+  const created = await run(`cbBrowserRequestBody("settings-create-group", { groupType: "site", patch: { name: "AI group", sites: ["ai.example"], lockedAtMs: Date.now(), lockWaitHours: 72, freezeMode: "strict" } })`);
+  check("a created group never starts locked", created.group.lockedAtMs === null && created.group.lockWaitHours === 0, created.group);
 
   // 12. Tag lines act only where tagging exists.
   const tagFilters = (platform) => {
