@@ -32,6 +32,17 @@
     return isDesktopProgram(value) ? String(value) : "macapp";
   }
 
+  // The browser program a user agent names (the popup and the worker agree).
+  function browserProgramId(userAgent) {
+    var ua = String(userAgent || "");
+    if (/\bEdg\//.test(ua)) return "edge";
+    if (/\bFirefox\//.test(ua)) return "firefox";
+    if (/\bOPR\//.test(ua) || /\bOpera\//.test(ua)) return "opera";
+    if (/\bChrome\//.test(ua)) return "chrome";
+    if (/\bSafari\//.test(ua)) return "safari";
+    return "browser";
+  }
+
   function hubProgramFromStatus(status) {
     var program = status && status.hubProgram;
     return isHubProgram(program) ? program : "";
@@ -80,6 +91,7 @@
     isHubProgram: isHubProgram,
     isRemoteProgram: isRemoteProgram,
     nativeProgramId: nativeProgramId,
+    browserProgramId: browserProgramId,
     hubProgramFromStatus: hubProgramFromStatus,
     localMember: localMember,
     groupForCluster: groupForCluster,
