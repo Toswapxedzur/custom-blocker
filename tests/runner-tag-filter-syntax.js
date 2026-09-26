@@ -1,6 +1,6 @@
-/* Content-tag filter SYNTAX: the popup's line parser/formatter, the service
-   worker's normalizer — which
-   must make exactly the same decision as content.js matchesTagFilter. */
+/* Content-tag filter SYNTAX: the line parser/formatter and the normalizer (one
+   copy, group-scopes.js), which must make exactly the same decision as
+   content.js matchesTagFilter. */
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -30,10 +30,11 @@ const read = (file) => fs.readFileSync(path.join(__dirname, "..", file), "utf8")
 const popup = read("popup.js"); const background = read("background.js"); const content = read("content.js");
 
 const context = vm.createContext({});
+vm.runInContext(read("group-scopes.js"), context);
 vm.runInContext([
   'const CONTENT_TAG_PLATFORMS = new Set(["youtube"]);',
-  extractFunction(popup, "parseTagListTextarea"), extractFunction(popup, "tagListToText"),
-  extractFunction(background, "normalizeTagList"), extractFunction(content, "matchesTagFilter")
+  "const { normalizeTagList, tagListToText } = CBGroupScopes; const parseTagListTextarea = CBGroupScopes.parseTagListText;",
+  extractFunction(content, "matchesTagFilter")
 ].join("\n"), context);
 const call = (expr, vars) => { Object.assign(context, vars); return vm.runInContext(expr, context); };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -53,6 +54,8 @@ check("formatter round-trips through the parser", same(call("parseTagListTextare
 check("duplicates collapse regardless of AND order or case", same(call("parseTagListTextarea(__t)", { __t: "A + B\nb + a\nA\na" }), [{ name: "A", also: ["B"] }, { name: "A" }]));
 check("a bare '+' or '!' line is ignored", same(call("parseTagListTextarea(__t)", { __t: "!\n +  \n@3\nOK" }), [{ name: "OK" }]));
 
+check("tag names that look like syntax stay names", same(call("parseTagListTextarea(__t)", { __t: "C++\nTop:5\nF# @2" }), [{ name: "C++" }, { name: "Top:5" }, { name: "F#", confidence: 2 }]));
+check("a stored list is normalized as entries, never re-read as text", same(call("normalizeTagList(__l)", { __l: [{ name: "C++" }, { name: "!Drama" }, { name: "Top:5" }] }), [{ name: "C++" }, { name: "!Drama" }, { name: "Top:5" }]));
 const normalized = call("normalizeTagList(__l)", { __l: parsed });
 check("the service-worker normalizer preserves also/except/confidence", same(normalized, parsed), normalized);
 check("the normalizer still accepts legacy string + {name} entries", same(call("normalizeTagList(__l)", { __l: ["Gaming", { name: " Drama ", confidence: 9 }, { name: "" }, 7] }), [{ name: "Gaming" }, { name: "Drama" }]));

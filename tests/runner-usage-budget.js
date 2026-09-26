@@ -1,49 +1,21 @@
 /* Timed-group budget + schedule rules: fixed reset (drifting or re-anchored at
    midnight), rolling limit (per-minute usage that ages out), and time windows
-   that cross midnight. Popup and service worker must share the same helpers;
-   Mac Vault mirrors them in UsageBudget.swift. */
+   that cross midnight. One copy in group-actions.js for the popup and the
+   service worker; Mac Vault mirrors them in UsageBudget.swift. */
 "use strict";
 process.env.TZ = "UTC";
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-function extractFunction(source, name) {
-  const start = source.indexOf(`function ${name}(`);
-  if (start < 0) throw new Error(`missing ${name}`);
-  let depth = 0; let i = source.indexOf(") {", start) + 2;
-  for (; i < source.length; i += 1) {
-    const ch = source[i];
-    if (ch === '"' || ch === "'" || ch === "`") {
-      for (i += 1; i < source.length && source[i] !== ch; i += 1) if (source[i] === "\\") i += 1;
-    } else if (ch === "/" && source[i + 1] === "/") {
-      i = source.indexOf("\n", i);
-    } else if (ch === "/" && source[i + 1] === "*") {
-      i = source.indexOf("*/", i) + 1;
-    } else if (ch === "{") depth += 1;
-    else if (ch === "}") { depth -= 1; if (depth === 0) break; }
-  }
-  return source.slice(start, i + 1);
-}
-const read = (file) => fs.readFileSync(path.join(__dirname, "..", file), "utf8");
-const popup = read("popup.js"); const background = read("background.js");
-
 let pass = 0; let fail = 0;
 function check(label, ok, detail) { if (ok) { pass += 1; console.log(`PASS ${label}`); } else { fail += 1; console.log(`FAIL ${label}${detail !== undefined ? " — " + JSON.stringify(detail) : ""}`); } }
 
-const BUDGET = ["getResetIntervalMs", "cbStartOfDayMs", "cbNextMidnightMs", "cbPeriodStartMs", "cbNextResetMs",
-  "cbUsageBucketStartMs", "cbPruneUsageBuckets", "cbBucketsUsedMs", "cbNextReturnMs", "sanitizeUsageBuckets"];
-for (const name of BUDGET) {
-  check(`popup and service worker share ${name}`, extractFunction(popup, name) === extractFunction(background, name));
-}
-
+// One copy of the rules (group-actions.js), used by the popup and the worker.
 const context = vm.createContext({});
-vm.runInContext([
-  "const MS_PER_MINUTE = 60000; const MS_PER_HOUR = 3600000; const USAGE_BUCKET_MS = MS_PER_MINUTE;",
-  background.slice(background.indexOf("const DAY_NAMES = ["), background.indexOf("];", background.indexOf("const DAY_NAMES = [")) + 2),
-  ...BUDGET.map((name) => extractFunction(background, name)),
-  ...["normalizeTimeWindowLine", "parseTimeWindowsText", "parseTimeWindowToMinutes", "getDayNameForDate", "isGroupActiveNow"].map((name) => extractFunction(background, name))
-].join("\n"), context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "parental-pin.js"), "utf8"), context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "group-actions.js"), "utf8"), context);
+vm.runInContext("Object.assign(globalThis, CBGroupActions)", context);
 const call = (expr, vars) => { Object.assign(context, vars); return vm.runInContext(expr, context); };
 const at = (day, hour, minute = 0) => new Date(2026, 8, day, hour, minute).getTime(); // 2026-09-21 is a Monday
 const group = (hours, extra = {}) => ({ resetIntervalHours: hours, resetAtMidnight: false, rollingLimit: false, ...extra });
@@ -91,10 +63,7 @@ const group = (hours, extra = {}) => ({ resetIntervalHours: hours, resetAtMidnig
 {
   check("2300-0100 is a valid window", call("normalizeTimeWindowLine(l)", { l: "2300-0100" }) !== null);
   check("an empty window (1200-1200) is still rejected", call("normalizeTimeWindowLine(l)", { l: "1200-1200" }) === null);
-  const popupContext = vm.createContext({});
-  vm.runInContext(extractFunction(popup, "normalizeTimeWindowLine"), popupContext);
-  check("the popup editor accepts 2300-0100 too", vm.runInContext('normalizeTimeWindowLine("2300-0100")', popupContext) === "2300-0100");
-  check("the popup editor still rejects 1200-1200", vm.runInContext('normalizeTimeWindowLine("1200-1200")', popupContext) === null);
+  check("the editor sees the invalid line", JSON.stringify(call("parseTimeWindowsText(t)", { t: "0900-1700\n1200-1200\n0900-1700" })) === JSON.stringify({ normalizedLines: ["0900-1700"], invalidLines: ["1200-1200"] }));
   const g = { groupType: "site", activeDays: ["monday"], timeWindowsText: "2300-0100" };
   const active = (day, hour, minute) => call("isGroupActiveNow(g, n)", { g, n: at(day, hour, minute) });
   check("Monday evening part is active", active(21, 23, 30) === true);
