@@ -403,7 +403,12 @@ const state = {
   draggedGroupId: null,
   dragInsertIndex: null,
   suppressGroupClickUntil: 0,
+  // Per group, only the fields the user changed (form text), so a change
+  // made elsewhere to any other field shows at once.
   drafts: {},
+  // blockedGroups exactly as stored: the editor writes its edited groups into
+  // this list (by id), never the whole list from its own view.
+  storedGroups: [],
   autosaveTimeoutId: null,
   statusTimeoutId: null,
   tickIntervalId: null,
@@ -411,7 +416,6 @@ const state = {
   unfreezeFlow: null,
   isManualOpen: false,
   manualCache: {},
-  suppressGroupStorageUpdatesUntil: 0,
   // The worker's copy of this browser's links (cbClusterCopy), for isEnforceOnly.
   linkCopy: [],
   nameEditing: null,
@@ -440,13 +444,6 @@ const state = {
   // Hub's shared cumulative snooze total per clustered group (display only). We
   // show max(local total, this) so the figure reflects snoozes accrued on any
   // member without merging into — and thus double-counting — the local counter.
-  // Last contribution JSON we sent per group, so we don't echo applied state
-  // back to the hub (loop suppression mirrors the hub's broadcast-on-change).
-  clusterSyncSent: {},
-  // Logical edit timestamp per group, used for scalar last-writer-wins.
-  groupEditTs: {},
-  // Group ids whose next sync should win the merge (the initiator of a link).
-  pendingPriorityGroups: new Set(),
   // Serialized last-applied cluster list, so repeated identical pushes (the Mac
   // hub re-pushes every second) don't trigger needless re-renders.
   clustersLastJSON: "",
@@ -858,10 +855,7 @@ function applyConnectionStatus(raw) {
   };
   // Linked groups turn enforce-only (or editable again) with Mac Vault.
   if (wasAway !== macVaultAway()) render();
-  if (!wasOnline && bridgeIsOnline()) {
-    announceGroups();
-    requestClusters();
-  }
+  if (!wasOnline && bridgeIsOnline()) requestClusters();
 }
 
 window.__cbConnectionState = function (json) {
@@ -894,12 +888,6 @@ function bridgeIsOnline() {
   return s.state === "connected" || s.state === "running";
 }
 
-// Every group can link with a same-named group on another program (owner
-// 2026-09-24: the whole definition — policy and every entry — is shared).
-function isBridgeEligibleGroup(group) {
-  return Boolean(group);
-}
-
 // The cluster (if any) this group currently belongs to, matched by this
 // endpoint's program id + the member's pinned group id. Membership is pinned to
 // the specific group instance that was linked, so deleting a group and later
@@ -907,12 +895,6 @@ function isBridgeEligibleGroup(group) {
 // back to the saved name for pre-id-pinning hubs that don't send a groupId.
 function groupConnectionCluster(group) {
   return window.CBBridgeProtocol.clusterForGroup(state.clusters, group, LOCAL_PROGRAM_ID);
-}
-
-// This endpoint's local group for a cluster, resolved via the member's pinned
-// group id (falling back to the saved name for pre-id-pinning hubs).
-function clusterLocalGroup(cluster) {
-  return window.CBBridgeProtocol.groupForCluster(state.groups, cluster, LOCAL_PROGRAM_ID);
 }
 
 
@@ -948,22 +930,9 @@ function applyClusters(list) {
   const incomingJSON = JSON.stringify(incoming);
   if (incomingJSON === state.clustersLastJSON) return;
   state.clustersLastJSON = incomingJSON;
+  // Membership only: what a link shares is adopted into storage by the service
+  // worker / Mac Vault, and the editor shows it from there.
   state.clusters = incoming;
-  // Apply hub-authoritative shared settings to each of our member groups.
-  for (const cluster of state.clusters) {
-    if (!cluster || !Array.isArray(cluster.members)) continue;
-    if (!cluster.members.some((m) => m && m.program === LOCAL_PROGRAM_ID)) continue;
-    const group = clusterLocalGroup(cluster);
-    if (!group) continue;
-    if (cluster.shared) {
-      applyClusterShared(group, cluster.shared);
-    } else {
-      // Freshly-formed cluster: the hub's first snapshot carries no `shared`
-      // until a member has contributed. Force our contribution to be (re)sent
-      // so the group definition is shared on the FIRST connect.
-      delete state.clusterSyncSent[group.id];
-    }
-  }
   updateGroupCardBridgeBadges();
   // Re-render the editor so synced changes show, unless the user is actively
   // typing in a field (don't clobber in-progress input).
@@ -986,10 +955,6 @@ function applyClusters(list) {
       clearBridgeWarn(key);
     }
   }
-  // Propagated freeze may have changed our frozen status; refresh the roster
-  // so future link validation sees it, then push our own contributions.
-  announceGroups();
-  syncAllClusters();
 }
 
 // Native (macOS) pushes cluster membership here; the browser uses the
@@ -1012,180 +977,6 @@ function requestClusters() {
   } catch (_) {}
 }
 
-// Tell the hub which groups exist here (by saved name + freeze state) so it
-// links same-named groups. Sent on load, after group edits, and when the
-// bridge comes online.
-function announceGroups() {
-  const groups = (Array.isArray(state.groups) ? state.groups : [])
-    .filter(isBridgeEligibleGroup)
-    .map((g) => ({
-      // The stable per-program group id pins cluster membership to this
-      // instance, so a same-named group created after a delete won't re-join.
-      id: g.id,
-      name: announcedName(g),
-      frozen: CBGroupActions.isLocked(g)
-    }));
-  try {
-    chrome.runtime.sendMessage({ type: "groups-announce", program: LOCAL_PROGRAM_ID, groups });
-  } catch (_) {}
-}
-
-// ---------------------------------------------------------------------------
-// Settings sync: clustered groups share a single set of settings. The hub is
-// the authority — scalars are last-writer-wins, blocked-domain / blocked-app
-// pools are a union of each owner's list (browsers own domains, the Mac owns
-// apps), and freeze state propagates as a scalar. The live elapsed usage
-// counter is also shared for Default groups: each side reports its absolute
-// local counter and the hub accumulates deltas into one shared budget that is
-// folded back into every member's local timer (see applyClusterShared).
-// ---------------------------------------------------------------------------
-
-const SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
-
-// A member's contribution is the whole group definition: the policy scalars and
-// every entry's lines (websites, apps, platforms). Each member enforces the
-// lines it can and forwards the rest. The live usage budget is NOT in here: it
-// is reported as deltas by the accrual owner only (the browser's background
-// heartbeat, the Mac's frontmost-app sampler), and the popup only folds the
-// hub's shared total back into the local counter (applyClusterShared).
-function buildSyncContribution(group) {
-  const scalars = {};
-  for (const field of SYNC_SCALAR_FIELDS) scalars[field] = group[field];
-  // The lock travels as one unit with the version it was made from (see
-  // group-actions.js): the hub takes it only on top of its current version.
-  const contribution = { scalars, scopes: toStoredGroup(group).scopes, ...CBGroupActions.lockContribution(group) };
-  // Active snooze runtime is shared so a snooze started on any member applies to
-  // every linked member (newest start wins). The entry carries all of its own
-  // timing (start/until/cooldown), so each side enforces and expires it
-  // identically without needing to propagate the eventual clear.
-  // The newest change (a start OR an end) wins, so ending a snooze early ends
-  // it on every linked device.
-  const snoozeEntry = state.groupSnoozes[group.id];
-  if (snoozeEntry && Number.isFinite(Number(snoozeEntry.startsAtMs))) {
-    contribution.snooze = snoozeEntry;
-    contribution.snoozeTs = Number(snoozeEntry.changedAtMs || snoozeEntry.startsAtMs) || 0;
-  }
-  return contribution;
-}
-
-// Writes the hub's shared definition onto a local member group: the policy
-// scalars and, when the hub carries them, every entry's lines. The lines
-// replace ours wholesale (every member edits the one shared definition, so a
-// deletion elsewhere is a deletion here); the entry in view is re-read.
-function applyClusterShared(group, shared) {
-  if (!group || !shared || typeof shared !== "object") return;
-  const scalars = shared.scalars && typeof shared.scalars === "object" ? shared.scalars : {};
-  const idx = state.groups.findIndex((g) => g.id === group.id);
-  if (idx < 0) return;
-  let next = { ...state.groups[idx] };
-  let changed = false;
-  for (const field of SYNC_SCALAR_FIELDS) {
-    if (
-      Object.prototype.hasOwnProperty.call(scalars, field) &&
-      JSON.stringify(next[field]) !== JSON.stringify(scalars[field])
-    ) {
-      next[field] = scalars[field];
-      changed = true;
-    }
-  }
-  // The link's one lock (owned by the hub).
-  const withLock = CBGroupActions.adoptLock(next, shared.lock);
-  if (withLock !== next) {
-    next = withLock;
-    changed = true;
-  }
-  // The hub carries lines only once a member has contributed them; an empty
-  // list is "nothing shared yet", never "delete every entry" (a group always
-  // keeps at least one entry), so it is not adopted.
-  if (Array.isArray(shared.scopes) && shared.scopes.length > 0) {
-    const stored = toStoredGroup(next);
-    const incoming = CBGroupScopes.sanitizeScopeLines(shared.scopes, stored.groupType, cbScopeNormalizers);
-    if (JSON.stringify(incoming) !== JSON.stringify(stored.scopes)) {
-      next = viewGroupOnPlatform({ ...stored, scopes: incoming }, activeEntryKey(next));
-      changed = true;
-      // The form's draft describes the entry in view; refresh it unless the
-      // user is typing in it right now (their edit then wins, latest-edit-wins).
-      if (!(group.id === state.selectedGroupId && isUserEditing())) {
-        state.drafts[group.id] = groupToDraft(next);
-      }
-    }
-  }
-  state.groups[idx] = next;
-  if (Number.isFinite(shared.ts)) state.groupEditTs[group.id] = shared.ts;
-
-  // The link's snooze total is the hub's count: each snooze once, however
-  // many devices saw it.
-  if (Number.isFinite(Number(shared.snoozeTotalMs)) && Number(state.groupSnoozeTotalsMs[group.id]) !== Number(shared.snoozeTotalMs)) {
-    state.groupSnoozeTotalsMs[group.id] = Number(shared.snoozeTotalMs);
-    chrome.storage.local.set({ [GROUP_SNOOZE_TOTALS_KEY]: state.groupSnoozeTotalsMs }).catch(() => {});
-  }
-
-  // Fold the hub's shared usage budget into our local counter so the live
-  // elapsed timer (display + enforcement) reflects time spent on every member.
-  // We never overwrite our own future accrual — the background keeps adding to
-  // this value and reporting it back, and the hub measures only the new delta.
-  if (!next.rollingLimit && Number.isFinite(shared.usageMs)) {
-    const incomingUsage = Math.max(0, Number(shared.usageMs) || 0);
-    if ((Number(state.usageTimersMs[group.id]) || 0) !== incomingUsage) {
-      state.usageTimersMs[group.id] = incomingUsage;
-      chrome.storage.local.set({ [USAGE_TIMERS_KEY]: state.usageTimersMs }).catch(() => {});
-    }
-    if (
-      Number.isFinite(shared.usageResetAtMs) &&
-      shared.usageResetAtMs > 0 &&
-      (Number(state.usageResetAtMs[group.id]) || 0) !== Number(shared.usageResetAtMs)
-    ) {
-      state.usageResetAtMs[group.id] = Number(shared.usageResetAtMs);
-      chrome.storage.local.set({ [USAGE_RESET_AT_KEY]: state.usageResetAtMs }).catch(() => {});
-    }
-  }
-
-  // Adopt a newer shared snooze change (a start or an end) from a linked member.
-  const sharedSnoozeTs = Number(shared.snoozeTs) || 0;
-  if (sharedSnoozeTs > 0 && shared.snooze && typeof shared.snooze === "object") {
-    const adopted = CBGroupActions.adoptSnooze(state.groupSnoozes[group.id], shared.snooze, sharedSnoozeTs);
-    if (adopted) {
-      state.groupSnoozes[group.id] = adopted;
-      chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: state.groupSnoozes }).catch(() => {});
-    }
-  }
-
-  // Mark our contribution as up to date so we don't echo it back to the hub.
-  state.clusterSyncSent[group.id] = JSON.stringify(buildSyncContribution(next));
-  if (changed) {
-    chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: toStoredGroups(state.groups) }).catch(() => {});
-  }
-}
-
-function syncClusterForGroup(group) {
-  if (!group || !isBridgeEligibleGroup(group)) return;
-  if (!groupConnectionCluster(group)) {
-    delete state.clusterSyncSent[group.id];
-    return;
-  }
-  const contribution = buildSyncContribution(group);
-  const json = JSON.stringify(contribution);
-  const priority = state.pendingPriorityGroups.has(group.id);
-  if (json === state.clusterSyncSent[group.id] && !priority) return;
-  state.clusterSyncSent[group.id] = json;
-  state.pendingPriorityGroups.delete(group.id);
-  state.groupEditTs[group.id] = Date.now();
-  try {
-    chrome.runtime.sendMessage({
-      type: "group-sync",
-      program: LOCAL_PROGRAM_ID,
-      groupName: announcedName(group),
-      groupType: group.groupType,
-      ts: state.groupEditTs[group.id],
-      priority,
-      ...contribution
-    });
-  } catch (_) {}
-}
-
-function syncAllClusters() {
-  for (const group of state.groups) syncClusterForGroup(group);
-}
 
 function syncSettingsFormFromState() {
   const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
@@ -2884,10 +2675,8 @@ const DEFAULT_NAME_PATTERN_TYPES = new Set(["youtube", "tiktok", "facebook", "in
 // number whose name is already taken (names are unique, case-insensitively).
 function uniqueDefaultGroupName(groupType) {
   const key = DEFAULT_NAME_PATTERN_TYPES.has(groupType) ? groupType : "site";
-  const taken = new Set(state.groups.map((group) => (group.name || "").trim().toLowerCase()));
-  let number = state.groups.filter((group) => (DEFAULT_NAME_PATTERN_TYPES.has(group.groupType) ? group.groupType : "site") === key).length + 1;
-  while (taken.has(t(`groupName.${key}Pattern`, { number }).trim().toLowerCase())) number += 1;
-  return t(`groupName.${key}Pattern`, { number });
+  const start = state.groups.filter((group) => (DEFAULT_NAME_PATTERN_TYPES.has(group.groupType) ? group.groupType : "site") === key).length + 1;
+  return CBGroupActions.freeName(state.groups, (number) => t(`groupName.${key}Pattern`, { number }), start);
 }
 
 function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
@@ -2949,24 +2738,6 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
     fallbackUrl: "",
     pauseSeconds: DEFAULT_PAUSE_SECONDS
   };
-}
-
-// Group names must be unique per endpoint so the web-app bridge can link
-// groups by name. On load we repair any pre-existing duplicates by suffixing
-// " (2)", " (3)", … to all but the first occurrence (case-insensitive).
-function dedupeGroupNames(groups) {
-  const seen = new Set();
-  return groups.map((group) => {
-    const base = (group.name || "").trim() || group.name || "";
-    let candidate = base;
-    let counter = 2;
-    while (seen.has(candidate.toLowerCase())) {
-      candidate = `${base} (${counter})`;
-      counter += 1;
-    }
-    seen.add(candidate.toLowerCase());
-    return candidate === group.name ? group : { ...group, name: candidate };
-  });
 }
 
 function sanitizeGroups(groups) {
@@ -3112,7 +2883,7 @@ function sanitizeGroups(groups) {
     return { ...normalized, ...view, scopes, entryView };
   });
 
-  return dedupeGroupNames(sanitized);
+  return sanitized;
 }
 
 // The popup's own normalizers for the line fields whose normalization differs
@@ -3124,17 +2895,37 @@ const cbScopeNormalizers = {
   clampTagConfidence: (value, fallback) => clampTagFilterConfidence(value, fallback)
 };
 
-// Flat form model → the canonical stored shape (policy fields + scope lines).
-// The form describes the platform in view (group.groupType); its lines replace
-// that platform's, the group's other platforms keep theirs.
+// The canonical stored shape: the policy and the group's lines as they are.
+// The flat form fields are only the view of one entry (folded into the lines
+// when the user edits them, foldEntryIntoLines).
 function toStoredGroup(group) {
-  const scopes = CBGroupScopes.mergeFlatIntoScopes(group.scopes, group, activeEntryKey(group));
-  const { entryView, ...rest } = CBGroupScopes.withoutFlatScopeFields(group);
+  const { entryView, storedGroupType, ...rest } = CBGroupScopes.withoutFlatScopeFields(group);
   return {
     ...rest,
-    groupType: CBGroupScopes.deriveGroupType(scopes, group.groupType),
-    scopes
+    // The stored type stays put while another entry is in view.
+    groupType: CBGroupScopes.deriveGroupType(group.scopes, storedGroupType ?? group.groupType),
+    scopes: group.scopes
   };
+}
+
+// The entry in view's form fields become that entry's lines; the group's other
+// lines keep theirs. Only an edit of those fields does this.
+function foldEntryIntoLines(group) {
+  return { ...group, scopes: CBGroupScopes.mergeFlatIntoScopes(group.scopes, group, activeEntryKey(group)) };
+}
+
+// The group with the draft applied, never throwing: invalid fields keep their
+// last valid value (the first error is returned). The lines change only when
+// the entry's form fields did.
+function applyDraft(group, draft) {
+  const result = buildUpdatedGroupFromDraft(group, draft, { strict: false });
+  const updated = result.updatedGroup;
+  const linesChanged = CBGroupScopes.FLAT_SCOPE_FIELDS.some((field) => JSON.stringify(updated[field]) !== JSON.stringify(group[field]));
+  const next = linesChanged ? foldEntryIntoLines(updated) : { ...updated, scopes: group.scopes };
+  // A name is saved when its edit is finished (Enter or leaving the field): a
+  // half-typed name would unlink the group or link it to another on the way.
+  if (state.nameEditing && state.nameEditing.id === group.id) next.name = group.name;
+  return { group: next, validationError: result.validationError };
 }
 
 // The entry whose lines the cards edit: "site", "apps", a platform id, or
@@ -3142,10 +2933,6 @@ function toStoredGroup(group) {
 function activeEntryKey(group) {
   if (!group || group.groupType === "custom") return "custom";
   return CBGroupScopes.normalizeEntryKey(group.entryView || group.groupType);
-}
-
-function toStoredGroups(groups) {
-  return (Array.isArray(groups) ? groups : []).map(toStoredGroup);
 }
 
 // The transfer string carries the canonical shape: the policy and every
@@ -3243,13 +3030,10 @@ function getTransferReadySelectedGroup() {
   if (!group) {
     throw new Error(t("status.errorExportGroup"));
   }
-
-  const draft = getDraftForGroup(group.id);
-  if (!draft) {
-    return group;
-  }
-
-  return buildUpdatedGroupFromDraft(group, draft).updatedGroup;
+  // What the user sees, as a save would store it (a half-typed field keeps its
+  // last valid value, as in a save).
+  const draft = state.drafts[group.id] ? getDraftForGroup(group.id) : null;
+  return draft ? applyDraft(group, draft).group : group;
 }
 
 function groupToDraft(group) {
@@ -3313,16 +3097,15 @@ function markCustomGroupSourceActive(groupId, source) {
         }
       : item
   );
-  state.drafts[groupId] = {
-    ...(state.drafts[groupId] ?? {}),
-    blockingRulesText: activeSource,
-    enabled: true
-  };
+  if (state.drafts[groupId]) {
+    delete state.drafts[groupId].blockingRulesText;
+    delete state.drafts[groupId].enabled;
+  }
 }
 
 function getDraftForGroup(groupId) {
   const group = state.groups.find((item) => item.id === groupId);
-  return group ? state.drafts[groupId] ?? groupToDraft(group) : null;
+  return group ? { ...groupToDraft(group), ...(state.drafts[groupId] || {}) } : null;
 }
 
 function getDisplayUsageState(group, now = Date.now()) {
@@ -4406,6 +4189,11 @@ function renderEditor(now = Date.now()) {
   platformAuthorModeField.disabled = !editable || !usesAuthorAxis;
   discordModeField.disabled = !editable || !isDiscordGroup;
   discordTargetsField.disabled = !editable || !isDiscordGroup || discordModeField.value === "all";
+  // A locked group's tag line is shown, not changed.
+  for (const field of [platformTagModeField, platformTagsField, platformTagDefaultConfidenceField, platformTagEffectField,
+    platformTagBlockUntaggedField, platformTagBlockPageField, platformTagCoverUntilTaggedField]) {
+    if (field) field.disabled = !editable;
+  }
   clearSitesButton.disabled =
     !editable || !isSiteView;
   renderBlockedSites();
@@ -4475,9 +4263,6 @@ function renderDynamicView() {
   updateFreezeUI(group, now);
   updateSnoozeUI(group, now);
   renderUnfreezeModal(now);
-  // Push the latest local usage to the hub so clustered Default groups keep a
-  // shared live counter. syncClusterForGroup only sends when something changed.
-  syncAllClusters();
 }
 
 // Mutate the existing group cards in place instead of tearing them down and
@@ -4556,7 +4341,7 @@ function stashCurrentDraft() {
   const isRedditGroup = group.groupType === "reddit";
   const isDiscordGroup = group.groupType === "discord";
 
-  state.drafts[state.selectedGroupId] = {
+  const full = {
     name: groupNameField.value,
     enabled: groupEnabledField.checked,
     mode: blockModeField.value,
@@ -4598,6 +4383,18 @@ function stashCurrentDraft() {
     pageAction: pageActionField ? pageActionField.value : "block",
     pauseSeconds: pauseSecondsField ? pauseSecondsField.value : ""
   };
+  const changes = draftChanges(full, groupToDraft(group));
+  if (changes) state.drafts[state.selectedGroupId] = changes;
+  else delete state.drafts[state.selectedGroupId];
+}
+
+// The fields of `full` that differ from `base` (null when none).
+function draftChanges(full, base) {
+  const changes = {};
+  for (const [key, value] of Object.entries(full)) {
+    if (JSON.stringify(value) !== JSON.stringify(base[key])) changes[key] = value;
+  }
+  return Object.keys(changes).length > 0 ? changes : null;
 }
 
 async function flushAutosave() {
@@ -4619,39 +4416,15 @@ function flushAutosaveOnExit() {
     window.clearTimeout(state.autosaveTimeoutId);
     state.autosaveTimeoutId = null;
   }
-  // Closing the popup before the store was read must not write the empty
-  // in-memory list back (that erased every group).
+  // Closing the popup before the store was read must not write anything back.
   if (!state.groupsLoaded) return;
-
   const group = getSelectedGroup();
-  const draft = group ? getDraftForGroup(group.id) : null;
-  if (group && draft && isGroupEditable(group)) {
-    try {
-      // Non-strict: commit every valid field (tags included) on teardown even
-      // if a sibling field is mid-edit/invalid.
-      const result = buildUpdatedGroupFromDraft(group, draft, { strict: false });
-      if (result && result.updatedGroup) {
-        state.groups = state.groups.map((item) =>
-          item.id === group.id ? result.updatedGroup : item
-        );
-      }
-    } catch (_) {
-      // Unexpected error — persist current state.groups anyway.
-    }
-  }
-
+  if (!group || !state.drafts[group.id] || !isGroupEditable(group)) return;
   try {
-    // globalSettings is intentionally omitted: it only changes via the
-    // settings modal's Save button, and re-emitting on every teardown
-    // would race two open popups against each other.
-    chrome.storage.local.set({
-      [BLOCKED_GROUPS_KEY]: toStoredGroups(state.groups),
-      [USAGE_TIMERS_KEY]: state.usageTimersMs,
-      [USAGE_RESET_AT_KEY]: state.usageResetAtMs,
-      [USAGE_BUCKETS_KEY]: state.usageBucketsMs,
-      [GROUP_SNOOZES_KEY]: state.groupSnoozes,
-      [GROUP_SNOOZE_TOTALS_KEY]: state.groupSnoozeTotalsMs
-    });
+    const next = applyDraft(group, getDraftForGroup(group.id)).group;
+    state.groups = state.groups.map((item) => (item.id === group.id ? next : item));
+    // Unawaited: the write is sent before the popup tears down.
+    persistGroups([group.id]).catch(() => {});
   } catch (_) {}
 }
 
@@ -4686,12 +4459,14 @@ async function loadStoredState() {
     cbClusterCopy: []
   });
 
-  const groups = sanitizeGroups(result[BLOCKED_GROUPS_KEY]);
+  const storedGroups = Array.isArray(result[BLOCKED_GROUPS_KEY]) ? result[BLOCKED_GROUPS_KEY] : [];
+  const groups = sanitizeGroups(storedGroups);
   const settings = sanitizeGlobalSettings(result[GLOBAL_SETTINGS_KEY]);
   cbDebugMode = settings.debugMode === true;
 
   return {
     quickAddGroupId: typeof result[QUICK_ADD_GROUP_KEY] === "string" ? result[QUICK_ADD_GROUP_KEY] : "",
+    storedGroups,
     groups,
     usageTimersMs: sanitizeUsageTimers(result[USAGE_TIMERS_KEY], groups),
     usageResetAtMs: sanitizeResetTimes(result[USAGE_RESET_AT_KEY], groups),
@@ -4703,30 +4478,47 @@ async function loadStoredState() {
   };
 }
 
-async function persistState(message) {
-  state.suppressGroupStorageUpdatesUntil = Date.now() + 1000;
-
-  await chrome.storage.local.set({
-    [BLOCKED_GROUPS_KEY]: toStoredGroups(state.groups),
-    [USAGE_TIMERS_KEY]: state.usageTimersMs,
-    [USAGE_RESET_AT_KEY]: state.usageResetAtMs,
-    [USAGE_BUCKETS_KEY]: state.usageBucketsMs,
-    [GROUP_SNOOZES_KEY]: state.groupSnoozes,
-    [GROUP_SNOOZE_TOTALS_KEY]: state.groupSnoozeTotalsMs
-  });
-
-  if (message) {
-    setStatus(message);
+// What the editor writes (owner 2026-09-26): only what the user changed — the
+// groups it edited, by id, into the stored list as it is now (a change made
+// elsewhere meanwhile — a linked device, the "+", an AI tool — is kept).
+// Usage, snooze counting and links belong to the service worker / Mac Vault,
+// which share every stored change.
+async function persistGroups(ids, { reorder = false, message = "" } = {}) {
+  let list = state.storedGroups.filter((group) => group && group.id);
+  for (const id of ids) {
+    const at = list.findIndex((group) => group.id === id);
+    const index = state.groups.findIndex((group) => group.id === id);
+    if (index < 0) {
+      if (at >= 0) list.splice(at, 1);
+      continue;
+    }
+    const next = toStoredGroup(state.groups[index]);
+    if (at >= 0) list[at] = next;
+    else list.splice(Math.min(index, list.length), 0, next);
   }
+  if (reorder) {
+    const order = new Map(state.groups.map((group, index) => [group.id, index]));
+    list = list
+      .map((group, index) => ({ group, key: order.has(group.id) ? order.get(group.id) : state.groups.length + index }))
+      .sort((a, b) => a.key - b.key)
+      .map((entry) => entry.group);
+  }
+  state.storedGroups = list;
+  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: list });
+  if (message) setStatus(message);
+}
 
-  // Keep the hub's roster current so name-based linking validates correctly,
-  // and push any settings changes to clustered peers.
-  announceGroups();
-  syncAllClusters();
+// A snooze entry the user started or ended here; the service worker / Mac
+// Vault count its time and share it with linked devices.
+async function persistSnooze(groupId, entry, message = "") {
+  const stored = (await chrome.storage.local.get({ [GROUP_SNOOZES_KEY]: {} }))[GROUP_SNOOZES_KEY];
+  await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: { ...(stored && typeof stored === "object" ? stored : {}), [groupId]: entry } });
+  if (message) setStatus(message);
 }
 
 async function loadGroups() {
   const loaded = await loadStoredState();
+  state.storedGroups = loaded.storedGroups;
   state.groups = loaded.groups;
   state.groupsLoaded = true;
   state.usageTimersMs = loaded.usageTimersMs;
@@ -4751,38 +4543,33 @@ function updateGroupEnabled(groupId, enabled) {
     return;
   }
 
-  // Optimistic UI; scheduleAutosave() debounces the actual storage write.
   state.groups = state.groups.map((item) =>
     item.id === groupId ? { ...item, enabled } : item
   );
 
   if (state.drafts[groupId]) {
-    state.drafts[groupId].enabled = enabled;
+    delete state.drafts[groupId].enabled;
   }
 
   if (groupId === state.selectedGroupId) {
     groupEnabledField.checked = enabled;
   }
 
-  setStatus(t(enabled ? "status.enabled" : "status.disabled", { name: group.name }));
   renderGroupList();
-  scheduleAutosave();
+  persistGroups([groupId], { message: t(enabled ? "status.enabled" : "status.disabled", { name: group.name }) }).catch(() => {
+    setStatus(t("status.errorSaveGroup"), true);
+  });
 }
 
 async function addGroup(groupType = DEFAULT_GROUP_TYPE) {
   stashCurrentDraft();
   await flushAutosave();
 
-  const now = Date.now();
   const newGroup = createDefaultGroup(groupType);
   state.groups = [...state.groups, newGroup];
-  state.usageTimersMs[newGroup.id] = 0;
-  state.usageResetAtMs[newGroup.id] = now;
-  state.groupSnoozeTotalsMs[newGroup.id] = 0;
-  state.drafts[newGroup.id] = groupToDraft(newGroup);
   state.selectedGroupId = newGroup.id;
 
-  await persistState(t("status.created", { name: newGroup.name }));
+  await persistGroups([newGroup.id], { message: t("status.created", { name: newGroup.name }) });
   render();
   groupNameField.focus();
   groupNameField.select();
@@ -4815,43 +4602,51 @@ function viewGroupOnPlatform(stored, key) {
   return {
     ...stored,
     groupType: entry === "site" || entry === "apps" ? "site" : entry,
+    storedGroupType: stored.groupType,
     entryView: entry,
     ...CBGroupScopes.flatFromScopes(stored, entry)
   };
 }
 
-// Fold the form into the selected group (as autosave does) and return the
-// group in its canonical shape: policy + every platform's lines.
+// Save the form (as autosave does) and return the selected group in its
+// canonical shape: policy + every platform's lines.
 async function commitSelectedGroupLines() {
   stashCurrentDraft();
   await flushAutosave();
   const group = getSelectedGroup();
   if (!group || !isGroupEditable(group)) return null;
-  const draft = getDraftForGroup(group.id);
-  const current = draft ? buildUpdatedGroupFromDraft(group, draft, { strict: false }).updatedGroup : group;
-  return toStoredGroup(current);
+  return toStoredGroup(group);
 }
 
 // Show the entry `key` in the cards; an entry the group does not name yet is
 // added with the same defaults a new group of that kind would get.
 async function setGroupPlatformView(key) {
   const entry = CBGroupScopes.normalizeEntryKey(key);
-  const stored = await commitSelectedGroupLines();
+  const group = getSelectedGroup();
+  // A locked group's entries can be viewed (not changed or added).
+  const editable = Boolean(group) && isGroupEditable(group);
+  const stored = editable ? await commitSelectedGroupLines() : group && toStoredGroup(group);
   if (!stored || stored.groupType === "custom") {
     render();
     return;
   }
   const known = CBGroupScopes.groupPlatforms(stored).includes(entry);
+  if (!known && !editable) {
+    render();
+    return;
+  }
   let next = viewGroupOnPlatform(stored, entry);
   if (!known && entry !== "site" && entry !== "apps") {
     const defaults = createDefaultGroup(entry);
     for (const field of CBGroupScopes.FLAT_SCOPE_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(defaults, field)) next[field] = defaults[field];
     }
+    // A new entry gets its lines.
+    next = foldEntryIntoLines(next);
   }
   state.groups = state.groups.map((item) => (item.id === stored.id ? next : item));
-  state.drafts[stored.id] = groupToDraft(next);
-  await persistState();
+  delete state.drafts[stored.id];
+  if (!known) await persistGroups([stored.id]);
   render();
 }
 
@@ -4879,8 +4674,8 @@ async function removeGroupPlatform(platform) {
   const nextKey = remaining.includes(current) ? current : remaining[0];
   const next = viewGroupOnPlatform({ ...stored, scopes }, nextKey);
   state.groups = state.groups.map((item) => (item.id === stored.id ? next : item));
-  state.drafts[stored.id] = groupToDraft(next);
-  await persistState();
+  delete state.drafts[stored.id];
+  await persistGroups([stored.id]);
   render();
 }
 
@@ -5026,28 +4821,11 @@ async function clearAllGroups() {
   const ids = state.groups.map((group) => group.id);
   state.groups = [];
   state.drafts = {};
-  state.usageTimersMs = {};
-  state.usageResetAtMs = {};
-  state.usageBucketsMs = {};
-  state.groupSnoozes = {};
-  state.groupSnoozeTotalsMs = {};
   state.selectedGroupId = null;
 
-  await persistState(t("status.bulkDeleted"));
-  await forgetGroupLeftovers(ids);
+  // The service worker / Mac Vault drop the groups' usage and snoozes.
+  await persistGroups(ids, { message: t("status.bulkDeleted") });
   render();
-}
-
-// Per-group data kept outside the group maps: a deleted group leaves none.
-async function forgetGroupLeftovers(ids) {
-  try {
-    const stored = await chrome.storage.local.get({ [CBParentalPin.ATTEMPTS_KEY]: {}, quickAddGroupId: "" });
-    const attempts = { ...(stored[CBParentalPin.ATTEMPTS_KEY] || {}) };
-    for (const id of ids) delete attempts[id];
-    const writes = { [CBParentalPin.ATTEMPTS_KEY]: attempts };
-    if (ids.includes(stored.quickAddGroupId)) writes.quickAddGroupId = "";
-    await chrome.storage.local.set(writes);
-  } catch (_) {}
 }
 
 async function deleteSelectedGroup() {
@@ -5067,15 +4845,9 @@ async function deleteSelectedGroup() {
 
   state.groups = state.groups.filter((item) => item.id !== group.id);
   delete state.drafts[group.id];
-  delete state.usageTimersMs[group.id];
-  delete state.usageResetAtMs[group.id];
-  delete state.usageBucketsMs[group.id];
-  delete state.groupSnoozes[group.id];
-  delete state.groupSnoozeTotalsMs[group.id];
   state.selectedGroupId = state.groups[0]?.id ?? null;
 
-  await persistState(t("status.deleted", { name: group.name }));
-  await forgetGroupLeftovers([group.id]);
+  await persistGroups([group.id], { message: t("status.deleted", { name: group.name }) });
   render();
 }
 
@@ -5148,9 +4920,7 @@ async function importIntoSelectedGroup() {
 
     // An import replaces the definition, never the lock (the lock is not part
     // of an exported group), and it keeps names unique like any edit.
-    const nameTaken = state.groups.some((other) =>
-      other.id !== group.id && (other.name || "").trim().toLowerCase() === importedGroup.name.trim().toLowerCase());
-    if (nameTaken) {
+    if (CBGroupActions.nameTaken(state.groups, importedGroup.name, group.id)) {
       setStatus(t("status.duplicateName"), true);
       return;
     }
@@ -5158,14 +4928,9 @@ async function importIntoSelectedGroup() {
       lockSyncedVersion: group.lockSyncedVersion };
 
     state.groups = state.groups.map((item) => (item.id === group.id ? replacementGroup : item));
-    state.drafts[group.id] = groupToDraft(replacementGroup);
-    state.usageTimersMs[group.id] = 0;
-    state.usageResetAtMs[group.id] = Date.now();
-    delete state.usageBucketsMs[group.id];
-    delete state.groupSnoozes[group.id];
-    state.groupSnoozeTotalsMs[group.id] = 0;
+    delete state.drafts[group.id];
 
-    await persistState(t("status.importedGroup", { name: replacementGroup.name }));
+    await persistGroups([group.id], { message: t("status.importedGroup", { name: replacementGroup.name }) });
     render();
   } catch (error) {
     console.error("Failed to import block group.", error);
@@ -5193,12 +4958,8 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
     name = group.name;
   }
 
-  // Names must be unique per endpoint (the web-app bridge links groups by name).
-  const nameClash = state.groups.some(
-    (other) =>
-      other.id !== group.id && (other.name || "").trim().toLowerCase() === name.toLowerCase()
-  );
-  if (nameClash) {
+  // Names are unique per device (linked groups are found by name).
+  if (CBGroupActions.nameTaken(state.groups, name, group.id)) {
     fail(new Error(t("status.duplicateName")));
     name = group.name;
   }
@@ -5324,11 +5085,12 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
         group.groupType === "discord" ? discordResults.validTargets : group.discordTargets,
       discordMode: group.groupType === "discord" ? discordMode : group.discordMode,
       blockingRulesText: isCustomGroup ? blockingRulesText : group.blockingRulesText,
-      sites: usesSiteList ? siteResults.validSites : [],
+      // An entry not in view keeps its own values (a custom group's site list).
+      sites: usesSiteList ? siteResults.validSites : group.sites,
       // Blocklist (false) vs "block all except" (true).
-      allowlist: usesSiteList ? Boolean(draft.allowlist) : false,
-      apps: entryKey === "apps" ? parseAppsData(draft.appsData) : [],
-      appsAllowlist: entryKey === "apps" ? Boolean(draft.appsAllowlist) : false,
+      allowlist: usesSiteList ? Boolean(draft.allowlist) : group.allowlist,
+      apps: entryKey === "apps" ? parseAppsData(draft.appsData) : group.apps,
+      appsAllowlist: entryKey === "apps" ? Boolean(draft.appsAllowlist) : group.appsAllowlist,
       blockHomePage: Boolean(draft.blockHomePage),
       // Custom groups redirect via setRedirectLink() inside the rule;
       // strip any legacy fallbackUrl on save.
@@ -5353,44 +5115,26 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
 
 async function autosaveSelectedGroup() {
   const group = getSelectedGroup();
-  const draft = getDraftForGroup(state.selectedGroupId);
+  if (!group || !state.drafts[group.id] || !isGroupEditable(group)) return;
+  const draft = getDraftForGroup(group.id);
   let validationError = null;
-  let updatedGroup = null;
-
-  // Fold the draft into state.groups. Non-strict build never throws, so every
-  // valid field (including Tags) is committed even when an unrelated field is
-  // mid-edit/invalid. The draft is only re-normalized when the whole group is
-  // valid, so in-progress invalid text the user is still typing isn't reverted.
-  if (group && draft && isGroupEditable(group)) {
-    try {
-      const result = buildUpdatedGroupFromDraft(group, draft, { strict: false });
-      updatedGroup = result.updatedGroup;
-
-      state.groups = state.groups.map((item) =>
-        item.id === group.id ? result.updatedGroup : item
-      );
-
-      if (result.validationError) {
-        validationError = result.validationError;
-      } else {
-        state.drafts[group.id] = groupToDraft(result.updatedGroup);
-
-        if (
-          isTimedBlockingMode(result.updatedGroup.mode) &&
-          (result.modeChanged || result.resetIntervalChanged)
-        ) {
-          state.usageResetAtMs[group.id] = Date.now();
-          state.usageTimersMs[group.id] = 0;
-          delete state.usageBucketsMs[group.id];
-        }
-      }
-    } catch (error) {
-      validationError = error;
-    }
+  let next = group;
+  try {
+    const result = applyDraft(group, draft);
+    next = result.group;
+    validationError = result.validationError;
+  } catch (error) {
+    validationError = error;
   }
+  state.groups = state.groups.map((item) => (item.id === group.id ? next : item));
+  // What is saved leaves the draft; a field still invalid (or a name still
+  // being typed) stays in it.
+  const remaining = draftChanges(draft, groupToDraft(next));
+  if (remaining) state.drafts[group.id] = remaining;
+  else delete state.drafts[group.id];
 
   try {
-    await persistState();
+    await persistGroups([group.id]);
   } catch (error) {
     console.error("Failed to persist groups during autosave.", error);
     setStatus(t("status.errorSaveGroup"), true);
@@ -5399,15 +5143,9 @@ async function autosaveSelectedGroup() {
 
   if (validationError) {
     setStatus(validationError.message || t("status.errorSaveGroup"), true);
-    renderGroupList();
-    updateUsageSummary(group, draft);
-    return;
   }
-
   renderGroupList();
-  if (group) {
-    updateUsageSummary(updatedGroup ?? group, state.drafts[group.id] ?? draft);
-  }
+  updateUsageSummary(next, getDraftForGroup(group.id));
 }
 
 function scheduleAutosave() {
@@ -5465,7 +5203,7 @@ async function reorderGroups(draggedGroupId, insertIndex) {
   state.draggedGroupId = null;
   state.dragInsertIndex = null;
 
-  await persistState();
+  await persistGroups([], { reorder: true });
   render();
 }
 
@@ -5541,7 +5279,7 @@ async function persistGroupFields(groupId, fields, statusMsg) {
   state.groups = state.groups.map((item) =>
     item.id === groupId ? { ...item, ...fields } : item
   );
-  await persistState(statusMsg);
+  await persistGroups([groupId], { message: statusMsg });
   render();
 }
 
@@ -5965,7 +5703,9 @@ async function applySnoozeStart(group) {
   const snoozeEntry = CBGroupActions.snoozeEntry(group, now);
   state.groupSnoozes[group.id] = snoozeEntry;
   const minutes = Number(group.snoozeMinutes) || 0;
-  await persistState(
+  await persistSnooze(
+    group.id,
+    snoozeEntry,
     snoozeEntry.startsAtMs > now
       ? t("status.snoozeScheduled", { name: group.name, delay: formatDurationMs(snoozeEntry.startsAtMs - now) })
       : t("status.snoozed", { name: group.name, minutes, suffix: minutes === 1 ? "" : "s" })
@@ -5982,8 +5722,7 @@ async function endSnooze() {
   const result = CBGroupActions.endSnoozeEntry(state.groupSnoozes[group.id], Date.now());
   if (result.error) return;
   state.groupSnoozes[group.id] = result.entry;
-  state.groupSnoozeTotalsMs[group.id] = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0) + result.activeMs;
-  await persistState(t("status.endedSnooze", { name: group.name }));
+  await persistSnooze(group.id, result.entry, t("status.endedSnooze", { name: group.name }));
   render();
 }
 
@@ -6080,26 +5819,22 @@ function syncExternalState(changes) {
     renderGroupList();
   }
 
-  if (
-    changes[BLOCKED_GROUPS_KEY] &&
-    Date.now() > state.suppressGroupStorageUpdatesUntil
-  ) {
-    state.groups = sanitizeGroups(changes[BLOCKED_GROUPS_KEY].newValue);
-    // What the user is typing survives a change made elsewhere (a linked
-    // device, the "+", an AI tool): their edit is the latest, so it wins.
-    const typing = isUserEditing() ? state.drafts[state.selectedGroupId] : null;
-    state.drafts = {};
-    if (typing && state.groups.some((group) => group.id === state.selectedGroupId)) {
-      state.drafts[state.selectedGroupId] = typing;
+  if (changes[BLOCKED_GROUPS_KEY]) {
+    // Any writer's change (this editor, a linked device, the "+", an AI tool)
+    // shows at once; the user's unsaved field edits (the drafts) stay on top.
+    state.storedGroups = Array.isArray(changes[BLOCKED_GROUPS_KEY].newValue) ? changes[BLOCKED_GROUPS_KEY].newValue : [];
+    const views = new Map(state.groups.map((group) => [group.id, activeEntryKey(group)]));
+    state.groups = sanitizeGroups(state.storedGroups).map((group) => {
+      const view = views.get(group.id);
+      return view && view !== "custom" && view !== activeEntryKey(group) ? viewGroupOnPlatform(toStoredGroup(group), view) : group;
+    });
+    for (const id of Object.keys(state.drafts)) {
+      if (!state.groups.some((group) => group.id === id)) delete state.drafts[id];
     }
     if (!state.groups.some((group) => group.id === state.selectedGroupId)) {
       state.selectedGroupId = state.groups[0]?.id ?? null;
     }
     render();
-    // A group edited outside this editor (the quick-add "+", an AI tool, the
-    // desktop app) is shared with linked members like an edit made here.
-    announceGroups();
-    syncAllClusters();
     return;
   }
 
@@ -6108,19 +5843,14 @@ function syncExternalState(changes) {
   }
 }
 
-// A rename reaches linked devices when it is finished (Enter or leaving the
-// field), not letter by letter: a half-typed name would unlink the group or
-// link it to another group on the way.
-function announcedName(group) {
-  return state.nameEditing && state.nameEditing.id === group.id ? state.nameEditing.name : group.name;
-}
-
 async function commitNameEdit() {
   if (!state.nameEditing) return;
   state.nameEditing = null;
-  await flushAutosave();
-  announceGroups();
-  syncAllClusters();
+  if (state.autosaveTimeoutId !== null) {
+    window.clearTimeout(state.autosaveTimeoutId);
+    state.autosaveTimeoutId = null;
+  }
+  await autosaveSelectedGroup();
 }
 
 groupNameField.addEventListener("focus", () => {
@@ -7201,10 +6931,6 @@ async function initializePopupApp() {
   applyPanelWidth(loadPanelWidth());
 
   await loadGroups();
-  await chrome.storage.local.set({
-    [BLOCKED_GROUPS_KEY]: toStoredGroups(state.groups),
-    [GLOBAL_SETTINGS_KEY]: state.globalSettings
-  });
   await loadLogFeedSnapshot();
   // Banner runs after translations are applied so the labels read in
   // the user's language, and runs after loadGroups so the popup is in a
@@ -7216,11 +6942,9 @@ async function initializePopupApp() {
     renderDynamicView();
   }, 1000);
 
-  // Bring up the per-group web-app bridge panel state: current transport
-  // status, current clusters, and announce our groups to the hub.
+  // The link state the editor shows: transport status and current links.
   requestConnectionStatus();
   requestClusters();
-  announceGroups();
 }
 
 initializePopupApp().catch((error) => {
