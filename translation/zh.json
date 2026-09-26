@@ -21,6 +21,8 @@
   "settings.defaultSnoozeMinutes": "默认暂停时长（分钟）",
   "settings.defaultSnoozeMinutesHelp": "新建非自定义分组时使用的默认暂停时长。",
   "settings.defaultSnoozeMinutesPlaceholder": "30",
+  "settings.closeRetrySeconds": "Ask a closed app to quit again every (seconds)",
+  "settings.closeRetrySecondsHelp": "When a custom rule closes an app, the app is asked to quit normally; if it stays open (for example to keep unsaved work), it is left open. Above 0, it is asked again this often while it stays open.",
   "settings.reset": "恢复默认值",
   "settings.saved": "设置已保存。",
   "connectionGroup.warnMemberOffline": "链接的程序处于离线状态 - 打开它以使链接的组保持同步。",

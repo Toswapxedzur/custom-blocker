@@ -21,6 +21,8 @@
   "settings.defaultSnoozeMinutes": "Domyślny czas trwania drzemki (minuty)",
   "settings.defaultSnoozeMinutesHelp": "Długość drzemki używana podczas tworzenia nowych grup niestandardowych.",
   "settings.defaultSnoozeMinutesPlaceholder": "30",
+  "settings.closeRetrySeconds": "Ask a closed app to quit again every (seconds)",
+  "settings.closeRetrySecondsHelp": "When a custom rule closes an app, the app is asked to quit normally; if it stays open (for example to keep unsaved work), it is left open. Above 0, it is asked again this often while it stays open.",
   "settings.reset": "Przywróć domyślne",
   "settings.saved": "Ustawienia zapisane.",
   "connectionGroup.warnMemberOffline": "Połączony program jest w trybie offline — otwórz go, aby synchronizować połączone grupy.",
