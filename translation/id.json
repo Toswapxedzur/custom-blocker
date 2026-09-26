@@ -350,7 +350,6 @@
   "freeze.pin.submit": "Kirim",
   "freeze.pin.cancel": "Membatalkan",
   "freeze.pin.invalid": "Masukkan semua 6 digit.",
-  "freeze.pin.wrong": "Kata sandi salah.",
   "freeze.pin.needPassword": "Tetapkan kata sandi wali terlebih dahulu.",
   "freeze.pin.freezeTitle": "Masukkan kata sandi untuk membekukan",
   "freeze.pin.freezePrompt": "Masukkan 6 digit kata sandi wali untuk membekukan grup ini.",
@@ -366,7 +365,6 @@
   "freeze.settings.saved": "Kata sandi disimpan.",
   "freeze.settings.cleared": "Kata sandi dihapus.",
   "freeze.settings.verifyOk": "Kata sandi benar.",
-  "freeze.settings.verifyFail": "Kata sandi salah.",
   "status.created": "Dibuat \"{name}\".",
   "status.deleted": "Menghapus \"{name}\".",
   "status.enabled": "Diaktifkan \"{name}\".",
@@ -459,5 +457,8 @@
   "settings.quickAddHelp": "A tiny \"+\" at the bottom right of every page (and of the desktop) adds the current site or app to the group whose \"+\" badge you chose in the list.",
   "groups.quickAddBadge": "Quick-add target",
   "apps.allowlistLabel": "Block every application except these",
-  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones."
+  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.",
+  "freeze.pin.wait": "Too many wrong tries. Try again in {seconds} s.",
+  "freeze.pin.wrongWait": "Wrong PIN. Try again in {seconds} s.",
+  "groups.deleteAllPinPrompt": "Enter the PIN of “{name}” to delete it with the other groups."
 }

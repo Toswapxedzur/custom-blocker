@@ -350,7 +350,6 @@
   "freeze.pin.submit": "Gửi",
   "freeze.pin.cancel": "Hủy bỏ",
   "freeze.pin.invalid": "Nhập đầy đủ 6 chữ số.",
-  "freeze.pin.wrong": "Mật khẩu không chính xác.",
   "freeze.pin.needPassword": "Đặt mật khẩu người giám hộ trước tiên.",
   "freeze.pin.freezeTitle": "Nhập mật khẩu để đóng băng",
   "freeze.pin.freezePrompt": "Nhập mật khẩu người giám hộ gồm 6 chữ số để đóng băng nhóm này.",
@@ -366,7 +365,6 @@
   "freeze.settings.saved": "Đã lưu mật khẩu.",
   "freeze.settings.cleared": "Đã xóa mật khẩu.",
   "freeze.settings.verifyOk": "Mật khẩu là chính xác.",
-  "freeze.settings.verifyFail": "Mật khẩu không đúng.",
   "status.created": "Đã tạo \"{name}\".",
   "status.deleted": "Đã xóa \"{name}\".",
   "status.enabled": "Đã bật \"{name}\".",
@@ -459,5 +457,8 @@
   "settings.quickAddHelp": "A tiny \"+\" at the bottom right of every page (and of the desktop) adds the current site or app to the group whose \"+\" badge you chose in the list.",
   "groups.quickAddBadge": "Quick-add target",
   "apps.allowlistLabel": "Block every application except these",
-  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones."
+  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.",
+  "freeze.pin.wait": "Too many wrong tries. Try again in {seconds} s.",
+  "freeze.pin.wrongWait": "Wrong PIN. Try again in {seconds} s.",
+  "groups.deleteAllPinPrompt": "Enter the PIN of “{name}” to delete it with the other groups."
 }

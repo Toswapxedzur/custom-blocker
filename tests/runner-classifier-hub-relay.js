@@ -149,42 +149,14 @@ function assert(name, condition, detail) {
     && tagResponse.tags?.[0]?.darkColorHex === "#1A4775", tagResponse);
 
   classifierPresent = false;
-  const fallbackPending = hub.request("collection-info", {});
-  await new Promise((resolve) => setImmediate(resolve));
-  const fallback = fallbackSockets.at(-1);
-  fallback.open();
-  fallback.message({ kind: "challenge", v: 4, challenge: "c".repeat(43) });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert("authenticates the fallback socket with a native-host challenge proof", fallback.sent.some((message) => message.kind === "hello" && message.proof === "a".repeat(43)), fallback.sent);
-  fallback.message({ kind: "welcome", v: 4, hubProgram: "macapp", peers: [{ program: "classifier", connected: true }] });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert(
-    "uses a temporary fallback socket when the durable worker socket is stale",
-    fallback.sent.some((message) => message.kind === "classifier-request" && message.operation === "collection-info"),
-    fallback.sent
-  );
-  fallback.message({
-    kind: "classifier-response",
-    requestID: "classifier-fallback-test",
-    operation: "collection-info",
-    body: { enabledPlatformIDs: ["youtube"] }
-  });
-  const fallbackResponse = await fallbackPending;
-  assert("accepts the fallback relay response", fallbackResponse.enabledPlatformIDs?.[0] === "youtube", fallbackResponse);
-
+  const socketsBefore = fallbackSockets.length;
   try {
-    const noPeer = hub.request("collection-info", {});
-    await new Promise((resolve) => setImmediate(resolve));
-    const rejectedSocket = fallbackSockets.at(-1);
-    rejectedSocket.open();
-    rejectedSocket.message({ kind: "challenge", v: 4, challenge: "d".repeat(43) });
-    await new Promise((resolve) => setImmediate(resolve));
-    rejectedSocket.message({ kind: "welcome", v: 4, hubProgram: "macapp", peers: [] });
-    await noPeer;
-    assert("rejects a hub that has no Classifier peer", false);
+    await hub.request("collection-info", {});
+    assert("fails when the shared connection has no Classifier peer", false);
   } catch (error) {
-    assert("rejects a hub that has no Classifier peer", /unavailable/.test(String(error && error.message)));
+    assert("fails when the shared connection has no Classifier peer", /unavailable/.test(String(error && error.message)));
   }
+  assert("opens no side socket (the hub allows one connection per browser)", fallbackSockets.length === socketsBefore, fallbackSockets.length);
 
   console.log(`__CB_TEST_RESULT__: ${failures === 0 ? "OK" : "FAIL"} (${failures} failures)`);
   if (failures !== 0) process.exitCode = 1;
