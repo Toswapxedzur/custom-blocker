@@ -692,20 +692,7 @@
       </div>
     </div>
 
-    <!-- Desktop host only: the app-blocking permission gate and the app picker. -->
-    <div id="permissionModal" class="modal hidden">
-      <div class="modal-card">
-        <h3 data-i18n="permission.title">Enable necessary control</h3>
-        <p class="modal-copy" data-i18n="permission.message">
-          Grant Accessibility permission so the app can enforce app blocking. Without it, blocking cannot run.
-        </p>
-        <div class="modal-actions">
-          <button id="permissionCancelButton" type="button" class="secondary" data-i18n="permission.cancel">Cancel</button>
-          <button id="permissionGrantButton" type="button" data-i18n="permission.grant">Grant access</button>
-        </div>
-      </div>
-    </div>
-
+    <!-- Desktop host only: the app picker. -->
     <div id="appPickerModal" class="modal hidden">
       <div class="modal-card app-picker-card">
         <div class="manual-modal-header">
@@ -788,12 +775,12 @@
             </p>
           </div>
           <div class="desktop-only">
-            <label class="label" for="settingsCloseRetrySeconds" data-i18n="settings.closeRetrySeconds">
-              Ask a closed app to quit again every (seconds)
+            <label class="label" for="settingsQuitRetryMinutes" data-i18n="settings.quitRetryMinutes">
+              Ask a blocked app to quit again every (minutes)
             </label>
-            <input id="settingsCloseRetrySeconds" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
-            <p class="field-help" data-i18n="settings.closeRetrySecondsHelp">
-              When a custom rule closes an app, the app is asked to quit normally; if it stays open (for example to keep unsaved work), it is left open. Above 0, it is asked again this often while it stays open.
+            <input id="settingsQuitRetryMinutes" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+            <p class="field-help" data-i18n="settings.quitRetryMinutesHelp">
+              A blocked app (or one a custom rule closes) is asked to quit normally, like ⌘Q; if it stays open, for example to keep unsaved work, it is left open. Above 0, it is asked again this often while it stays open.
             </p>
           </div>
           <div>
@@ -875,24 +862,6 @@
           </div>
         </div>
 
-        <section class="section-card settings-section-card desktop-only">
-          <div class="section-header">
-            <div>
-              <h3 data-i18n="settings.deviceControlTitle">Device Control</h3>
-              <p id="deviceControlCopy" class="section-copy" data-i18n="settings.deviceControlCopyMissing">
-                App blocking needs Accessibility permission. Grant it so blocking can run.
-              </p>
-            </div>
-          </div>
-          <div class="field-actions">
-            <button id="deviceControlButton" type="button" class="secondary" data-i18n="settings.deviceControlManage">
-              Manage permission
-            </button>
-          </div>
-          <p id="deviceControlStatus" class="field-help" data-i18n="settings.deviceControlStatusMissing">
-            Accessibility permission missing. App blocking cannot run.
-          </p>
-        </section>
 
         <div class="modal-actions">
           <button id="settingsResetButton" type="button" class="secondary danger" data-i18n="settings.reset">

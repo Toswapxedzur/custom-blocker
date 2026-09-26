@@ -196,9 +196,9 @@ const DEFAULT_GLOBAL_SETTINGS = {
   // The tiny floating "+" on pages and in the desktop app (off by default).
   quickAddEnabled: false,
   defaultSnoozeMinutes: 30,
-  // Desktop: how often a custom rule's "close" asks an app that stayed open
-  // to quit again; 0 = ask once (owner 2026-09-26).
-  closeRetrySeconds: 0
+  // Desktop: how often a blocked (or rule-closed) app that stayed open is asked
+  // to quit again, in minutes; 0 = never (owner 2026-09-26).
+  quitRetryMinutes: 0
 };
 const TICK_RATE_MIN_MS = 250;
 const TICK_RATE_MAX_MS = 60_000;
@@ -314,12 +314,6 @@ const appPickerSearch = document.getElementById("appPickerSearch");
 const appPickerResults = document.getElementById("appPickerResults");
 const appPickerEmpty = document.getElementById("appPickerEmpty");
 const appPickerCloseButton = document.getElementById("appPickerCloseButton");
-const deviceControlButton = document.getElementById("deviceControlButton");
-const deviceControlCopy = document.getElementById("deviceControlCopy");
-const deviceControlStatus = document.getElementById("deviceControlStatus");
-const permissionModal = document.getElementById("permissionModal");
-const permissionGrantButton = document.getElementById("permissionGrantButton");
-const permissionCancelButton = document.getElementById("permissionCancelButton");
 let blockedAppsEditable = false;
 const groupScopesList = document.getElementById("groupScopesList");
 const groupScopesAdd = document.getElementById("groupScopesAdd");
@@ -419,7 +413,7 @@ const settingsButton = document.getElementById("settingsButton");
 const settingsModal = document.getElementById("settingsModal");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
 const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
-const settingsCloseRetrySecondsField = document.getElementById("settingsCloseRetrySeconds");
+const settingsQuitRetryMinutesField = document.getElementById("settingsQuitRetryMinutes");
 const settingsQuickAddField = document.getElementById("settingsQuickAdd");
 const localFolderChooseButton = document.getElementById("localFolderChooseButton");
 const localFolderRevokeButton = document.getElementById("localFolderRevokeButton");
@@ -1232,7 +1226,7 @@ function syncSettingsFormFromState() {
   const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
   if (settingsDefaultSnoozeMinutesField) settingsDefaultSnoozeMinutesField.value = String(s.defaultSnoozeMinutes);
   if (settingsQuickAddField) settingsQuickAddField.checked = s.quickAddEnabled === true;
-  if (settingsCloseRetrySecondsField) settingsCloseRetrySecondsField.value = String(s.closeRetrySeconds ?? 0);
+  if (settingsQuitRetryMinutesField) settingsQuitRetryMinutesField.value = String(s.quitRetryMinutes ?? 0);
   if (settingsStatus) settingsStatus.textContent = "";
 }
 
@@ -1264,7 +1258,7 @@ async function saveSettingsFromForm() {
     showOnPageLogToasts: state.globalSettings?.showOnPageLogToasts,
     defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
     quickAddEnabled: settingsQuickAddField ? settingsQuickAddField.checked : state.globalSettings?.quickAddEnabled,
-    closeRetrySeconds: settingsCloseRetrySecondsField ? settingsCloseRetrySecondsField.value : state.globalSettings?.closeRetrySeconds
+    quitRetryMinutes: settingsQuitRetryMinutesField ? settingsQuitRetryMinutesField.value : state.globalSettings?.quitRetryMinutes
   };
   const sanitized = sanitizeGlobalSettings(draft);
   state.globalSettings = sanitized;
@@ -1738,62 +1732,13 @@ window.__cbOnAppInventory = function () {
 };
 
 // ── Desktop shell (the desktop app hosts this editor in a web view) ─────────
-// Scene tabs (Vault / Classifier / Activity), the app-blocking permission gate
-// and the Device Control settings section exist only there; the markup is
+// Scene tabs (Vault / Classifier / Activity) exist only there; the markup is
 // `.desktop-only` and these hooks are no-ops in a browser.
 
 function postToNativeShell(payload) {
   try {
     window.webkit.messageHandlers.cbBridge.postMessage(payload);
   } catch (_) {}
-}
-
-let __cbAppBlockingGranted = null;
-
-function applyPermissionState(granted) {
-  __cbAppBlockingGranted = granted;
-  const isGranted = granted === true;
-  // The native host is the authority: once macOS granted Accessibility, clear
-  // the request modal instead of leaving a stale prompt.
-  if (isGranted && permissionModal) permissionModal.classList.add("hidden");
-  if (deviceControlCopy) {
-    deviceControlCopy.textContent = t(isGranted ? "settings.deviceControlCopyGranted" : "settings.deviceControlCopyMissing");
-  }
-  if (deviceControlStatus) {
-    deviceControlStatus.textContent = t(isGranted ? "settings.deviceControlStatusGranted" : "settings.deviceControlStatusMissing");
-  }
-}
-
-// Shows the grant modal only when permission is currently missing. Invoked by
-// the native host when the app is opened/activated.
-window.__cbPromptPermissionOnOpen = function () {
-  if (permissionModal && __cbAppBlockingGranted === false) permissionModal.classList.remove("hidden");
-};
-
-// The native host pushes the current permission state here (~1x/second).
-window.__cbPermissionState = (payload) => {
-  try {
-    const data = typeof payload === "string" ? JSON.parse(payload) : payload;
-    applyPermissionState(data?.appBlockingGranted === true ? true : data?.appBlockingGranted === false ? false : null);
-  } catch (error) {
-    console.error("Failed to apply permission state.", error);
-  }
-};
-
-if (permissionGrantButton) {
-  permissionGrantButton.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "request-app-blocking-permission" });
-  });
-}
-if (permissionCancelButton) {
-  permissionCancelButton.addEventListener("click", () => {
-    if (permissionModal) permissionModal.classList.add("hidden");
-  });
-}
-if (deviceControlButton) {
-  deviceControlButton.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "open-permission-settings" });
-  });
 }
 
 // Scene switch in the hero header: tapping another scene posts to the native
@@ -2209,7 +2154,7 @@ function sanitizeGlobalSettings(raw) {
     showOnPageLogToasts,
     defaultSnoozeMinutes,
     quickAddEnabled: src.quickAddEnabled === true,
-    closeRetrySeconds: Math.round(clampNumber(src.closeRetrySeconds, 0, 86400, 0))
+    quitRetryMinutes: Math.round(clampNumber(src.quitRetryMinutes, 0, 1440, 0))
   };
   return out;
 }
@@ -7187,7 +7132,7 @@ if (settingsModal) {
 
 // Global settings auto-save: persist on every committed edit (no Save button).
 {
-  const settingsAutoSaveFields = [settingsDefaultSnoozeMinutesField, settingsCloseRetrySecondsField];
+  const settingsAutoSaveFields = [settingsDefaultSnoozeMinutesField, settingsQuitRetryMinutesField];
   const autoSaveSettings = () => {
     saveSettingsFromForm().catch((error) => {
       console.error("Failed to save global settings.", error);
