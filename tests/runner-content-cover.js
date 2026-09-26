@@ -91,7 +91,7 @@ const code = [
   extractFunction("safeSendMessage"),
   extractLine("const CB_COVER_ID"), extractLine("const CB_SNOOZE_CONFIRM_INTERVAL_MS"),
   extractConst("cbCover"),
-  ...["cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "attemptExitPage", "cbCustomCoverUp"].map(extractFunction)
+  ...["cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbStopCoverTimers", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "attemptExitPage", "cbCustomCoverUp"].map(extractFunction)
 ].join("\n");
 vm.runInContext(code, ctx, { filename: "content-cover-extract.js" });
 const run = (expr) => vm.runInContext(expr, ctx);
