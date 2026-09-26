@@ -10,16 +10,18 @@ const root = path.resolve(__dirname, "..");
 const __listeners = [];
 function makeContext() {
   const storage = new Map();
+  const changeListeners = [];
   const inert = () => new Proxy(function () {}, { get: (_t, p) => (p === "addListener" || p === "removeListener" || p === "hasListener") ? () => {} : inert(), apply: () => Promise.resolve(undefined) });
   const chrome = new Proxy({
     storage: {
       local: {
         get: (keys, cb) => { const out = {}; if (keys && typeof keys === "object" && !Array.isArray(keys)) for (const [k, d] of Object.entries(keys)) out[k] = storage.has(k) ? storage.get(k) : d; else if (typeof keys === "string") out[keys] = storage.get(keys); if (cb) cb(out); return Promise.resolve(out); },
-        set: (obj, cb) => { for (const [k, v] of Object.entries(obj)) storage.set(k, JSON.parse(JSON.stringify(v))); if (cb) cb(); return Promise.resolve(); },
+        // Like chrome.storage: every write reaches the onChanged listeners.
+        set: (obj, cb) => { const changes = {}; for (const [k, v] of Object.entries(obj)) { const next = JSON.parse(JSON.stringify(v)); changes[k] = { oldValue: storage.get(k), newValue: next }; storage.set(k, next); } Promise.resolve().then(() => { for (const fn of changeListeners) fn(changes, "local"); }); if (cb) cb(); return Promise.resolve(); },
         remove: () => Promise.resolve(), getBytesInUse: () => Promise.resolve(0)
       },
       session: { get: () => Promise.resolve({}), set: () => Promise.resolve(), remove: () => Promise.resolve() },
-      onChanged: { addListener() {}, removeListener() {}, hasListener: () => false }
+      onChanged: { addListener: (fn) => changeListeners.push(fn), removeListener() {}, hasListener: () => false }
     },
     alarms: { clear: () => Promise.resolve(), create: () => Promise.resolve(), onAlarm: { addListener() {} } },
     runtime: new Proxy({ id: "t", onMessage: { addListener: (fn) => __listeners.push(fn), removeListener() {}, hasListener: () => false }, getManifest: () => ({ version: "0" }), getURL: (p) => `chrome-extension://t/${p}`, lastError: null }, { get: (t, p) => (p in t ? t[p] : inert()) })
@@ -70,10 +72,13 @@ const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
   run(`cbConnection.routeIsReady = (t) => t === "macapp";`);
   check("with Mac Vault back the group can change again", run(`cbEnforceOnly(${JSON.stringify(groups[0])})`) === false);
   context.__sent.length = 0;
-  const lock = { lockedAtMs: 5, lockWaitHours: 0, parentalPasswordHash: null, parentalPasswordSalt: null, lockVersion: 3 };
-  for (const listener of __listeners) listener({ type: "group-sync", program: "chrome", groupName: "Linked", ts: 1, scalars: {}, scopes: [], lock, lockBase: 2 }, {}, () => {});
-  const frame = context.__sent.find((f) => f.kind === "group-sync");
-  check("the editor's link sync reaches the hub with its lock and base version", frame && frame.lock && frame.lock.lockVersion === 3 && frame.lockBase === 2, context.__sent);
+  // The editor only stores its change; the worker shares it with the link.
+  const stored = (await context.chrome.storage.local.get({ blockedGroups: [] })).blockedGroups;
+  const locked = stored.map((g) => (g.id === "L" ? { ...g, lockedAtMs: 5, lockWaitHours: 0, lockVersion: 3, lockSyncedVersion: 2 } : g));
+  await context.chrome.storage.local.set({ blockedGroups: locked });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const frame = context.__sent.find((f) => f.kind === "group-sync" && f.groupName === "Linked");
+  check("an editor's stored lock change reaches the hub with its lock and base version", frame && frame.lock && frame.lock.lockVersion === 3 && frame.lockBase === 2, context.__sent);
 
   console.log(`ENFORCE ONLY TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");

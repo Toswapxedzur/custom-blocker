@@ -16,13 +16,15 @@ const sessionStore = new Map();
 const alarmsCreated = [];
 function makeContext() {
   const storage = new Map();
+  const changeListeners = [];
   const inert = () => new Proxy(function () {}, { get: (_t, p) => (p === "addListener" || p === "removeListener" || p === "hasListener") ? () => {} : inert(), apply: () => Promise.resolve(undefined) });
   const tabs = { updates: [], messages: [], muted: new Map() };
   const chrome = new Proxy({
     storage: {
       local: {
         get: (keys, cb) => { const out = {}; if (keys && typeof keys === "object" && !Array.isArray(keys)) for (const [k, d] of Object.entries(keys)) out[k] = storage.has(k) ? storage.get(k) : d; else if (typeof keys === "string") out[keys] = storage.get(keys); if (cb) cb(out); return Promise.resolve(out); },
-        set: (obj, cb) => { for (const [k, v] of Object.entries(obj)) storage.set(k, JSON.parse(JSON.stringify(v))); if (cb) cb(); return Promise.resolve(); },
+        // Like chrome.storage: every write reaches the onChanged listeners.
+        set: (obj, cb) => { const changes = {}; for (const [k, v] of Object.entries(obj)) { const next = JSON.parse(JSON.stringify(v)); changes[k] = { oldValue: storage.get(k), newValue: next }; storage.set(k, next); } Promise.resolve().then(() => { for (const fn of changeListeners) fn(changes, "local"); }); if (cb) cb(); return Promise.resolve(); },
         remove: () => Promise.resolve(), getBytesInUse: () => Promise.resolve(0)
       },
       session: {
@@ -30,7 +32,7 @@ function makeContext() {
         set: (obj) => { for (const [k, v] of Object.entries(obj)) sessionStore.set(k, JSON.parse(JSON.stringify(v))); return Promise.resolve(); },
         remove: () => Promise.resolve()
       },
-      onChanged: { addListener() {}, removeListener() {}, hasListener: () => false }
+      onChanged: { addListener: (fn) => changeListeners.push(fn), removeListener() {}, hasListener: () => false }
     },
     tabs: new Proxy({
       get: (id) => Promise.resolve({ id, mutedInfo: { muted: tabs.muted.get(id) === "user" } }),
@@ -150,8 +152,9 @@ check("a pause never redirects", s.exit.action === "pause" && s.exit.target === 
   // 5. Snooze from the cover.
   const groups = sanitize([base({ id: "g1", name: "Sites", groupType: "site", sites: ["example.com"] }), base({ id: "c1", name: "Rule", groupType: "custom", blockingRulesText: "(m,d,n,h,mi,u,helpers) => false" }), base({ id: "n1", name: "NoSnooze", groupType: "site", sites: ["x.com"], allowSnooze: false })]);
   await context.chrome.storage.local.set({ blockedGroups: groups });
-  context.__sent = []; run(`cbConnection.sendWS = (frame) => { __sent.push(frame); return true; };`);
+  context.__sent = []; run(`cbConnection.sendWS = (frame) => { __sent.push(frame); return true; }; cbConnection.routeIsReady = () => true; cbConnection.clusters = [{ id: "k1", groupName: "Sites", members: [{ program: cbDetectProgramId(), groupId: "g1" }], shared: { snoozeTs: 0 } }];`);
   const entry = await run(`cbStartSnooze("g1", ${now})`);
+  await new Promise((resolve) => setTimeout(resolve, 30));
   check("the cover's snooze creates the popup's entry", entry.startsAtMs === now && entry.untilMs === now + 5 * 60000 && entry.cooldownUntilMs === now + 6 * 60000 && entry.confirmationCount === 2 && !("refreezeMode" in entry), entry);
   const stored = (await context.chrome.storage.local.get("groupSnoozes")).groupSnoozes;
   check("…stores it", stored && stored.g1 && stored.g1.untilMs === entry.untilMs, stored);

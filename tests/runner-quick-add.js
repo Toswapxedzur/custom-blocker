@@ -10,16 +10,18 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 function makeContext() {
   const storage = new Map();
+  const changeListeners = [];
   const inert = () => new Proxy(function () {}, { get: (_t, p) => (p === "addListener" || p === "removeListener" || p === "hasListener") ? () => {} : inert(), apply: () => Promise.resolve(undefined) });
   const chrome = new Proxy({
     storage: {
       local: {
         get: (keys, cb) => { const out = {}; if (keys && typeof keys === "object" && !Array.isArray(keys)) for (const [k, d] of Object.entries(keys)) out[k] = storage.has(k) ? storage.get(k) : d; else if (typeof keys === "string") out[keys] = storage.get(keys); if (cb) cb(out); return Promise.resolve(out); },
-        set: (obj, cb) => { for (const [k, v] of Object.entries(obj)) storage.set(k, JSON.parse(JSON.stringify(v))); if (cb) cb(); return Promise.resolve(); },
+        // Like chrome.storage: every write reaches the onChanged listeners.
+        set: (obj, cb) => { const changes = {}; for (const [k, v] of Object.entries(obj)) { const next = JSON.parse(JSON.stringify(v)); changes[k] = { oldValue: storage.get(k), newValue: next }; storage.set(k, next); } Promise.resolve().then(() => { for (const fn of changeListeners) fn(changes, "local"); }); if (cb) cb(); return Promise.resolve(); },
         remove: () => Promise.resolve(), getBytesInUse: () => Promise.resolve(0)
       },
       session: { get: () => Promise.resolve({}), set: () => Promise.resolve(), remove: () => Promise.resolve() },
-      onChanged: { addListener() {}, removeListener() {}, hasListener: () => false }
+      onChanged: { addListener: (fn) => changeListeners.push(fn), removeListener() {}, hasListener: () => false }
     },
     alarms: { clear: () => Promise.resolve(), create: () => Promise.resolve(), onAlarm: { addListener() {} } },
     runtime: new Proxy({ id: "t", getManifest: () => ({ version: "0" }), getURL: (p) => `chrome-extension://t/${p}`, lastError: null }, { get: (t, p) => (p in t ? t[p] : inert()) })
@@ -63,6 +65,10 @@ check("only web pages qualify", run(`cbQuickAddEntry("chrome://extensions")`) ==
   ])})`);
   await context.chrome.storage.local.set({ blockedGroups: groups, globalSettings: { quickAddEnabled: false }, quickAddGroupId: "y1" });
   context.__sent = []; run(`cbConnection.sendWS = (frame) => { __sent.push(frame); return true; }; cbConnection.routeIsReady = (target) => target === "macapp";`);
+  // YT is linked: the worker shares its stored changes.
+  run(`cbClusterCopy = [{ id: "k1", groupName: "YT", members: [{ program: cbDetectProgramId(), groupId: "y1" }] }]`);
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 30));
+  await settle();
   let state = await run(`cbQuickAddState()`);
   check("off by default: no target", state.enabled === false, state);
   let err = ""; try { await run(`cbQuickAdd("https://example.com/x")`); } catch (e) { err = String(e.message || e); }
@@ -73,6 +79,7 @@ check("only web pages qualify", run(`cbQuickAddEntry("chrome://extensions")`) ==
   check("on with a chosen group: the target is named", state.enabled === true && state.groupId === "y1" && state.groupName === "YT", state);
 
   let result = await run(`cbQuickAdd("https://docs.example.org/guide/intro?x=1#top")`);
+  await settle();
   let stored = (await context.chrome.storage.local.get("blockedGroups")).blockedGroups;
   let yt = stored.find((g) => g.id === "y1");
   check("a platform group gains a Websites entry with the page's entry", result.added === true && result.entry === "docs.example.org/guide/intro" && yt.scopes.some((l) => l.surface === "site" && l.sites.join() === "docs.example.org/guide/intro"), yt.scopes);
