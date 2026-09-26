@@ -187,6 +187,93 @@
     return { state: next, done: next.left <= 0, waitMs: 0 };
   }
 
+  // ── Snooze ────────────────────────────────────────────────────────────────
+  // One snooze entry per group: {startsAtMs, untilMs, cooldownUntilMs,
+  // confirmationCount, activeMsApplied, changedAtMs}. A group's LAST entry is
+  // kept after it runs out (phase "none"), never deleted: its changedAtMs is
+  // how a device knows an older shared entry is not news (an ended snooze
+  // can't come back). A locked group can still be snoozed; its snooze
+  // settings are frozen with it.
+  const MINUTE_MS = 60 * 1000;
+
+  function snoozePhase(entry, now) {
+    if (!entry) return "none";
+    if (Number.isFinite(entry.startsAtMs) && now < entry.startsAtMs) return "pending";
+    if (Number.isFinite(entry.untilMs) && now < entry.untilMs) return "active";
+    if (Number.isFinite(entry.cooldownUntilMs) && now < entry.cooldownUntilMs) return "cooldown";
+    return "none";
+  }
+
+  function snoozeChangedAtMs(entry) {
+    if (!entry) return 0;
+    return Number(entry.changedAtMs) > 0 ? Number(entry.changedAtMs) : Number(entry.startsAtMs) || 0;
+  }
+
+  function sanitizeSnoozeEntry(raw) {
+    const startsAtMs = Number.parseInt(raw?.startsAtMs, 10);
+    const untilMs = Number.parseInt(raw?.untilMs, 10);
+    const cooldownUntilMs = Number.parseInt(raw?.cooldownUntilMs, 10);
+    if (!(Number.isFinite(startsAtMs) && Number.isFinite(untilMs) && Number.isFinite(cooldownUntilMs) &&
+      startsAtMs <= untilMs && untilMs <= cooldownUntilMs)) return null;
+    const confirmations = Number.parseInt(raw?.confirmationCount, 10);
+    const changedAtMs = Number(raw?.changedAtMs) > 0 ? Number(raw.changedAtMs) : 0;
+    return {
+      startsAtMs, untilMs, cooldownUntilMs,
+      confirmationCount: Number.isFinite(confirmations) && confirmations >= 0 ? confirmations : 0,
+      activeMsApplied: Boolean(raw?.activeMsApplied),
+      ...(changedAtMs ? { changedAtMs } : {})
+    };
+  }
+
+  // What starting a snooze needs → { error } | { confirmations, intervalMs }.
+  function snoozePlan(group, entry, now) {
+    if (!group || group.groupType === "custom" || group.allowSnooze === false) return { error: "snooze-disabled" };
+    if (snoozePhase(entry, now) !== "none") return { error: "snooze-in-progress" };
+    return { confirmations: Math.max(0, Number(group.snoozeConfirmations) || 0), intervalMs: CONFIRM_INTERVAL_MS };
+  }
+
+  // The new entry, from the group's stored settings (never unsaved form input).
+  function snoozeEntry(group, now) {
+    const startsAtMs = now + (Number(group.snoozeActivationDelayMinutes) || 0) * MINUTE_MS;
+    const untilMs = startsAtMs + (Number(group.snoozeMinutes) || 0) * MINUTE_MS;
+    return {
+      startsAtMs,
+      untilMs,
+      cooldownUntilMs: untilMs + (Number(group.snoozeCooldownMinutes) || 0) * MINUTE_MS,
+      confirmationCount: Math.max(0, Number(group.snoozeConfirmations) || 0),
+      activeMsApplied: false,
+      changedAtMs: now
+    };
+  }
+
+  // Ending early keeps an ENDED entry stamped now (it reaches linked devices
+  // as the newest change) → { entry, activeMs } | { error }. `activeMs` is the
+  // snoozed time to add to the group's total.
+  function endSnoozeEntry(entry, now) {
+    const phase = snoozePhase(entry, now);
+    if (phase === "pending") {
+      return { entry: { ...entry, startsAtMs: now, untilMs: now, cooldownUntilMs: now, activeMsApplied: true, changedAtMs: now }, activeMs: 0 };
+    }
+    if (phase === "active") {
+      const cooldownMs = Math.max(0, entry.cooldownUntilMs - entry.untilMs);
+      return {
+        entry: { ...entry, untilMs: now, cooldownUntilMs: now + cooldownMs, activeMsApplied: true, changedAtMs: now },
+        activeMs: Math.max(0, now - entry.startsAtMs)
+      };
+    }
+    return { error: "no-snooze" };
+  }
+
+  // A linked device's entry replaces ours only when it changed later (a start
+  // or an end) → the entry to store, or null for no change.
+  function adoptSnooze(local, shared, sharedTs) {
+    const entry = sanitizeSnoozeEntry(shared);
+    if (!entry) return null;
+    const ts = Number(sharedTs) > 0 ? Number(sharedTs) : snoozeChangedAtMs(entry);
+    if (ts <= snoozeChangedAtMs(local)) return null;
+    return { ...entry, changedAtMs: ts };
+  }
+
   // ── Linked groups ────────────────────────────────────────────────────────
   // One lock for the whole link, owned by the Mac hub. A device sends its
   // lock with `lockBase`: the version it last had from the hub
@@ -220,7 +307,8 @@
     CONFIRMATIONS, CONFIRM_INTERVAL_MS, MAX_WAIT_HOURS, LOCK_FIELDS,
     parseWaitHours, normalizeLock, isLocked, hasPin, waitUntilMs, status,
     lock, tighten, setGates, unlockPlan, unlock, deleteAllPlan, confirmStart, confirmStep,
-    lockUnit, lockContribution, adoptLock
+    lockUnit, lockContribution, adoptLock,
+    snoozePhase, snoozeChangedAtMs, sanitizeSnoozeEntry, snoozePlan, snoozeEntry, endSnoozeEntry, adoptSnooze
   });
   global.CBGroupActions = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

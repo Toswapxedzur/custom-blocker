@@ -168,7 +168,7 @@ async function op(operation, body) {
 
   const stored_ = (id) => storage.get("blockedGroups").find((x) => x.id === id);
   // The confirmation needs 5 s between steps: age the pending step instead of waiting.
-  const age = (id) => { const r = sessionStore.get("cbUnlockRequests"); r[id].confirm.nextAtMs = 0; sessionStore.set("cbUnlockRequests", r); };
+  const age = (id) => { const r = sessionStore.get("cbUnlockRequests"); r[`unlock:${id}`].confirm.nextAtMs = 0; sessionStore.set("cbUnlockRequests", r); };
   const confirmAll = async (id) => {
     let last = null;
     for (let i = 0; i < 10; i += 1) { age(id); last = await op("settings-unlock-group", { id, confirm: true }); }
@@ -210,6 +210,29 @@ async function op(operation, body) {
   check("…after the wait the right PIN starts the confirmation (always there)", pinOk?.body?.unlocked === false && pinOk.body.confirmationsLeft === 10, pinOk);
   const opened = await confirmAll(c);
   check("…and the confirmation unlocks", opened?.body?.unlocked === true && stored_(c).lockedAtMs === null && stored_(c).parentalPasswordHash, opened);
+
+  // Snooze from a tool: the editor's rules, the group's own confirmations.
+  const snoozeGroup = (await op("settings-create-group", { groupType: "site", patch: { name: "Snooze me", sites: ["s.example"], snoozeMinutes: 10, snoozeConfirmations: 2 } })).body.group.id;
+  const sAsk = await op("settings-snooze-group", { id: snoozeGroup });
+  check("snoozing asks the group's own confirmations (2)", sAsk?.body?.snoozed === false && sAsk.body.confirmationsLeft === 2, sAsk);
+  const sEarly = await op("settings-snooze-group", { id: snoozeGroup, confirm: true });
+  check("…5 s apart", /^confirm-wait:/.test(sEarly?.error || ""), sEarly);
+  const ageKey = (key) => { const r = sessionStore.get("cbUnlockRequests"); r[key].confirm.nextAtMs = 0; sessionStore.set("cbUnlockRequests", r); };
+  ageKey(`snooze:${snoozeGroup}`);
+  await op("settings-snooze-group", { id: snoozeGroup, confirm: true });
+  ageKey(`snooze:${snoozeGroup}`);
+  const sDone = await op("settings-snooze-group", { id: snoozeGroup, confirm: true });
+  const entry = storage.get("groupSnoozes")?.[snoozeGroup];
+  check("…then the snooze starts from the saved settings (10 min)", sDone?.body?.snoozed === true && entry && entry.untilMs - entry.startsAtMs === 10 * 60000, sDone);
+  check("a second snooze while one runs is refused", (await op("settings-snooze-group", { id: snoozeGroup }))?.error === "snooze-in-progress");
+  const ended = await op("settings-end-snooze", { id: snoozeGroup });
+  const endedEntry = storage.get("groupSnoozes")?.[snoozeGroup];
+  check("end-snooze ends it and keeps the ended entry (shared as the newest change)", ended?.body?.ended === true && endedEntry && endedEntry.activeMsApplied === true && endedEntry.untilMs <= Date.now(), ended);
+  check("a frozen group can still be snoozed by a tool (only its snooze settings are frozen)", await (async () => {
+    const id = (await op("settings-create-group", { groupType: "site", patch: { name: "Frozen snooze", sites: ["f.example"], snoozeConfirmations: 0 } })).body.group.id;
+    await op("settings-lock-group", { id });
+    return (await op("settings-snooze-group", { id }))?.body?.snoozed === true;
+  })());
 
   const order = storage.get("blockedGroups").map((x) => x.id);
   const moved = await op("settings-move-group", { id: c, index: 0 });
