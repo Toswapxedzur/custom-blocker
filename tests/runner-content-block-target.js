@@ -1,6 +1,6 @@
 /* The group's "when blocked" field (owner 2026-09-25): a URL sends the blocked tab away;
-   any other text is shown on the in-place cover; blank is the plain cover. The content
-   script and the worker must read it identically. */
+   any other text is shown on the in-place cover; blank is the plain cover. The worker
+   reads it (the page receives the resolved decision). */
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -18,12 +18,9 @@ function extract(file, name) {
   return source.slice(start, end + 1);
 }
 const context = vm.createContext({ chrome: { runtime: { getURL: (p) => "chrome-extension://abc/" + p } } });
-// The content script resolves page-level blocks; the worker resolves the
-// whole-site redirect fast path. Both must read the field the same way.
-vm.runInContext(extract("content.js", "cbBlockExit") + "\n" + extract("background.js", "cbBlockExit").replace("function cbBlockExit(", "function cbWorkerBlockExit("), context);
+vm.runInContext(extract("background.js", "cbBlockExit"), context);
 const exitOf = (v) => vm.runInContext(`cbBlockExit(${JSON.stringify(v)})`, context);
 const target = (v) => { const e = exitOf(v); return e.navigate || (e.message ? "cover:" + e.message : ""); };
-const workerTarget = (v) => { const e = vm.runInContext(`cbWorkerBlockExit(${JSON.stringify(v)})`, context); return e.navigate || (e.message ? "cover:" + e.message : ""); };
 
 let pass = 0; let fail = 0;
 const check = (label, ok, got) => { if (ok) { pass += 1; console.log(`PASS ${label}`); } else { fail += 1; console.log(`FAIL ${label} — got ${JSON.stringify(got)}`); } };
@@ -42,7 +39,6 @@ const cases = [
   ["unicode text is a message", "去工作吧", "cover:" + "去工作吧"]
 ];
 for (const [label, input, expected] of cases) { const got = target(input); check(label, got === expected, got); }
-for (const [label, input, expected] of cases) { const got = workerTarget(input); check(`worker fast path: ${label}`, got === expected, got); }
 console.log(`BLOCK TARGET TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
 if (fail) process.exitCode = 1;
