@@ -588,30 +588,6 @@ textarea:focus {
   font-weight: 600;
 }
 
-/* Golden accent for the per-group web-app bridge UI, independent of whether a
-   group is currently linked. */
-#connectionGroupSection {
-  background: var(--gold-50);
-}
-
-#connectionGroupSection::before {
-  background: linear-gradient(180deg, #fbbf24 0%, var(--gold-700) 100%);
-}
-
-#connectionGroupSection .section-header h3 {
-  color: color-mix(in srgb, var(--gold-text) 36%, #334155);
-}
-
-/* Golden treatment for groups linked into a web-app bridge cluster. */
-.connection-group-section.bridge-linked {
-  background: var(--gold-50);
-  box-shadow: inset 4px 0 0 var(--gold-700);
-}
-
-.connection-group-section.bridge-linked h3 {
-  color: var(--gold-text);
-}
-
 /* Cluster ("web-app bridge") group cards read gold: a faint gold by default,
    deepening to the Web-app bridge panel color (--gold-50) when selected. No
    star, no rim. */
@@ -624,31 +600,11 @@ textarea:focus {
   box-shadow: 0 8px 18px rgba(202, 138, 4, 0.14);
 }
 
-/* Gold checkboxes anywhere inside a bridge-linked panel or the custom-rule card,
-   so linked / custom groups read as fully golden (incl. the snooze toggle). */
-.connection-group-section.bridge-linked .checkbox-row input[type="checkbox"],
+/* Gold checkboxes in the custom-rule card (incl. the snooze toggle). */
 #customSettingsCard .checkbox-row input[type="checkbox"] {
   accent-color: var(--gold-700);
 }
 
-.connection-pool {
-  margin-top: 8px;
-}
-
-.connection-pool-items {
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: var(--gold-50);
-  color: var(--gold-text);
-  word-break: break-word;
-}
-
-/* Read-only mirror of the blocked-list type owned by the linked app. Rendered
-   translucent + non-interactive so it is visibly "view only" on this side, and
-   styled identically on every platform so a linked Default group looks the
-   same in the browser and the Mac app. */
 .ai-prompt-panel {
   margin-top: 10px;
   padding: 10px;
@@ -1071,8 +1027,8 @@ button.secondary.danger:hover {
   background: #991b1b;
 }
 
-/* Gold = experimental / "random weird" actions (run user JS, apply
-   template, clear logs). Same faint treatment as .danger, gold palette. */
+/* Gold = experimental / "random weird" actions (run user JS, clear logs).
+   Same faint treatment as .danger, gold palette. */
 button.weird,
 button.secondary.weird {
   background: var(--gold-100);
