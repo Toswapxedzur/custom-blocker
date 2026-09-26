@@ -350,7 +350,6 @@
   "freeze.pin.submit": "सबमिट करें",
   "freeze.pin.cancel": "रद्द करना",
   "freeze.pin.invalid": "सभी 6 अंक दर्ज करें.",
-  "freeze.pin.wrong": "ग़लत पासवर्ड.",
   "freeze.pin.needPassword": "पहले अभिभावक पासवर्ड सेट करें.",
   "freeze.pin.freezeTitle": "फ़्रीज़ करने के लिए पासवर्ड दर्ज करें",
   "freeze.pin.freezePrompt": "इस समूह को फ़्रीज़ करने के लिए 6 अंकों का अभिभावक पासवर्ड दर्ज करें।",
@@ -366,7 +365,6 @@
   "freeze.settings.saved": "पासवर्ड सहेजा गया.",
   "freeze.settings.cleared": "पासवर्ड साफ़ कर दिया गया.",
   "freeze.settings.verifyOk": "पासवर्ड सही है.",
-  "freeze.settings.verifyFail": "पासवर्ड ग़लत है.",
   "status.created": "\"{name}\" बनाया गया।",
   "status.deleted": "\"{name}\" हटा दिया गया।",
   "status.enabled": "\"{name}\" सक्षम किया गया।",
@@ -459,5 +457,8 @@
   "settings.quickAddHelp": "A tiny \"+\" at the bottom right of every page (and of the desktop) adds the current site or app to the group whose \"+\" badge you chose in the list.",
   "groups.quickAddBadge": "Quick-add target",
   "apps.allowlistLabel": "Block every application except these",
-  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones."
+  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.",
+  "freeze.pin.wait": "Too many wrong tries. Try again in {seconds} s.",
+  "freeze.pin.wrongWait": "Wrong PIN. Try again in {seconds} s.",
+  "groups.deleteAllPinPrompt": "Enter the PIN of “{name}” to delete it with the other groups."
 }

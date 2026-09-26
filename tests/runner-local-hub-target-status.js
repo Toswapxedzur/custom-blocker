@@ -17,6 +17,7 @@ const timers = new Map();
 let nextTimerID = 1;
 let failures = 0;
 let storageReads = 0;
+let announcesFromStorage = 0;
 
 class FakeWebSocket {
   static OPEN = 1;
@@ -85,6 +86,7 @@ const context = vm.createContext({
   CB_CONNECTION_BURST_WINDOW_MS: 5_000,
   CB_CONNECTION_SLOW_INTERVAL_MS: 5_000,
   cbDetectProgramId: () => "chrome",
+  cbAnnounceStoredGroups: async () => { announcesFromStorage += 1; },
   WebSocket: FakeWebSocket,
   clearInterval: () => {},
   clearTimeout: fakeClearTimeout,

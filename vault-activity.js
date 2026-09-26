@@ -128,7 +128,9 @@ const cbActivity = {
       const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       tab = tabs && tabs[0];
     } catch (_) { return; }
-    const domain = tab ? cbActivityDomainOf(tab.url) : null;
+    // A covered page is not a visit, like its budget: the time counts nowhere.
+    const covered = tab && typeof cbCoveredTabs !== "undefined" && cbCoveredTabs.has(tab.id);
+    const domain = tab && !covered ? cbActivityDomainOf(tab.url) : null;
     const session = await this.loadSession();
     if (session && session.domain === domain && session.tabId === (tab && tab.id)) return;
     await this.closeSession("switch");

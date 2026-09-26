@@ -112,6 +112,9 @@ const MAX_SNOOZE_COOLDOWN_MINUTES = 5;
 const MS_PER_MINUTE = 60 * 1000;
 const MS_PER_HOUR = 60 * MS_PER_MINUTE;
 const MAX_HEARTBEAT_MS = 5000;
+// Group id -> the wall-clock moment its budget has been counted up to (see
+// the accrual loop): time is counted once per group across visible tabs.
+const cbGroupAccruedUntilMs = new Map();
 const TRANSITION_ALARM_NAME = "custom-blocker-transition";
 const ACTION_ICON_NORMAL_PATHS = Object.freeze({
   16: "icons/adamancia-vault-lock-v3-16.png",
@@ -1768,12 +1771,17 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
   for (const group of accrualGroups) {
     const currentValue = nextTimers[group.id] ?? 0;
     const thresholdMs = getAllowedMs(group);
+    // Several visible tabs of one group report the same seconds: a group's
+    // budget counts each moment once, however many of its pages are showing.
+    const accruedUntil = cbGroupAccruedUntilMs.get(group.id) || 0;
+    const groupElapsedMs = Math.max(0, now - Math.max(now - boundedElapsedMs, accruedUntil));
+    cbGroupAccruedUntilMs.set(group.id, Math.max(now, accruedUntil));
     let nextValue;
     if (group.rollingLimit) {
       // Rolling limit: book the time into this minute (capped at the allowance,
       // like the fixed budget); the timer is the total still inside the window.
       const room = Math.max(0, thresholdMs - currentValue);
-      const added = Math.min(boundedElapsedMs, room);
+      const added = Math.min(groupElapsedMs, room);
       const buckets = { ...(nextBuckets[group.id] ?? {}) };
       if (added > 0) {
         const minute = String(cbUsageBucketStartMs(now));
@@ -1784,7 +1792,7 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
       bucketsChanged = true;
       nextValue = cbBucketsUsedMs(nextBuckets[group.id]);
     } else {
-      nextValue = Math.min(currentValue + boundedElapsedMs, thresholdMs);
+      nextValue = Math.min(currentValue + groupElapsedMs, thresholdMs);
     }
     if (nextValue !== currentValue) {
       nextTimers[group.id] = nextValue;
@@ -2377,10 +2385,10 @@ async function cbQuickAdd(url) {
   const nextGroups = groups.map((item, at) => (at === index ? next : item));
   await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: nextGroups });
   await syncBlockingRules();
-  // Linked members get the new entry now, not when the editor next opens.
-  try {
-    cbConnection.sendWS({ kind: "group-sync", program: cbDetectProgramId(), groupName: next.name, ts: Date.now(), scopes: next.scopes });
-  } catch (_) {}
+  // Linked members get the change now, as the whole definition (sending only
+  // the lines left the hub with no settings for this member, which let an
+  // older lock win the freeze merge).
+  cbShareGroupChange(nextGroups, next);
   return { entry, added, groupName: next.name };
 }
 
@@ -2436,8 +2444,16 @@ function cbPausePassedGroups(tabId, hostname) {
   return passed;
 }
 
+// Tabs whose page is covered right now (a covered page is not a visit).
+const cbCoveredTabs = new Set();
+
 async function cbSetTabCovered(tabId, covered) {
   await cbCoverStateReady;
+  if (covered !== cbCoveredTabs.has(tabId)) {
+    if (covered) cbCoveredTabs.add(tabId);
+    else cbCoveredTabs.delete(tabId);
+    try { if (typeof cbActivity !== "undefined") cbActivity.resolveActive("cover"); } catch (_) {}
+  }
   try {
     if (covered) {
       const tab = await chrome.tabs.get(tabId);
@@ -2657,7 +2673,7 @@ self.CBRecordVaultClassifierDiagnostic = recordVaultClassifierDiagnostic;
 
 // Transport diagnostics are deliberately local-only stage tokens. They help
 // distinguish an unavailable native peer from a service-worker startup race or
-// fallback socket failure without retaining page evidence or raw exception text.
+// a missing shared connection without retaining page evidence or raw exception text.
 function recordVaultClassifierTransportDiagnostic(stage, outcome = "extension") {
   if (typeof stage !== "string" || !/^[a-z0-9-]{1,48}$/.test(stage)) return;
   if (typeof outcome !== "string" || !/^[a-z0-9-]{1,32}$/.test(outcome)) return;
@@ -3665,6 +3681,7 @@ if (chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener(async (tabId, _info) => {
     const previous = previousTabUrls.get(tabId);
     previousTabUrls.delete(tabId);
+    cbCoveredTabs.delete(tabId);
     let dropped = cbMutedTabs.delete(tabId);
     for (const key of [...cbPausePasses.keys()]) {
       if (key.startsWith(`${tabId}␟`)) { cbPausePasses.delete(key); dropped = true; }
@@ -4145,6 +4162,69 @@ const CB_CONNECTION_BURST_INTERVAL_MS = 100;
 const CB_CONNECTION_BURST_WINDOW_MS = 5_000;
 const CB_CONNECTION_SLOW_INTERVAL_MS = 5_000;
 
+// ── Changes made outside the editor (owner 2026-09-26) ─────────────────────
+// The AI tools get exactly what a user gets — the same actions and the same
+// view, no more and no less. So a tool never sees the parental PIN's stored
+// hash, names stay unique as in the editor, and a tool's (or quick add's)
+// change reaches linked devices exactly like an editor save: the roster, then
+// the group's whole definition.
+function cbPublicGroup(group) {
+  if (!group || typeof group !== "object") return group;
+  const { parentalPasswordHash, parentalPasswordSalt, ...rest } = group;
+  return { ...rest, hasParentalPin: Boolean(parentalPasswordHash) };
+}
+
+function cbNameTaken(groups, name, exceptId) {
+  const key = String(name || "").trim().toLowerCase();
+  return Boolean(key) && groups.some((group) => group.id !== exceptId && String(group.name || "").trim().toLowerCase() === key);
+}
+
+// An edit that changes how a budget runs restarts it, as the editor's save
+// does (popup modeChanged / resetIntervalChanged): same edit, same result.
+async function cbRestartBudgetOnPolicyChange(before, after) {
+  if (!isTimedBlockingMode(after.mode)) return;
+  const periodChanged = after.groupType !== "custom" && (
+    before.resetIntervalHours !== after.resetIntervalHours ||
+    (before.resetAtMidnight === true) !== (after.resetAtMidnight === true) ||
+    (before.rollingLimit === true) !== (after.rollingLimit === true));
+  if (before.mode === after.mode && !periodChanged) return;
+  const stored = await chrome.storage.local.get([USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY]);
+  const timers = { ...(stored[USAGE_TIMERS_KEY] || {}) };
+  const resets = { ...(stored[USAGE_RESET_AT_KEY] || {}) };
+  const buckets = { ...(stored[USAGE_BUCKETS_KEY] || {}) };
+  timers[after.id] = 0;
+  resets[after.id] = Date.now();
+  delete buckets[after.id];
+  await chrome.storage.local.set({ [USAGE_TIMERS_KEY]: timers, [USAGE_RESET_AT_KEY]: resets, [USAGE_BUCKETS_KEY]: buckets });
+}
+
+async function cbAnnounceStoredGroups(groups) {
+  const list = Array.isArray(groups) ? groups : (await getState()).groups;
+  cbConnection.lastAnnounce = {
+    kind: "groups-announce",
+    program: cbDetectProgramId(),
+    groups: list.map((group) => ({ id: group.id, name: group.name, frozen: cbGroupIsLocked(group) }))
+  };
+  if (cbConnection.routeIsReady("macapp")) cbConnection.sendWS(cbConnection.lastAnnounce);
+}
+
+function cbShareGroupChange(groups, group) {
+  try {
+    cbAnnounceStoredGroups(groups).catch(() => {});
+    if (!group || !cbConnection.routeIsReady("macapp")) return;
+    const scalars = {};
+    for (const field of CB_SYNC_SCALAR_FIELDS) scalars[field] = group[field];
+    cbConnection.sendWS({
+      kind: "group-sync",
+      program: cbDetectProgramId(),
+      groupName: group.name,
+      ts: Date.now(),
+      scalars,
+      scopes: group.scopes
+    });
+  } catch (_) {}
+}
+
 // Scalar settings linked groups share (one list, in group-scopes.js).
 const CB_SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
 
@@ -4274,8 +4354,11 @@ const cbConnection = {
     if (!macRouteIsReady && this.clusters.length > 0) {
       this.clusters = [];
       this.broadcastClusters();
-    } else if (!macRouteWasReady && macRouteIsReady && this.lastAnnounce) {
-      this.sendWS(this.lastAnnounce);
+    } else if (!macRouteWasReady && macRouteIsReady) {
+      // Re-link after a reconnect even if the editor was never opened since
+      // this worker started: announce from storage when nothing is cached.
+      if (this.lastAnnounce) this.sendWS(this.lastAnnounce);
+      else cbAnnounceStoredGroups().catch(() => {});
     }
     if (this.routeIsReady("classifier")
       && typeof self.CBFlushVaultClassifierCollectionQueue === "function") {
@@ -4674,10 +4757,13 @@ const cbConnection = {
         }, CB_CONNECTION_PING_MS);
         break;
       case "rejected":
-        this.desired = false;
+        // A refusal (e.g. this browser already holds a connection) is not
+        // final: the other connection may close, so keep the slow retry.
         this.clearTimers();
         this.closeSocket();
+        this.burstStartMs = 0;
         this.setStatus({ state: "error", error: msg.reason || "rejected", peers: [], hubProgram: "" });
+        this.scheduleSlowRetry();
         break;
       case "peers":
         this.setStatus({ peers: Array.isArray(msg.peers) ? msg.peers : [] });
@@ -4800,7 +4886,7 @@ async function cbBrowserRequestBody(operation, body) {
       const stored = await chrome.storage.local.get([CB_CLASSIFIER_SETTINGS_STORAGE_KEY, CB_GLOBAL_SETTINGS_KEY]);
       const raw = stored?.[CB_CLASSIFIER_SETTINGS_STORAGE_KEY];
       return {
-        groups,
+        groups: groups.map(cbPublicGroup),
         usageTimersMs,
         groupSnoozes,
         classifierSettings: {
@@ -4825,8 +4911,11 @@ async function cbBrowserRequestBody(operation, body) {
       if (!group) throw new Error("invalid-group");
       const { groups } = await getState();
       if (groups.some((existing) => existing.id === group.id)) throw new Error("duplicate-group-id");
-      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: [...groups, group] });
-      return { group };
+      if (cbNameTaken(groups, group.name)) throw new Error("duplicate-name");
+      const next = [...groups, group];
+      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+      cbShareGroupChange(next, group);
+      return { group: cbPublicGroup(group) };
     }
     case "settings-set-group": {
       const id = typeof input.id === "string" ? input.id : "";
@@ -4840,10 +4929,13 @@ async function cbBrowserRequestBody(operation, body) {
       const { id: _id, freezeMode: _freeze, frozenAtMs: _frozenAt, freezeChangedAtMs: _changed, parentalPasswordHash: _hash, parentalPasswordSalt: _salt, ...safePatch } = patch;
       const [group] = sanitizeGroups([{ ...groups[index], ...safePatch, id }]);
       if (!group) throw new Error("invalid-group");
+      if (cbNameTaken(groups, group.name, id)) throw new Error("duplicate-name");
       const next = groups.slice();
       next[index] = group;
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
-      return { group };
+      await cbRestartBudgetOnPolicyChange(groups[index], group);
+      cbShareGroupChange(next, group);
+      return { group: cbPublicGroup(group) };
     }
     case "settings-delete-group": {
       const id = typeof input.id === "string" ? input.id : "";
@@ -4851,7 +4943,9 @@ async function cbBrowserRequestBody(operation, body) {
       const group = groups.find((candidate) => candidate.id === id);
       if (!group) throw new Error("group-not-found");
       if (cbGroupIsLocked(group)) throw new Error("group-locked");
-      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups.filter((candidate) => candidate.id !== id) });
+      const next = groups.filter((candidate) => candidate.id !== id);
+      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+      cbShareGroupChange(next, null);
       return { deleted: id };
     }
     case "settings-set-classifier": {
@@ -4917,7 +5011,6 @@ const CB_CLASSIFIER_HUB_MAX_PENDING = 16;
 // enough margin to receive its explicit timeout without racing a late reply.
 const CB_CLASSIFIER_HUB_TIMEOUT_MS = 32_000;
 const CB_CLASSIFIER_HUB_CONNECT_WAIT_MS = 5_000;
-const CB_CLASSIFIER_HUB_MAX_FALLBACK_REQUESTS = 4;
 // The cap bounds CONCURRENCY (in-flight requests), not total work. Overflow waits
 // in this bounded queue for a free slot instead of being dropped, so a dense feed
 // never loses a request. The queue bound is a far higher backstop against a true
@@ -4926,7 +5019,6 @@ const CB_CLASSIFIER_HUB_MAX_QUEUE = 512;
 const cbClassifierHub = {
   pending: new Map(),
   waitQueue: [],
-  fallbackRequests: 0,
 
   recordTransport(stage, outcome = "extension") {
     try {
@@ -5033,101 +5125,6 @@ const cbClassifierHub = {
     }
   },
 
-  requestViaFallbackSocket(operation, body) {
-    if (this.fallbackRequests >= CB_CLASSIFIER_HUB_MAX_FALLBACK_REQUESTS) {
-      this.recordTransport("fallback-busy", "unavailable");
-      return Promise.reject(new Error("Vault Classifier is busy."));
-    }
-    this.fallbackRequests += 1;
-    const requestID = self.VaultClassifierExtensionContract.randomID("classifier-fallback");
-    return new Promise((resolve, reject) => {
-      let socket = null;
-      let settled = false;
-      let welcomed = false;
-      const finish = (completion, value) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        this.fallbackRequests = Math.max(0, this.fallbackRequests - 1);
-        if (socket) {
-          try {
-            socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
-            socket.close();
-          } catch (_) {}
-        }
-        completion(value);
-      };
-      const fail = (stage, error) => {
-        this.recordTransport(stage, "unavailable");
-        finish(reject, error);
-      };
-      const timeout = setTimeout(
-        () => fail("fallback-timeout", new Error("Vault Classifier request timed out.")),
-        CB_CLASSIFIER_HUB_TIMEOUT_MS
-      );
-      try {
-        socket = new WebSocket(CB_FIXED_ADDRESS);
-      } catch (_) {
-        fail("fallback-constructor-failed", new Error("The Vault Classifier bridge is unavailable."));
-        return;
-      }
-      socket.onopen = () => {};
-      socket.onmessage = (event) => {
-        let message;
-        try {
-          message = typeof event?.data === "string" ? JSON.parse(event.data) : event?.data;
-        } catch (_) {
-          fail("fallback-invalid-frame", new Error("The Vault Classifier bridge is unavailable."));
-          return;
-        }
-        if (!message || typeof message !== "object") return;
-        if (message.kind === "challenge" && !welcomed) {
-          if (message.v !== CB_CONNECTION_PROTOCOL_VERSION || typeof message.challenge !== "string" || !self.CBLocalHubAuthentication) {
-            fail("fallback-authentication-unavailable", new Error("The Vault Classifier bridge is unavailable."));
-            return;
-          }
-          self.CBLocalHubAuthentication.proofForChallenge(cbDetectProgramId(), message.challenge)
-            .then((proof) => {
-              if (settled || !socket || socket.readyState !== WebSocket.OPEN) return;
-              socket.send(JSON.stringify({ kind: "hello", v: CB_CONNECTION_PROTOCOL_VERSION, program: cbDetectProgramId(), challenge: message.challenge, proof }));
-            })
-            .catch(() => fail("fallback-authentication-unavailable", new Error("The Vault Classifier bridge is unavailable.")));
-          return;
-        }
-        if (message.kind === "welcome" && !welcomed) {
-          const peers = Array.isArray(message.peers) ? message.peers : [];
-          const classifierPresent = message.hubProgram === "classifier" || peers.some((peer) => peer && peer.program === "classifier" && peer.connected !== false);
-          if (message.v !== CB_CONNECTION_PROTOCOL_VERSION || !self.CBBridgeProtocol.isHubProgram(message.hubProgram)) {
-            fail("fallback-invalid-welcome", new Error("The Vault Classifier bridge is unavailable."));
-            return;
-          }
-          if (!classifierPresent) {
-            fail("fallback-classifier-missing", new Error("The Vault Classifier bridge is unavailable."));
-            return;
-          }
-          welcomed = true;
-          try {
-            socket.send(JSON.stringify({ kind: "classifier-request", requestID, operation, body }));
-          } catch (_) {
-            fail("fallback-send-failed", new Error("The Vault Classifier bridge is unavailable."));
-          }
-          return;
-        }
-        if (message.kind === "classifier-response" && message.requestID === requestID) {
-          try {
-            finish(resolve, this.responseBody(message, operation));
-          } catch (error) {
-            fail("fallback-invalid-response", error);
-          }
-        }
-      };
-      socket.onerror = () => fail("fallback-socket-error", new Error("The Vault Classifier bridge is unavailable."));
-      socket.onclose = () => {
-        if (!settled) fail("fallback-socket-closed", new Error("The Vault Classifier bridge is unavailable."));
-      };
-    });
-  },
-
   // Every operation the extension may send over the shared classifier route.
   // Keep in sync with LocalClassifierHub.swift and ConnectionHub.swift — the
   // parity suite (tests/runner-hub-op-parity.js) fails if the copies drift.
@@ -5161,10 +5158,11 @@ const cbClassifierHub = {
       .then(
         () => this.requestOnSharedSocket(connection, operation, body),
         () => {
-          // A short-lived fallback can bridge a stale MV3 worker socket without
-          // adding another durable stream or persisting page evidence.
-          this.recordTransport("fallback-attempt", "extension");
-          return this.requestViaFallbackSocket(operation, body);
+          // One connection per browser: the hub refuses a second socket from
+          // the same program, so there is no side channel — the request waits
+          // for the shared connection's own retry instead.
+          this.recordTransport("shared-unavailable", "unavailable");
+          throw new Error("The Vault Classifier bridge is unavailable.");
         }
       );
   },
