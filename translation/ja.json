@@ -350,7 +350,6 @@
   "freeze.pin.submit": "送信する",
   "freeze.pin.cancel": "キャンセル",
   "freeze.pin.invalid": "6桁すべてを入力してください。",
-  "freeze.pin.wrong": "パスワードが間違っています。",
   "freeze.pin.needPassword": "最初に保護者パスワードを設定します。",
   "freeze.pin.freezeTitle": "パスワードを入力してフリーズします",
   "freeze.pin.freezePrompt": "このグループを凍結するには、6 桁のガーディアンパスワードを入力してください。",
@@ -366,7 +365,6 @@
   "freeze.settings.saved": "パスワードが保存されました。",
   "freeze.settings.cleared": "パスワードがクリアされました。",
   "freeze.settings.verifyOk": "パスワードは正しいです。",
-  "freeze.settings.verifyFail": "パスワードが間違っています。",
   "status.created": "「{name}」を作成しました。",
   "status.deleted": "「{name}」を削除しました。",
   "status.enabled": "「{name}」を有効にしました。",
@@ -459,5 +457,8 @@
   "settings.quickAddHelp": "A tiny \"+\" at the bottom right of every page (and of the desktop) adds the current site or app to the group whose \"+\" badge you chose in the list.",
   "groups.quickAddBadge": "Quick-add target",
   "apps.allowlistLabel": "Block every application except these",
-  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones."
+  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.",
+  "freeze.pin.wait": "Too many wrong tries. Try again in {seconds} s.",
+  "freeze.pin.wrongWait": "Wrong PIN. Try again in {seconds} s.",
+  "groups.deleteAllPinPrompt": "Enter the PIN of “{name}” to delete it with the other groups."
 }

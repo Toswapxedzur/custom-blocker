@@ -350,7 +350,6 @@
   "freeze.pin.submit": "Soumettre",
   "freeze.pin.cancel": "Annuler",
   "freeze.pin.invalid": "Entrez les 6 chiffres.",
-  "freeze.pin.wrong": "Mot de passe incorrect.",
   "freeze.pin.needPassword": "Définissez d'abord un mot de passe de tuteur.",
   "freeze.pin.freezeTitle": "Entrez le mot de passe pour geler",
   "freeze.pin.freezePrompt": "Entrez le mot de passe du tuteur à 6 chiffres pour geler ce groupe.",
@@ -366,7 +365,6 @@
   "freeze.settings.saved": "Mot de passe enregistré.",
   "freeze.settings.cleared": "Mot de passe effacé.",
   "freeze.settings.verifyOk": "Le mot de passe est correct.",
-  "freeze.settings.verifyFail": "Le mot de passe est incorrect.",
   "status.created": "Créé \"{name}\".",
   "status.deleted": "\"{name}\" supprimé.",
   "status.enabled": "Activé \"{name}\".",
@@ -459,5 +457,8 @@
   "settings.quickAddHelp": "A tiny \"+\" at the bottom right of every page (and of the desktop) adds the current site or app to the group whose \"+\" badge you chose in the list.",
   "groups.quickAddBadge": "Quick-add target",
   "apps.allowlistLabel": "Block every application except these",
-  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones."
+  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.",
+  "freeze.pin.wait": "Too many wrong tries. Try again in {seconds} s.",
+  "freeze.pin.wrongWait": "Wrong PIN. Try again in {seconds} s.",
+  "groups.deleteAllPinPrompt": "Enter the PIN of “{name}” to delete it with the other groups."
 }

@@ -350,7 +350,6 @@
   "freeze.pin.submit": "Gönder",
   "freeze.pin.cancel": "İptal etmek",
   "freeze.pin.invalid": "6 rakamın tamamını girin.",
-  "freeze.pin.wrong": "Yanlış şifre.",
   "freeze.pin.needPassword": "Öncelikle bir koruyucu şifresi belirleyin.",
   "freeze.pin.freezeTitle": "Dondurmak için şifreyi girin",
   "freeze.pin.freezePrompt": "Bu grubu dondurmak için 6 haneli veli şifresini girin.",
@@ -366,7 +365,6 @@
   "freeze.settings.saved": "Şifre kaydedildi.",
   "freeze.settings.cleared": "Şifre temizlendi.",
   "freeze.settings.verifyOk": "Şifre doğru.",
-  "freeze.settings.verifyFail": "Şifre yanlış.",
   "status.created": "\"{name}\" oluşturuldu.",
   "status.deleted": "\"{name}\" silindi.",
   "status.enabled": "\"{name}\" etkinleştirildi.",
@@ -459,5 +457,8 @@
   "settings.quickAddHelp": "A tiny \"+\" at the bottom right of every page (and of the desktop) adds the current site or app to the group whose \"+\" badge you chose in the list.",
   "groups.quickAddBadge": "Quick-add target",
   "apps.allowlistLabel": "Block every application except these",
-  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones."
+  "apps.allowlistHelp": "When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.",
+  "freeze.pin.wait": "Too many wrong tries. Try again in {seconds} s.",
+  "freeze.pin.wrongWait": "Wrong PIN. Try again in {seconds} s.",
+  "groups.deleteAllPinPrompt": "Enter the PIN of “{name}” to delete it with the other groups."
 }

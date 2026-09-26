@@ -452,6 +452,7 @@ const state = {
   isManualOpen: false,
   manualCache: {},
   suppressGroupStorageUpdatesUntil: 0,
+  nameEditing: null,
   panelWidth: 300,
   aiPromptGroupId: null,
   language: "en",
@@ -1073,7 +1074,7 @@ function announceGroups() {
       // The stable per-program group id pins cluster membership to this
       // instance, so a same-named group created after a delete won't re-join.
       id: g.id,
-      name: g.name,
+      name: announcedName(g),
       frozen: getFreezeStatus(g, Date.now()).isFrozen
     }));
   try {
@@ -1243,7 +1244,7 @@ function syncClusterForGroup(group) {
     chrome.runtime.sendMessage({
       type: "group-sync",
       program: LOCAL_PROGRAM_ID,
-      groupName: group.name,
+      groupName: announcedName(group),
       groupType: group.groupType,
       ts: state.groupEditTs[group.id],
       priority,
@@ -3130,6 +3131,12 @@ function startGroupReorder(event, groupId) {
   if (event.button !== 0) {
     return;
   }
+  // A locked group stays where it is (its place decides which group's look a
+  // page it blocks takes), like every other setting of a locked group.
+  const lockedGroup = state.groups.find((group) => group.id === groupId);
+  if (lockedGroup && !isGroupEditable(lockedGroup)) {
+    return;
+  }
 
   const startX = event.clientX;
   const startY = event.clientY;
@@ -3202,17 +3209,19 @@ function startGroupReorder(event, groupId) {
   window.addEventListener("mouseup", handleUp);
 }
 
+const DEFAULT_NAME_PATTERN_TYPES = new Set(["youtube", "tiktok", "facebook", "instagram", "twitch", "reddit", "discord", "twitter", "custom"]);
+
+// "YouTube group 3": numbered after the groups of that kind, skipping any
+// number whose name is already taken (names are unique, case-insensitively).
+function uniqueDefaultGroupName(groupType) {
+  const key = DEFAULT_NAME_PATTERN_TYPES.has(groupType) ? groupType : "site";
+  const taken = new Set(state.groups.map((group) => (group.name || "").trim().toLowerCase()));
+  let number = state.groups.filter((group) => (DEFAULT_NAME_PATTERN_TYPES.has(group.groupType) ? group.groupType : "site") === key).length + 1;
+  while (taken.has(t(`groupName.${key}Pattern`, { number }).trim().toLowerCase())) number += 1;
+  return t(`groupName.${key}Pattern`, { number });
+}
+
 function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
-  const youtubeCount = state.groups.filter((group) => group.groupType === "youtube").length + 1;
-  const tiktokCount = state.groups.filter((group) => group.groupType === "tiktok").length + 1;
-  const facebookCount = state.groups.filter((group) => group.groupType === "facebook").length + 1;
-  const instagramCount = state.groups.filter((group) => group.groupType === "instagram").length + 1;
-  const twitchCount = state.groups.filter((group) => group.groupType === "twitch").length + 1;
-  const redditCount = state.groups.filter((group) => group.groupType === "reddit").length + 1;
-  const discordCount = state.groups.filter((group) => group.groupType === "discord").length + 1;
-  const twitterCount = state.groups.filter((group) => group.groupType === "twitter").length + 1;
-  const customCount = state.groups.filter((group) => group.groupType === "custom").length + 1;
-  const siteCount = state.groups.filter((group) => group.groupType === "site").length + 1;
   // The add menu offers one unified Platform rule. It starts with YouTube only
   // as a safe first profile; the cyan Rule box owns the actual platform choice.
   const normalizedGroupType = normalizeGroupType(
@@ -3222,26 +3231,7 @@ function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
   return {
     id: createGroupId(),
     groupType: normalizedGroupType,
-    name:
-      normalizedGroupType === "youtube"
-        ? t("groupName.youtubePattern", { number: youtubeCount })
-        : normalizedGroupType === "tiktok"
-          ? t("groupName.tiktokPattern", { number: tiktokCount })
-        : normalizedGroupType === "facebook"
-          ? t("groupName.facebookPattern", { number: facebookCount })
-        : normalizedGroupType === "instagram"
-          ? t("groupName.instagramPattern", { number: instagramCount })
-        : normalizedGroupType === "twitch"
-          ? t("groupName.twitchPattern", { number: twitchCount })
-        : normalizedGroupType === "reddit"
-          ? t("groupName.redditPattern", { number: redditCount })
-        : normalizedGroupType === "discord"
-          ? t("groupName.discordPattern", { number: discordCount })
-        : normalizedGroupType === "twitter"
-          ? t("groupName.twitterPattern", { number: twitterCount })
-        : normalizedGroupType === "custom"
-          ? t("groupName.customPattern", { number: customCount })
-        : t("groupName.sitePattern", { number: siteCount }),
+    name: uniqueDefaultGroupName(normalizedGroupType),
     enabled: true,
     mode: "instant",
     allowedMinutes: DEFAULT_ALLOWED_MINUTES,
@@ -3963,10 +3953,123 @@ function randomSaltHex(bytes = 16) {
   return [...arr].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Non-crypto fallback hash (cyrb53) for contexts without crypto.subtle
-// (e.g. WKWebView custom-scheme pages are not secure contexts). Only used
-// to avoid storing the raw PIN; the real protection is the salted SHA-256.
-function fallbackHashHex(str) {
+// ── Parental PIN hashing (owner 2026-09-26) ────────────────────────────────
+// A 6-digit PIN has a million values, so a fast hash of it is cracked offline
+// in under a second. The PIN is stored as PBKDF2-HMAC-SHA256 with many rounds,
+// in the format "pbkdf2-sha256$<rounds>$<hex>". The same code runs in the
+// browser and in the Mac app's editor, whose custom-scheme page has no
+// crypto.subtle — so PBKDF2 is implemented here in plain JS (identical
+// output); crypto.subtle is used when present, only for speed.
+const PARENTAL_PIN_HASH_PREFIX = "pbkdf2-sha256$";
+const PARENTAL_PIN_ROUNDS = 100000;
+
+const SHA256_K = new Uint32Array([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+]);
+const SHA256_INIT = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+
+// One SHA-256 compression of a 64-byte block into state h (8 words), in place.
+function sha256Compress(h, block, w) {
+  for (let i = 0; i < 16; i++) {
+    w[i] = (block[i * 4] << 24) | (block[i * 4 + 1] << 16) | (block[i * 4 + 2] << 8) | block[i * 4 + 3];
+  }
+  for (let i = 16; i < 64; i++) {
+    const x = w[i - 15], y = w[i - 2];
+    const s0 = ((x >>> 7) | (x << 25)) ^ ((x >>> 18) | (x << 14)) ^ (x >>> 3);
+    const s1 = ((y >>> 17) | (y << 15)) ^ ((y >>> 19) | (y << 13)) ^ (y >>> 10);
+    w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+  }
+  let a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], k = h[7];
+  for (let i = 0; i < 64; i++) {
+    const S1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+    const t1 = (k + S1 + ((e & f) ^ (~e & g)) + SHA256_K[i] + w[i]) | 0;
+    const S0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+    const t2 = (S0 + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+    k = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+  }
+  h[0] = (h[0] + a) | 0; h[1] = (h[1] + b) | 0; h[2] = (h[2] + c) | 0; h[3] = (h[3] + d) | 0;
+  h[4] = (h[4] + e) | 0; h[5] = (h[5] + f) | 0; h[6] = (h[6] + g) | 0; h[7] = (h[7] + k) | 0;
+}
+
+// SHA-256 of `bytes`, continuing from state `init` that already absorbed
+// `prefixLength` bytes (a multiple of 64). Returns 32 bytes.
+function sha256Bytes(bytes, init = SHA256_INIT, prefixLength = 0) {
+  const h = Int32Array.from(init);
+  const w = new Int32Array(64);
+  const totalBits = (prefixLength + bytes.length) * 8;
+  const padded = new Uint8Array(Math.ceil((bytes.length + 9) / 64) * 64);
+  padded.set(bytes);
+  padded[bytes.length] = 0x80;
+  const view = new DataView(padded.buffer);
+  view.setUint32(padded.length - 8, Math.floor(totalBits / 4294967296));
+  view.setUint32(padded.length - 4, totalBits >>> 0);
+  for (let i = 0; i < padded.length; i += 64) sha256Compress(h, padded.subarray(i, i + 64), w);
+  const out = new Uint8Array(32);
+  const outView = new DataView(out.buffer);
+  for (let i = 0; i < 8; i++) outView.setInt32(i * 4, h[i]);
+  return out;
+}
+
+// PBKDF2-HMAC-SHA256, one 32-byte block. The HMAC key pads are absorbed once
+// and reused for every round.
+function pbkdf2Sha256Js(passwordBytes, saltBytes, rounds) {
+  const key = passwordBytes.length > 64 ? sha256Bytes(passwordBytes) : passwordBytes;
+  const ipad = new Uint8Array(64).fill(0x36);
+  const opad = new Uint8Array(64).fill(0x5c);
+  for (let i = 0; i < key.length; i++) { ipad[i] ^= key[i]; opad[i] ^= key[i]; }
+  const w = new Int32Array(64);
+  const innerState = Int32Array.from(SHA256_INIT); sha256Compress(innerState, ipad, w);
+  const outerState = Int32Array.from(SHA256_INIT); sha256Compress(outerState, opad, w);
+  const hmac = (message) => sha256Bytes(sha256Bytes(message, innerState, 64), outerState, 64);
+  const first = new Uint8Array(saltBytes.length + 4);
+  first.set(saltBytes);
+  first[first.length - 1] = 1;
+  let u = hmac(first);
+  const result = Uint8Array.from(u);
+  for (let r = 1; r < rounds; r++) {
+    u = hmac(u);
+    for (let i = 0; i < 32; i++) result[i] ^= u[i];
+  }
+  return result;
+}
+
+async function pbkdf2Hex(pin, saltHex, rounds) {
+  const encoder = new TextEncoder();
+  const password = encoder.encode(String(pin));
+  const salt = encoder.encode(String(saltHex));
+  let bytes = null;
+  if (globalThis.crypto && crypto.subtle && crypto.subtle.deriveBits) {
+    try {
+      const key = await crypto.subtle.importKey("raw", password, "PBKDF2", false, ["deriveBits"]);
+      bytes = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: rounds }, key, 256));
+    } catch (_) {
+      bytes = null;
+    }
+  }
+  if (!bytes) bytes = pbkdf2Sha256Js(password, salt, rounds);
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashParentalPin(pin, saltHex) {
+  return `${PARENTAL_PIN_HASH_PREFIX}${PARENTAL_PIN_ROUNDS}$${await pbkdf2Hex(pin, saltHex, PARENTAL_PIN_ROUNDS)}`;
+}
+
+// PINs stored before 2026-09-26 — one salted SHA-256, or the old non-crypto
+// fallback the Mac editor used — are checked once, then upgraded on the first
+// correct entry.
+function legacyParentalPinHash(pin, saltHex) {
+  const data = String(saltHex) + ":" + String(pin);
+  return [...sha256Bytes(new TextEncoder().encode(data))].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function legacyFallbackPinHash(pin, saltHex) {
+  const str = String(saltHex) + ":" + String(pin);
   let h1 = 0xdeadbeef ^ 0;
   let h2 = 0x41c6ce57 ^ 0;
   for (let i = 0; i < str.length; i++) {
@@ -3978,19 +4081,6 @@ function fallbackHashHex(str) {
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   const out = 4294967296 * (2097151 & h2) + (h1 >>> 0);
   return "fb" + out.toString(16).padStart(14, "0");
-}
-
-async function hashParentalPin(pin, saltHex) {
-  const data = String(saltHex) + ":" + String(pin);
-  if (globalThis.crypto && crypto.subtle && crypto.subtle.digest) {
-    try {
-      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
-      return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-    } catch (err) {
-      // fall through to fallback
-    }
-  }
-  return fallbackHashHex(data);
 }
 
 function constantTimeEqual(a, b) {
@@ -4013,8 +4103,53 @@ async function setGroupParentalPin(group, pin) {
 async function verifyGroupParentalPin(group, pin) {
   if (!group || !group.parentalPasswordHash || !group.parentalPasswordSalt) return false;
   if (!isValidParentalPin(pin)) return false;
-  const hash = await hashParentalPin(pin, group.parentalPasswordSalt);
-  return constantTimeEqual(hash, group.parentalPasswordHash);
+  const stored = String(group.parentalPasswordHash);
+  const salt = group.parentalPasswordSalt;
+  if (stored.startsWith(PARENTAL_PIN_HASH_PREFIX)) {
+    const [, roundsText, hex] = stored.split("$");
+    const rounds = Number.parseInt(roundsText, 10);
+    if (!Number.isFinite(rounds) || rounds < 1 || !hex) return false;
+    return constantTimeEqual(await pbkdf2Hex(pin, salt, rounds), hex);
+  }
+  const legacy = stored.startsWith("fb") ? legacyFallbackPinHash(pin, salt) : legacyParentalPinHash(pin, salt);
+  if (!constantTimeEqual(legacy, stored)) return false;
+  // Correct PIN in an old format: store it the slow way from now on.
+  const upgraded = await hashParentalPin(pin, salt);
+  group.parentalPasswordHash = upgraded;
+  Promise.resolve(persistGroupFields(group.id, { parentalPasswordHash: upgraded }, "")).catch(() => {});
+  return true;
+}
+
+// Wrong guesses make the next try wait: 1 s, 2 s, 4 s … doubling up to 64 s
+// (owner 2026-09-26), per group, kept in storage so closing the editor does
+// not reset it. Every PIN prompt goes through this gate.
+const PIN_ATTEMPTS_KEY = "parentalPinAttempts";
+const PIN_RETRY_CAP_MS = 64000;
+function pinRetryDelayMs(failures) {
+  return Math.min(1000 * 2 ** Math.max(0, failures - 1), PIN_RETRY_CAP_MS);
+}
+async function checkParentalPin(group, pin) {
+  let attempts = {};
+  try {
+    const stored = (await chrome.storage.local.get({ [PIN_ATTEMPTS_KEY]: {} }))[PIN_ATTEMPTS_KEY];
+    if (stored && typeof stored === "object") attempts = stored;
+  } catch (_) {}
+  const entry = attempts[group.id] || { failures: 0, retryAtMs: 0 };
+  const now = Date.now();
+  if (Number(entry.retryAtMs) > now) {
+    setStatus(t("freeze.pin.wait", { seconds: Math.ceil((entry.retryAtMs - now) / 1000) }), true);
+    return false;
+  }
+  const ok = await verifyGroupParentalPin(group, pin);
+  if (ok) {
+    delete attempts[group.id];
+  } else {
+    const failures = (Number(entry.failures) || 0) + 1;
+    attempts[group.id] = { failures, retryAtMs: Date.now() + pinRetryDelayMs(failures) };
+    setStatus(t("freeze.pin.wrongWait", { seconds: Math.ceil(pinRetryDelayMs(failures) / 1000) }), true);
+  }
+  try { await chrome.storage.local.set({ [PIN_ATTEMPTS_KEY]: attempts }); } catch (_) {}
+  return ok;
 }
 
 // --- Overlay panel channel ----------------------------------------------
@@ -5582,6 +5717,33 @@ function renderGroupScopes(group, editable) {
   groupScopesAdd.disabled = !editable || groupScopesAdd.options.length <= 1;
 }
 
+function askParentalPin(group) {
+  return new Promise((resolve) => {
+    openPinEntry({
+      title: t("freeze.pin.unfreezeTitle"),
+      description: t("groups.deleteAllPinPrompt", { name: group.name }),
+      onSubmit: async (pin) => {
+        const ok = await checkParentalPin(group, pin);
+        if (ok) resolve(true);
+        return ok;
+      },
+      onCancel: () => resolve(false)
+    });
+  });
+}
+
+async function unlockParentalGroupsForDeleteAll(now = Date.now()) {
+  const seen = new Set();
+  for (const group of state.groups) {
+    const status = getFreezeStatus(group, now);
+    if (!status.isFrozen || group.freezeMode !== "parental" || !group.parentalPasswordHash) continue;
+    if (seen.has(group.parentalPasswordHash)) continue;
+    if (!(await askParentalPin(group))) return false;
+    seen.add(group.parentalPasswordHash);
+  }
+  return true;
+}
+
 async function deleteAllGroups() {
   await flushAutosave();
 
@@ -5603,6 +5765,11 @@ async function deleteAllGroups() {
   if (!confirmed) {
     return;
   }
+
+  // "Delete all" must unlock the union of every lock (owner 2026-09-26): each
+  // parental group's PIN (one prompt per distinct PIN), then the confirmation
+  // steps for the other locks; a strict countdown already refused above.
+  if (!(await unlockParentalGroupsForDeleteAll())) return;
 
   if (hasFrozenGroups() && !confirmDeleteAllFrozenGroups()) {
     return;
@@ -6021,7 +6188,7 @@ async function reorderGroups(draggedGroupId, insertIndex) {
 
   const draggedIndex = state.groups.findIndex((group) => group.id === draggedGroupId);
 
-  if (draggedIndex === -1 || !Number.isInteger(insertIndex)) {
+  if (draggedIndex === -1 || !Number.isInteger(insertIndex) || !isGroupEditable(state.groups[draggedIndex])) {
     state.draggedGroupId = null;
     state.dragInsertIndex = null;
     renderGroupList();
@@ -6168,7 +6335,7 @@ function buildPinPanelSnapshot({ id, title, description, pinId, autoSubmit, subm
 
 // Opens a PIN-entry overlay. `onSubmit(pin)` returns true to close, false to
 // keep the panel open (e.g. wrong PIN) so the guardian can retry.
-function openPinEntry({ title, description, onSubmit }) {
+function openPinEntry({ title, description, onSubmit, onCancel }) {
   const pinId = "pin-input";
   const vals = {};
   let handle = null;
@@ -6212,6 +6379,7 @@ function openPinEntry({ title, description, onSubmit }) {
         ev.eventName === "submit" || (ev.eventName === "click" && ev.value === "submit");
       if (isCancel) {
         if (handle) handle.close();
+        if (typeof onCancel === "function") onCancel();
         return;
       }
       if (isSubmit) {
@@ -6233,11 +6401,7 @@ async function applyParentalFreeze(group) {
     title: t("freeze.pin.freezeTitle"),
     description: t("freeze.pin.freezePrompt"),
     onSubmit: async (pin) => {
-      const ok = await verifyGroupParentalPin(group, pin);
-      if (!ok) {
-        setStatus(t("freeze.pin.wrong"), true);
-        return false;
-      }
+      if (!(await checkParentalPin(group, pin))) return false;
       await persistGroupFields(
         group.id,
         { freezeMode: "parental", frozenAtMs: Date.now(), freezeChangedAtMs: Date.now() },
@@ -6262,11 +6426,7 @@ function openParentalUnfreezeFlow(group) {
     title: t("freeze.pin.unfreezeTitle"),
     description: t("freeze.pin.unfreezePrompt"),
     onSubmit: async (pin) => {
-      const ok = await verifyGroupParentalPin(group, pin);
-      if (!ok) {
-        setStatus(t("freeze.pin.wrong"), true);
-        return false;
-      }
+      if (!(await checkParentalPin(group, pin))) return false;
       await persistGroupFields(
         group.id,
         { freezeMode: "none", frozenAtMs: null, freezeChangedAtMs: Date.now() },
@@ -6350,16 +6510,11 @@ function openParentalSettings(group) {
       return;
     }
     if (id === "settings-verify") {
-      const ok = await verifyGroupParentalPin(g, pin);
-      setStatus(ok ? t("freeze.settings.verifyOk") : t("freeze.settings.verifyFail"), !ok);
+      if (await checkParentalPin(g, pin)) setStatus(t("freeze.settings.verifyOk"), false);
       return;
     }
     if (id === "settings-clear") {
-      const ok = await verifyGroupParentalPin(g, pin);
-      if (!ok) {
-        setStatus(t("freeze.pin.wrong"), true);
-        return;
-      }
+      if (!(await checkParentalPin(g, pin))) return;
       await persistGroupFields(
         g.id,
         { parentalPasswordHash: null, parentalPasswordSalt: null },
@@ -6863,7 +7018,13 @@ function syncExternalState(changes) {
     Date.now() > state.suppressGroupStorageUpdatesUntil
   ) {
     state.groups = sanitizeGroups(changes[BLOCKED_GROUPS_KEY].newValue);
+    // What the user is typing survives a change made elsewhere (a linked
+    // device, the "+", an AI tool): their edit is the latest, so it wins.
+    const typing = isUserEditing() ? state.drafts[state.selectedGroupId] : null;
     state.drafts = {};
+    if (typing && state.groups.some((group) => group.id === state.selectedGroupId)) {
+      state.drafts[state.selectedGroupId] = typing;
+    }
     if (!state.groups.some((group) => group.id === state.selectedGroupId)) {
       state.selectedGroupId = state.groups[0]?.id ?? null;
     }
@@ -6879,6 +7040,30 @@ function syncExternalState(changes) {
     renderDynamicView();
   }
 }
+
+// A rename reaches linked devices when it is finished (Enter or leaving the
+// field), not letter by letter: a half-typed name would unlink the group or
+// link it to another group on the way.
+function announcedName(group) {
+  return state.nameEditing && state.nameEditing.id === group.id ? state.nameEditing.name : group.name;
+}
+
+async function commitNameEdit() {
+  if (!state.nameEditing) return;
+  state.nameEditing = null;
+  await flushAutosave();
+  announceGroups();
+  syncAllClusters();
+}
+
+groupNameField.addEventListener("focus", () => {
+  const group = getSelectedGroup();
+  if (group && !state.nameEditing) state.nameEditing = { id: group.id, name: group.name };
+});
+groupNameField.addEventListener("blur", () => { void commitNameEdit(); });
+groupNameField.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") void commitNameEdit();
+});
 
 groupNameField.addEventListener("input", () => {
   stashCurrentDraft();

@@ -62,7 +62,7 @@ check("only web pages qualify", run(`cbQuickAddEntry("chrome://extensions")`) ==
     base({ id: "f1", name: "Locked", groupType: "site", sites: ["old.example.org"], freezeMode: "strict", frozenAtMs: Date.now() })
   ])})`);
   await context.chrome.storage.local.set({ blockedGroups: groups, globalSettings: { quickAddEnabled: false }, quickAddGroupId: "y1" });
-  context.__sent = []; run(`cbConnection.sendWS = (frame) => { __sent.push(frame); return true; };`);
+  context.__sent = []; run(`cbConnection.sendWS = (frame) => { __sent.push(frame); return true; }; cbConnection.routeIsReady = (target) => target === "macapp";`);
   let state = await run(`cbQuickAddState()`);
   check("off by default: no target", state.enabled === false, state);
   let err = ""; try { await run(`cbQuickAdd("https://example.com/x")`); } catch (e) { err = String(e.message || e); }
@@ -78,6 +78,9 @@ check("only web pages qualify", run(`cbQuickAddEntry("chrome://extensions")`) ==
   check("a platform group gains a Websites entry with the page's entry", result.added === true && result.entry === "docs.example.org/guide/intro" && yt.scopes.some((l) => l.surface === "site" && l.sites.join() === "docs.example.org/guide/intro"), yt.scopes);
   check("its YouTube lines are untouched", yt.scopes.filter((l) => l.platform === "youtube").length === 2, yt.scopes);
   check("the new entry is shared with linked members right away", context.__sent.some((f) => f.kind === "group-sync" && f.groupName === "YT" && Array.isArray(f.scopes)), context.__sent);
+  const sync = context.__sent.find((f) => f.kind === "group-sync" && f.groupName === "YT");
+  check("…as the whole definition (policy settings too, like an editor save)", sync && sync.scalars && sync.scalars.mode === "instant" && "allowedMinutes" in sync.scalars, sync);
+  check("…and the roster is announced", context.__sent.some((f) => f.kind === "groups-announce" && f.groups.some((g) => g.id === "y1")), context.__sent);
 
   result = await run(`cbQuickAdd("https://docs.example.org/guide/intro/")`);
   stored = (await context.chrome.storage.local.get("blockedGroups")).blockedGroups;
