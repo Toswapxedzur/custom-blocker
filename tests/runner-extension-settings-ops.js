@@ -66,7 +66,7 @@ const context = vm.createContext({
   atob: (s) => Buffer.from(s, "base64").toString("binary"), btoa: (s) => Buffer.from(s, "binary").toString("base64")
 });
 context.self = context; context.globalThis = context; context.window = context;
-for (const file of ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
+for (const file of ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
   const p = path.join(root, file);
   if (!fs.existsSync(p)) continue;
   try { vm.runInContext(fs.readFileSync(p, "utf8"), context, { filename: file }); }
@@ -102,9 +102,9 @@ async function op(operation, body) {
   const bad = await op("settings-create-group", { groupType: "myspace" });
   check("an unknown group type is refused", bad?.error === "unknown-group-type", bad);
 
-  const patched = await op("settings-set-group", { id: g.id, patch: { enabled: false, platformTags: [{ name: "Music" }], id: "hijack", freezeMode: "strict" } });
+  const patched = await op("settings-set-group", { id: g.id, patch: { enabled: false, platformTags: [{ name: "Music" }], id: "hijack", lockedAtMs: 5, freezeMode: "strict" } });
   const p = patched?.body?.group;
-  check("set-group patches through the sanitizer and never changes the id or the lock", p && p.id === g.id && p.enabled === false && flatOf(p).platformTags?.[0]?.name === "Music" && p.freezeMode === "none", patched);
+  check("set-group patches through the sanitizer and never changes the id or the lock", p && p.id === g.id && p.enabled === false && flatOf(p).platformTags?.[0]?.name === "Music" && p.lockedAtMs === null, patched);
 
   // Sources (owner 2026-09-24): creators, accounts and subreddits share one
   // field pair; the legacy pairs are read once and never written back.
@@ -135,11 +135,11 @@ async function op(operation, body) {
   check("patching an unknown group fails", missing?.error === "group-not-found", missing);
 
   // Freeze the group the way the popup would, then confirm MCP cannot touch it.
-  const groups = storage.get("blockedGroups"); groups.find((x) => x.id === g.id).freezeMode = "frozen"; storage.set("blockedGroups", groups);
+  const groups = storage.get("blockedGroups"); groups.find((x) => x.id === g.id).lockedAtMs = Date.now(); storage.set("blockedGroups", groups);
   const locked = await op("settings-set-group", { id: g.id, patch: { enabled: true } });
   const lockedDelete = await op("settings-delete-group", { id: g.id });
   check("a frozen group refuses patch and delete (parity with the popup)", locked?.error === "group-locked" && lockedDelete?.error === "group-locked", { locked, lockedDelete });
-  groups.find((x) => x.id === g.id).freezeMode = "none"; storage.set("blockedGroups", groups);
+  groups.find((x) => x.id === g.id).lockedAtMs = null; storage.set("blockedGroups", groups);
 
   const mode = await op("settings-set-classifier", { taggingMode: "always" });
   check("set-classifier writes the tagging mode the bridge reads", mode?.body?.classifierSettings?.taggingMode === "always" && storage.get("vaultClassifierSettings")?.taggingMode === "always", mode);
@@ -166,35 +166,50 @@ async function op(operation, body) {
   const dup = await op("settings-create-group", { groupType: "site", patch: { name: "lock a" } });
   check("a name another group has (any case) is refused", dup?.error === "duplicate-name", dup);
 
-  const frozen = await op("settings-lock-group", { id: a, mode: "frozen" });
-  check("lock-group freezes a group", frozen?.body?.group?.freezeMode === "frozen" && storage.get("blockedGroups").find((x) => x.id === a).freezeMode === "frozen", frozen);
-  check("a locked group cannot be locked again", (await op("settings-lock-group", { id: a, mode: "strict" }))?.error === "group-locked");
-  check("a locked group cannot be moved", (await op("settings-move-group", { id: a, index: 0 }))?.error === "group-locked");
+  const stored_ = (id) => storage.get("blockedGroups").find((x) => x.id === id);
+  // The confirmation needs 5 s between steps: age the pending step instead of waiting.
+  const age = (id) => { const r = sessionStore.get("cbUnlockRequests"); r[id].confirm.nextAtMs = 0; sessionStore.set("cbUnlockRequests", r); };
+  const confirmAll = async (id) => {
+    let last = null;
+    for (let i = 0; i < 10; i += 1) { age(id); last = await op("settings-unlock-group", { id, confirm: true }); }
+    return last;
+  };
+
+  const frozen = await op("settings-lock-group", { id: a });
+  check("lock-group freezes a group (no gates: only the confirmation)", Number.isFinite(frozen?.body?.group?.lockedAtMs) && Number.isFinite(stored_(a).lockedAtMs), frozen);
+  check("a frozen group's patch/move is refused", (await op("settings-move-group", { id: a, index: 0 }))?.error === "group-locked");
+  const looser = await op("settings-lock-group", { id: a, waitHours: 0 });
+  check("the lock call on a frozen group only tightens (same wait is a no-op)", looser?.body?.group?.lockedAtMs === stored_(a).lockedAtMs, looser);
   const ask = await op("settings-unlock-group", { id: a });
-  check("unlocking a frozen group first asks, like the popup's confirmation", ask?.body?.unlocked === false && ask.body.confirmAfterSeconds === 5, ask);
+  check("unlocking first asks: 10 confirmations, 5 s apart", ask?.body?.unlocked === false && ask.body.confirmationsLeft === 10 && ask.body.confirmAfterSeconds === 5, ask);
   const early = await op("settings-unlock-group", { id: a, confirm: true });
   check("…a confirmation inside the 5 s is refused", /^confirm-wait:/.test(early?.error || ""), early);
-  const req = sessionStore.get("cbUnlockRequests"); req[a].askedAtMs -= 6000; sessionStore.set("cbUnlockRequests", req);
-  const confirmed = await op("settings-unlock-group", { id: a, confirm: true });
-  check("…and after it, confirm unlocks", confirmed?.body?.unlocked === true && storage.get("blockedGroups").find((x) => x.id === a).freezeMode === "none", confirmed);
+  age(a);
+  const one = await op("settings-unlock-group", { id: a, confirm: true });
+  check("…each confirmation counts one step", one?.body?.unlocked === false && one.body.confirmationsLeft === 9, one);
+  let confirmed = null;
+  for (let i = 0; i < 9; i += 1) { age(a); confirmed = await op("settings-unlock-group", { id: a, confirm: true }); }
+  check("…and the tenth unlocks", confirmed?.body?.unlocked === true && stored_(a).lockedAtMs === null, confirmed);
 
-  const strict = await op("settings-lock-group", { id: b, mode: "strict", strictHours: 2 });
-  check("a strict lock takes its hours", strict?.body?.group?.strictFreezeHours === 2, strict);
-  check("strict hours above 72 are refused", (await op("settings-lock-group", { id: c, mode: "strict", strictHours: 100 }))?.error?.startsWith("invalid-strict-hours"));
+  const waitLock = await op("settings-lock-group", { id: b, waitHours: 2 });
+  check("a wait gate takes its hours", waitLock?.body?.group?.lockWaitHours === 2, waitLock);
+  check("a frozen lock can be made stricter (a longer wait)", (await op("settings-lock-group", { id: b, waitHours: 5 }))?.body?.group?.lockWaitHours === 5);
+  check("…never looser", (await op("settings-lock-group", { id: b, waitHours: 1 }))?.error === "not-stricter");
+  check("wait hours above 72 are refused", (await op("settings-lock-group", { id: c, waitHours: 100 }))?.error?.startsWith("invalid-wait-hours"));
   const strictNow = await op("settings-unlock-group", { id: b, confirm: true });
-  check("a strict lock does not open before its hours", /^strict-wait:/.test(strictNow?.error || ""), strictNow);
+  check("a wait gate does not open before its hours", /^strict-wait:/.test(strictNow?.error || ""), strictNow);
 
-  const noPin = await op("settings-lock-group", { id: c, mode: "parental" });
-  check("a parental lock without a PIN asks for one", /^pin-required/.test(noPin?.error || ""), noPin);
-  const parental = await op("settings-lock-group", { id: c, mode: "parental", pin: "482915" });
-  check("a parental lock sets the PIN when none exists", parental?.body?.group?.freezeMode === "parental" && parental.body.group.hasParentalPin === true && !("parentalPasswordHash" in parental.body.group), parental);
+  const pinLock = await op("settings-lock-group", { id: c, pin: "482915", waitHours: 0 });
+  check("a PIN given to the lock becomes its PIN gate (never returned)", Number.isFinite(pinLock?.body?.group?.lockedAtMs) && pinLock.body.group.hasParentalPin === true && !("parentalPasswordHash" in pinLock.body.group), pinLock);
   const wrong = await op("settings-unlock-group", { id: c, pin: "000000" });
   check("a wrong PIN is refused with the 1 s wait", wrong?.error === "pin-wrong:1", wrong);
   const waiting = await op("settings-unlock-group", { id: c, pin: "482915" });
   check("…inside the wait even the right PIN is not checked", waiting?.error === "pin-wait:1", waiting);
   await new Promise((r) => setTimeout(r, 1100));
-  const opened = await op("settings-unlock-group", { id: c, pin: "482915" });
-  check("…after the wait the right PIN unlocks", opened?.body?.unlocked === true && storage.get("blockedGroups").find((x) => x.id === c).freezeMode === "none", opened);
+  const pinOk = await op("settings-unlock-group", { id: c, pin: "482915" });
+  check("…after the wait the right PIN starts the confirmation (always there)", pinOk?.body?.unlocked === false && pinOk.body.confirmationsLeft === 10, pinOk);
+  const opened = await confirmAll(c);
+  check("…and the confirmation unlocks", opened?.body?.unlocked === true && stored_(c).lockedAtMs === null && stored_(c).parentalPasswordHash, opened);
 
   const order = storage.get("blockedGroups").map((x) => x.id);
   const moved = await op("settings-move-group", { id: c, index: 0 });
@@ -205,9 +220,9 @@ async function op(operation, body) {
   check("set-global takes the close-retry seconds (default 0)", retry?.body?.globalSettings?.closeRetrySeconds === 30 && (await op("settings-set-global", { patch: { closeRetrySeconds: -4 } }))?.body?.globalSettings?.closeRetrySeconds === 0, retry);
 
   const popupSource = fs.readFileSync(path.join(root, "popup.js"), "utf8");
-  check("the tools' confirmation is the popup's: one confirm after the same wait",
-    /const UNFREEZE_CONFIRMATIONS_REQUIRED = 1;/.test(popupSource) &&
-    Number(/const UNFREEZE_CONFIRMATION_INTERVAL_MS = (\d+);/.exec(popupSource)?.[1]) === vm.runInContext("CB_UNFREEZE_CONFIRMATION_INTERVAL_MS", context));
+  check("the tools and the popup take the confirmation from the same place",
+    /UNFREEZE_CONFIRMATIONS_REQUIRED = CBGroupActions\.CONFIRMATIONS/.test(popupSource) &&
+    vm.runInContext("CBGroupActions.CONFIRMATIONS", context) === 10 && vm.runInContext("CBGroupActions.CONFIRM_INTERVAL_MS", context) === 5000);
 
   const unknown = await op("settings-explode", {});
   check("an unsupported operation is answered, not dropped", unknown?.error === "unsupported-operation", unknown);

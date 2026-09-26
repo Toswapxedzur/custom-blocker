@@ -395,14 +395,12 @@
 
   // The policy settings linked groups share (the whole definition is these
   // plus every entry's lines). One list for the editor and the worker.
-  // freezeChangedAtMs orders lock changes across devices (latest wins); the
-  // parental PIN travels with the lock so every device can ask for it.
+  // The lock is not among them: it travels as its own unit with a version
+  // (group-actions.js lockContribution / adoptLock).
   const SYNC_SCALAR_FIELDS = Object.freeze([
     "mode", "allowedMinutes", "resetIntervalHours", "resetAtMidnight", "rollingLimit",
     "allowSnooze", "snoozeMinutes", "snoozeActivationDelayMinutes", "snoozeCooldownMinutes", "snoozeConfirmations",
     "activeDays", "timeWindowsText",
-    "freezeMode", "freezeModeChoice", "strictFreezeHours", "frozenAtMs", "freezeChangedAtMs",
-    "parentalPasswordHash", "parentalPasswordSalt",
     "fallbackUrl", "pauseSeconds"
   ]);
 

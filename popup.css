@@ -583,11 +583,6 @@ textarea:focus {
   opacity: 0.6;
 }
 
-.bridge-offline-notice {
-  color: #b45309;
-  font-weight: 600;
-}
-
 /* Cluster ("web-app bridge") group cards read gold: a faint gold by default,
    deepening to the Web-app bridge panel color (--gold-50) when selected. No
    star, no rim. */

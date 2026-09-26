@@ -40,7 +40,7 @@ function makeContext() {
   return ctx;
 }
 const context = makeContext();
-for (const file of ["platform-profiles.js", "group-scopes.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
+for (const file of ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
   const p = path.join(root, file); if (!fs.existsSync(p)) continue;
   vm.runInContext(fs.readFileSync(p, "utf8"), context, { filename: file });
 }
