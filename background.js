@@ -5200,7 +5200,7 @@ async function cbBrowserRequestBody(operation, body) {
         showOnPageLogToasts: merged.showOnPageLogToasts !== false,
         defaultSnoozeMinutes: (() => { const n = Number.parseFloat(merged.defaultSnoozeMinutes); return Number.isFinite(n) && n > 0 ? n : DEFAULT_SNOOZE_MINUTES; })(),
         quickAddEnabled: merged.quickAddEnabled === true,
-        closeRetrySeconds: Math.round(clamp(merged.closeRetrySeconds, 0, 86_400, 0))
+        quitRetryMinutes: Math.round(clamp(merged.quitRetryMinutes, 0, 1440, 0))
       };
       await chrome.storage.local.set({ [CB_GLOBAL_SETTINGS_KEY]: next });
       return { globalSettings: next };

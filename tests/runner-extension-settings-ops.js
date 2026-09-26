@@ -239,8 +239,8 @@ async function op(operation, body) {
   check("move-group reorders, like a drag", moved?.body?.order?.[0] === c && moved.body.order.length === order.length, moved);
   check("an index outside the list is refused", /^invalid-index/.test((await op("settings-move-group", { id: c, index: 99 }))?.error || ""));
 
-  const retry = await op("settings-set-global", { patch: { closeRetrySeconds: 30 } });
-  check("set-global takes the close-retry seconds (default 0)", retry?.body?.globalSettings?.closeRetrySeconds === 30 && (await op("settings-set-global", { patch: { closeRetrySeconds: -4 } }))?.body?.globalSettings?.closeRetrySeconds === 0, retry);
+  const retry = await op("settings-set-global", { patch: { quitRetryMinutes: 30 } });
+  check("set-global takes the quit-retry minutes (default 0 = never)", retry?.body?.globalSettings?.quitRetryMinutes === 30 && (await op("settings-set-global", { patch: { quitRetryMinutes: -4 } }))?.body?.globalSettings?.quitRetryMinutes === 0, retry);
 
   const popupSource = fs.readFileSync(path.join(root, "popup.js"), "utf8");
   check("the tools and the popup take the confirmation from the same place",
