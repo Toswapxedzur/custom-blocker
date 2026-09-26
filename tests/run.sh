@@ -193,6 +193,12 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'quick-add' FAILED" >&2
   failed=1
 fi
+node_out=$(node tests/runner-offline-handover.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'offline-handover' FAILED" >&2
+  failed=1
+fi
 node_out=$(node tests/runner-usage-once.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
