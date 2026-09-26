@@ -166,8 +166,9 @@ check("a pause never redirects", s.exit.action === "pause" && s.exit.target === 
   s = session([base({ id: "g1", name: "Sites", groupType: "site", sites: ["example.com"] })], "https://example.com/", "/", { snoozes: { g1: entry } });
   check("the snoozed group no longer blocks the page", !s.shouldExitPage, s);
 
-  // 3b. The early redirect asks the same page decision.
-  await context.chrome.storage.local.set({ blockedGroups: sanitize([
+  // 3b. The page decides on arrival (there is no early redirect): the top
+  // group decides, and only an address sends the tab away.
+  const arrival = [
     base({ id: "g1", name: "Cover", groupType: "site", sites: ["cover.example.com"] }),
     base({ id: "g2", name: "Msg", groupType: "site", sites: ["msg.example.com"], fallbackUrl: "Later" }),
     base({ id: "g3", name: "Go", groupType: "site", sites: ["go.example.com"], fallbackUrl: "focus.example.org" }),
@@ -175,14 +176,20 @@ check("a pause never redirects", s.exit.action === "pause" && s.exit.target === 
     base({ id: "g5", name: "Go second", groupType: "site", sites: ["both.example.com"], fallbackUrl: "focus.example.org" }),
     pauseAddr,
     // Last: it blocks every other site, so anything above it decides first.
-    base({ id: "g6", name: "Work only", groupType: "site", sites: ["reddit.com/r/learnprogramming"], allowlist: true, fallbackUrl: "focus.example.org" })
-  ]), usageTimersMs: {}, groupSnoozes: {} });
-  const early = (url) => run(`cbEarlyRedirect(31, ${JSON.stringify(url)})`);
-  check("an address group sends the tab away before the page loads", await early("https://go.example.com/") === "https://focus.example.org");
-  check("a covering group or a message lets the page load", await early("https://cover.example.com/") === "" && await early("https://msg.example.com/") === "");
-  check("a pause never redirects early either", await early("https://addr.example.com/") === "");
-  check("the top group decides early too: a cover above an address", await early("https://both.example.com/") === "");
-  check("an 'everything except' path exception is honoured", await early("https://www.reddit.com/r/learnprogramming/") === "" && await early("https://www.reddit.com/r/news/") === "https://focus.example.org");
+    base({ id: "g6", name: "Work only", groupType: "site", sites: ["reddit.com/r/learnprogramming", "focus.example.org"], allowlist: true, fallbackUrl: "focus.example.org" })
+  ];
+  const leave = (url) => { const u = new URL(url); const r = session(arrival, url, u.pathname); return r.shouldExitPage && r.exit.action === "navigate" ? r.exit.target : ""; };
+  check("an address group sends the tab away", leave("https://go.example.com/") === "https://focus.example.org");
+  check("a covering group or a message covers in place", leave("https://cover.example.com/") === "" && leave("https://msg.example.com/") === "");
+  check("a pause never redirects", leave("https://addr.example.com/") === "");
+  check("the top group decides: a cover above an address", leave("https://both.example.com/") === "");
+  check("an 'everything except' path exception is honoured", leave("https://www.reddit.com/r/learnprogramming/") === "" && leave("https://www.reddit.com/r/news/") === "https://focus.example.org");
+  const loop = [
+    base({ id: "a", name: "A", groupType: "site", sites: ["a.example.com"], fallbackUrl: "b.example.com" }),
+    base({ id: "b", name: "B", groupType: "site", sites: ["b.example.com"], fallbackUrl: "a.example.com" })
+  ];
+  const looped = session(loop, "https://a.example.com/", "/");
+  check("a redirect to a page that is blocked too covers in place (no loop)", looped.shouldExitPage && looped.exit.action === "cover" && looped.exit.target === "", looped.exit);
 
   // 6. A passed pause covers nothing, so it must not stop another group's budget.
   const timed = base({ id: "t1", name: "Timed news", groupType: "site", sites: ["news.example.com"], mode: "after-minutes", allowedMinutes: 30 });

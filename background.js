@@ -6,9 +6,8 @@
  *   - Decide each page (cbPageLead): blocking is the union of every group;
  *     the groups are walked from the top of the editor list and the first
  *     that blocks a page decides how it looks. The content script covers the
- *     page in place; an address sends the tab away, early when the decision
- *     can be made from the URL (onBeforeNavigate). Custom groups run per-page
- *     in the content script.
+ *     page in place; an address sends the tab away when the page arrives.
+ *     Custom groups run per-page in the content script.
  *   - Build the page session payload that the content script consumes, and
  *     push "session-refresh" to open pages when the enforcement state changes.
  *   - Sanitise and store the custom timer / persistence updates that the
@@ -173,10 +172,6 @@ function queueUsageTimerUpdate(task) {
   const run = usageTimerUpdateQueue.then(() => task());
   usageTimerUpdateQueue = run.catch(() => {});
   return run;
-}
-
-function waitForUsageTimerUpdates() {
-  return usageTimerUpdateQueue;
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -739,8 +734,7 @@ function normalizePageContext(input) {
   };
 }
 
-// The group's "when blocked" field, read the same way by the worker (early
-// redirect) and by content.js (page-level blocks): a web address or a
+// The group's "when blocked" field, read by the page decision: a web address or a
 // scheme-less host is an ADDRESS the tab is sent to; any other text is a
 // MESSAGE shown on the in-place cover; blank is the plain cover. Only an
 // address ever leaves the page (owner 2026-09-25: the cover is the default).
@@ -1492,6 +1486,16 @@ function buildPageSession(
   const surfaceHides = buildSurfaceHideSelectors(pageContext, groups, usageTimersMs, groupSnoozes, now);
   const lead = cbPageLead(pageContext, groups, usageTimersMs, groupSnoozes, now, passedGroupIds);
   const exit = lead ? cbLeadExit(lead, pageContext, groupSnoozes, now) : null;
+  // Never send the tab to a page that is blocked too (that page would send it
+  // on, or back: a loop): the page is covered in place instead.
+  if (exit?.action === "navigate") {
+    let target = null;
+    try { const url = new URL(exit.target); target = normalizePageContext({ url: url.href, hostname: url.hostname, pathname: url.pathname }); } catch (_) {}
+    if (target && cbPageLead(target, groups, usageTimersMs, groupSnoozes, now)) {
+      exit.action = "cover";
+      exit.target = "";
+    }
+  }
 
   return {
     showTimer: !exit && timedItems.length > 0,
@@ -1622,7 +1626,9 @@ async function scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes,
   await chrome.alarms.create(TRANSITION_ALARM_NAME, { when: Math.min(...candidateTimes) });
 }
 
-async function syncBlockingRules() {
+// The next moment the enforcement state can change on its own (a schedule
+// window, a budget period, a snooze phase, a pause pass): the transition alarm.
+async function cbScheduleTransitions() {
   const now = Date.now();
   const { groups, usageResetAtMs, usageBucketsMs, groupSnoozes } = await getState();
   await scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now, usageBucketsMs);
@@ -1658,7 +1664,7 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     didApplyResets
   } = await getState();
 
-  if (didApplyResets) await syncBlockingRules();
+  if (didApplyResets) await cbScheduleTransitions();
 
   const relevantGroups = getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now);
   const relevantTimedGroups = relevantGroups.filter((group) => isTimedBlockingMode(group.mode));
@@ -1689,7 +1695,7 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     exposedGroupIds,
     passedGroupIds
   );
-  if (accrualGroups.length === 0 || current.exit) return current;
+  if (accrualGroups.length === 0 || current.exit || boundedElapsedMs === 0) return current;
 
   const nextTimers = { ...usageTimersMs };
   const nextBuckets = { ...(usageBucketsMs ?? {}) };
@@ -1747,7 +1753,7 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     await cbRecordOfflineUsage(offlineDeltas, usageResetAtMs);
   }
   if (reachedLimit) {
-    await syncBlockingRules();
+    await cbScheduleTransitions();
   }
 
   return buildPageSession(
@@ -1758,44 +1764,6 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     groupSnoozes,
     now,
     exposedGroupIds,
-    passedGroupIds
-  );
-}
-
-async function getPageSession(pageContextInput, passedGroupIds = new Set()) {
-  await waitForUsageTimerUpdates();
-
-  const pageContext = normalizePageContext(pageContextInput);
-  if (!pageContext.hostname) {
-    return {
-      showTimer: false,
-      shouldExitPage: false,
-      items: [],
-      feedFilters: [],
-      exit: null,
-      now: Date.now()
-    };
-  }
-
-  const now = Date.now();
-  const {
-    groups,
-    usageTimersMs,
-    usageResetAtMs,
-    groupSnoozes,
-    didApplyResets
-  } = await getState();
-
-  if (didApplyResets) await syncBlockingRules();
-
-  return buildPageSession(
-    pageContext,
-    groups,
-    usageTimersMs,
-    usageResetAtMs,
-    groupSnoozes,
-    now,
-    [],
     passedGroupIds
   );
 }
@@ -1928,14 +1896,29 @@ async function runInstallMigrations(details) {
   }
 }
 
+// After an update the old pages keep their covers, and the tabs the old
+// worker muted stay muted: adopt those (Chrome names the extension that muted
+// a tab) so the next load or lift unmutes them.
+async function cbAdoptMutedTabs() {
+  await cbCoverStateReady;
+  const tabs = await chrome.tabs.query({});
+  let adopted = false;
+  for (const tab of tabs) {
+    const info = tab?.mutedInfo;
+    if (typeof tab?.id !== "number" || !info?.muted || info.reason !== "extension" || info.extensionId !== chrome.runtime.id) continue;
+    if (!cbMutedTabs.has(tab.id)) { cbMutedTabs.add(tab.id); adopted = true; }
+  }
+  if (adopted) cbSaveCoverState();
+}
+
 chrome.runtime.onInstalled.addListener((details) => {
-  // Migrations run before syncBlockingRules so the DNR rebuild sees the
-  // post-migration state on the very first sync. Awaited via the Promise
-  // chain — both calls are independent of each other beyond ordering.
+  if (details?.reason === "update") cbAdoptMutedTabs().catch(() => {});
+  // Migrations run first so the transition alarm sees the post-migration
+  // groups.
   runInstallMigrations(details)
-    .then(() => syncBlockingRules())
+    .then(() => cbScheduleTransitions())
     .catch((error) => {
-      console.error("Failed to sync blocking rules on install.", error);
+      console.error("Failed to schedule transitions on install.", error);
     });
   // Warm the custom-rule sandbox up front so the first block decision
   // doesn't pay the offscreen-creation + handshake cost inline.
@@ -1943,8 +1926,8 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  syncBlockingRules().catch((error) => {
-    console.error("Failed to sync blocking rules on startup.", error);
+  cbScheduleTransitions().catch((error) => {
+    console.error("Failed to schedule transitions on startup.", error);
   });
   prewarmEventSandbox();
 });
@@ -1961,10 +1944,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   // re-check every open page too, not only the next navigation (a tab open
   // when a block window starts must get covered now).
   cbCoverStateReady
-    .then(() => syncBlockingRules())
+    .then(() => cbScheduleTransitions())
     .then(() => cbRecheckEnforcement())
     .catch((error) => {
-      console.error("Failed to sync blocking rules after alarm.", error);
+      console.error("Failed to schedule transitions after alarm.", error);
     });
 });
 
@@ -1991,16 +1974,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     syncActionIconColorScheme(message.prefersDark === true)
       .then((ok) => sendResponse({ ok }))
       .catch(() => sendResponse({ ok: false }));
-    return true;
-  }
-
-  if (message?.type === "refresh-blocking-rules") {
-    syncBlockingRules()
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => {
-        console.error("Failed to refresh blocking rules.", error);
-        sendResponse({ ok: false });
-      });
     return true;
   }
 
@@ -2034,7 +2007,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true });
         // The pass's end is a transition: the alarm re-checks the open page
         // then; the recheck records the pass so its end reads as a change.
-        syncBlockingRules().catch(() => {});
+        cbScheduleTransitions().catch(() => {});
         cbScheduleRecheck();
       });
       return true;
@@ -2066,45 +2039,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     cbStartSnooze(String(message.groupId || ""))
       .then((snooze) => sendResponse({ ok: true, snooze }))
       .catch((error) => sendResponse({ ok: false, error: String(error && error.message ? error.message : error) }));
-    return true;
-  }
-
-  if (message?.type === "get-page-session") {
-    const tabId = sender?.tab?.id ?? null;
-    const tabUrl = sender?.tab?.url || sender?.url || "";
-    cbCoverStateReady
-      .then(() => getPageSession(message.pageContext ?? message.hostname, cbPausePassedGroups(tabId, hostnameOf(tabUrl))))
-      .then(async (payload) => {
-        // Dispatch a zero-elapsed heartbeat so the initial session
-        // response includes any custom timer items whose domain
-        // matches this URL. elapsedMs = 0 means no tick happens; it's
-        // purely a refresh of the displayed-set so the overlay paints
-        // immediately on page load instead of after the first 250ms
-        // heartbeat.
-        let merged = payload;
-        try {
-          if (typeof tabId === "number") {
-            const result = await dispatchEventToTab(
-              "pageHeartbeatEvent",
-              { tabId, url: tabUrl },
-              { data: { intervalMs: 0 }, elapsedMs: 0 }
-            );
-            merged = mergeCustomTimerItems(payload, result);
-          }
-        } catch (_) {}
-        sendResponse(merged);
-      })
-      .catch((error) => {
-        console.error("Failed to build page session.", error);
-        sendResponse({
-          showTimer: false,
-          shouldExitPage: false,
-          items: [],
-          feedFilters: [],
-          exit: null,
-          now: Date.now()
-        });
-      });
     return true;
   }
 
@@ -2141,7 +2075,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "track-page-time") {
+  // The page's one session message: its decision, timers and filters, plus
+  // the visible time since the last one (0 when it only asks, e.g. on load or
+  // after a navigation or a push).
+  if (message?.type === "page-session") {
     const tabId = sender?.tab?.id ?? null;
     const tabUrl = sender?.tab?.url || sender?.url || "";
     const heartbeatElapsedMs = Math.max(0, Number(message.elapsedMs) || 0);
@@ -2200,8 +2137,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "local" || (!changes[BLOCKED_GROUPS_KEY] && !changes[GROUP_SNOOZES_KEY])) {
     return;
   }
-  syncBlockingRules().catch((error) => {
-    console.error("Failed to sync blocking rules after storage update.", error);
+  cbScheduleTransitions().catch((error) => {
+    console.error("Failed to schedule transitions after storage update.", error);
   });
   if (changes[BLOCKED_GROUPS_KEY]) {
     reconcileCustomGroupHandlers(changes[BLOCKED_GROUPS_KEY]).catch((error) => {
@@ -2321,7 +2258,7 @@ async function cbQuickAdd(url) {
   const [next] = sanitizeGroups([{ ...group, scopes }]);
   const nextGroups = groups.map((item, at) => (at === index ? next : item));
   await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: nextGroups });
-  await syncBlockingRules();
+  await cbScheduleTransitions();
   // Linked members get the change now, as the whole definition (sending only
   // the lines left the hub with no settings for this member, which let an
   // older lock win the freeze merge).
@@ -2426,7 +2363,7 @@ async function cbStartSnooze(groupId, now = Date.now()) {
   const entry = CBGroupActions.snoozeEntry(group, now);
   const next = { ...groupSnoozes, [group.id]: entry };
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: next });
-  await syncBlockingRules();
+  await cbScheduleTransitions();
   cbShareSnooze(group, entry, now);
   return entry;
 }
@@ -3274,8 +3211,11 @@ function cbGroupEnforcing(group, usageTimersMs, groupSnoozes, now) {
 
 function cbEnforcementState(groups, usageTimersMs, groupSnoozes, now) {
   return JSON.stringify({
+    // In effect (a schedule window opening starts a page's timer) and
+    // enforcing (its lines block).
     groups: groups.map((group) => [
       group.id,
+      cbGroupActive(group, groupSnoozes, now),
       cbGroupEnforcing(group, usageTimersMs, groupSnoozes, now),
       getSnoozePhase(groupSnoozes[group.id], now)
     ]),
@@ -3660,6 +3600,13 @@ async function handleCommittedWebNavigation(details, transition = "commit") {
   const tabId = details.tabId;
   if (typeof tabId !== "number" || tabId < 0) return;
 
+  // A new document has no cover: the old page's cover and the tab mute it
+  // brought end here (the new page reports its own cover when it has one).
+  if (transition === "commit") await cbCoverStateReady;
+  if (transition === "commit" && (cbCoveredTabs.has(tabId) || cbMutedTabs.has(tabId))) {
+    await cbSetTabCovered(tabId, false);
+  }
+
   // Chokepoint: close tab immediately if navigating to a dynamically blocked site.
   if (details.url && windowBlocklistMatches(details.url)) {
     try { await chrome.tabs.remove(tabId); } catch {}
@@ -3724,34 +3671,6 @@ if (chrome.webNavigation && chrome.webNavigation.onHistoryStateUpdated) {
       try { console.warn("[CustomBlocker] history navigation dispatch failed", error); } catch (_) {}
     });
   });
-}
-
-// Early redirect: before a top-level navigation is sent, ask the SAME page
-// decision the page itself gets (cbPageLead). Only when it says "send the tab
-// to this address" does the tab leave before anything paints; a cover or a
-// pause lets the page load and the content script shows it on arrival. A
-// decision that needs the page (a creator, a tag) is simply made on arrival.
-if (chrome.webNavigation && chrome.webNavigation.onBeforeNavigate) {
-  chrome.webNavigation.onBeforeNavigate.addListener((details) => {
-    if (!details || details.frameId !== 0) return;
-    const url = String(details.url || "");
-    if (!/^https?:/i.test(url)) return;
-    cbEarlyRedirect(details.tabId, url).catch(() => {});
-  });
-}
-
-async function cbEarlyRedirect(tabId, url) {
-  await cbCoverStateReady;
-  const hostname = hostnameOf(url);
-  let pathname = "/";
-  try { pathname = new URL(url).pathname; } catch {}
-  const pageContext = normalizePageContext({ url, hostname, pathname });
-  const now = Date.now();
-  const { groups, usageTimersMs, groupSnoozes } = await getState();
-  const lead = cbPageLead(pageContext, groups, usageTimersMs, groupSnoozes, now, cbPausePassedGroups(tabId, hostname));
-  const target = lead ? cbLeadExit(lead, pageContext, groupSnoozes, now).target : "";
-  if (target) await chrome.tabs.update(tabId, { url: target });
-  return target;
 }
 
 const lastTickSecondByTab = new Map();
@@ -4561,7 +4480,7 @@ const cbConnection = {
           [USAGE_RESET_AT_KEY]: resets,
           [USAGE_BUCKETS_KEY]: bucketStore
         });
-        await syncBlockingRules();
+        await cbScheduleTransitions();
       }
     } catch (_) {}
 
@@ -4591,7 +4510,7 @@ const cbConnection = {
       }
       if (snoozeChanged) {
         await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: snoozes });
-        await syncBlockingRules();
+        await cbScheduleTransitions();
       }
       // The link's snooze total is the hub's count (each snooze once).
       const totals = { ...((await chrome.storage.local.get({ [GROUP_SNOOZE_TOTALS_KEY]: {} }))[GROUP_SNOOZE_TOTALS_KEY] || {}) };
@@ -5060,7 +4979,7 @@ async function cbEndSnoozeForTool(input) {
     [GROUP_SNOOZES_KEY]: { ...groupSnoozes, [group.id]: result.entry },
     [GROUP_SNOOZE_TOTALS_KEY]: { ...groupSnoozeTotalsMs, [group.id]: (Number(groupSnoozeTotalsMs[group.id]) || 0) + result.activeMs }
   });
-  await syncBlockingRules();
+  await cbScheduleTransitions();
   cbShareSnooze(group, result.entry, now);
   return { ended: true, snooze: result.entry };
 }

@@ -107,19 +107,6 @@ function mountOverlay() {
   return { container };
 }
 
-const DAY_NAMES = [
-  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
-];
-
-function getDayNameForDate(date) {
-  const day = date.getDay();
-  return DAY_NAMES[(day + 6) % 7];
-}
-
-function formatDayName(name) {
-  return String(name).slice(0, 1).toUpperCase() + String(name).slice(1);
-}
-
 // ────────────────────────────────────────────────────────────────────────
 // Module state.
 // ────────────────────────────────────────────────────────────────────────
@@ -130,7 +117,6 @@ let heartbeatIntervalId = null;
 let navigationPollIntervalId = null;
 let lastHeartbeatAt = Date.now();
 let lastKnownUrl = location.href;
-let lastSessionRefreshAt = 0;
 let refreshDebounceTimeoutId = null;
 let feedObserver = null;
 let feedApplyRafId = null;
@@ -170,7 +156,10 @@ function shutdownContentScript() {
     overlay.container.parentNode.removeChild(overlay.container);
   }
   overlay = null;
-  try { cbHideCover(); } catch {}
+  // The extension was updated or reloaded under this page: a blocked page
+  // stays covered (its buttons are gone with the old extension) until it is
+  // reloaded, when the new extension decides again.
+  try { cbStopCoverTimers(); } catch {}
   try { cbUnmountQuickAdd(); } catch {}
 }
 
@@ -1174,10 +1163,10 @@ function applyFeedFilters() {
           // Cover-until-tagged (opt-in): a taggable card whose tags have not
           // settled yet is blacked out (dim) rather than left visible, so nothing
           // flashes before it can be judged. When the tags settle a later pass
-          // re-decides — a match stays covered, a non-match is revealed.
+          // re-decides — a match stays covered, a non-match is revealed. A card
+          // still being tagged is no exposure yet (it may not match).
           if (filter.tagFilter && filter.tagCoverUntilTagged
               && cardData.tags && cardData.tags.settled === false) {
-            exposed.add(filter.baseGroupId || filter.id);
             if (filter.enforce !== false) cbSetCardVerdict(card, filter.id, "dim", "platform");
             continue;
           }
@@ -1486,19 +1475,6 @@ function isScrollBasedVideoPage() {
   return false;
 }
 
-// The group's "when blocked" field, read the same way by the worker (redirect
-// fast path) and here: a web address or a scheme-less host is an ADDRESS the
-// tab is sent to; any other text is a MESSAGE shown on the in-place cover;
-// blank is the plain cover. Only an address ever leaves the page.
-function cbBlockExit(value) {
-  const text = typeof value === "string" ? value.trim() : "";
-  if (!text) return { navigate: "", message: "" };
-  if (/^(https?|about|chrome-extension|moz-extension|safari-web-extension):/i.test(text)) return { navigate: text, message: "" };
-  if (!/\s/.test(text) && /^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(text)) return { navigate: "https://" + text, message: "" };
-  return { navigate: "", message: text };
-}
-if (typeof window !== "undefined") window.cbBlockExit = cbBlockExit;
-
 // ── The cover ───────────────────────────────────────────────────────────────
 // A blocked page is covered IN PLACE (owner 2026-09-25): a modal <dialog> in
 // the browser's top layer, the page underneath left untouched (scroll, forms,
@@ -1641,12 +1617,16 @@ function cbReopenCover() {
   if (!dialog.open) { try { dialog.showModal(); } catch { dialog.setAttribute("open", ""); } }
 }
 
-function cbHideCover() {
-  if (!cbCover.dialog) return;
-  cbCover.exit = null;
+function cbStopCoverTimers() {
   for (const id of ["countdownId", "confirmId"]) {
     if (cbCover[id] !== null) { window.clearInterval(cbCover[id]); cbCover[id] = null; }
   }
+}
+
+function cbHideCover() {
+  if (!cbCover.dialog) return;
+  cbCover.exit = null;
+  cbStopCoverTimers();
   if (cbCover.watcher) { cbCover.watcher.disconnect(); cbCover.watcher = null; }
   if (cbCover.mediaListener) { document.removeEventListener("play", cbCover.mediaListener, true); cbCover.mediaListener = null; }
   for (const el of cbCover.inerted) { try { el.inert = false; } catch {} }
@@ -1855,7 +1835,7 @@ function ensureHeartbeat() {
     lastHeartbeatAt = now;
     safeSendMessage(
       {
-        type: "track-page-time",
+        type: "page-session",
         pageContext: buildPageContext(),
         elapsedMs,
         exposedGroupIds: latestExposedGroupIds
@@ -1871,9 +1851,6 @@ function ensureHeartbeat() {
 function handleSession(session) {
   if (!session) return;
   if (extensionContextInvalid || exitAttempted) return;
-
-  const now = Number.isFinite(session.now) ? session.now : Date.now();
-  lastSessionRefreshAt = now;
 
   const items = Array.isArray(session.items) ? session.items : [];
   const exit = session.exit && typeof session.exit === "object" ? session.exit : null;
@@ -1936,21 +1913,28 @@ function scheduleSessionResolveRetries() {
   }
 }
 
-function hookHistoryNavigation() {
-  const dispatch = () => {
-    try { window.dispatchEvent(new Event("custom-blocker:locationchange")); } catch {}
-  };
-  for (const method of ["pushState", "replaceState"]) {
-    const original = history[method];
-    if (typeof original !== "function" || original.__customBlockerWrapped) continue;
-    const wrapped = function patchedHistoryMethod(...args) {
-      const result = original.apply(this, args);
-      dispatch();
-      return result;
-    };
-    wrapped.__customBlockerWrapped = true;
-    history[method] = wrapped;
+// The page moved to a new address without a load: the page decision is asked
+// again, and a custom rule's cover (it belonged to the old address) lifts
+// while the rules re-run for the new one.
+function cbOnNavigated() {
+  if (exitAttempted || extensionContextInvalid) return;
+  lastKnownUrl = location.href;
+  try {
+    // Cancel any pending retry from the previous URL — the URL it was
+    // probing for is no longer current.
+    if (__cb_pagePredicateRetryTimer !== null) {
+      try { window.clearTimeout(__cb_pagePredicateRetryTimer); } catch {}
+      __cb_pagePredicateRetryTimer = null;
+    }
+    __cb_pagePredicateRetryUrl = null;
+    if (cbCustomCoverUp()) cbHideCover();
+    // Defer one tick so the app can swap in the new page's title first.
+    if (__cb_activePredicateSlots.size > 0) setTimeout(() => __cb_checkPagePredicate(), 0);
+  } catch (error) {
+    cbDebugWarn("[CustomBlocker] navigation handler failed", error);
   }
+  refreshSession();
+  scheduleSessionResolveRetries();
 }
 
 function refreshSession() {
@@ -1959,11 +1943,12 @@ function refreshSession() {
     shutdownContentScript();
     return;
   }
-  lastSessionRefreshAt = Date.now();
   safeSendMessage(
     {
-      type: "get-page-session",
-      pageContext: buildPageContext()
+      type: "page-session",
+      pageContext: buildPageContext(),
+      elapsedMs: 0,
+      exposedGroupIds: latestExposedGroupIds
     },
     handleSession
   );
@@ -2017,55 +2002,14 @@ if (/^https?:$/i.test(location.protocol)) {
 
   window.addEventListener("focus", () => scheduleRefreshSession(0));
   window.addEventListener("pageshow", () => scheduleRefreshSession(0));
-  window.addEventListener("popstate", refreshSession);
-  window.addEventListener("hashchange", refreshSession);
+  // YouTube's router says the new page is hydrated: its title and byline can
+  // be read now. A new address is a navigation (sooner than the next check);
+  // an address already seen only needs the fresh page read again.
   document.addEventListener("yt-navigate-finish", () => {
+    if (location.href !== lastKnownUrl) return cbOnNavigated();
     refreshSession();
-    scheduleSessionResolveRetries();
+    if (__cb_activePredicateSlots.size > 0) __cb_checkPagePredicate();
   });
-
-  hookHistoryNavigation();
-  // Re-evaluate page predicates whenever the SPA URL changes. Without
-  // this, scrolling between YouTube Shorts (which uses pushState to
-  // swap the URL while keeping the content script alive) would only
-  // re-evaluate when a fresh `webChangedEvent` apply roundtripped from
-  // background — which is sometimes too slow because the SPA hasn't
-  // hydrated the new short's <h2> yet, leaving the previous short's
-  // title in the DOM. Triggering directly from pushState/replaceState
-  // restarts the retry budget against the NEW URL with the NEW DOM.
-  //
-  // A custom rule's cover belonged to the previous address, so it lifts
-  // here; the rules re-run for the new one.
-  function __cb_onSpaUrlChange() {
-    try {
-      // Cancel any pending retry from the previous URL — the URL it
-      // was probing for is no longer current.
-      if (__cb_pagePredicateRetryTimer !== null) {
-        try { window.clearTimeout(__cb_pagePredicateRetryTimer); } catch {}
-        __cb_pagePredicateRetryTimer = null;
-      }
-      __cb_pagePredicateRetryUrl = null;
-      // A custom rule's cover belonged to the previous address.
-      if (cbCustomCoverUp()) cbHideCover();
-      if (__cb_activePredicateSlots.size > 0) {
-        // Defer one tick so the SPA can swap the active <h2> /
-        // <ytd-reel-video-renderer is-active> before we read it.
-        setTimeout(() => __cb_checkPagePredicate(), 0);
-      }
-    } catch (error) {
-      cbDebugWarn("[CustomBlocker] SPA url-change handler failed", error);
-    }
-  }
-  window.addEventListener("custom-blocker:locationchange", () => {
-    lastKnownUrl = location.href;
-    scheduleRefreshSession(0);
-    __cb_onSpaUrlChange();
-  });
-  // YouTube fires `yt-navigate-finish` when its router finishes a
-  // transition; this happens AFTER the new <ytd-reel-video-renderer
-  // is-active> is hydrated, so the title selectors should match
-  // immediately and we can skip the retry budget entirely.
-  document.addEventListener("yt-navigate-finish", __cb_onSpaUrlChange);
 
   try {
     chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -2083,6 +2027,11 @@ if (/^https?:$/i.test(location.protocol)) {
     if (isContextInvalidatedError(error)) shutdownContentScript();
   }
 
+  // The one navigation signal: the page's own address. A single-page app
+  // changes it without a load (history API, hash, Back); every browser lets a
+  // content script read it, while webNavigation's history events are missing
+  // in Safari and a pushState hook in this isolated world never sees the
+  // page's own calls.
   navigationPollIntervalId = window.setInterval(() => {
     if (extensionContextInvalid) {
       window.clearInterval(navigationPollIntervalId);
@@ -2093,18 +2042,7 @@ if (/^https?:$/i.test(location.protocol)) {
       shutdownContentScript();
       return;
     }
-    const currentUrl = location.href;
-    const currentHost = normalizeHostname(location.hostname);
-    const onYouTube = isYouTubeHost(currentHost);
-    if (currentUrl !== lastKnownUrl) {
-      lastKnownUrl = currentUrl;
-      refreshSession();
-      return;
-    }
-    if (onYouTube && heartbeatIntervalId === null && Date.now() - lastSessionRefreshAt > 2000) {
-      lastKnownUrl = location.href;
-      refreshSession();
-    }
+    if (location.href !== lastKnownUrl) cbOnNavigated();
   }, 500);
 
   window.addEventListener(
