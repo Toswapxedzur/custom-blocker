@@ -5006,10 +5006,19 @@ async function cbBrowserRequestBody(operation, body) {
       // A lock is the user's to set, in the editor: a created group never
       // starts locked (same fields the edit path strips).
       const { freezeMode: _freeze, frozenAtMs: _frozenAt, freezeChangedAtMs: _changed, parentalPasswordHash: _hash, parentalPasswordSalt: _salt, ...safePatch } = patch;
-      const draft = { ...createDefaultGroup(groupType), ...safePatch, groupType };
+      const { groups } = await getState();
+      // As the editor's New group: the user's default snooze length, and a
+      // free numbered name when none is given ("Block Group 2").
+      const base = createDefaultGroup(groupType);
+      const storedGlobal = (await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY))?.[CB_GLOBAL_SETTINGS_KEY];
+      const defaultSnooze = Number.parseFloat(storedGlobal?.defaultSnoozeMinutes);
+      if (Number.isFinite(defaultSnooze) && defaultSnooze > 0) base.snoozeMinutes = defaultSnooze;
+      if (typeof safePatch.name !== "string" || !safePatch.name.trim()) {
+        for (let n = 2; cbNameTaken(groups, base.name); n += 1) base.name = `${base.name.replace(/ \d+$/, "")} ${n}`;
+      }
+      const draft = { ...base, ...safePatch, groupType };
       const [group] = sanitizeGroups([draft]);
       if (!group) throw new Error("invalid-group");
-      const { groups } = await getState();
       if (groups.some((existing) => existing.id === group.id)) throw new Error("duplicate-group-id");
       if (cbNameTaken(groups, group.name)) throw new Error("duplicate-name");
       const next = [...groups, group];
