@@ -4529,7 +4529,7 @@ const cbConnection = {
         // period (the hub's broadcast of the sum follows).
         const offline = handed[grp.id];
         const incoming = Math.max(0, Number(shared.usageMs) || 0) +
-          (offline && offline.anchorMs === Number(shared.usageResetAtMs) ? offline.ms : 0);
+          (offline && Math.floor(offline.anchorMs) === Math.floor(Number(shared.usageResetAtMs)) ? offline.ms : 0);
         if ((Number(timers[grp.id]) || 0) !== incoming) {
           timers[grp.id] = incoming;
           usageChanged = true;
