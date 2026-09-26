@@ -3,18 +3,16 @@
  * Responsibilities:
  *   - Persist groups, usage timers, snoozes, custom timer state, custom
  *     persistence buckets.
- *   - Block whole sites for site/timed groups via a redirect fast-path
- *     (webNavigation.onBeforeNavigate → message page). Native network-level
- *     blocking (declarativeNetRequest) has been removed; redirect is the
- *     single blocking mechanism. Custom groups run per-page in the content
- *     script and never block at the network level.
- *   - Build the page session payload that the content script consumes.
+ *   - Decide each page (cbPageLead): blocking is the union of every group;
+ *     the groups are walked from the top of the editor list and the first
+ *     that blocks a page decides how it looks. The content script covers the
+ *     page in place; an address sends the tab away, early when the decision
+ *     can be made from the URL (onBeforeNavigate). Custom groups run per-page
+ *     in the content script.
+ *   - Build the page session payload that the content script consumes, and
+ *     push "session-refresh" to open pages when the enforcement state changes.
  *   - Sanitise and store the custom timer / persistence updates that the
  *     content script flushes back after running rules.
- *
- * Evaluation order: groups are iterated in REVERSE storage order
- * (bottom-to-top), so the group at the top of the editor list has the
- * "last word".
  */
 
 // On Chromium the background context is a classic service worker, so we
@@ -577,8 +575,7 @@ function sanitizeGroups(groups) {
         // The entry's page action (block | pause), read into its lines below.
         pageAction: group?.pageAction === "pause" ? "pause" : "block",
         // One field: a web address redirects the blocked tab there, any other
-        // text is shown on Vault's message page, blank = the plain block
-        // (owner 2026-09-24). The content script decides which it is.
+        // text is shown on the cover, blank = the plain cover (cbBlockExit).
         fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
         pauseSeconds: parsePauseSeconds(group?.pauseSeconds) ?? DEFAULT_PAUSE_SECONDS,
         // Preserve custom-rule fields verbatim so that any path which
@@ -1494,7 +1491,7 @@ function buildSurfaceHideSelectors(pageContext, groups, usageTimersMs, groupSnoo
 
 // Timed groups the user is currently "exposed" to via feed content (reported
 // by content.js) but that aren't matched at the page level. Used so the home
-// feed accrues time and shows a count-up/down overlay without redirecting the
+// feed accrues time and shows its countdown overlay without covering the
 // whole page.
 function getExposedTimedGroups(exposedGroupIds, groups, relevantGroups, groupSnoozes, now) {
   if (!Array.isArray(exposedGroupIds) || exposedGroupIds.length === 0) return [];

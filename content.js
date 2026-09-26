@@ -4167,12 +4167,7 @@ async function __cb_checkPagePredicate() {
   };
   const reply = await __cb_evaluateItems(platform, slot, [item]);
   const r = reply && reply.results && reply.results[0];
-  if (r && r.hide && r.blockPageOnVisit) {
-    if (typeof attemptExitPage === "function") {
-      try { attemptExitPage(""); return; } catch {}
-    }
-    location.replace("about:blank");
-  }
+  if (r && r.hide && r.blockPageOnVisit) attemptExitPage();
 }
 
 function __cb_applyEventIntent(intent) {
@@ -4196,13 +4191,7 @@ function __cb_applyEventIntent(intent) {
         // Only exit if we are actually on the platform's home feed; the
         // intent is sticky so it would otherwise nuke every page on
         // every dispatch.
-        if (__cb_isOnPlatformHome(platform)) {
-          if (typeof attemptExitPage === "function") {
-            try { attemptExitPage(""); } catch {}
-          } else {
-            location.replace("about:blank");
-          }
-        }
+        if (__cb_isOnPlatformHome(platform)) attemptExitPage();
       } else if (platformIntent.kind === "shortButton" && cssTable.shortButton) {
         if (platformIntent.value === "hide") __cb_setPlatformStyle(platform + "-shortButton", cssTable.shortButton);
         else if (platformIntent.value === "show") __cb_clearPlatformStyle(platform + "-shortButton");
@@ -4268,10 +4257,8 @@ function __cb_processApplyMessage(message) {
       : (typeof message.result === "string" && message.result.trim() ? message.result.trim() : "");
     if (redirect) {
       location.replace(redirect);
-    } else if (typeof attemptExitPage === "function") {
-      try { attemptExitPage(""); } catch { location.replace("about:blank"); }
     } else {
-      location.replace("about:blank");
+      attemptExitPage();
     }
   } else if (typeof message.result === "string" && message.result.trim()) {
     location.replace(message.result.trim());
