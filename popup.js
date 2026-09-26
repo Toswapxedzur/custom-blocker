@@ -889,6 +889,7 @@ function applyConnectionStatus(raw) {
   const wasOnline = bridgeIsOnline();
   const wasAway = macVaultAway();
   state.connectionStatus = {
+    received: true,
     running: Boolean(incoming.running),
     state: typeof incoming.state === "string" ? incoming.state : "off",
     address: typeof incoming.address === "string" ? incoming.address : "",
@@ -3805,6 +3806,8 @@ function isGroupEditable(group, now = Date.now()) {
 function macVaultAway() {
   if (IS_NATIVE_DESKTOP) return false;
   const s = state.connectionStatus || {};
+  // Unknown until the worker's first status push: not "away" yet.
+  if (!s.received) return false;
   return !((s.state === "connected" || s.state === "running") && s.hubProgram === "macapp");
 }
 
