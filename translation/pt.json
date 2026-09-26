@@ -21,6 +21,8 @@
   "settings.defaultSnoozeMinutes": "Duração padrão da pausa (minutos)",
   "settings.defaultSnoozeMinutesHelp": "Pausar o comprimento usado ao criar novos grupos não personalizados.",
   "settings.defaultSnoozeMinutesPlaceholder": "30",
+  "settings.closeRetrySeconds": "Ask a closed app to quit again every (seconds)",
+  "settings.closeRetrySecondsHelp": "When a custom rule closes an app, the app is asked to quit normally; if it stays open (for example to keep unsaved work), it is left open. Above 0, it is asked again this often while it stays open.",
   "settings.reset": "Restaurar valores predefinidos",
   "settings.saved": "Configurações guardadas.",
   "connectionGroup.warnMemberOffline": "Um programa vinculado está off-line. Abra-o para manter os grupos vinculados sincronizados.",

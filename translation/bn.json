@@ -21,6 +21,8 @@
   "settings.defaultSnoozeMinutes": "ডিফল্ট স্নুজ সময়কাল (মিনিট)",
   "settings.defaultSnoozeMinutesHelp": "নতুন নন-কাস্টম গ্রুপ তৈরি করার সময় স্নুজ দৈর্ঘ্য ব্যবহৃত হয়।",
   "settings.defaultSnoozeMinutesPlaceholder": "30",
+  "settings.closeRetrySeconds": "Ask a closed app to quit again every (seconds)",
+  "settings.closeRetrySecondsHelp": "When a custom rule closes an app, the app is asked to quit normally; if it stays open (for example to keep unsaved work), it is left open. Above 0, it is asked again this often while it stays open.",
   "settings.reset": "ডিফল্টে রিসেট করুন",
   "settings.saved": "সেটিংস সংরক্ষিত।",
   "connectionGroup.warnMemberOffline": "একটি লিঙ্ক করা প্রোগ্রাম অফলাইনে রয়েছে — লিঙ্ক করা গ্রুপগুলিকে সিঙ্কে রাখতে এটি খুলুন।",
