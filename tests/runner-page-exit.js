@@ -1,8 +1,8 @@
 /* The block cover (owner 2026-09-25): what the worker tells a blocked page to
    do. Blank field → cover in place; text → cover with that message; address →
    navigate; the "pause" page action → the cover with a countdown, and a pass
-   lets the tab through; block beats pause; the redirect fast path only
-   intercepts groups that navigate; a snooze started from the cover is the
+   (per group) lets the tab through; groups are walked from the top and the
+   first that blocks decides; the early redirect asks the same decision; a snooze started from the cover is the
    popup's entry and is shared over the hub. */
 "use strict";
 const fs = require("node:fs");
@@ -73,9 +73,9 @@ const now = Date.now();
 const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 const base = (over) => ({ enabled: true, mode: "instant", allowedMinutes: 15, activeDays: days, timeWindowsText: "", snoozeMinutes: 5, snoozeActivationDelayMinutes: 0, snoozeCooldownMinutes: 1, snoozeConfirmations: 2, ...over });
 const pc = (url, pathname) => { const u = new URL(url); return run(`normalizePageContext(${JSON.stringify({ url, hostname: u.hostname, pathname })})`); };
-const session = (groups, url, pathname, { timers = {}, snoozes = {}, passed = false } = {}) => {
+const session = (groups, url, pathname, { timers = {}, snoozes = {}, passed = [] } = {}) => {
   context.__g = sanitize(groups); context.__pc = pc(url, pathname); context.__t = timers; context.__s = snoozes;
-  return run(`buildPageSession(__pc, __g, __t, {}, __s, ${now}, [], ${passed})`);
+  return run(`buildPageSession(__pc, __g, __t, {}, __s, ${now}, [], new Set(${JSON.stringify(passed)}))`);
 };
 
 // 1. What a blocked page does.
@@ -97,32 +97,45 @@ check("an unblocked page has no exit", !s.shouldExitPage && s.exit === null, s);
 const pauseSite = base({ id: "p1", name: "Pause news", groupType: "site", sites: ["news.example.com"], pageAction: "pause", pauseSeconds: 7 });
 s = session([pauseSite], "https://news.example.com/x", "/x");
 check("a pause line: the cover counts down", s.shouldExitPage && s.exit.action === "pause" && s.exit.pauseSeconds === 7, s.exit);
-s = session([pauseSite], "https://news.example.com/x", "/x", { passed: true });
+s = session([pauseSite], "https://news.example.com/x", "/x", { passed: ["p1"] });
 check("with a pass the page is let through", !s.shouldExitPage && s.exit === null, s.exit);
-s = session([pauseSite, base({ id: "b1", name: "Hard", groupType: "site", sites: ["news.example.com"] })], "https://news.example.com/x", "/x", { passed: true });
-check("block beats pause (a pass never lifts a block)", s.shouldExitPage && s.exit.action === "cover" && s.exit.groupName === "Hard", s.exit);
+const hard = base({ id: "b1", name: "Hard", groupType: "site", sites: ["news.example.com"] });
+s = session([pauseSite, hard], "https://news.example.com/x", "/x");
+check("the top group decides: a pause above a block pauses first", s.exit.action === "pause" && s.exit.groupName === "Pause news", s.exit);
+s = session([pauseSite, hard], "https://news.example.com/x", "/x", { passed: ["p1"] });
+check("after Continue the page is re-decided: the next group down blocks it", s.shouldExitPage && s.exit.action === "cover" && s.exit.groupName === "Hard", s.exit);
+s = session([hard, pauseSite], "https://news.example.com/x", "/x");
+check("a block above a pause covers (the top group decides)", s.exit.action === "cover" && s.exit.groupName === "Hard", s.exit);
+const pauseTwo = base({ id: "p2", name: "Pause two", groupType: "site", sites: ["news.example.com"], pageAction: "pause", pauseSeconds: 4 });
+s = session([pauseSite, pauseTwo], "https://news.example.com/x", "/x", { passed: ["p1"] });
+check("Continue belongs to its group: a second pause group still gets its turn", s.exit.action === "pause" && s.exit.groupName === "Pause two" && s.exit.pauseSeconds === 4, s.exit);
 const ytPause = base({ id: "y1", name: "YT", groupType: "youtube", sourceMode: "all", pageAction: "pause", platformTagMode: "include", platformTags: [{ name: "Gaming" }] });
 context.__g = sanitize([ytPause]);
 check("pause applies to source pages lines, tagged pages keep blocking", context.__g[0].scopes.filter((l) => l.surface === "pages").map((l) => l.action).join(",") === "pause,block", context.__g[0].scopes);
 s = session([ytPause], "https://www.youtube.com/watch?v=1", "/watch");
 check("a YouTube page under a pause line pauses", s.exit && s.exit.action === "pause", s.exit);
-check("a pause pass is per tab and host and expires", (() => {
-  run(`cbPausePasses.set(7, { host: "news.example.com", until: ${now + 1000} })`);
-  return run(`cbPausePassActive(7, "news.example.com")`) === true && run(`cbPausePassActive(7, "other.org")`) === false && run(`cbPausePassActive(8, "news.example.com")`) === false;
+const ytHome = base({ id: "y2", name: "YT home", groupType: "youtube", sourceMode: "all", pageAction: "pause", blockHomePage: true });
+s = session([ytHome], "https://www.youtube.com/", "/");
+check("a 'block home feed' line blocks the home page (block beats pause within a group)", s.exit && s.exit.action === "cover", s.exit);
+check("a pause pass is per tab, group and host, and expires", (() => {
+  run(`cbPausePasses.set(cbPauseKey(7, "p1"), { host: "news.example.com", until: Date.now() + 60000 })`);
+  run(`cbPausePasses.set(cbPauseKey(7, "p2"), { host: "news.example.com", until: Date.now() - 1 })`);
+  const here = [...run(`cbPausePassedGroups(7, "news.example.com")`)];
+  return here.join() === "p1" && run(`cbPausePassedGroups(7, "other.org")`).size === 0 && run(`cbPausePassedGroups(8, "news.example.com")`).size === 0;
 })());
 
-// 3. The redirect fast path only intercepts groups that navigate.
-context.__g = sanitize([
-  base({ id: "g1", name: "Cover", groupType: "site", sites: ["cover.example.com"] }),
-  base({ id: "g2", name: "Msg", groupType: "site", sites: ["msg.example.com"], fallbackUrl: "Later" }),
-  base({ id: "g3", name: "Go", groupType: "site", sites: ["go.example.com"], fallbackUrl: "focus.example.org" }),
-  pauseSite
-]);
-const targets = run(`Object.fromEntries(getBlockingTargets(__g, {}, {}, ${now}))`);
-check("only the address group has a fast-path target", targets["cover.example.com"] === "" && targets["msg.example.com"] === "" && targets["go.example.com"] === "https://focus.example.org", targets);
-check("a pause site is not in the fast-path cache at all", !("news.example.com" in targets), Object.keys(targets));
-run(`__blockedHostnamesCache = getBlockingHostnames(__g, {}, {}, ${now}); __blockedTargetsCache = getBlockingTargets(__g, {}, {}, ${now});`);
-check("blockedRedirectUrl is empty for a covering site and the address for a navigating one", run(`blockedRedirectUrl("cover.example.com", "/")`) === "" && run(`blockedRedirectUrl("go.example.com", "/")`) === "https://focus.example.org");
+// 3. Priority: the top-most blocking group decides the whole cover.
+const topMsg = base({ id: "a1", name: "Top", groupType: "site", sites: ["two.example.com"], fallbackUrl: "Go work" });
+const bottom = base({ id: "z1", name: "Bottom", groupType: "site", sites: ["two.example.com"] });
+s = session([topMsg, bottom], "https://two.example.com/", "/");
+check("name and message come from the same, top-most group", s.exit.groupName === "Top" && s.exit.message === "Go work", s.exit);
+s = session([bottom, topMsg], "https://two.example.com/", "/");
+check("…and follow the order when it changes", s.exit.groupName === "Bottom" && s.exit.message === "", s.exit);
+s = session([topMsg, bottom], "https://two.example.com/", "/", { snoozes: { a1: { startsAtMs: now - 1000, untilMs: now + 60000, cooldownUntilMs: now + 60000 } } });
+check("snoozing the top group reveals the next one", s.exit.groupName === "Bottom", s.exit);
+const pauseAddr = base({ id: "pa", name: "Pause addr", groupType: "site", sites: ["addr.example.com"], pageAction: "pause", fallbackUrl: "focus.example.org" });
+s = session([pauseAddr], "https://addr.example.com/", "/");
+check("a pause never redirects", s.exit.action === "pause" && s.exit.target === "", s.exit);
 
 // 4. Tab mute + frame media messages.
 (async () => {
@@ -139,7 +152,7 @@ check("blockedRedirectUrl is empty for a covering site and the address for a nav
   await context.chrome.storage.local.set({ blockedGroups: groups });
   context.__sent = []; run(`cbConnection.sendWS = (frame) => { __sent.push(frame); return true; };`);
   const entry = await run(`cbStartSnooze("g1", ${now})`);
-  check("the cover's snooze creates the popup's entry", entry.startsAtMs === now && entry.untilMs === now + 5 * 60000 && entry.cooldownUntilMs === now + 6 * 60000 && entry.confirmationCount === 2 && entry.refreezeMode === "none", entry);
+  check("the cover's snooze creates the popup's entry", entry.startsAtMs === now && entry.untilMs === now + 5 * 60000 && entry.cooldownUntilMs === now + 6 * 60000 && entry.confirmationCount === 2 && !("refreezeMode" in entry), entry);
   const stored = (await context.chrome.storage.local.get("groupSnoozes")).groupSnoozes;
   check("…stores it", stored && stored.g1 && stored.g1.untilMs === entry.untilMs, stored);
   const frame = context.__sent.find((f) => f.kind === "group-sync");
@@ -153,14 +166,32 @@ check("blockedRedirectUrl is empty for a covering site and the address for a nav
   s = session([base({ id: "g1", name: "Sites", groupType: "site", sites: ["example.com"] })], "https://example.com/", "/", { snoozes: { g1: entry } });
   check("the snoozed group no longer blocks the page", !s.shouldExitPage, s);
 
+  // 3b. The early redirect asks the same page decision.
+  await context.chrome.storage.local.set({ blockedGroups: sanitize([
+    base({ id: "g1", name: "Cover", groupType: "site", sites: ["cover.example.com"] }),
+    base({ id: "g2", name: "Msg", groupType: "site", sites: ["msg.example.com"], fallbackUrl: "Later" }),
+    base({ id: "g3", name: "Go", groupType: "site", sites: ["go.example.com"], fallbackUrl: "focus.example.org" }),
+    base({ id: "g4", name: "Cover first", groupType: "site", sites: ["both.example.com"] }),
+    base({ id: "g5", name: "Go second", groupType: "site", sites: ["both.example.com"], fallbackUrl: "focus.example.org" }),
+    pauseAddr,
+    // Last: it blocks every other site, so anything above it decides first.
+    base({ id: "g6", name: "Work only", groupType: "site", sites: ["reddit.com/r/learnprogramming"], allowlist: true, fallbackUrl: "focus.example.org" })
+  ]), usageTimersMs: {}, groupSnoozes: {} });
+  const early = (url) => run(`cbEarlyRedirect(31, ${JSON.stringify(url)})`);
+  check("an address group sends the tab away before the page loads", await early("https://go.example.com/") === "https://focus.example.org");
+  check("a covering group or a message lets the page load", await early("https://cover.example.com/") === "" && await early("https://msg.example.com/") === "");
+  check("a pause never redirects early either", await early("https://addr.example.com/") === "");
+  check("the top group decides early too: a cover above an address", await early("https://both.example.com/") === "");
+  check("an 'everything except' path exception is honoured", await early("https://www.reddit.com/r/learnprogramming/") === "" && await early("https://www.reddit.com/r/news/") === "https://focus.example.org");
+
   // 6. A passed pause covers nothing, so it must not stop another group's budget.
   const timed = base({ id: "t1", name: "Timed news", groupType: "site", sites: ["news.example.com"], mode: "after-minutes", allowedMinutes: 30 });
   await context.chrome.storage.local.set({ blockedGroups: sanitize([pauseSite, timed]), usageTimersMs: {}, usageResetAtMs: {}, groupSnoozes: {} });
   const pageCtx = JSON.stringify({ url: "https://news.example.com/x", hostname: "news.example.com", pathname: "/x" });
-  await run(`applyElapsedTime(${pageCtx}, 5000, [], false)`);
+  await run(`applyElapsedTime(${pageCtx}, 5000, [])`);
   let timers = (await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {};
   check("while the pause covers the page, nothing accrues", !(timers.t1 > 0), timers);
-  await run(`applyElapsedTime(${pageCtx}, 5000, [], true)`);
+  await run(`applyElapsedTime(${pageCtx}, 5000, [], new Set(["p1"]))`);
   timers = (await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {};
   check("after Continue, the other group's budget runs", timers.t1 === 5000, timers);
 
@@ -168,20 +199,20 @@ check("blockedRedirectUrl is empty for a covering site and the address for a nav
   // allowance covers it, and another timed group on the same site stays still.
   const spent = base({ id: "x1", name: "Spent", groupType: "site", sites: ["news.example.com"], mode: "after-minutes", allowedMinutes: 1 });
   await context.chrome.storage.local.set({ blockedGroups: sanitize([spent, timed]), usageTimersMs: { x1: 60000, t1: 0 } });
-  await run(`applyElapsedTime(${pageCtx}, 5000, [], false)`);
+  await run(`applyElapsedTime(${pageCtx}, 5000, [])`);
   timers = (await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {};
   check("a page covered by a spent allowance counts for no other group", timers.t1 === 0 && timers.x1 === 60000, timers);
 
   // 7. Passes and muted tabs survive the worker stopping; a pass's end is a transition.
   const passUntil = Date.now() + 60_000;
-  run(`cbPausePasses.set(11, { host: "news.example.com", until: ${passUntil} }); cbSaveCoverState();`);
+  run(`cbPausePasses.clear(); cbPausePasses.set(cbPauseKey(11, "p1"), { host: "news.example.com", until: ${passUntil} }); cbSaveCoverState();`);
   await run(`cbSetTabCovered(12, true)`);
   alarmsCreated.length = 0;
   await run(`scheduleNextTransitionAlarm([], {}, {}, Date.now())`);
   check("the transition alarm fires when a pause pass ends", alarmsCreated.length === 1 && alarmsCreated[0].when === passUntil, alarmsCreated);
   const restarted = loadWorker();
   await vm.runInContext(`cbCoverStateReady`, restarted);
-  check("a restarted worker still honours the pass", vm.runInContext(`cbPausePassActive(11, "news.example.com")`, restarted) === true);
+  check("a restarted worker still honours the pass", vm.runInContext(`[...cbPausePassedGroups(11, "news.example.com")].join()`, restarted) === "p1");
   check("…and still knows which tab it muted", vm.runInContext(`cbMutedTabs.has(12)`, restarted) === true);
 
   // 8. Push on change: open pages hear from the worker only when the state

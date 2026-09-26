@@ -97,15 +97,16 @@ check("a listed site is blocked by the site line", session("https://example.com/
 check("a path entry blocks only its path", session("https://news.ycombinator.com/best", "/best", { u1: 30 * 60 * 1000 }).shouldExitPage === true && session("https://news.ycombinator.com/", "/", { u1: 30 * 60 * 1000 }).shouldExitPage === false);
 check("one timer item for the whole group on every platform", [shorts, session("https://www.reddit.com/r/news/", "/r/news/"), session("https://example.com/", "/")].every((s) => s.items.length === 1 && s.items[0].id === "u1"));
 
-// Site cache + surface hides.
+// The page decision + surface hides.
 context.__t = { u1: 30 * 60 * 1000 };
-const hosts = run(`getBlockingHostnames(__groups, __t, {}, ${now})`);
-check("the site line feeds the blocked-site cache once the allowance is spent", hosts.includes("example.com") && hosts.some((h) => h.startsWith("news.ycombinator.com")), hosts);
-check("…and not before", run(`getBlockingHostnames(__groups, {}, {}, ${now})`).length === 0);
+context.__pc = pc("https://example.com/", "/");
+check("the site line blocks once the allowance is spent (the lead of the walk)", run(`cbPageLead(__pc, __groups, __t, {}, ${now})?.id`) === "u1");
+check("…and not before", run(`cbPageLead(__pc, __groups, {}, {}, ${now})`) === null);
 context.__pc = pc("https://www.youtube.com/", "/");
-const ytHides = run(`buildSurfaceHideSelectors(__pc, __groups, {}, ${now})`);
+check("shelves stay until the allowance is spent (one gate for every line)", run(`buildSurfaceHideSelectors(__pc, __groups, {}, {}, ${now})`).length === 0);
+const ytHides = run(`buildSurfaceHideSelectors(__pc, __groups, __t, {}, ${now})`);
 context.__pc = pc("https://x.com/home", "/home");
-const xHides = run(`buildSurfaceHideSelectors(__pc, __groups, {}, ${now})`);
+const xHides = run(`buildSurfaceHideSelectors(__pc, __groups, __t, {}, ${now})`);
 check("shelf hides apply per host", ytHides.length > 0 && xHides.length > 0 && ytHides.join() !== xHides.join(), { ytHides, xHides });
 
 // Flat patch (MCP / legacy): replaces the group's OWN platform lines only.
