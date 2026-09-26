@@ -64,7 +64,7 @@ Disabled groups are retained but do not participate in normal matching, timers, 
 
 | Field | Meaning and constraints |
 | --- | --- |
-| Name | Non-empty, trimmed, and unique case-insensitively within this endpoint. The bridge also identifies linkable groups by name and type, so stable names matter. |
+| Name | Non-empty, trimmed, and unique case-insensitively within this endpoint. The bridge links groups of the same name, so stable names matter. |
 | Enabled | Enables or disables normal matching. |
 | Behaviour | Instant block or block after an allowance. Custom groups use their own rule rather than this normal behaviour selector. |
 | Allowed minutes | Positive number used by the block-after-allowance behaviour. New groups default to 15 minutes. |
@@ -78,7 +78,7 @@ Disabled groups are retained but do not participate in normal matching, timers, 
 
 ### 2.4 Normal group behaviours
 
-The normal editor offers three behaviours:
+The normal editor offers two behaviours:
 
 | Behaviour | Functional result |
 | --- | --- |
