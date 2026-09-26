@@ -48,6 +48,20 @@ const PLATFORM_GROUP_TYPES = [
 // Types that share the "platform video" model (content-type + creator axes
 // matched against detectVideoSiteContext()). Twitter is feed-based but does
 // NOT use the video-form axis, so it is handled on its own track.
+// Tagging exists only where cards carry classifier tags: YouTube and the pill
+// platforms (vault-classifier-collector-core.js PILL_PLATFORMS), and only in
+// builds that load the classifier scripts — Chromium browsers and the desktop
+// app, not Safari or Firefox. Tag filters and "cover until tagged" act only
+// there (owner 2026-09-26); elsewhere they would never match, or would cover
+// content forever.
+const TAGGING_PLATFORMS = Object.freeze(["youtube", "reddit", "bilibili", "twitter"]);
+function isTaggingPlatform(platform) {
+  return TAGGING_PLATFORMS.includes(String(platform || ""));
+}
+function taggingAvailableFor(programId) {
+  return programId !== "safari" && programId !== "firefox";
+}
+
 const PLATFORM_VIDEO_GROUP_TYPES = ["youtube", "tiktok", "facebook", "instagram", "twitch"];
 
 // Feed-first platforms share the author/account and home-feed axes without a
@@ -133,6 +147,16 @@ function normalizeDiscordMode(value, fallbackList) {
 // Entity (creator / subreddit / server / account) normalisation
 // ────────────────────────────────────────────────────────────────────────
 
+// YouTube's own top-level routes. A bare name can still be a legacy custom
+// channel URL (youtube.com/SomeName), so only these are excluded — otherwise
+// "/results" or "/gaming" read as a creator named "results" / "gaming".
+const YOUTUBE_RESERVED_PATHS = new Set([
+  "results", "watch", "shorts", "playlist", "feed", "gaming", "live", "premium",
+  "music", "kids", "trending", "hashtag", "post", "podcasts", "news", "sports",
+  "learning", "fashion", "courses", "account", "signin", "logout", "redirect",
+  "embed", "t", "about", "howyoutubeworks", "creators", "ads", "yt"
+]);
+
 function normalizeYouTubeCreatorInput(value) {
   let trimmed = String(value ?? "").trim().toLowerCase();
   if (!trimmed) return null;
@@ -153,6 +177,8 @@ function normalizeYouTubeCreatorInput(value) {
   if (customMatch) return `c:${customMatch[1]}`;
   if (userMatch) return `user:${userMatch[1]}`;
   if (/^(channel|c|user):[a-z0-9._-]+$/i.test(pathLike)) return pathLike;
+  const bare = pathLike.split(/[/?#]/)[0];
+  if (YOUTUBE_RESERVED_PATHS.has(bare)) return null;
   return /^[a-z0-9._-]+$/i.test(pathLike) ? pathLike : null;
 }
 
@@ -802,15 +828,9 @@ function matchesPlatformVideoGroup(group, pageContext) {
   const authorMode = normalizeSourceMode(group.sourceMode, group.sources);
 
   if (isYouTubeGroup) {
-    if (!pageContext.isYouTubePage) {
-      const videoMode = normalizeVideoMode(group.platformVideoMode);
-      return (
-        authorMode === "all" &&
-        videoMode !== "all" &&
-        Boolean(pageContext.videoSite) &&
-        matchesVideoMode(group, pageContext)
-      );
-    }
+    // Each platform entry is limited to its own platform (owner 2026-09-26):
+    // a YouTube form (Shorts / Long / Posts) never reaches other video sites.
+    if (!pageContext.isYouTubePage) return false;
     if (group.blockHomePage && isHomeFeedPage("youtube", pageContext.hostname, pageContext.pathname)) {
       return true;
     }

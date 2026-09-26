@@ -110,6 +110,18 @@ assertEqual("Twitch clip maps to the shorts helper slot",
 assertEqual("Instagram legacy TV has no exposed custom helper slot",
   platformVideoFormToSlot("instagram", "long"), null);
 
+log.section("P2b: a platform entry stays on its own platform (owner 2026-09-26)");
+assert("a YouTube Shorts form never matches a TikTok video",
+  !matchesProfileGroup(videoGroup("youtube", "short"), pageContext("www.tiktok.com", "/@focus/video/123")));
+assert("a YouTube Posts form never matches a Reddit post or an X status",
+  !matchesProfileGroup(videoGroup("youtube", "post"), pageContext("www.reddit.com", "/r/news/comments/1/x/"))
+  && !matchesProfileGroup(videoGroup("youtube", "post"), pageContext("x.com", "/bbc/status/1")));
+assert("a YouTube Shorts form still matches YouTube Shorts",
+  matchesProfileGroup(videoGroup("youtube", "short"), Object.assign(pageContext("www.youtube.com", "/shorts/abc"), { isYouTubePage: true })));
+assert("YouTube's own routes are not creators",
+  normalizeYouTubeCreatorInput("/results") === null && normalizeYouTubeCreatorInput("/gaming") === null
+  && normalizeYouTubeCreatorInput("/@alice/videos") === "alice" && normalizeYouTubeCreatorInput("/SomeName") === "somename");
+
 log.section("P3: non-YouTube platform groups match their pages");
 assert("TikTok short group matches a TikTok video",
   matchesProfileGroup(videoGroup("tiktok", "short"), pageContext("www.tiktok.com", "/@focus/video/123")));

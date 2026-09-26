@@ -237,6 +237,44 @@ check("a pause never redirects", s.exit.action === "pause" && s.exit.target === 
   pushed = await run(`cbRecheckEnforcement()`);
   check("a snooze starting pushes", pushed === true && pushes() === 2, context.__tabs.messages);
 
+  // 9. Linked groups with the popup closed: the worker adopts the whole shared
+  //    definition (settings AND entries) and the newest snooze change.
+  const linked = base({ id: "L1", name: "Linked", groupType: "site", sites: ["old.example.com"] });
+  const nowMs = Date.now();
+  await context.chrome.storage.local.set({ blockedGroups: sanitize([linked]), groupSnoozes: {
+    L1: { startsAtMs: nowMs - 60000, untilMs: nowMs + 600000, cooldownUntilMs: nowMs + 600000, confirmationCount: 0, activeMsApplied: false }
+  } });
+  context.__clusters = [{ groupName: "Linked", members: [
+    { program: "chrome", groupName: "Linked", groupId: "L1" }, { program: "macapp", groupName: "Linked", groupId: "m1" }
+  ], shared: {
+    scalars: { pauseSeconds: 9 },
+    scopes: [{ id: "site-1", surface: "site", platform: null, action: "block", sites: ["new.example.com"], sitesExcept: false }],
+    snooze: { startsAtMs: nowMs - 60000, untilMs: nowMs - 1000, cooldownUntilMs: nowMs - 1000, changedAtMs: nowMs - 1000, activeMsApplied: true },
+    snoozeTs: nowMs - 1000
+  } }];
+  run(`cbConnection.clusters = __clusters;`);
+  await run(`cbConnection.applySharedToStorage()`);
+  const after = (await context.chrome.storage.local.get("blockedGroups")).blockedGroups.find((g) => g.id === "L1");
+  check("the worker adopts shared entries, not only settings", after.scopes.find((l) => l.surface === "site").sites.join() === "new.example.com" && after.pauseSeconds === 9, after);
+  const snoozesAfter = (await context.chrome.storage.local.get("groupSnoozes")).groupSnoozes || {};
+  check("a snooze ended on another device ends here too", !snoozesAfter.L1, snoozesAfter);
+  check("one list of shared settings, with the lock change time and the PIN", ["pauseSeconds", "freezeChangedAtMs", "parentalPasswordHash", "parentalPasswordSalt"].every((f) => run("CB_SYNC_SCALAR_FIELDS").includes(f)) && !run("CB_SYNC_SCALAR_FIELDS").includes("allowlist") && run("CB_SYNC_SCALAR_FIELDS") === run("CBGroupScopes.SYNC_SCALAR_FIELDS"));
+
+  // 10. The worker keeps the editor's lock choice and lock change time.
+  const kept = sanitize([base({ id: "k1", name: "Keep", groupType: "site", sites: ["x.example"], freezeModeChoice: "strict", freezeChangedAtMs: 1234 })])[0];
+  check("the worker keeps the lock choice and its change time", kept.freezeModeChoice === "strict" && kept.freezeChangedAtMs === 1234, kept);
+
+  // 11. An AI tool cannot create a locked group.
+  const created = await run(`cbBrowserRequestBody("settings-create-group", { groupType: "site", patch: { name: "AI group", sites: ["ai.example"], freezeMode: "strict", frozenAtMs: Date.now(), strictFreezeHours: 72 } })`);
+  check("a created group never starts locked", created.group.freezeMode === "none" && created.group.frozenAtMs === null, created.group);
+
+  // 12. Tag lines act only where tagging exists.
+  const tagFilters = (platform) => {
+    context.__line = { id: "items-9", surface: "items", platform, action: "hide", tagFilter: { mode: "include", tags: [{ name: "Gaming" }] } };
+    return run(`(() => { const f = []; pushTagFilterEntry(f, { id: "t9", scopes: [] }, __line, true); return f.length; })()`);
+  };
+  check("a tag line on YouTube filters; on Instagram (no tag pills) it is inert", tagFilters("youtube") === 1 && tagFilters("instagram") === 0);
+
   console.log(`PAGE EXIT TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
   if (fail) process.exitCode = 1;
