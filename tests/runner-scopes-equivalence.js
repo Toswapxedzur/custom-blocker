@@ -2,7 +2,7 @@
    matches from the lines. This harness loads the PRE-change worker (pinned
    commit) and the current one side by side, feeds both the same flat groups,
    page contexts and usage states, and requires identical page sessions, feed
-   filters, surface hides and blocked-site lists. */
+   filters and surface hides. */
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -126,21 +126,16 @@ oldCtx.__groups = oldGroups; newCtx.__groups = newGroups;
 let compared = 0;
 for (const state of usageStates) {
   oldCtx.__timers = state.timers; newCtx.__timers = state.timers; oldCtx.__snoozes = state.snoozes; newCtx.__snoozes = state.snoozes;
-  const oldHosts = vm.runInContext(`getBlockingHostnames(__groups, __timers, __snoozes, ${now})`, oldCtx);
-  const newHosts = vm.runInContext(`getBlockingHostnames(__groups, __timers, __snoozes, ${now})`, newCtx);
-  check(`blocked-site entries (${state.label})`, strip(oldHosts) === strip(newHosts), `${strip(oldHosts)} vs ${strip(newHosts)}`);
-  // Since 2026-09-25 a text message covers the page in place instead of
-  // sending the tab to the message page: the old worker's message-page
-  // targets compare as "no navigation".
-  const oldTargets = vm.runInContext(`[...getBlockingTargets(__groups, __timers, __snoozes, ${now}).entries()]`, oldCtx)
-    .map(([entry, target]) => [entry, /message-page\.html/.test(String(target)) ? "" : target]);
-  const newTargets = vm.runInContext(`[...getBlockingTargets(__groups, __timers, __snoozes, ${now}).entries()]`, newCtx);
-  check(`redirect targets (${state.label})`, strip(oldTargets) === strip(newTargets), `${strip(oldTargets)} vs ${strip(newTargets)}`);
+  // The blocked-site and redirect-target lists are gone (2026-09-26): the
+  // early redirect asks the page decision compared below.
   for (const [url, pathname] of pages) {
     oldCtx.__pc = pageContextFor(oldCtx, url, pathname); newCtx.__pc = pageContextFor(newCtx, url, pathname);
     for (const exposed of [[], ["yt2", "rd1"]]) {
       oldCtx.__exposed = exposed; newCtx.__exposed = exposed;
-      const expr = `(() => { const s = buildPageSession(__pc, __groups, __timers, {}, __snoozes, ${now}, __exposed); return { shouldExitPage: s.shouldExitPage, showTimer: s.showTimer, items: s.items.map((i) => ({ id: i.id, blocksNow: i.blocksNow })), feedFilters: s.feedFilters, surfaceHides: s.surfaceHides, feedOrder: s.feedOrder }; })()`;
+      const expr = `(() => { const s = buildPageSession(__pc, __groups, __timers, {}, __snoozes, ${now}, __exposed); return { shouldExitPage: s.shouldExitPage, showTimer: s.showTimer, items: s.items.map((i) => ({ id: i.id, blocksNow: i.blocksNow })), feedFilters: [...s.feedFilters].sort((a, b) => String(a.id).localeCompare(String(b.id))), surfaceHides: s.surfaceHides, feedOrder: s.feedOrder }; })()`;
+      // Feed filters are compared as a set: the page ranks them by feedOrder
+      // (list position), so their array order carries no meaning (2026-09-26
+      // the worker stopped walking the list bottom-up).
       const oldS = vm.runInContext(expr, oldCtx); const newS = vm.runInContext(expr, newCtx);
       compared += 1;
       check(`page session ${url} (${state.label}, exposed ${exposed.length})`, strip(oldS) === strip(newS), `old ${strip(oldS)}\n  new ${strip(newS)}`);

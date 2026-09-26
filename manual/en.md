@@ -42,7 +42,7 @@ The following terminology is used throughout:
 | Active | The group is enabled, eligible for its schedule, and not currently snoozed. Custom groups are not governed by the normal schedule UI. |
 | Block | Prevent the current top-level page from remaining usable: redirect to the group's address, show its message, or fall back to the plain block. |
 | Hide | Remove or conceal an element/card in the currently rendered page. Hiding is not a network block. |
-| Redirect address or message | One field per group. A web address redirects the blocked tab there; any other text is shown on Vault's block page; blank means the plain block. Extension only — the desktop apps cannot redirect. |
+| Redirect address or message | One field per group. A web address redirects the blocked tab there; any other text is shown on the cover; blank means the plain cover. A pause never redirects. Extension only — the desktop apps cannot redirect. |
 
 ## 2. Group model and common lifecycle
 
@@ -54,7 +54,7 @@ A normal group is one policy (when: mode, allowance, schedule, snooze, lock, red
 
 More than one group can match the same page. Vault evaluates stored groups from the end of the displayed list toward the beginning. Treat lower items in the list as later/higher-precedence matches when designing overlapping rules.
 
-For ordinary top-level site blocking, any applicable blocking group can make the page unavailable. For feed-card filtering, the platform cascade uses each matching group's order: the top-most matching group decides. Normal groups only block; the one exception mechanism is a custom rule's allow() verdict, which rescues an item from lower-priority blocking groups.
+Blocking is the union of every group: any group that blocks a page makes it unavailable. The list order decides only how a blocked page looks: the groups are walked from the top, and the first one that blocks the page decides everything on it (the cover, its message, the pause countdown, the Snooze button, a redirect). Snoozing that group, or passing its pause, lets the next group down decide, so the cover always names the group that is actually in the way. Feed cards follow the same walk: blocks add up, so a card one group hides and another dims is hidden, until a custom rule's allow() verdict, which rescues the card from every group below it. Normal groups only block; allow() is the one exception mechanism.
 
 ### 2.2 Enabled state
 
@@ -73,7 +73,7 @@ Disabled groups are retained but do not participate in normal matching, timers, 
 | Time windows | Zero or more local-time windows, one per line, written as HHMM-HHMM. |
 | Freeze mode | None, Frozen, Strict frozen, or Parental frozen. |
 | Snooze policy | Whether the group allows snooze, with duration/delay/cooldown/confirmation controls for normal groups. |
-| Redirect address or message | What a blocked page shows. Blank: the page is covered in place. Text: that text is shown on the cover. A web address: the tab is sent there instead. |
+| Redirect address or message | What a blocked page shows. Blank: the page is covered in place. Text: that text is shown on the cover. A web address: the tab is sent there instead. A pause never redirects. |
 | Pause for (seconds) | The countdown of the pause action (see the Applies-to entries). |
 
 ### 2.4 Normal group behaviours
@@ -87,13 +87,13 @@ The normal editor offers three behaviours:
 
 Timed usage is based on visible-page time. It is not intended to charge time while a page is hidden in a background tab. The reset interval is a rolling policy interval for the normal timed group. Normal timers are independent by group.
 
-**Where a block lands.** By default a blocked page is covered in place: a full-window cover in the browser's top layer, the page underneath untouched. Its scroll position, form fields, video position and application state are kept; every video and audio on the page is paused and the tab is muted while covered. When the block lifts (allowance reset, schedule, snooze) the cover comes off and the page is as it was. Nothing is remembered or restored, because nothing is lost. A group whose "when blocked" field holds a web address sends the tab there instead; any other text is shown on the cover. The cover carries the group's Snooze button (the same confirmation steps as the editor; a snooze started there is shared with linked programs). A tab left covered for long is an idle tab: the browser may discard it on its own and reload it on return, where it is covered again.
+**Where a block lands.** By default a blocked page is covered in place: a full-window cover in the browser's top layer, the page underneath untouched. Its scroll position, form fields, video position and application state are kept; every video and audio on the page is paused and the tab is muted while covered. When the block lifts (allowance reset, schedule, snooze) the cover comes off and the page is as it was. Nothing is remembered or restored, because nothing is lost. The top-most group that blocks the page decides how it looks: when its "when blocked" field holds a web address, the tab is sent there before the page loads; any other text is shown on the cover. The cover carries the group's Snooze button (the same confirmation steps as the editor; a snooze started there is shared with linked programs). A tab left covered for long is an idle tab: the browser may discard it on its own and reload it on return, where it is covered again.
 
 **Apps entry.** In the desktop app a group's Apps entry lists applications to block. Its "Block every application except these" switch turns the list into an allowlist: while the group blocks, every application not listed is blocked, except system applications, browsers and Vault itself, which are never blocked. This mirrors the website list's "block everything except these" and applies to the desktop apps only; a browser shows the Apps entry read-only.
 
 **Quick add.** Settings has a switch, off by default, "Show the quick-add +". When it is on, every group card in the list carries a "+" badge; clicking a badge chooses that group as the quick-add target (the card is highlighted and shown in the editor) until another badge is clicked. A tiny "+" then floats at the bottom right of every web page, and of the desktop in the Mac app. One click appends the current page to the target group's Websites entry as its most detailed entry, host plus path, never the query or fragment; on the Mac it appends the application in front to the group's Apps entry. It only adds an entry, whatever kind of list that is: on an "everything except" list the new entry is allowed. A frozen, strict or parental-locked group takes no edits, so the "+" is hidden while its target is locked. The group is not created and its policy is not changed; the new entry is shared with linked programs like any other edit.
 
-**Pause.** Each Applies-to entry (the website list, each platform) can pause instead of block: the same cover shows a countdown of the group's pause seconds, then a Continue button lets the page through for that tab, on that site, for a while. A blocking entry always wins over a pausing one. Tagged content pages are blacked out in place and never pause. The pause action applies only in the browser extension; the desktop apps do not enforce a paused website list.
+**Pause.** Each Applies-to entry (the website list, each platform) can pause instead of block: the same cover shows a countdown of the group's pause seconds, then a Continue button passes that group's pause for that tab, on that site, for a while. The page is then decided again, so a group further down the list may still block it. Within one group, a blocking entry (for example "block home feed") wins over a pausing one. Tagged content pages are blacked out in place and never pause. The pause action applies only in the browser extension; the desktop apps do not enforce a paused website list.
 
 ### 2.5 Schedules
 
@@ -158,7 +158,7 @@ A Site group owns a line-separated website list. Entries are normalized into hos
 | Block everything except these sites off | The list is a blocklist. A matching host is blocked. |
 | Block everything except these sites on | The list is an allowlist. Every host not in the list is blocked. An empty allowlist is therefore an intentional full-web lockdown. |
 | Block home page | Applies the group's policy to the configured browser start/home surface where that control is available. |
-| Redirect address or message | A web address opens instead of the blocked page. Any other text — a reminder, a quote — is shown on Vault's block page. Blank keeps the plain block. |
+| Redirect address or message | A web address opens instead of the blocked page. Any other text — a reminder, a quote — is shown on the cover. Blank keeps the plain cover. A pause never redirects. |
 
 The website list is the only declarative whole-site list exposed by the editor; a group that also names platforms carries it as its **Websites** entry. Platform entries match their own platform and configured platform conditions instead.
 

@@ -868,29 +868,27 @@ function cbClearSourceEverywhere(source) {
   }
 }
 
-// Resolve from the ordered ledger: the lowest-index (top-most) group with an
-// opinion decides. Returns the winning verdict — "hide" | "dim" | "show".
-// ("allow" rescues resolve to "show"; no opinion → "show".)
+// Resolve from the ordered ledger, walking from the top of the list (owner
+// 2026-09-26): blocks add up — a card one group hides and another dims is
+// hidden (hiding a dimmed card is no conflict) — until a custom rule's
+// allow(), which rescues the card from every group below it.
+// Returns "hide" | "dim" | "show".
 function cbResolveCardVerdict(card) {
   const entry = cbVerdictLedger.get(card);
   if (!entry || entry.size === 0) return "show";
-  let bestIndex = Infinity;
-  let bestVerdict = null;
-  for (const [filterId, value] of entry) {
-    // Platform verdicts are keyed by feed-filter id (`<group id>␟<line id>`);
-    // priority is the group's, so resolve the group part.
+  // Platform verdicts are keyed by feed-filter id (`<group id>␟<line id>`);
+  // priority is the group's, so resolve the group part.
+  const opinions = [...entry].map(([filterId, value]) => {
     const groupId = filterId.split("␟")[0];
-    const index = cbGroupIndex.has(groupId)
-      ? cbGroupIndex.get(groupId)
-      : Number.MAX_SAFE_INTEGER;
-    if (index < bestIndex) {
-      bestIndex = index;
-      bestVerdict = value.v;
-    }
+    return { index: cbGroupIndex.has(groupId) ? cbGroupIndex.get(groupId) : Number.MAX_SAFE_INTEGER, v: value.v };
+  }).sort((left, right) => left.index - right.index);
+  let dim = false;
+  for (const { v } of opinions) {
+    if (v === "allow") break;
+    if (v === "hide") return "hide";
+    if (v === "dim") dim = true;
   }
-  if (bestVerdict === "hide") return "hide";
-  if (bestVerdict === "dim") return "dim";
-  return "show";
+  return dim ? "dim" : "show";
 }
 
 function cbApplyCard(card) {
@@ -1686,7 +1684,8 @@ function cbRenderCover() {
     go.disabled = cbCover.countdownLeft > 0;
     go.addEventListener("click", () => {
       go.disabled = true;
-      safeSendMessage({ type: "pause-pass" }, () => refreshSession());
+      // Continue passes THIS group's pause; the page is then re-decided.
+      safeSendMessage({ type: "pause-pass", groupId: exit.groupId }, () => refreshSession());
     });
     shell.appendChild(go);
   }
