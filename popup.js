@@ -223,7 +223,6 @@ const IS_NATIVE_DESKTOP = isNativeHost();
 document.body.classList.toggle("is-native-desktop", IS_NATIVE_DESKTOP);
 
 const DEFAULT_PLATFORM_RULE_GROUP_TYPE = "youtube";
-const MS_PER_SECOND = 1000;
 // Every unlock and "delete all" ends with this confirmation (group-actions.js).
 const UNFREEZE_CONFIRMATIONS_REQUIRED = CBGroupActions.CONFIRMATIONS;
 const UNFREEZE_CONFIRMATION_INTERVAL_MS = CBGroupActions.CONFIRM_INTERVAL_MS;
@@ -252,7 +251,6 @@ const groupTypeSummary = document.getElementById("groupTypeSummary");
 const blockModeSection = document.getElementById("blockModeSection");
 const blockModeField = document.getElementById("blockMode");
 const timedSettings = document.getElementById("timedSettings");
-const allowedMinutesRow = document.getElementById("allowedMinutesRow");
 const allowedMinutesField = document.getElementById("allowedMinutes");
 const resetIntervalHoursField = document.getElementById("resetIntervalHours");
 const resetAtMidnightField = document.getElementById("resetAtMidnight");
@@ -410,8 +408,6 @@ const state = {
   // this list (by id), never the whole list from its own view.
   storedGroups: [],
   autosaveTimeoutId: null,
-  statusTimeoutId: null,
-  tickIntervalId: null,
   confirmIntervalId: null,
   unfreezeFlow: null,
   isManualOpen: false,
@@ -426,15 +422,9 @@ const state = {
   language: "en",
   translationMessages: {},
   translationLoadPromises: {},
-  // Runtime web-app bridge status, pushed by the transport layer (background
-  // service worker in the browser, native server on macOS). Never persisted.
-  connectionStatus: {
-    running: false,
-    state: "off",
-    address: "",
-    peers: [],
-    error: ""
-  },
+  // The hub connection, pushed by the browser's worker (Mac Vault's editor
+  // runs inside the hub and needs none). Never persisted.
+  connectionStatus: { state: "off" },
   // The links (hub-owned; never persisted here): a group is linked when a
   // link lists {program: LOCAL_PROGRAM_ID, groupId: <its id>}. Each entry:
   //   { id, groupName, members: [{ program, groupId, online, contributed }], shared }
@@ -833,32 +823,20 @@ async function revokeLocalFolder() {
   await renderLocalFolderStatus();
 }
 
-// The transport layer pushes the live connection status here (native server on
-// macOS via window.__cbConnectionState, background worker in the browser).
+// The worker pushes the live connection status here.
 function applyConnectionStatus(raw) {
   const incoming = raw && typeof raw === "object" ? raw : {};
   const wasOnline = bridgeIsOnline();
   const wasAway = macVaultAway();
   state.connectionStatus = {
     received: true,
-    running: Boolean(incoming.running),
     state: typeof incoming.state === "string" ? incoming.state : "off",
-    address: typeof incoming.address === "string" ? incoming.address : "",
-    peers: Array.isArray(incoming.peers) ? incoming.peers : [],
-    error: typeof incoming.error === "string" ? incoming.error : "",
     hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
   // Linked groups turn enforce-only (or editable again) with Mac Vault.
   if (wasAway !== macVaultAway()) render();
   if (!wasOnline && bridgeIsOnline()) requestClusters();
 }
-
-window.__cbConnectionState = function (json) {
-  try {
-    const incoming = typeof json === "string" ? JSON.parse(json) : json;
-    applyConnectionStatus(incoming);
-  } catch (_) {}
-};
 
 function requestConnectionStatus() {
   try {
@@ -1088,7 +1066,6 @@ function syncSettingsFormFromState() {
 function openSettings() {
   state.isSettingsOpen = true;
   syncSettingsFormFromState();
-  requestConnectionStatus();
   loadClassifierBridgeSettings().catch(() => renderClassifierBridgeSettings());
   settingsModal.classList.remove("hidden");
   renderLocalFolderStatus().catch((error) => {
@@ -1832,12 +1809,6 @@ function parsePlatformAuthorsTextarea(groupType, value) {
     validAuthors: [...new Set(validAuthors)],
     invalidAuthors
   };
-}
-
-function clampNumber(value, min, max, fallback) {
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(min, Math.min(max, parsed));
 }
 
 function formatDurationMs(totalMs) {
@@ -2800,7 +2771,7 @@ function foldEntryIntoLines(group) {
 // last valid value (the first error is returned). The lines change only when
 // the entry's form fields did.
 function applyDraft(group, draft) {
-  const result = buildUpdatedGroupFromDraft(group, draft, { strict: false });
+  const result = buildUpdatedGroupFromDraft(group, draft);
   const updated = result.updatedGroup;
   const linesChanged = CBGroupScopes.FLAT_SCOPE_FIELDS.some((field) => JSON.stringify(updated[field]) !== JSON.stringify(group[field]));
   const next = linesChanged ? foldEntryIntoLines(updated) : { ...updated, scopes: group.scopes };
@@ -2974,8 +2945,7 @@ function markCustomGroupSourceActive(groupId, source) {
           enabled: true,
           blockingRulesText: activeSource,
           activeEventSource: activeSource,
-          lastAbortReason: null,
-          lastAbortAt: null
+          lastAbortReason: null
         }
       : item
   );
@@ -3020,11 +2990,6 @@ function getSnoozePhase(snooze, now = Date.now()) {
 function getCurrentSnooze(groupId, now = Date.now()) {
   const snooze = state.groupSnoozes[groupId];
   return getSnoozePhase(snooze, now) === "none" ? null : snooze;
-}
-
-function getActiveSnooze(groupId, now = Date.now()) {
-  const snooze = state.groupSnoozes[groupId];
-  return getSnoozePhase(snooze, now) === "active" ? snooze : null;
 }
 
 function getDisplayedSnoozeTotalMs(groupId, now = Date.now()) {
@@ -3485,10 +3450,6 @@ function getGroupMetaText(group, draft, now = Date.now()) {
 // A lock whose wait still holds keeps "delete all" closed (group-actions.js).
 function hasStrictLockedGroups(now = Date.now()) {
   return Boolean(CBGroupActions.deleteAllPlan(state.groups, now).error);
-}
-
-function hasFrozenGroups(now = Date.now()) {
-  return state.groups.some((group) => getFreezeStatus(group, now).isFrozen);
 }
 
 function confirmDeleteAllFrozenGroups(pinHashes = []) {
@@ -4845,16 +4806,13 @@ async function importIntoSelectedGroup() {
   }
 }
 
-function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
-  // Strict mode (export/transfer) throws on the first invalid field, as before.
-  // Non-strict mode (autosave / exit flush) never throws: invalid fields keep
-  // their last-valid value while every valid field — crucially the Tags field —
-  // still gets committed. The first error is returned so the UI can surface it.
-  // This is what makes tags as durable as the other fields: an unrelated
-  // mid-edit field (e.g. a blank name) can no longer discard the whole update.
+function buildUpdatedGroupFromDraft(group, draft) {
+  // Never throws: invalid fields keep their last-valid value while every valid
+  // field still gets committed, so an unrelated mid-edit field (e.g. a blank
+  // name) can't discard the whole update. The first error is returned so the
+  // UI can surface it.
   let firstError = null;
   const fail = (error) => {
-    if (strict) throw error;
     if (!firstError) firstError = error;
   };
 
@@ -5009,13 +4967,6 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
       pageAction: !isCustomGroup && draft.pageAction === "pause" ? "pause" : "block",
       pauseSeconds: isCustomGroup ? group.pauseSeconds : pauseSeconds ?? group.pauseSeconds
     },
-    modeChanged: nextMode !== group.mode,
-    resetIntervalChanged:
-      isTimedBlockingMode(nextMode) &&
-      !isCustomGroup &&
-      ((resetIntervalHours ?? group.resetIntervalHours) !== group.resetIntervalHours ||
-        resetAtMidnight !== (group.resetAtMidnight === true) ||
-        rollingLimit !== (group.rollingLimit === true)),
     validationError: firstError
   };
 }
@@ -6053,12 +6004,9 @@ async function runSelectedCustomGroup() {
         // the user knows their rule was force-disabled.
         let displayError = lr.error || t("custom.runStatusError");
         if (lr.error === "sandbox-timeout") {
-          displayError = "Halted: rule was running for >5s without yielding. " +
-            "It has been auto-disabled. Edit the code (look for an infinite loop) " +
-            "and click Run again to re-enable.";
+          displayError = t("custom.runStatusSandboxTimeout");
         } else if (lr.quarantine && lr.quarantine.reason) {
-          displayError = "Halted: " + lr.quarantine.reason +
-            ". The rule has been auto-disabled.";
+          displayError = t("custom.runStatusQuarantined", { reason: lr.quarantine.reason });
         }
         if (runCustomGroupStatus) {
           runCustomGroupStatus.textContent = displayError;
@@ -6598,9 +6546,7 @@ window.addEventListener("visibilitychange", () => {
 // ────────────────────────────────────────────────────────────────────────
 
 const LOG_FEED_MAX_RENDER = 200;
-const logFeedSection = document.getElementById("logFeedSection");
 const logFeedList = document.getElementById("logFeedList");
-const logFeedEmpty = document.getElementById("logFeedEmpty");
 const logFeedCount = document.getElementById("logFeedCount");
 const logFeedClear = document.getElementById("logFeedClear");
 const logFeedDownload = document.getElementById("logFeedDownload");
@@ -6847,7 +6793,7 @@ async function initializePopupApp() {
   initializeSiteAccessBanner().catch((error) => {
     cbDebugError("site access banner init failed", error);
   });
-  state.tickIntervalId = window.setInterval(() => {
+  window.setInterval(() => {
     renderDynamicView();
   }, 1000);
 

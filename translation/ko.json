@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // 여기에 핸들러를 등록하세요.\n}",
   "custom.runButton": "달리다",
   "custom.runStatusHalted": "중지됨: 규칙을 로드하는 데 시간이 너무 오래 걸려 강제로 중단되었습니다. 자세한 내용은 로그 패널을 확인하세요.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "AI가 코드 작성",
   "custom.aiPromptLabel": "AI용 프롬프트",
   "custom.aiPromptPlaceholder": "이 사용자 지정 규칙이 수행할 작업을 설명하세요...",

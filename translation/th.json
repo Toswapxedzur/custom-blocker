@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // ลงทะเบียนตัวจัดการที่นี่\n}",
   "custom.runButton": "วิ่ง",
   "custom.runStatusHalted": "ถูกระงับ: กฎใช้เวลาโหลดนานเกินไปและถูกบังคับให้ยกเลิก ตรวจสอบแผงบันทึกเพื่อดูรายละเอียด",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "ให้ AI เขียนโค้ด",
   "custom.aiPromptLabel": "พรอมป์ต์สำหรับ AI",
   "custom.aiPromptPlaceholder": "อธิบายว่าคุณต้องการให้กฎกำหนดเองนี้ทำอะไร...",

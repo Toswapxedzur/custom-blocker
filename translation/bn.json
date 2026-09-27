@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // এখানে হ্যান্ডলার নিবন্ধন করুন।\n}",
   "custom.runButton": "চালান",
   "custom.runStatusHalted": "স্থগিত: নিয়মটি লোড হতে অনেক বেশি সময় নিয়েছে এবং জোর করে বাতিল করা হয়েছে। বিস্তারিত জানার জন্য লগ প্যানেল চেক করুন.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "AI-কে কোড লিখতে দিন",
   "custom.aiPromptLabel": "AI-এর জন্য প্রম্পট",
   "custom.aiPromptPlaceholder": "এই কাস্টম নিয়মটি কী করবে তা লিখুন...",

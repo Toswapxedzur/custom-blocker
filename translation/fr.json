@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // Enregistrez les gestionnaires ici.\n}",
   "custom.runButton": "Courir",
   "custom.runStatusHalted": "Arrêté : le chargement de la règle a pris trop de temps et a été interrompu de force. Consultez le panneau Journal pour plus de détails.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "Laisser l’IA coder",
   "custom.aiPromptLabel": "Prompt pour l’IA",
   "custom.aiPromptPlaceholder": "Décrivez ce que cette règle personnalisée doit faire...",

@@ -1,6 +1,6 @@
 // Activity log — watched-content feeder (see macosBlocker/docs/ACTIVITY-LOG.md).
 //
-// Runs on supported-platform pages. Measures how long a video actually PLAYS
+// Runs on YouTube and Bilibili pages. Measures how long a video actually PLAYS
 // (accrues only while the <video> is playing and the tab is visible), and on
 // pause / end / tab-hide / navigation posts a `content-watched` record to the
 // service worker, which buffers and flushes it. Watching is item-level (the
@@ -14,6 +14,13 @@
   "use strict";
   if (window.__vaultActivityContentLoaded) return;
   window.__vaultActivityContentLoaded = true;
+
+  // The only platforms with a watch key; every other site is left alone.
+  function onHost(domain) {
+    var host = location.hostname.toLowerCase();
+    return host === domain || host.slice(-(domain.length + 1)) === "." + domain;
+  }
+  if (!onHost("youtube.com") && !onHost("bilibili.com")) return;
 
   var enabled = false;
   try {
@@ -29,14 +36,12 @@
   var MIN_WATCH_MS = 3000;
 
   function watchKey() {
-    // Reuse the platform descriptor when present; otherwise derive from the URL.
     try {
-      var host = location.hostname.replace(/^www\./, "");
-      if (host.indexOf("youtube.com") >= 0) {
+      if (onHost("youtube.com")) {
         var id = new URLSearchParams(location.search).get("v");
         return id ? { platform: "youtube", key: "youtube:" + id } : null;
       }
-      if (host.indexOf("bilibili.com") >= 0) {
+      if (onHost("bilibili.com")) {
         var m = location.pathname.match(/\/(BV[0-9A-Za-z]+)/);
         return m ? { platform: "bilibili", key: "bilibili:" + m[1] } : null;
       }

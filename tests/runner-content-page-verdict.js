@@ -59,12 +59,13 @@ const context = vm.createContext({
   getComputedStyle: () => ({ position: "static" }),
   location: { hostname: "www.youtube.com", href: "https://www.youtube.com/watch?v=abc123", search: "?v=abc123", pathname: "/watch" }
 });
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "platform-profiles.js"), "utf8"), context);
 vm.runInContext([
   extractBlock("CB_CONTENT_BLOCK_PROFILES"), extractDecl("CB_PAGE_BLOCK_RETRY_MS"), extractDecl("CB_PAGE_BLOCK_RETRIES"),
   "let cbTagPageBlockedEntry = \"\";", "let cbTagPageRetryTimer = null;",
-  extractFunction("cbContentBlockPlatformID"), extractFunction("cbContentBlockProfile"), extractFunction("cbFindMediaAll"), extractFunction("cbFindMedia"),
+  extractFunction("normalizeHostname"), extractFunction("cbContentBlockProfile"), extractFunction("cbFindMediaAll"),
   extractFunction("cbEnsureRelative"), extractFunction("cbCoverMedia"), extractFunction("cbUncoverMedia"),
-  extractFunction("cbTagPageEntryMatchesLocation"), extractFunction("cbFindPagePlayers"), extractFunction("cbFindPagePlayer"),
+  extractFunction("cbTagPageEntryMatchesLocation"), extractFunction("cbFindPagePlayers"),
   extractFunction("cbKeepPausedWhileBlocked"), extractFunction("cbBlackOutPagePlayer"), extractFunction("cbClearPagePlayer"),
   extractFunction("cbApplyTagPagePolicy")
 ].join("\n"), context);
@@ -144,9 +145,9 @@ setTimeout(() => {
   card.querySelector = (sel) => (sel.includes('[slot="thumbnail"]') ? thumb : null);
   card.querySelectorAll = (sel) => (sel.includes('[slot="thumbnail"]') ? [thumb] : []);
   context.__card = card;
-  check("Reddit feed card: cbFindMedia resolves the thumbnail via the profile", vm.runInContext("cbFindMedia(__card)", context) === thumb);
+  check("Reddit feed card: cbFindMedia resolves the thumbnail via the profile", vm.runInContext("(cbFindMediaAll(__card)[0] || null)", context) === thumb);
   context.location = { hostname: "example.com", href: "https://example.com/", search: "", pathname: "/" };
-  check("an unprofiled host never blacks anything", vm.runInContext("cbFindMedia(__card)", context) === null && apply("block", "reddit:post:p0st1") === false);
+  check("an unprofiled host never blacks anything", vm.runInContext("(cbFindMediaAll(__card)[0] || null)", context) === null && apply("block", "reddit:post:p0st1") === false);
   console.log(`CONTENT PAGE VERDICT TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
   if (fail) process.exitCode = 1;

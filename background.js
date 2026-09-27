@@ -15,11 +15,10 @@
  */
 
 // On Chromium the background context is a classic service worker, so we
-// pull in helpers.js with importScripts(). On Firefox/Safari the background
-// is a DOM-bearing page (it has to be — it hosts the sandbox iframe in the
+// pull in the shared files with importScripts(). On Firefox/Safari the
+// background is a DOM-bearing page (it hosts the sandbox iframe in the
 // absence of chrome.offscreen), where importScripts() does not exist; there
-// the packaging step lists helpers.js ahead of background.js in
-// manifest.background.scripts, so it is already loaded by this point.
+// manifest.background.scripts lists them ahead of background.js.
 if (typeof importScripts === "function") {
   try {
     if (typeof CBBridgeProtocol === "undefined") importScripts("bridge-protocol.js");
@@ -54,11 +53,6 @@ if (typeof importScripts === "function") {
     console.error("[CustomBlocker] importScripts(vault classifier bridge) failed", error);
   }
   try {
-    importScripts("helpers.js");
-  } catch (error) {
-    console.error("[CustomBlocker] importScripts(helpers.js) failed", error);
-  }
-  try {
     if (typeof cbActivity === "undefined") importScripts("vault-activity.js");
   } catch (error) {
     console.error("[CustomBlocker] importScripts(vault-activity.js) failed", error);
@@ -81,9 +75,9 @@ const {
 // One group's defaults and sanitizer, and the site / tag normalizers: one copy,
 // in group-scopes.js (the editor and Mac Vault use it too).
 const { createDefaultGroup, sanitizeGroups, normalizeSiteInput, normalizeTagFilterMode, clampTagConfidence } = CBGroupScopes;
+// Scalar settings linked groups share (one list, in group-scopes.js).
+const CB_SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
 
-
-const helperBundle = self.__customBlockerHelpers;
 
 // Debug mode flag. False by default; user toggles it via Settings.
 // Drives whether [CustomBlocker] / [CustomBlocker:trace] verbose
@@ -101,13 +95,6 @@ function cbDebugError(...args) { if (cbDebugMode) { try { console.error(...args)
     if (s && typeof s === "object") cbDebugMode = s.debugMode === true;
   } catch (_) {}
 })();
-if (chrome.storage && chrome.storage.onChanged) {
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes[CB_GLOBAL_SETTINGS_KEY]) return;
-    const next = changes[CB_GLOBAL_SETTINGS_KEY].newValue;
-    cbDebugMode = next && typeof next === "object" ? next.debugMode === true : false;
-  });
-}
 
 const BLOCKED_GROUPS_KEY = "blockedGroups";
 const USAGE_TIMERS_KEY = "usageTimersMs";
@@ -217,27 +204,8 @@ function hostnameMatchesSite(hostname, site) {
 // platform-profiles.js and are provided as globals.
 
 function normalizePageContext(input) {
-  if (typeof input === "string") {
-    const hostname = normalizeSiteInput(input);
-    const videoContext = detectVideoSiteContext(hostname, "/");
-    return {
-      hostname,
-      pathname: "/",
-      url: "",
-      isYouTubePage: isYouTubeHost(hostname),
-      isYouTubeShort: false,
-      platformAuthors: normalizePlatformAuthorsMap({}, "/", ""),
-      isRedditPage: isRedditHost(hostname),
-      redditSubreddit: null,
-      isDiscordPage: isDiscordHost(hostname),
-      discordServerId: null,
-      discordChannelId: null,
-      isTwitterPage: isTwitterHost(hostname),
-      videoSite: videoContext.site,
-      videoForm: videoContext.form
-    };
-  }
-
+  // A bare hostname (tests) is a page at "/" on it.
+  if (typeof input === "string") input = { hostname: input };
   const url = typeof input?.url === "string" ? input.url : "";
   let hostname = normalizeSiteInput(input?.hostname);
   let pathname = typeof input?.pathname === "string" ? input.pathname : "/";
@@ -333,14 +301,6 @@ function siteLineBlocks(line, hostname, pathname) {
   return line.sitesExcept ? !inList : inList;
 }
 
-// True when a group carries a meaningful site line (so an unconfigured custom
-// group — no list — never accidentally participates in page blocking, while an
-// allowlist line always does, even with an empty list).
-function groupUsesSiteList(group) {
-  const line = cbSiteLine(group);
-  return Boolean(line) && (Boolean(line.sitesExcept) || (Array.isArray(line.sites) && line.sites.length > 0));
-}
-
 function matchesSiteGroup(group, hostname, pathname) {
   return siteLineBlocks(cbSiteLine(group), hostname, pathname);
 }
@@ -411,7 +371,7 @@ function cbGroupMatchesPage(group, pageContext) {
 // takes part in the page decision.
 function cbGroupBlocksPage(group, pageContext) {
   if (group.groupType === "custom") {
-    return groupUsesSiteList(group) && matchesSiteGroup(group, pageContext.hostname, pageContext.pathname);
+    return matchesSiteGroup(group, pageContext.hostname, pageContext.pathname);
   }
   return cbGroupMatchesPage(group, pageContext);
 }
@@ -624,7 +584,7 @@ function applyRuntimeNormalizations(
     // A linked group's period belongs to the hub (the Mac side): it resets
     // there and this endpoint adopts the reset total (applySharedToStorage).
     // With no hub reachable the group is on its own and resets here.
-    if (cbGroupLinkedToHub(group)) continue;
+    if (cbConnection.routeIsReady("macapp") && cbGroupInLink(group)) continue;
     const periodStart = cbPeriodStartMs(nextResetAt[group.id], group, now);
     if (periodStart === nextResetAt[group.id]) continue;
     nextTimers[group.id] = 0;
@@ -1358,16 +1318,12 @@ chrome.runtime.onInstalled.addListener((details) => {
     .catch((error) => {
       console.error("Failed to schedule transitions on install.", error);
     });
-  // Warm the custom-rule sandbox up front so the first block decision
-  // doesn't pay the offscreen-creation + handshake cost inline.
-  prewarmEventSandbox();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   cbScheduleTransitions().catch((error) => {
     console.error("Failed to schedule transitions on startup.", error);
   });
-  prewarmEventSandbox();
 });
 
 chrome.action.onClicked.addListener(() => {
@@ -1484,7 +1440,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       await ensureStartupGate();
       const tabId = sender?.tab?.id ?? null;
-      const tabUrl = normalizeUrlForEvents(message.url || sender?.tab?.url || sender?.url || "");
+      const tabUrl = String(message.url || sender?.tab?.url || sender?.url || "");
       const descriptor = {
         type: "panelRefreshEvent",
         tabId,
@@ -1525,7 +1481,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       : [];
     queueUsageTimerUpdate(() =>
       cbCoverStateReady.then(() =>
-        applyElapsedTime(message.pageContext ?? message.hostname, heartbeatElapsedMs, heartbeatExposedIds, cbPausePassedGroups(tabId, hostnameOf(tabUrl)))
+        applyElapsedTime(message.pageContext, heartbeatElapsedMs, heartbeatExposedIds, cbPausePassedGroups(tabId, hostnameOf(tabUrl)))
       )
     )
       .then(async (payload) => {
@@ -1562,20 +1518,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   return undefined;
-});
-
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "local" || (!changes[BLOCKED_GROUPS_KEY] && !changes[GROUP_SNOOZES_KEY])) {
-    return;
-  }
-  cbScheduleTransitions().catch((error) => {
-    console.error("Failed to schedule transitions after storage update.", error);
-  });
-  if (changes[BLOCKED_GROUPS_KEY]) {
-    reconcileCustomGroupHandlers(changes[BLOCKED_GROUPS_KEY]).catch((error) => {
-      console.error("Failed to reconcile custom-group handlers.", error);
-    });
-  }
 });
 
 // ────────────────────────────────────────────────────────────────────────
@@ -1689,7 +1631,6 @@ async function cbQuickAdd(url) {
   const [next] = sanitizeGroups([{ ...group, scopes }]);
   const nextGroups = groups.map((item, at) => (at === index ? next : item));
   await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: nextGroups });
-  await cbScheduleTransitions();
   return { entry, added, groupName: next.name };
 }
 
@@ -1816,7 +1757,6 @@ async function cbStartSnooze(groupId, now = Date.now()) {
   const entry = CBGroupActions.snoozeEntry(group, now);
   const next = { ...groupSnoozes, [group.id]: entry };
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: next });
-  await cbScheduleTransitions();
   return entry;
 }
 
@@ -1923,23 +1863,15 @@ const LOG_FEED_BURST_PER_SEC = 50;
 const LOG_FEED_MAX_MESSAGE_BYTES = 4096;
 let logFeedBurstWindowStart = 0;
 let logFeedBurstCount = 0;
-let logFeedSuppressed = 0;
-
-function flushLogFeedSuppressionNote(now) {
-  if (logFeedSuppressed <= 0) return;
-  logFeedSuppressed = 0;
-}
 
 function pushLogFeedEntry(entry) {
   if (!entry || typeof entry !== "object") return;
   const now = Date.now();
   if (now - logFeedBurstWindowStart > 1000) {
-    flushLogFeedSuppressionNote(now);
     logFeedBurstWindowStart = now;
     logFeedBurstCount = 0;
   }
   if (logFeedBurstCount >= LOG_FEED_BURST_PER_SEC) {
-    logFeedSuppressed += 1;
     return;
   }
   let message = Array.isArray(entry.args)
@@ -2049,8 +1981,7 @@ async function quarantineGroup(groupId, reason) {
     groups[idx] = {
       ...groups[idx],
       enabled: false,
-      lastAbortReason: String(reason || "unknown"),
-      lastAbortAt: Date.now()
+      lastAbortReason: String(reason || "unknown")
     };
     await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
     return true;
@@ -2267,7 +2198,6 @@ async function loadCustomGroupSource(group, { resetHostBlocks = false } = {}) {
     });
     scheduleCustomTimerRefreshBroadcast();
     scheduleCustomPanelRefreshBroadcast(100, [group.id]);
-    refreshHandlerCount();
     return { ok: true, handlers: 0, error: null };
   }
   const source = typeof group.activeEventSource === "string" ? group.activeEventSource : "";
@@ -2280,7 +2210,6 @@ async function loadCustomGroupSource(group, { resetHostBlocks = false } = {}) {
     });
     scheduleCustomTimerRefreshBroadcast();
     scheduleCustomPanelRefreshBroadcast(100, [group.id]);
-    refreshHandlerCount();
     return { ok: true, handlers: 0, error: null };
   }
   const result = await sendToEventSandbox({
@@ -2306,7 +2235,6 @@ async function loadCustomGroupSource(group, { resetHostBlocks = false } = {}) {
   }
   scheduleCustomTimerRefreshBroadcast();
   scheduleCustomPanelRefreshBroadcast(100, [group.id]);
-  refreshHandlerCount();
   return result;
 }
 
@@ -2392,9 +2320,7 @@ async function loadAllCustomGroupsAtStartup() {
       "[CustomBlocker] startup load complete; custom groups:",
       attempted,
       "with source:",
-      withSource,
-      "handler count:",
-      cachedHandlerCount
+      withSource
     );
   } catch (error) {
     console.warn("[CustomBlocker] startup load of custom groups failed", error);
@@ -2412,31 +2338,6 @@ function ensureStartupGate() {
   return startupGate;
 }
 
-// Cold-start mitigation. The first custom-rule block decision after a
-// service-worker spawn otherwise pays the full warm-up cost inline:
-// state hydration + offscreen-document creation + sandbox iframe handshake +
-// rule recompile. Kicking ensureStartupGate() off proactively (browser
-// launch, tab activation, navigation start) overlaps that cost with page
-// load so the first evaluate-platform-items request finds the sandbox warm.
-// It's memoized per SW lifetime and is a no-op when there are no custom
-// groups (no offscreen document is created), so calling it liberally is cheap.
-function prewarmEventSandbox() {
-  try {
-    ensureStartupGate().catch(() => {});
-  } catch (_) {}
-}
-
-let cachedHandlerCount = 0;
-async function refreshHandlerCount() {
-  try {
-    const r = await sendToEventSandbox({ kind: "list-handlers", groupId: null });
-    if (r && Array.isArray(r.handlers)) {
-      cachedHandlerCount = r.handlers.length;
-    }
-  } catch {}
-  return cachedHandlerCount;
-}
-
 function todayContext(now = Date.now()) {
   const date = new Date(now);
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -2448,13 +2349,6 @@ function todayContext(now = Date.now()) {
     hour: date.getHours(),
     minute: date.getMinutes()
   };
-}
-
-function normalizeUrlForEvents(url) {
-  // No URL normalization: rules receive the raw URL exactly as the browser
-  // reports it (including chrome://newtab, about:blank, etc.). Any special
-  // casing of new-tab / start pages has been intentionally removed.
-  return typeof url === "string" ? url : "";
 }
 
 function hostnameOf(url) {
@@ -2701,42 +2595,27 @@ function cbScheduleRecheck({ definitionChanged = false } = {}) {
   }, 50);
 }
 
-if (chrome.storage && chrome.storage.onChanged) {
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local") return;
-    if (changes[BLOCKED_GROUPS_KEY] || changes[CB_GLOBAL_SETTINGS_KEY]) {
-      cbScheduleRecheck({ definitionChanged: true });
-    } else if (changes[USAGE_TIMERS_KEY] || changes[USAGE_RESET_AT_KEY] || changes[USAGE_BUCKETS_KEY] || changes[GROUP_SNOOZES_KEY]) {
-      cbScheduleRecheck();
-    }
-  });
+// Sends one message to every open web page.
+async function cbSendToWebPages(message) {
+  if (!chrome.tabs || !chrome.tabs.query) return;
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (!tab || typeof tab.id !== "number") return;
+      const url = tab.url || tab.pendingUrl || "";
+      if (url && !/^https?:/i.test(url)) return;
+      await trySendApply(tab.id, message);
+    })
+  );
 }
 
 // Asks every open page to re-fetch its session (cover, timers, feed filters).
-async function broadcastSessionRefresh() {
-  if (!chrome.tabs || !chrome.tabs.query) return;
-  const tabs = await chrome.tabs.query({});
-  await Promise.all(
-    tabs.map(async (tab) => {
-      if (!tab || typeof tab.id !== "number") return;
-      const url = tab.url || tab.pendingUrl || "";
-      if (url && !/^https?:/i.test(url)) return;
-      await trySendApply(tab.id, { type: "session-refresh" });
-    })
-  );
+function broadcastSessionRefresh() {
+  return cbSendToWebPages({ type: "session-refresh" });
 }
 
-async function broadcastCustomPanelRefresh(panelGroups = []) {
-  if (!chrome.tabs || !chrome.tabs.query) return;
-  const tabs = await chrome.tabs.query({});
-  await Promise.all(
-    tabs.map(async (tab) => {
-      if (!tab || typeof tab.id !== "number") return;
-      const url = tab.url || tab.pendingUrl || "";
-      if (url && !/^https?:/i.test(url)) return;
-      await trySendApply(tab.id, { type: "custom-panels-refresh", panelGroups });
-    })
-  );
+function broadcastCustomPanelRefresh(panelGroups = []) {
+  return cbSendToWebPages({ type: "custom-panels-refresh", panelGroups });
 }
 
 async function applySandboxResultToTab(tabId, result, descriptor) {
@@ -2956,7 +2835,7 @@ async function dispatchEventToTab(type, tabInfo, extras = {}) {
   // restart don't fan out into an empty registry.
   await ensureStartupGate();
 
-  const url = normalizeUrlForEvents(tabInfo?.url || "");
+  const url = String(tabInfo?.url || "");
   const descriptor = {
     type,
     tabId: tabInfo?.tabId ?? null,
@@ -2974,8 +2853,7 @@ async function dispatchEventToTab(type, tabInfo, extras = {}) {
   };
   const result = await dispatchToSandbox(descriptor);
   cbDebugLog("[CustomBlocker] dispatch", type, "→ tab", descriptor.tabId,
-    "url:", url, "logs:", (result?.logs?.length ?? 0),
-    "handlers:", cachedHandlerCount);
+    "url:", url, "logs:", (result?.logs?.length ?? 0));
   ingestSandboxLogs(result, descriptor);
   maybeQuarantineFromResult(result, descriptor);
   await applySandboxResultToTab(descriptor.tabId, result, descriptor);
@@ -3025,25 +2903,6 @@ if (chrome.tabs && chrome.tabs.onRemoved) {
       { tabId, url: previous?.url || "" },
       { data: { reason: "tabClosed", nextUrl: null } }
     );
-  });
-}
-
-// Pre-warm the sandbox the moment the user engages a tab. onActivated is the
-// key case: returning to an already-open platform tab after the SW was evicted
-// fires no navigation event, so without this the first scroll would cold-start
-// the sandbox inline. onUpdated (loading) overlaps warm-up with page load for
-// fresh navigations. Both are cheap — ensureStartupGate() is memoized.
-if (chrome.tabs && chrome.tabs.onActivated) {
-  chrome.tabs.onActivated.addListener(() => {
-    prewarmEventSandbox();
-  });
-}
-
-if (chrome.tabs && chrome.tabs.onUpdated) {
-  chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
-    if (changeInfo && changeInfo.status === "loading") {
-      prewarmEventSandbox();
-    }
   });
 }
 
@@ -3186,45 +3045,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // sees enabled=false and immediately unloads. We also clear the
       // lastAbortReason so the popup doesn't keep showing a stale
       // "auto-disabled" badge after the user re-runs.
-      const wasQuarantined = group.enabled === false &&
-        typeof group.lastAbortReason === "string" && group.lastAbortReason.length > 0;
       const next = {
         ...group,
         enabled: true,
         activeEventSource: sourceText,
-        lastAbortReason: null,
-        lastAbortAt: null
+        lastAbortReason: null
       };
       groups[idx] = next;
       suppressReconcileLoadByGroup.add(groupId);
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
       const loadResult = await loadCustomGroupSource(next, { resetHostBlocks: true });
       sendResponse({ ok: true, loadResult });
-    })();
-    return true;
-  }
-
-  if (message.type === "unload-custom-group") {
-    (async () => {
-      await ensureStartupGate();
-      const groupId = String(message.groupId || "");
-      if (!groupId) return sendResponse({ ok: false });
-      const r = await unloadCustomGroupHandlers(groupId);
-      sendResponse({ ok: true, result: r });
-    })();
-    return true;
-  }
-
-  if (message.type === "list-handlers") {
-    (async () => {
-      // Block until the startup loader has had a chance to re-register
-      // every group's `activeEventSource`. Without this gate, a popup
-      // opening right after the SW wakes can race in and observe an
-      // empty sandbox even though the real registry will be populated
-      // milliseconds later.
-      await ensureStartupGate();
-      const r = await sendToEventSandbox({ kind: "list-handlers", groupId: message.groupId });
-      sendResponse({ ok: true, result: r });
     })();
     return true;
   }
@@ -3263,7 +3094,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (!group || group.groupType !== "custom" || !group.enabled) continue;
           await loadCustomGroupSource(group);
         }
-        refreshHandlerCount();
       } catch (error) {
         console.warn("[CustomBlocker] event-sandbox-reset reload failed", error);
       }
@@ -3281,13 +3111,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const queued = pendingApplyByTab.get(tabId) || [];
     pendingApplyByTab.delete(tabId);
     scheduleSessionFlush();
-    // Refresh the handler-count cache asynchronously; no blocking.
-    refreshHandlerCount();
-    sendResponse({
-      ok: true,
-      pending: queued,
-      handlerCount: cachedHandlerCount
-    });
+    sendResponse({ ok: true, pending: queued });
     return false;
   }
 
@@ -3348,30 +3172,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "post-custom-event") {
-    (async () => {
-      await ensureStartupGate();
-      const descriptor = {
-        type: String(message.eventType || ""),
-        url: normalizeUrlForEvents(message.url || ""),
-        hostname: hostnameOf(message.url || ""),
-        time: todayContext(),
-        data: message.data || null,
-        targetGroupId: message.scope === "global" ? null : (message.groupId || null),
-        tabId: typeof message.tabId === "number" ? message.tabId : null
-      };
-      const r = await dispatchToSandbox(descriptor);
-      await processLocalFileIntents(r, descriptor);
-      sendResponse({ ok: true, result: r });
-    })();
-    return true;
-  }
-
   if (message.type === "custom-panel-event") {
     (async () => {
       await ensureStartupGate();
       const tabId = sender?.tab?.id ?? (typeof message.tabId === "number" ? message.tabId : null);
-      const url = normalizeUrlForEvents(message.url || sender?.tab?.url || sender?.url || "");
+      const url = String(message.url || sender?.tab?.url || sender?.url || "");
       const groupId = typeof message.groupId === "string" ? message.groupId : "";
       const data = {
         panelId: typeof message.panelId === "string" ? message.panelId : "",
@@ -3486,12 +3291,12 @@ async function cbRenameDuplicates(groups) {
 
 async function cbAnnounceStoredGroups(groups) {
   const list = Array.isArray(groups) ? groups : (await getState()).groups;
-  cbConnection.lastAnnounce = {
+  if (!cbConnection.routeIsReady("macapp")) return;
+  cbConnection.sendWS({
     kind: "groups-announce",
     program: cbDetectProgramId(),
     groups: list.map((group) => ({ id: group.id, name: group.name, frozen: cbGroupIsLocked(group) }))
-  };
-  if (cbConnection.routeIsReady("macapp")) cbConnection.sendWS(cbConnection.lastAnnounce);
+  });
 }
 
 // ── Sharing linked groups (the worker owns it; owner 2026-09-26) ───────────
@@ -3587,19 +3392,38 @@ async function cbContributeJoins() {
   }
 }
 
+// Every stored change, whoever wrote it (the editor, a tool, the worker
+// itself), is acted on here — the one storage listener.
 if (chrome.storage && chrome.storage.onChanged) {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (changes[BLOCKED_GROUPS_KEY]) {
-      cbSharingReady.then(() => cbShareStoredGroups(changes[BLOCKED_GROUPS_KEY].newValue)).catch(() => {});
-      cbApplyStoredGroupChange(changes[BLOCKED_GROUPS_KEY].oldValue, changes[BLOCKED_GROUPS_KEY].newValue).catch(() => {});
+    const groupsChange = changes[BLOCKED_GROUPS_KEY];
+    const snoozesChange = changes[GROUP_SNOOZES_KEY];
+    const settingsChange = changes[CB_GLOBAL_SETTINGS_KEY];
+    if (settingsChange) {
+      const next = settingsChange.newValue;
+      cbDebugMode = next && typeof next === "object" ? next.debugMode === true : false;
     }
-    if (changes[GROUP_SNOOZES_KEY]) cbShareStoredSnoozes(changes[GROUP_SNOOZES_KEY].newValue);
+    if (groupsChange || snoozesChange) {
+      cbScheduleTransitions().catch((error) => {
+        console.error("Failed to schedule transitions after storage update.", error);
+      });
+    }
+    if (groupsChange) {
+      reconcileCustomGroupHandlers(groupsChange).catch((error) => {
+        console.error("Failed to reconcile custom-group handlers.", error);
+      });
+      cbSharingReady.then(() => cbShareStoredGroups(groupsChange.newValue)).catch(() => {});
+      cbApplyStoredGroupChange(groupsChange.oldValue, groupsChange.newValue).catch(() => {});
+    }
+    if (snoozesChange) cbShareStoredSnoozes(snoozesChange.newValue);
+    if (groupsChange || settingsChange) {
+      cbScheduleRecheck({ definitionChanged: true });
+    } else if (snoozesChange || changes[USAGE_TIMERS_KEY] || changes[USAGE_RESET_AT_KEY] || changes[USAGE_BUCKETS_KEY]) {
+      cbScheduleRecheck();
+    }
   });
 }
-
-// Scalar settings linked groups share (one list, in group-scopes.js).
-const CB_SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
 
 function cbDetectProgramId() {
   let ua = "";
@@ -3614,8 +3438,6 @@ function cbDetectProgramId() {
 // would be re-reported as ours and double-count.
 const cbClusterUsageBaseline = {};
 
-// True while `group` is in a cluster and the hub (hosted by the Mac app) is
-// reachable: the hub then owns the shared budget and its period.
 // Owner 2026-09-26: this browser keeps a copy of its links, so while Mac Vault
 // is away it still knows which groups are linked. It then runs those groups
 // itself and keeps the time it counts for them apart (per budget period);
@@ -3669,12 +3491,7 @@ async function cbKeepOwnLines(ids) {
 
 // Linked (per the copy), whether or not the hub is reachable right now.
 function cbGroupInLink(group) {
-  try {
-    const program = cbDetectProgramId();
-    return cbClusterCopy.some((cluster) => self.CBBridgeProtocol.clusterForGroup([cluster], group, program) === cluster);
-  } catch (_) {
-    return false;
-  }
+  return Boolean(group) && cbLinkedGroupIds(cbClusterCopy).has(group.id);
 }
 
 // Time counted for linked groups while the hub was away, per group:
@@ -3728,17 +3545,6 @@ function cbEnforceOnly(group) {
   return Boolean(group) && !cbConnection.routeIsReady("macapp") && cbGroupInLink(group);
 }
 
-function cbGroupLinkedToHub(group) {
-  try {
-    const clusters = Array.isArray(cbConnection.clusters) ? cbConnection.clusters : [];
-    if (clusters.length === 0 || !cbConnection.routeIsReady("macapp")) return false;
-    const program = cbDetectProgramId();
-    return clusters.some((cluster) => self.CBBridgeProtocol.clusterForGroup([cluster], group, program) === cluster);
-  } catch (_) {
-    return false;
-  }
-}
-
 // Reports this endpoint's usage *increment* to the hub for any clustered Default
 // group so the one shared live budget keeps accumulating even while the popup is
 // closed. Sends a lightweight usage-only group-sync (no scalars/sites) carrying
@@ -3747,16 +3553,9 @@ function cbGroupLinkedToHub(group) {
 // the sole browser-side reporter and the delta can't be counted twice.
 function cbReportClusterUsage(groups, timers, resets, bucketDeltas = {}, buckets = {}) {
   try {
-    const clusters = Array.isArray(cbConnection.clusters) ? cbConnection.clusters : [];
-    if (clusters.length === 0) return;
     if (!cbConnection.routeIsReady("macapp")) return;
-    const program = cbDetectProgramId();
     for (const g of groups) {
-      if (!g) continue;
-      const inCluster = clusters.some(
-        (cluster) => self.CBBridgeProtocol.clusterForGroup([cluster], g, program) === cluster
-      );
-      if (!inCluster) continue;
+      if (!cbGroupInLink(g)) continue;
       if (g.rollingLimit) {
         // Rolling limit: share WHEN time was used (per-minute increments), not a
         // total. The first report seeds our history; the hub keeps it only until
@@ -3817,7 +3616,6 @@ const cbConnection = {
   // of truth) and the last groups-announce we sent, so we can re-announce after
   // a reconnect even if the popup is closed.
   clusters: [],
-  lastAnnounce: null,
   // Every program's groups (id, name, frozen), for the editor's Link picker.
   rosters: {},
   // Rapid-retry burst bookkeeping. burstStartMs marks the start of the current
@@ -3835,10 +3633,8 @@ const cbConnection = {
       this.clusters = [];
       this.broadcastClusters();
     } else if (!macRouteWasReady && macRouteIsReady) {
-      // Re-link after a reconnect even if the editor was never opened since
-      // this worker started: announce from storage when nothing is cached.
-      if (this.lastAnnounce) this.sendWS(this.lastAnnounce);
-      else cbAnnounceStoredGroups().catch(() => {});
+      // Announce the stored groups after every (re)connect.
+      cbAnnounceStoredGroups().catch(() => {});
     }
     if (this.routeIsReady("classifier")
       && typeof self.CBFlushVaultClassifierCollectionQueue === "function") {
@@ -4055,7 +3851,6 @@ const cbConnection = {
       }
       if (snoozeChanged) {
         await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: snoozes });
-        await cbScheduleTransitions();
       }
       // The link's snooze total is the hub's count (each snooze once).
       const totals = { ...((await chrome.storage.local.get({ [GROUP_SNOOZE_TOTALS_KEY]: {} }))[GROUP_SNOOZE_TOTALS_KEY] || {}) };
@@ -4539,7 +4334,6 @@ async function cbEndSnoozeForTool(input) {
   if (result.error) throw new Error(result.error);
   // The time it ran is counted once, like a snooze that ran out (getState).
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: { ...groupSnoozes, [group.id]: result.entry } });
-  await cbScheduleTransitions();
   return { ended: true, snooze: result.entry };
 }
 

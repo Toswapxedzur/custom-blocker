@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // ここにハンドラーを登録します。\n}",
   "custom.runButton": "走る",
   "custom.runStatusHalted": "停止: ルールの読み込みに時間がかかりすぎたため、強制的に中止されました。詳細については、「ログ」パネルを確認してください。",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "AIにコードを書かせる",
   "custom.aiPromptLabel": "AIへのプロンプト",
   "custom.aiPromptPlaceholder": "このカスタムルールで実行したいことを説明してください...",

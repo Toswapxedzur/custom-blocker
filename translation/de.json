@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // Handler hier registrieren.\n}",
   "custom.runButton": "Laufen",
   "custom.runStatusHalted": "Angehalten: Das Laden der Regel hat zu lange gedauert und der Abbruch wurde erzwungen. Weitere Informationen finden Sie im Protokollbereich.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "KI Code schreiben lassen",
   "custom.aiPromptLabel": "Prompt für KI",
   "custom.aiPromptPlaceholder": "Beschreibe, was diese benutzerdefinierte Regel tun soll...",

@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // Registre os manipuladores aqui.\n}",
   "custom.runButton": "Executar",
   "custom.runStatusHalted": "Interrompida: a regra demorou muito para carregar e foi abortada à força. Verifique o painel Log para obter detalhes.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "Deixar a IA codificar",
   "custom.aiPromptLabel": "Prompt para IA",
   "custom.aiPromptPlaceholder": "Descreva o que você quer que esta regra personalizada faça...",

@@ -1406,6 +1406,8 @@ const PLATFORM_PROFILES = {
         "faceplate-tracker[source=\"search\"] shreddit-post",
         "div.thing[data-subreddit]"
       ],
+      // A post's card is its enclosing <article> when it has one.
+      cardClosest: "article",
       // The post permalink: what a custom rule's item.url / videoForm read.
       hrefSelectors: ['a[href*="/comments/"]'],
       replenish: { scroll: true }
@@ -1445,8 +1447,9 @@ const PLATFORM_PROFILES = {
       placeholderKey: "platform.placeholder.twitter"
     },
     feed: {
+      // A tweet's card is the timeline cell around it.
       anchorSelectors: ['article[data-testid="tweet"]'],
-      cardSelectors: ['[data-testid="cellInnerDiv"]:has(article[data-testid="tweet"])'],
+      containerSelectors: ['[data-testid="cellInnerDiv"]'],
       // The status permalink: what a custom rule's item.url / videoForm read.
       hrefSelectors: ['a[href*="/status/"]'],
       replenish: { scroll: true }

@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // यहाँ हैंडलर पंजीकृत करें।\n}",
   "custom.runButton": "दौड़ना",
   "custom.runStatusHalted": "रोका गया: नियम को लोड होने में बहुत अधिक समय लगा और उसे बलपूर्वक निरस्त कर दिया गया। विवरण के लिए लॉग पैनल की जाँच करें।",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "AI से कोड लिखवाएँ",
   "custom.aiPromptLabel": "AI के लिए प्रॉम्प्ट",
   "custom.aiPromptPlaceholder": "बताएँ कि यह कस्टम नियम क्या करे...",
