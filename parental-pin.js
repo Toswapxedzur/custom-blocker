@@ -161,7 +161,9 @@
   }
 
   // A new PIN, salted: the fields a group stores.
+  // Only a valid PIN is ever stored: an invalid one could never be verified.
   async function newPinFields(pin) {
+    if (!isValidParentalPin(pin)) throw new Error("invalid-pin: 6 digits");
     const salt = randomSaltHex();
     return { parentalPasswordSalt: salt, parentalPasswordHash: await hashParentalPin(pin, salt) };
   }
@@ -233,6 +235,7 @@
     return `${PARENTAL_PIN_HASH_PREFIX}${PARENTAL_PIN_ROUNDS}$${pbkdf2HexSync(pin, saltHex, PARENTAL_PIN_ROUNDS)}`;
   }
   function newPinFieldsSync(pin) {
+    if (!isValidParentalPin(pin)) throw new Error("invalid-pin: 6 digits");
     const salt = randomSaltHex();
     return { parentalPasswordSalt: salt, parentalPasswordHash: hashParentalPinSync(pin, salt) };
   }

@@ -3554,6 +3554,7 @@ function cbEnforceOnly(group) {
 function cbReportClusterUsage(groups, timers, resets, bucketDeltas = {}, buckets = {}) {
   try {
     if (!cbConnection.routeIsReady("macapp")) return;
+    const program = cbDetectProgramId();
     for (const g of groups) {
       if (!cbGroupInLink(g)) continue;
       if (g.rollingLimit) {
@@ -3593,7 +3594,9 @@ function cbReportClusterUsage(groups, timers, resets, bucketDeltas = {}, buckets
         ts: Date.now()
       });
     }
-  } catch (_) {}
+  } catch (error) {
+    console.error("[CustomBlocker] reporting linked usage failed", error);
+  }
 }
 
 // Rebase the usage delta baseline to the hub's shared total for a group. Called
@@ -4358,6 +4361,9 @@ async function cbSetLockGatesForTool(input) {
   const index = groups.findIndex((group) => group.id === input.id);
   if (index < 0) throw new Error("group-not-found");
   const group = groups[index];
+  // A locked group's gates change only after unlocking (checked before any PIN
+  // is tried, so a refusal never costs an attempt).
+  if (CBGroupActions.isLocked(group)) throw new Error("group-locked");
   const gates = {};
   if (input.waitHours !== undefined) gates.waitHours = input.waitHours;
   if (input.clearPin === true) {

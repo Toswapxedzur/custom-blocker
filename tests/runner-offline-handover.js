@@ -78,6 +78,12 @@ const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
   check("…the local counter shows shared + handed-over time, not the hub's older total", ((await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {}).L === 302000);
   check("…and it is handed over once", Object.keys((await context.chrome.storage.local.get("cbOfflineUsage")).cbOfflineUsage || {}).length === 0);
 
+  // Online: the browser's own accrual reaches the hub as an increment.
+  context.__sent.length = 0;
+  clock += 1000; await run(`applyElapsedTime("example.com", 1000, [])`);
+  const live = context.__sent.find((f) => f.kind === "group-sync" && f.program === "chrome" && f.groupId === "L" && f.usageDeltaMs > 0 && f.usageDeltaAnchorMs === undefined);
+  check("while the hub is connected, time counted here is reported to it", live && live.usageDeltaMs === 1000, context.__sent);
+
   console.log(`OFFLINE HANDOVER TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
   if (fail) process.exitCode = 1;
