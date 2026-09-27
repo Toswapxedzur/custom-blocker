@@ -58,13 +58,15 @@ const collectionEntry = (manifest.content_scripts || []).find((entry) =>
   Array.isArray(entry.js) && entry.js.includes("vault-classifier-collector-core.js")
 );
 const missingDedicatedCollectors = dedicatedCollectorScripts.filter((script) => !collectionEntry?.js?.includes(script));
-const tagUIRegistrationInvalid = (manifest.content_scripts || []).some((entry) => {
-  if (!Array.isArray(entry.js)) return false;
-  const collectorIndex = entry.js.findIndex((script) =>
-    script === "vault-classifier-collector-core.js" || script === "vault-classifier-youtube.js"
-  );
-  return collectorIndex >= 0 && (entry.js.indexOf("vault-classifier-tag-ui.js") < 0
-    || entry.js.indexOf("vault-classifier-tag-ui.js") > collectorIndex);
+// Content-script entries inject in manifest order into one isolated world:
+// the tag presenter (and platform-profiles.js) must come before every collector.
+const injectionOrder = (manifest.content_scripts || []).flatMap((entry) => (Array.isArray(entry.js) ? entry.js : []));
+const tagUIRegistrationInvalid = ["vault-classifier-collector-core.js", "vault-classifier-youtube.js"].some((collector) => {
+  const at = injectionOrder.indexOf(collector);
+  if (at < 0) return false;
+  const tagUI = injectionOrder.indexOf("vault-classifier-tag-ui.js");
+  const profiles = injectionOrder.indexOf("platform-profiles.js");
+  return tagUI < 0 || tagUI > at || profiles < 0 || profiles > at;
 });
 const platformCollectorScripts = dedicatedCollectorScripts.slice(1).concat("vault-classifier-youtube.js");
 const missingPresentationRoots = platformCollectorScripts.filter((script) =>

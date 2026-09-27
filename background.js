@@ -232,40 +232,17 @@ function normalizePageContext(input) {
     } catch {}
   }
 
+  // Everything is derived from the address here; the page adds only the
+  // authors it reads from the page itself (YouTube's owner byline).
   const normalizedHostname = hostname ?? null;
-  const platformAuthors = normalizePlatformAuthorsMap(input?.platformAuthors, pathname, url);
   const videoContext = detectVideoSiteContext(normalizedHostname, pathname || "/");
-  const redditSubreddit =
-    normalizeRedditSubredditInput(input?.redditSubreddit) ??
-    parseRedditSubredditFromPath(pathname);
-  const discordServerId =
-    normalizeDiscordTargetInput(input?.discordServerId) ??
-    parseDiscordServerIdFromPath(pathname);
-  const discordChannelId =
-    normalizeDiscordTargetInput(input?.discordChannelId) ??
-    parseDiscordChannelIdFromPath(pathname);
-
   return {
     hostname: normalizedHostname,
     pathname: pathname || "/",
     url,
-    isYouTubePage: Boolean(input?.isYouTubePage) || isYouTubeHost(normalizedHostname),
-    isYouTubeShort:
-      Boolean(input?.isYouTubeShort) || Boolean(pathname && pathname.startsWith("/shorts/")),
-    platformAuthors,
-    isRedditPage: Boolean(input?.isRedditPage) || isRedditHost(normalizedHostname),
-    redditSubreddit,
-    isDiscordPage: Boolean(input?.isDiscordPage) || isDiscordHost(normalizedHostname),
-    discordServerId,
-    discordChannelId,
-    isTwitterPage: Boolean(input?.isTwitterPage) || isTwitterHost(normalizedHostname),
-    videoSite: typeof input?.videoSite === "string" ? input.videoSite : videoContext.site,
-    videoForm:
-      input?.videoForm === "short" ||
-      input?.videoForm === "long" ||
-      input?.videoForm === "post"
-        ? input.videoForm
-        : videoContext.form,
+    platformAuthors: normalizePlatformAuthorsMap(input?.platformAuthors, pathname, url),
+    videoSite: videoContext.site,
+    videoForm: videoContext.form,
     // The local Vault Classifier receives rendered evidence through its own
     // dedicated adapter; page matching contains no remote classification state.
   };
@@ -632,7 +609,7 @@ function applyRuntimeNormalizations(
 globalThis.cbHasActiveTagFilter = async function cbHasActiveTagFilter(platform, now = Date.now()) {
   if (typeof platform !== "string" || !platform) return false;
   const { groups, usageTimersMs, groupSnoozes } = await getState();
-  const pageContext = { hostname: "", videoSite: platform, isRedditPage: platform === "reddit" };
+  const pageContext = { hostname: "", videoSite: platform };
   return buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnoozes, now)
     .some((filter) => filter && filter.tagFilter);
 };
@@ -739,18 +716,14 @@ function buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnooz
   const filters = [];
   const currentSite = pageContext.videoSite || getPlatformGroupTypeForHost(pageContext.hostname);
   const kind = currentSite ? CBGroupScopes.platformKind(currentSite) : null;
-  const onReddit = Boolean(pageContext.isRedditPage);
-  if (!currentSite && !onReddit) return filters;
+  if (!currentSite) return filters;
 
   for (const group of groups) {
     if (!cbGroupActive(group, groupSnoozes, now)) continue;
     const lines = Array.isArray(group.scopes) ? group.scopes : [];
     // A group may name several platforms; only its lines for THIS page's
-    // platform apply. Reddit pages carry no videoSite; every other platform
-    // is keyed by host.
-    const itemLines = lines.filter(
-      (line) => line.surface === "items" && (onReddit ? line.platform === "reddit" : line.platform === currentSite)
-    );
+    // platform apply.
+    const itemLines = lines.filter((line) => line.surface === "items" && line.platform === currentSite);
     if (itemLines.length === 0) continue;
     // `enforce` decides whether matched cards are actually hidden (the one
     // gate every line uses); a timed group not yet spent still reports

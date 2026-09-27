@@ -179,7 +179,9 @@
     if (typeof root.contains !== "function") return null;
     let found = null;
     for (const state of mountedStates) {
-      if (state.kind !== "card" || state.root === root || !root.contains(state.root)) continue;
+      // A page entry counts too: X's focal tweet is the page's entry, and its
+      // timeline cell is the card the filters see.
+      if (state.root === root || !root.contains(state.root)) continue;
       if (found) return null; // ambiguous wrapper (several cards inside) → unknown
       found = state;
     }

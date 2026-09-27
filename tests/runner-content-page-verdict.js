@@ -61,7 +61,7 @@ const context = vm.createContext({
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "platform-profiles.js"), "utf8"), context);
 vm.runInContext([
-  extractBlock("CB_CONTENT_BLOCK_PROFILES"), extractDecl("CB_PAGE_BLOCK_RETRY_MS"), extractDecl("CB_PAGE_BLOCK_RETRIES"),
+  extractDecl("CB_PAGE_BLOCK_RETRY_MS"), extractDecl("CB_PAGE_BLOCK_RETRIES"),
   "let cbTagPageBlockedEntry = \"\";", "let cbTagPageRetryTimer = null;",
   extractFunction("normalizeHostname"), extractFunction("cbContentBlockProfile"), extractFunction("cbFindMediaAll"),
   extractFunction("cbEnsureRelative"), extractFunction("cbCoverMedia"), extractFunction("cbUncoverMedia"),
