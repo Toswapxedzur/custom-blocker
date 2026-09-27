@@ -878,7 +878,7 @@ function requestConnectionStatus() {
 
 function bridgeIsOnline() {
   const s = state.connectionStatus || {};
-  return s.state === "connected" || s.state === "running";
+  return s.state === "connected";
 }
 
 // The link (if any) this group belongs to, by this program's pinned group id.
@@ -3279,10 +3279,21 @@ function macVaultAway() {
   const s = state.connectionStatus || {};
   // Unknown until the worker's first status push: not "away" yet.
   if (!s.received) return false;
-  return !((s.state === "connected" || s.state === "running") && s.hubProgram === "macapp");
+  return !(s.state === "connected" && s.hubProgram === "macapp");
 }
 
 // True (and says why) when the group is enforce-only right now.
+// The one refusal for a change the group can't take right now, with its
+// reason: Mac Vault is away (enforce-only) or the group is frozen.
+function refuseUnlessEditable(group) {
+  if (!group) return true;
+  if (refuseWhileMacVaultAway(group)) return true;
+  if (isGroupEditable(group)) return false;
+  setStatus(t("status.frozenCannotChange"), true);
+  render();
+  return true;
+}
+
 function refuseWhileMacVaultAway(group) {
   if (!isEnforceOnly(group)) return false;
   setStatus(t("link.enforceOnly"), true);
@@ -3779,7 +3790,7 @@ function renderGroupList(now = Date.now()) {
     toggle.className = "group-toggle";
     toggle.type = "checkbox";
     toggle.checked = group.enabled;
-    toggle.disabled = freezeStatus.isFrozen;
+    toggle.disabled = !isGroupEditable(group, now);
     toggle.setAttribute("aria-label", `${t("editor.enableGroup")}: ${group.name}`);
 
     toggle.addEventListener("click", (event) => {
@@ -3954,12 +3965,15 @@ function updateSnoozeUI(group, now = Date.now()) {
   const totalSnoozedMs = getDisplayedSnoozeTotalMs(group.id, now);
   const isCustomGroup = group.groupType === "custom";
 
+  // Snooze settings change only when the group can (not frozen, Mac Vault
+  // not away); snoozing itself stays available on a frozen group.
+  const settingsLocked = !isGroupEditable(group, now);
   allowSnoozeField.checked = allowSnooze;
-  allowSnoozeField.disabled = freezeStatus.isFrozen;
-  snoozeMinutesField.disabled = freezeStatus.isFrozen || !allowSnooze;
-  snoozeActivationDelayField.disabled = freezeStatus.isFrozen || !allowSnooze;
-  snoozeCooldownField.disabled = freezeStatus.isFrozen || !allowSnooze;
-  snoozeConfirmationsField.disabled = freezeStatus.isFrozen || !allowSnooze;
+  allowSnoozeField.disabled = settingsLocked;
+  snoozeMinutesField.disabled = settingsLocked || !allowSnooze;
+  snoozeActivationDelayField.disabled = settingsLocked || !allowSnooze;
+  snoozeCooldownField.disabled = settingsLocked || !allowSnooze;
+  snoozeConfirmationsField.disabled = settingsLocked || !allowSnooze;
 
   // Custom groups own snooze semantics via the snoozePress handler, so
   // the numeric knobs are hidden and a copy line replaces them.
@@ -4422,9 +4436,8 @@ function refreshGroupListInPlace(now) {
       if (toggle.checked !== group.enabled) {
         toggle.checked = group.enabled;
       }
-      if (toggle.disabled !== freezeStatus.isFrozen) {
-        toggle.disabled = freezeStatus.isFrozen;
-      }
+      const locked = !isGroupEditable(group, now);
+      if (toggle.disabled !== locked) toggle.disabled = locked;
     }
   }
 }
@@ -4626,6 +4639,7 @@ async function resetGroupRuntime(groupId) {
 // A snooze entry the user started or ended here; the service worker / Mac
 // Vault count its time and share it with linked devices.
 async function persistSnooze(groupId, entry, message = "") {
+  if (refuseWhileMacVaultAway(state.groups.find((item) => item.id === groupId))) return;
   const stored = (await chrome.storage.local.get({ [GROUP_SNOOZES_KEY]: {} }))[GROUP_SNOOZES_KEY];
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: { ...(stored && typeof stored === "object" ? stored : {}), [groupId]: entry } });
   if (message) setStatus(message);
@@ -4651,12 +4665,7 @@ async function loadGroups() {
 
 function updateGroupEnabled(groupId, enabled) {
   const group = state.groups.find((item) => item.id === groupId);
-
-  if (!group || !isGroupEditable(group)) {
-    setStatus(t("status.frozenCannotChange"), true);
-    render();
-    return;
-  }
+  if (refuseUnlessEditable(group)) return;
 
   state.groups = state.groups.map((item) =>
     item.id === groupId ? { ...item, enabled } : item
@@ -5001,9 +5010,7 @@ async function importIntoSelectedGroup() {
     return;
   }
 
-  if (!isGroupEditable(group)) {
-    setStatus(t("status.frozenCannotChange"), true);
-    render();
+  if (refuseUnlessEditable(group)) {
     return;
   }
 
@@ -5287,10 +5294,7 @@ function scheduleAutosave() {
 function clearSelectedSites() {
   const group = getSelectedGroup();
 
-  if (!group || group.groupType !== "site" || !isGroupEditable(group)) {
-    setStatus(t("status.frozenCannotChange"), true);
-    return;
-  }
+  if (!group || activeEntryKey(group) !== "site" || refuseUnlessEditable(group)) return;
 
   blockedSitesField.value = "";
   stashCurrentDraft();
@@ -5393,6 +5397,9 @@ function openUnfreezeFlow() {
 // --- Parental (password-gated) freeze flow ------------------------------
 
 async function persistGroupFields(groupId, fields, statusMsg) {
+  // A long flow (a 10 × 5 s confirmation, an open PIN panel) checks again at
+  // the end: Mac Vault may have gone away meanwhile.
+  if (refuseWhileMacVaultAway(state.groups.find((item) => item.id === groupId))) return;
   state.groups = state.groups.map((item) =>
     item.id === groupId ? { ...item, ...fields } : item
   );
@@ -6607,7 +6614,7 @@ if (settingsModal) {
 
 // Global settings auto-save: persist on every committed edit (no Save button).
 {
-  const settingsAutoSaveFields = [settingsDefaultSnoozeMinutesField, settingsQuitRetryMinutesField];
+  const settingsAutoSaveFields = [settingsDefaultSnoozeMinutesField, settingsQuitRetryMinutesField, settingsQuickAddField];
   const autoSaveSettings = () => {
     saveSettingsFromForm().catch((error) => {
       console.error("Failed to save global settings.", error);

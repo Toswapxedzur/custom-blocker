@@ -149,10 +149,11 @@ async function op(operation, body) {
   const deleted = await op("settings-delete-group", { id: g.id });
   check("delete-group removes the group", deleted?.body?.deleted === g.id && !(storage.get("blockedGroups") || []).some((x) => x.id === g.id), deleted);
 
-  const global = await op("settings-set-global", { patch: { debugMode: true, tickRateMs: 5 } });
-  check("set-global sanitizes like the popup (debug on, tick rate clamped)", global?.body?.globalSettings?.debugMode === true && global.body.globalSettings.tickRateMs === 250 && storage.get("globalSettings")?.debugMode === true, global);
-  const globalOff = await op("settings-set-global", { patch: { debugMode: false } });
-  check("set-global turns debug off again", globalOff?.body?.globalSettings?.debugMode === false, globalOff);
+  // Tools set exactly the editor's Settings (owner 2026-09-27).
+  const hidden = await op("settings-set-global", { patch: { debugMode: true } });
+  check("set-global refuses a setting the editor doesn't show", String(hidden?.error || "").startsWith("not-an-editor-setting") && storage.get("globalSettings")?.debugMode !== true, hidden);
+  const global = await op("settings-set-global", { patch: { quickAddEnabled: true } });
+  check("set-global sets an editor setting and returns only those", global?.body?.globalSettings?.quickAddEnabled === true && !("tickRateMs" in global.body.globalSettings), global);
 
   // Lock / unlock / move: the popup's own gates (owner 2026-09-26).
   const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];

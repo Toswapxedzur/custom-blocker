@@ -1491,8 +1491,21 @@ const cbCover = {
   countdownLeft: 0,
   confirmationsLeft: 0,
   nextConfirmAt: 0,
-  statusText: ""
+  statusText: "",
+  // Two owners: the worker's block of this page (its exit) and a custom rule's
+  // block. The cover stays while either holds and shows the worker's (Snooze,
+  // Continue) when both do.
+  workerExit: null,
+  ruleCover: false
 };
+
+const CB_RULE_EXIT = Object.freeze({ action: "cover", target: "", message: "", groupId: "", groupName: "", allowSnooze: false, source: "custom" });
+
+function cbSyncCover() {
+  const exit = cbCover.workerExit || (cbCover.ruleCover ? CB_RULE_EXIT : null);
+  if (exit) cbShowCover(exit);
+  else cbHideCover();
+}
 
 // Every <video>/<audio> in the document, shadow roots included.
 function cbAllMedia(root = document, out = []) {
@@ -1771,7 +1784,7 @@ function cbRefreshQuickAdd() {
 // cover in place (block or pause). Custom rules' own redirect helper still
 // navigates on its own.
 function cbApplyExit(exit) {
-  if (!exit) { cbHideCover(); return; }
+  if (!exit) { cbCover.workerExit = null; cbSyncCover(); return; }
   if (exit.action === "navigate" && exit.target) {
     if (exitAttempted) return;
     exitAttempted = true;
@@ -1780,21 +1793,20 @@ function cbApplyExit(exit) {
     try { location.replace(exit.target); } catch { location.href = exit.target; }
     return;
   }
-  cbShowCover(exit);
+  cbCover.workerExit = exit;
+  cbSyncCover();
 }
 
-// A custom rule asked to block this page (blockPageOnVisit / home-feed hide):
-// the plain cover, no snooze (custom groups do not snooze).
-// A custom rule's page block. The worker's page decision doesn't know about
-// it, so the cover is marked as the rule's: the worker's session updates leave
-// it up, and it lifts when the page's address changes (the rules then decide
-// the new page).
+// A custom rule's page block (blockPageOnVisit): the plain cover, no snooze.
+// It holds until the page's address changes (the rules then decide the new
+// page), whatever the worker's decision does meanwhile.
 function attemptExitPage() {
-  cbShowCover({ action: "cover", target: "", message: "", groupId: "", groupName: "", allowSnooze: false, source: "custom" });
+  cbCover.ruleCover = true;
+  cbSyncCover();
 }
 
 function cbCustomCoverUp() {
-  return Boolean(cbCover.dialog && cbCover.exit && cbCover.exit.source === "custom");
+  return cbCover.ruleCover;
 }
 
 function stopHeartbeat() {
@@ -1864,7 +1876,7 @@ function handleSession(session) {
     cbApplyExit(exit);
     return;
   }
-  if (!cbCustomCoverUp()) cbHideCover();
+  if (cbCover.workerExit) cbApplyExit(null);
 
   // Keep the heartbeat alive while platform feed filters are active even with no
   // visible timer, so exposure-based usage timers keep accruing on the feed.
@@ -1921,7 +1933,8 @@ function cbOnNavigated() {
       __cb_pagePredicateRetryTimer = null;
     }
     __cb_pagePredicateRetryUrl = null;
-    if (cbCustomCoverUp()) cbHideCover();
+    // A custom rule's cover belonged to the old address.
+    if (cbCover.ruleCover) { cbCover.ruleCover = false; cbSyncCover(); }
     // Defer one tick so the app can swap in the new page's title first.
     if (__cb_activePredicateSlots.size > 0) setTimeout(() => __cb_checkPagePredicate(), 0);
   } catch (error) {
@@ -3535,18 +3548,21 @@ function __cb_extractPageVideoTitle(platform) {
   return stripped;
 }
 
+// Waits for the page's title (it renders after the address changes). Returns
+// false once this address's retries are used up: evaluate without a title.
 function __cb_schedulePagePredicateRetry() {
   if (__cb_pagePredicateRetryUrl !== location.href) {
     __cb_pagePredicateRetryUrl = location.href;
     __cb_pagePredicateRetriesRemaining = __CB_PAGE_PREDICATE_MAX_RETRIES;
   }
-  if (__cb_pagePredicateRetryTimer !== null) return;
-  if (__cb_pagePredicateRetriesRemaining <= 0) return;
+  if (__cb_pagePredicateRetryTimer !== null) return true;
+  if (__cb_pagePredicateRetriesRemaining <= 0) return false;
   __cb_pagePredicateRetriesRemaining -= 1;
   __cb_pagePredicateRetryTimer = window.setTimeout(() => {
     __cb_pagePredicateRetryTimer = null;
     __cb_checkPagePredicate();
   }, __CB_PAGE_PREDICATE_RETRY_DELAY_MS);
+  return true;
 }
 
 // Persistent <style> tags injected for sticky platform intents (hide
@@ -3609,35 +3625,7 @@ const __cb_PLATFORM_CSS = {
 };
 
 function __cb_isOnPlatformHome(platform) {
-  const p = location.pathname || "/";
-  switch (platform) {
-    case "youtube":
-      return p === "/" || p.startsWith("/feed/");
-    case "tiktok":
-      return p === "/" || p.startsWith("/foryou") || p.startsWith("/following") || p.startsWith("/explore");
-    case "instagram":
-      return (
-        p === "/" ||
-        p === "/explore" || p.startsWith("/explore/") ||
-        p === "/reels" || p.startsWith("/reels/")
-      );
-    case "facebook":
-      return p === "/" || p === "/watch" || p.startsWith("/watch/");
-    case "twitch":
-      return p === "/" || p === "/directory" || p.startsWith("/directory/");
-    case "reddit": {
-      const trimmed = p.replace(/\/+$/, "") || "/";
-      return trimmed === "/" || /^\/(best|hot|new|top|rising)$/i.test(trimmed) || /^\/r\/(all|popular)$/i.test(trimmed);
-    }
-    case "bilibili": {
-      const host = String(location.hostname || "").toLowerCase();
-      return (host === "bilibili.com" || host === "www.bilibili.com") && (p === "/" || p === "/index.html");
-    }
-    case "twitter":
-      return p === "/" || p === "/home" || p === "/explore" || p.startsWith("/explore/") || p.startsWith("/i/trends");
-    default:
-      return false;
-  }
+  return isHomeFeedPage(platform, location.hostname, location.pathname || "/");
 }
 
 function __cb_currentPlatform() {
@@ -3759,24 +3747,11 @@ function __cb_extractCardItem(card, platform) {
   // custom content-block rule can match on WHAT the content is, not just its
   // creator. Empty until the pill resolves; a resolved change re-evaluates via
   // the signature below.
-  let tags = [];
-  // True only once the classifier has ANSWERED for this card (tags, or an
-  // explicit none). While false the tags are simply unknown yet, so a rule can
-  // fail open instead of treating "not classified" as "untagged".
-  let tagsSettled = false;
-  try {
-    if (typeof window !== "undefined" && typeof window.vaultTagsForCard === "function") {
-      const resolved = window.vaultTagsForCard(card);
-      if (Array.isArray(resolved)) {
-        tags = resolved
-          .filter((t) => t && typeof t.name === "string")
-          .map((t) => ({ id: t.id, name: t.name, confidence: Number.isInteger(t.confidence) ? t.confidence : 0 }));
-      }
-      tagsSettled = typeof window.vaultTagsSettledForCard === "function"
-        ? window.vaultTagsSettledForCard(card) === true
-        : tags.length > 0;
-    }
-  } catch {}
+  // tagsSettled is true only once the classifier has ANSWERED (tags, or an
+  // explicit none): a rule can fail open while the tags are unknown.
+  const cardTags = getFeedCardTags(card);
+  const tags = [...cardTags];
+  const tagsSettled = cardTags.settled;
 
   return {
     url,
@@ -4059,20 +4034,21 @@ async function __cb_checkPagePredicate() {
   // never blocks" outcome.
   const title = __cb_extractPageVideoTitle(platform);
   if (!title) {
-    if (__cb_pagePredicateRetriesRemaining > 0) {
-      __cb_schedulePagePredicateRetry();
-      return;
-    }
+    if (__cb_schedulePagePredicateRetry()) return;
     // Fall through to evaluation with title = null. The predicate is
     // free to ignore item.title (e.g. URL-based blocks).
   }
 
   const safeTitle = title || null;
+  // The page's own creator and tags, as a feed card of it would carry them.
+  const pageTags = cbTagPageContext ? getFeedCardTags(cbTagPageContext.root) : Object.assign([], { settled: false });
   const item = {
     url: location.href,
     name: safeTitle,
     title: safeTitle,
-    author: null,
+    author: (collectPlatformAuthors(location.pathname, platform === "youtube")[platform] || [])[0] || null,
+    tags: [...pageTags],
+    tagsSettled: pageTags.settled,
     length: null,
     views: null,
     publishedAt: null,
