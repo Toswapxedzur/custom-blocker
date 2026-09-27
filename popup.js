@@ -2,10 +2,9 @@
 // periods, runtime-state sanitizers, global settings): one copy, in
 // group-actions.js.
 const {
-  DAY_NAMES, DEFAULT_GROUP_TYPE, DEFAULT_ALLOWED_MINUTES, DEFAULT_RESET_INTERVAL_HOURS,
-  DEFAULT_SNOOZE_MINUTES, DEFAULT_SNOOZE_CONFIRMATIONS, DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
+  DAY_NAMES, DEFAULT_GROUP_TYPE, DEFAULT_SNOOZE_CONFIRMATIONS, DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
   DEFAULT_SNOOZE_COOLDOWN_MINUTES, MAX_SNOOZE_COOLDOWN_MINUTES, DEFAULT_PAUSE_SECONDS,
-  MS_PER_MINUTE, createGroupId, createDefaultDays, normalizeBlockingMode, isTimedBlockingMode,
+  MS_PER_MINUTE, normalizeBlockingMode, isTimedBlockingMode,
   parseAllowedMinutes, parseResetIntervalHours, parseSnoozeMinutes, parseSnoozeDelayMinutes,
   parseSnoozeCooldownMinutes, parsePauseSeconds, parseSnoozeConfirmations, parseTimeWindowsText,
   cbStartOfDayMs, cbPeriodStartMs, cbNextResetMs, cbPruneUsageBuckets, cbBucketsUsedMs,
@@ -314,7 +313,6 @@ const platformTagListBlock = document.getElementById("platformTagListBlock");
 const platformTagsField = document.getElementById("platformTags");
 const platformTagDefaultConfidenceField = document.getElementById("platformTagDefaultConfidence");
 const platformTagEffectField = document.getElementById("platformTagEffect");
-const platformTagBlockUntaggedRow = document.getElementById("platformTagBlockUntaggedRow");
 const platformTagBlockUntaggedField = document.getElementById("platformTagBlockUntagged");
 const platformTagBlockPageField = document.getElementById("platformTagBlockPage");
 const platformTagCoverUntilTaggedField = document.getElementById("platformTagCoverUntilTagged");
@@ -1274,7 +1272,6 @@ function siteEntryHost(entry) {
   return slash < 0 ? text : text.slice(0, slash);
 }
 
-// normalizeYouTubeCreatorInput now comes from platform-profiles.js.
 
 function parseSiteTextareaValue(value) {
   const validSites = [];
@@ -1675,7 +1672,6 @@ function confirmSiteAdd() {
 // normalizer; invalid entries get a red style so typos are obvious immediately.
 // The hidden textarea stays the source of truth, so the existing draft / autosave
 // pipeline (which reads `.value`) keeps working unchanged.
-const chipInputRegistry = [];
 
 // The group type currently shown in the editor — drives the author chip
 // normalizer (YouTube vs TikTok vs Twitter handles differ).
@@ -1776,7 +1772,6 @@ function setupChipField(field, options) {
   }
 
   field.__cbChip = { render: renderChips };
-  chipInputRegistry.push(field);
   renderChips();
 }
 
@@ -1841,7 +1836,6 @@ function formatHours(value) {
   return Number(value).toString();
 }
 
-// normalizeGroupType now comes from platform-profiles.js.
 
 function getGroupTypeLabel(groupType) {
   const profile = PLATFORM_PROFILES?.[normalizeGroupType(groupType)];
@@ -2196,8 +2190,6 @@ function handleSurfaceHideChange(groupId) {
 
 // normalizeSourceMode, normalizeDiscordMode,
 // isPlatformVideoGroupType, normalizeSourceInput, normalizeVideoMode,
-// normalizeRedditSubredditInput and normalizeDiscordTargetInput now come from
-// platform-profiles.js (loaded before this script).
 
 function parseDiscordTargetsTextarea(value) {
   const validTargets = [];
@@ -2290,6 +2282,7 @@ function describeRedditScope(groupLike) {
   if (mode === "all") {
     return t("meta.allReddit");
   }
+  if (mode === "nobody") return t("meta.noAuthors");
 
   if (mode === "exclude") {
     return t("meta.allExceptSubreddits", { count: subreddits.length });
@@ -2780,7 +2773,7 @@ function applyDraft(group, draft) {
   const linesChanged = CBGroupScopes.FLAT_SCOPE_FIELDS.some((field) => JSON.stringify(updated[field]) !== JSON.stringify(group[field]));
   const next = linesChanged ? foldEntryIntoLines(updated) : { ...updated, scopes: group.scopes };
   // A name is saved when its edit is finished (Enter or leaving the field): a
-  // half-typed name would unlink the group or link it to another on the way.
+  // half-typed name would be shared with linked devices and checked for duplicates.
   if (state.nameEditing && state.nameEditing.id === group.id) next.name = group.name;
   return { group: next, validationError: result.validationError };
 }
@@ -3088,74 +3081,15 @@ async function checkParentalPin(group, pin) {
   return result.ok;
 }
 
-// --- Overlay panel channel ----------------------------------------------
-// Opens an overlay panel (built from panel-control snapshots) and routes its
-// interaction events to `onEvent`. On macOS this renders as a true native
-// NSPanel overlay via the system-panel bridge; on the extensions / plain
-// Safari it falls back to an in-popup overlay rendered here.
+// --- Overlay panel ---------------------------------------------------------
+// An in-popup overlay built from panel-control snapshots (the PIN entry, the
+// guardian settings); its interaction events go to `onEvent`.
 // Returns { update(nextSnapshot), close() }.
 let __cbOverlayPanelSeq = 0;
 
-function __cbIsNativeOverlayHost() {
-  return (
-    typeof window.__cbSystemPanelEvent === "function" &&
-    typeof chrome !== "undefined" &&
-    chrome.runtime &&
-    typeof chrome.runtime.sendMessage === "function"
-  );
-}
-
-function openOverlayPanel(snapshot, onEvent, opts = {}) {
+function openOverlayPanel(snapshot, onEvent) {
   const panelId = snapshot.id || "cb-overlay-" + ++__cbOverlayPanelSeq;
-  const snap = { ...snapshot, id: panelId };
-  if (!opts.internal && __cbIsNativeOverlayHost()) {
-    return __cbOpenNativeOverlay(panelId, snap, onEvent);
-  }
-  return __cbOpenInPopupOverlay(panelId, snap, onEvent);
-}
-
-function __cbOpenNativeOverlay(panelId, snap, onEvent) {
-  const handler = (ev) => {
-    if (!ev || ev.panelId !== panelId) return;
-    let values = {};
-    if (ev.valuesJSON) {
-      try {
-        values = JSON.parse(ev.valuesJSON);
-      } catch (_) {}
-    }
-    onEvent({
-      controlId: ev.controlId || "",
-      eventName: ev.eventName || "",
-      value: ev.value,
-      values
-    });
-  };
-  window.__cbSystemPanelHandlers = window.__cbSystemPanelHandlers || [];
-  window.__cbSystemPanelHandlers.push(handler);
-  try {
-    chrome.runtime.sendMessage({ type: "show-system-panel", snapshot: snap });
-  } catch (_) {}
-  let closed = false;
-  return {
-    update(nextSnapshot) {
-      try {
-        chrome.runtime.sendMessage({
-          type: "show-system-panel",
-          snapshot: { ...nextSnapshot, id: panelId }
-        });
-      } catch (_) {}
-    },
-    close() {
-      if (closed) return;
-      closed = true;
-      const arr = window.__cbSystemPanelHandlers || [];
-      const i = arr.indexOf(handler);
-      if (i >= 0) arr.splice(i, 1);
-      try {
-        chrome.runtime.sendMessage({ type: "dismiss-system-panel", id: panelId });
-      } catch (_) {}
-    }
-  };
+  return __cbOpenInPopupOverlay(panelId, { ...snapshot, id: panelId }, onEvent);
 }
 
 function __cbEnsureOverlayStyles() {
@@ -3352,7 +3286,8 @@ function getGroupMetaText(group, draft, now = Date.now()) {
   const snooze = getCurrentSnooze(group.id, now);
   const snoozePhase = getSnoozePhase(snooze, now);
   const freezeStatus = getFreezeStatus(group, now);
-  const platformKeys = group.groupType === "custom" ? [] : groupPlatformKeys(group);
+  // The card names what the group stores, whichever entry is in view.
+  const platformKeys = group.groupType === "custom" ? [] : CBGroupScopes.groupPlatforms(group);
   const pieces = [
     platformKeys.length > 1 ? platformKeys.map(platformKeyLabel).join(" + ") : getGroupTypeLabel(group.groupType)
   ];
@@ -3408,14 +3343,20 @@ function getGroupMetaText(group, draft, now = Date.now()) {
     );
   } else if (group.groupType === "custom") {
     pieces.push(t("meta.customRules"));
-  } else if (activeEntryKey(group) === "apps") {
-    const appCount = draft ? parseAppsData(draft.appsData).length : (group.apps || []).length;
-    pieces.push(`${appCount} ${t("meta.appCount", { suffix: appCount === 1 ? "" : "s" })}`);
   } else {
-    const siteCount = draft
-      ? parseSiteTextareaValue(draft.sitesText).validSites.length
-      : group.sites.length;
-    pieces.push(`${siteCount} ${t("meta.siteCount", { suffix: siteCount === 1 ? "" : "s" })}`);
+    // Counts from the stored lines; the entry in view shows its unsaved edit.
+    const lines = Array.isArray(group.scopes) ? group.scopes : [];
+    const active = activeEntryKey(group);
+    const siteLine = lines.find((line) => line.surface === "site");
+    const appsLine = lines.find((line) => line.surface === "apps");
+    if (siteLine || (active === "site" && draft)) {
+      const siteCount = draft && active === "site" ? parseSiteTextareaValue(draft.sitesText).validSites.length : (siteLine?.sites || []).length;
+      pieces.push(`${siteCount} ${t("meta.siteCount", { suffix: siteCount === 1 ? "" : "s" })}`);
+    }
+    if (appsLine || (active === "apps" && draft)) {
+      const appCount = draft && active === "apps" ? parseAppsData(draft.appsData).length : (appsLine?.apps || []).length;
+      pieces.push(`${appCount} ${t("meta.appCount", { suffix: appCount === 1 ? "" : "s" })}`);
+    }
   }
 
   const blockHomePage = draft?.blockHomePage ?? group.blockHomePage;
@@ -3497,7 +3438,6 @@ function renderGroupList(now = Date.now()) {
 
   for (const group of state.groups) {
     const draft = getDraftForGroup(group.id);
-    const freezeStatus = getFreezeStatus(group, now);
     const card = document.createElement("div");
     card.className = `group-card${group.id === state.selectedGroupId ? " active" : ""}`;
     card.dataset.groupId = group.id;
@@ -3831,10 +3771,6 @@ function renderEditor(now = Date.now()) {
     resetIntervalHoursField.disabled = true;
     resetAtMidnightField.disabled = true;
     rollingLimitField.disabled = true;
-    snoozeMinutesField.disabled = true;
-    snoozeActivationDelayField.disabled = true;
-    snoozeCooldownField.disabled = true;
-    snoozeConfirmationsField.disabled = true;
     scheduleWindowsField.disabled = true;
     blockedSitesField.disabled = true;
     blockingRulesField.disabled = true;
@@ -3844,7 +3780,6 @@ function renderEditor(now = Date.now()) {
     discordModeField.disabled = true;
     discordTargetsField.disabled = true;
     allowSnoozeField.disabled = true;
-    snoozeConfirmationsField.disabled = true;
     clearSitesButton.disabled = true;
     deleteGroupButton.disabled = true;
     exportGroupButton.disabled = true;
@@ -3878,12 +3813,10 @@ function renderEditor(now = Date.now()) {
 
   const draft = getDraftForGroup(group.id);
   const editable = isGroupEditable(group, now);
-  const freezeStatus = getFreezeStatus(group, now);
   const selectedMode = normalizeBlockingMode(draft?.mode ?? group.mode);
   const isTimedMode = isTimedBlockingMode(selectedMode);
   const isPlatformVideoGroup = isPlatformVideoGroupType(group.groupType);
   const usesAuthorAxis = isPlatformAuthorGroupType(group.groupType);
-  const isRedditGroup = group.groupType === "reddit";
   const isDiscordGroup = group.groupType === "discord";
   const isCustomGroup = group.groupType === "custom";
   const isPlatformProfileGroup = isPlatformProfileGroupType(group.groupType);
@@ -3970,8 +3903,6 @@ function renderEditor(now = Date.now()) {
     document.getElementById("platformTagSuggestions"), platformTagsField,
     tagCompatible && tagMode !== "all" ? group.groupType : ""
   );
-  // Honoured in both modes now (it lives inside the list block, hidden for "all").
-  if (platformTagBlockUntaggedRow) platformTagBlockUntaggedRow.classList.remove("hidden");
   discordModeField.value = normalizeDiscordMode(
     draft?.discordMode ?? group.discordMode,
     group.discordTargets
@@ -4034,10 +3965,7 @@ function renderEditor(now = Date.now()) {
   resetIntervalHoursField.disabled = !editable || !isTimedMode || isCustomGroup;
   resetAtMidnightField.disabled = !editable || !isTimedMode || isCustomGroup;
   rollingLimitField.disabled = !editable || !isTimedMode || isCustomGroup;
-  snoozeMinutesField.disabled = !editable || !allowSnoozeField.checked || freezeStatus.isFrozen;
-  snoozeActivationDelayField.disabled = !editable || !allowSnoozeField.checked || freezeStatus.isFrozen;
-  snoozeCooldownField.disabled = !editable || !allowSnoozeField.checked || freezeStatus.isFrozen;
-  snoozeConfirmationsField.disabled = !editable || !allowSnoozeField.checked;
+  // (The snooze fields are set by updateSnoozeUI.)
   scheduleWindowsField.disabled = !editable || isCustomGroup;
   blockedSitesField.disabled = !entryEditable || !isSiteView;
   if (siteAllowlistField) {
@@ -4159,7 +4087,6 @@ function refreshGroupListInPlace(now) {
     const card = cards[i];
     const group = state.groups[i];
     const draft = getDraftForGroup(group.id);
-    const freezeStatus = getFreezeStatus(group, now);
 
     const wantsActive = group.id === state.selectedGroupId;
     if (card.classList.contains("active") !== wantsActive) {
@@ -4200,9 +4127,7 @@ function stashCurrentDraft() {
     return;
   }
 
-  const isPlatformVideoGroup = isPlatformVideoGroupType(group.groupType);
   const usesAuthorAxis = isPlatformAuthorGroupType(group.groupType);
-  const isRedditGroup = group.groupType === "reddit";
   const isDiscordGroup = group.groupType === "discord";
 
   const full = {
@@ -4680,6 +4605,9 @@ async function deleteAllGroups() {
 }
 
 async function clearAllGroups() {
+  // The last step's own check: a linked group turned enforce-only meanwhile.
+  const away = state.groups.find(isEnforceOnly);
+  if (away && refuseWhileMacVaultAway(away)) return;
   const ids = state.groups.map((group) => group.id);
   state.groups = [];
   state.drafts = {};
@@ -5217,8 +5145,7 @@ function openPinEntry({ title, description, onSubmit, onCancel }) {
       if (isSubmit) {
         trySubmit();
       }
-    },
-    { internal: true }
+    }
   );
   return handle;
 }
@@ -5317,7 +5244,7 @@ function openParentalSettings(group) {
     }
   };
 
-  handle = openOverlayPanel(snapshotFor(Boolean(currentGroup().parentalPasswordHash)), onEvent, { internal: true });
+  handle = openOverlayPanel(snapshotFor(Boolean(currentGroup().parentalPasswordHash)), onEvent);
 }
 
 function closeUnfreezeFlow() {
@@ -5704,16 +5631,20 @@ async function commitNameEdit() {
   await autosaveSelectedGroup();
 }
 
-groupNameField.addEventListener("focus", () => {
+// A name is being edited from the first keystroke (focus or not) until Enter or
+// leaving the field.
+function beginNameEdit() {
   const group = getSelectedGroup();
-  if (group && !state.nameEditing) state.nameEditing = { id: group.id, name: group.name };
-});
+  if (group && !state.nameEditing) state.nameEditing = { id: group.id };
+}
+groupNameField.addEventListener("focus", beginNameEdit);
 groupNameField.addEventListener("blur", () => { void commitNameEdit(); });
 groupNameField.addEventListener("keydown", (event) => {
   if (event.key === "Enter") void commitNameEdit();
 });
 
 groupNameField.addEventListener("input", () => {
+  beginNameEdit();
   stashCurrentDraft();
   editorTitle.textContent = groupNameField.value.trim() || t("editor.title");
   renderGroupList();
@@ -5939,7 +5870,7 @@ async function copyTextToClipboard(text) {
 
 async function runSelectedCustomGroup() {
   const group = getSelectedGroup();
-  if (!group || group.groupType !== "custom") return;
+  if (!group || group.groupType !== "custom" || refuseUnlessEditable(group)) return;
   await flushAutosave();
   const source = String(blockingRulesField?.value ?? "").trim();
   if (runCustomGroupStatus) {
@@ -6195,7 +6126,6 @@ platformAuthorModeField.addEventListener("change", () => {
   }
   stashCurrentDraft();
   render();
-  renderGroupList();
   scheduleAutosave();
 });
 
@@ -6204,7 +6134,6 @@ if (platformTagModeField) {
   platformTagModeField.addEventListener("change", () => {
     stashCurrentDraft();
     render(); // re-toggles the tag list + untagged row for the new mode
-    renderGroupList();
     scheduleAutosave();
   });
 }
@@ -6236,7 +6165,6 @@ discordModeField.addEventListener("change", () => {
   }
   stashCurrentDraft();
   render();
-  renderGroupList();
   scheduleAutosave();
 });
 
@@ -6253,7 +6181,6 @@ if (siteAllowlistField) {
     stashCurrentDraft();
     // re-render so the "Blocked websites" / "Allowed websites" label flips.
     render();
-    renderGroupList();
     scheduleAutosave();
   });
 }
@@ -6584,6 +6511,7 @@ function renderLogFeedEntry(entry) {
   meta.textContent = parts.filter(Boolean).join(" · ");
   row.appendChild(meta);
   const body = document.createElement("span");
+  body.className = "log-feed-message";
   body.textContent = entry.message;
   row.appendChild(body);
   logFeedList.appendChild(row);
@@ -6644,8 +6572,8 @@ if (logFeedDownload) {
     const entries = [];
     if (logFeedList) {
       logFeedList.querySelectorAll(".log-feed-entry").forEach((el) => {
-        const meta = el.querySelector(".log-feed-entry-meta");
-        const msg = el.querySelector(".log-feed-entry-message");
+        const meta = el.querySelector(".log-feed-meta");
+        const msg = el.querySelector(".log-feed-message");
         entries.push((meta ? meta.textContent : "") + " " + (msg ? msg.textContent : ""));
       });
     }

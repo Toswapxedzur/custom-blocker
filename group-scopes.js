@@ -155,8 +155,8 @@
     };
   }
 
-  // Flat (already normalized) group → scope lines. This is the one-time
-  // migration for stored groups AND the save path for the phase-1 editor.
+  // Flat (already normalized) group → scope lines: an old store's migration,
+  // and the editor's form fields for one entry.
   function scopeLinesFromFlat(flat, groupType) {
     const kind = platformKind(groupType ?? flat?.groupType);
     const type = kind === "apps" ? "apps" : global.normalizeGroupType ? global.normalizeGroupType(groupType ?? flat?.groupType) : String(groupType ?? flat?.groupType ?? "site");
