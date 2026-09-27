@@ -494,7 +494,8 @@
   // The lock is not among them: it travels as its own unit with a version
   // (group-actions.js lockContribution / adoptLock).
   const SYNC_SCALAR_FIELDS = Object.freeze([
-    "mode", "allowedMinutes", "resetIntervalHours", "resetAtMidnight", "rollingLimit",
+    // The name too: linked groups are renamed together (owner 2026-09-27).
+    "name", "mode", "allowedMinutes", "resetIntervalHours", "resetAtMidnight", "rollingLimit",
     "allowSnooze", "snoozeMinutes", "snoozeActivationDelayMinutes", "snoozeCooldownMinutes", "snoozeConfirmations",
     "activeDays", "timeWindowsText",
     "fallbackUrl", "pauseSeconds"

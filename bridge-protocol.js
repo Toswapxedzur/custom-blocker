@@ -61,14 +61,9 @@
     var list = Array.isArray(groups) ? groups : [];
     var member = localMember(cluster, program);
     if (!member) return null;
-    if (member.groupId) {
-      return list.find(function (group) {
-        return group && group.id === member.groupId;
-      }) || null;
-    }
-    var name = member.groupName || (cluster && cluster.groupName) || "";
+    // Links are by group id (made by the user), never by name.
     return list.find(function (group) {
-      return group && group.name === name;
+      return group && member.groupId && group.id === member.groupId;
     }) || null;
   }
 
@@ -78,7 +73,7 @@
     return list.find(function (cluster) {
       var member = localMember(cluster, program);
       if (!member) return false;
-      return member.groupId ? member.groupId === group.id : member.groupName === group.name;
+      return Boolean(member.groupId) && member.groupId === group.id;
     }) || null;
   }
 

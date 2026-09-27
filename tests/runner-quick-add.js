@@ -84,8 +84,8 @@ check("only web pages qualify", run(`cbQuickAddEntry("chrome://extensions")`) ==
   let yt = stored.find((g) => g.id === "y1");
   check("a platform group gains a Websites entry with the page's entry", result.added === true && result.entry === "docs.example.org/guide/intro" && yt.scopes.some((l) => l.surface === "site" && l.sites.join() === "docs.example.org/guide/intro"), yt.scopes);
   check("its YouTube lines are untouched", yt.scopes.filter((l) => l.platform === "youtube").length === 2, yt.scopes);
-  check("the new entry is shared with linked members right away", context.__sent.some((f) => f.kind === "group-sync" && f.groupName === "YT" && Array.isArray(f.scopes)), context.__sent);
-  const sync = context.__sent.find((f) => f.kind === "group-sync" && f.groupName === "YT");
+  check("the new entry is shared with linked members right away", context.__sent.some((f) => f.kind === "group-sync" && f.groupId === "y1" && Array.isArray(f.scopes)), context.__sent);
+  const sync = context.__sent.find((f) => f.kind === "group-sync" && f.groupId === "y1");
   check("…as the whole definition (policy settings too, like an editor save)", sync && sync.scalars && sync.scalars.mode === "instant" && "allowedMinutes" in sync.scalars, sync);
   check("…and the roster is announced", context.__sent.some((f) => f.kind === "groups-announce" && f.groups.some((g) => g.id === "y1")), context.__sent);
 
