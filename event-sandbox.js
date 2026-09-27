@@ -10,6 +10,7 @@
  *     "load-source"    { groupId, source, state }  → { ok, handlers, types, error, logs, panels, quarantine }
  *                      (a rule that fails to load leaves the group's old one)
  *     "unload-group"   { groupId }                 → { ok }
+ *     "suppress-group" { groupId, on }             → { ok }   (a disabled group's rule hears nothing)
  *     "dispatch-event" { descriptor: { type, now, data, targetGroupId? } }
  *                      → { ok, actions, logs, panels, states, quarantine }
  *       actions: [{ groupId, kind, … }], panels: { groupId: [panel] } (groups
@@ -78,6 +79,9 @@ window.addEventListener("message", (msg) => {
       return reply(msg.source, id, engine.load(String(payload.groupId), payload.source, payload.state));
     case "unload-group":
       engine.unload(String(payload.groupId));
+      return reply(msg.source, id, { ok: true });
+    case "suppress-group":
+      engine.suppress(String(payload.groupId), payload.on === true);
       return reply(msg.source, id, { ok: true });
     case "dispatch-event":
       return reply(msg.source, id, engine.dispatch(payload.descriptor || {}));

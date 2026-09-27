@@ -65,6 +65,38 @@ check("an answer carries the element's text (collapsed) and label", desc.matches
 check("links come with their address; at most 50 matches", more.matches.length === 50 && more.matches[0].href === "https://example.com/0", more.matches.length);
 check("an invalid selector answers with an error, no matches", bad.error === "invalid-selector" && bad.matches.length === 0, bad);
 
+// The worker's sheets: the page carries exactly these.
+const head = { children: [], appendChild(el) { el.isConnected = true; this.children.push(el); } };
+context.document.head = head;
+context.document.createElement = (tag) => ({ tagName: tag, textContent: "", isConnected: false, remove() { this.isConnected = false; head.children = head.children.filter((c) => c !== this); } });
+vm.runInContext(extractFunction("cbSetRuleSheets"), context);
+context.__s = [{ key: "g␟a", css: "a{}" }, { key: "g␟b", css: "b{}" }];
+vm.runInContext("cbSetRuleSheets(__s)", context);
+check("the page gets the worker's sheets", head.children.length === 2 && head.children[0].textContent === "a{}");
+context.__s = [{ key: "g␟b", css: "b{color:red}" }];
+vm.runInContext("cbSetRuleSheets(__s)", context);
+check("a sheet the worker no longer lists is removed, a changed one updated", head.children.length === 1 && head.children[0].textContent === "b{color:red}", head.children.map((c) => c.textContent));
+vm.runInContext("cbSetRuleSheets(undefined)", context);
+check("no sheets, none left", head.children.length === 0);
+
+// A disabled rule: its cover and its card verdicts are lifted, others stay.
+const cardA = { isConnected: true }; const cardB = { isConnected: true };
+context.cbCover = { ruleCover: { groupId: "g", message: "x" } };
+context.cbTrackedCards = new Set([cardA, cardB]);
+context.cbVerdictLedger = new Map([[cardA, new Map([["g", { v: "dim" }]])], [cardB, new Map([["other", { v: "hide" }]])]]);
+const cleared = []; const applied = [];
+context.cbSetCardVerdict = (card, groupId, verdict) => { cleared.push({ card, groupId, verdict }); context.cbVerdictLedger.get(card).delete(groupId); };
+context.cbApplyCard = (card) => applied.push(card);
+covers.length = 0;
+vm.runInContext(extractFunction("cbLiftRule"), context);
+vm.runInContext("cbLiftRule('g')", context);
+check("the group's cover lifts", covers.length === 1 && covers[0] === null);
+check("only the group's card verdicts are cleared", cleared.length === 1 && cleared[0].card === cardA && cleared[0].verdict === null && applied.length === 1 && applied[0] === cardA);
+context.cbCover = { ruleCover: { groupId: "other", message: "y" } };
+covers.length = 0;
+vm.runInContext("cbLiftRule('g')", context);
+check("another group's cover stays", covers.length === 0);
+
 console.log(`CONTENT RULE APPLY TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
 if (fail) process.exitCode = 1;

@@ -1717,6 +1717,7 @@ function handleSession(session) {
 
   updateOverlay(items, !shouldExitPage && (session.showTimer || items.length > 0));
   cbSetRuleItemsEpoch(session.ruleItems);
+  cbSetRuleSheets(session.ruleSheets);
   // Re-apply only when what the worker sent changed (or the address did): the
   // feed observer handles new cards, so the 250 ms heartbeat must not redo the
   // whole feed each tick. Order/effect first, so verdicts resolve against the
@@ -2987,7 +2988,8 @@ function __cb_applyPanelSnapshots(panelSnapshots, panelGroups) {
 // Custom rules on this page. The rules run in the worker's sandbox
 // (rule-core.js). The page tells them what it shows — the "items" event, only
 // while a rule handles it — and does what they ask ("rule-apply": item
-// verdicts, style sheets, element operations and the cover).
+// verdicts, element operations, queries and the cover; "rule-sheets": the
+// style sheets the worker holds for this page; "rule-lift": a disabled rule).
 // ────────────────────────────────────────────────────────────────────────
 
 let cbRuleItemsEpoch = 0; // the worker's; 0 = no rule wants items
@@ -3125,6 +3127,38 @@ function cbRuleQuery(selector) {
   };
 }
 
+// The rules' style sheets for this page, as the worker holds them: the page
+// carries exactly these (a disabled group's are gone).
+function cbSetRuleSheets(sheets) {
+  const wanted = new Map((Array.isArray(sheets) ? sheets : []).map((sheet) => [sheet.key, sheet.css]));
+  for (const [key, style] of cbRuleStyles) {
+    if (!wanted.has(key)) { style.remove(); cbRuleStyles.delete(key); }
+  }
+  for (const [key, css] of wanted) {
+    let style = cbRuleStyles.get(key);
+    if (!style) {
+      style = document.createElement("style");
+      cbRuleStyles.set(key, style);
+    }
+    if (style.textContent !== css) style.textContent = css;
+    if (!style.isConnected) (document.head || document.documentElement).appendChild(style);
+  }
+}
+
+// A disabled or removed group: what its rule did on this page is lifted
+// (its cover and its card verdicts; its sheets and panels come separately).
+function cbLiftRule(groupId) {
+  if (cbCover.ruleCover && cbCover.ruleCover.groupId === groupId) cbSetRuleCover(null);
+  for (const card of [...cbTrackedCards]) {
+    if (!card.isConnected) { cbTrackedCards.delete(card); continue; }
+    const entry = cbVerdictLedger.get(card);
+    if (entry && entry.has(groupId)) {
+      cbSetCardVerdict(card, groupId, null);
+      cbApplyCard(card);
+    }
+  }
+}
+
 // What the rules asked of this page.
 function cbApplyRuleMessage(message) {
   for (const { groupId, ref, verdict } of message.items || []) {
@@ -3132,20 +3166,6 @@ function cbApplyRuleMessage(message) {
     if (!card) continue;
     cbSetCardVerdict(card, groupId, verdict, "custom");
     cbApplyCard(card);
-  }
-  for (const { key, css } of message.css || []) {
-    let style = cbRuleStyles.get(key);
-    if (css === null) {
-      style?.remove();
-      cbRuleStyles.delete(key);
-      continue;
-    }
-    if (!style) {
-      style = document.createElement("style");
-      cbRuleStyles.set(key, style);
-    }
-    style.textContent = css;
-    if (!style.isConnected) (document.head || document.documentElement).appendChild(style);
   }
   for (const op of message.dom || []) cbRuleDomOp(op);
   if (message.cover) cbSetRuleCover(message.cover);
@@ -3325,6 +3345,16 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
     }
     if (message.type === "cover-media") {
       if (message.paused) cbPauseAllMedia();
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === "rule-sheets") {
+      cbSetRuleSheets(message.sheets);
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === "rule-lift") {
+      cbLiftRule(String(message.groupId || ""));
       sendResponse({ ok: true });
       return true;
     }

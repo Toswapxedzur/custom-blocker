@@ -212,6 +212,9 @@
   function createEngine(engineActions, { beacon = () => {} } = {}) {
     const rules = new Map(); // groupId -> rule
     const overruns = new Map(); // groupId -> [time]
+    // A disabled group's rule stays loaded but hears nothing (owner
+    // 2026-09-27): enabling it resumes it as it was; only Run loads new code.
+    const suppressed = new Set();
 
     // A rule over its time 3 times within a minute is quarantined.
     function overran(groupId) {
@@ -246,6 +249,12 @@
     function unload(groupId) {
       rules.delete(groupId);
       overruns.delete(groupId);
+      suppressed.delete(groupId);
+    }
+
+    function suppress(groupId, on) {
+      if (on) suppressed.add(groupId);
+      else suppressed.delete(groupId);
     }
 
     // One event to every group that handles it (or to one group); what a
@@ -257,6 +266,7 @@
       const queue = [];
       for (const [groupId, rule] of rules) {
         if (descriptor.targetGroupId && descriptor.targetGroupId !== groupId) continue;
+        if (suppressed.has(groupId)) continue;
         if (rule.handles(descriptor.type)) queue.push({ rule, event: descriptor, depth: 0 });
       }
       while (queue.length > 0) {
@@ -284,7 +294,7 @@
       return out;
     }
 
-    return { load, unload, dispatch, types: (groupId) => (rules.has(groupId) ? rules.get(groupId).types() : []) };
+    return { load, unload, suppress, dispatch, types: (groupId) => (rules.has(groupId) ? rules.get(groupId).types() : []) };
   }
 
   // ── Values ───────────────────────────────────────────────────────────────
@@ -431,7 +441,7 @@
 
   // ── The reference an AI writes rules from ────────────────────────────────
   const SHARED_REFERENCE = [
-    "A rule is ONE JavaScript function expression: (on, v) => { … }. It runs once when the user presses Run: register handlers there. Run, disabling or deleting the group removes the old handlers.",
+    "A rule is ONE JavaScript function expression: (on, v) => { … }. It runs once when the user presses Run: register handlers there. Run replaces the old handlers; deleting the group removes them. While the group is disabled no handler runs and what the rule did is lifted (its panels, style sheets, covers, blocks); enabling it resumes the rule as it was.",
     "on(type, handler) adds a handler; several per type are fine. handler(ev) gets ev = { type, now (ms since 1970), data }. Handlers are synchronous and must finish within 1 s: no loops that wait, no network, no timers, no DOM of your own (you run in a sandbox).",
     "v.state is the group's memory: one JSON object (≤ 64 KB), kept across restarts and across Run (a new version of the rule finds what the old one saved), deleted with the group. Change it freely inside handlers.",
     "v.log(...values) writes to the group's log in the editor.",
@@ -451,7 +461,7 @@
       "v.item(tabId, ref, verdict) hides (\"hide\"), blacks out (\"dim\") or rescues (\"allow\") a feed item; null clears it. Groups higher in the list win.",
       "v.cover(tabId, on, message?) covers the page in place (or lifts it); a new address lifts it.",
       "v.go(tabId, url | \"back\" | \"forward\" | \"reload\") navigates. v.close(tabId) closes the tab.",
-      "v.css(tabId | \"*\", id, css | null) adds (or removes) a style sheet on a tab's page, or every page.",
+      "v.css(tabId | \"*\", id, css | null) adds (or removes) a style sheet: on a tab's page until the tab goes to another address, or (\"*\") on every page, pages opened later too.",
       "v.dom(tabId, selector, op, arg?) acts on the page's elements: op hide | show | click | setText (arg) | addClass (arg) | removeClass (arg) | scrollTo.",
       "v.query(tabId, selector) reads the page: it returns a request id; the answer arrives as a \"query\" event: data = { requestId, tabId, url, selector, matches: [{ tag, text, href, src, title, label, value }] (at most 50, text ≤ 1000 characters), error }. A tab without a web page never answers.",
       "EXAMPLE: (on, v) => { on(\"items\", (ev) => { for (const item of ev.data.items) if (item.tagsSettled && item.tags.some((t) => t.name === \"Gaming\" && t.confidence >= 4)) v.item(ev.data.tabId, item.ref, \"dim\"); }); }"
