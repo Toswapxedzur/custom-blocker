@@ -11,7 +11,7 @@ const nodeCrypto = require("node:crypto");
 const root = path.resolve(__dirname, "..");
 const source = fs.readFileSync(path.join(root, "popup.js"), "utf8");
 const start = source.indexOf("// --- Parental password");
-const end = source.indexOf("// --- Overlay panel channel");
+const end = source.indexOf("// --- Overlay panel ---");
 if (start < 0 || end < 0) throw new Error("Could not locate the parental PIN block in popup.js.");
 
 function makeContext({ subtle }) {
