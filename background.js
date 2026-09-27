@@ -1603,7 +1603,7 @@ async function cbQuickAddState() {
   const group = groups.find((item) => item.id === groupId && item.groupType !== "custom");
   // "+" is an edit, and a locked group takes no edits (as in the editor), so
   // the button is hidden while its target is locked.
-  if (!group || cbGroupIsLocked(group) || cbEnforceOnly(group)) return { enabled: false, groupId: "", groupName: "" };
+  if (!group || CBGroupActions.isLocked(group) || cbEnforceOnly(group)) return { enabled: false, groupId: "", groupName: "" };
   return { enabled: true, groupId: group.id, groupName: group.name };
 }
 
@@ -3246,11 +3246,10 @@ const CB_CONNECTION_SLOW_INTERVAL_MS = 5_000;
 // the group's whole definition.
 function cbPublicGroup(group) {
   if (!group || typeof group !== "object") return group;
-  const { parentalPasswordHash, parentalPasswordSalt, ...rest } = group;
-  return { ...rest, hasParentalPin: Boolean(parentalPasswordHash) };
+  const { parentalPasswordHash: _hash, parentalPasswordSalt: _salt, ...rest } = group;
+  return { ...rest, hasParentalPin: CBGroupActions.hasPin(group) };
 }
 
-const cbNameTaken = CBGroupActions.nameTaken;
 
 // The runtime state of stored groups belongs here (the editor writes only its
 // groups): an edit that changes how a budget runs restarts it
@@ -3295,7 +3294,7 @@ async function cbAnnounceStoredGroups(groups) {
   cbConnection.sendWS({
     kind: "groups-announce",
     program: cbDetectProgramId(),
-    groups: list.map((group) => ({ id: group.id, name: group.name, frozen: cbGroupIsLocked(group) }))
+    groups: list.map((group) => ({ id: group.id, name: group.name, frozen: CBGroupActions.isLocked(group) }))
   });
 }
 
@@ -3314,7 +3313,7 @@ function cbDefinitionKey(group) {
 }
 
 function cbRosterKey(groups) {
-  return JSON.stringify(groups.map((group) => [group.id, group.name, cbGroupIsLocked(group)]));
+  return JSON.stringify(groups.map((group) => [group.id, group.name, CBGroupActions.isLocked(group)]));
 }
 
 const cbSharingReady = (async () => {
@@ -3335,7 +3334,8 @@ function cbSendDefinition(group, ts) {
     groupId: group.id,
     ts,
     scalars,
-    scopes: group.scopes,
+    // Only this browser's own lines (the Apps lines are Mac Vault's), even none.
+    scopes: (Array.isArray(group.scopes) ? group.scopes : []).filter((line) => CBGroupScopes.lineOwner(line) === "browser"),
     ...CBGroupActions.lockContribution(group)
   });
 }
@@ -3482,9 +3482,11 @@ async function cbKeepOwnLines(ids) {
   const groups = Array.isArray(stored) ? stored : [];
   let changed = false;
   const next = groups.map((group) => {
-    if (!group || !ids.includes(group.id) || !Array.isArray(group.scopes) || !group.scopes.some((line) => line.surface === "apps")) return group;
+    if (!group || !ids.includes(group.id) || !Array.isArray(group.scopes)) return group;
+    const own = group.scopes.filter((line) => CBGroupScopes.lineOwner(line) === "browser");
+    if (own.length === group.scopes.length) return group;
     changed = true;
-    return { ...group, scopes: group.scopes.filter((line) => line.surface !== "apps") };
+    return { ...group, scopes: own };
   });
   if (changed) await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
 }
@@ -3738,9 +3740,10 @@ const cbConnection = {
         groups[idx] = withLock;
         changed = true;
       }
-      // An empty list means "nothing shared yet", never "delete everything".
+      // The link's lines (sent once a member contributed; an empty list is an
+      // emptied one).
       const scopes = cluster.shared.scopes;
-      if (Array.isArray(scopes) && scopes.length > 0 && JSON.stringify(groups[idx].scopes) !== JSON.stringify(scopes)) {
+      if (Array.isArray(scopes) && JSON.stringify(groups[idx].scopes) !== JSON.stringify(scopes)) {
         groups[idx] = { ...groups[idx], scopes };
         changed = true;
       }
@@ -4193,10 +4196,6 @@ const CB_BROWSER_REQUEST_OPERATIONS = Object.freeze([
 const CB_CLASSIFIER_SETTINGS_STORAGE_KEY = "vaultClassifierSettings";
 const CB_TAGGING_MODES = Object.freeze(["whenFiltering", "always", "paused"]);
 
-function cbGroupIsLocked(group) {
-  return CBGroupActions.isLocked(group);
-}
-
 // Locking and unlocking from a tool pass the editor's own gates (owner
 // 2026-09-26: a tool may do what the user can, no more, no less). The rules
 // are group-actions.js, shared with the editor and the Mac app's tools:
@@ -4209,13 +4208,6 @@ function cbGroupIsLocked(group) {
 const CB_UNLOCK_REQUEST_TTL_MS = 5 * 60 * 1000;
 const CB_UNLOCK_REQUESTS_KEY = "cbUnlockRequests";
 
-// A patch never carries the lock: it changes only through lock / unlock.
-function cbWithoutLockFields(patch) {
-  const safe = { ...patch };
-  for (const field of [...CBGroupActions.LOCK_FIELDS, "lockSyncedVersion",
-    "freezeMode", "freezeModeChoice", "strictFreezeHours", "frozenAtMs", "freezeChangedAtMs"]) delete safe[field];
-  return safe;
-}
 
 async function cbCheckPinForTool(group, pin) {
   const stored = (await chrome.storage.local.get({ [CBParentalPin.ATTEMPTS_KEY]: {} }))[CBParentalPin.ATTEMPTS_KEY];
@@ -4248,8 +4240,7 @@ async function cbLockGroupForTool(input) {
   if (CBGroupActions.isLocked(group)) {
     result = CBGroupActions.tighten(group, { waitHours: input.waitHours, pinFields });
   } else {
-    result = CBGroupActions.setGates(group, { waitHours: input.waitHours, pinFields });
-    if (!result.error) result = CBGroupActions.lock(result.group, now);
+    result = CBGroupActions.lockWithGates(group, { waitHours: input.waitHours, pinFields }, now);
   }
   if (result.error) throw new Error(result.error);
   return cbWriteGroup(groups, index, result.group);
@@ -4317,6 +4308,7 @@ async function cbSnoozeGroupForTool(input) {
   if (!group) throw new Error("group-not-found");
   // A custom group's Snooze is its rule's (owner 2026-09-27), as in the editor.
   if (group.groupType === "custom") {
+    if (group.allowSnooze === false) throw new Error("snooze-disabled");
     await cbFireSnoozePress(group.id);
     return { snoozePressed: true };
   }
@@ -4344,14 +4336,6 @@ async function cbEndSnoozeForTool(input) {
 const CB_EDITOR_GLOBAL_FIELDS = Object.freeze(["defaultSnoozeMinutes", "quitRetryMinutes", "quickAddEnabled"]);
 function cbEditorGlobalSettings(settings) {
   return Object.fromEntries(CB_EDITOR_GLOBAL_FIELDS.map((key) => [key, settings[key]]));
-}
-
-// A browser tool edits no Apps lines (the desktop's; the browser editor shows
-// them read-only).
-function cbWithoutAppLines(patch) {
-  const { apps: _apps, appsAllowlist: _allow, ...rest } = patch;
-  if (Array.isArray(rest.scopes)) rest.scopes = rest.scopes.filter((line) => line && line.surface !== "apps");
-  return rest;
 }
 
 // The editor's lock gates on an unlocked group: the wait (hours) and the PIN.
@@ -4385,14 +4369,17 @@ async function cbDeleteAllForTool(input) {
   const now = Date.now();
   const plan = CBGroupActions.deleteAllPlan(groups, now);
   if (plan.error) throw new Error(plan.waitUntilMs ? `wait-until:${new Date(plan.waitUntilMs).toISOString()}` : plan.error);
-  // pins[i] is the PIN of the i-th distinct PIN (wrong ones count, as in the editor).
-  const pins = Array.isArray(input.pins) ? input.pins.map(String) : [];
-  if (pins.length < plan.pinGroups.length) throw new Error(`pins-required:${plan.pinGroups.map((g) => g.name).join(", ")}`);
-  for (const [i, group] of plan.pinGroups.entries()) await cbCheckPinForTool(group, pins[i]);
-  if (plan.needsConfirmation) {
-    const step = await cbToolConfirmation("delete-all", plan.confirmations, "delete-all", input.confirm, now);
-    if (!step.done) return { deleted: false, confirmationsLeft: step.left, confirmAfterSeconds: plan.intervalMs / 1000, next: CB_CONFIRM_NEXT };
-  }
+  // The plan is taken on every call, so a lock or PIN that arrives meanwhile
+  // stops the deletion (a new PIN set restarts it). Each distinct PIN is asked
+  // once, when the confirmation starts: pins[i] for the i-th (wrong ones count).
+  const tag = plan.pinHashes.join(",") || "no-pin";
+  const step = await cbToolConfirmation("delete-all", plan.needsConfirmation ? plan.confirmations : 0, tag, input.confirm, now, async () => {
+    const pins = Array.isArray(input.pins) ? input.pins.map(String) : [];
+    if (pins.length < plan.pinGroups.length) throw new Error(`pins-required:${plan.pinGroups.map((g) => g.name).join(", ")}`);
+    for (const [i, group] of plan.pinGroups.entries()) await cbCheckPinForTool(group, pins[i]);
+    return undefined;
+  });
+  if (!step.done) return { deleted: false, confirmationsLeft: step.left, confirmAfterSeconds: plan.intervalMs / 1000, next: CB_CONFIRM_NEXT };
   await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: [] });
   return { deleted: groups.length };
 }
@@ -4413,37 +4400,21 @@ async function cbBrowserRequestBody(operation, body) {
           taggingMode: raw && CB_TAGGING_MODES.includes(raw.taggingMode) ? raw.taggingMode : "whenFiltering"
         },
         globalSettings: cbEditorGlobalSettings(CBGroupActions.sanitizeGlobalSettings(stored?.[CB_GLOBAL_SETTINGS_KEY])),
+        quickAddGroupId: (await chrome.storage.local.get({ [CB_QUICK_ADD_GROUP_KEY]: "" }))[CB_QUICK_ADD_GROUP_KEY],
         operations: CB_BROWSER_REQUEST_OPERATIONS
       };
     }
     case "settings-create-group": {
       const groupType = typeof input.groupType === "string" ? input.groupType : "";
-      if (!PLATFORM_GROUP_TYPES.includes(groupType) && groupType !== "site" && groupType !== "custom") {
-        throw new Error("unknown-group-type");
-      }
       const patch = input.patch && typeof input.patch === "object" && !Array.isArray(input.patch) ? input.patch : {};
-      // A lock is the user's to set, in the editor: a created group never
-      // starts locked (same fields the edit path strips).
-      const safePatch = cbWithoutLockFields(patch);
       const { groups } = await getState();
-      // As the editor's New group: the user's default snooze length, and a
-      // free numbered name when none is given ("Block Group 2").
-      const base = createDefaultGroup(groupType);
-      base.snoozeMinutes = CBGroupActions.sanitizeGlobalSettings((await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY))?.[CB_GLOBAL_SETTINGS_KEY]).defaultSnoozeMinutes;
-      if (typeof safePatch.name !== "string" || !safePatch.name.trim()) {
-        const root = base.name;
-        base.name = CBGroupActions.freeName(groups, (n) => (n === 1 ? root : `${root} ${n}`));
-      }
-      const invalid = CBGroupActions.validateGroupPatch(safePatch, groupType);
-      if (invalid) throw new Error(invalid);
-      const draft = { ...base, ...cbWithoutAppLines(safePatch), groupType };
-      const [group] = sanitizeGroups([draft]);
-      if (!group) throw new Error("invalid-group");
-      if (groups.some((existing) => existing.id === group.id)) throw new Error("duplicate-group-id");
-      if (cbNameTaken(groups, group.name)) throw new Error("duplicate-name");
-      const next = [...groups, group];
-      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
-      return { group: cbPublicGroup(group) };
+      // As the editor's New group: the user's default snooze length, a free
+      // numbered name, never locked, only a browser's lines.
+      const snoozeMinutes = CBGroupActions.sanitizeGlobalSettings((await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY))?.[CB_GLOBAL_SETTINGS_KEY]).defaultSnoozeMinutes;
+      const result = CBGroupScopes.createToolGroup(groups, groupType, patch, "browser", { snoozeMinutes });
+      if (result.error) throw new Error(result.error);
+      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: [...groups, result.group] });
+      return { group: cbPublicGroup(result.group) };
     }
     case "settings-set-group": {
       const id = typeof input.id === "string" ? input.id : "";
@@ -4452,28 +4423,21 @@ async function cbBrowserRequestBody(operation, body) {
       const { groups } = await getState();
       const index = groups.findIndex((group) => group.id === id);
       if (index < 0) throw new Error("group-not-found");
-      if (cbGroupIsLocked(groups[index])) throw new Error("group-locked");
-      // The id and the lock state are never patchable — same as the popup.
-      const { id: _id, ...safePatch } = cbWithoutLockFields(patch);
-      const invalid = CBGroupActions.validateGroupPatch(safePatch, safePatch.groupType ?? groups[index].groupType);
-      if (invalid) throw new Error(invalid);
-      // Apps lines are the desktop's (read-only in a browser, as in its editor).
-      const edit = cbWithoutAppLines(safePatch);
-      if (Array.isArray(edit.scopes)) edit.scopes = [...edit.scopes, ...groups[index].scopes.filter((line) => line.surface === "apps")];
-      const [group] = sanitizeGroups([{ ...groups[index], ...edit, id }]);
-      if (!group) throw new Error("invalid-group");
-      if (cbNameTaken(groups, group.name, id)) throw new Error("duplicate-name");
+      if (CBGroupActions.isLocked(groups[index])) throw new Error("group-locked");
+      const result = CBGroupScopes.applyToolEdit(groups[index], patch, "browser");
+      if (result.error) throw new Error(result.error);
+      if (CBGroupActions.nameTaken(groups, result.group.name, id)) throw new Error("duplicate-name");
       const next = groups.slice();
-      next[index] = group;
+      next[index] = result.group;
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
-      return { group: cbPublicGroup(group) };
+      return { group: cbPublicGroup(result.group) };
     }
     case "settings-delete-group": {
       const id = typeof input.id === "string" ? input.id : "";
       const { groups } = await getState();
       const group = groups.find((candidate) => candidate.id === id);
       if (!group) throw new Error("group-not-found");
-      if (cbGroupIsLocked(group)) throw new Error("group-locked");
+      if (CBGroupActions.isLocked(group)) throw new Error("group-locked");
       const next = groups.filter((candidate) => candidate.id !== id);
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
       return { deleted: id };
@@ -4497,7 +4461,7 @@ async function cbBrowserRequestBody(operation, body) {
       const { groups } = await getState();
       const from = groups.findIndex((group) => group.id === id);
       if (from < 0) throw new Error("group-not-found");
-      if (cbGroupIsLocked(groups[from])) throw new Error("group-locked");
+      if (CBGroupActions.isLocked(groups[from])) throw new Error("group-locked");
       const to = Number(input.index);
       if (!Number.isInteger(to) || to < 0 || to >= groups.length) throw new Error(`invalid-index: 0…${groups.length - 1}`);
       const next = groups.slice();
@@ -4533,6 +4497,8 @@ async function cbBrowserRequestBody(operation, body) {
       const { quickAddGroupId, ...settings } = patch;
       const unknown = Object.keys(settings).find((key) => !CB_EDITOR_GLOBAL_FIELDS.includes(key));
       if (unknown) throw new Error(`not-an-editor-setting:${unknown}`);
+      const invalid = CBGroupActions.validateSettingsPatch(settings);
+      if (invalid) throw new Error(invalid);
       // The quick-add "+" target (the editor's badge): a group id, or "".
       if (quickAddGroupId !== undefined) {
         const target = String(quickAddGroupId || "");

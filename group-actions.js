@@ -33,10 +33,13 @@
     return Number.isFinite(n) ? n : null;
   }
 
+  // The wait gate in hours: blank or 0 = no wait; junk, negatives and more
+  // than the maximum are refused (null).
   function parseWaitHours(value) {
-    const n = Number.parseFloat(String(value ?? "").trim());
-    if (!Number.isFinite(n) || n <= 0) return 0;
-    return n <= MAX_WAIT_HOURS ? n : null;
+    const text = String(value ?? "").trim();
+    if (text === "") return 0;
+    const n = Number(text);
+    return Number.isFinite(n) && n >= 0 && n <= MAX_WAIT_HOURS ? n : null;
   }
 
   // The lock fields of a stored group, cleaned. Groups stored before
@@ -100,6 +103,14 @@
     return { group: bump(group, { lockedAtMs: now }) };
   }
 
+  // Lock under these gates (the editor's Freeze, a tool's lock): one change,
+  // one version.
+  function lockWithGates(group, gates, now) {
+    const set = setGates(group, gates);
+    if (set.error) return set;
+    return lock({ ...set.group, lockVersion: group.lockVersion }, now);
+  }
+
   // Stricter only: a longer wait (from the same lock time) and/or a PIN where
   // there was none. `pinFields` are {parentalPasswordHash, parentalPasswordSalt}.
   function tighten(group, { waitHours, pinFields } = {}) {
@@ -107,7 +118,7 @@
     const fields = {};
     if (waitHours !== undefined) {
       const hours = parseWaitHours(waitHours);
-      if (hours === null) return { error: `invalid-wait-hours: 0 < hours <= ${MAX_WAIT_HOURS}` };
+      if (hours === null) return { error: `invalid-wait-hours: 0 (no wait) to ${MAX_WAIT_HOURS}` };
       if (hours < (Number(group.lockWaitHours) || 0)) return { error: "not-stricter" };
       if (hours !== (Number(group.lockWaitHours) || 0)) fields.lockWaitHours = hours;
     }
@@ -127,7 +138,7 @@
     const fields = {};
     if (waitHours !== undefined) {
       const hours = parseWaitHours(waitHours);
-      if (hours === null) return { error: `invalid-wait-hours: 0 < hours <= ${MAX_WAIT_HOURS}` };
+      if (hours === null) return { error: `invalid-wait-hours: 0 (no wait) to ${MAX_WAIT_HOURS}` };
       fields.lockWaitHours = hours;
     }
     if (pinFields !== undefined) {
@@ -620,7 +631,8 @@
       bad("snoozeConfirmations", (v) => parseSnoozeConfirmations(v) !== null),
       bad("pauseSeconds", (v) => parsePauseSeconds(v) !== null),
       bad("timeWindowsText", (v) => typeof v === "string" && parseTimeWindowsText(v).invalidLines.length === 0),
-      bad("activeDays", (v) => Array.isArray(v) && v.every((day) => DAY_NAMES.includes(String(day).trim().toLowerCase()))),
+      // At least one day, as the editor's day boxes allow.
+      bad("activeDays", (v) => Array.isArray(v) && v.length > 0 && v.every((day) => DAY_NAMES.includes(String(day).trim().toLowerCase()))),
       bad("fallbackUrl", (v) => typeof v === "string")
     ];
     return checks.find(Boolean) || null;
@@ -689,6 +701,23 @@
     return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
   }
 
+  // What a Settings change may set, checked as the editor's fields allow:
+  // "invalid-<field>" or null (refused, never defaulted).
+  function validateSettingsPatch(patch) {
+    const has = (key) => Object.prototype.hasOwnProperty.call(patch || {}, key);
+    const bad = (key, ok) => (has(key) && !ok(patch[key]) ? `invalid-${key}` : null);
+    const wholeMinutes = (v) => {
+      const text = String(v ?? "").trim();
+      const n = Number(text);
+      return text !== "" && Number.isInteger(n) && n >= 0 && n <= QUIT_RETRY_MAX_MINUTES;
+    };
+    return [
+      bad("defaultSnoozeMinutes", (v) => parseSnoozeMinutes(v) !== null),
+      bad("quitRetryMinutes", wholeMinutes),
+      bad("quickAddEnabled", (v) => typeof v === "boolean")
+    ].find(Boolean) || null;
+  }
+
   function sanitizeGlobalSettings(raw) {
     const src = raw && typeof raw === "object" ? raw : {};
     const defaults = DEFAULT_GLOBAL_SETTINGS;
@@ -706,7 +735,7 @@
 
   const api = Object.freeze({
     CONFIRMATIONS, CONFIRM_INTERVAL_MS, MAX_WAIT_HOURS, LOCK_FIELDS,
-    parseWaitHours, normalizeLock, isLocked, hasPin, waitUntilMs, status,
+    parseWaitHours, normalizeLock, isLocked, lockWithGates, hasPin, waitUntilMs, status,
     lock, tighten, setGates, upgradePinHash, unlockPlan, unlock, deleteAllPlan, confirmStart, confirmStep,
     lockUnit, lockContribution, adoptLock,
     snoozePhase, snoozeChangedAtMs, sanitizeSnoozeEntry, snoozePlan, snoozeEntry, endSnoozeEntry, adoptSnooze,
@@ -719,7 +748,7 @@
     getAllowedMs, getResetIntervalMs, cbStartOfDayMs, cbNextMidnightMs, cbPeriodStartMs, cbNextResetMs,
     cbUsageBucketStartMs, cbPruneUsageBuckets, cbBucketsUsedMs, cbNextReturnMs,
     sanitizeUsageTimers, sanitizeSnoozeTotals, sanitizeResetTimes, sanitizeUsageBuckets, sanitizeSnoozes,
-    DEFAULT_GLOBAL_SETTINGS, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, AUTOSAVE_DEBOUNCE_MAX_MS, sanitizeGlobalSettings,
+    DEFAULT_GLOBAL_SETTINGS, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, AUTOSAVE_DEBOUNCE_MAX_MS, sanitizeGlobalSettings, validateSettingsPatch,
     nameTaken, freeName, dedupeNames, budgetRestarts, validateGroupPatch
   });
   global.CBGroupActions = api;

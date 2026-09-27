@@ -167,7 +167,8 @@ async function op(operation, body) {
   await op("settings-set-global", { patch: { defaultSnoozeMinutes: 7 } });
   const unnamed1 = (await op("settings-create-group", { groupType: "site" }))?.body?.group;
   const unnamed2 = (await op("settings-create-group", { groupType: "site" }))?.body?.group;
-  check("unnamed tool-created groups get free numbered names, like the editor's", unnamed1 && unnamed2 && unnamed1.name !== unnamed2.name && / 2$/.test(unnamed2.name), [unnamed1?.name, unnamed2?.name]);
+  // 3 site groups exist → "Block Group 4", "Block Group 5" (the editor's numbering).
+  check("unnamed tool-created groups get the editor's numbered names", unnamed1?.name === "Block Group 4" && unnamed2?.name === "Block Group 5", [unnamed1?.name, unnamed2?.name]);
   check("…and the user's default snooze length", unnamed1?.snoozeMinutes === 7, unnamed1?.snoozeMinutes);
   const dup = await op("settings-create-group", { groupType: "site", patch: { name: "lock a" } });
   check("a name another group has (any case) is refused", dup?.error === "duplicate-name", dup);
@@ -247,7 +248,8 @@ async function op(operation, body) {
   check("an index outside the list is refused", /^invalid-index/.test((await op("settings-move-group", { id: c, index: 99 }))?.error || ""));
 
   const retry = await op("settings-set-global", { patch: { quitRetryMinutes: 30 } });
-  check("set-global takes the quit-retry minutes (default 0 = never)", retry?.body?.globalSettings?.quitRetryMinutes === 30 && (await op("settings-set-global", { patch: { quitRetryMinutes: -4 } }))?.body?.globalSettings?.quitRetryMinutes === 0, retry);
+  check("set-global takes the quit-retry minutes (default 0 = never)", retry?.body?.globalSettings?.quitRetryMinutes === 30, retry);
+  check("…a value the field can't hold is refused, not clamped", (await op("settings-set-global", { patch: { quitRetryMinutes: -4 } }))?.error === "invalid-quitRetryMinutes");
 
   const popupSource = fs.readFileSync(path.join(root, "popup.js"), "utf8");
   check("the tools and the popup take the confirmation from the same place",
@@ -267,7 +269,13 @@ async function op(operation, body) {
   const withApps = await op("settings-set-group", { id: sid, patch: { scopes: [
     { surface: "site", action: "block", sites: ["a.example"] },
     { surface: "apps", action: "block", apps: [{ id: "com.example.App" }] }] } });
-  check("a browser tool edits no Apps lines", withApps?.body && !JSON.stringify(withApps.body.group).includes("com.example.App"), withApps);
+  check("a browser tool can't change Apps lines (Mac Vault's scope)", withApps?.error === "desktop-lines", withApps);
+  const siteOnly = await op("settings-set-group", { id: sid, patch: { scopes: [{ surface: "site", action: "block", sites: ["b.example"] }] } });
+  check("…lines sent without the Apps lines keep them as stored", siteOnly?.body?.group?.scopes?.some((l) => l.surface === "site" && l.sites.includes("b.example")), siteOnly);
+  const noDays = await op("settings-set-group", { id: sid, patch: { activeDays: [] } });
+  check("a group keeps at least one active day, as in the editor", noDays?.error === "invalid-activeDays", noDays);
+  const toCustom = await op("settings-set-group", { id: sid, patch: { groupType: "custom" } });
+  check("a group never turns into a custom group", toCustom?.error === "invalid-groupType", toCustom);
   const shortPin = await op("settings-set-lock-gates", { id: sid, pin: "12345" });
   check("a PIN that isn't 6 digits is never stored (it could never be verified)", /^invalid-pin/.test(shortPin?.error || "") && !(storage.get("blockedGroups") || []).find((g) => g.id === sid)?.parentalPasswordHash, shortPin);
   const gates = await op("settings-set-lock-gates", { id: sid, waitHours: 3, pin: "482915" });
