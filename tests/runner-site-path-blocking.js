@@ -1,7 +1,7 @@
 /* Site entries may carry a path prefix (owner 2026-09-24): "youtube.com/shorts"
    blocks only that path and everything under it, while "youtube.com" keeps
-   blocking the host and its subdomains. The worker and the popup must
-   normalize entries identically. */
+   blocking the host and its subdomains. One normalizer (group-scopes.js) for
+   the worker, the editor and Mac Vault. */
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -19,9 +19,8 @@ function extract(file, name) {
   return source.slice(start, end + 1);
 }
 const worker = vm.createContext({ URL });
-vm.runInContext(["normalizeSiteInput", "hostnameMatchesSite", "siteEntryParts", "siteEntryMatches", "siteLineBlocks"].map((n) => extract("background.js", n)).join("\n"), worker);
-const popup = vm.createContext({ URL });
-vm.runInContext(extract("popup.js", "normalizeSiteInput"), popup);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "group-scopes.js"), "utf8"), worker);
+vm.runInContext("var normalizeSiteInput = CBGroupScopes.normalizeSiteInput;\n" + ["hostnameMatchesSite", "siteEntryParts", "siteEntryMatches", "siteLineBlocks"].map((n) => extract("background.js", n)).join("\n"), worker);
 
 let pass = 0; let fail = 0;
 const check = (label, ok, got) => { if (ok) { pass += 1; console.log(`PASS ${label}`); } else { fail += 1; console.log(`FAIL ${label} — got ${JSON.stringify(got)}`); } };
@@ -39,8 +38,6 @@ const normCases = [
 ];
 for (const [label, input, expected] of normCases) {
   const got = norm(input); check(label, got === expected, got);
-  const popupGot = vm.runInContext(`normalizeSiteInput(${JSON.stringify(input)})`, popup);
-  check(`popup agrees: ${label}`, popupGot === expected, popupGot);
 }
 
 check("a host entry covers the host", matches("youtube.com", "/watch", "youtube.com"));
