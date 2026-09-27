@@ -14,8 +14,6 @@
  *     "unload-group"     { groupId }
  *     "dispatch-event"   { type, groupId?, tabId?, pageId?, url, hostname,
  *                          time, data }
- *     "post-event"       same shape as dispatch-event
- *     "list-handlers"    { groupId? }
  *
  * Replies (relayed back to background):
  *   {
@@ -555,21 +553,6 @@ function makeAccumulator() {
     postsDropped: 0
   };
   return acc;
-}
-
-// Bounded push helpers shared by the in-sandbox helpers and the local log
-// channel. Once the cap is hit we drop silently, but remember the count so
-// dispatchEvent can append a single "[truncated N entries]" warning.
-function boundedPush(list, item, cap, dropCounterKey, accumulator) {
-  if (!Array.isArray(list)) return false;
-  if (list.length >= cap) {
-    if (accumulator && dropCounterKey) {
-      accumulator[dropCounterKey] = (accumulator[dropCounterKey] || 0) + 1;
-    }
-    return false;
-  }
-  list.push(item);
-  return true;
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -1210,20 +1193,14 @@ window.addEventListener("message", (msg) => {
     return;
   }
 
-  if (payload.kind === "list-handlers") {
-    reply(msg.source, id, { ok: true, handlers: listHandlers(payload.groupId) });
-    return;
-  }
-
   if (payload.kind === "evaluate-platform-items") {
     const platform = String(payload.platform || "");
     const slot = String(payload.slot || "");
     const items = Array.isArray(payload.items) ? payload.items : [];
-    const results = items.map(() => ({ hide: false, blockPageOnVisit: false, matchedGroups: [], effects: {} }));
+    const results = items.map(() => ({ blockPageOnVisit: false, matchedGroups: [], effects: {} }));
     // Each group owns at most ONE predicate per (platform, slot). We report
     // each group's match separately (`matchedGroups`) so the content-side
-    // cascade can place every custom group at its own ordered priority, while
-    // `hide` keeps the OR'd result for any legacy consumer. `effects` maps each
+    // cascade can place every custom group at its own ordered priority. `effects` maps each
     // matched groupId → "allow" | "block" so a custom allow() predicate records
     // a rescue verdict in the shared cascade (same as platform allow groups).
     // `evaluatedGroups` lists the groups whose predicate ran so the content side
@@ -1238,7 +1215,6 @@ window.addEventListener("message", (msg) => {
         let matched = false;
         try { matched = Boolean(entry.predicate(items[i])); } catch { matched = false; }
         if (matched) {
-          results[i].hide = true;
           results[i].matchedGroups.push(groupId);
           results[i].effects[groupId] = effect;
           // A page-level block (exit the page) only makes sense for a "block"
@@ -1251,7 +1227,7 @@ window.addEventListener("message", (msg) => {
     return;
   }
 
-  if (payload.kind === "dispatch-event" || payload.kind === "post-event") {
+  if (payload.kind === "dispatch-event") {
     const descriptor = payload.descriptor || {};
     const dispatchResult = dispatchEvent(descriptor);
     const synthResults = [];

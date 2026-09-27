@@ -37,7 +37,12 @@ const chrome = new Proxy({
   storage: {
     local: {
       get: (keys, cb) => { const r = storageGet(keys); if (typeof cb === "function") { cb(r); return; } return Promise.resolve(r); },
-      set: (obj, cb) => { for (const [k, v] of Object.entries(obj)) storage.set(k, JSON.parse(JSON.stringify(v))); if (typeof cb === "function") { cb(); return; } return Promise.resolve(); },
+      set: (obj, cb) => {
+        const changes = {};
+        for (const [k, v] of Object.entries(obj)) { changes[k] = { oldValue: storage.get(k), newValue: JSON.parse(JSON.stringify(v)) }; storage.set(k, JSON.parse(JSON.stringify(v))); }
+        for (const fn of listeners.storage) { try { fn(changes, "local"); } catch (_) {} }
+        if (typeof cb === "function") { cb(); return; } return Promise.resolve();
+      },
       remove: (keys, cb) => { for (const k of [].concat(keys)) storage.delete(k); if (typeof cb === "function") { cb(); return; } return Promise.resolve(); },
       getBytesInUse: () => Promise.resolve(0)
     },
@@ -66,7 +71,7 @@ const context = vm.createContext({
   atob: (s) => Buffer.from(s, "base64").toString("binary"), btoa: (s) => Buffer.from(s, "binary").toString("base64")
 });
 context.self = context; context.globalThis = context; context.window = context;
-for (const file of ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "helpers.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
+for (const file of ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
   const p = path.join(root, file);
   if (!fs.existsSync(p)) continue;
   try { vm.runInContext(fs.readFileSync(p, "utf8"), context, { filename: file }); }
@@ -227,6 +232,7 @@ async function op(operation, body) {
   check("…then the snooze starts from the saved settings (10 min)", sDone?.body?.snoozed === true && entry && entry.untilMs - entry.startsAtMs === 10 * 60000, sDone);
   check("a second snooze while one runs is refused", (await op("settings-snooze-group", { id: snoozeGroup }))?.error === "snooze-in-progress");
   const ended = await op("settings-end-snooze", { id: snoozeGroup });
+  await new Promise((resolve) => setTimeout(resolve, 20)); // the storage listener counts it
   const endedEntry = storage.get("groupSnoozes")?.[snoozeGroup];
   check("end-snooze ends it and keeps the ended entry (shared as the newest change)", ended?.body?.ended === true && endedEntry && endedEntry.activeMsApplied === true && endedEntry.untilMs <= Date.now(), ended);
   check("a frozen group can still be snoozed by a tool (only its snooze settings are frozen)", await (async () => {

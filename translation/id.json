@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // Daftarkan handler di sini.\n}",
   "custom.runButton": "Berlari",
   "custom.runStatusHalted": "Dihentikan: aturan memakan waktu terlalu lama untuk dimuat dan dibatalkan secara paksa. Periksa panel Log untuk detailnya.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "Biarkan AI menulis kode",
   "custom.aiPromptLabel": "Prompt untuk AI",
   "custom.aiPromptPlaceholder": "Jelaskan apa yang harus dilakukan aturan kustom ini...",

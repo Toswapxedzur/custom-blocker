@@ -29,20 +29,21 @@ const context = vm.createContext({
   cbApplyTagPagePolicy(root, action, meta) { applied.push({ root, action, entryID: meta && meta.entryID }); return action === "block"; },
   scheduleApplyFeedFilters() { rescans += 1; },
   reconcilePageMutations() {},
+  cbSetGroupOrder() {},
   vaultTagsForCard: (root) => tagsByRoot.get(root) || [],
   vaultTagsSettledForCard: (root) => settledByRoot.get(root) !== false
 });
 context.window = context;
 vm.runInContext([
-  "let latestFeedFilters = [];", "let cbTagPageContext = null;",
+  "let latestFeedFilters = []; let latestSurfaceHides = []; let cbSessionFilterKey = \"\";", "let cbTagPageContext = null;",
   extractFunction("getFeedCardTags"), extractFunction("matchesTagFilter"), extractFunction("matchesFeedFilter"),
   extractFunction("cbTagPageVerdict"), extractFunction("cbPageCoversUntilTagged"), extractFunction("cbEvaluateTagPage"),
-  extractFunction("cbReapplyTagFilters"), extractFunction("updateFeedFilters")
+  extractFunction("cbReapplyTagFilters"), extractFunction("applySessionFilters")
 ].join("\n"), context);
 
 const root = { id: "watch-root" };
 context.__root = root;
-const setFilters = (filters) => { context.__filters = filters; vm.runInContext("updateFeedFilters(__filters)", context); };
+const setFilters = (filters) => { context.__filters = filters; vm.runInContext("applySessionFilters(null, __filters, null)", context); };
 const evaluate = (meta) => { context.__meta = meta; return vm.runInContext("cbEvaluateTagPage(__root, __meta)", context); };
 const last = () => applied[applied.length - 1];
 const tagFilter = (over = {}) => ({

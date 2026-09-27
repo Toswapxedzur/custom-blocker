@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // Đăng ký trình xử lý tại đây.\n}",
   "custom.runButton": "Chạy",
   "custom.runStatusHalted": "Đã dừng: quy tắc mất quá nhiều thời gian để tải và bị buộc hủy bỏ. Kiểm tra bảng Nhật ký để biết chi tiết.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "Để AI viết mã",
   "custom.aiPromptLabel": "Lời nhắc cho AI",
   "custom.aiPromptPlaceholder": "Mô tả việc bạn muốn quy tắc tùy chỉnh này làm...",

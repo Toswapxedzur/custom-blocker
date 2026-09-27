@@ -227,21 +227,6 @@ window.addEventListener("message", (event) => {
     resolver(data.result || null);
     return;
   }
-
-  if (data.type === "intents") {
-    chrome.runtime.sendMessage({
-      type: "event-sandbox-intents",
-      payload: data.payload
-    }).catch(() => {});
-    return;
-  }
-
-  if (data.type === "log") {
-    chrome.runtime.sendMessage({
-      type: "event-sandbox-log",
-      payload: data.payload
-    }).catch(() => {});
-  }
 });
 
 // ────────────────────────────────────────────────────────────────────────

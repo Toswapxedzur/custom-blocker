@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // سجّل المعالجات هنا.\n}",
   "custom.runButton": "يجري",
   "custom.runStatusHalted": "متوقف: استغرق تحميل القاعدة وقتًا طويلاً وتم إحباطها بالقوة. تحقق من لوحة السجل للحصول على التفاصيل.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "دع الذكاء الاصطناعي يكتب الكود",
   "custom.aiPromptLabel": "موجّه للذكاء الاصطناعي",
   "custom.aiPromptPlaceholder": "صف ما تريد أن تفعله هذه القاعدة المخصصة...",
