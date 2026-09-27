@@ -16,7 +16,7 @@
  *       whose panels changed), states: { groupId: state } (changed states).
  */
 
-function browserActions(act) {
+function browserActions(act, _check, requestId) {
   const tab = (value) => (value === "*" ? "*" : Number.isInteger(value) ? value : null);
   return {
     item(tabId, ref, verdict) {
@@ -34,6 +34,12 @@ function browserActions(act) {
     },
     css(tabId, id, css) {
       if (tab(tabId) !== null && id) act("css", { tabId: tab(tabId), id: String(id).slice(0, 80), css: css === null || css === undefined ? null : String(css).slice(0, 100000) });
+    },
+    query(tabId, selector) {
+      if (!Number.isInteger(tabId) || !selector) return null;
+      const id = requestId();
+      act("query", { tabId, selector: String(selector).slice(0, 1000), requestId: id });
+      return id;
     },
     dom(tabId, selector, op, arg) {
       const ops = ["hide", "show", "click", "setText", "addClass", "removeClass", "scrollTo"];

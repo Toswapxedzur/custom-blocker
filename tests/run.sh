@@ -254,6 +254,12 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'content-page-verdict' FAILED" >&2
   failed=1
 fi
+node_out=$(node tests/runner-content-rule-apply.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'content-rule-apply' FAILED" >&2
+  failed=1
+fi
 node_out=$(node tests/runner-content-tag-page-filter.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then

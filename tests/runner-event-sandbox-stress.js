@@ -89,6 +89,18 @@ for (let i = 0; i < 3 && !quarantine; i++) quarantine = send("tick", {}, "slow")
 Date.now = realNow;
 assert("E7 quarantined", quarantine && quarantine.groupId === "slow" && quarantine.reason === "deadline-overrun");
 
+log.section("E8: v.query reads a page; its answer comes back as an event");
+loadSource("q", `(on, v) => {
+  on("tab", (ev) => { v.state.id = v.query(ev.data.tabId, "#description"); v.state.none = v.query("x", "#a"); });
+  on("query", (ev) => { v.state.text = ev.data.matches.map((m) => m.text).join(); });
+}`, {});
+result = send("tab", { kind: "navigate", tabId: 5, url: "https://www.youtube.com/watch?v=a" }, "q");
+const query = result.actions.find((a) => a.kind === "query");
+assert("E8 the query goes to its tab with a request id", query && query.tabId === 5 && query.selector === "#description" && query.requestId === result.states.q.id, result.actions);
+assert("E8 no tab, no query", result.states.q.none === null && result.actions.filter((a) => a.kind === "query").length === 1);
+result = send("query", { requestId: query.requestId, tabId: 5, selector: "#description", matches: [{ text: "about cats" }], error: "" }, "q");
+assert("E8 the rule reads the answer", result.states.q.text === "about cats");
+
 const counts = log.counts();
 log.summary("─".repeat(60));
 log.summary(`pass=${counts.pass} fail=${counts.fail}`);

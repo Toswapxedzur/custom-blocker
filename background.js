@@ -2068,7 +2068,7 @@ async function applyRuleResult(result, eventType) {
   for (const [groupId, panels] of Object.entries(result.panels || {})) cbSetRulePanels(groupId, panels);
   const pages = new Map(); // tabId | "*" -> { items, css, dom, cover }
   const page = (tabId) => {
-    if (!pages.has(tabId)) pages.set(tabId, { type: "rule-apply", items: [], css: [], dom: [], cover: null });
+    if (!pages.has(tabId)) pages.set(tabId, { type: "rule-apply", items: [], css: [], dom: [], queries: [], cover: null });
     return pages.get(tabId);
   };
   for (const action of result.actions || []) {
@@ -2078,6 +2078,7 @@ async function applyRuleResult(result, eventType) {
       else if (kind === "cover") page(tabId).cover = { groupId, on: action.on, message: action.message };
       else if (kind === "css") page(tabId).css.push({ key: groupId + "␟" + action.id, css: action.css });
       else if (kind === "dom") page(tabId).dom.push({ selector: action.selector, op: action.op, arg: action.arg });
+      else if (kind === "query") page(tabId).queries.push({ groupId, requestId: action.requestId, selector: action.selector });
       else if (kind === "close") await chrome.tabs.remove(tabId);
       else if (kind === "go") {
         if (action.target === "back") await chrome.tabs.goBack(tabId);
@@ -2449,40 +2450,48 @@ async function emitRuleTick() {
   });
 }
 
+// Run (the editor's button and the AI tool): the text becomes the group's
+// rule, starts fresh (its state cleared) and re-enables a group an overrun
+// disabled. A rule that doesn't load changes nothing — the one running before
+// keeps running — and its load result says why. A frozen group is refused.
+async function cbRunCustomGroup(groupId, source) {
+  await ensureStartupGate();
+  await cbClusterCopyReady;
+  const find = async () => {
+    const groups = (await chrome.storage.local.get(BLOCKED_GROUPS_KEY))[BLOCKED_GROUPS_KEY];
+    const list = Array.isArray(groups) ? groups : [];
+    return { groups: list, index: list.findIndex((g) => g && g.id === groupId) };
+  };
+  const before = await find();
+  const group = before.groups[before.index];
+  if (!group || group.groupType !== "custom") throw new Error("group-not-found");
+  if (CBGroupActions.isLocked(group) || cbEnforceOnly(group)) throw new Error("group-locked");
+  const fields = { enabled: true, blockingRulesText: source, activeEventSource: source, lastAbortReason: null };
+  const loadResult = await loadCustomGroupSource({ ...group, ...fields }, { state: {} });
+  if (!loadResult || !loadResult.ok) return loadResult || { ok: false, error: "sandbox-timeout" };
+  // The load took a while: write onto what is stored now.
+  const { groups, index } = await find();
+  if (index < 0) throw new Error("group-not-found");
+  groups[index] = { ...groups[index], ...fields };
+  // Loaded here, so the write's own reconcile finds it already loaded.
+  lastReconcileSnapshot.set(groupId, { enabled: true, activeEventSource: source });
+  const states = (await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {};
+  delete states[groupId];
+  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups, [CB_RULE_STATE_KEY]: states });
+  return loadResult;
+}
+
 // The editor's rule requests and the pages' rule messages.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;
 
   if (message.type === "run-custom-group") {
-    (async () => {
-      await ensureStartupGate();
-      const groupId = String(message.groupId || "");
-      if (!groupId) return sendResponse({ ok: false, error: "missing groupId" });
-      const result = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
-      const groups = Array.isArray(result[BLOCKED_GROUPS_KEY]) ? result[BLOCKED_GROUPS_KEY] : [];
-      const idx = groups.findIndex((g) => g && g.id === groupId);
-      if (idx < 0) return sendResponse({ ok: false, error: "group not found" });
-      const group = groups[idx];
-      await cbClusterCopyReady;
-      // A frozen group's rule is not changed (the editor disables Run too).
-      if (CBGroupActions.isLocked(group) || cbEnforceOnly(group)) return sendResponse({ ok: false, error: "group-locked" });
-      const sourceText = typeof message.source === "string" ? message.source : "";
-      // Run starts the rule fresh (its state cleared) and re-enables a group
-      // an overrun disabled. A rule that doesn't load changes nothing: the
-      // one running before keeps running.
-      const next = { ...group, enabled: true, activeEventSource: sourceText, lastAbortReason: null };
-      const loadResult = await loadCustomGroupSource(next, { state: {} });
-      if (!loadResult || !loadResult.ok) return sendResponse({ ok: true, loadResult: loadResult || { ok: false, error: "sandbox-timeout" } });
-      groups[idx] = next;
-      // Loaded here, so the write's own reconcile finds it already loaded.
-      lastReconcileSnapshot.set(groupId, { enabled: true, activeEventSource: sourceText });
-      const states = (await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {};
-      delete states[groupId];
-      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups, [CB_RULE_STATE_KEY]: states });
-      sendResponse({ ok: true, loadResult });
-    })().catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
+    cbRunCustomGroup(String(message.groupId || ""), typeof message.source === "string" ? message.source : "")
+      .then((loadResult) => sendResponse({ ok: true, loadResult }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
+
 
   if (message.type === "get-log-feed") {
     sendResponse({ ok: true, entries: logFeedBuffer.slice() });
@@ -2582,6 +2591,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
+  }
+
+  // A page's answer to a rule's v.query: that rule's "query" event.
+  if (message.type === "rule-query") {
+    const tabId = sender?.tab?.id;
+    if (typeof tabId !== "number") return false;
+    dispatchRule("query", {
+      requestId: String(message.requestId || ""),
+      tabId,
+      url: sender?.tab?.url || sender?.url || "",
+      selector: String(message.selector || ""),
+      matches: Array.isArray(message.matches) ? message.matches.slice(0, 50) : [],
+      error: String(message.error || "")
+    }, { targetGroupId: String(message.groupId || "") }).catch(() => {});
+    sendResponse({ ok: true });
+    return false;
   }
 
   // A page's feed items (and the page itself) for the rules that want them.
@@ -3611,7 +3636,8 @@ const CB_BROWSER_REQUEST_OPERATIONS = Object.freeze([
   "settings-snooze-group",
   "settings-end-snooze",
   "settings-set-lock-gates",
-  "settings-delete-all"
+  "settings-delete-all",
+  "settings-run-custom-rule"
 ]);
 const CB_CLASSIFIER_SETTINGS_STORAGE_KEY = "vaultClassifierSettings";
 const CB_TAGGING_MODES = Object.freeze(["whenFiltering", "always", "paused"]);
@@ -3874,6 +3900,15 @@ async function cbBrowserRequestBody(operation, body) {
       return cbSetLockGatesForTool({ ...input, id: typeof input.id === "string" ? input.id : "" });
     case "settings-delete-all":
       return cbDeleteAllForTool(input);
+    case "settings-run-custom-rule": {
+      // The editor's Run; no source = the group's current rule text.
+      const id = typeof input.id === "string" ? input.id : "";
+      const group = (await getState()).groups.find((g) => g.id === id);
+      if (!group || group.groupType !== "custom") throw new Error("group-not-found");
+      const source = typeof input.source === "string" ? input.source : String(group.blockingRulesText || "");
+      const result = await cbRunCustomGroup(id, source);
+      return { ran: Boolean(result.ok), handlers: result.handlers ?? 0, error: result.ok ? null : result.error || "not-loaded" };
+    }
     case "settings-move-group": {
       // The group list's order (drag in the editor); a locked group stays put.
       // Order is this device's own: it is not shared with linked devices.

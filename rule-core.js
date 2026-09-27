@@ -44,7 +44,8 @@
   }
 
   // ── One group's rule ─────────────────────────────────────────────────────
-  // `engineActions(act, check)` returns the engine's own actions; `act(kind,
+  // `engineActions(act, check, requestId)` returns the engine's own actions;
+  // `requestId()` names a request whose answer comes back as an event; `act(kind,
   // fields)` queues one. Registration runs once, now.
   function createRule(groupId, fn, { state, engineActions, now = () => Date.now() } = {}) {
     const handlers = new Map();
@@ -56,7 +57,8 @@
     const panels = new Map();
     let panelsChanged = false;
     const panelValues = new Map();
-    let fileSeq = 0;
+    let requestSeq = 0;
+    const requestId = () => groupId + ":" + (++requestSeq);
 
     const check = () => {
       if (deadline && now() > deadline) {
@@ -104,11 +106,11 @@
       // A file in the user's chosen folder: op read | write | append | list |
       // exists; the answer comes as a "file" event with this request id.
       file(op, path, payload) {
-        const requestId = groupId + ":" + (++fileSeq);
-        act("file", { op: String(op || ""), path: String(path || ""), payload: payload === undefined ? null : cloneJSON(payload), requestId });
-        return requestId;
+        const id = requestId();
+        act("file", { op: String(op || ""), path: String(path || ""), payload: payload === undefined ? null : cloneJSON(payload), requestId: id });
+        return id;
       },
-      ...(typeof engineActions === "function" ? engineActions(act, check) : {})
+      ...(typeof engineActions === "function" ? engineActions(act, check, requestId) : {})
     };
     // The group's memory: one JSON object, kept across restarts; Run clears it.
     Object.defineProperty(v, "state", {
@@ -451,6 +453,7 @@
       "v.go(tabId, url | \"back\" | \"forward\" | \"reload\") navigates. v.close(tabId) closes the tab.",
       "v.css(tabId | \"*\", id, css | null) adds (or removes) a style sheet on a tab's page, or every page.",
       "v.dom(tabId, selector, op, arg?) acts on the page's elements: op hide | show | click | setText (arg) | addClass (arg) | removeClass (arg) | scrollTo.",
+      "v.query(tabId, selector) reads the page: it returns a request id; the answer arrives as a \"query\" event: data = { requestId, tabId, url, selector, matches: [{ tag, text, href, src, title, label, value }] (at most 50, text ≤ 1000 characters), error }. A tab without a web page never answers.",
       "EXAMPLE: (on, v) => { on(\"items\", (ev) => { for (const item of ev.data.items) if (item.tagsSettled && item.tags.some((t) => t.name === \"Gaming\" && t.confidence >= 4)) v.item(ev.data.tabId, item.ref, \"dim\"); }); }"
     ],
     mac: [

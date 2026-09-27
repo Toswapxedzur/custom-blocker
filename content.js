@@ -3106,6 +3106,25 @@ function cbRuleDomOp({ selector, op, arg }) {
   }
 }
 
+// A rule's v.query: the matching elements, read-only and bounded.
+function cbRuleQuery(selector) {
+  let nodes;
+  try { nodes = [...document.querySelectorAll(selector)].slice(0, 50); } catch (error) { return { matches: [], error: "invalid-selector" }; }
+  const attr = (el, name) => (el.getAttribute(name) || "").slice(0, 2000);
+  return {
+    matches: nodes.map((el) => ({
+      tag: el.tagName.toLowerCase(),
+      text: String(el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 1000),
+      href: el.href ? String(el.href).slice(0, 2000) : attr(el, "href"),
+      src: el.src ? String(el.src).slice(0, 2000) : attr(el, "src"),
+      title: attr(el, "title"),
+      label: attr(el, "aria-label"),
+      value: typeof el.value === "string" ? el.value.slice(0, 1000) : ""
+    })),
+    error: ""
+  };
+}
+
 // What the rules asked of this page.
 function cbApplyRuleMessage(message) {
   for (const { groupId, ref, verdict } of message.items || []) {
@@ -3130,6 +3149,9 @@ function cbApplyRuleMessage(message) {
   }
   for (const op of message.dom || []) cbRuleDomOp(op);
   if (message.cover) cbSetRuleCover(message.cover);
+  for (const { groupId, requestId, selector } of message.queries || []) {
+    safeSendMessage({ type: "rule-query", groupId, requestId, selector, ...cbRuleQuery(selector) });
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────
