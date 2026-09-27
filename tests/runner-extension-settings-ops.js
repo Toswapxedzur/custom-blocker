@@ -198,7 +198,7 @@ async function op(operation, body) {
   check("…never looser", (await op("settings-lock-group", { id: b, waitHours: 1 }))?.error === "not-stricter");
   check("wait hours above 72 are refused", (await op("settings-lock-group", { id: c, waitHours: 100 }))?.error?.startsWith("invalid-wait-hours"));
   const strictNow = await op("settings-unlock-group", { id: b, confirm: true });
-  check("a wait gate does not open before its hours", /^strict-wait:/.test(strictNow?.error || ""), strictNow);
+  check("a wait gate does not open before its hours", /^wait-until:/.test(strictNow?.error || ""), strictNow);
 
   const pinLock = await op("settings-lock-group", { id: c, pin: "482915", waitHours: 0 });
   check("a PIN given to the lock becomes its PIN gate (never returned)", Number.isFinite(pinLock?.body?.group?.lockedAtMs) && pinLock.body.group.hasParentalPin === true && !("parentalPasswordHash" in pinLock.body.group), pinLock);
@@ -247,6 +247,29 @@ async function op(operation, body) {
   check("the tools and the popup take the confirmation from the same place",
     /UNFREEZE_CONFIRMATIONS_REQUIRED = CBGroupActions\.CONFIRMATIONS/.test(popupSource) &&
     vm.runInContext("CBGroupActions.CONFIRMATIONS", context) === 10 && vm.runInContext("CBGroupActions.CONFIRM_INTERVAL_MS", context) === 5000);
+
+  // Hunt 6: tools do exactly what the editor does (owner 2026-09-27).
+  const made = await op("settings-create-group", { groupType: "site", patch: { name: "Strict check" } });
+  const sid = made?.body?.group?.id;
+  const badSchedule = await op("settings-set-group", { id: sid, patch: { timeWindowsText: "9-5" } });
+  check("an invalid value is refused, not replaced by a default", badSchedule?.error === "invalid-timeWindowsText", badSchedule);
+  const badMinutes = await op("settings-set-group", { id: sid, patch: { allowedMinutes: 0 } });
+  check("…zero minutes too", badMinutes?.error === "invalid-allowedMinutes", badMinutes);
+  const customMade = await op("settings-create-group", { groupType: "custom", patch: { name: "Rule group" } });
+  const timedCustom = await op("settings-set-group", { id: customMade?.body?.group?.id, patch: { mode: "after-minutes" } });
+  check("a custom group can't be timed (the editor keeps it instant)", timedCustom?.error === "invalid-mode", timedCustom);
+  const withApps = await op("settings-set-group", { id: sid, patch: { scopes: [
+    { surface: "site", action: "block", sites: ["a.example"] },
+    { surface: "apps", action: "block", apps: [{ id: "com.example.App" }] }] } });
+  check("a browser tool edits no Apps lines", withApps?.body && !JSON.stringify(withApps.body.group).includes("com.example.App"), withApps);
+  const gates = await op("settings-set-lock-gates", { id: sid, waitHours: 3, pin: "482915" });
+  check("lock gates on an unlocked group: the wait and a PIN", gates?.body?.group?.lockWaitHours === 3 && gates.body.group.hasParentalPin === true, gates);
+  const clearWrong = await op("settings-set-lock-gates", { id: sid, clearPin: true, pin: "000000" });
+  check("clearing the PIN takes the PIN", String(clearWrong?.error || "").startsWith("pin-wrong"), clearWrong);
+  const quick = await op("settings-set-global", { patch: { quickAddGroupId: sid } });
+  check("the quick-add target is an editor setting too", quick?.body?.quickAddGroupId === sid, quick);
+  const all = await op("settings-delete-all", {});
+  check("delete all runs the editor's gates (a frozen group's wait still holds here)", String(all?.error || "").startsWith("wait-until:") && (storage.get("blockedGroups") || []).length > 0, all);
 
   const unknown = await op("settings-explode", {});
   check("an unsupported operation is answered, not dropped", unknown?.error === "unsupported-operation", unknown);

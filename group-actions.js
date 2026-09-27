@@ -600,6 +600,32 @@
     return pattern(n);
   }
 
+  // What an edit may set, checked as the editor's form checks it (owner:
+  // tools do exactly what the user can). Returns the first problem as
+  // "invalid-<field>", or null. A tool's invalid value is refused, never
+  // replaced by a default.
+  function validateGroupPatch(patch, groupType) {
+    const has = (key) => Object.prototype.hasOwnProperty.call(patch || {}, key);
+    const bad = (key, ok) => (has(key) && !ok(patch[key]) ? `invalid-${key}` : null);
+    const bool = (value) => typeof value === "boolean";
+    const checks = [
+      bad("name", (v) => typeof v === "string" && v.trim().length > 0),
+      bad("enabled", bool), bad("allowSnooze", bool), bad("resetAtMidnight", bool), bad("rollingLimit", bool),
+      bad("mode", (v) => v === "instant" || (v === "after-minutes" && groupType !== "custom")),
+      bad("allowedMinutes", (v) => parseAllowedMinutes(v) !== null),
+      bad("resetIntervalHours", (v) => parseResetIntervalHours(v) !== null),
+      bad("snoozeMinutes", (v) => parseSnoozeMinutes(v) !== null),
+      bad("snoozeActivationDelayMinutes", (v) => parseSnoozeDelayMinutes(v) !== null),
+      bad("snoozeCooldownMinutes", (v) => parseSnoozeCooldownMinutes(v) !== null),
+      bad("snoozeConfirmations", (v) => parseSnoozeConfirmations(v) !== null),
+      bad("pauseSeconds", (v) => parsePauseSeconds(v) !== null),
+      bad("timeWindowsText", (v) => typeof v === "string" && parseTimeWindowsText(v).invalidLines.length === 0),
+      bad("activeDays", (v) => Array.isArray(v) && v.every((day) => DAY_NAMES.includes(String(day).trim().toLowerCase()))),
+      bad("fallbackUrl", (v) => typeof v === "string")
+    ];
+    return checks.find(Boolean) || null;
+  }
+
   // Duplicate names are renamed silently (owner 2026-09-27): per name a linked
   // group (keepIds) keeps it, else the first one; the others become
   // "Name (2)", "Name (3)"… Returns the renamed list, or null when all differ.
@@ -694,7 +720,7 @@
     cbUsageBucketStartMs, cbPruneUsageBuckets, cbBucketsUsedMs, cbNextReturnMs,
     sanitizeUsageTimers, sanitizeSnoozeTotals, sanitizeResetTimes, sanitizeUsageBuckets, sanitizeSnoozes,
     DEFAULT_GLOBAL_SETTINGS, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, AUTOSAVE_DEBOUNCE_MAX_MS, sanitizeGlobalSettings,
-    nameTaken, freeName, dedupeNames, budgetRestarts
+    nameTaken, freeName, dedupeNames, budgetRestarts, validateGroupPatch
   });
   global.CBGroupActions = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
