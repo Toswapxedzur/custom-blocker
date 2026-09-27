@@ -1276,36 +1276,6 @@ function setSnoozeWarning(message = "") {
   snoozeWarning.textContent = message;
 }
 
-function normalizeSiteInput(value) {
-  const trimmed = String(value ?? "").trim().toLowerCase();
-
-  if (!trimmed) {
-    return null;
-  }
-
-  const maybeUrl = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
-
-  try {
-    const parsedUrl = new URL(maybeUrl);
-    let hostname = parsedUrl.hostname.trim().toLowerCase();
-
-    if (!hostname) {
-      return null;
-    }
-
-    if (hostname.startsWith("www.")) {
-      hostname = hostname.slice(4);
-    }
-
-    // A path prefix scopes the entry to that path and everything under it
-    // ("youtube.com/shorts"); a bare host covers the host and its subdomains.
-    const path = parsedUrl.pathname.replace(/\/+$/, "");
-    return path && path !== "/" ? hostname + path : hostname;
-  } catch {
-    return null;
-  }
-}
-
 function siteEntryHost(entry) {
   const text = String(entry ?? "");
   const slash = text.indexOf("/");
@@ -1837,13 +1807,6 @@ function setupPlatformChipInputs() {
 // kept either way, for linked devices that can tag.
 function isTagFilterCompatible(groupType) {
   return isTaggingPlatform(groupType) && (IS_NATIVE_DESKTOP || taggingAvailableFor(LOCAL_PROGRAM_ID));
-}
-function normalizeTagFilterModeChoice(value) {
-  return value === "include" || value === "exclude" ? value : "all";
-}
-function clampTagFilterConfidence(value, fallback) {
-  const c = Number(value);
-  return Number.isFinite(c) ? Math.min(5, Math.max(1, Math.round(c))) : fallback;
 }
 function parsePlatformAuthorsTextarea(groupType, value) {
   const validAuthors = [];
@@ -2778,221 +2741,41 @@ function uniqueDefaultGroupName(groupType) {
   return CBGroupActions.freeName(state.groups, (number) => t(`groupName.${key}Pattern`, { number }), start);
 }
 
-function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
-  // The add menu offers one unified Platform rule. It starts with YouTube only
-  // as a safe first profile; the cyan Rule box owns the actual platform choice.
-  const normalizedGroupType = normalizeGroupType(
-    groupType === "platform" ? DEFAULT_PLATFORM_RULE_GROUP_TYPE : groupType
-  );
 
-  return {
-    id: createGroupId(),
-    groupType: normalizedGroupType,
-    name: uniqueDefaultGroupName(normalizedGroupType),
-    enabled: true,
-    mode: "instant",
-    allowedMinutes: DEFAULT_ALLOWED_MINUTES,
-    resetIntervalHours: DEFAULT_RESET_INTERVAL_HOURS,
-    resetAtMidnight: false,
-    rollingLimit: false,
-    allowSnooze: true,
-    // Seed snooze knobs from the global default so the user doesn't redo
-    // them per-group. Custom groups don't expose these in the editor but
-    // we still keep them populated in case the group type changes later.
-    snoozeMinutes: state.globalSettings?.defaultSnoozeMinutes ?? DEFAULT_SNOOZE_MINUTES,
-    snoozeActivationDelayMinutes: DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
-    snoozeCooldownMinutes: DEFAULT_SNOOZE_COOLDOWN_MINUTES,
-    snoozeConfirmations: DEFAULT_SNOOZE_CONFIRMATIONS,
-    activeDays: createDefaultDays(),
-    timeWindowsText: "",
-    platformVideoMode: "all",
-    sourceMode: "all",
-    sources: [],
-    platformTagMode: "all",
-    platformTags: [],
-    platformTagDefaultConfidence: 4,
-    platformTagBlockUntagged: false,
-    platformTagBlockPage: true,
-    platformTagCoverUntilTagged: false,
-    platformTagEffect: "dim",
-    discordMode: "all",
-    discordTargets: [],
-    surfaceHides: [],
-    blockingRulesText: t("custom.defaultRule"),
-    activeEventSource: "",
-    ...CBGroupActions.normalizeLock({}),
-    sites: [],
-    // false → `sites` is a blocklist; true → `sites` is an allowlist
-    // ("block everything except these").
-    allowlist: false,
-    apps: [],
-    appsAllowlist: false,
-    // The entry the cards edit: a new Default group opens on its Websites
-    // entry in the browser and on its Apps entry in the desktop app.
-    entryView: normalizedGroupType === "custom"
-      ? "custom"
-      : normalizedGroupType === "site" && IS_NATIVE_DESKTOP ? "apps" : normalizedGroupType,
-    blockHomePage: false,
-    pageAction: "block",
-    fallbackUrl: "",
-    pauseSeconds: DEFAULT_PAUSE_SECONDS
-  };
+// One group's defaults, sanitizer and normalizers: one copy, in group-scopes.js
+// (the service worker and Mac Vault use it too). The editor adds only its view:
+// the flat form fields of the entry in view.
+const { normalizeSiteInput, normalizeTagFilterMode, clampTagConfidence } = CBGroupScopes;
+
+// The entry the cards show first: a custom group has none; a Websites group
+// opens on its Apps entry in the desktop app; otherwise the stored type.
+function defaultEntryView(stored) {
+  if (stored.groupType === "custom") return "custom";
+  return stored.groupType === "site" && IS_NATIVE_DESKTOP ? "apps" : stored.groupType;
+}
+
+// A stored (canonical) group as the editor shows it.
+function groupView(stored, entry = defaultEntryView(stored)) {
+  if (entry === "custom") return { ...stored, ...CBGroupScopes.flatFromScopes(stored, "custom"), entryView: "custom" };
+  return viewGroupOnPlatform(stored, entry);
 }
 
 function sanitizeGroups(groups) {
-  if (!Array.isArray(groups)) {
-    return [];
-  }
-
-  const sanitized = groups.map((input) => {
-    // Stored groups are canonical (policy + scope lines, see group-scopes.js);
-    // the editor works on the flat form model, so lines are flattened here and
-    // re-lined by toStoredGroup() on every save.
-    // The entry in view ("site" | "apps" | platform): in-memory only, defaults
-    // to the stored type (the desktop opens a Default group on its Apps entry).
-    const rawType = normalizeGroupType(input?.groupType);
-    const entryView = rawType === "custom"
-      ? "custom"
-      : typeof input?.entryView === "string" && input.entryView
-        ? CBGroupScopes.normalizeEntryKey(input.entryView)
-        : rawType === "site" && IS_NATIVE_DESKTOP
-          ? "apps"
-          : rawType;
-    const group = CBGroupScopes.hasScopeLines(input) ? { ...CBGroupScopes.flatFromScopes(input, entryView), ...input } : input;
-    const baseGroup = createDefaultGroup(normalizeGroupType(group?.groupType));
-    const normalizedGroupType = normalizeGroupType(group?.groupType);
-    const rawTimeWindowsText =
-      typeof group?.timeWindowsText === "string"
-        ? group.timeWindowsText
-        : Array.isArray(group?.timeWindows)
-          ? group.timeWindows.join("\n")
-          : "";
-    const parsedTimeWindows = parseTimeWindowsText(rawTimeWindowsText);
-    const hasStoredDays = Array.isArray(group?.activeDays);
-    const rawDays = hasStoredDays ? group.activeDays : createDefaultDays();
-    const activeDays = rawDays
-      .map((day) => String(day).trim().toLowerCase())
-      .filter((day, index, array) => DAY_NAMES.includes(day) && array.indexOf(day) === index);
-    // Sources (creators / accounts / subreddits): read the legacy pairs once.
-    const legacySources = normalizedGroupType === "reddit" ? group?.redditSubreddits : group?.platformAuthors;
-    const legacyMode = normalizedGroupType === "reddit" ? group?.redditMode : group?.platformAuthorMode;
-    // The legacy pair only exists in old stores and old-style patches, so when
-    // it is present it wins over a default-valued modern pair merged underneath.
-    const hasLegacy = Array.isArray(legacySources) || typeof legacyMode === "string";
-    const rawSources = hasLegacy
-      ? (Array.isArray(legacySources) ? legacySources : [])
-      : Array.isArray(group?.sources) ? group.sources : [];
-    const rawSourceMode = hasLegacy ? legacyMode : group?.sourceMode;
-    const rawDiscordTargets = Array.isArray(group?.discordTargets) ? group.discordTargets : [];
-    const ownsSiteList = true;
-
-    const normalized = {
-      ...baseGroup,
-      id: typeof group?.id === "string" && group.id ? group.id : baseGroup.id,
-      name:
-        typeof group?.name === "string" && group.name.trim()
-          ? group.name.trim()
-          : baseGroup.name,
-      // Legacy "allow" exception groups stay disabled rather than turning
-      // into blocking groups (the effect was removed 2026-09-24).
-      enabled: Boolean(group?.enabled) && group?.effect !== "allow",
-      groupType: normalizedGroupType,
-      mode: normalizeBlockingMode(group?.mode),
-      allowedMinutes:
-        parseAllowedMinutes(group?.allowedMinutes) ?? DEFAULT_ALLOWED_MINUTES,
-      resetIntervalHours:
-        parseResetIntervalHours(group?.resetIntervalHours) ??
-        DEFAULT_RESET_INTERVAL_HOURS,
-      resetAtMidnight: group?.resetAtMidnight === true,
-      rollingLimit: group?.rollingLimit === true,
-      allowSnooze: group?.allowSnooze !== false,
-      snoozeMinutes:
-        parseSnoozeMinutes(group?.snoozeMinutes) ?? DEFAULT_SNOOZE_MINUTES,
-      snoozeActivationDelayMinutes:
-        parseSnoozeDelayMinutes(group?.snoozeActivationDelayMinutes) ??
-        DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
-      snoozeCooldownMinutes:
-        parseSnoozeCooldownMinutes(group?.snoozeCooldownMinutes) ??
-        DEFAULT_SNOOZE_COOLDOWN_MINUTES,
-      snoozeConfirmations:
-        parseSnoozeConfirmations(group?.snoozeConfirmations) ?? DEFAULT_SNOOZE_CONFIRMATIONS,
-      activeDays: hasStoredDays ? activeDays : createDefaultDays(),
-      timeWindowsText: parsedTimeWindows.normalizedLines.join("\n"),
-      platformVideoMode: normalizeVideoMode(group?.platformVideoMode),
-      sourceMode: normalizeSourceMode(rawSourceMode, rawSources),
-      sources: [
-        ...new Set(
-          rawSources
-            .map((source) => normalizeSourceInput(source, normalizedGroupType))
-            .filter(Boolean)
-        )
-      ],
-      platformTagMode: normalizeTagFilterModeChoice(group?.platformTagMode),
-      platformTags: Array.isArray(group?.platformTags)
-        ? CBGroupScopes.normalizeTagList(group.platformTags)
-        : CBGroupScopes.parseTagListText(String(group?.platformTags ?? "")),
-      platformTagDefaultConfidence: clampTagFilterConfidence(group?.platformTagDefaultConfidence, 4),
-      platformTagBlockUntagged: Boolean(group?.platformTagBlockUntagged),
-      platformTagBlockPage: group?.platformTagBlockPage !== false,
-      platformTagCoverUntilTagged: group?.platformTagCoverUntilTagged === true,
-      platformTagEffect: group?.platformTagEffect === "block" ? "block" : "dim",
-      discordTargets: [
-        ...new Set(
-          rawDiscordTargets
-            .map((target) => normalizeDiscordTargetInput(target))
-            .filter(Boolean)
-        )
-      ],
-      discordMode: normalizeDiscordMode(group?.discordMode, rawDiscordTargets),
-      surfaceHides: normalizeSurfaceHides(group?.surfaceHides, normalizedGroupType),
-      blockingRulesText:
-        typeof group?.blockingRulesText === "string" && group.blockingRulesText.trim()
-          ? group.blockingRulesText.trim()
-          : baseGroup.blockingRulesText,
-      // CRITICAL: this is the source the SW re-runs on restart. Stripping it
-      // here used to wipe registrations whenever the popup persisted state
-      // (toggle / edit / snooze etc.) — see notes in background.js
-      // loadCustomGroupSource and reconcileCustomGroupHandlers.
-      activeEventSource:
-        typeof group?.activeEventSource === "string" ? group.activeEventSource : "",
-      // The lock: parallel gates (wait / PIN), see group-actions.js.
-      ...CBGroupActions.normalizeLock(group),
-      sites: ownsSiteList && Array.isArray(group?.sites)
-        ? [...new Set(group.sites.map(normalizeSiteInput).filter(Boolean))]
-        : [],
-      allowlist: ownsSiteList && Boolean(group?.allowlist),
-      apps: CBGroupScopes.normalizeAppList(group?.apps),
-      appsAllowlist: Boolean(group?.appsAllowlist),
-      blockHomePage: Boolean(group?.blockHomePage),
-      pageAction: group?.pageAction === "pause" ? "pause" : "block",
-      fallbackUrl: typeof group?.fallbackUrl === "string" ? group.fallbackUrl.trim() : "",
-      pauseSeconds: parsePauseSeconds(group?.pauseSeconds) ?? DEFAULT_PAUSE_SECONDS
-    };
-    // Every entry's lines. A stored group carries them; a flat group (an older
-    // store, an import) gets its type's lines plus an Apps entry when it has a
-    // legacy app list — nothing a legacy shape held is lost. The flat fields
-    // above are then re-read as the view of the entry in view, so the form and
-    // the lines always agree (toStoredGroup merges the form back).
-    const scopes = CBGroupScopes.hasScopeLines(input)
-      ? CBGroupScopes.sanitizeScopeLines(input.scopes, normalizedGroupType, cbScopeNormalizers)
-      : normalized.apps.length > 0 && normalizedGroupType !== "custom"
-        ? CBGroupScopes.mergeFlatIntoScopes(CBGroupScopes.scopeLinesFromFlat(normalized, normalizedGroupType), normalized, "apps")
-        : CBGroupScopes.scopeLinesFromFlat(normalized, normalizedGroupType);
-    const view = entryView === "custom" ? {} : CBGroupScopes.flatFromScopes({ scopes }, entryView);
-    return { ...normalized, ...view, scopes, entryView };
-  });
-
-  return sanitized;
+  return CBGroupScopes.sanitizeGroups(groups).map((stored) => groupView(stored));
 }
 
-// The popup's own normalizers for the line fields whose normalization differs
-// between the worker and the popup (see group-scopes.js).
-const cbScopeNormalizers = {
-  normalizeSiteInput: (value) => normalizeSiteInput(value),
-  normalizeTagFilterMode: (value) => normalizeTagFilterModeChoice(value),
-  normalizeTagList: (value) => Array.isArray(value) ? CBGroupScopes.normalizeTagList(value) : CBGroupScopes.parseTagListText(String(value ?? "")),
-  clampTagConfidence: (value, fallback) => clampTagFilterConfidence(value, fallback)
-};
+// A new group, with the editor's defaults: a unique name in the user's
+// language, their default snooze length, the custom-rule template.
+function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
+  // The add menu offers one unified Platform rule; it starts with YouTube.
+  const type = normalizeGroupType(groupType === "platform" ? DEFAULT_PLATFORM_RULE_GROUP_TYPE : groupType);
+  const [stored] = CBGroupScopes.sanitizeGroups([CBGroupScopes.createDefaultGroup(type, {
+    name: uniqueDefaultGroupName(type),
+    snoozeMinutes: state.globalSettings?.defaultSnoozeMinutes,
+    blockingRulesText: t("custom.defaultRule")
+  })]);
+  return groupView(stored);
+}
 
 // The canonical stored shape: the policy and the group's lines as they are.
 // The flat form fields are only the view of one entry (folded into the lines
@@ -3159,9 +2942,9 @@ function groupToDraft(group) {
     platformVideoMode: normalizeVideoMode(group.platformVideoMode),
     sourceMode: normalizeSourceMode(group.sourceMode, group.sources),
     sourcesText: group.sources.join("\n"),
-    platformTagMode: normalizeTagFilterModeChoice(group.platformTagMode),
+    platformTagMode: normalizeTagFilterMode(group.platformTagMode),
     platformTagsText: CBGroupScopes.tagListToText(group.platformTags),
-    platformTagDefaultConfidence: clampTagFilterConfidence(group.platformTagDefaultConfidence, 4),
+    platformTagDefaultConfidence: clampTagConfidence(group.platformTagDefaultConfidence, 4),
     platformTagBlockUntagged: Boolean(group.platformTagBlockUntagged),
     platformTagBlockPage: group.platformTagBlockPage !== false,
     platformTagCoverUntilTagged: group.platformTagCoverUntilTagged === true,
@@ -4197,11 +3980,11 @@ function renderEditor(now = Date.now()) {
   );
   // Content-tag filter fields.
   const tagCompatible = isTagFilterCompatible(group.groupType);
-  const tagMode = normalizeTagFilterModeChoice(draft?.platformTagMode ?? group.platformTagMode);
+  const tagMode = normalizeTagFilterMode(draft?.platformTagMode ?? group.platformTagMode);
   platformTagModeField.value = tagMode;
   platformTagsField.value = draft?.platformTagsText ?? CBGroupScopes.tagListToText(group.platformTags);
   platformTagDefaultConfidenceField.value = String(
-    clampTagFilterConfidence(draft?.platformTagDefaultConfidence ?? group.platformTagDefaultConfidence, 4)
+    clampTagConfidence(draft?.platformTagDefaultConfidence ?? group.platformTagDefaultConfidence, 4)
   );
   platformTagEffectField.value =
     (draft?.platformTagEffect ?? group.platformTagEffect) === "block" ? "block" : "dim";
@@ -5191,12 +4974,12 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
       sourceMode: authorMode,
       sources: usesAuthorAxis ? authorResults.validAuthors : group.sources,
       platformTagMode: isTagFilterCompatible(group.groupType)
-        ? normalizeTagFilterModeChoice(draft.platformTagMode)
+        ? normalizeTagFilterMode(draft.platformTagMode)
         : group.platformTagMode,
       platformTags: isTagFilterCompatible(group.groupType)
         ? CBGroupScopes.parseTagListText(draft.platformTagsText)
         : group.platformTags,
-      platformTagDefaultConfidence: clampTagFilterConfidence(draft.platformTagDefaultConfidence, 4),
+      platformTagDefaultConfidence: clampTagConfidence(draft.platformTagDefaultConfidence, 4),
       platformTagBlockUntagged: Boolean(draft.platformTagBlockUntagged),
       platformTagBlockPage: draft.platformTagBlockPage !== false,
       platformTagCoverUntilTagged: draft.platformTagCoverUntilTagged === true,
@@ -5947,11 +5730,9 @@ function syncExternalState(changes) {
     // Any writer's change (this editor, a linked device, the "+", an AI tool)
     // shows at once; the user's unsaved field edits (the drafts) stay on top.
     state.storedGroups = Array.isArray(changes[BLOCKED_GROUPS_KEY].newValue) ? changes[BLOCKED_GROUPS_KEY].newValue : [];
+    // Each group stays on the entry the user was viewing.
     const views = new Map(state.groups.map((group) => [group.id, activeEntryKey(group)]));
-    state.groups = sanitizeGroups(state.storedGroups).map((group) => {
-      const view = views.get(group.id);
-      return view && view !== "custom" && view !== activeEntryKey(group) ? viewGroupOnPlatform(toStoredGroup(group), view) : group;
-    });
+    state.groups = CBGroupScopes.sanitizeGroups(state.storedGroups).map((stored) => groupView(stored, views.get(stored.id)));
     for (const id of Object.keys(state.drafts)) {
       if (!state.groups.some((group) => group.id === id)) delete state.drafts[id];
     }
