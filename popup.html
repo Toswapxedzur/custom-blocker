@@ -198,6 +198,7 @@
             <label class="label" for="groupScopesAdd" data-i18n="scopes.label">Applies to</label>
             <div id="groupScopesList" class="site-chip-list" role="list"></div>
             <select id="groupScopesAdd" class="scope-add-select"></select>
+            <p id="entryOwnerHint" class="field-help hidden" data-i18n="scopes.browserOwnedHint">Websites and platforms are set in the browser extension; Mac Vault only controls apps.</p>
 
             <!-- The page action of the entry in view: cover its blocked pages,
                  or pause first (a countdown, then Continue lets the page through). -->
@@ -267,7 +268,7 @@
             <p id="appsHelp" class="field-help" data-i18n="apps.help">
               Add the applications you want this group to block. Click the plus tile to search your installed apps.
             </p>
-            <label class="checkbox-row compact desktop-only" for="appsAllowlist">
+            <label class="checkbox-row compact" for="appsAllowlist">
               <input id="appsAllowlist" type="checkbox" />
               <span data-i18n="apps.allowlistLabel">Block every application except these</span>
             </label>

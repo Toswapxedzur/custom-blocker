@@ -728,6 +728,96 @@
       });
   }
 
+  // ── The scope line (owner 2026-09-27) ───────────────────────────────────
+  // Mac Vault controls apps, a browser controls the browser; neither crosses.
+  // The Apps lines are the desktop's, every other line a browser's; a program
+  // edits, creates and contributes only its own.
+  function lineOwner(line) {
+    return line && line.surface === "apps" ? "desktop" : "browser";
+  }
+  function entryOwner(key) {
+    return key === "apps" ? "desktop" : "browser";
+  }
+  function programOwner(program) {
+    return program === "macapp" ? "desktop" : "browser";
+  }
+  // `next`'s lines for `owner`, the other owner's lines as `stored` has them.
+  function withOwnLines(stored, next, owner) {
+    const theirs = (Array.isArray(stored?.scopes) ? stored.scopes : []).filter((line) => lineOwner(line) !== owner);
+    const mine = (Array.isArray(next?.scopes) ? next.scopes : []).filter((line) => lineOwner(line) === owner);
+    return [...theirs, ...mine];
+  }
+  // True when `next` changes (or, for a new group, has) lines `owner` doesn't own.
+  function crossesScopeLine(stored, next, owner) {
+    const others = (group) => JSON.stringify((Array.isArray(group?.scopes) ? group.scopes : [])
+      .filter((line) => lineOwner(line) !== owner)
+      .map(({ id: _id, ...line }) => line));
+    return others(stored) !== others(next);
+  }
+
+  // A new group as `owner` starts it: the desktop's default group names apps,
+  // a browser's a website list.
+  function newGroup(groupType, overrides, owner) {
+    const group = createDefaultGroup(groupType, overrides);
+    if (owner !== "desktop" || platformKind(group.groupType) !== "site") return sanitizeGroups([group])[0];
+    return sanitizeGroups([{ ...withoutFlatScopeFields(group), scopes: scopeLinesFromFlat({}, "apps") }])[0];
+  }
+
+  // A new group's name: "<kind> n", the first free n after the groups of that
+  // kind. `pattern(kind, n)` words it (the editor in the user's language).
+  const NAME_KINDS = new Set(["youtube", "tiktok", "facebook", "instagram", "twitch", "reddit", "discord", "twitter", "custom"]);
+  function nameKind(groupType) {
+    return NAME_KINDS.has(groupType) ? groupType : "site";
+  }
+  function englishNamePattern(kind, n) {
+    const root = kind === "custom" ? "Custom Rules" : kind === "site" ? "Block Group" : global.PLATFORM_PROFILES?.[kind]?.defaultName || "Block Group";
+    return `${root} ${n}`;
+  }
+  function defaultGroupName(groups, groupType, pattern = englishNamePattern) {
+    const kind = nameKind(groupType);
+    const list = Array.isArray(groups) ? groups : [];
+    const start = list.filter((group) => nameKind(group?.groupType) === kind).length + 1;
+    return global.CBGroupActions.freeName(list, (n) => pattern(kind, n), start);
+  }
+
+  // A tool's edit, exactly as the editor could make it (owner: tools do what
+  // the user can): { group } or { error }. The id, the lock and the runtime
+  // marks aren't patchable; a group never turns custom or back; an invalid
+  // value is refused, never defaulted; the other program's lines are refused.
+  const TOOL_FIXED_FIELDS = ["id", "activeEventSource", "lastAbortReason", "lastSourceUpdatedAt", "lockSyncedVersion",
+    "freezeMode", "freezeModeChoice", "strictFreezeHours", "frozenAtMs", "freezeChangedAtMs"];
+  function applyToolEdit(stored, patch, owner) {
+    const A = global.CBGroupActions;
+    const edit = { ...(patch && typeof patch === "object" ? patch : {}) };
+    for (const field of [...TOOL_FIXED_FIELDS, ...A.LOCK_FIELDS]) delete edit[field];
+    const type = edit.groupType ?? stored?.groupType ?? "site";
+    if ((type === "custom") !== (stored?.groupType === "custom")) return { error: "invalid-groupType" };
+    const problem = A.validateGroupPatch(edit, type);
+    if (problem) return { error: problem };
+    // Compared with the stored group as the editor stores it (an old store's
+    // flat fields read as lines).
+    const [current] = sanitizeGroups([stored]);
+    // Lines sent without the other program's keep those as stored.
+    if (Array.isArray(edit.scopes) && !edit.scopes.some((line) => lineOwner(line) !== owner)) {
+      edit.scopes = withOwnLines(current, edit, owner);
+    }
+    const [group] = sanitizeGroups([{ ...current, ...edit, id: stored.id }]);
+    if (!group) return { error: "invalid-group" };
+    if (crossesScopeLine(current, group, owner)) return { error: owner === "desktop" ? "browser-lines" : "desktop-lines" };
+    return { group };
+  }
+  // A tool's new group, as the editor's New group makes it.
+  function createToolGroup(groups, groupType, patch, owner, defaults = {}) {
+    if (groupType !== "site" && groupType !== "custom" && !isPlatformType(groupType)) return { error: "unknown-group-type" };
+    const name = typeof patch?.name === "string" && patch.name.trim() ? patch.name : defaultGroupName(groups, groupType);
+    const base = newGroup(groupType, { name, snoozeMinutes: defaults.snoozeMinutes, blockingRulesText: defaults.blockingRulesText }, owner);
+    const result = applyToolEdit(base, patch, owner);
+    if (result.error) return result;
+    if (crossesScopeLine(null, result.group, owner)) return { error: owner === "desktop" ? "browser-lines" : "desktop-lines" };
+    if (global.CBGroupActions.nameTaken(groups, result.group.name)) return { error: "duplicate-name" };
+    return result;
+  }
+
   // The policy settings linked groups share (the whole definition is these
   // plus every entry's lines). One list for the editor and the worker.
   // The lock is not among them: it travels as its own unit with a version
@@ -748,7 +838,9 @@
     linePlatformKey, lineBelongsTo, normalizeEntryKey, groupPlatforms, normalizeAppList,
     normalizeTagList, parseTagListText, tagListToText,
     DEFAULT_CUSTOM_RULE, normalizeSiteInput, normalizeTagFilterMode, clampTagConfidence, scopeNormalizers,
-    createDefaultGroup, sanitizeGroups
+    createDefaultGroup, sanitizeGroups,
+    lineOwner, entryOwner, programOwner, withOwnLines, crossesScopeLine, newGroup, defaultGroupName,
+    applyToolEdit, createToolGroup
   });
   global.CBGroupScopes = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

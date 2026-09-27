@@ -218,6 +218,10 @@ function detectProgramId() {
 
 const LOCAL_PROGRAM_ID = detectProgramId();
 const IS_NATIVE_DESKTOP = isNativeHost();
+// The scope line (owner 2026-09-27): this editor edits only its program's
+// lines — Mac Vault the Apps lines, a browser every other line.
+const LOCAL_OWNER = IS_NATIVE_DESKTOP ? "desktop" : "browser";
+const ownsEntry = (key) => CBGroupScopes.entryOwner(key) === LOCAL_OWNER;
 // The desktop app hosts this same editor; `.desktop-only` / `.browser-only`
 // markup is shown or hidden by this one class (see popup.css).
 document.body.classList.toggle("is-native-desktop", IS_NATIVE_DESKTOP);
@@ -268,6 +272,7 @@ const platformRulesCard = document.getElementById("platformRulesCard");
 const groupScopesSection = document.getElementById("groupScopesSection");
 const appsSettingsSection = document.getElementById("appsSettingsSection");
 const appsHelp = document.getElementById("appsHelp");
+const entryOwnerHint = document.getElementById("entryOwnerHint");
 const blockedAppsData = document.getElementById("blockedAppsData");
 const blockedAppsList = document.getElementById("blockedAppsList");
 const appsAllowlistField = document.getElementById("appsAllowlist");
@@ -1092,6 +1097,14 @@ async function saveSettingsFromForm() {
     quickAddEnabled: settingsQuickAddField ? settingsQuickAddField.checked : state.globalSettings?.quickAddEnabled,
     quitRetryMinutes: settingsQuitRetryMinutesField ? settingsQuitRetryMinutesField.value : state.globalSettings?.quitRetryMinutes
   };
+  // A value the field can't hold is refused (the last saved value stays).
+  if (CBGroupActions.validateSettingsPatch({ defaultSnoozeMinutes: draft.defaultSnoozeMinutes, quitRetryMinutes: draft.quitRetryMinutes })) {
+    if (settingsStatus) {
+      settingsStatus.textContent = t("settings.invalidValue");
+      settingsStatus.classList.add("error");
+    }
+    return;
+  }
   const sanitized = sanitizeGlobalSettings(draft);
   state.globalSettings = sanitized;
   try {
@@ -1145,6 +1158,8 @@ function applyStaticTranslations() {
   }
 
   addGroupTypeField.setAttribute("aria-label", t("groups.addTypeAria"));
+  // Platform groups are a browser's scope: Mac Vault doesn't offer them.
+  if (IS_NATIVE_DESKTOP) addGroupTypeField.querySelector('option[value="platform"]')?.remove();
   languageSelect.setAttribute("aria-label", t("language.label"));
   groupList.setAttribute("aria-label", t("groups.listAria"));
   layoutResizer.setAttribute("aria-label", t("layout.resizeAria"));
@@ -2702,17 +2717,6 @@ function startGroupReorder(event, groupId) {
   window.addEventListener("mouseup", handleUp);
 }
 
-const DEFAULT_NAME_PATTERN_TYPES = new Set(["youtube", "tiktok", "facebook", "instagram", "twitch", "reddit", "discord", "twitter", "custom"]);
-
-// "YouTube group 3": numbered after the groups of that kind, skipping any
-// number whose name is already taken (names are unique, case-insensitively).
-function uniqueDefaultGroupName(groupType) {
-  const key = DEFAULT_NAME_PATTERN_TYPES.has(groupType) ? groupType : "site";
-  const start = state.groups.filter((group) => (DEFAULT_NAME_PATTERN_TYPES.has(group.groupType) ? group.groupType : "site") === key).length + 1;
-  return CBGroupActions.freeName(state.groups, (number) => t(`groupName.${key}Pattern`, { number }), start);
-}
-
-
 // One group's defaults, sanitizer and normalizers: one copy, in group-scopes.js
 // (the service worker and Mac Vault use it too). The editor adds only its view:
 // the flat form fields of the entry in view.
@@ -2722,7 +2726,7 @@ const { normalizeSiteInput, normalizeTagFilterMode, clampTagConfidence } = CBGro
 // opens on its Apps entry in the desktop app; otherwise the stored type.
 function defaultEntryView(stored) {
   if (stored.groupType === "custom") return "custom";
-  return stored.groupType === "site" && IS_NATIVE_DESKTOP ? "apps" : stored.groupType;
+  return IS_NATIVE_DESKTOP ? "apps" : stored.groupType;
 }
 
 // A stored (canonical) group as the editor shows it.
@@ -2740,11 +2744,11 @@ function sanitizeGroups(groups) {
 function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
   // The add menu offers one unified Platform rule; it starts with YouTube.
   const type = normalizeGroupType(groupType === "platform" ? DEFAULT_PLATFORM_RULE_GROUP_TYPE : groupType);
-  const [stored] = CBGroupScopes.sanitizeGroups([CBGroupScopes.createDefaultGroup(type, {
-    name: uniqueDefaultGroupName(type),
+  const stored = CBGroupScopes.newGroup(type, {
+    name: CBGroupScopes.defaultGroupName(state.groups, type, (kind, number) => t(`groupName.${kind}Pattern`, { number })),
     snoozeMinutes: state.globalSettings?.defaultSnoozeMinutes,
     blockingRulesText: t("custom.defaultRule")
-  })]);
+  }, LOCAL_OWNER);
   return groupView(stored);
 }
 
@@ -3886,6 +3890,8 @@ function renderEditor(now = Date.now()) {
   const entryKey = activeEntryKey(group);
   const isSiteView = entryKey === "site";
   const isAppsView = entryKey === "apps";
+  // The entry in view is edited only by the program that owns it (scope line).
+  const entryEditable = editable && ownsEntry(entryKey);
 
   if (aiPromptInput) {
     if (isCustomGroup) {
@@ -3993,13 +3999,13 @@ function renderEditor(now = Date.now()) {
   // platforms (apps have none; custom rules decide for themselves).
   if (pageActionRow) {
     pageActionRow.classList.toggle("hidden", isCustomGroup || isAppsView);
-    if (pageActionField) pageActionField.disabled = !editable;
-    if (pauseSecondsField) pauseSecondsField.disabled = !editable;
+    if (pageActionField) pageActionField.disabled = !entryEditable;
+    if (pauseSecondsField) pauseSecondsField.disabled = !entryEditable;
     if (pauseSecondsRow) pauseSecondsRow.classList.toggle("hidden", (pageActionField ? pageActionField.value : "block") !== "pause");
   }
   platformVideoCard.classList.toggle("hidden", !usesAuthorAxis);
   discordSettingsCard.classList.toggle("hidden", !isDiscordGroup);
-  renderSurfaceHides(group, draft, editable);
+  renderSurfaceHides(group, draft, entryEditable);
   if (fallbackUrlSection) {
     fallbackUrlSection.classList.toggle("hidden", isCustomGroup);
   }
@@ -4008,9 +4014,10 @@ function renderEditor(now = Date.now()) {
   // platform card. Custom rules define their own behavior and have no entries.
   siteSettingsSection.classList.toggle("hidden", !isSiteView);
   if (appsSettingsSection) appsSettingsSection.classList.toggle("hidden", !isAppsView);
-  blockedAppsEditable = editable && isAppsView && IS_NATIVE_DESKTOP;
+  blockedAppsEditable = entryEditable && isAppsView;
   if (appsAllowlistField) appsAllowlistField.disabled = !blockedAppsEditable;
   if (appsHelp) appsHelp.textContent = t(IS_NATIVE_DESKTOP ? "apps.help" : "apps.readOnlyHint");
+  if (entryOwnerHint) entryOwnerHint.classList.toggle("hidden", isCustomGroup || ownsEntry(entryKey) || isAppsView);
   if (clearAppsButton) clearAppsButton.disabled = !blockedAppsEditable;
   renderBlockedApps();
 
@@ -4032,27 +4039,27 @@ function renderEditor(now = Date.now()) {
   snoozeCooldownField.disabled = !editable || !allowSnoozeField.checked || freezeStatus.isFrozen;
   snoozeConfirmationsField.disabled = !editable || !allowSnoozeField.checked;
   scheduleWindowsField.disabled = !editable || isCustomGroup;
-  blockedSitesField.disabled = !editable || !isSiteView;
+  blockedSitesField.disabled = !entryEditable || !isSiteView;
   if (siteAllowlistField) {
-    siteAllowlistField.disabled = !editable || !isSiteView;
+    siteAllowlistField.disabled = !entryEditable || !isSiteView;
   }
   blockingRulesField.disabled = !editable || !isCustomGroup;
   const currentAuthorMode = normalizeSourceMode(platformAuthorModeField.value);
   const authorModeUsesList = sourceModeUsesList(currentAuthorMode); // include/exclude
   // Show the author list only for include/exclude.
   platformAuthorsBlock.classList.toggle("hidden", !usesAuthorAxis || !authorModeUsesList);
-  platformAuthorsField.disabled = !editable || !usesAuthorAxis || !authorModeUsesList;
-  platformVideoModeField.disabled = !editable || !isPlatformVideoGroup;
-  platformAuthorModeField.disabled = !editable || !usesAuthorAxis;
-  discordModeField.disabled = !editable || !isDiscordGroup;
-  discordTargetsField.disabled = !editable || !isDiscordGroup || discordModeField.value === "all";
+  platformAuthorsField.disabled = !entryEditable || !usesAuthorAxis || !authorModeUsesList;
+  platformVideoModeField.disabled = !entryEditable || !isPlatformVideoGroup;
+  platformAuthorModeField.disabled = !entryEditable || !usesAuthorAxis;
+  discordModeField.disabled = !entryEditable || !isDiscordGroup;
+  discordTargetsField.disabled = !entryEditable || !isDiscordGroup || discordModeField.value === "all";
   // A locked group's tag line is shown, not changed.
   for (const field of [platformTagModeField, platformTagsField, platformTagDefaultConfidenceField, platformTagEffectField,
     platformTagBlockUntaggedField, platformTagBlockPageField, platformTagCoverUntilTaggedField]) {
-    if (field) field.disabled = !editable;
+    if (field) field.disabled = !entryEditable;
   }
   clearSitesButton.disabled =
-    !editable || !isSiteView;
+    !entryEditable || !isSiteView;
   renderBlockedSites();
   refreshChipField(platformAuthorsField);
   refreshChipField(discordTargetsField);
@@ -4060,8 +4067,8 @@ function renderEditor(now = Date.now()) {
   renderLinkSection(group, editable);
   exportGroupButton.disabled = false;
   importGroupButton.disabled = !editable;
-  platformBlockHomePageField.disabled = !editable || !usesAuthorAxis;
-  discordBlockHomePageField.disabled = !editable || !isDiscordGroup;
+  platformBlockHomePageField.disabled = !entryEditable || !usesAuthorAxis;
+  discordBlockHomePageField.disabled = !entryEditable || !isDiscordGroup;
   fallbackUrlField.disabled = !editable;
   if (runCustomGroupButton) {
     runCustomGroupButton.disabled = !editable || !isCustomGroup;
@@ -4350,6 +4357,8 @@ async function persistGroups(ids, { reorder = false, message = "" } = {}) {
       continue;
     }
     const next = toStoredGroup(state.groups[index]);
+    // The other program's lines are never written from here: they stay as stored.
+    if (at >= 0) next.scopes = CBGroupScopes.withOwnLines(list[at], next, LOCAL_OWNER);
     if (at >= 0) list[at] = next;
     else list.splice(Math.min(index, list.length), 0, next);
   }
@@ -4581,7 +4590,7 @@ function renderGroupScopes(group, editable) {
         open();
       }
     });
-    if (editable && keys.length > 1) {
+    if (editable && keys.length > 1 && ownsEntry(key)) {
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "site-chip-remove";
@@ -4600,16 +4609,16 @@ function renderGroupScopes(group, editable) {
     groupScopesList.appendChild(chip);
   }
 
-  // Entries the group does not name yet. Apps can only be edited where an
-  // app inventory exists (the desktop app), so only the desktop offers them.
+  // Entries the group does not name yet, of this program's own: apps in the
+  // desktop app, websites and platforms in a browser.
   groupScopesAdd.innerHTML = "";
   const placeholder = document.createElement("option");
   placeholder.value = "";
   placeholder.textContent = t("scopes.add");
   placeholder.selected = true;
   groupScopesAdd.appendChild(placeholder);
-  for (const key of ["site", ...(IS_NATIVE_DESKTOP ? ["apps"] : []), ...PLATFORM_GROUP_TYPES]) {
-    if (keys.includes(key)) continue;
+  for (const key of ["site", "apps", ...PLATFORM_GROUP_TYPES]) {
+    if (keys.includes(key) || !ownsEntry(key)) continue;
     const option = document.createElement("option");
     option.value = key;
     option.textContent = platformKeyLabel(key);
@@ -5076,7 +5085,7 @@ async function applyFreeze() {
       setStatus(t("status.strictFreezeHours", { max: CBGroupActions.MAX_WAIT_HOURS }), true);
       return;
     }
-    const result = CBGroupActions.lock({ ...current, lockWaitHours: hours }, now);
+    const result = CBGroupActions.lockWithGates(current, { waitHours: hours }, now);
     await persistGroupFields(current.id, CBGroupActions.lockUnit(result.group), t("status.frozen", { name: current.name }));
     return;
   }
