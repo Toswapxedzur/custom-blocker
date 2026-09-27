@@ -31,7 +31,7 @@ Run the extension test suite from this folder:
 ./tests/run.sh
 ```
 
-The suite exercises helper behavior, platform profiles, Markdown rendering, and the translation catalog audit.
+The suite exercises the custom-rule core and sandbox, platform profiles, Markdown rendering, and the translation catalog audit.
 
 ## Localized manuals and translations
 
