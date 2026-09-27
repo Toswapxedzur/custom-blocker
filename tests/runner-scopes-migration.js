@@ -59,7 +59,7 @@ const fixtures = {
   ytTags: { groupType: "youtube", name: "Y3", enabled: true, sourceMode: "nobody", platformTagMode: "include", platformTags: [{ name: "Gaming" }], platformTagEffect: "block", platformTagBlockPage: true, platformTagCoverUntilTagged: true },
   ytTagsNoPage: { groupType: "youtube", name: "Y4", enabled: true, sourceMode: "exclude", sources: ["@x"], platformTagMode: "exclude", platformTags: [{ name: "Education" }], platformTagBlockPage: false },
   redditLegacy: { groupType: "reddit", name: "R", enabled: true, redditMode: "include", redditSubreddits: ["r/News"] },
-  xLegacy: { groupType: "twitter", name: "X", enabled: true, platformAuthorMode: "exclude", platformAuthors: ["@bbc"], surfaceHides: ["promoted"] },
+  xLegacy: { groupType: "twitter", name: "X", enabled: true, platformAuthorMode: "exclude", platformAuthors: ["@bbc"], surfaceHides: ["trends"] },
   discord: { groupType: "discord", name: "D", enabled: true, discordMode: "include", discordTargets: ["123456789012"], blockHomePage: true },
   customSites: { groupType: "custom", name: "C", enabled: true, sites: ["news.ycombinator.com"] },
   customBare: { groupType: "custom", name: "C2", enabled: true },
@@ -73,7 +73,7 @@ const expected = {
   ytAuthors: "items:hide pages:block",
   ytTags: "items:hide+tag pages:block+tag",
   ytTagsNoPage: "items:hide pages:block items:dim+tag",
-  redditLegacy: "items:hide pages:block", xLegacy: "items:hide pages:block shelf:hide:promoted",
+  redditLegacy: "items:hide pages:block", xLegacy: "items:hide pages:block shelf:hide:trends",
   discord: "pages:block home:block", customSites: "site:block", customBare: "", legacyAllow: "items:hide pages:block"
 };
 for (const [k, want] of Object.entries(expected)) check(`${k} → ${want || "(no lines)"}`, summary(migrated[k]) === want, summary(migrated[k]));

@@ -1067,6 +1067,8 @@ function collectFormShelvesToHide(filter) {
 // surface-hide marker so it stays out of the per-card cascade.
 function applyFeedFilters() {
   feedApplyRafId = null;
+  // Cards the page removed (a virtualised feed drops them) are forgotten.
+  for (const card of cbTrackedCards) if (!card.isConnected) cbTrackedCards.delete(card);
   applySurfaceHides();
   applyNavShelfHides();
 
@@ -3735,7 +3737,8 @@ async function __cb_scanFeedPredicates() {
 
   // Only send cards whose content changed since we last evaluated them; cards
   // with an unchanged signature already have their custom verdict in the ledger.
-  const bySlot = { shorts: [], videos: [], posts: [] };
+  // One batch per slot the cards map to (a Twitch channel card is a stream).
+  const bySlot = {};
   for (const card of cards) {
     const item = __cb_extractCardItem(card, platform);
     const slot = platformVideoFormToSlot(platform, item.videoForm);
@@ -3743,12 +3746,10 @@ async function __cb_scanFeedPredicates() {
     if (!__cb_activePredicateSlots.has(platform + ":" + slot)) continue;
     const sig = cbCardSignature(item);
     if (cbCustomSigCache.get(card) === sig) continue;
-    bySlot[slot].push({ card, item, sig });
+    (bySlot[slot] ||= []).push({ card, item, sig });
   }
 
-  for (const slot of ["shorts", "videos", "posts"]) {
-    const batch = bySlot[slot];
-    if (batch.length === 0) continue;
+  for (const [slot, batch] of Object.entries(bySlot)) {
     const reply = await __cb_evaluateItems(platform, slot, batch.map((b) => b.item));
     if (!reply) continue;
     const { results, evaluatedGroups } = reply;
