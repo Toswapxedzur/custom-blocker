@@ -13,7 +13,8 @@
   // (YouTube renders pills through its own dedicated collector, not this core.)
   // Platforms whose cards get a per-item tag pill (and so a tag-filter verdict).
   // Reddit + Bilibili since 2026-09-13; X/Twitter since 2026-09-23.
-  const PILL_PLATFORMS = new Set(["reddit", "bilibili", "twitter"]);
+  // The tagging platforms (platform-profiles.js), YouTube aside.
+  const PILL_PLATFORMS = new Set(TAGGING_PLATFORMS.filter((platform) => platform !== "youtube"));
   const SETTINGS_KEY = "vaultClassifierSettings";
   const SOURCE_ICON_ATTRIBUTES = Object.freeze([
     "src", "srcset", "data-src", "data-lazy-src", "data-original", "data-srcset"
