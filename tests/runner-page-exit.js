@@ -159,7 +159,7 @@ check("a pause never redirects", s.exit.action === "pause" && s.exit.target === 
   const stored = (await context.chrome.storage.local.get("groupSnoozes")).groupSnoozes;
   check("…stores it", stored && stored.g1 && stored.g1.untilMs === entry.untilMs, stored);
   const frame = context.__sent.find((f) => f.kind === "group-sync");
-  check("…and shares it with linked members", frame && frame.groupName === "Sites" && frame.snoozeTs === now && frame.snooze.untilMs === entry.untilMs, context.__sent);
+  check("…and shares it with linked members", frame && frame.groupId === "g1" && frame.snoozeTs === now && frame.snooze.untilMs === entry.untilMs, context.__sent);
   let err = ""; try { await run(`cbStartSnooze("g1", ${now + 1000})`); } catch (e) { err = String(e.message || e); }
   check("a second snooze during the first is refused", err === "snooze-in-progress", err);
   err = ""; try { await run(`cbStartSnooze("c1", ${now})`); } catch (e) { err = String(e.message || e); }

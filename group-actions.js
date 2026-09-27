@@ -600,6 +600,30 @@
     return pattern(n);
   }
 
+  // Duplicate names are renamed silently (owner 2026-09-27): per name a linked
+  // group (keepIds) keeps it, else the first one; the others become
+  // "Name (2)", "Name (3)"… Returns the renamed list, or null when all differ.
+  function dedupeNames(groups, keepIds = []) {
+    const list = Array.isArray(groups) ? groups.slice() : [];
+    const keep = new Set(keepIds);
+    const holder = new Map();
+    list.forEach((group, index) => {
+      const key = nameKey(group?.name);
+      if (!key) return;
+      const current = holder.get(key);
+      if (current === undefined || (!keep.has(list[current].id) && keep.has(group.id))) holder.set(key, index);
+    });
+    let changed = false;
+    list.forEach((group, index) => {
+      const key = nameKey(group?.name);
+      if (!key || holder.get(key) === index) return;
+      const base = String(group.name).trim();
+      list[index] = { ...group, name: freeName(list, (n) => `${base} (${n})`, 2) };
+      changed = true;
+    });
+    return changed ? list : null;
+  }
+
   // An edit that changes how a group's budget runs (its mode, or the period of
   // a timed group) restarts the budget — whoever made it; the runtime owner
   // (the service worker, Mac Vault) applies it.
@@ -670,7 +694,7 @@
     cbUsageBucketStartMs, cbPruneUsageBuckets, cbBucketsUsedMs, cbNextReturnMs,
     sanitizeUsageTimers, sanitizeSnoozeTotals, sanitizeResetTimes, sanitizeUsageBuckets, sanitizeSnoozes,
     DEFAULT_GLOBAL_SETTINGS, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, AUTOSAVE_DEBOUNCE_MAX_MS, sanitizeGlobalSettings,
-    nameTaken, freeName, budgetRestarts
+    nameTaken, freeName, dedupeNames, budgetRestarts
   });
   global.CBGroupActions = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

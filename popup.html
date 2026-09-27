@@ -158,6 +158,16 @@
             <span data-i18n="editor.enableGroup">Enable this block group</span>
           </label>
 
+          <div id="groupLinkSection" class="link-section">
+            <span class="label" data-i18n="link.title">Link</span>
+            <p id="groupLinkStatus" class="hint"></p>
+            <div class="link-row">
+              <select id="groupLinkTarget" aria-label="Group to link with" data-i18n-aria-label="link.pick"></select>
+              <button id="groupLinkButton" type="button" class="secondary" data-i18n="link.link">Link</button>
+              <button id="groupUnlinkButton" type="button" class="secondary" data-i18n="link.unlink">Unlink</button>
+            </div>
+          </div>
+
 
           <div id="blockModeSection">
             <label class="label" for="blockMode" data-i18n="editor.blockMode">Blocking behavior</label>

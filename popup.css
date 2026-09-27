@@ -1896,3 +1896,14 @@ body.is-native-desktop .browser-only {
 
 .app-picker-row-id {
 
+
+/* Link / Unlink (owner 2026-09-27: links are made by the user). */
+.link-section .link-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.link-section .link-row select {
+  flex: 1;
+  min-width: 0;
+}
