@@ -78,6 +78,20 @@ const { createDefaultGroup, sanitizeGroups, normalizeSiteInput, normalizeTagFilt
 // Scalar settings linked groups share (one list, in group-scopes.js).
 const CB_SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
 
+// This browser's copy of its links (owner 2026-09-26: kept while Mac Vault is
+// away) and the time it counts for linked groups meanwhile.
+const CB_CLUSTER_COPY_KEY = "cbClusterCopy";
+const CB_OFFLINE_USAGE_KEY = "cbOfflineUsage";
+let cbClusterCopy = [];
+// Loaded once per worker; getState and the sharing wait for it, so right after
+// a wake a linked group is never taken for an unlinked one.
+const cbClusterCopyReady = (async () => {
+  try {
+    const stored = (await chrome.storage.local.get({ [CB_CLUSTER_COPY_KEY]: [] }))[CB_CLUSTER_COPY_KEY];
+    if (Array.isArray(stored) && cbClusterCopy.length === 0) cbClusterCopy = stored;
+  } catch (_) {}
+})();
+
 
 // Debug mode flag. False by default; user toggles it via Settings.
 // Drives whether [CustomBlocker] / [CustomBlocker:trace] verbose
@@ -538,8 +552,9 @@ async function loadStoredState() {
     groups,
     usageTimersMs: sanitizeUsageTimers(result[USAGE_TIMERS_KEY], groups),
     usageResetAtMs: sanitizeResetTimes(result[USAGE_RESET_AT_KEY], groups, now),
+    newAnchors: groups.some((group) => !(Number.parseInt(result[USAGE_RESET_AT_KEY]?.[group.id], 10) > 0)),
     usageBucketsMs: sanitizeUsageBuckets(result[USAGE_BUCKETS_KEY], groups),
-    groupSnoozes: sanitizeSnoozes(result[GROUP_SNOOZES_KEY], groups, now),
+    groupSnoozes: sanitizeSnoozes(result[GROUP_SNOOZES_KEY], groups),
     groupSnoozeTotalsMs: sanitizeSnoozeTotals(result[GROUP_SNOOZE_TOTALS_KEY], groups)
   };
 }
@@ -553,7 +568,6 @@ function applyRuntimeNormalizations(
   now,
   usageBucketsMs = {}
 ) {
-  const nextGroups = [...groups];
   const nextTimers = { ...usageTimersMs };
   const nextResetAt = { ...usageResetAtMs };
   const nextBuckets = { ...usageBucketsMs };
@@ -562,10 +576,6 @@ function applyRuntimeNormalizations(
   let changed = false;
 
   for (const group of groups) {
-    if (!nextResetAt[group.id]) {
-      nextResetAt[group.id] = now;
-      changed = true;
-    }
     if (!isTimedBlockingMode(group.mode)) continue;
     if (group.rollingLimit) {
       // Rolling limit: the timer is the total still inside the window.
@@ -596,11 +606,6 @@ function applyRuntimeNormalizations(
   // itself stays (group-actions.js: a group's last entry is never deleted), so
   // an older one shared by another device is never taken back.
   for (const [groupId, snooze] of Object.entries(nextSnoozes)) {
-    if (!snooze) {
-      delete nextSnoozes[groupId];
-      changed = true;
-      continue;
-    }
     if (!snooze.activeMsApplied && now >= snooze.untilMs) {
       nextSnoozeTotals[groupId] =
         Math.max(0, Number(nextSnoozeTotals[groupId]) || 0) +
@@ -611,7 +616,6 @@ function applyRuntimeNormalizations(
   }
 
   return {
-    groups: nextGroups,
     usageTimersMs: nextTimers,
     usageResetAtMs: nextResetAt,
     usageBucketsMs: nextBuckets,
@@ -634,6 +638,7 @@ globalThis.cbHasActiveTagFilter = async function cbHasActiveTagFilter(platform, 
 };
 
 async function getState() {
+  await cbClusterCopyReady;
   const baseState = await loadStoredState();
   const normalized = applyRuntimeNormalizations(
     baseState.groups,
@@ -645,9 +650,11 @@ async function getState() {
     baseState.usageBucketsMs
   );
 
-  if (normalized.changed) {
+  // Runtime maps only: the group list is the editor's (writing it back here
+  // could undo a save that landed meanwhile). A group with no budget anchor
+  // yet (just created) gets it stored now, so its period doesn't float.
+  if (normalized.changed || baseState.newAnchors) {
     await chrome.storage.local.set({
-      [BLOCKED_GROUPS_KEY]: normalized.groups,
       [USAGE_TIMERS_KEY]: normalized.usageTimersMs,
       [USAGE_RESET_AT_KEY]: normalized.usageResetAtMs,
       [USAGE_BUCKETS_KEY]: normalized.usageBucketsMs,
@@ -657,7 +664,7 @@ async function getState() {
   }
 
   return {
-    groups: normalized.groups,
+    groups: baseState.groups,
     usageTimersMs: normalized.usageTimersMs,
     usageResetAtMs: normalized.usageResetAtMs,
     usageBucketsMs: normalized.usageBucketsMs,
@@ -1511,8 +1518,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(merged);
       })
       .catch((error) => {
+        // Fail closed: no answer keeps the page's last decision (an empty
+        // session would lift a cover).
         console.error("Failed to track page time.", error);
-        sendResponse(cbEmptySession());
+        sendResponse(null);
       });
     return true;
   }
@@ -2241,11 +2250,12 @@ async function loadCustomGroupSource(group, { resetHostBlocks = false } = {}) {
 async function unloadCustomGroupHandlers(groupId) {
   const result = await sendToEventSandbox({ kind: "unload-group", groupId });
   await clearWindowBlockGroup(groupId);
+  // Its panels leave the open pages too.
+  scheduleCustomPanelRefreshBroadcast(100, [groupId]);
   return result;
 }
 
 let lastReconcileSnapshot = new Map();
-const suppressReconcileLoadByGroup = new Set();
 
 async function reconcileCustomGroupHandlers(change) {
   const newGroups = Array.isArray(change?.newValue) ? change.newValue : [];
@@ -2267,17 +2277,14 @@ async function reconcileCustomGroupHandlers(change) {
   // Groups that toggled or changed source
   for (const [groupId, snapshot] of next.entries()) {
     const before = previous.get(groupId);
-    if (suppressReconcileLoadByGroup.has(groupId)) {
-      suppressReconcileLoadByGroup.delete(groupId);
-      continue;
-    }
     if (
       !before ||
       before.enabled !== snapshot.enabled ||
       before.activeEventSource !== snapshot.activeEventSource
     ) {
       const group = newGroups.find((g) => g.id === groupId);
-      await loadCustomGroupSource(group, { resetHostBlocks: true });
+      // A load the sandbox never answered isn't recorded: the next change retries it.
+      if (!(await loadCustomGroupSource(group, { resetHostBlocks: true }))) next.delete(groupId);
     }
   }
   lastReconcileSnapshot = next;
@@ -3032,6 +3039,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const idx = groups.findIndex((g) => g && g.id === groupId);
       if (idx < 0) return sendResponse({ ok: false, error: "group not found" });
       const group = groups[idx];
+      await cbClusterCopyReady;
+      // A frozen group's rule is not changed (the editor disables Run too).
+      if (CBGroupActions.isLocked(group) || cbEnforceOnly(group)) return sendResponse({ ok: false, error: "group-locked" });
       // Popup is the source of truth; fall back to saved text so SW
       // restarts can re-run without a popup roundtrip.
       const sourceText = typeof message.source === "string"
@@ -3052,11 +3062,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         lastAbortReason: null
       };
       groups[idx] = next;
-      suppressReconcileLoadByGroup.add(groupId);
+      // Loaded here, so the write's own reconcile finds it already loaded.
+      lastReconcileSnapshot.set(groupId, { enabled: true, activeEventSource: sourceText });
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
       const loadResult = await loadCustomGroupSource(next, { resetHostBlocks: true });
       sendResponse({ ok: true, loadResult });
-    })();
+    })().catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
 
@@ -3128,6 +3139,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: false, error: String(error && error.message ? error.message : error) });
       }
     })();
+    return true;
+  }
+
+  if (message.type === "reset-group-runtime") {
+    cbResetGroupRuntime(String(message.groupId || ""))
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
 
@@ -3298,6 +3316,22 @@ async function cbAnnounceStoredGroups(groups) {
   });
 }
 
+// An imported group starts fresh (owner 2026-09-27): its usage, snooze,
+// snooze total and offline time go; a new budget period starts now.
+async function cbResetGroupRuntime(groupId) {
+  if (!groupId) return;
+  const keys = [USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY, GROUP_SNOOZES_KEY, GROUP_SNOOZE_TOTALS_KEY, CB_OFFLINE_USAGE_KEY];
+  const stored = await chrome.storage.local.get(keys);
+  const writes = {};
+  for (const key of keys) {
+    const map = { ...(stored[key] && typeof stored[key] === "object" ? stored[key] : {}) };
+    delete map[groupId];
+    writes[key] = map;
+  }
+  writes[USAGE_RESET_AT_KEY][groupId] = Date.now();
+  await chrome.storage.local.set(writes);
+}
+
 // ── Sharing linked groups (the worker owns it; owner 2026-09-26) ───────────
 // A linked group's definition or snooze is shared when its STORED copy
 // changes, whoever wrote it — the editor, a tool, the quick-add "+" — as Mac
@@ -3317,6 +3351,7 @@ function cbRosterKey(groups) {
 }
 
 const cbSharingReady = (async () => {
+  await cbClusterCopyReady;
   try {
     const stored = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
     const groups = Array.isArray(stored) ? stored.filter((group) => group && group.id) : [];
@@ -3352,10 +3387,21 @@ function cbShareStoredGroups(value) {
     present.add(group.id);
     const key = cbDefinitionKey(group);
     if (cbDefinitionSeen.get(group.id) === key) continue;
+    if (cbGroupInLink(group)) {
+      // Seen only once sent: a change made while Mac Vault is away is shared
+      // when it is back (cbShareOnReconnect).
+      if (!cbConnection.routeIsReady("macapp")) continue;
+      cbSendDefinition(group, Date.now());
+    }
     cbDefinitionSeen.set(group.id, key);
-    if (cbConnection.routeIsReady("macapp") && cbGroupInLink(group)) cbSendDefinition(group, Date.now());
   }
   for (const id of [...cbDefinitionSeen.keys()]) if (!present.has(id)) cbDefinitionSeen.delete(id);
+}
+
+async function cbShareOnReconnect() {
+  await cbSharingReady;
+  const stored = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+  cbShareStoredGroups(stored);
 }
 
 // A snooze started or ended here reaches the link as the newest change.
@@ -3443,15 +3489,6 @@ const cbClusterUsageBaseline = {};
 // itself and keeps the time it counts for them apart (per budget period);
 // when the hub is back that time is handed over as an increment the hub adds
 // — two browsers' offline time adds up — and nothing counted is lost.
-const CB_CLUSTER_COPY_KEY = "cbClusterCopy";
-const CB_OFFLINE_USAGE_KEY = "cbOfflineUsage";
-let cbClusterCopy = [];
-(async () => {
-  try {
-    const stored = (await chrome.storage.local.get({ [CB_CLUSTER_COPY_KEY]: [] }))[CB_CLUSTER_COPY_KEY];
-    if (Array.isArray(stored) && cbClusterCopy.length === 0) cbClusterCopy = stored;
-  } catch (_) {}
-})();
 
 function cbSaveClusterCopy(clusters) {
   const before = cbLinkedGroupIds(cbClusterCopy);
@@ -3638,8 +3675,10 @@ const cbConnection = {
       this.clusters = [];
       this.broadcastClusters();
     } else if (!macRouteWasReady && macRouteIsReady) {
-      // Announce the stored groups after every (re)connect.
+      // Announce the stored groups after every (re)connect, and share what
+      // changed while Mac Vault was away.
       cbAnnounceStoredGroups().catch(() => {});
+      cbShareOnReconnect().catch(() => {});
     }
     if (this.routeIsReady("classifier")
       && typeof self.CBFlushVaultClassifierCollectionQueue === "function") {
@@ -3864,7 +3903,9 @@ const cbConnection = {
       for (const cluster of relevant) {
         const grp = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
         const shared = Number(cluster.shared?.snoozeTotalMs);
-        if (!grp || !grp.id || !Number.isFinite(shared) || Number(totals[grp.id]) === shared) continue;
+        // As Mac Vault reads it: the link's total once it counted one (a new
+        // link's 0 never wipes a total).
+        if (!grp || !grp.id || !(shared > 0) || Number(totals[grp.id]) === shared) continue;
         totals[grp.id] = shared;
         totalsChanged = true;
       }
@@ -4553,7 +4594,13 @@ const cbClassifierHub = {
     } catch (_) {}
   },
 
-  isReady(connection) {
+  // Activity records go to Mac Vault itself; every other operation to the
+  // Classifier (both behind the one hub socket).
+  targetFor(operation) {
+    return String(operation).startsWith("activity-") ? "macapp" : "classifier";
+  },
+
+  isReady(connection, target = "classifier") {
     return Boolean(
       connection &&
       connection.ws &&
@@ -4561,12 +4608,12 @@ const cbClassifierHub = {
       connection.status &&
       connection.status.state === "connected" &&
       typeof connection.targetIsPresent === "function" &&
-      connection.targetIsPresent("classifier")
+      connection.targetIsPresent(target)
     );
   },
 
-  waitForReady(connection) {
-    if (this.isReady(connection)) return Promise.resolve();
+  waitForReady(connection, target = "classifier") {
+    if (this.isReady(connection, target)) return Promise.resolve();
     // There is no active shared socket to wait for, or a live hub has already
     // confirmed that it does not have a Classifier peer.
     if (!connection || connection.status?.state === "connected") {
@@ -4575,7 +4622,7 @@ const cbClassifierHub = {
     return new Promise((resolve, reject) => {
       const deadline = Date.now() + CB_CLASSIFIER_HUB_CONNECT_WAIT_MS;
       const poll = () => {
-        if (this.isReady(connection)) {
+        if (this.isReady(connection, target)) {
           resolve();
         } else if (Date.now() >= deadline) {
           reject(new Error("The Vault Classifier bridge is unavailable."));
@@ -4679,7 +4726,7 @@ const cbClassifierHub = {
       ? connection.waitForStartup()
       : Promise.resolve();
     return Promise.resolve(startupReady)
-      .then(() => this.waitForReady(connection))
+      .then(() => this.waitForReady(connection, this.targetFor(operation)))
       .then(
         () => this.requestOnSharedSocket(connection, operation, body),
         () => {

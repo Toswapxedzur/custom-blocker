@@ -75,7 +75,7 @@ const groups = [
   base({ id: "rd1", groupType: "reddit", name: "Reddit include", sourceMode: "include", sources: ["news"], platformTagMode: "include", platformTags: [{ name: "Politics" }] }),
   base({ id: "rd2", groupType: "reddit", name: "Reddit all", sourceMode: "all", blockHomePage: true }),
   base({ id: "rd3", groupType: "reddit", name: "Reddit legacy", redditMode: "exclude", redditSubreddits: ["r/programming"] }),
-  base({ id: "x1", groupType: "twitter", name: "X accounts", sourceMode: "exclude", sources: ["@elonmusk"], blockHomePage: true, surfaceHides: ["promoted"] }),
+  base({ id: "x1", groupType: "twitter", name: "X accounts", sourceMode: "exclude", sources: ["@elonmusk"], blockHomePage: true, surfaceHides: ["trends"] }),
   base({ id: "x2", groupType: "twitter", name: "X legacy", platformAuthorMode: "include", platformAuthors: ["@bbc"] }),
   base({ id: "bl1", groupType: "bilibili", name: "Bili all", sourceMode: "all", platformTagMode: "include", platformTags: [{ name: "Gaming" }], platformTagEffect: "dim" }),
   base({ id: "tk1", groupType: "tiktok", name: "TikTok creators", sourceMode: "include", sources: ["@someone"], platformVideoMode: "all" }),

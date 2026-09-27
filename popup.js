@@ -4374,21 +4374,6 @@ async function persistGroups(ids, { reorder = false, message = "" } = {}) {
   if (message) setStatus(message);
 }
 
-// Clears one group's usage, snooze and snooze total (only that group's entries).
-async function resetGroupRuntime(groupId) {
-  const keys = [USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY, GROUP_SNOOZES_KEY, GROUP_SNOOZE_TOTALS_KEY];
-  const stored = await chrome.storage.local.get(keys);
-  const writes = {};
-  for (const key of keys) {
-    const map = { ...(stored[key] && typeof stored[key] === "object" ? stored[key] : {}) };
-    if (key === USAGE_TIMERS_KEY || key === GROUP_SNOOZE_TOTALS_KEY) map[groupId] = 0;
-    else if (key === USAGE_RESET_AT_KEY) map[groupId] = Date.now();
-    else delete map[groupId];
-    writes[key] = map;
-  }
-  await chrome.storage.local.set(writes);
-}
-
 // A snooze entry the user started or ended here; the service worker / Mac
 // Vault count its time and share it with linked devices.
 async function persistSnooze(groupId, entry, message = "") {
@@ -4806,8 +4791,9 @@ async function importIntoSelectedGroup() {
     delete state.drafts[group.id];
 
     await persistGroups([group.id], { message: t("status.importedGroup", { name: replacementGroup.name }) });
-    // An imported group starts fresh (owner 2026-09-27): no time used, no snooze.
-    await resetGroupRuntime(group.id);
+    // An imported group starts fresh (owner 2026-09-27): no time used, no
+    // snooze. The runtime's owner (the worker, Mac Vault) resets it.
+    await chrome.runtime.sendMessage({ type: "reset-group-runtime", groupId: group.id });
     render();
   } catch (error) {
     console.error("Failed to import block group.", error);

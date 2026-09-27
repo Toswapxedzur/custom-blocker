@@ -1474,11 +1474,6 @@ const PLATFORM_PROFILES = {
         id: "trends",
         labelKey: "surfaceHide.twitter.trends",
         selectors: ['[data-testid="sidebarColumn"] [aria-label="Timeline: Trending now"]', 'div[data-testid="trend"]']
-      },
-      {
-        id: "promoted",
-        labelKey: "surfaceHide.twitter.promoted",
-        selectors: ['article[data-testid="tweet"]:has(span:not(:empty))[data-cb-promoted="1"]']
       }
     ]
   },

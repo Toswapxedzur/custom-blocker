@@ -87,6 +87,7 @@ const context = vm.createContext({
   CB_CONNECTION_SLOW_INTERVAL_MS: 5_000,
   cbDetectProgramId: () => "chrome",
   cbAnnounceStoredGroups: async () => { announcesFromStorage += 1; },
+  cbShareOnReconnect: async () => {},
   WebSocket: FakeWebSocket,
   clearInterval: () => {},
   clearTimeout: fakeClearTimeout,
