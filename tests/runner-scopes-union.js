@@ -57,7 +57,7 @@ const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
 // merged over the group's other lines.
 let scopes = S.scopeLinesFromFlat({ sourceMode: "all", platformVideoMode: "short", blockHomePage: true, surfaceHides: ["shorts-button"] }, "youtube");
 scopes = S.mergeFlatIntoScopes(scopes, { sourceMode: "include", sources: ["news"] }, "reddit");
-scopes = S.mergeFlatIntoScopes(scopes, { sourceMode: "nobody", platformTagMode: "include", platformTags: [{ name: "Politics" }], platformTagEffect: "dim", platformTagBlockPage: true, surfaceHides: ["promoted"] }, "twitter");
+scopes = S.mergeFlatIntoScopes(scopes, { sourceMode: "nobody", platformTagMode: "include", platformTags: [{ name: "Politics" }], platformTagEffect: "dim", platformTagBlockPage: true, surfaceHides: ["trends"] }, "twitter");
 scopes = S.mergeFlatIntoScopes(scopes, { sites: ["example.com", "news.ycombinator.com/best"] }, "site");
 const raw = { id: "u1", name: "Union", groupType: "youtube", enabled: true, mode: "after-minutes", allowedMinutes: 20, activeDays: days, timeWindowsText: "", scopes };
 const [group] = sanitize([raw]);

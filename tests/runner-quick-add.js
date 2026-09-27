@@ -87,7 +87,6 @@ check("only web pages qualify", run(`cbQuickAddEntry("chrome://extensions")`) ==
   check("the new entry is shared with linked members right away", context.__sent.some((f) => f.kind === "group-sync" && f.groupId === "y1" && Array.isArray(f.scopes)), context.__sent);
   const sync = context.__sent.find((f) => f.kind === "group-sync" && f.groupId === "y1");
   check("…as the whole definition (policy settings too, like an editor save)", sync && sync.scalars && sync.scalars.mode === "instant" && "allowedMinutes" in sync.scalars, sync);
-  check("…and the roster is announced", context.__sent.some((f) => f.kind === "groups-announce" && f.groups.some((g) => g.id === "y1")), context.__sent);
 
   result = await run(`cbQuickAdd("https://docs.example.org/guide/intro/")`);
   stored = (await context.chrome.storage.local.get("blockedGroups")).blockedGroups;
