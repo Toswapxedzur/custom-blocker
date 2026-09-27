@@ -188,13 +188,20 @@
     return found;
   }
 
+  // What the card's pill shows is what the filters and rules see: the request
+  // cache expires after CACHE_TTL_MS (it only saves re-asking), the pill's
+  // answer holds while the pill does — otherwise a tag-blocked card came back
+  // 15 s after it was tagged.
+  function shownTags(state) {
+    const tags = state && Array.isArray(state.currentTags) ? state.currentTags : null;
+    if (!tags || tags.some((t) => t && t.id === "vault:tagging")) return null;
+    return tags;
+  }
+
   function tagsForCard(root) {
-    const state = stateForCard(root);
-    if (!state) return [];
-    const cached = sourceCache.get(state.key);
-    if (!cached || cached.provisional || !Array.isArray(cached.tags)) return [];
-    // Drop the "None"/"Tagging" placeholder pills — custom rules only see real tags.
-    return cached.tags.filter((t) => t && t.id !== "vault:none" && t.id !== "vault:tagging");
+    const tags = shownTags(stateForCard(root));
+    // Drop the "None" placeholder pill — custom rules only see real tags.
+    return tags ? tags.filter((t) => t && t.id !== "vault:none") : [];
   }
   if (global) global.vaultTagsForCard = tagsForCard;
 
@@ -205,10 +212,7 @@
   // block-untagged filter must never black out a feed the classifier simply
   // hasn't answered for.
   function tagsSettledForCard(root) {
-    const state = stateForCard(root);
-    if (!state) return false;
-    const cached = sourceCache.get(state.key);
-    return Boolean(cached && !cached.provisional && Array.isArray(cached.tags));
+    return shownTags(stateForCard(root)) !== null;
   }
   if (global) global.vaultTagsSettledForCard = tagsSettledForCard;
 
