@@ -95,8 +95,8 @@ const cbClusterCopyReady = (async () => {
 
 // Debug mode flag. False by default; user toggles it via Settings.
 // Drives whether [CustomBlocker] / [CustomBlocker:trace] verbose
-// console.log lines are emitted. The user's own helpers.log() calls
-// flow through ingestSandboxLogs regardless of this flag.
+// console.log lines are emitted. A rule's v.log goes to the log feed
+// regardless of this flag.
 const CB_GLOBAL_SETTINGS_KEY = "globalSettings";
 let cbDebugMode = false;
 function cbDebugLog(...args) { if (cbDebugMode) { try { console.log(...args); } catch (_) {} } }
@@ -370,92 +370,6 @@ function cbGroupBlocksPage(group, pageContext) {
 // Groups in effect right now that name this page, in list order (top first).
 function getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now) {
   return groups.filter((group) => cbGroupActive(group, groupSnoozes, now) && cbGroupBlocksPage(group, pageContext));
-}
-
-// Merges custom timer snapshots from a sandbox dispatch result into
-// the page session payload that content.js consumes. Adds items to
-// session.items and forces showTimer=true if any custom timer is
-// visible. Custom timers NEVER escalate shouldExitPage — the helper
-// itself doesn't block. Blocking is the rule's responsibility, done
-// via isExpired() + preventDefault() inside an event handler.
-function mergeCustomTimerItems(payload, dispatchResult) {
-  const extraItems = buildCustomTimerItems(dispatchResult);
-  if (extraItems.length === 0) return payload;
-  const existing = Array.isArray(payload?.items) ? payload.items : [];
-  return {
-    ...payload,
-    items: existing.concat(extraItems),
-    showTimer: true
-  };
-}
-
-// Convert sandbox dispatch result's timerSnapshotsByGroup into the
-// shape that content.js's updateOverlay expects. A backward (countdown)
-// timer renders its remainingMs (clamped at 0 — it stops, doesn't
-// block); a forward (count-up) timer renders the elapsed currentMs.
-// blocksNow is always false: blocking lives in user-defined event
-// handlers, not in the timer helper.
-function buildCustomTimerItems(dispatchResult) {
-  const out = [];
-  if (!dispatchResult || !dispatchResult.timerSnapshotsByGroup) return out;
-  for (const [groupId, snapshots] of Object.entries(dispatchResult.timerSnapshotsByGroup)) {
-    if (!Array.isArray(snapshots)) continue;
-    for (const snap of snapshots) {
-      if (!snap || typeof snap !== "object") continue;
-      const direction = snap.direction === "forward" ? "forward" : "backward";
-      const currentMs = Math.max(0, Number(snap.currentMs) || 0);
-      const item = {
-        id: groupId + ":" + (snap.id || ""),
-        name: snap.displayName || snap.id || "Timer",
-        groupType: "custom",
-        mode: "custom-timer",
-        direction,
-        currentMs,
-        displayMs: currentMs,
-        remainingMs: direction === "backward" ? currentMs : Number.POSITIVE_INFINITY,
-        usedMs: direction === "forward" ? currentMs : 0,
-        blocksNow: false
-      };
-      if (snap.overlayStyle && typeof snap.overlayStyle === "object") {
-        item.overlayStyle = snap.overlayStyle;
-      }
-      out.push(item);
-    }
-  }
-  return out;
-}
-
-function collectPanelSnapshots(dispatchResult) {
-  const panels = [];
-  const groups = new Set();
-  function addFrom(result) {
-    if (!result || typeof result !== "object") return;
-    if (Array.isArray(result.panelGroupsChanged)) {
-      for (const groupId of result.panelGroupsChanged) {
-        if (typeof groupId === "string" && groupId) groups.add(groupId);
-      }
-    }
-    if (Array.isArray(result.panelGroupsWithPanels)) {
-      for (const groupId of result.panelGroupsWithPanels) {
-        if (typeof groupId === "string" && groupId) groups.add(groupId);
-      }
-    }
-    const byGroup = result.panelSnapshotsByGroup;
-    if (!byGroup || typeof byGroup !== "object") return;
-    for (const [groupId, snapshots] of Object.entries(byGroup)) {
-      if (typeof groupId === "string" && groupId) groups.add(groupId);
-      if (!Array.isArray(snapshots)) continue;
-      for (const snap of snapshots) {
-        if (!snap || typeof snap !== "object") continue;
-        panels.push({ ...snap, groupId });
-      }
-    }
-  }
-  addFrom(dispatchResult);
-  if (Array.isArray(dispatchResult?.synthResults)) {
-    for (const synth of dispatchResult.synthResults) addFrom(synth?.result);
-  }
-  return { panels, groups: Array.from(groups) };
 }
 
 function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now, usageBucketsMs = {}) {
@@ -1416,36 +1330,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // The rules' panels for this page (every page's, and this tab's own).
   if (message?.type === "get-custom-panels") {
-    (async () => {
-      await ensureStartupGate();
+    ensureStartupGate().then(() => {
       const tabId = sender?.tab?.id ?? null;
-      const tabUrl = String(message.url || sender?.tab?.url || sender?.url || "");
-      const descriptor = {
-        type: "panelRefreshEvent",
-        tabId,
-        pageId: null,
-        url: tabUrl,
-        hostname: hostnameOf(tabUrl),
-        time: todayContext(),
-        data: null,
-        targetGroupId: null,
-        elapsedMs: 0
-      };
-      const result = await dispatchToSandbox(descriptor);
-      ingestSandboxLogs(result, descriptor);
-      maybeQuarantineFromResult(result, descriptor);
-      const panelPayload = collectPanelSnapshots(result);
-      sendResponse({
-        ok: true,
-        descriptor,
-        panelSnapshots: panelPayload.panels,
-        panelGroups: panelPayload.groups,
-        logs: Array.isArray(result?.logs) ? result.logs : []
-      });
-    })().catch((error) => {
-      sendResponse({ ok: false, error: String(error && error.message ? error.message : error) });
-    });
+      const panels = [];
+      for (const list of cbRulePanels.values()) {
+        for (const panel of list) if (panel.tabId === undefined || panel.tabId === tabId) panels.push(panel);
+      }
+      sendResponse({ ok: true, panelSnapshots: panels, panelGroups: [...cbRulePanels.keys()] });
+    }).catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
 
@@ -1464,31 +1358,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         applyElapsedTime(message.pageContext, heartbeatElapsedMs, heartbeatExposedIds, cbPausePassedGroups(tabId, hostnameOf(tabUrl)))
       )
     )
-      .then(async (payload) => {
-        // Drive custom-rule timers from the same visibility-aware
-        // heartbeat that powers the default block group countdown.
-        // pageHeartbeatEvent fires once per content-script tick (~250ms
-        // when visible). The sandbox reply includes timer snapshots
-        // for the current URL which we merge into session.items so
-        // the on-page overlay renders both default and custom timers
-        // identically.
-        let merged = payload;
-        try {
-          if (typeof tabId === "number") {
-            const result = await dispatchEventToTab(
-              "pageHeartbeatEvent",
-              { tabId, url: tabUrl },
-              { data: { intervalMs: heartbeatElapsedMs }, elapsedMs: heartbeatElapsedMs }
-            );
-            merged = mergeCustomTimerItems(payload, result);
-          }
-        } catch (error) {
-          // Swallow: payload from default block group is still valid
-          // even if the sandbox dispatch fails. The error already
-          // surfaced via the offscreen hard-timeout / quarantine path.
-          try { console.warn("[CustomBlocker] heartbeat dispatch failed", error); } catch (_) {}
+      .then((payload) => {
+        // The rules' "visible" time, and what the page collects for them.
+        if (typeof tabId === "number" && heartbeatElapsedMs > 0) {
+          dispatchRule("visible", { tabId, url: tabUrl, elapsedMs: heartbeatElapsedMs }).catch(() => {});
         }
-        sendResponse(merged);
+        sendResponse(payload && { ...payload, ruleItems: cbRulesHandle("items") ? cbRuleItemsEpoch : 0, ruleVisible: cbRulesHandle("visible") });
       })
       .catch((error) => {
         // Fail closed: no answer keeps the page's last decision (an empty
@@ -1553,10 +1428,9 @@ function sandboxTransportMode() {
   return "offscreen";
 }
 
-const TICK_ALARM_NAME = "custom-blocker-event-tick";
-// Chrome alarms floor at 1 minute. The 1 s tickEvent is driven from the
-// offscreen document; this alarm is a SW keepalive / safety net.
-const TICK_ALARM_PERIOD_MINUTES = 1;
+// The rules' tick comes from the offscreen document; the old one-minute tick
+// alarm (before 2026-09-27) would only wake the worker for nothing.
+chrome.alarms?.clear?.("custom-blocker-event-tick");
 
 const previousTabUrls = new Map(); // tabId -> { url, hostname }
 
@@ -1700,29 +1574,9 @@ async function cbSetTabCovered(tabId, covered) {
 }
 
 // A custom group's Snooze (the editor's button, or a tool): the rule's
-// snoozePress event, dispatched for the active tab so its logs show there.
+// "snooze" event (the rule decides what it means).
 async function cbFireSnoozePress(groupId) {
-  let activeTab = null;
-  try {
-    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    activeTab = tabs && tabs[0] ? tabs[0] : null;
-  } catch (_) {}
-  const descriptor = {
-    type: "snoozePress",
-    tabId: activeTab && typeof activeTab.id === "number" ? activeTab.id : null,
-    pageId: null,
-    url: activeTab?.url || "",
-    hostname: hostnameOf(activeTab?.url || ""),
-    time: todayContext(),
-    data: { triggeredAt: Date.now() },
-    targetGroupId: groupId
-  };
-  const result = await dispatchToSandbox(descriptor);
-  ingestSandboxLogs(result, descriptor);
-  maybeQuarantineFromResult(result, descriptor);
-  if (typeof descriptor.tabId === "number") await applySandboxResultToTab(descriptor.tabId, result, descriptor);
-  await processLocalFileIntents(result, descriptor);
-  return result;
+  return dispatchRule("snooze", {}, { targetGroupId: groupId });
 }
 
 // The popup's snooze entry, built here for the cover's Snooze button. The
@@ -1762,7 +1616,7 @@ const PENDING_APPLY_MAX_PER_TAB = 32;
 // survives MV3 service-worker idle restarts but is cleared when the
 // browser process exits. Mirroring previousTabUrls + pendingApplyByTab
 // there lets us recover from a SW restart without dropping the
-// "previous URL" memory used by webChangedEvent (sameDomain / isReload /
+// "previous URL" memory the rules' "tab" event carries (previousUrl /
 // previousHostname), and without losing apply messages that were queued for tabs
 // whose content script hadn't checked in yet.
 const SESSION_TAB_URLS_KEY = "__cb_previous_tab_urls__";
@@ -1922,30 +1776,6 @@ function recordVaultClassifierTransportDiagnostic(stage, outcome = "extension") 
 }
 self.CBRecordVaultClassifierTransportDiagnostic = recordVaultClassifierTransportDiagnostic;
 
-function ingestSandboxLogs(result, descriptor) {
-  if (!result) return;
-  const eventType = descriptor && descriptor.type ? descriptor.type : "";
-  const collect = (logs) => {
-    if (!Array.isArray(logs)) return;
-    for (const entry of logs) {
-      if (!entry) continue;
-      if (entry.popup === false) continue;
-      pushLogFeedEntry({
-        level: entry.level,
-        groupId: entry.groupId,
-        args: entry.args,
-        eventType
-      });
-    }
-  };
-  collect(result.logs);
-  if (Array.isArray(result.synthResults)) {
-    for (const synth of result.synthResults) {
-      if (synth && synth.result) collect(synth.result.logs);
-    }
-  }
-}
-
 // Quarantine: when the sandbox or offscreen flags a runaway group, we
 // disable it in storage and push a one-line warning to the log feed.
 // The user keeps their source code (it stays in `activeEventSource` and
@@ -1970,28 +1800,6 @@ async function quarantineGroup(groupId, reason) {
   } catch (error) {
     console.warn("[CustomBlocker] quarantineGroup failed", error);
     return false;
-  }
-}
-
-function maybeQuarantineFromResult(result, descriptor) {
-  if (!result || typeof result !== "object") return;
-  const candidates = [];
-  // Sandbox dispatch result may carry a quarantine hint in either the
-  // top-level reply (deadline overrun for the active group) or in any
-  // synthResult (deadline overrun in a posted re-dispatch). Offscreen's
-  // synthetic timeout reply also surfaces { quarantine: { reason } }.
-  if (result.quarantine) candidates.push({ q: result.quarantine, descriptor });
-  if (Array.isArray(result.synthResults)) {
-    for (const synth of result.synthResults) {
-      if (synth && synth.result && synth.result.quarantine) {
-        candidates.push({ q: synth.result.quarantine, descriptor: synth.descriptor || descriptor });
-      }
-    }
-  }
-  for (const { q, descriptor: d } of candidates) {
-    const groupId = q.groupId || (d && d.targetGroupId) || "";
-    if (!groupId) continue;
-    quarantineGroup(groupId, q.reason || "deadline-overrun").catch(() => {});
   }
 }
 
@@ -2166,66 +1974,140 @@ async function sendToEventSandbox(payload) {
   }
 }
 
-async function loadCustomGroupSource(group, { resetHostBlocks = false } = {}) {
+// ── Custom rules (rule-core.js is the rule contract) ────────────────────────
+// The worker loads each enabled custom group's rule into the sandbox, sends
+// it the browser's events and carries out what it asks (v.* actions).
+const CB_RULE_STATE_KEY = "cbRuleState";
+const CB_RULE_PANELS_KEY = "cbRulePanels";
+// The event types each loaded rule handles: an event nobody handles is not sent.
+const cbRuleTypes = new Map(); // groupId -> Set<type>
+// The rules' panels on screen: groupId -> [panel] (a panel with a tabId shows on that tab only).
+const cbRulePanels = new Map();
+
+// Bumped whenever a rule that handles "items" loads: pages then send every
+// item again, so the new rule sees what is already on screen.
+let cbRuleItemsEpoch = Date.now(); // a restarted worker differs from the last one
+
+function cbRulesHandle(type) {
+  for (const types of cbRuleTypes.values()) if (types.has(type)) return true;
+  return false;
+}
+
+// What pages collect for the rules: items (0 = none, else the epoch) and
+// whether the visible time is wanted.
+function cbRulePageNeeds() {
+  return (cbRulesHandle("items") ? cbRuleItemsEpoch : 0) + "," + cbRulesHandle("visible");
+}
+
+function cbSetRulePanels(groupId, panels) {
+  if (panels && panels.length > 0) cbRulePanels.set(groupId, panels);
+  else if (!cbRulePanels.delete(groupId)) return;
+  chrome.storage.session?.set({ [CB_RULE_PANELS_KEY]: Object.fromEntries(cbRulePanels) }).catch?.(() => {});
+  broadcastCustomPanelRefresh([groupId]).catch(() => {});
+}
+
+// `state` replaces the stored one (Run starts from {}).
+async function loadCustomGroupSource(group, { state = null } = {}) {
   if (!group || group.groupType !== "custom") return null;
-  if (resetHostBlocks) {
-    await clearWindowBlockGroup(group.id);
-  }
-  if (!group.enabled) {
-    await clearWindowBlockGroup(group.id);
-    await sendToEventSandbox({
-      kind: "unload-group",
-      groupId: group.id,
-      clearState: true
-    });
-    scheduleCustomTimerRefreshBroadcast();
-    scheduleCustomPanelRefreshBroadcast(100, [group.id]);
-    return { ok: true, handlers: 0, error: null };
-  }
-  const source = typeof group.activeEventSource === "string" ? group.activeEventSource : "";
+  const source = group.enabled && typeof group.activeEventSource === "string" ? group.activeEventSource : "";
+  const pageNeeds = cbRulePageNeeds();
+  let result;
   if (!source.trim()) {
-    await clearWindowBlockGroup(group.id);
-    await sendToEventSandbox({
-      kind: "unload-group",
-      groupId: group.id,
-      clearState: true
-    });
-    scheduleCustomTimerRefreshBroadcast();
-    scheduleCustomPanelRefreshBroadcast(100, [group.id]);
-    return { ok: true, handlers: 0, error: null };
+    result = await unloadCustomGroupHandlers(group.id);
+    result = result ? { ok: true, handlers: 0, error: null } : null;
+  } else {
+    const stored = state || ((await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {})[group.id] || {};
+    result = await sendToEventSandbox({ kind: "load-source", groupId: group.id, source, state: stored });
+    if (result) {
+      for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType: "run" });
+      if (!result.ok && result.error) pushLogFeedEntry({ level: "error", groupId: group.id, args: [result.error], eventType: "run" });
+      if (result.quarantine) quarantineGroup(group.id, result.quarantine.reason || "load-source-timeout").catch(() => {});
+      // A rule that didn't load leaves the one before it running.
+      if (result.ok) {
+        cbRuleTypes.set(group.id, new Set(Array.isArray(result.types) ? result.types : []));
+        // Run starts the panels over; a reload of the same rule (a restarted
+        // worker) keeps the ones on screen until the rule changes them.
+        if (state || !cbRulePanels.has(group.id)) cbSetRulePanels(group.id, Array.isArray(result.panels) ? result.panels : []);
+        if (cbRuleTypes.get(group.id).has("items")) cbRuleItemsEpoch += 1;
+      }
+    }
   }
-  const result = await sendToEventSandbox({
-    kind: "load-source",
-    groupId: group.id,
-    source
-  });
-  // Forward only user-created registration-time helper logs. Engine
-  // registration status is reported through the Run status UI.
-  if (result && Array.isArray(result.logs)) {
-    ingestSandboxLogs(result, { type: "load-source" });
-  }
-  if (result && result.ok === false && result.error) {
-    try { console.error("[CustomBlocker:" + group.id + "]", result.error); } catch (_) {}
-  }
-  // If load-source itself was hard-killed by the offscreen timeout, the
-  // synthetic reply carries quarantine={ reason } but no groupId — fill
-  // in the group we were trying to load and disable it. The user's
-  // source code is preserved; only `enabled` flips.
-  if (result && result.quarantine) {
-    const reason = result.quarantine.reason || "load-source-timeout";
-    quarantineGroup(group.id, reason).catch(() => {});
-  }
-  scheduleCustomTimerRefreshBroadcast();
-  scheduleCustomPanelRefreshBroadcast(100, [group.id]);
+  // Pages collect feed items / count visible time only while a rule wants them.
+  if (cbRulePageNeeds() !== pageNeeds) broadcastSessionRefresh().catch(() => {});
   return result;
 }
 
 async function unloadCustomGroupHandlers(groupId) {
-  const result = await sendToEventSandbox({ kind: "unload-group", groupId });
-  await clearWindowBlockGroup(groupId);
-  // Its panels leave the open pages too.
-  scheduleCustomPanelRefreshBroadcast(100, [groupId]);
+  cbRuleTypes.delete(groupId);
+  cbSetRulePanels(groupId, null);
+  return sendToEventSandbox({ kind: "unload-group", groupId });
+}
+
+// One event to the rules that handle it (or to one group's rule).
+async function dispatchRule(type, data, { targetGroupId = null } = {}) {
+  await ensureStartupGate();
+  if (targetGroupId ? !cbRuleTypes.has(targetGroupId) : !cbRulesHandle(type)) return null;
+  const result = await sendToEventSandbox({ kind: "dispatch-event", descriptor: { type, now: Date.now(), data, targetGroupId } });
+  await applyRuleResult(result, type);
   return result;
+}
+
+// What a dispatch asked for: logs, a runaway group's quarantine, changed
+// state and panels, and the actions (per tab to its page, or by the worker).
+async function applyRuleResult(result, eventType) {
+  if (!result) return;
+  for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType });
+  if (result.quarantine && result.quarantine.groupId) {
+    quarantineGroup(result.quarantine.groupId, result.quarantine.reason || "deadline-overrun").catch(() => {});
+  }
+  const states = result.states && typeof result.states === "object" ? result.states : {};
+  if (Object.keys(states).length > 0) {
+    const stored = (await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {};
+    await chrome.storage.local.set({ [CB_RULE_STATE_KEY]: { ...stored, ...states } });
+  }
+  for (const [groupId, panels] of Object.entries(result.panels || {})) cbSetRulePanels(groupId, panels);
+  const pages = new Map(); // tabId | "*" -> { items, css, dom, cover }
+  const page = (tabId) => {
+    if (!pages.has(tabId)) pages.set(tabId, { type: "rule-apply", items: [], css: [], dom: [], cover: null });
+    return pages.get(tabId);
+  };
+  for (const action of result.actions || []) {
+    const { groupId, kind, tabId } = action || {};
+    try {
+      if (kind === "item") page(tabId).items.push({ groupId, ref: action.ref, verdict: action.verdict });
+      else if (kind === "cover") page(tabId).cover = { groupId, on: action.on, message: action.message };
+      else if (kind === "css") page(tabId).css.push({ key: groupId + "␟" + action.id, css: action.css });
+      else if (kind === "dom") page(tabId).dom.push({ selector: action.selector, op: action.op, arg: action.arg });
+      else if (kind === "close") await chrome.tabs.remove(tabId);
+      else if (kind === "go") {
+        if (action.target === "back") await chrome.tabs.goBack(tabId);
+        else if (action.target === "forward") await chrome.tabs.goForward(tabId);
+        else if (action.target === "reload") await chrome.tabs.reload(tabId);
+        else if (/^https?:/i.test(action.target)) await chrome.tabs.update(tabId, { url: action.target });
+      } else if (kind === "file") cbRunRuleFile(action).catch(() => {});
+    } catch (_) {}
+  }
+  for (const [tabId, message] of pages) {
+    if (tabId === "*") await cbSendToWebPages(message);
+    else if (!(await trySendApply(tabId, message))) enqueueApply(tabId, message);
+  }
+}
+
+// A rule's file request, through the folder broker; its answer is the rule's
+// "file" event.
+async function cbRunRuleFile(action) {
+  const op = String(action.op || "");
+  const payload = action.payload;
+  const answer = await sendToLocalFileBroker({
+    action: op,
+    path: action.path,
+    directoryPath: op === "list" ? action.path : "",
+    text: typeof payload === "string" ? payload : payload === null || payload === undefined ? "" : JSON.stringify(payload),
+    requestId: action.requestId
+  });
+  const data = { requestId: action.requestId, op, path: action.path, ok: Boolean(answer?.ok), text: answer?.text ?? null,
+    entries: answer?.entries ?? null, exists: answer?.exists ?? null, error: answer?.error || "" };
+  await dispatchRule("file", data, { targetGroupId: action.groupId });
 }
 
 let lastReconcileSnapshot = new Map();
@@ -2257,7 +2139,7 @@ async function reconcileCustomGroupHandlers(change) {
     ) {
       const group = newGroups.find((g) => g.id === groupId);
       // A load the sandbox never answered isn't recorded: the next change retries it.
-      if (!(await loadCustomGroupSource(group, { resetHostBlocks: true }))) next.delete(groupId);
+      if (!(await loadCustomGroupSource(group))) next.delete(groupId);
     }
   }
   lastReconcileSnapshot = next;
@@ -2273,14 +2155,12 @@ async function loadAllCustomGroupsAtStartup() {
     await hydrateTabStateFromSession();
   } catch (_) {}
   try {
-    await hydrateWindowBlockGroups();
+    const stored = (await chrome.storage.session?.get({ [CB_RULE_PANELS_KEY]: {} }))?.[CB_RULE_PANELS_KEY] || {};
+    for (const [groupId, panels] of Object.entries(stored)) if (Array.isArray(panels)) cbRulePanels.set(groupId, panels);
   } catch (_) {}
   try {
     const result = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
     const groups = Array.isArray(result[BLOCKED_GROUPS_KEY]) ? result[BLOCKED_GROUPS_KEY] : [];
-    await pruneWindowBlockGroups(new Set(
-      groups.filter((group) => group && group.groupType === "custom").map((group) => String(group.id || ""))
-    ));
     lastReconcileSnapshot = new Map();
     let attempted = 0;
     let withSource = 0;
@@ -2318,19 +2198,6 @@ function ensureStartupGate() {
   return startupGate;
 }
 
-function todayContext(now = Date.now()) {
-  const date = new Date(now);
-  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  return {
-    now,
-    month: date.getMonth() + 1,
-    dayOfMonth: date.getDate(),
-    dayName: dayNames[date.getDay()],
-    hour: date.getHours(),
-    minute: date.getMinutes()
-  };
-}
-
 function hostnameOf(url) {
   if (!url) return "";
   try {
@@ -2339,13 +2206,6 @@ function hostnameOf(url) {
   } catch {
     return "";
   }
-}
-
-async function dispatchToSandbox(descriptor) {
-  return await sendToEventSandbox({
-    kind: "dispatch-event",
-    descriptor
-  });
 }
 
 async function sendToLocalFileBroker(request) {
@@ -2392,57 +2252,6 @@ async function sendToLocalFileBroker(request) {
   };
 }
 
-function collectLocalFileIntentsFromResult(result) {
-  const out = [];
-  function add(resultPart) {
-    const intents = Array.isArray(resultPart?.intents) ? resultPart.intents : [];
-    for (const intent of intents) {
-      if (!intent || intent.kind !== "localFile") continue;
-      out.push(intent);
-    }
-  }
-  add(result);
-  if (Array.isArray(result?.synthResults)) {
-    for (const synth of result.synthResults) add(synth?.result);
-  }
-  return out;
-}
-
-async function processLocalFileIntents(result, descriptor, depth = 0) {
-  if (!result || depth > 3) return;
-  const intents = collectLocalFileIntentsFromResult(result);
-  for (const intent of intents) {
-    const groupId = typeof intent.groupId === "string" ? intent.groupId : "";
-    if (!groupId) continue;
-    const brokerResult = await sendToLocalFileBroker(intent);
-    const localFileDescriptor = {
-      type: "localFileEvent",
-      tabId: descriptor?.tabId ?? null,
-      pageId: descriptor?.pageId ?? null,
-      url: descriptor?.url || "",
-      hostname: descriptor?.hostname || "",
-      time: todayContext(),
-      data: brokerResult || {
-        ok: false,
-        eventName: "error",
-        action: intent.action || "",
-        path: intent.path || "",
-        requestId: intent.requestId || "",
-        error: "local-file-error"
-      },
-      targetGroupId: groupId,
-      elapsedMs: 0
-    };
-    const eventResult = await dispatchToSandbox(localFileDescriptor);
-    ingestSandboxLogs(eventResult, localFileDescriptor);
-    maybeQuarantineFromResult(eventResult, localFileDescriptor);
-    await applySandboxResultToTab(localFileDescriptor.tabId, eventResult, localFileDescriptor);
-    if (resultHasTimerRegistryChange(eventResult)) scheduleCustomTimerRefreshBroadcast();
-    if (resultHasPanelRegistryChange(eventResult)) scheduleCustomPanelRefreshBroadcast();
-    await processLocalFileIntents(eventResult, localFileDescriptor, depth + 1);
-  }
-}
-
 function enqueueApply(tabId, message) {
   const list = pendingApplyByTab.get(tabId) || [];
   list.push(message);
@@ -2458,56 +2267,6 @@ async function trySendApply(tabId, message) {
   } catch {
     return false;
   }
-}
-
-let customTimerRefreshTimeoutId = null;
-
-function resultHasTimerRegistryChange(result) {
-  if (!result) return false;
-  if (result.timerRegistryChanged) return true;
-  if (!Array.isArray(result.synthResults)) return false;
-  return result.synthResults.some((synth) => Boolean(synth?.result?.timerRegistryChanged));
-}
-
-function resultHasPanelRegistryChange(result) {
-  if (!result) return false;
-  if (result.panelRegistryChanged) return true;
-  if (!Array.isArray(result.synthResults)) return false;
-  return result.synthResults.some((synth) => Boolean(synth?.result?.panelRegistryChanged));
-}
-
-function scheduleCustomTimerRefreshBroadcast(delayMs = 100) {
-  if (customTimerRefreshTimeoutId !== null) {
-    clearTimeout(customTimerRefreshTimeoutId);
-  }
-  customTimerRefreshTimeoutId = setTimeout(() => {
-    customTimerRefreshTimeoutId = null;
-    broadcastSessionRefresh().catch((error) => {
-      try { console.warn("[CustomBlocker] custom timer refresh broadcast failed", error); } catch (_) {}
-    });
-  }, delayMs);
-}
-
-let customPanelRefreshTimeoutId = null;
-const pendingCustomPanelRefreshGroups = new Set();
-
-function scheduleCustomPanelRefreshBroadcast(delayMs = 100, groupIds = []) {
-  if (Array.isArray(groupIds)) {
-    for (const groupId of groupIds) {
-      if (typeof groupId === "string" && groupId) pendingCustomPanelRefreshGroups.add(groupId);
-    }
-  }
-  if (customPanelRefreshTimeoutId !== null) {
-    clearTimeout(customPanelRefreshTimeoutId);
-  }
-  customPanelRefreshTimeoutId = setTimeout(() => {
-    customPanelRefreshTimeoutId = null;
-    const panelGroups = Array.from(pendingCustomPanelRefreshGroups);
-    pendingCustomPanelRefreshGroups.clear();
-    broadcastCustomPanelRefresh(panelGroups).catch((error) => {
-      try { console.warn("[CustomBlocker] custom panel refresh broadcast failed", error); } catch (_) {}
-    });
-  }, delayMs);
 }
 
 // ── Push on change (owner 2026-09-25) ──────────────────────────────────────
@@ -2598,271 +2357,18 @@ function broadcastCustomPanelRefresh(panelGroups = []) {
   return cbSendToWebPages({ type: "custom-panels-refresh", panelGroups });
 }
 
-async function applySandboxResultToTab(tabId, result, descriptor) {
-  if (!result || typeof tabId !== "number") return;
-  // Aggregate logs from the main dispatch + any synthResults (posted
-  // events, timerEnded). Each entry: { level, groupId, args }.
-  const logs = Array.isArray(result.logs) ? result.logs.slice() : [];
-  const domOps = Array.isArray(result.domOps) ? result.domOps.slice() : [];
-  const intents = Array.isArray(result.intents)
-    ? result.intents.filter((intent) => !intent || intent.kind !== "localFile")
-    : [];
-  const panelPayload = collectPanelSnapshots(result);
-  if (Array.isArray(result.synthResults)) {
-    for (const synth of result.synthResults) {
-      const sr = synth && synth.result;
-      if (!sr) continue;
-      if (Array.isArray(sr.logs)) logs.push(...sr.logs);
-      if (Array.isArray(sr.domOps)) domOps.push(...sr.domOps);
-      if (Array.isArray(sr.intents)) {
-        intents.push(...sr.intents.filter((intent) => !intent || intent.kind !== "localFile"));
-      }
-    }
-  }
-  // Skip empty applies (they would only spam the per-tab queue with
-  // ticks that have no observable side effect).
-  if (logs.length === 0 && domOps.length === 0 && intents.length === 0 &&
-      panelPayload.panels.length === 0 && panelPayload.groups.length === 0 &&
-      !result.defaultPrevented && !result.redirectUrl &&
-      typeof result.result !== "string") {
-    return;
-  }
-  // Process window-level intents in the background (they require chrome.tabs).
-  const windowIntents = intents.filter((i) => i && i.kind === "window");
-  const contentIntents = intents.filter((i) => !i || i.kind !== "window");
-  if (windowIntents.length > 0) {
-    processWindowIntents(windowIntents, tabId).catch(() => {});
-  }
-
-  const message = {
-    type: "event-sandbox-apply",
-    descriptor,
-    defaultPrevented: Boolean(result.defaultPrevented),
-    result: result.result ?? null,
-    redirectUrl: result.redirectUrl || "",
-    domOps,
-    intents: contentIntents,
-    panelSnapshots: panelPayload.panels,
-    panelGroups: panelPayload.groups,
-    logs
-  };
-  const sent = await trySendApply(tabId, message);
-  if (!sent) {
-    // Content script not ready yet (very common right after
-    // webNavigation.onCommitted: the openWebEvent dispatch is faster
-    // than content_scripts run_at: document_idle). Queue it; we will
-    // flush on the next "content-ready" handshake from this tab.
-    enqueueApply(tabId, message);
-  }
-}
-
-// ────────────────────────────────────────────────────────────────────────
-// Window helper: dynamic site blocklist + tab management
-// ────────────────────────────────────────────────────────────────────────
-
-const SESSION_WINDOW_BLOCKS_KEY = "__cb_window_blocks_by_group__";
-const __windowBlockedSitesByGroup = new Map();
-let windowBlockPersistChain = Promise.resolve();
-
-function windowBlockSetForGroup(groupId, create = false) {
-  const id = String(groupId || "");
-  if (!id) return null;
-  let set = __windowBlockedSitesByGroup.get(id) || null;
-  if (!set && create) {
-    set = new Set();
-    __windowBlockedSitesByGroup.set(id, set);
-  }
-  return set;
-}
-
-async function persistWindowBlockGroups() {
-  if (!chrome?.storage?.session?.set) return;
-  const serialized = {};
-  for (const [groupId, patterns] of __windowBlockedSitesByGroup.entries()) {
-    if (patterns.size > 0) serialized[groupId] = Array.from(patterns);
-  }
-  windowBlockPersistChain = windowBlockPersistChain
-    .catch(() => {})
-    .then(() => chrome.storage.session.set({ [SESSION_WINDOW_BLOCKS_KEY]: serialized }));
-  try { await windowBlockPersistChain; } catch (_) {}
-}
-
-async function hydrateWindowBlockGroups() {
-  if (!chrome?.storage?.session?.get) return;
-  try {
-    const stored = await chrome.storage.session.get({ [SESSION_WINDOW_BLOCKS_KEY]: {} });
-    const groups = stored[SESSION_WINDOW_BLOCKS_KEY];
-    if (!groups || typeof groups !== "object") return;
-    __windowBlockedSitesByGroup.clear();
-    for (const [groupId, patterns] of Object.entries(groups)) {
-      if (!Array.isArray(patterns)) continue;
-      const set = new Set(
-        patterns.map(windowBlocklistNormalize).filter(Boolean)
-      );
-      if (set.size > 0) __windowBlockedSitesByGroup.set(groupId, set);
-    }
-  } catch (_) {}
-}
-
-async function clearWindowBlockGroup(groupId) {
-  if (!__windowBlockedSitesByGroup.delete(String(groupId || ""))) return;
-  await persistWindowBlockGroups();
-}
-
-async function pruneWindowBlockGroups(validGroupIds) {
-  let changed = false;
-  for (const groupId of Array.from(__windowBlockedSitesByGroup.keys())) {
-    if (!validGroupIds.has(groupId)) {
-      __windowBlockedSitesByGroup.delete(groupId);
-      changed = true;
-    }
-  }
-  if (changed) await persistWindowBlockGroups();
-}
-
-function windowBlocklistNormalize(pattern) {
-  let p = String(pattern || "").trim().toLowerCase();
-  if (p.startsWith("http://")) p = p.slice(7);
-  if (p.startsWith("https://")) p = p.slice(8);
-  if (p.startsWith("www.")) p = p.slice(4);
-  const slashIdx = p.indexOf("/");
-  if (slashIdx > 0) p = p.slice(0, slashIdx);
-  return p;
-}
-
-function windowBlocklistMatches(url) {
-  if (__windowBlockedSitesByGroup.size === 0) return false;
-  try {
-    let hostname = new URL(url).hostname.toLowerCase();
-    if (hostname.startsWith("www.")) hostname = hostname.slice(4);
-    for (const patterns of __windowBlockedSitesByGroup.values()) {
-      for (const pattern of patterns) {
-        if (hostname === pattern || hostname.endsWith("." + pattern)) return true;
-      }
-    }
-  } catch {}
-  return false;
-}
-
-async function processWindowIntents(intents, originTabId) {
-  for (const intent of intents) {
-    if (!intent) continue;
-    switch (intent.action) {
-      case "closeActiveTab":
-        if (typeof originTabId === "number") {
-          try { await chrome.tabs.remove(originTabId); } catch {}
-        }
-        break;
-      case "closeTab":
-        if (typeof intent.tabId === "number") {
-          try { await chrome.tabs.remove(intent.tabId); } catch {}
-        }
-        break;
-      case "closeTabByUrl": {
-        const url = String(intent.url || "");
-        if (!url) break;
-        try {
-          const tabs = await chrome.tabs.query({});
-          for (const tab of tabs) {
-            if (tab.url && tab.url.includes(url)) {
-              await chrome.tabs.remove(tab.id);
-            }
-          }
-        } catch {}
-        break;
-      }
-      case "blockSite": {
-        const groupId = String(intent.groupId || "");
-        if (!groupId) break;
-        const p = windowBlocklistNormalize(intent.pattern);
-        if (p) {
-          windowBlockSetForGroup(groupId, true).add(p);
-          await persistWindowBlockGroups();
-          await closeTabsMatchingBlocklist();
-        }
-        break;
-      }
-      case "unblockSite": {
-        const groupId = String(intent.groupId || "");
-        if (!groupId) break;
-        const p = windowBlocklistNormalize(intent.pattern);
-        const patterns = windowBlockSetForGroup(groupId);
-        if (patterns) {
-          patterns.delete(p);
-          if (patterns.size === 0) __windowBlockedSitesByGroup.delete(groupId);
-          await persistWindowBlockGroups();
-        }
-        break;
-      }
-    }
-  }
-}
-
-async function closeTabsMatchingBlocklist() {
-  if (__windowBlockedSitesByGroup.size === 0) return;
-  try {
-    const tabs = await chrome.tabs.query({});
-    for (const tab of tabs) {
-      if (tab.url && windowBlocklistMatches(tab.url)) {
-        try { await chrome.tabs.remove(tab.id); } catch {}
-      }
-    }
-  } catch {}
-}
-
-async function dispatchEventToTab(type, tabInfo, extras = {}) {
-  // Wait for the startup loader so events arriving right after a SW
-  // restart don't fan out into an empty registry.
-  await ensureStartupGate();
-
-  const url = String(tabInfo?.url || "");
-  const descriptor = {
-    type,
-    tabId: tabInfo?.tabId ?? null,
-    pageId: tabInfo?.pageId ?? null,
-    url,
-    hostname: hostnameOf(url),
-    time: todayContext(),
-    data: extras.data || null,
-    targetGroupId: extras.targetGroupId || null,
-    // Optional. Only the heartbeat dispatch path fills this in. The
-    // sandbox advances all scope-matching timers by descriptor.elapsedMs
-    // which mirrors the default block group's "real visible-page time"
-    // exactly (content.js skips heartbeats on document.hidden tabs).
-    elapsedMs: typeof extras.elapsedMs === "number" ? extras.elapsedMs : 0
-  };
-  const result = await dispatchToSandbox(descriptor);
-  cbDebugLog("[CustomBlocker] dispatch", type, "→ tab", descriptor.tabId,
-    "url:", url, "logs:", (result?.logs?.length ?? 0));
-  ingestSandboxLogs(result, descriptor);
-  maybeQuarantineFromResult(result, descriptor);
-  await applySandboxResultToTab(descriptor.tabId, result, descriptor);
-  await processLocalFileIntents(result, descriptor);
-  if (type !== "pageHeartbeatEvent" && resultHasTimerRegistryChange(result)) {
-    scheduleCustomTimerRefreshBroadcast();
-  }
-  if (type !== "pageHeartbeatEvent" && resultHasPanelRegistryChange(result)) {
-    scheduleCustomPanelRefreshBroadcast();
-  }
-  return result;
-}
-
-// Tab + webNavigation watchers
+// Tab watchers: a rule's "tab" event.
 if (chrome.tabs && chrome.tabs.onCreated) {
-  chrome.tabs.onCreated.addListener(async (tab) => {
+  chrome.tabs.onCreated.addListener((tab) => {
     if (!tab || typeof tab.id !== "number") return;
     previousTabUrls.delete(tab.id);
     scheduleSessionFlush();
-    await dispatchEventToTab(
-      "openWebEvent",
-      { tabId: tab.id, url: tab.url || tab.pendingUrl || "" },
-      { data: { previousUrl: null, isNewTab: true } }
-    );
+    dispatchRule("tab", { kind: "open", tabId: tab.id, url: tab.url || tab.pendingUrl || "", previousUrl: null }).catch(() => {});
   });
 }
 
 if (chrome.tabs && chrome.tabs.onRemoved) {
-  chrome.tabs.onRemoved.addListener(async (tabId, _info) => {
+  chrome.tabs.onRemoved.addListener((tabId) => {
     const previous = previousTabUrls.get(tabId);
     previousTabUrls.delete(tabId);
     cbCoveredTabs.delete(tabId);
@@ -2871,18 +2377,10 @@ if (chrome.tabs && chrome.tabs.onRemoved) {
       if (key.startsWith(`${tabId}␟`)) { cbPausePasses.delete(key); dropped = true; }
     }
     if (dropped) cbSaveCoverState();
-    // The tab is gone — any apply messages we queued for it will never
-    // be drained, so clear that entry too to keep both in-memory and
-    // session-persisted state from leaking forever.
-    if (pendingApplyByTab.has(tabId)) {
-      pendingApplyByTab.delete(tabId);
-    }
+    // Apply messages queued for it will never be drained.
+    pendingApplyByTab.delete(tabId);
     scheduleSessionFlush();
-    await dispatchEventToTab(
-      "closeWebEvent",
-      { tabId, url: previous?.url || "" },
-      { data: { reason: "tabClosed", nextUrl: null } }
-    );
+    dispatchRule("tab", { kind: "close", tabId, url: previous?.url || "", previousUrl: null }).catch(() => {});
   });
 }
 
@@ -2898,11 +2396,6 @@ async function handleCommittedWebNavigation(details, transition = "commit") {
     await cbSetTabCovered(tabId, false);
   }
 
-  // Chokepoint: close tab immediately if navigating to a dynamically blocked site.
-  if (details.url && windowBlocklistMatches(details.url)) {
-    try { await chrome.tabs.remove(tabId); } catch {}
-    return;
-  }
   const previous = previousTabUrls.get(tabId);
   const previousUrl = previous?.url || null;
   const previousHost = previous?.hostname || "";
@@ -2913,7 +2406,7 @@ async function handleCommittedWebNavigation(details, transition = "commit") {
   // than onCommitted — this is how single-page apps like YouTube move between
   // e.g. the home feed and a /shorts/ player without a full document load.
   // Skip no-op history replaces (identical URL) so frequent replaceState calls
-  // don't spam webChangedEvent; genuine reloads still arrive via onCommitted.
+  // don't spam the rules' \"tab\" event; genuine reloads still arrive via onCommitted.
   if (transition === "history" && previous && previousUrl === nextUrl) return;
   // The page's one navigation signal: its address changed without a load.
   if (transition === "history") trySendApply(tabId, { type: "page-navigated" }).catch(() => {});
@@ -2921,31 +2414,7 @@ async function handleCommittedWebNavigation(details, transition = "commit") {
   previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
   scheduleSessionFlush();
 
-  const isFirstLoad = !previous;
-  const isReload = !!previous && previousUrl === nextUrl;
-  const sameDomain = !!previousHost && previousHost === nextHost;
-
-  // webChangedEvent is emitted once per accepted navigation record — full
-  // document loads (transition "commit") AND in-page history updates
-  // (transition "history"). It carries everything a rule needs to classify
-  // the navigation: previousUrl/previousHostname plus isFirstLoad, isReload,
-  // and sameDomain, so same-tab URL changes and cross-domain hops are derived
-  // in-rule rather than dispatched as separate switch events.
-  // openWebEvent is reserved for actual tab creation; closeWebEvent for close.
-  await dispatchEventToTab(
-    "webChangedEvent",
-    { tabId, url: nextUrl },
-    {
-      data: {
-        previousUrl,
-        previousHostname: previousHost,
-        sameDomain,
-        isFirstLoad,
-        isReload,
-        transition
-      }
-    }
-  );
+  await dispatchRule("tab", { kind: "navigate", tabId, url: nextUrl, previousUrl });
 }
 
 if (chrome.webNavigation && chrome.webNavigation.onCommitted) {
@@ -2967,38 +2436,16 @@ for (const event of ["onHistoryStateUpdated", "onReferenceFragmentUpdated"]) {
   });
 }
 
-const lastTickSecondByTab = new Map();
-
-// Shared tickEvent — fires once per second for each open tab.
-async function emitTickToAllTabs() {
+// The rules' "tick", every second (offscreen.js drives it): the open tabs.
+async function emitRuleTick() {
+  if (!cbRulesHandle("tick")) return;
   const tabs = await chrome.tabs.query({});
-  const tickSecond = Math.floor(Date.now() / 1000);
-  const liveTabIds = new Set();
-  for (const tab of tabs) {
-    if (!tab || typeof tab.id !== "number") continue;
-    liveTabIds.add(tab.id);
-    if (lastTickSecondByTab.get(tab.id) === tickSecond) continue;
-    lastTickSecondByTab.set(tab.id, tickSecond);
-    await dispatchEventToTab(
-      "tickEvent",
-      { tabId: tab.id, url: tab.url || "" },
-      { data: { intervalMs: 1000 } }
-    );
-  }
-  for (const tabId of Array.from(lastTickSecondByTab.keys())) {
-    if (!liveTabIds.has(tabId)) lastTickSecondByTab.delete(tabId);
-  }
-}
-
-if (chrome.alarms) {
-  chrome.alarms.onAlarm.addListener(async (alarm) => {
-    if (!alarm || alarm.name !== TICK_ALARM_NAME) return;
-    await emitTickToAllTabs();
+  await dispatchRule("tick", {
+    tabs: tabs.filter((tab) => typeof tab?.id === "number").map((tab) => ({ tabId: tab.id, url: tab.url || "", active: Boolean(tab.active) }))
   });
-  chrome.alarms.create(TICK_ALARM_NAME, { periodInMinutes: TICK_ALARM_PERIOD_MINUTES });
 }
 
-// Popup / external request handlers for Run, post, list.
+// The editor's rule requests and the pages' rule messages.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;
 
@@ -3015,30 +2462,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       await cbClusterCopyReady;
       // A frozen group's rule is not changed (the editor disables Run too).
       if (CBGroupActions.isLocked(group) || cbEnforceOnly(group)) return sendResponse({ ok: false, error: "group-locked" });
-      // Popup is the source of truth; fall back to saved text so SW
-      // restarts can re-run without a popup roundtrip.
-      const sourceText = typeof message.source === "string"
-        ? message.source
-        : (typeof group.blockingRulesText === "string" ? group.blockingRulesText : "");
-      // Clicking Run is the user's explicit "I edited the rule, try
-      // again" gesture — so it always RE-ENABLES the group, even if a
-      // previous overrun had quarantined it (enabled=false +
-      // lastAbortReason). Without this, a quarantined rule would show
-      // "0 handler(s) registered" forever because loadCustomGroupSource
-      // sees enabled=false and immediately unloads. We also clear the
-      // lastAbortReason so the popup doesn't keep showing a stale
-      // "auto-disabled" badge after the user re-runs.
-      const next = {
-        ...group,
-        enabled: true,
-        activeEventSource: sourceText,
-        lastAbortReason: null
-      };
+      const sourceText = typeof message.source === "string" ? message.source : "";
+      // Run starts the rule fresh (its state cleared) and re-enables a group
+      // an overrun disabled. A rule that doesn't load changes nothing: the
+      // one running before keeps running.
+      const next = { ...group, enabled: true, activeEventSource: sourceText, lastAbortReason: null };
+      const loadResult = await loadCustomGroupSource(next, { state: {} });
+      if (!loadResult || !loadResult.ok) return sendResponse({ ok: true, loadResult: loadResult || { ok: false, error: "sandbox-timeout" } });
       groups[idx] = next;
       // Loaded here, so the write's own reconcile finds it already loaded.
       lastReconcileSnapshot.set(groupId, { enabled: true, activeEventSource: sourceText });
-      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
-      const loadResult = await loadCustomGroupSource(next, { resetHostBlocks: true });
+      const states = (await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {};
+      delete states[groupId];
+      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups, [CB_RULE_STATE_KEY]: states });
       sendResponse({ ok: true, loadResult });
     })().catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
@@ -3056,7 +2492,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "offscreen-tick") {
-    emitTickToAllTabs().catch(() => {});
+    emitRuleTick().catch(() => {});
     sendResponse({ ok: true });
     return false;
   }
@@ -3099,22 +2535,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  if (message.type === "check-custom-group-syntax") {
-    // Compiles under a throwaway group id; no real group is touched.
-    (async () => {
-      try {
-        const result = await sendToEventSandbox({
-          kind: "check-source",
-          source: typeof message.source === "string" ? message.source : ""
-        });
-        sendResponse({ ok: true, result });
-      } catch (error) {
-        sendResponse({ ok: false, error: String(error && error.message ? error.message : error) });
-      }
-    })();
-    return true;
-  }
-
   if (message.type === "reset-group-runtime") {
     cbResetGroupRuntime(String(message.groupId || ""))
       .then(() => sendResponse({ ok: true }))
@@ -3123,7 +2543,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "fire-snooze-press") {
-    // A custom group's Snooze: the rule's snoozePress event (the rule decides).
+    // A custom group's Snooze: the rule's "snooze" event (the rule decides).
     (async () => {
       try {
         const groupId = String(message.groupId || "");
@@ -3144,51 +2564,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "evaluate-platform-items") {
-    (async () => {
-      await ensureStartupGate();
-      const items = Array.isArray(message.items) ? message.items : [];
-      const r = await sendToEventSandbox({
-        kind: "evaluate-platform-items",
-        platform: message.platform,
-        slot: message.slot,
-        items
-      });
-      sendResponse({
-        ok: Boolean(r && r.ok),
-        results: r && Array.isArray(r.results) ? r.results : [],
-        evaluatedGroups: r && Array.isArray(r.evaluatedGroups) ? r.evaluatedGroups : []
-      });
-    })();
+
+  // A rule's panel interaction: its "panel" event.
+  if (message.type === "custom-panel-event") {
+    const data = {
+      panelId: typeof message.panelId === "string" ? message.panelId : "",
+      controlId: typeof message.controlId === "string" ? message.controlId : "",
+      eventName: typeof message.eventName === "string" ? message.eventName : "",
+      value: message.value ?? null,
+      values: message.values && typeof message.values === "object" ? message.values : {}
+    };
+    dispatchRule("panel", data, { targetGroupId: typeof message.groupId === "string" ? message.groupId : "" })
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ ok: false, error: String(error?.message || error) }));
     return true;
   }
 
-  if (message.type === "custom-panel-event") {
-    (async () => {
-      await ensureStartupGate();
-      const tabId = sender?.tab?.id ?? (typeof message.tabId === "number" ? message.tabId : null);
-      const url = String(message.url || sender?.tab?.url || sender?.url || "");
-      const groupId = typeof message.groupId === "string" ? message.groupId : "";
-      const data = {
-        panelId: typeof message.panelId === "string" ? message.panelId : "",
-        controlId: typeof message.controlId === "string" ? message.controlId : "",
-        eventName: typeof message.eventName === "string" ? message.eventName : "",
-        value: message.value,
-        values: message.values && typeof message.values === "object" ? message.values : {},
-        key: typeof message.key === "string" ? message.key : "",
-        code: typeof message.code === "string" ? message.code : "",
-        keyInfo: message.keyInfo && typeof message.keyInfo === "object" ? message.keyInfo : null
-      };
-      const result = await dispatchEventToTab(
-        "panelEvent",
-        { tabId, url },
-        { data, targetGroupId: groupId }
-      );
-      sendResponse({ ok: true, result });
-    })().catch((error) => {
-      sendResponse({ ok: false, error: String(error && error.message ? error.message : error) });
-    });
-    return true;
+  // A page's feed items (and the page itself) for the rules that want them.
+  if (message.type === "rule-items") {
+    const tabId = sender?.tab?.id;
+    if (typeof tabId !== "number") return false;
+    dispatchRule("items", {
+      tabId,
+      platform: typeof message.platform === "string" ? message.platform : "",
+      items: Array.isArray(message.items) ? message.items.slice(0, 500) : []
+    }).catch(() => {});
+    sendResponse({ ok: true });
+    return false;
   }
 
   return false;
@@ -3253,7 +2655,7 @@ async function cbApplyStoredGroupChange(oldValue, newValue) {
   const restart = after.filter((g) => before.has(g.id) && CBGroupActions.budgetRestarts(before.get(g.id), g)).map((g) => g.id);
   const gone = [...before.keys()].filter((id) => !present.has(id));
   if (restart.length === 0 && gone.length === 0) return cbRenameDuplicates(after);
-  const keys = [USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY, GROUP_SNOOZES_KEY, GROUP_SNOOZE_TOTALS_KEY, CBParentalPin.ATTEMPTS_KEY, CB_OFFLINE_USAGE_KEY, CB_QUICK_ADD_GROUP_KEY];
+  const keys = [USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY, GROUP_SNOOZES_KEY, GROUP_SNOOZE_TOTALS_KEY, CBParentalPin.ATTEMPTS_KEY, CB_OFFLINE_USAGE_KEY, CB_RULE_STATE_KEY, CB_QUICK_ADD_GROUP_KEY];
   const stored = await chrome.storage.local.get(keys);
   const writes = {};
   const edit = (key) => (writes[key] ??= { ...(stored[key] && typeof stored[key] === "object" ? stored[key] : {}) });

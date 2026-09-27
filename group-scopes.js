@@ -493,7 +493,7 @@
   // The service worker, the editor (which then shows one entry's flat view)
   // and Mac Vault's tools (in JavaScriptCore) all use these. They need
   // platform-profiles.js and group-actions.js loaded (read at call time).
-  const DEFAULT_CUSTOM_RULE = "(event, helpers) => {\n  // Register handlers here.\n}";
+  const DEFAULT_CUSTOM_RULE = "(on, v) => {\n  // Register handlers here.\n}";
 
   // A site entry is a host ("youtube.com": that host and its subdomains) or a
   // host plus a path prefix ("youtube.com/shorts": only that path and everything

@@ -30,6 +30,7 @@ const context = vm.createContext({
   scheduleApplyFeedFilters() { rescans += 1; },
   reconcilePageMutations() {},
   cbSetGroupOrder() {},
+  cbScheduleRuleItems() {},
   vaultTagsForCard: (root) => tagsByRoot.get(root) || [],
   vaultTagsSettledForCard: (root) => settledByRoot.get(root) !== false
 });

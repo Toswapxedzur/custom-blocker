@@ -54,8 +54,8 @@ const LOCAL_FOLDER_ROOT_KEY = "root";
 const LOCAL_FOLDER_META_KEY = "metadata";
 
 // Debug-mode-gated console helpers. Mirror the implementation in
-// background.js / content.js / event-sandbox.js so every context has
-// the same surface and they're all silent by default.
+// background.js / content.js so every context has the same surface and
+// they're all silent by default.
 let cbDebugMode = false;
 function cbDebugLog(...args) { if (cbDebugMode) { try { console.log(...args); } catch (_) {} } }
 function cbDebugWarn(...args) { if (cbDebugMode) { try { console.warn(...args); } catch (_) {} } }
@@ -1090,7 +1090,6 @@ async function saveSettingsFromForm() {
     tickRateMs: state.globalSettings?.tickRateMs,
     autosaveDebounceMs: state.globalSettings?.autosaveDebounceMs,
     debugMode: state.globalSettings?.debugMode,
-    showOnPageLogToasts: state.globalSettings?.showOnPageLogToasts,
     defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
     quickAddEnabled: settingsQuickAddField ? settingsQuickAddField.checked : state.globalSettings?.quickAddEnabled,
     quitRetryMinutes: settingsQuitRetryMinutesField ? settingsQuitRetryMinutesField.value : state.globalSettings?.quitRetryMinutes
@@ -3663,7 +3662,7 @@ function updateSnoozeUI(group, now = Date.now()) {
   snoozeCooldownField.disabled = settingsLocked || !allowSnooze;
   snoozeConfirmationsField.disabled = settingsLocked || !allowSnooze;
 
-  // Custom groups own snooze semantics via the snoozePress handler, so
+  // Custom groups own snooze semantics via the rule's "snooze" event, so
   // the numeric knobs are hidden and a copy line replaces them.
   if (snoozeNumericFields) {
     snoozeNumericFields.classList.toggle("hidden", isCustomGroup);
@@ -5404,9 +5403,8 @@ async function startSnooze() {
     return;
   }
 
-  // Custom groups: Start Snooze fires a snoozePress event. The button
-  // is purely a notification trigger; custom rules cannot programmatically
-  // snooze the group.
+  // Custom groups: Start Snooze sends the rule its "snooze" event; the rule
+  // decides what happens (the group itself doesn't snooze).
   if (group.groupType === "custom") {
     setSnoozeWarning("");
     try {
@@ -5769,10 +5767,9 @@ if (aiPromptInput) {
 }
 
 // Wall-clock watchdog for the Run flow. If a previous custom rule
-// already locked the sandbox iframe with an infinite loop, the
-// background's `await chrome.runtime.sendMessage(... event-sandbox-request)`
-// hangs until offscreen.js's hard timeout fires (~5s) and tears the
-// iframe down. We give the whole round trip a generous 8s budget so the
+// already locked the sandbox iframe with an infinite loop, the worker's
+// sandbox request hangs until offscreen.js's hard timeout fires (~5s) and
+// tears the iframe down. We give the whole round trip a generous 8s budget so the
 // status pill can flip to "Halted" even in the worst case where the
 // SW round trip + iframe reset both happen.
 const RUN_CUSTOM_GROUP_TIMEOUT_MS = 8000;
@@ -5785,51 +5782,11 @@ function timeoutFallback(ms) {
   }), ms));
 }
 
-async function requestCustomGroupSyntaxCheck(source) {
-  const response = await Promise.race([
-    chrome.runtime.sendMessage({
-      type: "check-custom-group-syntax",
-      source
-    }),
-    timeoutFallback(RUN_CUSTOM_GROUP_TIMEOUT_MS)
-  ]);
-
-  if (response && response.__timedOut) {
-    return {
-      ok: false,
-      text:
-        "Halted: syntax check took too long. Your code likely contains " +
-        "an infinite loop in the registration body.",
-      statusKey: "status.customSyntaxHaltedTimeBudget"
-    };
-  }
-
-  if (response && response.ok && response.result && response.result.ok) {
-    const handlers = response.result.handlers ?? 0;
-    return {
-      ok: true,
-      handlers,
-      text: t("custom.checkSyntaxOk", { count: String(handlers) })
-    };
-  }
-
-  return {
-    ok: false,
-    text:
-      (response && response.result && response.result.error) ||
-      (response && response.error) ||
-      t("custom.checkSyntaxFailed")
-  };
-}
-
 function buildCustomRuleAiPrompt(userRequest, currentRule) {
   const demand = String(userRequest || "").trim() || "(No extra user request was provided.)";
   const existingRule = String(currentRule || "").trim() || "(No current rule.)";
-  const reference =
-    typeof globalThis.CUSTOM_RULE_AI_REFERENCE === "string" &&
-    globalThis.CUSTOM_RULE_AI_REFERENCE.trim()
-      ? globalThis.CUSTOM_RULE_AI_REFERENCE
-      : "CUSTOM_RULE_API_REFERENCE_UNAVAILABLE";
+  // The engine this editor runs rules on: Mac Vault's (apps) or the browser's.
+  const reference = RuleCore.reference(IS_NATIVE_DESKTOP ? "mac" : "browser");
 
   return [
     "TASK: Generate a Custom-rule source for Adamancia Vault.",
@@ -5874,25 +5831,10 @@ async function runSelectedCustomGroup() {
   await flushAutosave();
   const source = String(blockingRulesField?.value ?? "").trim();
   if (runCustomGroupStatus) {
-    runCustomGroupStatus.textContent = t("custom.checkSyntaxRunning");
+    runCustomGroupStatus.textContent = t("custom.runStatusRunning");
     runCustomGroupStatus.className = "run-status";
   }
   try {
-    const syntaxResult = await requestCustomGroupSyntaxCheck(source);
-    if (!syntaxResult.ok) {
-      if (runCustomGroupStatus) {
-        runCustomGroupStatus.textContent = syntaxResult.text;
-        runCustomGroupStatus.className = "run-status error";
-      }
-      setStatus(syntaxResult.statusKey ? t(syntaxResult.statusKey) : syntaxResult.text, true);
-      return;
-    }
-
-    if (runCustomGroupStatus) {
-      runCustomGroupStatus.textContent = t("custom.runStatusRunning");
-      runCustomGroupStatus.className = "run-status";
-    }
-
     const response = await Promise.race([
       chrome.runtime.sendMessage({
         type: "run-custom-group",
@@ -5914,20 +5856,13 @@ async function runSelectedCustomGroup() {
       if (lr.ok) {
         markCustomGroupSourceActive(group.id, source);
         if (runCustomGroupStatus) {
-          // Append a reload reminder so the user knows that already-
-          // open tabs need a refresh before content-script-driven
-          // behaviors (overlay, blockPageOnVisit) reflect the new
-          // rule. Newly-opened tabs pick it up automatically.
-          runCustomGroupStatus.textContent =
-            t("custom.runStatusOk", { count: String(lr.handlers ?? 0) }) +
-            " — " + t("custom.runReloadReminder");
+          runCustomGroupStatus.textContent = t("custom.runStatusOk", { count: String(lr.handlers ?? 0) });
           runCustomGroupStatus.className = "run-status success";
         }
         setStatus(t("status.customGroupRan", { name: group.name, count: String(lr.handlers ?? 0) }));
       } else {
-        // Hard-timeout from offscreen surfaces as error="sandbox-timeout"
-        // with a quarantine hint. Display the reason in human terms so
-        // the user knows their rule was force-disabled.
+        // The rule didn't load (the one running before keeps running).
+        // A hard timeout from offscreen surfaces as error="sandbox-timeout".
         let displayError = lr.error || t("custom.runStatusError");
         if (lr.error === "sandbox-timeout") {
           displayError = t("custom.runStatusSandboxTimeout");
@@ -6462,7 +6397,7 @@ window.addEventListener("visibilitychange", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────
-// Activity log feed — displays sandbox getLogHelper() output inside the
+// Activity log feed — displays the rules' v.log() output inside the
 // popup itself. Pulls a buffer from background on open and subscribes to
 // live "log-feed-entry" broadcasts.
 // ────────────────────────────────────────────────────────────────────────
@@ -6491,9 +6426,7 @@ function renderLogFeedEntry(entry) {
 
   // Feed entries are tagged with the originating group's id (plus the
   // eventType), never its display name — so filter by id against the
-  // selected group. The previous name-based match fell back to eventType
-  // (e.g. "load-source"/"webChangedEvent"), which never equals a group
-  // name, so every entry was hidden whenever a group was selected.
+  // selected group.
   const gid = entry.groupId || "";
 
   const row = document.createElement("div");

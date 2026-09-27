@@ -678,12 +678,9 @@
   const DEFAULT_GLOBAL_SETTINGS = Object.freeze({
     tickRateMs: 1000,
     autosaveDebounceMs: 400,
-    // Debug mode is off by default. When on it (a) shows the on-page debug log
-    // overlay for custom rules and (b) emits the [CustomBlocker:trace] /
-    // [CustomBlocker] dispatch console lines. helpers.log() output flows
-    // regardless.
+    // Debug mode is off by default; when on it emits the [CustomBlocker]
+    // console lines.
     debugMode: false,
-    showOnPageLogToasts: true,
     // The tiny floating "+" on pages and in the desktop app (off by default).
     quickAddEnabled: false,
     defaultSnoozeMinutes: DEFAULT_SNOOZE_MINUTES,
@@ -725,7 +722,6 @@
       tickRateMs: Math.round(clampNumber(src.tickRateMs, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, defaults.tickRateMs)),
       autosaveDebounceMs: Math.round(clampNumber(src.autosaveDebounceMs, 0, AUTOSAVE_DEBOUNCE_MAX_MS, defaults.autosaveDebounceMs)),
       debugMode: src.debugMode === true,
-      showOnPageLogToasts: src.showOnPageLogToasts !== false,
       defaultSnoozeMinutes: parseSnoozeMinutes(src.defaultSnoozeMinutes) ?? defaults.defaultSnoozeMinutes,
       quickAddEnabled: src.quickAddEnabled === true,
       quitRetryMinutes: Math.round(clampNumber(src.quitRetryMinutes, 0, QUIT_RETRY_MAX_MINUTES, defaults.quitRetryMinutes))

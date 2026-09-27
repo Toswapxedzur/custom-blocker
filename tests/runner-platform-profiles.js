@@ -76,11 +76,8 @@ assertEqual("Bilibili search is unknown", detectVideoSiteContext("search.bilibil
 assertEqual("X status permalink is post", detectVideoSiteContext("x.com", "/BrawlStars/status/2102730439869837540"),
   { site: "twitter", form: "post" });
 assertEqual("X home is unknown", detectVideoSiteContext("x.com", "/home"), { site: "twitter", form: "unknown" });
-assertEqual("X status maps to the posts slot", platformVideoFormToSlot("twitter", "post"), "posts");
 assert("X feed profile names the status permalink as its href",
   PLATFORM_PROFILES.twitter.feed.hrefSelectors.includes('a[href*="/status/"]'));
-assertEqual("Reddit post maps to the posts slot", platformVideoFormToSlot("reddit", "post"), "posts");
-assertEqual("Bilibili video maps to the videos slot", platformVideoFormToSlot("bilibili", "long"), "videos");
 assert("Bilibili feed containers include the watch page's up-next card",
   PLATFORM_PROFILES.bilibili.feed.containerSelectors.includes(".video-page-card-small"));
 assert("Reddit feed profile names the post permalink as its href",
@@ -95,20 +92,6 @@ assertEqual("Facebook share routes are not treated as creator names",
   normalizeSourceInput("/share/v/abc", "facebook"), null);
 assertEqual("Twitch creator path is a stream form", detectVideoSiteContext("www.twitch.tv", "/some_streamer"),
   { site: "twitch", form: "post" });
-
-log.section("P2: custom-rule slot mapping");
-assertEqual("TikTok short-form maps to the videos helper slot",
-  platformVideoFormToSlot("tiktok", "short"), "videos");
-assertEqual("Instagram reel maps to the shorts helper slot",
-  platformVideoFormToSlot("instagram", "short"), "shorts");
-assertEqual("Facebook post maps to the posts helper slot",
-  platformVideoFormToSlot("facebook", "post"), "posts");
-assertEqual("Twitch channel-path stream maps to the streams helper slot",
-  platformVideoFormToSlot("twitch", "post"), "streams");
-assertEqual("Twitch clip maps to the shorts helper slot",
-  platformVideoFormToSlot("twitch", "short"), "shorts");
-assertEqual("Instagram legacy TV has no exposed custom helper slot",
-  platformVideoFormToSlot("instagram", "long"), null);
 
 log.section("P2b: a platform entry stays on its own platform (owner 2026-09-26)");
 assert("a YouTube Shorts form never matches a TikTok video",

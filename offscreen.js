@@ -39,42 +39,6 @@ try {
   }
 } catch (_) {}
 
-// Mirrors the Settings → Debug mode flag. We hydrate it from storage
-// on load and forward changes down to the sandbox so trace output
-// inside the iframe matches the user's preference without us having
-// to round-trip through background.
-let cbDebugMode = false;
-function pushDebugModeToSandbox() {
-  if (!sandboxFrame || !sandboxFrame.contentWindow) return;
-  if (!sandboxReady) return;
-  try {
-    sandboxFrame.contentWindow.postMessage(
-      {
-        source: "custom-blocker-offscreen",
-        id: 0,
-        payload: { kind: "set-debug-mode", debugMode: cbDebugMode }
-      },
-      "*"
-    );
-  } catch (_) {}
-}
-try {
-  if (chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get("globalSettings", (r) => {
-      const s = r && r.globalSettings;
-      if (s && typeof s === "object") cbDebugMode = s.debugMode === true;
-    });
-    if (chrome.storage.onChanged) {
-      chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== "local" || !changes.globalSettings) return;
-        const next = changes.globalSettings.newValue;
-        cbDebugMode = next && typeof next === "object" ? next.debugMode === true : false;
-        pushDebugModeToSandbox();
-      });
-    }
-  }
-} catch (_) {}
-
 // Hard kill: any single sandbox request that doesn't reply within this
 // budget triggers an iframe reload, which kills the locked event loop
 // (the only way to recover from a `while (true)` user handler with no
@@ -189,24 +153,6 @@ window.addEventListener("message", (event) => {
 
   if (data.type === "ready") {
     sandboxReady = true;
-    // Pass the chrome-extension:// origin so helpers like createMessageUrl
-    // can build fully-qualified URLs (the sandbox has no chrome.runtime).
-    // Also send the current debugMode so verbose tracing inside the
-    // sandbox is silenced from the very first dispatch when off.
-    try {
-      sandboxFrame.contentWindow.postMessage(
-        {
-          source: "custom-blocker-offscreen",
-          id: 0,
-          payload: {
-            kind: "init",
-            extensionUrlPrefix: chrome.runtime.getURL(""),
-            debugMode: cbDebugMode === true
-          }
-        },
-        "*"
-      );
-    } catch (_) {}
     while (queuedToSandbox.length > 0) {
       sandboxFrame.contentWindow.postMessage(queuedToSandbox.shift(), "*");
     }
@@ -507,59 +453,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-// Drive the shared tickEvent from this long-lived document. The SW alarm
-// has a 1-minute floor, so we ping background here instead. The interval
-// is user-configurable via globalSettings.tickRateMs.
-const TICK_RATE_DEFAULT_MS = 1000;
-const TICK_RATE_MIN_MS = 250;
-const TICK_RATE_MAX_MS = 60_000;
-let tickIntervalHandle = null;
-
-function clampTickRate(value) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return TICK_RATE_DEFAULT_MS;
-  return Math.max(TICK_RATE_MIN_MS, Math.min(TICK_RATE_MAX_MS, parsed));
-}
-
-function applyTickRate(rateMs) {
-  const next = clampTickRate(rateMs);
-  if (tickIntervalHandle !== null) {
-    clearInterval(tickIntervalHandle);
-  }
-  tickIntervalHandle = setInterval(() => {
-    chrome.runtime.sendMessage({ type: "offscreen-tick" }).catch(() => {});
-  }, next);
-}
-
-// chrome.storage may be undefined in some offscreen-document contexts;
-// feature-guard so a missing API falls back to the default tick rate.
-function applyTickRateFromStorage() {
-  try {
-    if (!chrome?.storage?.local?.get) {
-      applyTickRate(TICK_RATE_DEFAULT_MS);
-      return;
-    }
-    chrome.storage.local.get({ globalSettings: null }).then((result) => {
-      const settings = result?.globalSettings;
-      applyTickRate(settings?.tickRateMs ?? TICK_RATE_DEFAULT_MS);
-    }).catch(() => {
-      applyTickRate(TICK_RATE_DEFAULT_MS);
-    });
-  } catch (_) {
-    applyTickRate(TICK_RATE_DEFAULT_MS);
-  }
-}
-
-function subscribeToSettingsChanges() {
-  try {
-    if (!chrome?.storage?.onChanged?.addListener) return;
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== "local" || !changes.globalSettings) return;
-      const next = changes.globalSettings.newValue;
-      applyTickRate(next?.tickRateMs ?? TICK_RATE_DEFAULT_MS);
-    });
-  } catch (_) {}
-}
-
-applyTickRateFromStorage();
-subscribeToSettingsChanges();
+// The rules' "tick", every second, from this long-lived document (the
+// worker's alarms have a one-minute floor).
+setInterval(() => {
+  chrome.runtime.sendMessage({ type: "offscreen-tick" }).catch(() => {});
+}, 1000);
