@@ -112,7 +112,7 @@
       },
       ...(typeof engineActions === "function" ? engineActions(act, check, requestId) : {})
     };
-    // The group's memory: one JSON object, kept across restarts; Run clears it.
+    // The group's memory: one JSON object, kept across restarts and Run.
     Object.defineProperty(v, "state", {
       enumerable: true,
       get: () => stateObj,
@@ -433,7 +433,7 @@
   const SHARED_REFERENCE = [
     "A rule is ONE JavaScript function expression: (on, v) => { … }. It runs once when the user presses Run: register handlers there. Run, disabling or deleting the group removes the old handlers.",
     "on(type, handler) adds a handler; several per type are fine. handler(ev) gets ev = { type, now (ms since 1970), data }. Handlers are synchronous and must finish within 1 s: no loops that wait, no network, no timers, no DOM of your own (you run in a sandbox).",
-    "v.state is the group's memory: one JSON object (≤ 64 KB), kept across restarts, cleared on Run. Change it freely inside handlers.",
+    "v.state is the group's memory: one JSON object (≤ 64 KB), kept across restarts and across Run (a new version of the rule finds what the old one saved), deleted with the group. Change it freely inside handlers.",
     "v.log(...values) writes to the group's log in the editor.",
     "v.emit(type, data) delivers a \"type\" event with that data to this group, right after the current one.",
     "v.panel(id, spec, tabId?) shows a panel (spec = { title, description, position: top-left|top-right|bottom-left|bottom-right|center, layout, width: small|medium|large, theme: { background, foreground, accent, border, muted }, controls: [...] }); calling again replaces it; v.panel(id, null) removes it. Controls: { id, type, label, value, ... } with type text (text), html (html, sanitized), button (action submit|cancel|close), checkbox, toggle, select / radio (options), textInput / textarea (placeholder), numberInput / range (min, max, step), date, time, color, pin (length, masked), section (controls). Interactions arrive as \"panel\" events: data = { panelId, controlId, eventName, value, values }.",

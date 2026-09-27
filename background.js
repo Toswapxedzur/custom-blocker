@@ -2006,8 +2006,9 @@ function cbSetRulePanels(groupId, panels) {
   broadcastCustomPanelRefresh([groupId]).catch(() => {});
 }
 
-// `state` replaces the stored one (Run starts from {}).
-async function loadCustomGroupSource(group, { state = null } = {}) {
+// Loads a group's rule with its stored memory; `run` (the Run button) also
+// replaces the rule's panels.
+async function loadCustomGroupSource(group, { run = false } = {}) {
   if (!group || group.groupType !== "custom") return null;
   const source = group.enabled && typeof group.activeEventSource === "string" ? group.activeEventSource : "";
   const pageNeeds = cbRulePageNeeds();
@@ -2016,7 +2017,7 @@ async function loadCustomGroupSource(group, { state = null } = {}) {
     result = await unloadCustomGroupHandlers(group.id);
     result = result ? { ok: true, handlers: 0, error: null } : null;
   } else {
-    const stored = state || ((await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {})[group.id] || {};
+    const stored = ((await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {})[group.id] || {};
     result = await sendToEventSandbox({ kind: "load-source", groupId: group.id, source, state: stored });
     if (result) {
       for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType: "run" });
@@ -2027,7 +2028,7 @@ async function loadCustomGroupSource(group, { state = null } = {}) {
         cbRuleTypes.set(group.id, new Set(Array.isArray(result.types) ? result.types : []));
         // Run starts the panels over; a reload of the same rule (a restarted
         // worker) keeps the ones on screen until the rule changes them.
-        if (state || !cbRulePanels.has(group.id)) cbSetRulePanels(group.id, Array.isArray(result.panels) ? result.panels : []);
+        if (run || !cbRulePanels.has(group.id)) cbSetRulePanels(group.id, Array.isArray(result.panels) ? result.panels : []);
         if (cbRuleTypes.get(group.id).has("items")) cbRuleItemsEpoch += 1;
       }
     }
@@ -2451,8 +2452,8 @@ async function emitRuleTick() {
 }
 
 // Run (the editor's button and the AI tool): the text becomes the group's
-// rule, starts fresh (its state cleared) and re-enables a group an overrun
-// disabled. A rule that doesn't load changes nothing — the one running before
+// rule — keeping its memory (v.state, owner 2026-09-27) — and re-enables a
+// group an overrun disabled. A rule that doesn't load changes nothing — the one running before
 // keeps running — and its load result says why. A frozen group is refused.
 async function cbRunCustomGroup(groupId, source) {
   await ensureStartupGate();
@@ -2467,7 +2468,7 @@ async function cbRunCustomGroup(groupId, source) {
   if (!group || group.groupType !== "custom") throw new Error("group-not-found");
   if (CBGroupActions.isLocked(group) || cbEnforceOnly(group)) throw new Error("group-locked");
   const fields = { enabled: true, blockingRulesText: source, activeEventSource: source, lastAbortReason: null };
-  const loadResult = await loadCustomGroupSource({ ...group, ...fields }, { state: {} });
+  const loadResult = await loadCustomGroupSource({ ...group, ...fields }, { run: true });
   if (!loadResult || !loadResult.ok) return loadResult || { ok: false, error: "sandbox-timeout" };
   // The load took a while: write onto what is stored now.
   const { groups, index } = await find();
@@ -2475,9 +2476,7 @@ async function cbRunCustomGroup(groupId, source) {
   groups[index] = { ...groups[index], ...fields };
   // Loaded here, so the write's own reconcile finds it already loaded.
   lastReconcileSnapshot.set(groupId, { enabled: true, activeEventSource: source });
-  const states = (await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {};
-  delete states[groupId];
-  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups, [CB_RULE_STATE_KEY]: states });
+  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
   return loadResult;
 }
 
