@@ -218,7 +218,15 @@ function getFeedCardElements(site) {
         cards.add((feedProfile.cardClosest && node.closest?.(feedProfile.cardClosest)) || node);
       }
     }
-    return [...cards];
+    // One card per item: a wrapper inside another card (YouTube's lockup in
+    // its rich item) is the same item — only the outermost counts, as the
+    // tagger counts it.
+    return [...cards].filter((card) => {
+      for (let parent = card.parentElement; parent; parent = parent.parentElement) {
+        if (cards.has(parent)) return false;
+      }
+      return true;
+    });
   }
 
   const anchorSelectors = Array.isArray(feedProfile?.anchorSelectors)
@@ -327,12 +335,9 @@ function getFeedCardCreators(card) {
 
   collectFromScope(card);
 
-  if (identifiers.size === 0) {
-    const fallbackContainer = card.closest(
-      "ytd-reel-shelf-renderer, ytd-rich-section-renderer, ytd-item-section-renderer"
-    );
-    collectFromScope(fallbackContainer);
-  }
+  // A Short in a reel shelf names its channel on the shelf, not the card
+  // (wider sections would lend every result's creator to this card).
+  if (identifiers.size === 0) collectFromScope(card.closest("ytd-reel-shelf-renderer"));
 
   return [...identifiers];
 }
@@ -429,14 +434,11 @@ function getFeedCardData(card) {
     return { videoForm: "post", creators: subreddit ? [subreddit] : [], tags: getFeedCardTags(card) };
   }
   if (currentSite === "twitter") {
-    const creators = [
-      ...new Set(
-        [...card.querySelectorAll('a[role="link"][href^="/"], a[href^="/"]')]
-          .map((anchor) => normalizeTwitterHandleInput(anchor.getAttribute("href")))
-          .filter(Boolean)
-      )
-    ];
-    return { videoForm: "post", creators, tags: getFeedCardTags(card) };
+    // The tweet's author is in its status link (/<handle>/status/<id>); the
+    // accounts it mentions or quotes are not its author.
+    const status = card.querySelector('a[href*="/status/"]')?.getAttribute("href") || "";
+    const author = normalizeTwitterHandleInput(status.split("/status/")[0]);
+    return { videoForm: "post", creators: author ? [author] : [], tags: getFeedCardTags(card) };
   }
   if (currentSite !== "youtube") {
     const href = getFeedCardHref(card, currentSite);
@@ -446,8 +448,9 @@ function getFeedCardData(card) {
     const videoContext = detectVideoSiteContext(normalizeHostname(url.hostname), url.pathname);
     const creators = [
       ...new Set(
+        // The resolved link: Bilibili writes protocol-relative ones (//space.bilibili.com/…).
         [...card.querySelectorAll("a[href]")]
-          .map((anchor) => normalizeSourceInput(anchor.getAttribute("href"), currentSite))
+          .map((anchor) => normalizeSourceInput(anchor.href, currentSite))
           .filter(Boolean)
       )
     ];
@@ -570,48 +573,10 @@ function showElement(element) {
 // block, so the blacked state clears instantly the moment the tag no longer
 // qualifies (the tag pipeline re-applies the verdict on every tag change).
 
-// Per-platform content-block profile: which element is the card's "main
-// content" to black out (the thumbnail; for a Reddit text post, its body),
-// which links are click-to-open (neutralized while blocked), and where the
-// page's own player/content lives for the page verdict. Adding a platform is
-// adding a profile — content.js itself stays platform-agnostic.
-//   media: ordered selectors, first hit wins; none → skip (never black a card)
-//   links: hrefs a blocked card must not follow
-//   page:  the page's main content; scope "document" (a global player) or
-//          "root" (the observed post element itself, as on Reddit)
-const CB_CONTENT_BLOCK_PROFILES = Object.freeze({
-  youtube: {
-    media: "ytd-thumbnail, yt-thumbnail-view-model, yt-collection-thumbnail-view-model, ytd-playlist-thumbnail, ytm-thumbnail-cover",
-    links: /\/watch|\/shorts\//,
-    page: "#movie_player, ytd-player, #shorts-player, ytd-reel-video-renderer[is-active] #player-container, #player-container",
-    pageScope: "document"
-  },
-  reddit: {
-    media: '[slot="thumbnail"], [slot="post-media-container"], shreddit-aspect-ratio, gallery-carousel, shreddit-player-2, shreddit-player, shreddit-embed, [slot="text-body"], a.thumbnail, .expando',
-    links: /\/comments\//,
-    page: '[slot="post-media-container"], shreddit-aspect-ratio, gallery-carousel, shreddit-player-2, shreddit-player, shreddit-embed, [slot="text-body"], [slot="thumbnail"], .expando',
-    pageScope: "root"
-  },
-  bilibili: {
-    media: ".bili-video-card__image, .bili-video-card__cover, .bili-video-card__wrap picture, .pic-box, .b-img, picture",
-    links: /\/video\/BV/i,
-    page: "#bilibili-player, .bpx-player-container, #playerWrap, #player",
-    pageScope: "document"
-  },
-  // X/Twitter (verified live 2026-09-23 on x.com/home + a status page): a
-  // tweet's media is its photo / video player / link card; the status page's
-  // own tweet is the observed article, so the page verdict scopes to the root.
-  twitter: {
-    media: '[data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="tweetPhoto"], [data-testid="card.wrapper"], [data-testid="card.layoutLarge.media"], [data-testid="card.layoutSmall.media"]',
-    links: /\/status\//,
-    page: '[data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="tweetPhoto"], [data-testid="card.wrapper"], [data-testid="card.layoutLarge.media"], [data-testid="card.layoutSmall.media"]',
-    pageScope: "root"
-  }
-});
-
+// The page's content-block profile (platform-profiles.js CONTENT_BLOCK_PROFILES).
 function cbContentBlockProfile() {
   const id = typeof location !== "undefined" ? getPlatformGroupTypeForHost(normalizeHostname(location.hostname)) : null;
-  return (id && CB_CONTENT_BLOCK_PROFILES[id]) || null;
+  return (id && CONTENT_BLOCK_PROFILES[id]) || null;
 }
 
 // Every media element the profile names inside `card`, top-most matches only
@@ -1005,9 +970,7 @@ function collectNavElementsToHide(filter) {
     "yt-tab-shape"
   ].join(", ");
 
-  if (filter.videoMode === "short") {
-    anchorSelectors = ['a[href="/shorts"]', 'a[href^="/shorts?"]', 'a[title="Shorts"]'];
-  } else if (filter.videoMode === "post") {
+  if (filter.videoMode === "post") {
     anchorSelectors = [
       'a[href$="/community"]',
       'a[href$="/posts"]',
@@ -1028,15 +991,9 @@ function collectNavElementsToHide(filter) {
 function collectFormShelvesToHide(filter) {
   if (!filter || filter.authorMode !== "all") return [];
   let shelfSelectors = [];
+  // Shorts: the one list, the profile's Shorts surface (nav, shelves, cards).
   if (filter.videoMode === "short") {
-    shelfSelectors = [
-      "ytd-reel-shelf-renderer",
-      "ytd-rich-shelf-renderer[is-shorts]",
-      "ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts])",
-      "ytd-rich-section-renderer:has(ytd-reel-shelf-renderer)",
-      "ytd-item-section-renderer:has(ytd-reel-shelf-renderer)",
-      "ytd-shelf-renderer:has(a[href^='/shorts/'])"
-    ];
+    shelfSelectors = getSurfaceHideEntries("youtube").find((entry) => entry.id === "shorts-button")?.selectors || [];
   } else if (filter.videoMode === "post") {
     shelfSelectors = [
       "ytd-rich-section-renderer:has(ytd-post-renderer)",
@@ -1054,8 +1011,11 @@ function collectFormShelvesToHide(filter) {
   } else {
     return [];
   }
-  let shelves = [];
-  try { shelves = [...document.querySelectorAll(shelfSelectors.join(", "))]; } catch { shelves = []; }
+  // Each selector alone: one an engine rejects doesn't drop the others.
+  const shelves = [];
+  for (const selector of shelfSelectors) {
+    try { shelves.push(...document.querySelectorAll(selector)); } catch {}
+  }
   return shelves;
 }
 
@@ -1311,30 +1271,15 @@ function collectPlatformAuthors(pathname, isYouTubePage) {
   return map;
 }
 
+// What the worker can't read from the address: the page's own authors (a
+// YouTube watch page's owner byline).
 function buildPageContext() {
   const hostname = normalizeHostname(location.hostname);
-  const isYouTubePage = isYouTubeHost(hostname);
-  const videoContext = detectVideoSiteContext(hostname, location.pathname);
-  const isRedditPage = isRedditHost(hostname);
-  const isDiscordPage = isDiscordHost(hostname);
-  const isTwitterPage = isTwitterHost(hostname);
-  const platformAuthors = collectPlatformAuthors(location.pathname, isYouTubePage);
-
   return {
     hostname,
     url: location.href,
     pathname: location.pathname,
-    isYouTubePage,
-    isYouTubeShort: location.pathname.startsWith("/shorts/"),
-    platformAuthors,
-    isRedditPage,
-    redditSubreddit: isRedditPage ? parseRedditSubredditFromPath(location.pathname) : null,
-    isDiscordPage,
-    discordServerId: isDiscordPage ? parseDiscordServerIdFromPath(location.pathname) : null,
-    discordChannelId: isDiscordPage ? parseDiscordChannelIdFromPath(location.pathname) : null,
-    isTwitterPage,
-    videoSite: videoContext.site,
-    videoForm: videoContext.form
+    platformAuthors: collectPlatformAuthors(location.pathname, isYouTubeHost(hostname))
   };
 }
 
@@ -1802,11 +1747,12 @@ function handleSession(session) {
   }
   if (cbCover.workerExit) cbApplyExit(null);
 
-  // Keep the heartbeat alive while platform feed filters are active even with no
-  // visible timer, so exposure-based usage timers keep accruing on the feed.
-  const hasActiveFeedFilters =
-    Array.isArray(session.feedFilters) && session.feedFilters.length > 0;
-  if (!session.showTimer && items.length === 0 && !hasActiveFeedFilters) {
+  // Keep the heartbeat alive while a feed filter still counts exposure (a
+  // timed group inside its allowance) even with no visible timer; an enforcing
+  // filter acts through the page observer and needs no heartbeat.
+  const countsExposure =
+    Array.isArray(session.feedFilters) && session.feedFilters.some((filter) => filter && filter.enforce === false);
+  if (!session.showTimer && items.length === 0 && !countsExposure) {
     stopHeartbeat();
   } else {
     ensureHeartbeat();
@@ -1834,6 +1780,8 @@ function clearSessionResolveRetries() {
 }
 function scheduleSessionResolveRetries() {
   clearSessionResolveRetries();
+  // Only a platform page names an owner that can land late.
+  if (!getCurrentFeedSite()) return;
   for (const delay of [400, 1200, 2500]) {
     const id = window.setTimeout(() => {
       if (exitAttempted || extensionContextInvalid) return;

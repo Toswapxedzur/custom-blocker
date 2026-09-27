@@ -73,6 +73,7 @@ context.window.addEventListener = () => {};
 context.VaultClassifierTagUI = { observe(value) { tagPresentations.push(value); }, clearPlatform() {} };
 
 vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-contract.js"), "utf8"), context, { filename: "vault-classifier-contract.js" });
+vm.runInContext(fs.readFileSync(path.join(root, "platform-profiles.js"), "utf8"), context, { filename: "platform-profiles.js" });
 vm.runInContext(fs.readFileSync(path.join(root, "vault-classifier-youtube.js"), "utf8"), context, { filename: "vault-classifier-youtube.js" });
 
 setTimeout(() => {

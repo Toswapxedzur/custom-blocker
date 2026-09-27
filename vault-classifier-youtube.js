@@ -13,19 +13,9 @@
   if (!C || typeof C.youtubeVideoIDFromURL !== "function") return;
 
   const SETTINGS_KEY = "vaultClassifierSettings";
-  const CARD_SELECTOR = [
-    "ytd-rich-item-renderer",
-    "ytd-video-renderer",
-    "ytd-compact-video-renderer",
-    "ytd-grid-video-renderer",
-    "ytd-playlist-video-renderer",
-    "ytd-reel-item-renderer",
-    "ytm-shorts-lockup-view-model",
-    "ytd-rich-grid-media",
-    "ytd-backstage-post-thread-renderer",
-    // Newer unified lockup used across home, search, and watch-next/related.
-    "yt-lockup-view-model"
-  ].join(",");
+  // The same cards the feed filters act on (platform-profiles.js, loaded
+  // first in this isolated world).
+  const CARD_SELECTOR = PLATFORM_PROFILES.youtube.feed.cardSelectors.join(",");
   // Title element across the old renderers and the new lockup components. The
   // pill anchors after whichever matches first.
   const TITLE_SELECTORS = [
@@ -452,6 +442,18 @@
     ], 16000);
   }
 
+  // The page's own video area. On a Short only the active reel (YouTube keeps
+  // earlier reels, and a hidden watch page, in the document); on a watch page
+  // its metadata.
+  function pageVideoRoot() {
+    if (location.pathname.startsWith("/shorts/")) {
+      return document.querySelector("ytd-reel-video-renderer[is-active] ytd-reel-player-overlay-renderer")
+        || document.querySelector("ytd-reel-video-renderer[is-active]")
+        || document.querySelector("ytd-shorts");
+    }
+    return document.querySelector("ytd-watch-metadata") || document.querySelector("#above-the-fold");
+  }
+
   function watchEvidence() {
     const root = document;
     const videoID = C.youtubeVideoIDFromURL(location.href, location.href);
@@ -461,10 +463,7 @@
     }
     // Never fall back to a document-wide heading: on a channel/search page it
     // could turn unrelated rendered text into a full-page video decision.
-    const watchRoot = root.querySelector("ytd-watch-metadata")
-      || root.querySelector("ytd-reel-player-overlay-renderer")
-      || root.querySelector("#above-the-fold")
-      || root.querySelector("ytd-shorts");
+    const watchRoot = pageVideoRoot();
     if (!watchRoot) {
       lastWatchEvidenceFailure = "missing-watch-root";
       return null;
@@ -659,10 +658,7 @@
       return;
     }
     reportDiagnostic("page-evidence-ready");
-    const watchRoot = document.querySelector("ytd-watch-metadata")
-      || document.querySelector("ytd-reel-player-overlay-renderer")
-      || document.querySelector("#above-the-fold")
-      || document.querySelector("ytd-shorts");
+    const watchRoot = pageVideoRoot();
     const source = watchRoot ? findSource(watchRoot) : null;
     const titleElement = watchRoot ? selectorElement(watchRoot, ["h1.ytd-watch-metadata", "h1", "h2", ".title"]) : null;
     // A watch page's primary source ID is often the channel/UC form, while the

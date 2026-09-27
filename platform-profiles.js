@@ -54,7 +54,43 @@ const PLATFORM_GROUP_TYPES = [
 // app, not Safari or Firefox. Tag filters and "cover until tagged" act only
 // there (owner 2026-09-26); elsewhere they would never match, or would cover
 // content forever.
-const TAGGING_PLATFORMS = Object.freeze(["youtube", "reddit", "bilibili", "twitter"]);
+// Where a content block acts on a tagging platform (adding a platform is
+// adding a profile; content.js stays platform-agnostic):
+//   media: the card's main content to black out (thumbnail; a Reddit text
+//          post's body); none → skip (never black a card)
+//   links: hrefs a blocked card must not follow
+//   page:  the page's main content; scope "document" (a global player) or
+//          "root" (the observed post element itself, as on Reddit)
+const CONTENT_BLOCK_PROFILES = Object.freeze({
+  youtube: {
+    media: "ytd-thumbnail, yt-thumbnail-view-model, yt-collection-thumbnail-view-model, ytd-playlist-thumbnail, ytm-thumbnail-cover",
+    links: /\/watch|\/shorts\//,
+    page: "#movie_player, ytd-player, #shorts-player, ytd-reel-video-renderer[is-active] #player-container, #player-container",
+    pageScope: "document"
+  },
+  reddit: {
+    media: '[slot="thumbnail"], [slot="post-media-container"], shreddit-aspect-ratio, gallery-carousel, shreddit-player-2, shreddit-player, shreddit-embed, [slot="text-body"], a.thumbnail, .expando',
+    links: /\/comments\//,
+    page: '[slot="post-media-container"], shreddit-aspect-ratio, gallery-carousel, shreddit-player-2, shreddit-player, shreddit-embed, [slot="text-body"], [slot="thumbnail"], .expando',
+    pageScope: "root"
+  },
+  bilibili: {
+    media: ".bili-video-card__image, .bili-video-card__cover, .bili-video-card__wrap picture, .pic-box, .b-img, picture",
+    links: /\/video\/BV/i,
+    page: "#bilibili-player, .bpx-player-container, #playerWrap, #player",
+    pageScope: "document"
+  },
+  // X/Twitter (verified live 2026-09-23 on x.com/home + a status page): a
+  // tweet's media is its photo / video player / link card; the status page's
+  // own tweet is the observed article, so the page verdict scopes to the root.
+  twitter: {
+    media: '[data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="tweetPhoto"], [data-testid="card.wrapper"], [data-testid="card.layoutLarge.media"], [data-testid="card.layoutSmall.media"]',
+    links: /\/status\//,
+    page: '[data-testid="videoPlayer"], [data-testid="videoComponent"], [data-testid="tweetPhoto"], [data-testid="card.wrapper"], [data-testid="card.layoutLarge.media"], [data-testid="card.layoutSmall.media"]',
+    pageScope: "root"
+  }
+});
+const TAGGING_PLATFORMS = Object.freeze(Object.keys(CONTENT_BLOCK_PROFILES));
 function isTaggingPlatform(platform) {
   return TAGGING_PLATFORMS.includes(String(platform || ""));
 }
@@ -184,6 +220,17 @@ function normalizeYouTubeCreatorInput(value) {
 
 // Twitter/X @handle. Handles are 1-15 chars of [A-Za-z0-9_]. Reserved
 // top-level paths are app routes, not accounts.
+// A path's first segment that names a page, not an account (one set per
+// platform: source input, page authors and page forms all read it).
+const INSTAGRAM_RESERVED_PATHS = new Set(["reel", "reels", "p", "tv", "explore", "accounts", "about", "stories", "direct"]);
+const FACEBOOK_RESERVED_PATHS = new Set(["watch", "reel", "reels", "share", "groups", "marketplace", "gaming", "video", "videos"]);
+const TWITCH_RESERVED_PATHS = new Set([
+  "directory", "videos", "settings", "downloads", "subscriptions",
+  "search", "jobs", "drops", "inventory",
+  "popout", "moderator", "p", "prime", "turbo", "wallet",
+  "friends", "messages", "store", "login", "signup", "signout"
+]);
+
 const TWITTER_RESERVED_PATHS = new Set([
   "home", "explore", "notifications", "messages", "search", "settings",
   "i", "compose", "hashtag", "intent", "login", "logout", "signup",
@@ -348,29 +395,16 @@ function normalizeSourceInput(value, groupType) {
     }
 
     if (normalizedGroupType === "instagram") {
-      const reserved = new Set(["reel", "p", "tv", "explore", "accounts", "about"]);
-      return !reserved.has(first) && /^[a-z0-9._]+$/i.test(first) ? first : null;
+      return !INSTAGRAM_RESERVED_PATHS.has(first) && /^[a-z0-9._]+$/i.test(first) ? first : null;
     }
 
     if (normalizedGroupType === "facebook") {
       if (path.startsWith("profile.php")) return null;
-      const reserved = new Set(["watch", "reel", "share", "groups", "marketplace", "gaming", "video", "videos"]);
-      return !reserved.has(first) && /^[a-z0-9.]+$/i.test(first) ? first : null;
+      return !FACEBOOK_RESERVED_PATHS.has(first) && /^[a-z0-9.]+$/i.test(first) ? first : null;
     }
 
     if (normalizedGroupType === "twitch") {
-      const reserved = new Set([
-        "directory",
-        "videos",
-        "settings",
-        "downloads",
-        "subscriptions",
-        "search",
-        "jobs",
-        "drops",
-        "inventory"
-      ]);
-      return !reserved.has(first) && /^[a-z0-9_]+$/i.test(first) ? first : null;
+      return !TWITCH_RESERVED_PATHS.has(first) && /^[a-z0-9_]+$/i.test(first) ? first : null;
     }
 
     return null;
@@ -611,15 +645,9 @@ function detectVideoSiteContext(hostname, pathname) {
   if (hostname === "twitch.tv" || hostname?.endsWith(".twitch.tv")) {
     if (safePathname.startsWith("/videos/")) return { site: "twitch", form: "long" };
     const firstSegment = safePathname.replace(/^\/+/, "").split("/")[0] || "";
-    const reserved = new Set([
-      "directory", "videos", "settings", "downloads", "subscriptions",
-      "search", "jobs", "drops", "inventory",
-      "popout", "moderator", "p", "prime", "turbo", "wallet",
-      "friends", "messages", "store", "login", "signup", "signout"
-    ]);
     if (
       firstSegment &&
-      !reserved.has(firstSegment.toLowerCase()) &&
+      !TWITCH_RESERVED_PATHS.has(firstSegment.toLowerCase()) &&
       /^[a-z0-9_]+$/i.test(firstSegment)
     ) {
       return { site: "twitch", form: "post" };
@@ -697,8 +725,7 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
   if (t === "instagram") {
     const match = safePathname.match(/^\/([^/?#]+)/i);
     if (!match) return null;
-    const reserved = new Set(["reel", "p", "tv", "explore", "accounts", "about"]);
-    return reserved.has(match[1].toLowerCase())
+    return INSTAGRAM_RESERVED_PATHS.has(match[1].toLowerCase())
       ? null
       : normalizeSourceInput(match[1], t);
   }
@@ -711,8 +738,7 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
     } catch {}
     const match = safePathname.match(/^\/([^/?#]+)/i);
     if (!match) return null;
-    const reserved = new Set(["watch", "reel", "share", "groups", "marketplace", "gaming", "video", "videos"]);
-    return reserved.has(match[1].toLowerCase())
+    return FACEBOOK_RESERVED_PATHS.has(match[1].toLowerCase())
       ? null
       : normalizeSourceInput(match[1], t);
   }
@@ -720,18 +746,7 @@ function extractPrimaryAuthorFromPath(groupType, pathname, url) {
   if (t === "twitch") {
     const match = safePathname.match(/^\/([^/?#]+)/i);
     if (!match) return null;
-    const reserved = new Set([
-      "directory",
-      "videos",
-      "settings",
-      "downloads",
-      "subscriptions",
-      "search",
-      "jobs",
-      "drops",
-      "inventory"
-    ]);
-    return reserved.has(match[1].toLowerCase())
+    return TWITCH_RESERVED_PATHS.has(match[1].toLowerCase())
       ? null
       : normalizeSourceInput(match[1], t);
   }
@@ -834,7 +849,7 @@ function matchesPlatformVideoGroup(group, pageContext) {
   if (isYouTubeGroup) {
     // Each platform entry is limited to its own platform (owner 2026-09-26):
     // a YouTube form (Shorts / Long / Posts) never reaches other video sites.
-    if (!pageContext.isYouTubePage) return false;
+    if (!isYouTubeHost(pageContext.hostname)) return false;
     if (group.blockHomePage && isHomeFeedPage("youtube", pageContext.hostname, pageContext.pathname)) {
       return true;
     }
@@ -869,10 +884,9 @@ function matchesPlatformVideoGroup(group, pageContext) {
   return authorMode === "include" ? hasAuthorMatch : !hasAuthorMatch;
 }
 
-// Reddit's source is the subreddit; the page context carries it both as
-// `redditSubreddit` (custom rules) and under platformAuthors.reddit (this axis).
+// Reddit's source is the subreddit: the page's authors, else its /r/ path.
 function matchesRedditGroup(group, pageContext) {
-  if (!pageContext.isRedditPage) return false;
+  if (!isRedditHost(pageContext.hostname)) return false;
   if (group.blockHomePage && isHomeFeedPage("reddit", pageContext.hostname, pageContext.pathname)) {
     return true;
   }
@@ -887,7 +901,7 @@ function matchesRedditGroup(group, pageContext) {
 
   const pageSubreddits = Array.isArray(pageContext.platformAuthors?.reddit) && pageContext.platformAuthors.reddit.length > 0
     ? pageContext.platformAuthors.reddit
-    : pageContext.redditSubreddit ? [pageContext.redditSubreddit] : [];
+    : [parseRedditSubredditFromPath(pageContext.pathname)].filter(Boolean);
   if (pageSubreddits.length === 0) return false;
 
   const hasMatch = sources.some((subreddit) => pageSubreddits.includes(subreddit));
@@ -895,7 +909,7 @@ function matchesRedditGroup(group, pageContext) {
 }
 
 function matchesDiscordGroup(group, pageContext) {
-  if (!pageContext.isDiscordPage) return false;
+  if (!isDiscordHost(pageContext.hostname)) return false;
   if (group.blockHomePage && isHomeFeedPage("discord", pageContext.hostname, pageContext.pathname)) {
     return true;
   }
@@ -905,8 +919,8 @@ function matchesDiscordGroup(group, pageContext) {
 
   if (mode === "all") return true;
 
-  const serverId = pageContext.discordServerId;
-  const channelId = pageContext.discordChannelId;
+  const serverId = parseDiscordServerIdFromPath(pageContext.pathname);
+  const channelId = parseDiscordChannelIdFromPath(pageContext.pathname);
   if (!serverId && !channelId) return false;
 
   const isListed =
@@ -1115,6 +1129,7 @@ const PLATFORM_PROFILES = {
         "ytd-video-renderer",
         "ytd-grid-video-renderer",
         "ytd-compact-video-renderer",
+        "ytd-playlist-video-renderer",
         "ytd-reel-item-renderer",
         "ytd-rich-grid-media",
         "yt-lockup-view-model",

@@ -16,11 +16,9 @@
   window.__vaultActivityContentLoaded = true;
 
   // The only platforms with a watch key; every other site is left alone.
-  function onHost(domain) {
-    var host = location.hostname.toLowerCase();
-    return host === domain || host.slice(-(domain.length + 1)) === "." + domain;
-  }
-  if (!onHost("youtube.com") && !onHost("bilibili.com")) return;
+  // (Their hosts as platform-profiles.js knows them.)
+  var PLATFORM = getPlatformGroupTypeForHost(location.hostname.toLowerCase().replace(/^www\./, ""));
+  if (PLATFORM !== "youtube" && PLATFORM !== "bilibili") return;
 
   var enabled = false;
   try {
@@ -37,11 +35,12 @@
 
   function watchKey() {
     try {
-      if (onHost("youtube.com")) {
-        var id = new URLSearchParams(location.search).get("v");
+      if (PLATFORM === "youtube") {
+        // The classifier contract's parser: watch, Shorts and live pages.
+        var id = globalThis.VaultClassifierExtensionContract.youtubeVideoIDFromURL(location.href, location.href);
         return id ? { platform: "youtube", key: "youtube:" + id } : null;
       }
-      if (onHost("bilibili.com")) {
+      if (PLATFORM === "bilibili") {
         var m = location.pathname.match(/\/(BV[0-9A-Za-z]+)/);
         return m ? { platform: "bilibili", key: "bilibili:" + m[1] } : null;
       }
