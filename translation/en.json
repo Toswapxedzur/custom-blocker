@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // Register handlers here.\n}",
   "custom.runButton": "Run",
   "custom.runStatusHalted": "Halted: the rule took too long to load and was force-aborted. Check the Log panel for details.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "Let AI Code",
   "custom.aiPromptLabel": "Prompt for AI",
   "custom.aiPromptPlaceholder": "Describe what you want this custom rule to do...",

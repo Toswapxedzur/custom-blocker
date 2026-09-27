@@ -106,7 +106,7 @@ vm.runInContext([
   "let latestFeedFilters = []; let latestSurfaceHides = []; let latestExposedGroupIds = []; let feedApplyRafId = null; let cbTagPageContext = null; let cbDebugMode = false; function cbDebugLog() {}",
   "const cbVerdictLedger = new WeakMap(); const cbTrackedCards = new Set(); let cbGroupIndex = new Map(); let cbGroupOrderKey = '';",
   extractBlock("CB_CONTENT_BLOCK_PROFILES"),
-  ...["normalizeHostname", "getCurrentFeedSite", "cbContentBlockPlatformID", "cbContentBlockProfile", "cbFindMediaAll", "cbFindMedia", "cbCoverMedia", "cbUncoverMedia", "getFeedCardElements", "getFeedCardTags", "getFeedCardData",
+  ...["normalizeHostname", "getCurrentFeedSite", "cbContentBlockProfile", "cbFindMediaAll", "cbCoverMedia", "cbUncoverMedia", "getFeedCardElements", "getFeedCardTags", "getFeedCardData",
       "matchesTagFilter", "matchesFeedFilter", "cbSetGroupOrder", "cbSetCardVerdict", "cbClearSource", "cbResolveCardVerdict", "cbApplyCard",
       "cbEnsureRelative", "dimElement", "undimElement", "hideElement", "showElement", "applyFeedFilters", "extractRedditSubredditFromCard", "isPostCard", "getFeedCardHref", "getFeedCardCreators"].map(extractFunction)
 ].join("\n"), context);

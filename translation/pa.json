@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // ਹੈਂਡਲਰ ਇੱਥੇ ਰਜਿਸਟਰ ਕਰੋ।\n}",
   "custom.runButton": "ਚਲਾਓ",
   "custom.runStatusHalted": "ਰੋਕਿਆ ਗਿਆ: ਨਿਯਮ ਨੂੰ ਲੋਡ ਕਰਨ ਵਿੱਚ ਬਹੁਤ ਸਮਾਂ ਲੱਗਿਆ ਅਤੇ ਇਸਨੂੰ ਜ਼ਬਰਦਸਤੀ ਅਧੂਰਾ ਛੱਡ ਦਿੱਤਾ ਗਿਆ। ਵੇਰਵਿਆਂ ਲਈ ਲੌਗ ਪੈਨਲ ਦੀ ਜਾਂਚ ਕਰੋ।",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "AI ਨੂੰ ਕੋਡ ਲਿਖਣ ਦਿਓ",
   "custom.aiPromptLabel": "AI ਲਈ ਪ੍ਰੰਪਟ",
   "custom.aiPromptPlaceholder": "ਦੱਸੋ ਕਿ ਇਹ ਕਸਟਮ ਨਿਯਮ ਕੀ ਕਰੇ...",

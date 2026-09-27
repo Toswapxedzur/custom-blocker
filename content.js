@@ -5,7 +5,6 @@ let cbDebugMode = false;
 let cbShowOnPageLogToasts = true;
 function cbDebugLog(...args) { if (cbDebugMode) { try { console.log(...args); } catch (_) {} } }
 function cbDebugWarn(...args) { if (cbDebugMode) { try { console.warn(...args); } catch (_) {} } }
-function cbDebugError(...args) { if (cbDebugMode) { try { console.error(...args); } catch (_) {} } }
 function cbApplyGlobalSettings(settings) {
   const s = settings && typeof settings === "object" ? settings : {};
   cbDebugMode = s.debugMode === true;
@@ -33,30 +32,14 @@ try {
  *   - Heartbeat the background service worker so it can attribute usage
  *     time to site/timed groups.
  *   - Render the in-page timer overlay.
- *   - Apply feed-card filtering for legacy platform/Reddit groups
- *     (driven by `feedFilters` in the session payload).
- *   - Compile and run all enabled custom rules (which now live in the
- *     content script, not the background worker), using the helpers from
- *     helpers.js. Side effects:
- *       * mutate per-group timer / persistence buckets in memory and
- *         flush them back to the background on the next heartbeat,
- *       * register platform "intents" that this script then applies to
- *         the DOM (hide buttons, hide feed cards by predicate, page-level
- *         exit when blockPageOnVisit is true),
- *       * a rule returning `true` exits the page.
+ *   - Apply feed-card filtering (driven by `feedFilters` in the session
+ *     payload).
+ *   - Relay page events to the custom rules, which run in the event
+ *     sandbox (helpers.js lives there), and apply the intents they return:
+ *     hide buttons, hide feed cards by predicate, exit the page.
  *   - Exit the page when the background says so OR when any custom rule
  *     says so.
  */
-
-const helperBundle = self.__customBlockerHelpers;
-
-const PLATFORM_LIST = helperBundle?.PLATFORM_LIST ?? [
-  "youtube",
-  "tiktok",
-  "facebook",
-  "instagram",
-  "twitch"
-];
 
 function normalizeHostname(hostname) {
   const trimmed = String(hostname ?? "").trim().toLowerCase();
@@ -155,6 +138,11 @@ function shutdownContentScript() {
   // stays covered until the new extension reloads it and decides again.
   try { cbStopCoverTimers(); } catch {}
   try { cbUnmountQuickAdd(); } catch {}
+  // Custom-rule scanning stops too: nothing can reach the sandbox any more.
+  if (__cb_predicateObserver) { __cb_predicateObserver.disconnect(); __cb_predicateObserver = null; }
+  if (__cb_predicateScanTimer !== null) { window.clearTimeout(__cb_predicateScanTimer); __cb_predicateScanTimer = null; }
+  if (__cb_pagePredicateRetryTimer !== null) { window.clearTimeout(__cb_pagePredicateRetryTimer); __cb_pagePredicateRetryTimer = null; }
+  clearSessionResolveRetries();
 }
 
 function safeSendMessage(message, callback) {
@@ -216,55 +204,23 @@ function extractCreatorFromHref(href) {
 const POST_CARD_SELECTOR =
   "ytd-post-renderer, ytd-backstage-post-thread-renderer, ytd-backstage-post-renderer";
 
+// A platform's feed cards, from its profile (platform-profiles.js): either
+// the card wrappers themselves (`cardSelectors`, optionally lifted to their
+// `cardClosest` container), or the containers around its anchors.
 function getFeedCardElements(site) {
-  if (site === "reddit") {
-    const selectors = [
-      "shreddit-post",
-      "shreddit-ad-post",
-      "article:has(shreddit-post)",
-      "faceplate-tracker[source=\"search\"] shreddit-post",
-      "div.thing[data-subreddit]"
-    ];
-    const containers = new Set();
-    for (const selector of selectors) {
+  const feedProfile = PLATFORM_PROFILES?.[site]?.feed;
+  if (Array.isArray(feedProfile?.cardSelectors)) {
+    const cards = new Set();
+    for (const selector of feedProfile.cardSelectors) {
       let nodes = [];
       try { nodes = document.querySelectorAll(selector); } catch { continue; }
-      for (const node of nodes) containers.add(node.closest?.("article") ?? node);
+      for (const node of nodes) {
+        cards.add((feedProfile.cardClosest && node.closest?.(feedProfile.cardClosest)) || node);
+      }
     }
-    return [...containers];
+    return [...cards];
   }
 
-  if (site === "twitter") {
-    const containers = new Set();
-    for (const tweet of document.querySelectorAll('article[data-testid="tweet"]')) {
-      containers.add(tweet.closest('[data-testid="cellInnerDiv"]') ?? tweet);
-    }
-    return [...containers];
-  }
-
-  if (site === "youtube") {
-    // Each wrapper covers a different YouTube rollout/surface for shorts.
-    return [
-      ...document.querySelectorAll(
-        [
-          "ytd-rich-item-renderer",
-          "ytd-video-renderer",
-          "ytd-grid-video-renderer",
-          "ytd-compact-video-renderer",
-          "ytd-reel-item-renderer",
-          "ytd-rich-grid-media",
-          "yt-lockup-view-model",
-          "yt-shorts-lockup-view-model",
-          "ytm-shorts-lockup-view-model-v2",
-          "ytd-post-renderer",
-          "ytd-backstage-post-thread-renderer",
-          "ytd-backstage-post-renderer"
-        ].join(", ")
-      )
-    ];
-  }
-
-  const feedProfile = PLATFORM_PROFILES?.[site]?.feed;
   const anchorSelectors = Array.isArray(feedProfile?.anchorSelectors)
     ? feedProfile.anchorSelectors
     : [];
@@ -653,17 +609,8 @@ const CB_CONTENT_BLOCK_PROFILES = Object.freeze({
   }
 });
 
-function cbContentBlockPlatformID(hostname) {
-  const host = String(hostname || "").toLowerCase();
-  if (host === "youtube.com" || host.endsWith(".youtube.com")) return "youtube";
-  if (host === "reddit.com" || host.endsWith(".reddit.com")) return "reddit";
-  if (host === "bilibili.com" || host.endsWith(".bilibili.com")) return "bilibili";
-  if (host === "x.com" || host.endsWith(".x.com") || host === "twitter.com" || host.endsWith(".twitter.com")) return "twitter";
-  return null;
-}
-
 function cbContentBlockProfile() {
-  const id = typeof location !== "undefined" ? cbContentBlockPlatformID(location.hostname) : null;
+  const id = typeof location !== "undefined" ? getPlatformGroupTypeForHost(normalizeHostname(location.hostname)) : null;
   return (id && CB_CONTENT_BLOCK_PROFILES[id]) || null;
 }
 
@@ -677,10 +624,6 @@ function cbFindMediaAll(card) {
   let nodes;
   try { nodes = [...card.querySelectorAll(profile.media)]; } catch { return []; }
   return nodes.filter((media) => !nodes.some((other) => other !== media && other.contains(media)));
-}
-
-function cbFindMedia(card) {
-  return cbFindMediaAll(card)[0] || null;
 }
 
 // Vault pill hosts, registered by the tag pipeline. Kept in a private WeakSet
@@ -930,10 +873,6 @@ function cbFindPagePlayers(root) {
   return nodes.filter((player) => !nodes.some((other) => other !== player && other.contains(player)));
 }
 
-function cbFindPagePlayer(root) {
-  return cbFindPagePlayers(root)[0] || null;
-}
-
 // While the page is blocked, any attempt to play (autoplay, the keyboard
 // shortcut, a stray click) is paused right back.
 function cbKeepPausedWhileBlocked(event) {
@@ -998,7 +937,6 @@ function cbApplyTagPagePolicy(root, pageAction, meta) {
   cbTagPageRetryTimer = setTimeout(retry, CB_PAGE_BLOCK_RETRY_MS);
   return true;
 }
-if (typeof window !== "undefined") window.cbApplyTagPagePolicy = cbApplyTagPagePolicy;
 
 // The page's own entry, as last reported by the tag pipeline. Kept so a change
 // to the filters (group edited, count-down elapsed, snooze) re-decides the page
@@ -1017,7 +955,7 @@ function cbTagPageVerdict(tags) {
 // Decide + apply the page verdict for the page's own entry. Called by the tag
 // pipeline whenever that entry's tags settle or change (meta.settled === false
 // while it is still "Tagging…": never block on a provisional state), and again
-// by updateFeedFilters. `meta === null` forgets the page (its root went away).
+// by applySessionFilters. `meta === null` forgets the page (its root went away).
 function cbEvaluateTagPage(root, meta) {
   if (!root || !meta) {
     if (cbTagPageContext && (!root || cbTagPageContext.root === root)) {
@@ -1221,20 +1159,20 @@ function scheduleApplyFeedFilters() {
   feedApplyRafId = window.requestAnimationFrame(() => applyFeedFilters());
 }
 
-function updateFeedFilters(filters) {
+// The last feed order / filters / surface hides applied (see handleSession).
+// Surface hides ("hide elements" toggles) are plain CSS-selector hides; they
+// share the page MutationObserver with the feed filters but use a separate
+// hidden marker so each can restore independently.
+let cbSessionFilterKey = "";
+function applySessionFilters(order, filters, surfaceHides) {
+  const key = JSON.stringify([order, filters, surfaceHides]);
+  if (key === cbSessionFilterKey) return;
+  cbSessionFilterKey = key;
+  cbSetGroupOrder(order);
   latestFeedFilters = Array.isArray(filters) ? filters : [];
-  cbDebugLog("[CustomBlocker:feed] filters received", latestFeedFilters.length, "site", getCurrentFeedSite(), latestFeedFilters.map((f) => `${f && f.site}:${f && f.tagFilter ? "tag" : "author"}`));
+  latestSurfaceHides = Array.isArray(surfaceHides) ? surfaceHides.filter(Boolean) : [];
   reconcilePageMutations();
   if (cbTagPageContext) cbEvaluateTagPage(cbTagPageContext.root, cbTagPageContext);
-}
-
-// Surface hides ("hide elements" toggles) are plain CSS-selector hides driven
-// by the active platform groups. They share the page MutationObserver with
-// the feed filters but use a separate hidden marker so each can restore
-// independently.
-function updateSurfaceHides(selectors) {
-  latestSurfaceHides = Array.isArray(selectors) ? selectors.filter(Boolean) : [];
-  reconcilePageMutations();
 }
 
 function reconcilePageMutations() {
@@ -1451,22 +1389,6 @@ function applyOverlayLineStyle(el, style) {
   if (typeof style.icon === "string" && style.icon) {
     el.textContent = `${style.icon} ${el.textContent}`;
   }
-}
-
-function isScrollBasedVideoPage() {
-  const hostname = normalizeHostname(location.hostname);
-  const pathname = String(location.pathname || "/");
-  if (isYouTubeHost(hostname) && pathname.startsWith("/shorts/")) return true;
-  if (hostname === "tiktok.com" || hostname.endsWith(".tiktok.com")) {
-    return (
-      (pathname.startsWith("/@") && pathname.includes("/video/")) ||
-      pathname === "/" || pathname === "/following" || pathname === "/foryou"
-    );
-  }
-  if (hostname === "instagram.com" || hostname.endsWith(".instagram.com")) {
-    return pathname.startsWith("/reel/") || pathname === "/reels" || pathname.startsWith("/reels/");
-  }
-  return false;
 }
 
 // ── The cover ───────────────────────────────────────────────────────────────
@@ -1863,11 +1785,11 @@ function handleSession(session) {
   const shouldExitPage = Boolean(session.shouldExitPage) && Boolean(exit);
 
   updateOverlay(items, !shouldExitPage && (session.showTimer || items.length > 0));
-  // Order/effect must be set before applying filters so verdicts resolve
-  // against the right priorities.
-  cbSetGroupOrder(session.feedOrder);
-  updateFeedFilters(session.feedFilters);
-  updateSurfaceHides(session.surfaceHides);
+  // Re-apply only when what the worker sent changed (or the address did): the
+  // feed observer handles new cards, so the 250 ms heartbeat must not redo the
+  // whole feed each tick. Order/effect first, so verdicts resolve against the
+  // right priorities.
+  applySessionFilters(session.feedOrder, session.feedFilters, session.surfaceHides);
 
   // A covered page is not being used: no visible-page time accrues under the
   // cover. The worker pushes "session-refresh" when the block lifts.
@@ -1925,6 +1847,7 @@ function scheduleSessionResolveRetries() {
 function cbOnNavigated() {
   if (exitAttempted || extensionContextInvalid) return;
   lastKnownUrl = location.href;
+  cbSessionFilterKey = "";
   try {
     // Cancel any pending retry from the previous URL — the URL it was
     // probing for is no longer current.
@@ -3629,16 +3552,7 @@ function __cb_isOnPlatformHome(platform) {
 }
 
 function __cb_currentPlatform() {
-  const host = normalizeHostname(location.hostname);
-  if (isYouTubeHost(host)) return "youtube";
-  if (host === "tiktok.com" || host?.endsWith(".tiktok.com")) return "tiktok";
-  if (host === "instagram.com" || host?.endsWith(".instagram.com")) return "instagram";
-  if (host === "facebook.com" || host?.endsWith(".facebook.com")) return "facebook";
-  if (host === "twitch.tv" || host?.endsWith(".twitch.tv") || host === "clips.twitch.tv") return "twitch";
-  if (host === "reddit.com" || host?.endsWith(".reddit.com")) return "reddit";
-  if (host === "bilibili.com" || host?.endsWith(".bilibili.com")) return "bilibili";
-  if (host === "x.com" || host?.endsWith(".x.com") || host === "twitter.com" || host?.endsWith(".twitter.com")) return "twitter";
-  return null;
+  return getPlatformGroupTypeForHost(normalizeHostname(location.hostname));
 }
 
 // The page's own channel identity when we're on a channel/author page, in the
@@ -3844,8 +3758,7 @@ async function __cb_scanFeedPredicates() {
       const matched =
         results[i] && Array.isArray(results[i].matchedGroups) ? results[i].matchedGroups : [];
       // Per-predicate effect: allow() records a rescue verdict, dim() blacks
-      // out the thumbnail in place, hide() removes the card; anything else
-      // (older replies without an effects map) hides.
+      // out the thumbnail in place, hide() removes the card.
       const effects = (results[i] && results[i].effects) || {};
       for (const groupId of matched) {
         const effect = effects[groupId];
@@ -4060,7 +3973,7 @@ async function __cb_checkPagePredicate() {
   };
   const reply = await __cb_evaluateItems(platform, slot, [item]);
   const r = reply && reply.results && reply.results[0];
-  if (r && r.hide && r.blockPageOnVisit) attemptExitPage();
+  if (r && r.blockPageOnVisit) attemptExitPage();
 }
 
 function __cb_applyEventIntent(intent) {

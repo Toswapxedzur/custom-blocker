@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // Registra qui i gestori.\n}",
   "custom.runButton": "Correre",
   "custom.runStatusHalted": "Interrotto: il caricamento della regola ha richiesto troppo tempo ed è stato interrotto forzatamente. Controlla il pannello Log per i dettagli.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "Lascia codificare l’IA",
   "custom.aiPromptLabel": "Prompt per IA",
   "custom.aiPromptPlaceholder": "Descrivi cosa deve fare questa regola personalizzata...",

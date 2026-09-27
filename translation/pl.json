@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // Zarejestruj tutaj obsługę zdarzeń.\n}",
   "custom.runButton": "Uruchom",
   "custom.runStatusHalted": "Zatrzymano: ładowanie reguły trwało zbyt długo i zostało wymuszone przerwanie. Aby uzyskać szczegółowe informacje, sprawdź panel dziennika.",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "Pozwól AI pisać kod",
   "custom.aiPromptLabel": "Prompt dla AI",
   "custom.aiPromptPlaceholder": "Opisz, co ma robić ta reguła niestandardowa...",

@@ -203,6 +203,8 @@
   "custom.defaultRule": "(event, helpers) => {\n  // 在这里注册处理器。\n}",
   "custom.runButton": "运行",
   "custom.runStatusHalted": "已停止：规则加载时间过长，被强制中止。检查日志面板了解详细信息。",
+  "custom.runStatusSandboxTimeout": "Halted: the rule ran for more than 5 s without yielding and has been auto-disabled. Edit the code (look for an infinite loop) and click Run again to re-enable it.",
+  "custom.runStatusQuarantined": "Halted: {reason}. The rule has been auto-disabled.",
   "custom.letAiCodeButton": "让 AI 编写代码",
   "custom.aiPromptLabel": "给 AI 的提示",
   "custom.aiPromptPlaceholder": "描述你希望这条自定义规则执行什么...",
