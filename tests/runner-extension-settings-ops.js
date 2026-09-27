@@ -296,9 +296,10 @@ async function op(operation, body) {
   };
   const rule = (await op("settings-create-group", { groupType: "custom", patch: { name: "Rule", activeDays: days } })).body.group.id;
   const good = `(on, v) => { on("tab", () => {}); }`;
+  storage.set("cbRuleState", { [rule]: { minutes: 12 } });
   const ran = await op("settings-run-custom-rule", { id: rule, source: good });
   const ruleStored = () => (storage.get("blockedGroups") || []).find((x) => x.id === rule);
-  check("run loads the source with a fresh state and records it as the rule", ran?.body?.ran === true && ran.body.handlers === 1 && loads.at(-1)?.source === good && JSON.stringify(loads.at(-1)?.state) === "{}" && ruleStored()?.activeEventSource === good && ruleStored()?.blockingRulesText === good, ran);
+  check("run loads the source with the rule's memory and records it as the rule", ran?.body?.ran === true && ran.body.handlers === 1 && loads.at(-1)?.source === good && loads.at(-1)?.state?.minutes === 12 && storage.get("cbRuleState")?.[rule]?.minutes === 12 && ruleStored()?.activeEventSource === good && ruleStored()?.blockingRulesText === good, ran);
   const broken = await op("settings-run-custom-rule", { id: rule, source: "42" });
   check("a rule that doesn't load changes nothing and says why", broken?.body?.ran === false && /Compile failed/.test(broken.body.error) && ruleStored()?.activeEventSource === good, broken);
   const again = await op("settings-run-custom-rule", { id: rule });
