@@ -287,6 +287,27 @@ async function op(operation, body) {
   const all = await op("settings-delete-all", {});
   check("delete all runs the editor's gates (a frozen group's wait still holds here)", String(all?.error || "").startsWith("wait-until:") && (storage.get("blockedGroups") || []).length > 0, all);
 
+  // Run a custom rule: the editor's Run (owner 2026-09-27: the AI tools get it too).
+  const loads = [];
+  context.sendToEventSandbox = async (payload) => {
+    if (payload.kind !== "load-source") return { ok: true };
+    loads.push(payload);
+    return /on\(/.test(payload.source) ? { ok: true, handlers: 1, types: ["tab"], logs: [], panels: [] } : { ok: false, handlers: 0, types: [], error: "Compile failed: nope", logs: [] };
+  };
+  const rule = (await op("settings-create-group", { groupType: "custom", patch: { name: "Rule", activeDays: days } })).body.group.id;
+  const good = `(on, v) => { on("tab", () => {}); }`;
+  const ran = await op("settings-run-custom-rule", { id: rule, source: good });
+  const ruleStored = () => (storage.get("blockedGroups") || []).find((x) => x.id === rule);
+  check("run loads the source with a fresh state and records it as the rule", ran?.body?.ran === true && ran.body.handlers === 1 && loads.at(-1)?.source === good && JSON.stringify(loads.at(-1)?.state) === "{}" && ruleStored()?.activeEventSource === good && ruleStored()?.blockingRulesText === good, ran);
+  const broken = await op("settings-run-custom-rule", { id: rule, source: "42" });
+  check("a rule that doesn't load changes nothing and says why", broken?.body?.ran === false && /Compile failed/.test(broken.body.error) && ruleStored()?.activeEventSource === good, broken);
+  const again = await op("settings-run-custom-rule", { id: rule });
+  check("no source runs the group's current rule text", again?.body?.ran === true && loads.at(-1)?.source === good, again);
+  check("only a custom group runs", (await op("settings-run-custom-rule", { id: a }))?.error === "group-not-found");
+  await op("settings-lock-group", { id: rule });
+  const frozenRun = await op("settings-run-custom-rule", { id: rule, source: good });
+  check("a frozen group's rule is not run", frozenRun?.error === "group-locked", frozenRun);
+
   const unknown = await op("settings-explode", {});
   check("an unsupported operation is answered, not dropped", unknown?.error === "unsupported-operation", unknown);
 
