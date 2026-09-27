@@ -1,29 +1,12 @@
-/* Event-sandbox stress coverage for the extension custom-rule contract. */
+/* The browser's custom-rule engine (event-sandbox.js on rule-core.js). */
 
 globalThis.self = globalThis;
 globalThis.window = globalThis;
 window.parent = window;
+window.postMessage = function () {};
 window.addEventListener = function () {};
-if (typeof performance === "undefined") {
-  globalThis.performance = { now: () => Date.now() };
-}
-if (typeof URL === "undefined") {
-  globalThis.URL = function TestUrl(value) {
-    const match = String(value).match(/^https?:\/\/([^/?#]+)([^?#]*)?(\?[^#]*)?/i);
-    if (!match) throw new TypeError("Invalid URL");
-    this.hostname = match[1].toLowerCase();
-    this.pathname = match[2] || "/";
-    const query = new Map();
-    for (const pair of (match[3] || "").slice(1).split("&")) {
-      if (!pair) continue;
-      const parts = pair.split("=");
-      query.set(parts[0], parts.slice(1).join("="));
-    }
-    this.searchParams = { get: (key) => query.get(key) ?? null };
-  };
-}
 
-load("helpers.js");
+load("rule-core.js");
 load("event-sandbox.js");
 load("tests/log.js");
 
@@ -34,119 +17,85 @@ function assert(name, condition, data) {
   else log.fail(name, data);
 }
 
-function dispatch(groupId, descriptor) {
-  return dispatchEvent(Object.assign({
-    type: "webChangedEvent",
-    targetGroupId: groupId,
-    url: "",
-    hostname: "",
-    time: { now: 1_800_000_000_000 },
-    data: {}
-  }, descriptor || {}));
-}
+const loadSource = (groupId, source, state) => engine.load(groupId, source, state);
+const send = (type, data, targetGroupId) => engine.dispatch({ type, now: 1_800_000_000_000, data, targetGroupId });
 
-const shortsRouteRule = `
-(events, helpers) => {
-  events.on("webChangedEvent", "block-youtube-shorts", (ev, h) => {
-    const youtube = h.getPlatformHelper().youtube();
-    if (youtube.isShortUrl(ev.url)) ev.preventDefault();
+log.section("E1: a rule sees raw events and answers with browser actions");
+let loaded = loadSource("shorts", `(on, v) => {
+  on("tab", (ev) => { if (/youtube\\.com\\/shorts\\//.test(ev.data.url)) v.cover(ev.data.tabId, true, "No Shorts"); });
+}`, {});
+assert("E1 loads with its types", loaded.ok && loaded.handlers === 1 && loaded.types.join() === "tab");
+let result = send("tab", { kind: "navigate", tabId: 3, url: "https://m.youtube.com/shorts/abc" });
+assert("E1 a Shorts address is covered", result.actions.length === 1 && result.actions[0].kind === "cover" && result.actions[0].tabId === 3 && result.actions[0].message === "No Shorts");
+result = send("tab", { kind: "navigate", tabId: 3, url: "https://www.youtube.com/watch?v=abc" });
+assert("E1 a watch page is not", result.actions.length === 0);
+
+log.section("E2: the browser's actions are checked");
+loadSource("acts", `(on, v) => {
+  on("tick", () => {
+    v.item(1, "i1", "hide"); v.item(1, "i2", "bogus"); v.item("x", "i3", "hide");
+    v.css("*", "s", "a{}"); v.css(2, "s", null);
+    v.dom(1, "#x", "click"); v.dom(1, "#x", "remove");
+    v.go(1, "back"); v.close(1);
   });
-}
-`;
+}`, {});
+result = send("tick", { tabs: [] }, "acts");
+const kinds = result.actions.map((a) => a.kind + ":" + (a.verdict ?? a.op ?? a.target ?? a.css ?? ""));
+assert("E2 a verdict outside hide/dim/allow clears", result.actions[1].kind === "item" && result.actions[1].verdict === null);
+assert("E2 a non-tab id is ignored", !result.actions.some((a) => a.ref === "i3"));
+assert("E2 css to every page and removal are kept", result.actions.some((a) => a.kind === "css" && a.tabId === "*") && result.actions.some((a) => a.kind === "css" && a.css === null));
+assert("E2 an unknown element op is ignored", !kinds.includes("dom:remove") && kinds.includes("dom:click"));
+assert("E2 go and close are kept", kinds.includes("go:back") && result.actions.some((a) => a.kind === "close"));
+assert("E2 Mac Vault's actions don't exist here", loadSource("mac", `(on, v) => { v.block("com.x", true); }`, {}).ok === false);
 
-log.section("E1: mobile Shorts route");
-let loaded = loadSource("e-mobile-shorts", shortsRouteRule);
-let result = dispatch("e-mobile-shorts", { url: "https://m.youtube.com/shorts/abc?feature=share" });
-assert("E1 mobile YouTube Shorts prevents navigation", loaded.ok && loaded.handlers === 1 && result.defaultPrevented === true);
-unloadGroup("e-mobile-shorts", { clearState: true });
+log.section("E3: one event reaches every rule that handles it, or one group");
+loadSource("a", `(on, v) => { on("visible", () => v.log("a")); }`, {});
+loadSource("b", `(on, v) => { on("visible", () => v.log("b")); }`, {});
+result = send("visible", { tabId: 1, elapsedMs: 250 });
+assert("E3 both groups ran", result.logs.map((l) => l.args[0]).sort().join() === "a,b");
+result = send("visible", { tabId: 1, elapsedMs: 250 }, "b");
+assert("E3 a target group runs alone", result.logs.map((l) => l.args[0]).join() === "b");
 
-log.section("E2: foreign Shorts-like route");
-loaded = loadSource("e-foreign-shorts", shortsRouteRule);
-result = dispatch("e-foreign-shorts", { url: "https://example.com/shorts/abc" });
-assert("E2 foreign /shorts/ route stays allowed", loaded.ok && result.defaultPrevented === false);
-unloadGroup("e-foreign-shorts", { clearState: true });
+log.section("E4: emits follow, bounded");
+loadSource("loop", `(on, v) => { on("ping", (ev) => { v.state.n = (v.state.n || 0) + 1; v.emit("ping"); }); }`, {});
+result = send("ping", null, "loop");
+assert("E4 an emit loop stops after 16 rounds", result.states.loop && result.states.loop.n === 17);
 
-log.section("E3: normal watch route");
-loaded = loadSource("e-watch-page", shortsRouteRule);
-result = dispatch("e-watch-page", { url: "https://www.youtube.com/watch?v=abc" });
-assert("E3 normal YouTube watch page stays allowed", loaded.ok && result.defaultPrevented === false);
-unloadGroup("e-watch-page", { clearState: true });
+log.section("E5: state and panels come back only when changed");
+loaded = loadSource("st", `(on, v) => { v.panel("p", { title: "T" }); on("tick", () => { v.state.t = 1; }); }`, { t: 0 });
+assert("E5 the panel set at registration comes with the load", loaded.panels.length === 1 && loaded.panels[0].groupId === "st");
+result = send("tick", {}, "st");
+assert("E5 the changed state is reported", result.states.st && result.states.st.t === 1);
+result = send("tick", {}, "st");
+assert("E5 nothing changed, nothing reported", !result.panels.st && !result.states.st);
 
-log.section("E4: priority and propagation");
-loaded = loadSource("e-priority", `
-(events) => {
-  events.on("webChangedEvent", "block-first", (ev) => {
-    ev.setResult(-1);
-    ev.stopPropagation();
-  }, { priority: 20 });
-  events.on("webChangedEvent", "allow-second", (ev) => {
-    ev.setResult(1);
-  });
-}
-`);
-result = dispatch("e-priority", { url: "https://example.com" });
-assert("E4 higher-priority stop preserves block result", loaded.ok && result.result === -1 && result.propagationStopped === true);
-unloadGroup("e-priority", { clearState: true });
+log.section("E6: a rule that doesn't load leaves the old one running");
+loadSource("keep", `(on, v) => { on("tick", () => v.log("old")); }`, {});
+loaded = loadSource("keep", `(on, v) => { on("tick", `, {});
+assert("E6 the compile error is reported", loaded.ok === false && /Compile failed/.test(loaded.error));
+result = send("tick", {}, "keep");
+assert("E6 the old rule still runs", result.logs.some((l) => l.args[0] === "old"));
+loaded = loadSource("keep", "", {});
+result = send("tick", {}, "keep");
+assert("E6 an empty source removes it", loaded.ok && loaded.handlers === 0 && result.logs.length === 0);
 
-log.section("E5: Run replaces stale handlers");
-const alphaRule = `(events) => { events.on("webChangedEvent", "route", (ev) => { if (ev.url.includes("alpha")) ev.preventDefault(); }); }`;
-const betaRule = `(events) => { events.on("webChangedEvent", "route", (ev) => { if (ev.url.includes("beta")) ev.preventDefault(); }); }`;
-const firstLoad = loadSource("e-rerun", alphaRule);
-const secondLoad = loadSource("e-rerun", betaRule);
-const alphaResult = dispatch("e-rerun", { url: "https://example.com/alpha" });
-const betaResult = dispatch("e-rerun", { url: "https://example.com/beta" });
-assert("E5 rerun removes old route handler", firstLoad.ok && secondLoad.ok && secondLoad.handlers === 1 &&
-  alphaResult.defaultPrevented === false && betaResult.defaultPrevented === true);
-unloadGroup("e-rerun", { clearState: true });
-
-log.section("E6: scoped timer heartbeat");
-loaded = loadSource("e-scoped-timer", `
-(events, helpers) => {
-  const youtube = helpers.getPlatformHelper().youtube();
-  helpers.getTimerHelper().getOrCreateTimer({
-    id: "shorts-budget",
-    displayName: "Shorts budget",
-    direction: "backward",
-    currentMs: 2000,
-    scope: (url) => youtube.isShortUrl(url)
-  });
-}
-`);
-const shortsBeat = dispatch("e-scoped-timer", {
-  type: "pageHeartbeatEvent",
-  url: "https://www.youtube.com/shorts/abc",
-  elapsedMs: 500
-});
-const watchBeat = dispatch("e-scoped-timer", {
-  type: "pageHeartbeatEvent",
-  url: "https://www.youtube.com/watch?v=abc",
-  elapsedMs: 1000
-});
-const shortTimers = shortsBeat.timerSnapshotsByGroup["e-scoped-timer"] || [];
-const watchTimers = watchBeat.timerSnapshotsByGroup["e-scoped-timer"] || [];
-assert("E6 scoped timer ticks only on Shorts heartbeat", loaded.ok && shortTimers.length === 1 &&
-  shortTimers[0].currentMs === 1500 && watchTimers.length === 0);
-unloadGroup("e-scoped-timer", { clearState: true });
-
-log.section("E7: event block intents carry group ownership");
-loaded = loadSource("e-window-owner", `
-(events) => {
-  events.on("webChangedEvent", "own-block", (ev) => {
-    ev.block("example.com");
-    ev.unblock("old.example");
-  });
-}
-`);
-result = dispatch("e-window-owner", { url: "https://example.com/" });
-const ownedIntents = (result.intents || []).filter((intent) => intent.action === "blockSite" || intent.action === "unblockSite");
-assert("E7 event block/unblock intents include recipient group id",
-  loaded.ok && ownedIntents.length === 2 && ownedIntents.every((intent) => intent.groupId === "e-window-owner"));
-unloadGroup("e-window-owner", { clearState: true });
+log.section("E7: a rule over its time three times in a minute is quarantined");
+let calls = 0;
+const realNow = Date.now;
+loadSource("slow", `(on, v) => { on("tick", () => { for (let i = 0; i < 5; i++) v.log(i); }); }`, {});
+Date.now = () => realNow() + (calls++) * 600;
+let quarantine = null;
+for (let i = 0; i < 3 && !quarantine; i++) quarantine = send("tick", {}, "slow").quarantine;
+Date.now = realNow;
+assert("E7 quarantined", quarantine && quarantine.groupId === "slow" && quarantine.reason === "deadline-overrun");
 
 const counts = log.counts();
-log.summary("EVENT SANDBOX STRESS TOTAL " + counts.total + " PASS " + counts.pass + " FAIL " + counts.fail);
+log.summary("─".repeat(60));
+log.summary(`pass=${counts.pass} fail=${counts.fail}`);
 if (counts.fail > 0) {
-  log.summary("__CB_TEST_RESULT__: FAIL");
-  throw new Error("event sandbox stress tests failed");
+  log.summary("FAILED");
+  print("__CB_TEST_RESULT__: FAILED");
+} else {
+  log.summary("OK");
+  print("__CB_TEST_RESULT__: OK");
 }
-log.summary("__CB_TEST_RESULT__: OK");

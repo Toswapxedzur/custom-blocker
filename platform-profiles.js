@@ -679,27 +679,6 @@ function detectVideoSiteContext(hostname, pathname) {
   return { site: null, form: "unknown" };
 }
 
-// Public custom-rule predicate slots are deliberately platform-specific:
-// TikTok calls its short-form feed "videos", and Twitch calls a channel-path
-// live stream "streams". Keep that translation next to URL classification so
-// feed scans and page predicates cannot drift from the helper API.
-function platformVideoFormToSlot(groupType, form) {
-  const t = normalizeGroupType(groupType);
-  if (t === "tiktok") return form === "short" ? "videos" : null;
-  if (t === "instagram") {
-    if (form === "short") return "shorts";
-    return form === "post" ? "posts" : null;
-  }
-  if (t === "twitch") {
-    if (form === "short") return "shorts";
-    if (form === "long") return "videos";
-    return form === "post" ? "streams" : null;
-  }
-  if (form === "short") return "shorts";
-  if (form === "long") return "videos";
-  return form === "post" ? "posts" : null;
-}
-
 function extractPrimaryAuthorFromPath(groupType, pathname, url) {
   const safePathname = String(pathname ?? "/");
   const t = normalizeGroupType(groupType);
@@ -1746,7 +1725,6 @@ const __cbPlatformRegistry = {
   parseDiscordServerIdFromPath,
   parseDiscordChannelIdFromPath,
   detectVideoSiteContext,
-  platformVideoFormToSlot,
   extractPrimaryAuthorFromPath,
   normalizePlatformAuthorsMap,
   isHomeFeedPage,

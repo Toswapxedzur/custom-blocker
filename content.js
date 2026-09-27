@@ -2,13 +2,11 @@
 // by default so an idle page is silent in DevTools. Toggle via
 // Settings → Debug mode.
 let cbDebugMode = false;
-let cbShowOnPageLogToasts = true;
 function cbDebugLog(...args) { if (cbDebugMode) { try { console.log(...args); } catch (_) {} } }
 function cbDebugWarn(...args) { if (cbDebugMode) { try { console.warn(...args); } catch (_) {} } }
 function cbApplyGlobalSettings(settings) {
   const s = settings && typeof settings === "object" ? settings : {};
   cbDebugMode = s.debugMode === true;
-  cbShowOnPageLogToasts = s.showOnPageLogToasts !== false;
 }
 try {
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
@@ -34,11 +32,11 @@ try {
  *   - Render the in-page timer overlay.
  *   - Apply feed-card filtering (driven by `feedFilters` in the session
  *     payload).
- *   - Relay page events to the custom rules, which run in the event
- *     sandbox (helpers.js lives there), and apply the intents they return:
- *     hide buttons, hide feed cards by predicate, exit the page.
- *   - Exit the page when the background says so OR when any custom rule
- *     says so.
+ *   - Tell the custom rules what the page shows (feed items) and do what
+ *     they ask (item verdicts, style sheets, element operations, the cover,
+ *     panels). The rules themselves run in the worker's sandbox.
+ *   - Cover the page when the background says so OR when a custom rule
+ *     does.
  */
 
 function normalizeHostname(hostname) {
@@ -138,10 +136,8 @@ function shutdownContentScript() {
   // stays covered until the new extension reloads it and decides again.
   try { cbStopCoverTimers(); } catch {}
   try { cbUnmountQuickAdd(); } catch {}
-  // Custom-rule scanning stops too: nothing can reach the sandbox any more.
-  if (__cb_predicateObserver) { __cb_predicateObserver.disconnect(); __cb_predicateObserver = null; }
-  if (__cb_predicateScanTimer !== null) { window.clearTimeout(__cb_predicateScanTimer); __cb_predicateScanTimer = null; }
-  if (__cb_pagePredicateRetryTimer !== null) { window.clearTimeout(__cb_pagePredicateRetryTimer); __cb_pagePredicateRetryTimer = null; }
+  // Nothing reaches the rules any more.
+  cbStopRuleItems();
   clearSessionResolveRetries();
 }
 
@@ -711,19 +707,9 @@ function cbSetGroupOrder(order) {
       cbGroupIndex.set(group.id, index);
     });
   }
-  // Custom verdicts bake in priority at evaluation time and are skipped by
-  // the signature cache; if the order changed, force re-evaluation so
-  // they resolve against the new priorities. (Platform verdicts re-derive every
-  // pass, so they need nothing here.)
+  // Verdicts resolve against the order when applied: re-apply the cards.
   if (changed) {
-    cbResetCustomSigCache();
-    if (
-      typeof __cb_activePredicateSlots !== "undefined" &&
-      __cb_activePredicateSlots.size > 0 &&
-      typeof __cb_schedulePredicateScan === "function"
-    ) {
-      __cb_schedulePredicateScan();
-    }
+    for (const card of cbTrackedCards) if (card.isConnected) cbApplyCard(card);
   }
 }
 
@@ -950,6 +936,7 @@ function cbPageCoversUntilTagged(platform) {
 // re-run the tag filters now rather than waiting for a DOM mutation — the pill
 // may render inside a shadow root the feed observer cannot see.
 function cbReapplyTagFilters() {
+  cbScheduleRuleItems();
   if (latestFeedFilters.length > 0) scheduleApplyFeedFilters();
   if (cbTagPageContext) cbEvaluateTagPage(cbTagPageContext.root, cbTagPageContext);
 }
@@ -1362,16 +1349,17 @@ const cbCover = {
   nextConfirmAt: 0,
   statusText: "",
   // Two owners: the worker's block of this page (its exit) and a custom rule's
-  // block. The cover stays while either holds and shows the worker's (Snooze,
-  // Continue) when both do.
+  // v.cover ({ groupId, message } or null). The cover stays while either holds
+  // and shows the worker's (Snooze, Continue) when both do.
   workerExit: null,
-  ruleCover: false
+  ruleCover: null
 };
 
 const CB_RULE_EXIT = Object.freeze({ action: "cover", target: "", message: "", groupId: "", groupName: "", allowSnooze: false, source: "custom" });
 
 function cbSyncCover() {
-  const exit = cbCover.workerExit || (cbCover.ruleCover ? CB_RULE_EXIT : null);
+  const rule = cbCover.ruleCover;
+  const exit = cbCover.workerExit || (rule ? { ...CB_RULE_EXIT, groupId: rule.groupId, message: rule.message } : null);
   if (exit) cbShowCover(exit);
   else cbHideCover();
 }
@@ -1666,16 +1654,12 @@ function cbApplyExit(exit) {
   cbSyncCover();
 }
 
-// A custom rule's page block (blockPageOnVisit): the plain cover, no snooze.
-// It holds until the page's address changes (the rules then decide the new
-// page), whatever the worker's decision does meanwhile.
-function attemptExitPage() {
-  cbCover.ruleCover = true;
+// A custom rule's cover (v.cover): the plain cover, no snooze. It holds until
+// the rule lifts it or the page's address changes, whatever the worker's
+// decision does meanwhile.
+function cbSetRuleCover(cover) {
+  cbCover.ruleCover = cover && cover.on ? { groupId: String(cover.groupId || ""), message: String(cover.message || "") } : null;
   cbSyncCover();
-}
-
-function cbCustomCoverUp() {
-  return cbCover.ruleCover;
 }
 
 function stopHeartbeat() {
@@ -1721,8 +1705,8 @@ function ensureHeartbeat() {
 }
 
 // Top-level session handler. Called every heartbeat with the background's
-// response. Custom rules go through the sandbox, so this handler only
-// processes site / platform-video group output.
+// response: the page decision, timers and filters, and what the custom rules
+// want from this page.
 function handleSession(session) {
   if (!session) return;
   if (extensionContextInvalid || exitAttempted) return;
@@ -1732,6 +1716,7 @@ function handleSession(session) {
   const shouldExitPage = Boolean(session.shouldExitPage) && Boolean(exit);
 
   updateOverlay(items, !shouldExitPage && (session.showTimer || items.length > 0));
+  cbSetRuleItemsEpoch(session.ruleItems);
   // Re-apply only when what the worker sent changed (or the address did): the
   // feed observer handles new cards, so the 250 ms heartbeat must not redo the
   // whole feed each tick. Order/effect first, so verdicts resolve against the
@@ -1748,11 +1733,12 @@ function handleSession(session) {
   if (cbCover.workerExit) cbApplyExit(null);
 
   // Keep the heartbeat alive while a feed filter still counts exposure (a
-  // timed group inside its allowance) even with no visible timer; an enforcing
-  // filter acts through the page observer and needs no heartbeat.
+  // timed group inside its allowance) even with no visible timer, and while a
+  // rule counts visible time; an enforcing filter acts through the page
+  // observer and needs no heartbeat.
   const countsExposure =
     Array.isArray(session.feedFilters) && session.feedFilters.some((filter) => filter && filter.enforce === false);
-  if (!session.showTimer && items.length === 0 && !countsExposure) {
+  if (!session.showTimer && items.length === 0 && !countsExposure && !session.ruleVisible) {
     stopHeartbeat();
   } else {
     ensureHeartbeat();
@@ -1798,21 +1784,9 @@ function cbOnNavigated() {
   if (exitAttempted || extensionContextInvalid) return;
   lastKnownUrl = location.href;
   cbSessionFilterKey = "";
-  try {
-    // Cancel any pending retry from the previous URL — the URL it was
-    // probing for is no longer current.
-    if (__cb_pagePredicateRetryTimer !== null) {
-      try { window.clearTimeout(__cb_pagePredicateRetryTimer); } catch {}
-      __cb_pagePredicateRetryTimer = null;
-    }
-    __cb_pagePredicateRetryUrl = null;
-    // A custom rule's cover belonged to the old address.
-    if (cbCover.ruleCover) { cbCover.ruleCover = false; cbSyncCover(); }
-    // Defer one tick so the app can swap in the new page's title first.
-    if (__cb_activePredicateSlots.size > 0) setTimeout(() => __cb_checkPagePredicate(), 0);
-  } catch (error) {
-    cbDebugWarn("[CustomBlocker] navigation handler failed", error);
-  }
+  // A rule's cover belonged to the old address; the page item is new.
+  if (cbCover.ruleCover) cbSetRuleCover(null);
+  cbScheduleRuleItems();
   refreshSession();
   scheduleSessionResolveRetries();
 }
@@ -1834,44 +1808,27 @@ function refreshSession() {
   );
 }
 
-function refreshPanels(extraPanelGroups = []) {
+// The rules' panels for this page; `panelGroups` are the groups whose
+// panels changed (their panels missing from the answer are removed).
+function refreshPanels(panelGroups = []) {
   if (exitAttempted || extensionContextInvalid) return;
   if (!isExtensionContextValid()) {
     shutdownContentScript();
     return;
   }
-  try {
-    chrome.runtime.sendMessage({
-      type: "get-custom-panels",
-      url: location.href
-    }).then((message) => {
-      if (!message || !message.ok) return;
-      const panelGroups = new Set(Array.isArray(extraPanelGroups) ? extraPanelGroups : []);
-      for (const groupId of Array.isArray(message.panelGroups) ? message.panelGroups : []) {
-        if (typeof groupId === "string" && groupId) panelGroups.add(groupId);
-      }
-      __cb_processApplyMessage({
-        type: "event-sandbox-apply",
-        descriptor: message.descriptor || { type: "panelRefreshEvent" },
-        panelSnapshots: Array.isArray(message.panelSnapshots) ? message.panelSnapshots : [],
-        panelGroups: Array.from(panelGroups),
-        logs: Array.isArray(message.logs) ? message.logs : [],
-        domOps: [],
-        intents: []
-      });
-    }).catch((error) => {
-      if (isContextInvalidatedError(error)) shutdownContentScript();
-      else cbDebugWarn("[CustomBlocker] panel refresh failed", error);
-    });
-  } catch (error) {
+  chrome.runtime.sendMessage({ type: "get-custom-panels" }).then((message) => {
+    if (!message || !message.ok) return;
+    __cb_applyPanelSnapshots(message.panelSnapshots, [...panelGroups, ...(message.panelGroups || [])]);
+  }).catch((error) => {
     if (isContextInvalidatedError(error)) shutdownContentScript();
     else cbDebugWarn("[CustomBlocker] panel refresh failed", error);
-  }
+  });
 }
 
 if (/^https?:$/i.test(location.protocol)) {
   refreshSession();
   cbRefreshQuickAdd();
+  refreshPanels();
   // Author bylines may resolve after initial load, so refresh the page matcher.
   scheduleSessionResolveRetries();
 
@@ -1888,7 +1845,7 @@ if (/^https?:$/i.test(location.protocol)) {
   document.addEventListener("yt-navigate-finish", () => {
     if (location.href !== lastKnownUrl) return cbOnNavigated();
     refreshSession();
-    if (__cb_activePredicateSlots.size > 0) __cb_checkPagePredicate();
+    cbScheduleRuleItems();
   });
 
   try {
@@ -1922,113 +1879,9 @@ if (/^https?:$/i.test(location.protocol)) {
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Event-driven custom rule integration. Background dispatches events to
-// the event sandbox; the sandbox returns DOM/navigation intents; we
-// apply them here. The accumulated DOM ops are applied in document
-// order with one MutationObserver-friendly write per element.
+// Custom-rule panels (v.panel): rendered here, their interactions go back
+// to the rule as "panel" events.
 // ────────────────────────────────────────────────────────────────────────
-
-const __cb_eventInjectedCss = new Map(); // id -> <style> element
-
-// On-page toast renderer for getLogHelper() output. Each entry produced
-// by the sandbox is rendered as a colored toast in the bottom-right that
-// fades after ~5 s. Only the message text is shown — the level shows up
-// as the toast colour.
-
-const __cb_TOAST_CONTAINER_ID = "__custom_blocker_toast_container__";
-const __cb_TOAST_MAX_VISIBLE = 8;
-const __cb_TOAST_FADE_AFTER_MS = 5000;
-const __cb_TOAST_REMOVE_AFTER_MS = 5500;
-
-function __cb_ensureToastContainer() {
-  let host = document.getElementById(__cb_TOAST_CONTAINER_ID);
-  if (host && host.isConnected) return host;
-  if (!document.body && !document.documentElement) return null;
-  host = document.createElement("div");
-  host.id = __cb_TOAST_CONTAINER_ID;
-  host.style.cssText = [
-    "position:fixed",
-    "right:16px",
-    "bottom:16px",
-    "z-index:2147483647",
-    "display:flex",
-    "flex-direction:column",
-    "gap:6px",
-    "max-width:380px",
-    "pointer-events:none",
-    "font:13px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
-  ].join(";");
-  (document.body || document.documentElement).appendChild(host);
-  return host;
-}
-
-function __cb_formatToastArg(arg) {
-  if (typeof arg === "string") return arg;
-  if (arg === null) return "null";
-  if (arg === undefined) return "undefined";
-  if (typeof arg === "number" || typeof arg === "boolean") return String(arg);
-  try {
-    return JSON.stringify(arg);
-  } catch {
-    return String(arg);
-  }
-}
-
-function __cb_showToast(level, _groupId, args) {
-  const host = __cb_ensureToastContainer();
-  if (!host) return;
-  const text = (Array.isArray(args) ? args : [args]).map(__cb_formatToastArg).join(" ").trim();
-  if (!text) return;
-  while (host.children.length >= __cb_TOAST_MAX_VISIBLE) {
-    host.removeChild(host.firstChild);
-  }
-  const toast = document.createElement("div");
-  const palette = level === "error"
-    ? { bg: "#7f1d1d", fg: "#fef2f2", border: "#ef4444" }
-    : level === "warn"
-      ? { bg: "#78350f", fg: "#fffbeb", border: "#f59e0b" }
-      : { bg: "#0f172a", fg: "#f1f5f9", border: "#38bdf8" };
-  toast.style.cssText = [
-    "background:" + palette.bg,
-    "color:" + palette.fg,
-    "border-left:3px solid " + palette.border,
-    "padding:8px 10px",
-    "border-radius:6px",
-    "box-shadow:0 6px 20px rgba(0,0,0,0.35)",
-    "pointer-events:auto",
-    "transition:opacity 400ms ease, transform 400ms ease",
-    "opacity:0",
-    "transform:translateY(8px)",
-    "white-space:pre-wrap",
-    "word-break:break-word",
-    "font-variant-ligatures:none"
-  ].join(";");
-  toast.textContent = text;
-  toast.addEventListener("click", () => toast.remove(), { once: true });
-  host.appendChild(toast);
-  // animate in
-  requestAnimationFrame(() => {
-    toast.style.opacity = "1";
-    toast.style.transform = "translateY(0)";
-  });
-  setTimeout(() => {
-    toast.style.opacity = "0";
-    toast.style.transform = "translateY(8px)";
-  }, __cb_TOAST_FADE_AFTER_MS);
-  setTimeout(() => {
-    if (toast.parentNode) toast.parentNode.removeChild(toast);
-  }, __cb_TOAST_REMOVE_AFTER_MS);
-}
-
-function __cb_renderLogs(logs) {
-  if (!Array.isArray(logs) || logs.length === 0) return;
-  for (const entry of logs) {
-    if (!entry) continue;
-    if (entry.screen === false) continue;
-    if (entry.screen !== true && !cbShowOnPageLogToasts) continue;
-    __cb_showToast(entry.level || "log", entry.groupId || "", entry.args || []);
-  }
-}
 
 const __cb_PANEL_ROOT_ID = "__custom_blocker_panel_root__";
 const __cb_PANEL_POSITIONS = ["top-left", "top-right", "bottom-left", "bottom-right", "center"];
@@ -2077,20 +1930,6 @@ function __cb_safePanelRole(value, fallback) {
   return ["region", "dialog", "alert", "status", "form", "group"].includes(value) ? value : fallback;
 }
 
-function __cb_formatPanelTimerMs(ms, format) {
-  const totalMs = Math.max(0, Math.floor(Number(ms) || 0));
-  if (format === "ms") return String(totalMs) + " ms";
-  const totalSeconds = Math.floor(totalMs / 1000);
-  if (format === "ss") return String(totalSeconds) + "s";
-  const seconds = totalSeconds % 60;
-  const minutesTotal = Math.floor(totalSeconds / 60);
-  const minutes = minutesTotal % 60;
-  const hours = Math.floor(minutesTotal / 60);
-  const pad = (value) => String(value).padStart(2, "0");
-  if (format === "hh:mm:ss") return String(hours) + ":" + pad(minutes) + ":" + pad(seconds);
-  return String(minutesTotal) + ":" + pad(seconds);
-}
-
 function __cb_sortedPanelControls(controls) {
   return (Array.isArray(controls) ? controls.slice() : []).sort((a, b) => {
     const pa = Number(a?.priority) || 0;
@@ -2129,14 +1968,11 @@ const __cb_PANEL_CONTROL_PATCH_KEYS = new Set([
   "placeholder",
   "ariaLabel",
   "autoFocus",
-  "timer",
   "options",
   "min",
   "max",
   "step",
-  "rows",
-  "format",
-  "showExpired"
+  "rows"
 ]);
 
 function __cb_panelSnapshotKeySnapshot(value, key = "") {
@@ -2158,21 +1994,6 @@ function __cb_panelSnapshotKey(snapshot) {
   } catch (_) {
     return "";
   }
-}
-
-function __cb_panelTimerDisplay(control) {
-  const timer = control && control.timer && typeof control.timer === "object" ? control.timer : null;
-  const currentMs = Number(timer?.currentMs);
-  const hasTimer = timer && Number.isFinite(currentMs);
-  const name = __cb_safePanelText(control?.label || timer?.displayName || control?.timerId || "Timer", 240);
-  return {
-    name,
-    currentMs,
-    hasTimer,
-    text: name + ": " + (hasTimer ? __cb_formatPanelTimerMs(currentMs, control?.format) : "not available"),
-    isExpired: Boolean(hasTimer && timer?.isExpired),
-    showExpired: control?.showExpired !== false
-  };
 }
 
 function __cb_panelControlOptionsKey(control) {
@@ -2202,41 +2023,6 @@ function __cb_renderSinglePanelControl(panelEl, control, theme) {
   const holder = document.createElement("div");
   __cb_appendPanelControl(panelEl, holder, control, theme || {});
   return holder.firstElementChild;
-}
-
-function __cb_collectPanelTimerControls(controls, out = []) {
-  for (const control of Array.isArray(controls) ? controls : []) {
-    if (!control || typeof control !== "object") continue;
-    if (control.type === "timer") out.push(control);
-    __cb_collectPanelTimerControls(control.controls, out);
-  }
-  return out;
-}
-
-function __cb_updatePanelTimerBox(timerBox, control, theme) {
-  if (!timerBox || !control) return;
-  const display = __cb_panelTimerDisplay(control);
-  let line = timerBox.querySelector("[data-cb-panel-timer-line='1']");
-  if (!line) {
-    line = document.createElement("div");
-    line.setAttribute("data-cb-panel-timer-line", "1");
-    line.style.cssText = "font-variant-numeric:tabular-nums;font-weight:700;";
-    timerBox.insertBefore(line, timerBox.firstChild);
-  }
-  line.textContent = display.text;
-
-  let expired = timerBox.querySelector("[data-cb-panel-timer-expired='1']");
-  if (display.isExpired && display.showExpired) {
-    if (!expired) {
-      expired = document.createElement("div");
-      expired.setAttribute("data-cb-panel-timer-expired", "1");
-      expired.style.cssText = "opacity:0.82;font-size:0.88em;";
-      timerBox.appendChild(expired);
-    }
-    expired.textContent = "Expired";
-  } else if (expired) {
-    expired.remove();
-  }
 }
 
 // True when focus currently sits on a control inside this panel (active drag /
@@ -2271,7 +2057,7 @@ function __cb_setInputValueIfSafe(input, value) {
   const next = String(value ?? "");
   // Uncontrolled-input semantics: only overwrite the user's current value when
   // the RULE's value actually changed since we last applied it. A panel is
-  // re-collected and re-sent on EVERY dispatch (heartbeat, panelEvent round-trip,
+  // re-collected and re-sent on EVERY refresh (a panel event round-trip,
   // …), so without this a control snaps back to the rule's stored value the
   // instant the user lets go — e.g. a slider released at either end jumps back to
   // its initial value, which reads as "can't reach / capped". The rule's last
@@ -2376,11 +2162,6 @@ function __cb_patchPanelControl(panelEl, control, theme) {
 
   if (type === "section") {
     __cb_patchSectionControl(root, control);
-    return true;
-  }
-
-  if (type === "timer") {
-    __cb_updatePanelTimerBox(root, control, theme);
     return true;
   }
 
@@ -2604,7 +2385,7 @@ function __cb_collectPanelValues(panelEl) {
   panelEl.querySelectorAll("[data-cb-panel-control-id]").forEach((el) => {
     const id = el.getAttribute("data-cb-panel-control-id");
     const type = el.getAttribute("data-cb-panel-control-type");
-    if (!id || type === "button" || type === "text" || type === "section" || type === "timer") return;
+    if (!id || type === "button" || type === "text" || type === "section") return;
     if (type === "checkbox" || type === "toggle") {
       values[id] = Boolean(el.checked);
     } else if (type === "radio") {
@@ -2764,38 +2545,6 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     }
     section.appendChild(inner);
     body.appendChild(section);
-    return;
-  }
-
-  if (type === "timer") {
-    const timerBox = document.createElement("div");
-    __cb_markPanelControlRoot(timerBox, control);
-    timerBox.setAttribute("data-cb-panel-control-id", control.id || "");
-    timerBox.setAttribute("data-cb-panel-control-type", "timer");
-    if (control.timerId) timerBox.setAttribute("data-cb-panel-timer-id", control.timerId);
-    timerBox.style.cssText = [
-      "box-sizing:border-box",
-      "display:flex",
-      "flex-direction:column",
-      "gap:5px",
-      "width:" + (controlWidth && controlWidth !== "auto" ? controlWidth : "fit-content"),
-      "max-width:100%",
-      "color:inherit"
-    ].join(";");
-    const display = __cb_panelTimerDisplay(control);
-    const line = document.createElement("div");
-    line.setAttribute("data-cb-panel-timer-line", "1");
-    line.textContent = display.text;
-    line.style.cssText = "font-variant-numeric:tabular-nums;font-weight:700;";
-    timerBox.appendChild(line);
-    if (display.isExpired && display.showExpired) {
-      const expired = document.createElement("div");
-      expired.setAttribute("data-cb-panel-timer-expired", "1");
-      expired.textContent = "Expired";
-      expired.style.cssText = "opacity:0.82;font-size:0.88em;";
-      timerBox.appendChild(expired);
-    }
-    body.appendChild(timerBox);
     return;
   }
 
@@ -3234,495 +2983,153 @@ function __cb_applyPanelSnapshots(panelSnapshots, panelGroups) {
   }
 }
 
-function __cb_applyDomOp(op) {
-  if (!op || typeof op.kind !== "string") return;
-  try {
-    if (op.kind === "hide") {
-      document.querySelectorAll(op.selector).forEach((el) => {
-        el.style.setProperty("display", "none", "important");
-        el.setAttribute("data-cb-hidden", "1");
-      });
-    } else if (op.kind === "show") {
-      document.querySelectorAll(op.selector).forEach((el) => {
-        el.style.removeProperty("display");
-        el.removeAttribute("data-cb-hidden");
-      });
-    } else if (op.kind === "addClass") {
-      document.querySelectorAll(op.selector).forEach((el) => el.classList.add(op.className));
-    } else if (op.kind === "removeClass") {
-      document.querySelectorAll(op.selector).forEach((el) => el.classList.remove(op.className));
-    } else if (op.kind === "setText") {
-      document.querySelectorAll(op.selector).forEach((el) => {
-        el.textContent = op.text;
-      });
-    } else if (op.kind === "click") {
-      document.querySelectorAll(op.selector).forEach((el) => {
-        if (typeof el.click === "function") el.click();
-      });
-    } else if (op.kind === "scrollTo") {
-      const el = document.querySelector(op.selector);
-      if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ behavior: "smooth" });
-    } else if (op.kind === "injectCss") {
-      const id = op.id || ("cb-injected-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8));
-      let style = __cb_eventInjectedCss.get(id);
-      if (!style) {
-        style = document.createElement("style");
-        style.setAttribute("data-cb-injected-id", id);
-        document.documentElement.appendChild(style);
-        __cb_eventInjectedCss.set(id, style);
-      }
-      style.textContent = op.css;
-    } else if (op.kind === "removeInjectedCss") {
-      const style = __cb_eventInjectedCss.get(op.id);
-      if (style && style.parentNode) style.parentNode.removeChild(style);
-      __cb_eventInjectedCss.delete(op.id);
-    }
-  } catch (error) {
-    cbDebugWarn("[CustomBlocker] DOM op failed", op, error);
-  }
-}
-
 // ────────────────────────────────────────────────────────────────────────
-// Predicate-based feed hiding (hideShorts / hideVideos / hidePosts /
-// filterComments / filterLive). Predicates are real JS functions that
-// live inside the offscreen sandbox; we ship card item metadata to the
-// sandbox via the background relay and apply the returned hide decisions
-// here.
+// Custom rules on this page. The rules run in the worker's sandbox
+// (rule-core.js). The page tells them what it shows — the "items" event, only
+// while a rule handles it — and does what they ask ("rule-apply": item
+// verdicts, style sheets, element operations and the cover).
 // ────────────────────────────────────────────────────────────────────────
 
-const __cb_activePredicateSlots = new Set(); // "platform:slot"
-let __cb_predicateScanTimer = null;
-let __cb_predicateObserver = null;
+let cbRuleItemsEpoch = 0; // the worker's; 0 = no rule wants items
+let cbRuleRefs = new Map(); // ref -> card
+let cbRuleCardRefs = new WeakMap(); // card -> ref
+let cbRuleRefSeq = 0;
+let cbRuleSent = new WeakMap(); // card -> the item last sent
+let cbRulePageSent = "";
+let cbRuleScanTimer = null;
+let cbRuleObserver = null;
+const cbRuleStyles = new Map(); // "<group id>␟<id>" -> <style>
 
-// Page-level predicate (blockPageOnVisit) state. The predicate runs against
-// the current video's title, but openWebEvent / webChangedEvent typically
-// dispatch before the SPA has rendered the real title, so we keep a small
-// per-URL retry budget instead of evaluating with a bare platform name like
-// "YouTube" (which would false-match almost any substring predicate).
-const __CB_PAGE_PREDICATE_MAX_RETRIES = 12;       // ~6 s at 500 ms
-const __CB_PAGE_PREDICATE_RETRY_DELAY_MS = 500;
-let __cb_pagePredicateRetryUrl = "";
-let __cb_pagePredicateRetriesRemaining = 0;
-let __cb_pagePredicateRetryTimer = null;
-
-// Per-platform DOM selectors for the actual video title element. Tried in
-// order; first non-empty hit wins.
-const __cb_PAGE_TITLE_SELECTORS = {
-  youtube: [
-    // Long-form watch page (/watch?v=...).
-    "ytd-watch-metadata h1.title yt-formatted-string",
-    "ytd-watch-metadata h1 yt-formatted-string",
-    "ytd-watch-metadata h1",
-    "h1.ytd-watch-metadata",
-    "h1.title.ytd-video-primary-info-renderer",
-    // Shorts (/shorts/<id>). YouTube has rotated through several DOM
-    // shapes for shorts; keeping multiple selectors increases the
-    // chance one matches before the retry budget exhausts. The
-    // page-predicate evaluator will also fall back to an empty title
-    // after retries exhaust (so URL-only predicates still block).
-    "ytd-reel-video-renderer[is-active] yt-formatted-string.ytd-reel-player-header-renderer",
-    "ytd-reel-video-renderer[is-active] h2.title",
-    "ytd-reel-video-renderer[is-active] h2",
-    "ytd-shorts ytd-reel-video-renderer[is-active] yt-formatted-string",
-    "ytd-shorts [aria-current='true'] yt-formatted-string",
-    "yt-shorts-lockup-view-model h3",
-    "h2.ytd-reel-player-header-renderer",
-    'meta[itemprop="name"]'
-  ],
-  tiktok: [
-    'h1[data-e2e="browse-video-desc"]',
-    '[data-e2e="browse-video-desc"]',
-    '[data-e2e="video-desc"]'
-  ],
-  facebook: [
-    'div[role="main"] h1',
-    "h1"
-  ],
-  instagram: [
-    "article h1"
-  ],
-  twitch: [
-    'h1[data-a-target="stream-title"]',
-    'h2[data-a-target="stream-title"]',
-    "h1.tw-title"
-  ]
-};
-
-// Trailing-suffix patterns we strip from document.title when falling back to
-// it, so a predicate searching for a substring in the *video* title cannot
-// accidentally match the platform name itself.
-const __cb_PAGE_TITLE_SUFFIX_PATTERNS = {
-  youtube: /\s*[-–—|]\s*YouTube\s*$/i,
-  tiktok: /\s*[|·•\-–—]\s*TikTok\s*$/i,
-  facebook: /\s*[-–—|]\s*Facebook\s*$/i,
-  instagram: /\s*[-–—•|]\s*Instagram\s*$/i,
-  twitch: /\s*[-–—|]\s*Twitch\s*$/i
-};
-
-function __cb_stripPlatformSuffix(platform, raw) {
-  let value = String(raw || "").trim();
-  const suffix = __cb_PAGE_TITLE_SUFFIX_PATTERNS[platform];
-  if (suffix) value = value.replace(suffix, "").trim();
-  return value;
+function cbRuleCardTitle(card) {
+  for (const selector of ["#video-title", "h3", "h2", "[title]"]) {
+    const el = card.querySelector(selector);
+    const text = String((el && (el.getAttribute("title") || el.textContent)) || "").trim();
+    if (text) return text.slice(0, 500);
+  }
+  return String(card.querySelector("[aria-label]")?.getAttribute("aria-label") || "").trim().slice(0, 500);
 }
 
-function __cb_extractPageVideoTitle(platform) {
-  const selectors = __cb_PAGE_TITLE_SELECTORS[platform] || [];
-
-  // 1. Per-platform DOM selectors. These are the only source of truth on
-  //    SPA platforms (YouTube, TikTok, etc.) because document.title and
-  //    og:title remain stuck at the previous page's title for a few hundred
-  //    milliseconds after an in-page navigation. Trusting either of those
-  //    fallbacks during that window causes the predicate to be evaluated
-  //    against the *previous* video, which is what produced the
-  //    "every video gets blocked" symptom.
-  for (const selector of selectors) {
-    let element = null;
-    try { element = document.querySelector(selector); } catch { element = null; }
-    if (!element) continue;
-    // Prefer aria-label / title / content attributes when present —
-    // the visible text on shorts tiles is sometimes split across
-    // sibling elements and textContent picks up navigation chrome.
-    // <meta itemprop="name"> exposes the short title via `content`,
-    // which is what the YouTube SPA writes before the visible h2
-    // hydrates.
-    const raw =
-      (element.getAttribute && element.getAttribute("title")) ||
-      (element.getAttribute && element.getAttribute("aria-label")) ||
-      (element.getAttribute && element.getAttribute("content")) ||
-      element.textContent ||
-      "";
-    const trimmed = String(raw).trim();
-    if (trimmed) return trimmed;
-  }
-
-  // For platforms with explicit selectors, do NOT fall back to og:title or
-  // document.title. Returning "" makes the caller defer evaluation via the
-  // retry budget instead. Worst case, we never block (safe); best case, we
-  // wait until the SPA renders the real <h1> and then evaluate cleanly.
-  if (selectors.length > 0) return "";
-
-  // 2. og:title / twitter:title / generic title meta tag. Only used for
-  //    platforms we don't have explicit selectors for.
-  try {
-    const meta = document.querySelector(
-      'meta[property="og:title"], meta[name="twitter:title"], meta[name="title"]'
-    );
-    if (meta) {
-      const stripped = __cb_stripPlatformSuffix(platform, meta.getAttribute("content"));
-      if (stripped && stripped.toLowerCase() !== String(platform).toLowerCase()) {
-        return stripped;
-      }
-    }
-  } catch {}
-
-  // 3. document.title with the trailing platform suffix stripped, also only
-  //    for unrecognised platforms.
-  const stripped = __cb_stripPlatformSuffix(platform, document.title);
-  if (!stripped || stripped.toLowerCase() === String(platform).toLowerCase()) return "";
-  return stripped;
-}
-
-// Waits for the page's title (it renders after the address changes). Returns
-// false once this address's retries are used up: evaluate without a title.
-function __cb_schedulePagePredicateRetry() {
-  if (__cb_pagePredicateRetryUrl !== location.href) {
-    __cb_pagePredicateRetryUrl = location.href;
-    __cb_pagePredicateRetriesRemaining = __CB_PAGE_PREDICATE_MAX_RETRIES;
-  }
-  if (__cb_pagePredicateRetryTimer !== null) return true;
-  if (__cb_pagePredicateRetriesRemaining <= 0) return false;
-  __cb_pagePredicateRetriesRemaining -= 1;
-  __cb_pagePredicateRetryTimer = window.setTimeout(() => {
-    __cb_pagePredicateRetryTimer = null;
-    __cb_checkPagePredicate();
-  }, __CB_PAGE_PREDICATE_RETRY_DELAY_MS);
-  return true;
-}
-
-// Persistent <style> tags injected for sticky platform intents (hide
-// short button / hide comments / etc). Keyed by a stable id so toggling
-// hide/show is idempotent.
-function __cb_setPlatformStyle(key, css) {
-  const id = "__cb_platform_style_" + key;
-  let style = document.getElementById(id);
-  if (!style) {
-    style = document.createElement("style");
-    style.id = id;
-    (document.head || document.documentElement).appendChild(style);
-  }
-  style.textContent = css;
-}
-
-function __cb_clearPlatformStyle(key) {
-  const style = document.getElementById("__cb_platform_style_" + key);
-  if (style && style.parentNode) style.parentNode.removeChild(style);
-}
-
-const __cb_PLATFORM_CSS = {
-  youtube: {
-    shortButton: [
-      'ytd-guide-entry-renderer:has(a[title="Shorts"])',
-      'ytd-guide-entry-renderer:has(a[href="/shorts"])',
-      'ytd-mini-guide-entry-renderer:has(a[title="Shorts"])',
-      'ytd-mini-guide-entry-renderer:has(a[href="/shorts"])',
-      'ytd-pivot-bar-item-renderer:has(a[href="/shorts"])',
-      'yt-tab-shape:has(a[href="/shorts"])',
-      'a[href="/shorts"]',
-      'a[title="Shorts"]'
-    ].join(", ") + " { display: none !important; }",
-    comments: "ytd-comments, #comments { display: none !important; }",
-    live: "ytd-badge-supported-renderer[overlay-style='LIVE'], .badge-style-type-live-now-alternate { display: none !important; }"
-  },
-  tiktok: {
-    comments: '[data-e2e="comment-list"], [class*="DivCommentListContainer"] { display: none !important; }'
-  },
-  instagram: {
-    comments: 'ul.x78zum5.xdt5ytf, section:has(form[method="POST"]) ul { display: none !important; }'
-  },
-  facebook: {
-    comments: '[role="article"] [aria-label*="Comment"i] { display: none !important; }'
-  },
-  twitch: {
-    comments: 'section[data-test-selector="chat-room-component-layout"] { display: none !important; }'
-  },
-  reddit: {
-    comments: "shreddit-comment-tree, #comment-tree, .commentarea, shreddit-comments-page-tools { display: none !important; }"
-  },
-  twitter: {
-    // Replies under a status page: everything in the conversation timeline
-    // after the first cell (the tweet itself).
-    comments: '[aria-label="Timeline: Conversation"] [data-testid="cellInnerDiv"]:not(:first-of-type) { display: none !important; }'
-  },
-  bilibili: {
-    comments: "#comment, #commentapp, bili-comments, .comment-container, .bili-comment { display: none !important; }"
-  }
-};
-
-function __cb_isOnPlatformHome(platform) {
-  return isHomeFeedPage(platform, location.hostname, location.pathname || "/");
-}
-
-function __cb_currentPlatform() {
-  return getPlatformGroupTypeForHost(normalizeHostname(location.hostname));
-}
-
-// The page's own channel identity when we're on a channel/author page, in the
-// same normalized shape getFeedCardCreators() produces (a bare handle, or a
-// channel:/c:/user: prefixed id). On a channel's OWN page the individual video
-// cards omit the per-card channel link, so per-card author extraction comes
-// back empty and author-based predicates fail open. Returns null off channel
-// pages or for non-YouTube platforms.
-function __cb_channelPageAuthor(platform) {
-  if (platform !== "youtube") return null;
-  const path = location.pathname || "";
-  const isChannelPage =
-    path.startsWith("/@") ||
-    path.startsWith("/channel/") ||
-    path.startsWith("/c/") ||
-    path.startsWith("/user/");
-  if (!isChannelPage) return null;
-  try { return normalizeYouTubeCreatorInput(path); } catch { return null; }
-}
-
-function __cb_extractCardItem(card, platform) {
-  let videoForm = null;
-  let creators = [];
-  if (platform === "youtube") {
-    if (isPostCard(card)) {
-      videoForm = "post";
-      creators = getFeedCardCreators(card);
-    } else {
-      const href = getFeedCardHref(card, "youtube");
-      if (href) {
-        try {
-          const u = new URL(href, location.origin);
-          videoForm = detectVideoSiteContext(normalizeHostname(u.hostname), u.pathname).form;
-        } catch {}
-      }
-      creators = getFeedCardCreators(card);
-    }
-  } else {
-    const href = getFeedCardHref(card, platform);
-    if (href) {
-      try {
-        const u = new URL(href, location.origin);
-        videoForm = detectVideoSiteContext(normalizeHostname(u.hostname), u.pathname).form;
-      } catch {}
-    }
-    if (platform === "reddit") {
-      // Reddit's author axis is the subreddit (what its platform rules filter on).
-      const subreddit = extractRedditSubredditFromCard(card);
-      creators = subreddit ? [subreddit] : [];
-    } else if (platform === "twitter") {
-      creators = [
-        ...new Set(
-          [...card.querySelectorAll('a[role="link"][href^="/"], a[href^="/"]')]
-            .map((anchor) => normalizeTwitterHandleInput(anchor.getAttribute("href")))
-            .filter(Boolean)
-        )
-      ];
-    } else {
-      creators = [
-        ...new Set(
-          [...card.querySelectorAll("a[href]")]
-            .map((a) => normalizeSourceInput(a.getAttribute("href"), platform))
-            .filter(Boolean)
-        )
-      ];
-    }
-  }
-
-  let name = "";
-  const titleSelectors = [
-    "#video-title",
-    "yt-formatted-string#video-title",
-    "h3 a",
-    "h3",
-    "h2 a",
-    "h2",
-    "[title]"
-  ];
-  for (const sel of titleSelectors) {
-    let el = null;
-    try { el = card.querySelector(sel); } catch { el = null; }
-    if (!el) continue;
-    const txt = (el.getAttribute && el.getAttribute("title")) || el.textContent || "";
-    const trimmed = String(txt).trim();
-    if (trimmed) { name = trimmed; break; }
-  }
-  if (!name) {
-    let aria = null;
-    try { aria = card.querySelector("[aria-label]"); } catch {}
-    if (aria) name = (aria.getAttribute("aria-label") || "").trim();
-  }
-
-  let url = "";
-  const href = getFeedCardHref(card, platform);
-  if (href) { try { url = new URL(href, location.origin).href; } catch {} }
-
-  // Prefer the per-card creator; fall back to the page's own channel when we're
-  // on that channel's page and the card carries no author link of its own.
-  let author = creators[0] || null;
-  if (!author) {
-    const fallback = __cb_channelPageAuthor(platform);
-    if (fallback) author = fallback;
-  }
-
-  // Content-classifier tags for this card (from the Vault tag pipeline), so a
-  // custom content-block rule can match on WHAT the content is, not just its
-  // creator. Empty until the pill resolves; a resolved change re-evaluates via
-  // the signature below.
-  // tagsSettled is true only once the classifier has ANSWERED (tags, or an
-  // explicit none): a rule can fail open while the tags are unknown.
-  const cardTags = getFeedCardTags(card);
-  const tags = [...cardTags];
-  const tagsSettled = cardTags.settled;
-
+function cbRuleItem(ref, url, title, data, isPage) {
   return {
+    ref,
     url,
-    name,
-    title: name,
-    author,
-    length: null,
-    views: null,
-    publishedAt: null,
-    description: null,
-    live: null,
-    sponsored: null,
-    algorithmic: null,
-    videoForm,
-    tags,
-    tagsSettled
+    title,
+    authors: data.creators || [],
+    videoForm: data.videoForm || "unknown",
+    tags: [...data.tags].map((tag) => ({ name: tag.name, confidence: tag.confidence })),
+    tagsSettled: data.tags.settled === true,
+    isPage
   };
 }
 
-// Custom rules now hide through the shared cascade (the "custom" verdict
-// source) instead of their own marker, so a per-card signature cache avoids
-// re-sending unchanged cards to the sandbox on every mutation.
-let cbCustomSigCache = new WeakMap(); // card -> last evaluated signature
-
-// Invalidate the cache whenever the active predicate set changes, so newly
-// activated groups re-evaluate cards we'd otherwise skip as "unchanged".
-function cbResetCustomSigCache() {
-  cbCustomSigCache = new WeakMap();
+function cbRuleCardRef(card) {
+  let ref = cbRuleCardRefs.get(card);
+  if (!ref) {
+    ref = "i" + (++cbRuleRefSeq);
+    cbRuleCardRefs.set(card, ref);
+  }
+  cbRuleRefs.set(ref, card);
+  return ref;
 }
 
-function cbCardSignature(item) {
-  const tagSig = Array.isArray(item.tags)
-    ? item.tags.map((t) => `${t.id || t.name}:${t.confidence || 0}`).sort().join(",")
-    : "";
-  return [item.url || "", item.title || "", item.videoForm || "", tagSig, item.tagsSettled ? "settled" : ""].join("\n");
-}
-
-// Returns the full sandbox reply { results, evaluatedGroups } (or null). The
-// results carry per-group matches so each custom group can take its own ordered
-// slot in the cascade.
-async function __cb_evaluateItems(platform, slot, items) {
-  if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) return null;
-  try {
-    const r = await chrome.runtime.sendMessage({
-      type: "evaluate-platform-items",
-      platform,
-      slot,
-      items
-    });
-    if (r && r.ok && Array.isArray(r.results)) {
-      return { results: r.results, evaluatedGroups: Array.isArray(r.evaluatedGroups) ? r.evaluatedGroups : [] };
-    }
-  } catch {}
-  return null;
-}
-
-async function __cb_scanFeedPredicates() {
-  __cb_predicateScanTimer = null;
-  const platform = __cb_currentPlatform();
+// Sends the platform page's items that are new or changed since they were
+// last sent, and the page itself (ref "page").
+function cbScanRuleItems() {
+  cbRuleScanTimer = null;
+  if (!cbRuleItemsEpoch || exitAttempted || extensionContextInvalid) return;
+  const platform = getCurrentFeedSite();
   if (!platform) return;
-  if (__cb_activePredicateSlots.size === 0) return;
-
-  const cards = getFeedCardElements(platform);
-  if (cards.length === 0) return;
-
-  // Only send cards whose content changed since we last evaluated them; cards
-  // with an unchanged signature already have their custom verdict in the ledger.
-  // One batch per slot the cards map to (a Twitch channel card is a stream).
-  const bySlot = {};
-  for (const card of cards) {
-    const item = __cb_extractCardItem(card, platform);
-    const slot = platformVideoFormToSlot(platform, item.videoForm);
-    if (!slot) continue;
-    if (!__cb_activePredicateSlots.has(platform + ":" + slot)) continue;
-    const sig = cbCardSignature(item);
-    if (cbCustomSigCache.get(card) === sig) continue;
-    (bySlot[slot] ||= []).push({ card, item, sig });
+  for (const [ref, card] of cbRuleRefs) if (!card.isConnected) cbRuleRefs.delete(ref);
+  const items = [];
+  for (const card of getFeedCardElements(platform)) {
+    const data = getFeedCardData(card);
+    if (!data) continue;
+    let url = "";
+    try { url = new URL(getFeedCardHref(card, platform) || "", location.origin).href; } catch {}
+    const item = cbRuleItem(cbRuleCardRef(card), url, cbRuleCardTitle(card), data, false);
+    const sent = JSON.stringify(item);
+    if (cbRuleSent.get(card) === sent) continue;
+    cbRuleSent.set(card, sent);
+    items.push(item);
   }
+  const page = cbRuleItem("page", location.href, document.title, {
+    creators: collectPlatformAuthors(location.pathname, platform === "youtube")[platform] || [],
+    videoForm: detectVideoSiteContext(normalizeHostname(location.hostname), location.pathname).form,
+    tags: cbTagPageContext ? getFeedCardTags(cbTagPageContext.root) : Object.assign([], { settled: false })
+  }, true);
+  const pageSent = JSON.stringify(page);
+  if (pageSent !== cbRulePageSent) {
+    cbRulePageSent = pageSent;
+    items.push(page);
+  }
+  if (items.length > 0) safeSendMessage({ type: "rule-items", platform, items });
+}
 
-  for (const [slot, batch] of Object.entries(bySlot)) {
-    const reply = await __cb_evaluateItems(platform, slot, batch.map((b) => b.item));
-    if (!reply) continue;
-    const { results, evaluatedGroups } = reply;
-    for (let i = 0; i < batch.length; i++) {
-      const card = batch[i].card;
-      // Re-derive this card's custom verdicts: clear the groups that ran, then
-      // set the matches. Platform verdicts on the card are left untouched.
-      for (const groupId of evaluatedGroups) cbSetCardVerdict(card, groupId, null, "custom");
-      const matched =
-        results[i] && Array.isArray(results[i].matchedGroups) ? results[i].matchedGroups : [];
-      // Per-predicate effect: allow() records a rescue verdict, dim() blacks
-      // out the thumbnail in place, hide() removes the card.
-      const effects = (results[i] && results[i].effects) || {};
-      for (const groupId of matched) {
-        const effect = effects[groupId];
-        const verdict = effect === "allow" ? "allow" : effect === "dim" ? "dim" : "hide";
-        cbSetCardVerdict(card, groupId, verdict, "custom");
-      }
-      cbCustomSigCache.set(card, batch[i].sig);
-      cbApplyCard(card);
+function cbScheduleRuleItems() {
+  if (cbRuleItemsEpoch && cbRuleScanTimer === null) cbRuleScanTimer = setTimeout(cbScanRuleItems, 250);
+}
+
+// The session says whether a rule wants items (a new epoch: send them all again).
+function cbSetRuleItemsEpoch(epoch) {
+  const next = Number(epoch) || 0;
+  if (next === cbRuleItemsEpoch) return;
+  cbRuleItemsEpoch = next;
+  cbRuleSent = new WeakMap();
+  cbRulePageSent = "";
+  if (next && !cbRuleObserver && document.documentElement) {
+    cbRuleObserver = new MutationObserver(cbScheduleRuleItems);
+    cbRuleObserver.observe(document.documentElement, { childList: true, subtree: true });
+  } else if (!next) {
+    cbStopRuleItems();
+  }
+  cbScheduleRuleItems();
+}
+
+function cbStopRuleItems() {
+  if (cbRuleObserver) cbRuleObserver.disconnect();
+  cbRuleObserver = null;
+  if (cbRuleScanTimer !== null) clearTimeout(cbRuleScanTimer);
+  cbRuleScanTimer = null;
+}
+
+function cbRuleDomOp({ selector, op, arg }) {
+  let nodes = [];
+  try { nodes = [...document.querySelectorAll(selector)]; } catch { return; }
+  for (const el of nodes) {
+    if (op === "hide") el.style.setProperty("display", "none", "important");
+    else if (op === "show") el.style.removeProperty("display");
+    else if (op === "click") el.click?.();
+    else if (op === "setText") el.textContent = arg ?? "";
+    else if (op === "addClass" && arg) el.classList.add(arg);
+    else if (op === "removeClass" && arg) el.classList.remove(arg);
+    else if (op === "scrollTo") { el.scrollIntoView?.({ behavior: "smooth" }); break; }
+  }
+}
+
+// What the rules asked of this page.
+function cbApplyRuleMessage(message) {
+  for (const { groupId, ref, verdict } of message.items || []) {
+    const card = cbRuleRefs.get(ref);
+    if (!card) continue;
+    cbSetCardVerdict(card, groupId, verdict, "custom");
+    cbApplyCard(card);
+  }
+  for (const { key, css } of message.css || []) {
+    let style = cbRuleStyles.get(key);
+    if (css === null) {
+      style?.remove();
+      cbRuleStyles.delete(key);
+      continue;
     }
+    if (!style) {
+      style = document.createElement("style");
+      cbRuleStyles.set(key, style);
+    }
+    style.textContent = css;
+    if (!style.isConnected) (document.head || document.documentElement).appendChild(style);
   }
-
-  // Refill what the predicate removed (only when the feed is too short to scroll).
-  __cb_maybeReplenishFeed(platform);
+  for (const op of message.dom || []) cbRuleDomOp(op);
+  if (message.cover) cbSetRuleCover(message.cover);
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -3856,172 +3263,6 @@ function __cb_nudgeFeedLoad(site) {
   __cb_replenishBurstResetTimer = window.setTimeout(() => { __cb_replenishBurstCount = 0; }, 4000);
 }
 
-function __cb_schedulePredicateScan() {
-  if (__cb_predicateScanTimer !== null) return;
-  __cb_predicateScanTimer = window.setTimeout(() => {
-    __cb_scanFeedPredicates().catch(() => {
-      __cb_predicateScanTimer = null;
-    });
-  }, 150);
-}
-
-function __cb_ensurePredicateObserver() {
-  if (__cb_predicateObserver) return;
-  const root = document.body || document.documentElement;
-  if (!root) return;
-  __cb_predicateObserver = new MutationObserver(() => {
-    if (__cb_activePredicateSlots.size > 0) __cb_schedulePredicateScan();
-  });
-  __cb_predicateObserver.observe(root, { childList: true, subtree: true });
-}
-
-async function __cb_checkPagePredicate() {
-  const platform = __cb_currentPlatform();
-  if (!platform) return;
-  const ctx = detectVideoSiteContext(normalizeHostname(location.hostname), location.pathname);
-  const slot = platformVideoFormToSlot(platform, ctx.form);
-  if (!slot || !__cb_activePredicateSlots.has(platform + ":" + slot)) return;
-
-  // Build the item from the actual video title rather than document.title.
-  // document.title is "YouTube" / "Video Title - YouTube" / etc., which would
-  // make a substring predicate (e.g. title.includes("e")) match every page
-  // because of the trailing platform name. If the SPA hasn't rendered the
-  // real title yet, defer the evaluation and retry shortly.
-  //
-  // Once the retry budget is exhausted (i.e. selectors never matched —
-  // YouTube Shorts is the canonical case), we still evaluate the
-  // predicate WITHOUT a title so URL-only predicates like
-  //   `hideShorts((v) => true, { blockPageOnVisit: true })`
-  // can still block the page. Predicates that DO read `item.title` will
-  // throw, which the sandbox swallows; the result is `hide: false` and
-  // the page renders. That's strictly better than the previous "page
-  // never blocks" outcome.
-  const title = __cb_extractPageVideoTitle(platform);
-  if (!title) {
-    if (__cb_schedulePagePredicateRetry()) return;
-    // Fall through to evaluation with title = null. The predicate is
-    // free to ignore item.title (e.g. URL-based blocks).
-  }
-
-  const safeTitle = title || null;
-  // The page's own creator and tags, as a feed card of it would carry them.
-  const pageTags = cbTagPageContext ? getFeedCardTags(cbTagPageContext.root) : Object.assign([], { settled: false });
-  const item = {
-    url: location.href,
-    name: safeTitle,
-    title: safeTitle,
-    author: (collectPlatformAuthors(location.pathname, platform === "youtube")[platform] || [])[0] || null,
-    tags: [...pageTags],
-    tagsSettled: pageTags.settled,
-    length: null,
-    views: null,
-    publishedAt: null,
-    description: null,
-    live: null,
-    sponsored: null,
-    algorithmic: null,
-    videoForm: ctx.form
-  };
-  const reply = await __cb_evaluateItems(platform, slot, [item]);
-  const r = reply && reply.results && reply.results[0];
-  if (r && r.blockPageOnVisit) attemptExitPage();
-}
-
-function __cb_applyEventIntent(intent) {
-  if (!intent || typeof intent.kind !== "string") return;
-  try {
-    if (intent.kind === "navigation" && intent.op) {
-      const action = intent.op.action;
-      if (action === "back") history.back();
-      else if (action === "forward") history.forward();
-      else if (action === "reload") location.reload();
-      else if (action === "goTo" && typeof intent.op.url === "string") {
-        location.replace(intent.op.url);
-      }
-      else if (action === "closeTab") window.close();
-    }
-    if (intent.kind === "platform" && intent.intent) {
-      const platform = intent.platform;
-      const platformIntent = intent.intent;
-      const cssTable = __cb_PLATFORM_CSS[platform] || {};
-      if (platformIntent.kind === "homePage" && platformIntent.value === "hide") {
-        // Only exit if we are actually on the platform's home feed; the
-        // intent is sticky so it would otherwise nuke every page on
-        // every dispatch.
-        if (__cb_isOnPlatformHome(platform)) attemptExitPage();
-      } else if (platformIntent.kind === "shortButton" && cssTable.shortButton) {
-        if (platformIntent.value === "hide") __cb_setPlatformStyle(platform + "-shortButton", cssTable.shortButton);
-        else if (platformIntent.value === "show") __cb_clearPlatformStyle(platform + "-shortButton");
-      } else if (platformIntent.kind === "comments" && cssTable.comments) {
-        if (platformIntent.value === "hide") __cb_setPlatformStyle(platform + "-comments", cssTable.comments);
-        else if (platformIntent.value === "show") __cb_clearPlatformStyle(platform + "-comments");
-      } else if (platformIntent.kind === "live" && cssTable.live) {
-        if (platformIntent.value === "hide") __cb_setPlatformStyle(platform + "-live", cssTable.live);
-        else if (platformIntent.value === "show") __cb_clearPlatformStyle(platform + "-live");
-      } else if (platformIntent.predicate === true && typeof platformIntent.slot === "string" && platform) {
-        const slotKey = platform + ":" + platformIntent.slot;
-        // Idempotent: the sandbox replays active-slot intents on every dispatch
-        // (so registration-time hide()/allow() and full page reloads re-activate
-        // the slot), so only do the expensive re-scan when the slot is NEWLY
-        // active — otherwise a heartbeat would force a full re-evaluation 4x/sec.
-        if (!__cb_activePredicateSlots.has(slotKey)) {
-          __cb_activePredicateSlots.add(slotKey);
-          cbResetCustomSigCache();
-          __cb_ensurePredicateObserver();
-          __cb_schedulePredicateScan();
-          __cb_checkPagePredicate();
-        }
-      } else if (platformIntent.kind === "clearPredicates" && typeof platformIntent.slot === "string" && platform) {
-        __cb_activePredicateSlots.delete(platform + ":" + platformIntent.slot);
-        // Drop every custom verdict and re-resolve, so cards a predicate had
-        // hidden come back (unless a platform rule still hides them).
-        cbClearSourceEverywhere("custom");
-        cbResetCustomSigCache();
-        if (__cb_activePredicateSlots.size > 0) __cb_schedulePredicateScan();
-      } else if (platformIntent.kind === "rescan" && platform) {
-        // rescan(): a predicate's external inputs changed, so invalidate the
-        // per-card signature cache and re-run the scan. The scan clears and
-        // re-derives each evaluated group's custom verdict, so cards that no
-        // longer match come back and newly-matching cards get hidden — without
-        // dropping verdicts that a still-active predicate re-confirms.
-        cbResetCustomSigCache();
-        if (__cb_activePredicateSlots.size > 0) __cb_schedulePredicateScan();
-      }
-    }
-  } catch (error) {
-    cbDebugWarn("[CustomBlocker] event intent failed", intent, error);
-  }
-}
-
-function __cb_processApplyMessage(message) {
-  if (!message || typeof message !== "object") return;
-  try {
-    cbDebugLog("[CustomBlocker:trace] content event-sandbox-apply",
-      message.descriptor && message.descriptor.type,
-      "logs:", Array.isArray(message.logs) ? message.logs.length : 0,
-      "domOps:", Array.isArray(message.domOps) ? message.domOps.length : 0,
-      "panels:", Array.isArray(message.panelSnapshots) ? message.panelSnapshots.length : 0);
-  } catch (_) {}
-  __cb_renderLogs(message.logs);
-  __cb_applyPanelSnapshots(message.panelSnapshots, message.panelGroups);
-  const ops = Array.isArray(message.domOps) ? message.domOps : [];
-  for (const op of ops) __cb_applyDomOp(op);
-  const intents = Array.isArray(message.intents) ? message.intents : [];
-  for (const intent of intents) __cb_applyEventIntent(intent);
-  if (message.defaultPrevented === true) {
-    const redirect = typeof message.redirectUrl === "string" && message.redirectUrl.trim()
-      ? message.redirectUrl.trim()
-      : (typeof message.result === "string" && message.result.trim() ? message.result.trim() : "");
-    if (redirect) {
-      location.replace(redirect);
-    } else {
-      attemptExitPage();
-    }
-  } else if (typeof message.result === "string" && message.result.trim()) {
-    location.replace(message.result.trim());
-  }
-}
-
 function __cb_announceContentReady() {
   if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) return;
   try {
@@ -4029,7 +3270,7 @@ function __cb_announceContentReady() {
       if (!response || !response.ok) return;
       const pending = Array.isArray(response.pending) ? response.pending : [];
       for (const message of pending) {
-        try { __cb_processApplyMessage(message); } catch (error) {
+        try { cbApplyRuleMessage(message); } catch (error) {
           cbDebugWarn("[CustomBlocker] failed to apply queued message", error);
         }
       }
@@ -4070,9 +3311,9 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
       sendResponse({ ok: true });
       return true;
     }
-    if (message.type !== "event-sandbox-apply") return false;
+    if (message.type !== "rule-apply") return false;
     try {
-      __cb_processApplyMessage(message);
+      cbApplyRuleMessage(message);
       sendResponse({ ok: true });
       return true;
     } catch (error) {

@@ -91,7 +91,7 @@ const code = [
   extractFunction("safeSendMessage"),
   extractLine("const CB_COVER_ID"), extractLine("const CB_SNOOZE_CONFIRM_INTERVAL_MS"),
   extractConst("cbCover"),
-  ...["cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbStopCoverTimers", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "attemptExitPage", "cbCustomCoverUp", "cbSyncCover"].map(extractFunction), extractLine("const CB_RULE_EXIT")
+  ...["cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbStopCoverTimers", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "cbSetRuleCover", "cbSyncCover"].map(extractFunction), extractLine("const CB_RULE_EXIT")
 ].join("\n");
 vm.runInContext(code, ctx, { filename: "content-cover-extract.js" });
 const run = (expr) => vm.runInContext(expr, ctx);
@@ -161,14 +161,16 @@ run(`cbApplyExit(null)`);
 run(`cbApplyExit({ action: "navigate", target: "https://focus.example.org/", message: "", groupId: "g2", groupName: "Go" })`);
 check("an address leaves the page", ctx.location.replaced === "https://focus.example.org/" && dialog() === null);
 
-// 6. A custom rule's block: plain cover, no snooze.
-run("exitAttempted = false; attemptExitPage();");
-check("a custom rule's block is the plain cover without snooze", dialog() && dialog().querySelectorAll("h1")[0].textContent === "Blocked" && !buttons().some((b) => b.className === "cb-snooze-button"));
-check("…and is marked as the rule's, so the worker's updates leave it up", run("cbCustomCoverUp()") === true);
+// 6. A custom rule's cover (v.cover): plain cover, no snooze, its message.
+run(`exitAttempted = false; cbSetRuleCover({ groupId: "r1", on: true, message: "Not now" });`);
+check("a custom rule's cover is the plain cover without snooze, with its message", dialog() && dialog().querySelectorAll("h1")[0].textContent === "Not now" && !buttons().some((b) => b.className === "cb-snooze-button"));
+check("…and is marked as the rule's, so the worker's updates leave it up", run("Boolean(cbCover.ruleCover)") === true);
 run(`cbApplyExit({ action: "cover", target: "", message: "", groupId: "g1", groupName: "Sites", allowSnooze: false, snoozeConfirmations: 0, snoozePhase: "none" })`);
 check("a worker block shows its own cover over it", run("cbCover.exit.groupName") === "Sites");
 run("cbApplyExit(null)");
-check("…and when the worker's block lifts, the rule's cover stays", run("cbCustomCoverUp()") === true && Boolean(dialog()) && run("cbCover.exit.source") === "custom");
+check("…and when the worker's block lifts, the rule's cover stays", Boolean(dialog()) && run("cbCover.exit.source") === "custom" && run("cbCover.exit.groupId") === "r1");
+run(`cbSetRuleCover({ groupId: "r1", on: false })`);
+check("the rule lifts its cover", dialog() === null && run("cbCover.ruleCover") === null);
 
 console.log(`CONTENT COVER TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
