@@ -144,9 +144,7 @@
         );
       },
       isHomePage(url) {
-        if (!isYouTubeHost(getHostname(url))) return false;
-        const path = getPathname(url);
-        return path === "/" || path.startsWith("/feed/");
+        return isYouTubeHost(getHostname(url)) && isHomeFeedPage("youtube", getHostname(url), getPathname(url));
       },
       extractAuthor(url) {
         if (!isYouTubeHost(getHostname(url))) return null;
@@ -188,14 +186,7 @@
         return false;
       },
       isHomePage(url) {
-        if (!isTikTokHost(getHostname(url))) return false;
-        const path = getPathname(url);
-        return (
-          path === "/" ||
-          path.startsWith("/foryou") ||
-          path.startsWith("/following") ||
-          path.startsWith("/explore")
-        );
+        return isTikTokHost(getHostname(url)) && isHomeFeedPage("tiktok", getHostname(url), getPathname(url));
       },
       extractAuthor(url) {
         if (!isTikTokHost(getHostname(url))) return null;
@@ -223,14 +214,7 @@
         return isInstagramHost(getHostname(url)) && getPathname(url).startsWith("/p/");
       },
       isHomePage(url) {
-        if (!isInstagramHost(getHostname(url))) return false;
-        const path = getPathname(url);
-        return (
-          path === "/" ||
-          path === "/explore" ||
-          path.startsWith("/explore/") ||
-          path.startsWith("/reels")
-        );
+        return isInstagramHost(getHostname(url)) && isHomeFeedPage("instagram", getHostname(url), getPathname(url));
       },
       extractAuthor(url) {
         if (!isInstagramHost(getHostname(url))) return null;
@@ -274,9 +258,7 @@
         return path.includes("/posts/") || path.includes("/permalink/");
       },
       isHomePage(url) {
-        if (!isFacebookHost(getHostname(url))) return false;
-        const path = getPathname(url);
-        return path === "/" || path === "/watch" || path.startsWith("/watch/");
+        return isFacebookHost(getHostname(url)) && isHomeFeedPage("facebook", getHostname(url), getPathname(url));
       },
       extractAuthor(url) {
         if (!isFacebookHost(getHostname(url))) return null;
@@ -318,9 +300,7 @@
         return false;
       },
       isHomePage(url) {
-        if (!isTwitchHost(getHostname(url))) return false;
-        const path = getPathname(url);
-        return path === "/" || path === "/directory" || path.startsWith("/directory/");
+        return isTwitchHost(getHostname(url)) && isHomeFeedPage("twitch", getHostname(url), getPathname(url));
       },
       extractAuthor(url) {
         if (!isTwitchHost(getHostname(url))) return null;
@@ -364,9 +344,7 @@
         return isRedditHost(getHostname(url)) && /^\/r\/[^/]+\/comments\//i.test(getPathname(url));
       },
       isHomePage(url) {
-        if (!isRedditHost(getHostname(url))) return false;
-        const path = getPathname(url).replace(/\/+$/, "") || "/";
-        return path === "/" || /^\/(best|hot|new|top|rising)$/i.test(path) || /^\/r\/(all|popular)$/i.test(path);
+        return isRedditHost(getHostname(url)) && isHomeFeedPage("reddit", getHostname(url), getPathname(url));
       },
       extractAuthor(url) {
         if (!isRedditHost(getHostname(url))) return null;
@@ -395,10 +373,7 @@
         return false;
       },
       isHomePage(url) {
-        const host = getHostname(url);
-        if (!isBilibiliHost(host)) return false;
-        const path = getPathname(url).replace(/\/+$/, "") || "/";
-        return (host === "bilibili.com" || host === "www.bilibili.com") && (path === "/" || path === "/index.html");
+        return isBilibiliHost(getHostname(url)) && isHomeFeedPage("bilibili", getHostname(url), getPathname(url));
       },
       extractAuthor(url) {
         const host = getHostname(url);
@@ -428,9 +403,7 @@
         return isTwitterHost(getHostname(url)) && /^\/[^/]+\/status\/\d+/i.test(getPathname(url));
       },
       isHomePage(url) {
-        if (!isTwitterHost(getHostname(url))) return false;
-        const path = getPathname(url).replace(/\/+$/, "") || "/";
-        return path === "/" || path === "/home" || path === "/explore" || path.startsWith("/explore/") || path.startsWith("/i/trends");
+        return isTwitterHost(getHostname(url)) && isHomeFeedPage("twitter", getHostname(url), getPathname(url));
       },
       extractAuthor(url) {
         if (!isTwitterHost(getHostname(url))) return null;
@@ -2441,7 +2414,6 @@
       { name: "hideShortButton", kind: "intent", intentKind: "shortButton", value: "hide" },
       { name: "showShortButton", kind: "intent", intentKind: "shortButton", value: "show" },
       { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
-      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
       { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
       { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
       { name: "filterComments", kind: "predicate", slot: "comments" },
@@ -2465,7 +2437,6 @@
       { name: "hideVideos", kind: "predicate", slot: "videos" },
       { name: "showVideos", kind: "clearPredicate", slot: "videos" },
       { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
-      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
       { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
       { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
       { name: "filterComments", kind: "predicate", slot: "comments" },
@@ -2487,7 +2458,6 @@
       { name: "hidePosts", kind: "predicate", slot: "posts" },
       { name: "showPosts", kind: "clearPredicate", slot: "posts" },
       { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
-      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
       { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
       { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
       { name: "filterComments", kind: "predicate", slot: "comments" },
@@ -2504,7 +2474,6 @@
       { name: "hidePosts", kind: "predicate", slot: "posts" },
       { name: "showPosts", kind: "clearPredicate", slot: "posts" },
       { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
-      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
       { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
       { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
       { name: "filterComments", kind: "predicate", slot: "comments" },
@@ -2532,7 +2501,6 @@
       { name: "hideVideos", kind: "predicate", slot: "videos" },
       { name: "showVideos", kind: "clearPredicate", slot: "videos" },
       { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
-      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
       { name: "hideLive", kind: "intent", intentKind: "live", value: "hide" },
       { name: "showLive", kind: "intent", intentKind: "live", value: "show", clearSlot: "live" },
       { name: "filterLive", kind: "predicate", slot: "live" },
@@ -2550,7 +2518,6 @@
       { name: "hidePosts", kind: "predicate", slot: "posts" },
       { name: "showPosts", kind: "clearPredicate", slot: "posts" },
       { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
-      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
       { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
       { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
       { name: "isSponsored", kind: "itemBool", field: "sponsored" },
@@ -2561,7 +2528,6 @@
       { name: "hidePosts", kind: "predicate", slot: "posts" },
       { name: "showPosts", kind: "clearPredicate", slot: "posts" },
       { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
-      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
       { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
       { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
       { name: "isSponsored", kind: "itemBool", field: "sponsored" },
@@ -2573,7 +2539,6 @@
       { name: "hideVideos", kind: "predicate", slot: "videos" },
       { name: "showVideos", kind: "clearPredicate", slot: "videos" },
       { name: "hideHomePage", kind: "intent", intentKind: "homePage", value: "hide" },
-      { name: "showHomePage", kind: "intent", intentKind: "homePage", value: "show" },
       { name: "hideComments", kind: "intent", intentKind: "comments", value: "hide" },
       { name: "showComments", kind: "intent", intentKind: "comments", value: "show", clearSlot: "comments" },
       { name: "isSponsored", kind: "itemBool", field: "sponsored" },

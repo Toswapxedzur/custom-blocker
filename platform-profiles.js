@@ -603,7 +603,8 @@ function detectVideoSiteContext(hostname, pathname) {
       : { site: "dailymotion", form: "unknown" };
   }
 
-  if (hostname === "clips.twitch.tv" || safePathname.includes("/clip/")) {
+  // A clip is a Twitch short only on Twitch (any other site's "/clip/" is not).
+  if (hostname === "clips.twitch.tv" || ((hostname === "twitch.tv" || hostname?.endsWith(".twitch.tv")) && safePathname.includes("/clip/"))) {
     return { site: "twitch", form: "short" };
   }
 
@@ -759,8 +760,11 @@ function normalizePlatformAuthorsMap(inputMap, pathname, url) {
   return map;
 }
 
+// The one "is this the platform's home feed" test — the worker, the page and
+// the custom-rule helpers all ask it.
 function isHomeFeedPage(groupType, hostname, pathname) {
   const p = String(pathname ?? "/");
+  const trimmed = p.replace(/\/+$/, "") || "/";
   switch (normalizeGroupType(groupType)) {
     case "youtube":
       return p === "/" || p.startsWith("/feed/");
@@ -782,19 +786,19 @@ function isHomeFeedPage(groupType, hostname, pathname) {
     case "twitch":
       return p === "/" || p === "/directory" || p.startsWith("/directory/");
     case "reddit":
-      return (
-        p === "/" ||
-        p === "/r/popular" || p.startsWith("/r/popular/") ||
-        p === "/r/all" || p.startsWith("/r/all/")
-      );
+      return trimmed === "/" || /^\/(best|hot|new|top|rising)$/i.test(trimmed) || /^\/r\/(all|popular)(\/|$)/i.test(trimmed);
     case "discord":
       return p === "/channels/@me" || p.startsWith("/channels/@me/");
     case "twitter":
-      return p === "/" || p === "/home" || p.startsWith("/home/");
+      return p === "/" || p === "/home" || p.startsWith("/home/") ||
+        p === "/explore" || p.startsWith("/explore/") || p.startsWith("/i/trends");
+    case "bilibili": {
+      const host = String(hostname || "").toLowerCase();
+      return (host === "bilibili.com" || host === "www.bilibili.com") && (trimmed === "/" || trimmed === "/index.html");
+    }
     case "bluesky":
     case "threads":
     case "substack":
-    case "bilibili":
     case "rumble":
     case "pinterest":
     case "kick":

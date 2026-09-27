@@ -1306,21 +1306,17 @@ async function cbScheduleTransitions() {
   await scheduleNextTransitionAlarm(groups, usageResetAtMs, groupSnoozes, now, usageBucketsMs);
 }
 
+// A page session that blocks and shows nothing.
+function cbEmptySession() {
+  return { showTimer: false, shouldExitPage: false, items: [], feedFilters: [], surfaceHides: [], feedOrder: [], exit: null, now: Date.now() };
+}
+
 async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInput, passedGroupIds = new Set()) {
   const pageContext = normalizePageContext(pageContextInput);
   const exposedGroupIds = Array.isArray(exposedGroupIdsInput)
     ? exposedGroupIdsInput.filter((id) => typeof id === "string")
     : [];
-  if (!pageContext.hostname) {
-    return {
-      showTimer: false,
-      shouldExitPage: false,
-      items: [],
-      feedFilters: [],
-      exit: null,
-      now: Date.now()
-    };
-  }
+  if (!pageContext.hostname) return cbEmptySession();
 
   const boundedElapsedMs = Math.max(
     0,
@@ -1801,14 +1797,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       })
       .catch((error) => {
         console.error("Failed to track page time.", error);
-        sendResponse({
-          showTimer: false,
-          shouldExitPage: false,
-          items: [],
-          feedFilters: [],
-          exit: null,
-          now: Date.now()
-        });
+        sendResponse(cbEmptySession());
       });
     return true;
   }
@@ -3721,7 +3710,7 @@ async function cbApplyStoredGroupChange(oldValue, newValue) {
   const restart = after.filter((g) => before.has(g.id) && CBGroupActions.budgetRestarts(before.get(g.id), g)).map((g) => g.id);
   const gone = [...before.keys()].filter((id) => !present.has(id));
   if (restart.length === 0 && gone.length === 0) return cbRenameDuplicates(after);
-  const keys = [USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY, GROUP_SNOOZES_KEY, GROUP_SNOOZE_TOTALS_KEY, CBParentalPin.ATTEMPTS_KEY, CB_QUICK_ADD_GROUP_KEY];
+  const keys = [USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY, GROUP_SNOOZES_KEY, GROUP_SNOOZE_TOTALS_KEY, CBParentalPin.ATTEMPTS_KEY, CB_OFFLINE_USAGE_KEY, CB_QUICK_ADD_GROUP_KEY];
   const stored = await chrome.storage.local.get(keys);
   const writes = {};
   const edit = (key) => (writes[key] ??= { ...(stored[key] && typeof stored[key] === "object" ? stored[key] : {}) });
@@ -3732,7 +3721,7 @@ async function cbApplyStoredGroupChange(oldValue, newValue) {
     delete edit(USAGE_BUCKETS_KEY)[id];
   }
   for (const id of gone) {
-    for (const key of keys.slice(0, 6)) if (stored[key] && id in stored[key]) delete edit(key)[id];
+    for (const key of keys.slice(0, -1)) if (stored[key] && id in stored[key]) delete edit(key)[id];
     if (stored[CB_QUICK_ADD_GROUP_KEY] === id) writes[CB_QUICK_ADD_GROUP_KEY] = "";
   }
   if (Object.keys(writes).length) await chrome.storage.local.set(writes);
@@ -4124,14 +4113,14 @@ const cbConnection = {
     return Boolean(
       this.ws &&
       this.ws.readyState === WebSocket.OPEN &&
-      (this.status.state === "connected" || this.status.state === "running") &&
+      this.status.state === "connected" &&
       this.targetIsPresent(target)
     );
   },
 
   statusForTarget(target) {
     const current = { ...this.status };
-    if (current.state === "connected" || current.state === "running") {
+    if (current.state === "connected") {
       return {
         ...current,
         state: this.targetIsPresent(target, current) ? "connected" : "connected-not-listening",
@@ -4360,6 +4349,8 @@ const cbConnection = {
   },
 
   closeSocket() {
+    // Requests in flight fail now, not after their timeout.
+    try { cbClassifierHub.rejectAll(); } catch (_) {}
     if (this.ws) {
       try {
         this.ws.onopen = this.ws.onmessage = this.ws.onerror = this.ws.onclose = null;
@@ -4418,6 +4409,7 @@ const cbConnection = {
     socket.onclose = () => {
       this.clearTimers();
       this.ws = null;
+      try { cbClassifierHub.rejectAll(); } catch (_) {}
       if (!this.desired) {
         this.setStatus({ state: "off", peers: [], hubProgram: "" });
         return;
@@ -4796,6 +4788,12 @@ async function cbEndSnoozeForTool(input) {
   return { ended: true, snooze: result.entry };
 }
 
+// The global settings the editor's Settings shows — all a tool may read or set.
+const CB_EDITOR_GLOBAL_FIELDS = Object.freeze(["defaultSnoozeMinutes", "quitRetryMinutes", "quickAddEnabled"]);
+function cbEditorGlobalSettings(settings) {
+  return Object.fromEntries(CB_EDITOR_GLOBAL_FIELDS.map((key) => [key, settings[key]]));
+}
+
 async function cbBrowserRequestBody(operation, body) {
   const input = body && typeof body === "object" && !Array.isArray(body) ? body : {};
   switch (operation) {
@@ -4811,7 +4809,7 @@ async function cbBrowserRequestBody(operation, body) {
           collectionEnabled: !raw || raw.collectionEnabled !== false,
           taggingMode: raw && CB_TAGGING_MODES.includes(raw.taggingMode) ? raw.taggingMode : "whenFiltering"
         },
-        globalSettings: stored?.[CB_GLOBAL_SETTINGS_KEY] && typeof stored[CB_GLOBAL_SETTINGS_KEY] === "object" ? stored[CB_GLOBAL_SETTINGS_KEY] : {},
+        globalSettings: cbEditorGlobalSettings(CBGroupActions.sanitizeGlobalSettings(stored?.[CB_GLOBAL_SETTINGS_KEY])),
         operations: CB_BROWSER_REQUEST_OPERATIONS
       };
     }
@@ -4828,9 +4826,7 @@ async function cbBrowserRequestBody(operation, body) {
       // As the editor's New group: the user's default snooze length, and a
       // free numbered name when none is given ("Block Group 2").
       const base = createDefaultGroup(groupType);
-      const storedGlobal = (await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY))?.[CB_GLOBAL_SETTINGS_KEY];
-      const defaultSnooze = Number.parseFloat(storedGlobal?.defaultSnoozeMinutes);
-      if (Number.isFinite(defaultSnooze) && defaultSnooze > 0) base.snoozeMinutes = defaultSnooze;
+      base.snoozeMinutes = CBGroupActions.sanitizeGlobalSettings((await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY))?.[CB_GLOBAL_SETTINGS_KEY]).defaultSnoozeMinutes;
       if (typeof safePatch.name !== "string" || !safePatch.name.trim()) {
         const root = base.name;
         base.name = CBGroupActions.freeName(groups, (n) => (n === 1 ? root : `${root} ${n}`));
@@ -4914,14 +4910,17 @@ async function cbBrowserRequestBody(operation, body) {
       };
     }
     case "settings-set-global": {
-      // The popup's global settings, sanitized the way its save does.
+      // Exactly the editor's Settings (owner 2026-09-27), sanitized the way its
+      // save does.
       const stored = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
       const current = stored?.[CB_GLOBAL_SETTINGS_KEY] && typeof stored[CB_GLOBAL_SETTINGS_KEY] === "object" ? stored[CB_GLOBAL_SETTINGS_KEY] : {};
       const patch = input.patch && typeof input.patch === "object" && !Array.isArray(input.patch) ? input.patch : null;
       if (!patch) throw new Error("missing-patch");
+      const unknown = Object.keys(patch).find((key) => !CB_EDITOR_GLOBAL_FIELDS.includes(key));
+      if (unknown) throw new Error(`not-an-editor-setting:${unknown}`);
       const next = CBGroupActions.sanitizeGlobalSettings({ ...current, ...patch });
       await chrome.storage.local.set({ [CB_GLOBAL_SETTINGS_KEY]: next });
-      return { globalSettings: next };
+      return { globalSettings: cbEditorGlobalSettings(next) };
     }
     default:
       throw new Error("unsupported-operation");
