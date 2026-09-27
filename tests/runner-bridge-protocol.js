@@ -48,9 +48,9 @@ const pinned = {
 assertEqual("pinned cluster resolves the exact group", bridge.groupForCluster(groups, pinned, "chrome").id, "old-id");
 assertEqual("missing pinned id never re-adopts a same-named group", bridge.groupForCluster([groups[1]], pinned, "chrome"), null);
 assertEqual(
-  "legacy cluster without an id still falls back by name",
-  bridge.groupForCluster([groups[1]], { groupName: "Focus", members: [{ program: "chrome", groupName: "Focus" }] }, "chrome").id,
-  "new-id"
+  "a link without a pinned id matches nothing (links are made by the user, never by name)",
+  bridge.groupForCluster([groups[1]], { groupName: "Focus", members: [{ program: "chrome", groupName: "Focus" }] }, "chrome"),
+  null
 );
 assertEqual("cluster lookup uses pinned id", bridge.clusterForGroup([pinned], groups[0], "chrome"), pinned);
 assertEqual("same-name replacement does not inherit cluster", bridge.clusterForGroup([pinned], groups[1], "chrome"), null);

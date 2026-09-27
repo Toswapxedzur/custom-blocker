@@ -77,8 +77,32 @@ const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
   const locked = stored.map((g) => (g.id === "L" ? { ...g, lockedAtMs: 5, lockWaitHours: 0, lockVersion: 3, lockSyncedVersion: 2 } : g));
   await context.chrome.storage.local.set({ blockedGroups: locked });
   await new Promise((resolve) => setTimeout(resolve, 30));
-  const frame = context.__sent.find((f) => f.kind === "group-sync" && f.groupName === "Linked");
+  const frame = context.__sent.find((f) => f.kind === "group-sync" && f.groupId === "L");
   check("an editor's stored lock change reaches the hub with its lock and base version", frame && frame.lock && frame.lock.lockVersion === 3 && frame.lockBase === 2, context.__sent);
+
+  // Links are made by the user (owner 2026-09-27): the editor's buttons go to the hub.
+  context.__sent.length = 0;
+  for (const listener of __listeners) listener({ type: "group-link", groupId: "U", targetProgram: "macapp", targetGroupId: "m9" }, {}, () => {});
+  for (const listener of __listeners) listener({ type: "group-unlink", groupId: "L" }, {}, () => {});
+  check("Link and Unlink reach the hub", context.__sent.some((f) => f.kind === "group-link" && f.groupId === "U" && f.targetProgram === "macapp" && f.targetGroupId === "m9")
+    && context.__sent.some((f) => f.kind === "group-unlink" && f.groupId === "L"), context.__sent);
+
+  // A group that leaves its link keeps its settings and its own program's lines.
+  const withApps = (await context.chrome.storage.local.get({ blockedGroups: [] })).blockedGroups.map((g) => (g.id === "L"
+    ? { ...g, scopes: [...g.scopes, { id: "apps-1", surface: "apps", platform: null, action: "block", apps: [{ id: "com.example.App" }], appsExcept: false }] } : g));
+  await context.chrome.storage.local.set({ blockedGroups: withApps });
+  run(`cbSaveClusterCopy([])`);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const left = (await context.chrome.storage.local.get({ blockedGroups: [] })).blockedGroups.find((g) => g.id === "L");
+  check("an unlinked browser group drops its Apps lines and keeps the rest", !left.scopes.some((l) => l.surface === "apps") && left.scopes.some((l) => l.surface === "site") && left.lockVersion === 3, left);
+
+  // Duplicate names are renamed silently; a linked group keeps its name.
+  run(`cbSaveClusterCopy([{ id: "k", groupName: "Alone", members: [{ program: cbDetectProgramId(), groupId: "U" }] }])`);
+  const dup = (await context.chrome.storage.local.get({ blockedGroups: [] })).blockedGroups.map((g) => (g.id === "L" ? { ...g, name: "alone" } : g));
+  await context.chrome.storage.local.set({ blockedGroups: dup });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const names = (await context.chrome.storage.local.get({ blockedGroups: [] })).blockedGroups.map((g) => [g.id, g.name]);
+  check("a duplicate name is renamed silently, the linked group keeps it", JSON.stringify(names) === JSON.stringify([["L", "alone (2)"], ["U", "Alone"]]), names);
 
   console.log(`ENFORCE ONLY TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
