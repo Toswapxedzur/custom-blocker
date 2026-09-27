@@ -1335,7 +1335,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     ensureStartupGate().then(() => {
       const tabId = sender?.tab?.id ?? null;
       const panels = [];
-      for (const list of cbRulePanels.values()) {
+      for (const [groupId, list] of cbRulePanels) {
+        if (cbRuleSuppressed.has(groupId)) continue;
         for (const panel of list) if (panel.tabId === undefined || panel.tabId === tabId) panels.push(panel);
       }
       sendResponse({ ok: true, panelSnapshots: panels, panelGroups: [...cbRulePanels.keys()] });
@@ -1363,7 +1364,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (typeof tabId === "number" && heartbeatElapsedMs > 0) {
           dispatchRule("visible", { tabId, url: tabUrl, elapsedMs: heartbeatElapsedMs }).catch(() => {});
         }
-        sendResponse(payload && { ...payload, ruleItems: cbRulesHandle("items") ? cbRuleItemsEpoch : 0, ruleVisible: cbRulesHandle("visible") });
+        sendResponse(payload && {
+          ...payload,
+          ruleItems: cbRulesHandle("items") ? cbRuleItemsEpoch : 0,
+          ruleVisible: cbRulesHandle("visible"),
+          ruleSheets: typeof tabId === "number" ? cbSheetsForTab(tabId) : []
+        });
       })
       .catch((error) => {
         // Fail closed: no answer keeps the page's last decision (an empty
@@ -1983,14 +1989,76 @@ const CB_RULE_PANELS_KEY = "cbRulePanels";
 const cbRuleTypes = new Map(); // groupId -> Set<type>
 // The rules' panels on screen: groupId -> [panel] (a panel with a tabId shows on that tab only).
 const cbRulePanels = new Map();
+// The rules' style sheets (v.css): groupId -> Map(id -> { tabId, css }); a
+// tab's sheet lasts until that tab goes to another address, a "*" sheet is on
+// every page, those opened later too. Pages get theirs from the worker.
+const CB_RULE_SHEETS_KEY = "cbRuleSheets";
+const cbRuleSheets = new Map();
+// Disabled groups: their rule stays loaded but hears nothing, and what it did
+// is lifted until the group is enabled again (owner 2026-09-27).
+const cbRuleSuppressed = new Set();
 
 // Bumped whenever a rule that handles "items" loads: pages then send every
 // item again, so the new rule sees what is already on screen.
 let cbRuleItemsEpoch = Date.now(); // a restarted worker differs from the last one
 
 function cbRulesHandle(type) {
-  for (const types of cbRuleTypes.values()) if (types.has(type)) return true;
+  for (const [groupId, types] of cbRuleTypes) if (!cbRuleSuppressed.has(groupId) && types.has(type)) return true;
   return false;
+}
+
+// The sheets a tab's page carries: every enabled rule's "*" sheets and those
+// for this tab, as [{ key, css }].
+function cbSheetsForTab(tabId) {
+  const sheets = [];
+  for (const [groupId, byId] of cbRuleSheets) {
+    if (cbRuleSuppressed.has(groupId)) continue;
+    for (const [id, sheet] of byId) {
+      if (sheet.tabId === "*" || sheet.tabId === tabId) sheets.push({ key: groupId + "␟" + id, css: sheet.css });
+    }
+  }
+  return sheets;
+}
+
+function cbSaveRuleSheets() {
+  const out = {};
+  for (const [groupId, byId] of cbRuleSheets) out[groupId] = Object.fromEntries(byId);
+  chrome.storage.session?.set({ [CB_RULE_SHEETS_KEY]: out }).catch?.(() => {});
+}
+
+// Sends each open page its sheets (all pages, or one tab's).
+async function cbPushRuleSheets(tabId = "*") {
+  if (tabId !== "*") return trySendApply(tabId, { type: "rule-sheets", sheets: cbSheetsForTab(tabId) }).catch(() => false);
+  const tabs = chrome.tabs?.query ? await chrome.tabs.query({}) : [];
+  await Promise.all(tabs.filter((tab) => typeof tab?.id === "number" && /^https?:/i.test(tab.url || tab.pendingUrl || ""))
+    .map((tab) => trySendApply(tab.id, { type: "rule-sheets", sheets: cbSheetsForTab(tab.id) }).catch(() => false)));
+}
+
+// A tab went to another address (or closed): its own sheets end there.
+function cbDropTabSheets(tabId) {
+  let dropped = false;
+  for (const byId of cbRuleSheets.values()) {
+    for (const [id, sheet] of byId) if (sheet.tabId === tabId) { byId.delete(id); dropped = true; }
+  }
+  if (dropped) cbSaveRuleSheets();
+  return dropped;
+}
+
+// Disable / enable a group's rule. Disabled: it hears nothing and its panels,
+// sheets, covers and card verdicts are lifted. Enabled: it resumes as it was;
+// its standing panels and sheets come back and pages resend their items.
+async function cbSuppressRule(groupId, on) {
+  // The sandbox is always told (a reset sandbox starts with nothing suppressed).
+  await sendToEventSandbox({ kind: "suppress-group", groupId, on });
+  if (on === cbRuleSuppressed.has(groupId)) return;
+  const pageNeeds = cbRulePageNeeds();
+  if (on) cbRuleSuppressed.add(groupId);
+  else cbRuleSuppressed.delete(groupId);
+  if (on) await cbSendToWebPages({ type: "rule-lift", groupId });
+  else if (cbRuleTypes.get(groupId)?.has("items")) cbRuleItemsEpoch += 1;
+  if (cbRuleSheets.has(groupId)) await cbPushRuleSheets();
+  await broadcastCustomPanelRefresh([groupId]);
+  if (cbRulePageNeeds() !== pageNeeds) await broadcastSessionRefresh();
 }
 
 // What pages collect for the rules: items (0 = none, else the epoch) and
@@ -2010,7 +2078,7 @@ function cbSetRulePanels(groupId, panels) {
 // replaces the rule's panels.
 async function loadCustomGroupSource(group, { run = false } = {}) {
   if (!group || group.groupType !== "custom") return null;
-  const source = group.enabled && typeof group.activeEventSource === "string" ? group.activeEventSource : "";
+  const source = typeof group.activeEventSource === "string" ? group.activeEventSource : "";
   const pageNeeds = cbRulePageNeeds();
   let result;
   if (!source.trim()) {
@@ -2035,12 +2103,19 @@ async function loadCustomGroupSource(group, { run = false } = {}) {
   }
   // Pages collect feed items / count visible time only while a rule wants them.
   if (cbRulePageNeeds() !== pageNeeds) broadcastSessionRefresh().catch(() => {});
+  // A disabled group's rule is loaded, but suppressed.
+  if (result?.ok && cbRuleTypes.has(group.id)) await cbSuppressRule(group.id, !group.enabled);
   return result;
 }
 
 async function unloadCustomGroupHandlers(groupId) {
   cbRuleTypes.delete(groupId);
+  cbRuleSuppressed.delete(groupId);
   cbSetRulePanels(groupId, null);
+  const hadSheets = cbRuleSheets.delete(groupId);
+  if (hadSheets) { cbSaveRuleSheets(); cbPushRuleSheets().catch(() => {}); }
+  // What it did on pages is lifted too.
+  cbSendToWebPages({ type: "rule-lift", groupId }).catch(() => {});
   return sendToEventSandbox({ kind: "unload-group", groupId });
 }
 
@@ -2067,9 +2142,10 @@ async function applyRuleResult(result, eventType) {
     await chrome.storage.local.set({ [CB_RULE_STATE_KEY]: { ...stored, ...states } });
   }
   for (const [groupId, panels] of Object.entries(result.panels || {})) cbSetRulePanels(groupId, panels);
-  const pages = new Map(); // tabId | "*" -> { items, css, dom, cover }
+  const pages = new Map(); // tabId | "*" -> { items, dom, queries, cover }
+  const sheetTabs = new Set(); // tabs (or "*") whose sheets changed
   const page = (tabId) => {
-    if (!pages.has(tabId)) pages.set(tabId, { type: "rule-apply", items: [], css: [], dom: [], queries: [], cover: null });
+    if (!pages.has(tabId)) pages.set(tabId, { type: "rule-apply", items: [], dom: [], queries: [], cover: null });
     return pages.get(tabId);
   };
   for (const action of result.actions || []) {
@@ -2077,7 +2153,14 @@ async function applyRuleResult(result, eventType) {
     try {
       if (kind === "item") page(tabId).items.push({ groupId, ref: action.ref, verdict: action.verdict });
       else if (kind === "cover") page(tabId).cover = { groupId, on: action.on, message: action.message };
-      else if (kind === "css") page(tabId).css.push({ key: groupId + "␟" + action.id, css: action.css });
+      else if (kind === "css") {
+        const byId = cbRuleSheets.get(groupId) || new Map();
+        if (action.css === null) byId.delete(action.id);
+        else byId.set(action.id, { tabId, css: action.css });
+        if (byId.size > 0) cbRuleSheets.set(groupId, byId);
+        else cbRuleSheets.delete(groupId);
+        sheetTabs.add(tabId);
+      }
       else if (kind === "dom") page(tabId).dom.push({ selector: action.selector, op: action.op, arg: action.arg });
       else if (kind === "query") page(tabId).queries.push({ groupId, requestId: action.requestId, selector: action.selector });
       else if (kind === "close") await chrome.tabs.remove(tabId);
@@ -2092,6 +2175,11 @@ async function applyRuleResult(result, eventType) {
   for (const [tabId, message] of pages) {
     if (tabId === "*") await cbSendToWebPages(message);
     else if (!(await trySendApply(tabId, message))) enqueueApply(tabId, message);
+  }
+  if (sheetTabs.size > 0) {
+    cbSaveRuleSheets();
+    if (sheetTabs.has("*")) await cbPushRuleSheets();
+    else for (const tabId of sheetTabs) await cbPushRuleSheets(tabId);
   }
 }
 
@@ -2131,17 +2219,16 @@ async function reconcileCustomGroupHandlers(change) {
       await unloadCustomGroupHandlers(groupId);
     }
   }
-  // Groups that toggled or changed source
+  // Groups whose rule changed are loaded; groups only turned on/off are
+  // suppressed or resumed (the rule stays loaded).
   for (const [groupId, snapshot] of next.entries()) {
     const before = previous.get(groupId);
-    if (
-      !before ||
-      before.enabled !== snapshot.enabled ||
-      before.activeEventSource !== snapshot.activeEventSource
-    ) {
-      const group = newGroups.find((g) => g.id === groupId);
+    const group = newGroups.find((g) => g.id === groupId);
+    if (!before || before.activeEventSource !== snapshot.activeEventSource) {
       // A load the sandbox never answered isn't recorded: the next change retries it.
       if (!(await loadCustomGroupSource(group))) next.delete(groupId);
+    } else if (before.enabled !== snapshot.enabled && cbRuleTypes.has(groupId)) {
+      await cbSuppressRule(groupId, !snapshot.enabled);
     }
   }
   lastReconcileSnapshot = next;
@@ -2159,6 +2246,10 @@ async function loadAllCustomGroupsAtStartup() {
   try {
     const stored = (await chrome.storage.session?.get({ [CB_RULE_PANELS_KEY]: {} }))?.[CB_RULE_PANELS_KEY] || {};
     for (const [groupId, panels] of Object.entries(stored)) if (Array.isArray(panels)) cbRulePanels.set(groupId, panels);
+    const sheets = (await chrome.storage.session?.get({ [CB_RULE_SHEETS_KEY]: {} }))?.[CB_RULE_SHEETS_KEY] || {};
+    for (const [groupId, byId] of Object.entries(sheets)) {
+      if (byId && typeof byId === "object") cbRuleSheets.set(groupId, new Map(Object.entries(byId)));
+    }
   } catch (_) {}
   try {
     const result = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
@@ -2381,6 +2472,7 @@ if (chrome.tabs && chrome.tabs.onRemoved) {
     if (dropped) cbSaveCoverState();
     // Apply messages queued for it will never be drained.
     pendingApplyByTab.delete(tabId);
+    cbDropTabSheets(tabId);
     scheduleSessionFlush();
     dispatchRule("tab", { kind: "close", tabId, url: previous?.url || "", previousUrl: null }).catch(() => {});
   });
@@ -2415,6 +2507,8 @@ async function handleCommittedWebNavigation(details, transition = "commit") {
 
   previousTabUrls.set(tabId, { url: nextUrl, hostname: nextHost });
   scheduleSessionFlush();
+  // A rule's sheet for this tab belonged to the old address.
+  if (previousUrl !== nextUrl && cbDropTabSheets(tabId)) cbPushRuleSheets(tabId).catch(() => {});
 
   await dispatchRule("tab", { kind: "navigate", tabId, url: nextUrl, previousUrl });
 }

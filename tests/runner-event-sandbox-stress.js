@@ -101,6 +101,18 @@ assert("E8 no tab, no query", result.states.q.none === null && result.actions.fi
 result = send("query", { requestId: query.requestId, tabId: 5, selector: "#description", matches: [{ text: "about cats" }], error: "" }, "q");
 assert("E8 the rule reads the answer", result.states.q.text === "about cats");
 
+log.section("E9: a disabled group's rule stays loaded and hears nothing");
+loadSource("sup", `(on, v) => { on("tick", () => { v.state.n = (v.state.n || 0) + 1; }); }`, {});
+send("tick", {}, "sup");
+engine.suppress("sup", true);
+result = send("tick", {});
+assert("E9 suppressed: no handler runs, even for a broadcast event", !result.states.sup);
+result = send("tick", {}, "sup");
+assert("E9 …nor for an event aimed at it", !result.states.sup);
+engine.suppress("sup", false);
+result = send("tick", {}, "sup");
+assert("E9 enabled again: it resumes where it was (its memory kept)", result.states.sup && result.states.sup.n === 2, result.states);
+
 const counts = log.counts();
 log.summary("─".repeat(60));
 log.summary(`pass=${counts.pass} fail=${counts.fail}`);
