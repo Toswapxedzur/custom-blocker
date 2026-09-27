@@ -268,6 +268,8 @@ async function op(operation, body) {
     { surface: "site", action: "block", sites: ["a.example"] },
     { surface: "apps", action: "block", apps: [{ id: "com.example.App" }] }] } });
   check("a browser tool edits no Apps lines", withApps?.body && !JSON.stringify(withApps.body.group).includes("com.example.App"), withApps);
+  const shortPin = await op("settings-set-lock-gates", { id: sid, pin: "12345" });
+  check("a PIN that isn't 6 digits is never stored (it could never be verified)", /^invalid-pin/.test(shortPin?.error || "") && !(storage.get("blockedGroups") || []).find((g) => g.id === sid)?.parentalPasswordHash, shortPin);
   const gates = await op("settings-set-lock-gates", { id: sid, waitHours: 3, pin: "482915" });
   check("lock gates on an unlocked group: the wait and a PIN", gates?.body?.group?.lockWaitHours === 3 && gates.body.group.hasParentalPin === true, gates);
   const clearWrong = await op("settings-set-lock-gates", { id: sid, clearPin: true, pin: "000000" });
