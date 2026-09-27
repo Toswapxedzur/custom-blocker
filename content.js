@@ -1963,9 +1963,11 @@ if (/^https?:$/i.test(location.protocol)) {
       stopHeartbeat();
       stopFeedObserver();
       restoreHiddenFeedCards();
+      // The filters are undone: a page restored from the back/forward cache
+      // applies them again (pageshow → session → applySessionFilters).
+      cbSessionFilterKey = "";
       if (refreshDebounceTimeoutId !== null) window.clearTimeout(refreshDebounceTimeoutId);
-    },
-    { once: true }
+    }
   );
 }
 
