@@ -118,8 +118,6 @@ h2 {
   border-radius: 8px;
   line-height: 1.2;
 }
-
-.subtitle,
 .hint,
 .status,
 .label,
@@ -136,8 +134,6 @@ button,
   font-size: 12px;
   line-height: 1.4;
 }
-
-.subtitle,
 .hint,
 .panel-copy {
   margin: 6px 0 0;
@@ -549,39 +545,17 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
-.connection-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-  background: #94a3b8;
-}
 
-.connection-dot.connected {
-  background: #16a34a;
-}
 
-.connection-dot.error {
-  background: #dc2626;
-}
 
-.connection-peer-list {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
-.connection-peer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
 
-.connection-peer.offline {
-  opacity: 0.6;
-}
+
+
+
+
+
+
 
 /* Cluster ("web-app bridge") group cards read gold: a faint gold by default,
    deepening to the Web-app bridge panel color (--gold-50) when selected. No
@@ -788,12 +762,7 @@ textarea:focus {
   color: color-mix(in srgb, var(--cyan-text) 34%, #334155);
 }
 
-.platform-rule-picker {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 5px;
-  margin: 0 0 14px;
-}
+
 
 #platformRulesCard select:focus,
 #platformRulesCard textarea:focus {
@@ -1182,43 +1151,17 @@ textarea:disabled {
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
 }
 
-.contribution-consent-card {
-  width: min(560px, 100%);
-}
 
-.contribution-consent-eyebrow {
-  margin: 0 0 8px;
-  color: #3159a6;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
 
-.contribution-consent-list {
-  margin: 16px 0 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid #dbe5f5;
-}
 
-.contribution-consent-list li {
-  display: grid;
-  grid-template-columns: minmax(116px, auto) 1fr;
-  gap: 8px;
-  padding: 10px 0;
-  border-bottom: 1px solid #dbe5f5;
-  color: #475569;
-  font-size: 13px;
-  line-height: 1.45;
-}
 
-.contribution-consent-list strong {
-  color: #172554;
-}
 
-.contribution-consent-actions {
-  margin-top: 18px;
-}
+
+
+
+
+
+
 
 .manual-modal-card {
   width: min(920px, 100%);
@@ -1742,29 +1685,12 @@ code {
   margin: 0 0 6px;
 }
 
-/* Vault Classifier reachability indicator (functional gap #1). */
-.classifier-status {
-  align-self: center;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 9px;
-  border-radius: 999px;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.classifier-status:empty { display: none; }
-.classifier-status::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.classifier-status.is-online { color: #157347; background: #e6f4ea; }
-.classifier-status.is-offline { color: #b02a37; background: #fbe9eb; }
-.classifier-status-help { color: #b02a37; margin-top: 6px; }
+
+
+
+
+
+
 
 /* ── Desktop host ────────────────────────────────────────────────────────────
    The desktop app hosts this same editor in a web view. `.desktop-only`
