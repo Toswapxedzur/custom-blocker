@@ -623,7 +623,7 @@
             </label>
 
             <p id="snoozeCustomCopy" class="field-help hidden" data-i18n="snooze.customCopy">
-              Custom rules don't snooze. Pressing the button fires a snoozePress event so rules can react (e.g. log, redirect, fire other events), but there's no programmatic snooze API.
+              Custom rules don't snooze: pressing Snooze sends the rule a "snooze" event, and the rule decides what happens.
             </p>
 
             <div id="snoozeNumericFields" class="settings-grid">
@@ -840,7 +840,7 @@
             </summary>
             <div class="log-feed-toolbar">
               <button id="logFeedDownload" type="button" class="weird" title="Download logs" aria-label="Download logs">⬇</button>
-              <span class="log-feed-hint" data-i18n="logFeed.hint">Live feed of helpers.getLogHelper() output from every event dispatch.</span>
+              <span class="log-feed-hint" data-i18n="logFeed.hint">Output from v.log() inside your custom rules.</span>
               <button id="logFeedClear" type="button" class="weird" data-i18n="logFeed.clear">Clear</button>
             </div>
             <div id="logFeedList" class="log-feed-list" aria-live="polite"></div>
@@ -891,7 +891,7 @@
     <script src="group-actions.js"></script>
     <script src="translations.js"></script>
     <script src="popup-markdown.js"></script>
-    <script src="custom-rule-ai-reference.js"></script>
+    <script src="rule-core.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
