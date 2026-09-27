@@ -1084,10 +1084,8 @@ function closeSettings() {
 
 async function saveSettingsFromForm() {
   const draft = {
-    // Dev/engine values are no longer surfaced in the UI (debug + tick/debounce
-    // are dev-only / fixed defaults); carry the stored values through a save so a
-    // developer's storage-set debug flag is not reset.
-    tickRateMs: state.globalSettings?.tickRateMs,
+    // Dev values are not in the UI (debug + autosave debounce); carry the
+    // stored values through a save so a developer's debug flag is not reset.
     autosaveDebounceMs: state.globalSettings?.autosaveDebounceMs,
     debugMode: state.globalSettings?.debugMode,
     defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
