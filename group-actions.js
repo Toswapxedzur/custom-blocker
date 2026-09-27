@@ -676,7 +676,6 @@
 
   // ── Global settings ─────────────────────────────────────────────────────
   const DEFAULT_GLOBAL_SETTINGS = Object.freeze({
-    tickRateMs: 1000,
     autosaveDebounceMs: 400,
     // Debug mode is off by default; when on it emits the [CustomBlocker]
     // console lines.
@@ -688,8 +687,6 @@
     // asked to quit again, in minutes; 0 = never (owner 2026-09-26).
     quitRetryMinutes: 0
   });
-  const TICK_RATE_MIN_MS = 250;
-  const TICK_RATE_MAX_MS = 60_000;
   const AUTOSAVE_DEBOUNCE_MAX_MS = 5_000;
   const QUIT_RETRY_MAX_MINUTES = 1440;
 
@@ -719,7 +716,6 @@
     const src = raw && typeof raw === "object" ? raw : {};
     const defaults = DEFAULT_GLOBAL_SETTINGS;
     return {
-      tickRateMs: Math.round(clampNumber(src.tickRateMs, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, defaults.tickRateMs)),
       autosaveDebounceMs: Math.round(clampNumber(src.autosaveDebounceMs, 0, AUTOSAVE_DEBOUNCE_MAX_MS, defaults.autosaveDebounceMs)),
       debugMode: src.debugMode === true,
       defaultSnoozeMinutes: parseSnoozeMinutes(src.defaultSnoozeMinutes) ?? defaults.defaultSnoozeMinutes,
@@ -744,7 +740,7 @@
     getAllowedMs, getResetIntervalMs, cbStartOfDayMs, cbNextMidnightMs, cbPeriodStartMs, cbNextResetMs,
     cbUsageBucketStartMs, cbPruneUsageBuckets, cbBucketsUsedMs, cbNextReturnMs,
     sanitizeUsageTimers, sanitizeSnoozeTotals, sanitizeResetTimes, sanitizeUsageBuckets, sanitizeSnoozes,
-    DEFAULT_GLOBAL_SETTINGS, TICK_RATE_MIN_MS, TICK_RATE_MAX_MS, AUTOSAVE_DEBOUNCE_MAX_MS, sanitizeGlobalSettings, validateSettingsPatch,
+    DEFAULT_GLOBAL_SETTINGS, AUTOSAVE_DEBOUNCE_MAX_MS, sanitizeGlobalSettings, validateSettingsPatch,
     nameTaken, freeName, dedupeNames, budgetRestarts, validateGroupPatch
   });
   global.CBGroupActions = api;

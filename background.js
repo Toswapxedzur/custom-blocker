@@ -2437,6 +2437,10 @@ for (const event of ["onHistoryStateUpdated", "onReferenceFragmentUpdated"]) {
 }
 
 // The rules' "tick", every second (offscreen.js drives it): the open tabs.
+// Safari has no offscreen document to ping every second: its background
+// page ticks the rules itself while it runs.
+if (sandboxTransportMode() === "native") setInterval(() => { emitRuleTick().catch(() => {}); }, 1000);
+
 async function emitRuleTick() {
   if (!cbRulesHandle("tick")) return;
   const tabs = await chrome.tabs.query({});
