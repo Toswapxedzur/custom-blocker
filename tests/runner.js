@@ -10,6 +10,7 @@
  * "twitch().hidePosts is a TypeError, not a no-op" guarantee.
  */
 
+load("platform-profiles.js");
 load("helpers.js");
 load("tests/log.js");
 
