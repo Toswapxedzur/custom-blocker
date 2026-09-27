@@ -3715,18 +3715,12 @@ const cbNameTaken = CBGroupActions.nameTaken;
 // (CBGroupActions.budgetRestarts), and a deleted group leaves no per-group
 // entry behind — whoever changed the list (the editor, a tool, a link).
 async function cbApplyStoredGroupChange(oldValue, newValue) {
-  // Duplicate names are renamed silently; a linked group keeps its name.
-  const renamed = CBGroupActions.dedupeNames(Array.isArray(newValue) ? newValue : [], [...cbLinkedGroupIds(cbClusterCopy)]);
-  if (renamed) {
-    await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: renamed });
-    return;
-  }
   const before = new Map((Array.isArray(oldValue) ? oldValue : []).filter((g) => g && g.id).map((g) => [g.id, g]));
   const after = (Array.isArray(newValue) ? newValue : []).filter((g) => g && g.id);
   const present = new Set(after.map((g) => g.id));
   const restart = after.filter((g) => before.has(g.id) && CBGroupActions.budgetRestarts(before.get(g.id), g)).map((g) => g.id);
   const gone = [...before.keys()].filter((id) => !present.has(id));
-  if (restart.length === 0 && gone.length === 0) return;
+  if (restart.length === 0 && gone.length === 0) return cbRenameDuplicates(after);
   const keys = [USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY, GROUP_SNOOZES_KEY, GROUP_SNOOZE_TOTALS_KEY, CBParentalPin.ATTEMPTS_KEY, CB_QUICK_ADD_GROUP_KEY];
   const stored = await chrome.storage.local.get(keys);
   const writes = {};
@@ -3742,6 +3736,15 @@ async function cbApplyStoredGroupChange(oldValue, newValue) {
     if (stored[CB_QUICK_ADD_GROUP_KEY] === id) writes[CB_QUICK_ADD_GROUP_KEY] = "";
   }
   if (Object.keys(writes).length) await chrome.storage.local.set(writes);
+  await cbRenameDuplicates(after);
+}
+
+// Duplicate names are renamed silently; a linked group keeps its name. (After
+// the restarts and cleanup above: the rename's own change event then carries
+// no policy change.)
+async function cbRenameDuplicates(groups) {
+  const renamed = CBGroupActions.dedupeNames(groups, [...cbLinkedGroupIds(cbClusterCopy)]);
+  if (renamed) await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: renamed });
 }
 
 async function cbAnnounceStoredGroups(groups) {

@@ -55,8 +55,7 @@
     }) || null;
   }
 
-  // A member carrying a pinned group id must resolve by id or not at all. Name
-  // fallback is only for pre-id-pinning cluster snapshots.
+  // A member resolves by its pinned group id or not at all.
   function groupForCluster(groups, cluster, program) {
     var list = Array.isArray(groups) ? groups : [];
     var member = localMember(cluster, program);

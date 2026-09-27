@@ -435,17 +435,10 @@ const state = {
     peers: [],
     error: ""
   },
-  // Live web-app bridge clusters that involve this endpoint, supplied by the
-  // transport layer (hub is the single source of truth). Never persisted: a
-  // group is "connected" when a cluster lists {program: LOCAL_PROGRAM_ID,
-  // groupName: <this group's name>}. Each entry:
-  //   { id, groupName, groupType, members: [{ program, groupName }], shared }
+  // The links (hub-owned; never persisted here): a group is linked when a
+  // link lists {program: LOCAL_PROGRAM_ID, groupId: <its id>}. Each entry:
+  //   { id, groupName, members: [{ program, groupId, online, contributed }], shared }
   clusters: [],
-  // Read-only mirror of the shared pools per clustered group:
-  //   { [groupId]: { sites: [...], apps: [...] } }
-  // Hub's shared cumulative snooze total per clustered group (display only). We
-  // show max(local total, this) so the figure reflects snoozes accrued on any
-  // member without merging into — and thus double-counting — the local counter.
   // Serialized last-applied cluster list, so repeated identical pushes (the Mac
   // hub re-pushes every second) don't trigger needless re-renders.
   clustersLastJSON: "",
@@ -879,10 +872,8 @@ function requestConnectionStatus() {
 }
 
 // ---------------------------------------------------------------------------
-// Web-app bridge: same-named Default/Custom groups auto-link into one shared
-// "cluster" across every connected program whenever a peer is present. The hub
-// is the single source of truth for cluster membership; there is no manual
-// link/unlink — this layer only renders the read-only mirror of a cluster.
+// Links: the user links a group with a group of another program (Link /
+// Unlink, below); the hub owns the links, this layer shows them.
 // ---------------------------------------------------------------------------
 
 function bridgeIsOnline() {
@@ -890,11 +881,7 @@ function bridgeIsOnline() {
   return s.state === "connected" || s.state === "running";
 }
 
-// The cluster (if any) this group currently belongs to, matched by this
-// endpoint's program id + the member's pinned group id. Membership is pinned to
-// the specific group instance that was linked, so deleting a group and later
-// re-creating one with the same name does NOT re-adopt the old cluster. Falls
-// back to the saved name for pre-id-pinning hubs that don't send a groupId.
+// The link (if any) this group belongs to, by this program's pinned group id.
 function groupConnectionCluster(group) {
   return window.CBBridgeProtocol.clusterForGroup(state.clusters, group, LOCAL_PROGRAM_ID);
 }
@@ -955,7 +942,7 @@ function applyClusters(list, rosters) {
   for (const cluster of state.clusters) {
     if (!cluster || !Array.isArray(cluster.members)) continue;
     if (!cluster.members.some((m) => m && m.program === LOCAL_PROGRAM_ID)) continue;
-    const key = "offline:" + cluster.groupName;
+    const key = "offline:" + cluster.id;
     if (cluster.allOnline === false) {
       warnBridgeOnce(key, t("connectionGroup.warnMemberOffline"));
     } else {
@@ -1008,7 +995,8 @@ function linkCandidates() {
 function renderLinkSection(group, editable) {
   if (!groupLinkSection) return;
   const cluster = groupConnectionCluster(group);
-  const hubOnline = bridgeIsOnline() && !macVaultAway();
+  // The Mac editor runs inside the hub itself: always reachable there.
+  const hubOnline = IS_NATIVE_DESKTOP || (bridgeIsOnline() && !macVaultAway());
   if (cluster) {
     const others = (cluster.members || []).filter((m) => m && m.program !== LOCAL_PROGRAM_ID);
     groupLinkStatus.textContent = t("link.linkedWith", {
@@ -5087,7 +5075,7 @@ function buildUpdatedGroupFromDraft(group, draft, { strict = true } = {}) {
     name = group.name;
   }
 
-  // Names are unique per device (linked groups are found by name).
+  // Names are unique per device (duplicates elsewhere are renamed silently).
   if (CBGroupActions.nameTaken(state.groups, name, group.id)) {
     fail(new Error(t("status.duplicateName")));
     name = group.name;
