@@ -1776,6 +1776,32 @@ async function cbSetTabCovered(tabId, covered) {
   } catch (_) {}
 }
 
+// A custom group's Snooze (the editor's button, or a tool): the rule's
+// snoozePress event, dispatched for the active tab so its logs show there.
+async function cbFireSnoozePress(groupId) {
+  let activeTab = null;
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    activeTab = tabs && tabs[0] ? tabs[0] : null;
+  } catch (_) {}
+  const descriptor = {
+    type: "snoozePress",
+    tabId: activeTab && typeof activeTab.id === "number" ? activeTab.id : null,
+    pageId: null,
+    url: activeTab?.url || "",
+    hostname: hostnameOf(activeTab?.url || ""),
+    time: todayContext(),
+    data: { triggeredAt: Date.now() },
+    targetGroupId: groupId
+  };
+  const result = await dispatchToSandbox(descriptor);
+  ingestSandboxLogs(result, descriptor);
+  maybeQuarantineFromResult(result, descriptor);
+  if (typeof descriptor.tabId === "number") await applySandboxResultToTab(descriptor.tabId, result, descriptor);
+  await processLocalFileIntents(result, descriptor);
+  return result;
+}
+
 // The popup's snooze entry, built here for the cover's Snooze button. The
 // cover runs the group's confirmation steps itself; the worker stores the
 // entry, re-syncs blocking and shares it with linked members (newest start
@@ -3282,52 +3308,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "fire-snooze-press") {
-    // Pure notification event for custom groups. Handlers can log or
-    // run arbitrary code in response to the Start Snooze button but
-    // there's no programmatic snooze API. The dispatch is routed to
-    // the currently active tab so logs surface there as toasts.
+    // A custom group's Snooze: the rule's snoozePress event (the rule decides).
     (async () => {
       try {
         const groupId = String(message.groupId || "");
-        cbDebugLog("[CustomBlocker:trace] bg fire-snooze-press groupId:", groupId);
         if (!groupId) {
           sendResponse({ ok: false, error: "missing groupId" });
           return;
         }
-        let activeTab = null;
-        try {
-          const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-          activeTab = tabs && tabs[0] ? tabs[0] : null;
-        } catch (_) {}
-        cbDebugLog("[CustomBlocker:trace] bg activeTab:", activeTab && { id: activeTab.id, url: activeTab.url });
-        const descriptor = {
-          type: "snoozePress",
-          tabId: activeTab && typeof activeTab.id === "number" ? activeTab.id : null,
-          pageId: null,
-          url: normalizeUrlForEvents(activeTab?.url || ""),
-          hostname: hostnameOf(activeTab?.url || ""),
-          time: todayContext(),
-          data: { triggeredAt: Date.now() },
-          targetGroupId: groupId
-        };
-        cbDebugLog("[CustomBlocker:trace] bg → sandbox dispatch", descriptor);
-        const result = await dispatchToSandbox(descriptor);
-        cbDebugLog("[CustomBlocker:trace] bg ← sandbox result",
-          result && {
-            logs: result.logs?.length,
-            intents: result.intents?.length,
-            domOps: result.domOps?.length
-          },
-          "tabId:", descriptor.tabId);
-        ingestSandboxLogs(result, descriptor);
-        maybeQuarantineFromResult(result, descriptor);
-        if (typeof descriptor.tabId === "number") {
-          await applySandboxResultToTab(descriptor.tabId, result, descriptor);
-          cbDebugLog("[CustomBlocker:trace] bg routed result to tab", descriptor.tabId);
-        } else {
-          cbDebugWarn("[CustomBlocker:trace] bg has no active tab id — toast cannot render");
-        }
-        await processLocalFileIntents(result, descriptor);
+        const result = await cbFireSnoozePress(groupId);
         sendResponse({ ok: true, result });
       } catch (error) {
         cbDebugError("[CustomBlocker:trace] bg fire-snooze-press error", error);
@@ -4399,7 +4388,9 @@ const CB_BROWSER_REQUEST_OPERATIONS = Object.freeze([
   "settings-unlock-group",
   "settings-move-group",
   "settings-snooze-group",
-  "settings-end-snooze"
+  "settings-end-snooze",
+  "settings-set-lock-gates",
+  "settings-delete-all"
 ]);
 const CB_CLASSIFIER_SETTINGS_STORAGE_KEY = "vaultClassifierSettings";
 const CB_TAGGING_MODES = Object.freeze(["whenFiltering", "always", "paused"]);
@@ -4506,7 +4497,7 @@ async function cbUnlockGroupForTool(input) {
   const group = groups[index];
   const now = Date.now();
   const plan = CBGroupActions.unlockPlan(group, now);
-  if (plan.error) throw new Error(plan.waitUntilMs ? `strict-wait:${new Date(plan.waitUntilMs).toISOString()}` : plan.error);
+  if (plan.error) throw new Error(plan.waitUntilMs ? `wait-until:${new Date(plan.waitUntilMs).toISOString()}` : plan.error);
   const step = await cbToolConfirmation(`unlock:${group.id}`, plan.confirmations, group.lockVersion, input.confirm, now, async () => {
     if (!plan.needsPin) return undefined;
     const upgrade = await cbCheckPinForTool(group, input.pin);
@@ -4526,6 +4517,11 @@ async function cbSnoozeGroupForTool(input) {
   const { groups, groupSnoozes } = await getState();
   const group = groups.find((item) => item.id === input.id);
   if (!group) throw new Error("group-not-found");
+  // A custom group's Snooze is its rule's (owner 2026-09-27), as in the editor.
+  if (group.groupType === "custom") {
+    await cbFireSnoozePress(group.id);
+    return { snoozePressed: true };
+  }
   const now = Date.now();
   const plan = CBGroupActions.snoozePlan(group, groupSnoozes[group.id], now);
   if (plan.error) throw new Error(plan.error);
@@ -4551,6 +4547,54 @@ async function cbEndSnoozeForTool(input) {
 const CB_EDITOR_GLOBAL_FIELDS = Object.freeze(["defaultSnoozeMinutes", "quitRetryMinutes", "quickAddEnabled"]);
 function cbEditorGlobalSettings(settings) {
   return Object.fromEntries(CB_EDITOR_GLOBAL_FIELDS.map((key) => [key, settings[key]]));
+}
+
+// A browser tool edits no Apps lines (the desktop's; the browser editor shows
+// them read-only).
+function cbWithoutAppLines(patch) {
+  const { apps: _apps, appsAllowlist: _allow, ...rest } = patch;
+  if (Array.isArray(rest.scopes)) rest.scopes = rest.scopes.filter((line) => line && line.surface !== "apps");
+  return rest;
+}
+
+// The editor's lock gates on an unlocked group: the wait (hours) and the PIN.
+// Clearing a PIN takes the current one, as in the editor.
+async function cbSetLockGatesForTool(input) {
+  const { groups } = await getState();
+  const index = groups.findIndex((group) => group.id === input.id);
+  if (index < 0) throw new Error("group-not-found");
+  const group = groups[index];
+  const gates = {};
+  if (input.waitHours !== undefined) gates.waitHours = input.waitHours;
+  if (input.clearPin === true) {
+    if (CBGroupActions.hasPin(group)) await cbCheckPinForTool(group, input.pin);
+    gates.pinFields = null;
+  } else if (input.pin !== undefined) {
+    if (CBGroupActions.hasPin(group)) throw new Error("pin-already-set");
+    gates.pinFields = await CBParentalPin.newPinFields(String(input.pin));
+  }
+  const result = CBGroupActions.setGates(group, gates);
+  if (result.error) throw new Error(result.error);
+  return { group: cbPublicGroup(await cbWriteGroup(groups, index, result.group)) };
+}
+
+// "Delete all" through the editor's gates: no wait holding on any locked
+// group, each distinct PIN once, then the confirmation.
+async function cbDeleteAllForTool(input) {
+  const { groups } = await getState();
+  const now = Date.now();
+  const plan = CBGroupActions.deleteAllPlan(groups, now);
+  if (plan.error) throw new Error(plan.waitUntilMs ? `wait-until:${new Date(plan.waitUntilMs).toISOString()}` : plan.error);
+  // pins[i] is the PIN of the i-th distinct PIN (wrong ones count, as in the editor).
+  const pins = Array.isArray(input.pins) ? input.pins.map(String) : [];
+  if (pins.length < plan.pinGroups.length) throw new Error(`pins-required:${plan.pinGroups.map((g) => g.name).join(", ")}`);
+  for (const [i, group] of plan.pinGroups.entries()) await cbCheckPinForTool(group, pins[i]);
+  if (plan.needsConfirmation) {
+    const step = await cbToolConfirmation("delete-all", plan.confirmations, "delete-all", input.confirm, now);
+    if (!step.done) return { deleted: false, confirmationsLeft: step.left, confirmAfterSeconds: plan.intervalMs / 1000, next: CB_CONFIRM_NEXT };
+  }
+  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: [] });
+  return { deleted: groups.length };
 }
 
 async function cbBrowserRequestBody(operation, body) {
@@ -4590,7 +4634,9 @@ async function cbBrowserRequestBody(operation, body) {
         const root = base.name;
         base.name = CBGroupActions.freeName(groups, (n) => (n === 1 ? root : `${root} ${n}`));
       }
-      const draft = { ...base, ...safePatch, groupType };
+      const invalid = CBGroupActions.validateGroupPatch(safePatch, groupType);
+      if (invalid) throw new Error(invalid);
+      const draft = { ...base, ...cbWithoutAppLines(safePatch), groupType };
       const [group] = sanitizeGroups([draft]);
       if (!group) throw new Error("invalid-group");
       if (groups.some((existing) => existing.id === group.id)) throw new Error("duplicate-group-id");
@@ -4609,7 +4655,12 @@ async function cbBrowserRequestBody(operation, body) {
       if (cbGroupIsLocked(groups[index])) throw new Error("group-locked");
       // The id and the lock state are never patchable — same as the popup.
       const { id: _id, ...safePatch } = cbWithoutLockFields(patch);
-      const [group] = sanitizeGroups([{ ...groups[index], ...safePatch, id }]);
+      const invalid = CBGroupActions.validateGroupPatch(safePatch, safePatch.groupType ?? groups[index].groupType);
+      if (invalid) throw new Error(invalid);
+      // Apps lines are the desktop's (read-only in a browser, as in its editor).
+      const edit = cbWithoutAppLines(safePatch);
+      if (Array.isArray(edit.scopes)) edit.scopes = [...edit.scopes, ...groups[index].scopes.filter((line) => line.surface === "apps")];
+      const [group] = sanitizeGroups([{ ...groups[index], ...edit, id }]);
       if (!group) throw new Error("invalid-group");
       if (cbNameTaken(groups, group.name, id)) throw new Error("duplicate-name");
       const next = groups.slice();
@@ -4635,6 +4686,10 @@ async function cbBrowserRequestBody(operation, body) {
       return cbSnoozeGroupForTool({ ...input, id: typeof input.id === "string" ? input.id : "" });
     case "settings-end-snooze":
       return cbEndSnoozeForTool({ id: typeof input.id === "string" ? input.id : "" });
+    case "settings-set-lock-gates":
+      return cbSetLockGatesForTool({ ...input, id: typeof input.id === "string" ? input.id : "" });
+    case "settings-delete-all":
+      return cbDeleteAllForTool(input);
     case "settings-move-group": {
       // The group list's order (drag in the editor); a locked group stays put.
       // Order is this device's own: it is not shared with linked devices.
@@ -4675,11 +4730,18 @@ async function cbBrowserRequestBody(operation, body) {
       const current = stored?.[CB_GLOBAL_SETTINGS_KEY] && typeof stored[CB_GLOBAL_SETTINGS_KEY] === "object" ? stored[CB_GLOBAL_SETTINGS_KEY] : {};
       const patch = input.patch && typeof input.patch === "object" && !Array.isArray(input.patch) ? input.patch : null;
       if (!patch) throw new Error("missing-patch");
-      const unknown = Object.keys(patch).find((key) => !CB_EDITOR_GLOBAL_FIELDS.includes(key));
+      const { quickAddGroupId, ...settings } = patch;
+      const unknown = Object.keys(settings).find((key) => !CB_EDITOR_GLOBAL_FIELDS.includes(key));
       if (unknown) throw new Error(`not-an-editor-setting:${unknown}`);
-      const next = CBGroupActions.sanitizeGlobalSettings({ ...current, ...patch });
+      // The quick-add "+" target (the editor's badge): a group id, or "".
+      if (quickAddGroupId !== undefined) {
+        const target = String(quickAddGroupId || "");
+        if (target && !(await getState()).groups.some((group) => group.id === target)) throw new Error("group-not-found");
+        await chrome.storage.local.set({ [CB_QUICK_ADD_GROUP_KEY]: target });
+      }
+      const next = CBGroupActions.sanitizeGlobalSettings({ ...current, ...settings });
       await chrome.storage.local.set({ [CB_GLOBAL_SETTINGS_KEY]: next });
-      return { globalSettings: cbEditorGlobalSettings(next) };
+      return { globalSettings: cbEditorGlobalSettings(next), quickAddGroupId: (await chrome.storage.local.get({ [CB_QUICK_ADD_GROUP_KEY]: "" }))[CB_QUICK_ADD_GROUP_KEY] };
     }
     default:
       throw new Error("unsupported-operation");
