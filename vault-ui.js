@@ -11,7 +11,7 @@
   const document = global.document;
   // Only a real page has selects to replace (not a test's stand-in DOM).
   if (!document || typeof HTMLSelectElement === "undefined" || typeof MutationObserver === "undefined") {
-    global.VaultUI = Object.freeze({ enhance() {}, close() {} });
+    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {} });
     return;
   }
   const dropdowns = new WeakMap(); // select -> { wrap, button, label }
@@ -141,7 +141,7 @@
     });
     // A <label for> pointing at the select opens the dropdown.
     if (select.id) {
-      document.querySelectorAll(`label[for="${CSS.escape(select.id)}"]`).forEach((forLabel) => {
+      select.getRootNode().querySelectorAll(`label[for="${CSS.escape(select.id)}"]`).forEach((forLabel) => {
         forLabel.addEventListener("click", (event) => { event.preventDefault(); button.focus(); });
       });
     }
@@ -153,11 +153,19 @@
     if (root && root.querySelectorAll) root.querySelectorAll("select").forEach(enhance);
   }
 
-  function start() {
-    enhanceAll(document);
+  // Enhances every select under `scope` (the document, or a section's shadow
+  // root) now and whenever one is added.
+  function observe(scope) {
+    enhanceAll(scope);
     new MutationObserver((records) => {
       for (const record of records) record.addedNodes.forEach((node) => enhanceAll(node));
-    }).observe(document.body, { childList: true, subtree: true });
+    }).observe(scope === document ? document.body : scope, { childList: true, subtree: true });
+    // Scrolling does not leave a shadow root, so close the menu from inside it too.
+    if (scope !== document) scope.addEventListener("scroll", closeMenu, true);
+  }
+
+  function start() {
+    observe(document);
     document.addEventListener("click", closeMenu);
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMenu(); });
     global.addEventListener("resize", closeMenu);
@@ -167,5 +175,5 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 
-  global.VaultUI = Object.freeze({ enhance, close: closeMenu });
+  global.VaultUI = Object.freeze({ enhance, observe, close: closeMenu });
 })(typeof window !== "undefined" ? window : globalThis);
