@@ -1,30 +1,49 @@
 /* Vault UI — the one look shared by every Vault screen: the extension's
  * editor and Mac Vault's Vault, Classifier and Activity sections (owner
- * 2026-09-28). Fixed light theme, no borders, no native controls, one text
- * size (headings are the only bigger text), small buttons or plain text to
- * click. Canonical here; macosBlocker/sync-webui.sh copies it.
+ * 2026-09-28). The extension's own theme (navy, Arial, tinted cards, small
+ * pills), fixed light, with no borders, no native controls, one text size
+ * (headings are the only bigger text). Canonical here; sync-webui.sh copies it.
  */
 
 :root {
   color-scheme: light;
-  --vui-bg: #f4f5f7;
+  /* The extension's palette: navy on a pale blue-grey page, with tinted
+     cards (navy, cyan, gold, pink, red) marking the kinds of settings. */
+  --vui-bg: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
   --vui-surface: #ffffff;
-  --vui-fill: #eef0f3;
-  --vui-fill-strong: #e2e5ea;
-  --vui-text: #1f2430;
-  --vui-muted: #6c7380;
-  --vui-accent: #3056c8;
-  --vui-accent-soft: #e8edfa;
-  --vui-danger: #c0392b;
-  --vui-danger-soft: #fbeaea;
-  --vui-ok: #2e7d4f;
-  --vui-radius: 12px;
-  --vui-radius-sm: 7px;
-  --vui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --vui-size: 13px;
-  --vui-size-small: 12px;
+  --vui-fill: #f1f5f9;
+  --vui-fill-strong: #e2e8f0;
+  --vui-text: #1f2937;
+  --vui-muted: #64748b;
+  --vui-accent: #1e3a8a;
+  --vui-accent-strong: #172554;
+  --vui-accent-soft: #eef2ff;
+  --vui-danger: #991b1b;
+  --vui-danger-strong: #b91c1c;
+  --vui-danger-soft: #fee2e2;
+  --vui-ok: #166534;
+  --vui-navy-50: #f5f7ff;
+  --vui-cyan: #0e7490;
+  --vui-cyan-text: #155e75;
+  --vui-cyan-50: #ecfeff;
+  --vui-gold: #ca8a04;
+  --vui-gold-text: #a16207;
+  --vui-gold-100: #fef3c7;
+  --vui-gold-50: #fffbeb;
+  --vui-pink: #be185d;
+  --vui-pink-text: #9d174d;
+  --vui-pink-50: #fdf2f8;
+  --vui-red-50: #fef2f2;
+  --vui-radius: 16px;
+  --vui-radius-card: 12px;
+  --vui-radius-sm: 8px;
+  --vui-font: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --vui-size: 12px;
+  --vui-size-small: 11px;
   --vui-size-title: 16px;
-  --vui-shadow: 0 6px 24px rgba(20, 28, 45, 0.14);
+  --vui-panel-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
+  --vui-card-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  --vui-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
 }
 
 *,
@@ -36,20 +55,22 @@
 html,
 body {
   margin: 0;
+  min-height: 100%;
   background: var(--vui-bg);
   color: var(--vui-text);
-  font: var(--vui-size) / 1.45 var(--vui-font);
-  -webkit-font-smoothing: antialiased;
+  font: var(--vui-size) / 1.4 var(--vui-font);
 }
 
 h1, h2, h3, h4 {
   margin: 0;
   font-size: var(--vui-size-title);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.015em;
 }
 
 h3, h4 {
-  font-size: var(--vui-size);
+  font-size: 13px;
+  letter-spacing: 0;
 }
 
 p {
@@ -70,38 +91,78 @@ summary {
   color: inherit;
 }
 
-/* ── Clickables: plain text, or a small quiet button ─────────────────────── */
+/* ── Clickables: plain text, or a small pill ──────────────────────────────
+ * A bare button is a text link. .primary is the one solid navy pill of a
+ * place (tinted cards recolour it), .secondary a grey pill, .danger a pale red
+ * pill, .weird the gold pill of custom/AI things. */
 button {
   background: none;
-  padding: 3px 8px;
-  border-radius: var(--vui-radius-sm);
+  padding: 4px 6px;
+  border-radius: 999px;
   color: var(--vui-accent);
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
 }
 
 button:hover:not(:disabled) {
   background: var(--vui-accent-soft);
 }
 
+button.primary,
+button.secondary,
+button.danger,
+button.weird {
+  padding: 5px 11px;
+  font-size: var(--vui-size-small);
+}
+
+button.primary {
+  color: #fff;
+  background: var(--vui-accent);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--vui-accent-strong);
+}
+
+button.secondary {
+  color: #0f172a;
+  background: var(--vui-fill-strong);
+}
+
+button.secondary:hover:not(:disabled) {
+  background: #cbd5e1;
+}
+
 button.danger,
 button.vui-danger {
   color: var(--vui-danger);
+  background: var(--vui-danger-soft);
 }
 
 button.danger:hover:not(:disabled),
 button.vui-danger:hover:not(:disabled) {
-  background: var(--vui-danger-soft);
+  background: #fecaca;
+}
+
+button.weird {
+  color: var(--vui-gold-text);
+  background: var(--vui-gold-100);
+}
+
+button.weird:hover:not(:disabled) {
+  background: #fde68a;
 }
 
 button:disabled {
-  opacity: 0.4;
+  opacity: 0.45;
   cursor: default;
 }
 
 button:focus-visible {
-  box-shadow: 0 0 0 2px var(--vui-accent-soft);
+  box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.18);
 }
 
 /* ── Fields: filled, never outlined ──────────────────────────────────────── */
@@ -114,15 +175,27 @@ input:not([type]),
 textarea {
   width: 100%;
   background: var(--vui-fill);
-  border-radius: var(--vui-radius-sm);
-  padding: 6px 9px;
+  border-radius: 10px;
+  padding: 8px 11px;
   transition: background 0.12s, box-shadow 0.12s;
 }
 
 input:focus,
 textarea:focus {
   background: var(--vui-surface);
-  box-shadow: 0 0 0 2px var(--vui-accent-soft);
+  box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.18);
+}
+
+/* On a tinted card fields are white. */
+.vui-card input[type="text"],
+.vui-card input[type="number"],
+.vui-card input[type="search"],
+.vui-card input[type="password"],
+.vui-card input[type="url"],
+.vui-card input:not([type]),
+.vui-card textarea,
+.vui-card .vui-select-button {
+  background: var(--vui-surface);
 }
 
 input::placeholder,
@@ -243,9 +316,10 @@ select.vui-native {
 .vui-select-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
-  padding: 5px 9px;
+  padding: 7px 11px;
+  border-radius: 10px;
   background: var(--vui-fill);
   color: var(--vui-text);
   font-weight: 400;
@@ -253,6 +327,10 @@ select.vui-native {
 
 .vui-select-button:hover:not(:disabled) {
   background: var(--vui-fill-strong);
+}
+
+.vui-card .vui-select-button:hover:not(:disabled) {
+  background: var(--vui-navy-50);
 }
 
 .vui-select-label {
@@ -280,15 +358,16 @@ select.vui-native {
   overflow-y: auto;
   padding: 4px;
   background: var(--vui-surface);
-  border-radius: var(--vui-radius-sm);
-  box-shadow: var(--vui-shadow);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
 }
 
 .vui-menu-item {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 5px 9px;
+  padding: 6px 10px;
+  border-radius: var(--vui-radius-sm);
   color: var(--vui-text);
   font-weight: 400;
   white-space: normal;
@@ -301,7 +380,7 @@ select.vui-native {
 
 .vui-menu-item.is-selected {
   color: var(--vui-accent);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .vui-menu-item:disabled {
@@ -313,6 +392,7 @@ details.vui-expand > summary {
   list-style: none;
   cursor: pointer;
   color: var(--vui-muted);
+  font-weight: 700;
   padding: 4px 0;
   user-select: none;
 }
@@ -346,27 +426,33 @@ details.vui-expand > summary:hover {
   display: flex;
   align-items: center;
   gap: 20px;
-  padding: 14px 22px 10px;
+  padding: 10px 14px 8px;
 }
 
 .vui-tabs {
   display: flex;
-  gap: 18px;
+  align-items: baseline;
+  gap: 24px;
 }
 
-.vui-tab {
+.vui-tab,
+.vui-tab:hover:not(:disabled) {
   padding: 0;
-  font-size: var(--vui-size-title);
-  font-weight: 600;
-  color: var(--vui-muted);
+  border-radius: 0;
+  background: none;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: #94a3b8;
 }
 
 .vui-tab:hover:not(:disabled) {
-  background: none;
-  color: var(--vui-text);
+  color: var(--vui-muted);
 }
 
-.vui-tab.is-active {
+.vui-tab.is-active,
+.vui-tab.is-active:hover:not(:disabled) {
   color: var(--vui-text);
 }
 
@@ -374,14 +460,39 @@ details.vui-expand > summary:hover {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
 }
 
 /* ── Surfaces ─────────────────────────────────────────────────────────────── */
 .vui-panel {
-  background: var(--vui-surface);
+  background: rgba(255, 255, 255, 0.92);
   border-radius: var(--vui-radius);
+  box-shadow: var(--vui-panel-shadow);
 }
+
+/* A tinted card groups one kind of setting; the tone names the kind and
+   recolours the card's .primary pill. */
+.vui-card {
+  padding: 14px 16px 16px;
+  border-radius: var(--vui-radius-card);
+  background: var(--vui-navy-50);
+  box-shadow: var(--vui-card-shadow);
+}
+
+.vui-card.tone-navy { background: var(--vui-accent-soft); }
+.vui-card.tone-cyan { background: var(--vui-cyan-50); }
+.vui-card.tone-gold { background: var(--vui-gold-50); }
+.vui-card.tone-pink { background: var(--vui-pink-50); }
+.vui-card.tone-red { background: var(--vui-red-50); }
+
+.vui-card.tone-cyan button.primary { background: var(--vui-cyan); }
+.vui-card.tone-gold button.primary { background: var(--vui-gold); }
+.vui-card.tone-pink button.primary { background: var(--vui-pink); }
+.vui-card.tone-red button.primary { background: var(--vui-danger-strong); }
+.vui-card.tone-cyan input[type="checkbox"]:checked { background: var(--vui-cyan); }
+.vui-card.tone-gold input[type="checkbox"]:checked { background: var(--vui-gold); }
+.vui-card.tone-pink input[type="checkbox"]:checked { background: var(--vui-pink); }
+.vui-card.tone-red input[type="checkbox"]:checked { background: var(--vui-danger-strong); }
 
 .vui-muted {
   color: var(--vui-muted);
