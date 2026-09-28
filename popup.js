@@ -1543,29 +1543,6 @@ function postToNativeShell(payload) {
   } catch (_) {}
 }
 
-// Scene switch in the hero header: tapping another scene posts to the native
-// shell, which swaps the visible web view. The underline tracks the active tab.
-(function initSceneTabs() {
-  const tabs = document.getElementById("sceneTabs");
-  if (!tabs || !IS_NATIVE_DESKTOP) return;
-  const underline = tabs.querySelector(".scene-underline");
-  function position() {
-    const active = tabs.querySelector(".scene-tab.is-active");
-    if (!active || !underline) return;
-    underline.style.width = active.offsetWidth + "px";
-    underline.style.transform = "translateX(" + active.offsetLeft + "px)";
-  }
-  tabs.addEventListener("click", (event) => {
-    const button = event.target.closest(".scene-tab");
-    if (!button || button.classList.contains("is-active")) return;
-    postToNativeShell({ kind: "switch-scene", scene: button.dataset.scene });
-  });
-  position();
-  window.addEventListener("resize", position);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(position);
-  setTimeout(position, 60);
-})();
-
 function renderBlockedSites() {
   if (!blockedSitesList) {
     return;
