@@ -6,54 +6,22 @@
     <title data-i18n="app.title">Adamancia Vault — Website Blocker & Focus Timer</title>
     <link rel="icon" media="(prefers-color-scheme: light)" href="icons/adamancia-vault-lock-v3-128.png" />
     <link rel="icon" media="(prefers-color-scheme: dark)" href="icons/adamancia-vault-lock-inverse-dark-128.png?v=20260712b" />
+    <link rel="stylesheet" href="vault-ui.css" />
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main class="popup">
-      <header class="hero">
-        <div class="hero-topbar">
-          <!-- Desktop host: scene switch (Vault / Classifier / Activity) replaces the title. -->
-          <nav class="scene-tabs desktop-only" id="sceneTabs" aria-label="Scene">
-            <button type="button" class="scene-tab is-active" data-scene="vault" data-i18n="scene.vault">Vault</button>
-            <button type="button" class="scene-tab" data-scene="classifier" data-i18n="scene.classifier">Classifier</button>
-            <button type="button" class="scene-tab" data-scene="activity" data-i18n="scene.activity">Activity</button>
-            <span class="scene-underline" aria-hidden="true"></span>
-          </nav>
-          <div class="browser-only">
-            <h1 data-i18n="app.shortTitle">Adamancia Vault</h1>
-          </div>
-          <div class="hero-actions">
-            <button id="settingsButton" type="button" class="secondary" data-i18n="settings.button">
-              Settings
-            </button>
-            <button id="manualButton" type="button" class="secondary" data-i18n="manual.button">
-              Instruction Manual
-            </button>
-            <div class="language-picker">
-              <select id="languageSelect" aria-label="Language" data-i18n-aria-label="language.label" translate="no" class="notranslate">
-                <option value="en">English</option>
-                <option value="zh">简体中文</option>
-                <option value="es">Espanol</option>
-                <option value="hi">हिन्दी</option>
-                <option value="ar">العربية</option>
-                <option value="bn">বাংলা</option>
-                <option value="pt">Portugues</option>
-                <option value="ru">Русский</option>
-                <option value="ja">日本語</option>
-                <option value="pa">ਪੰਜਾਬੀ</option>
-                <option value="de">Deutsch</option>
-                <option value="fr">Francais</option>
-                <option value="ko">한국어</option>
-                <option value="tr">Turkce</option>
-                <option value="vi">Tieng Viet</option>
-                <option value="it">Italiano</option>
-                <option value="th">ไทย</option>
-                <option value="nl">Nederlands</option>
-                <option value="pl">Polski</option>
-                <option value="id">Bahasa Indonesia</option>
-              </select>
-            </div>
-          </div>
+      <header class="vui-topbar">
+        <!-- Mac Vault: the scene switch (Vault / Classifier / Activity). -->
+        <nav class="vui-tabs desktop-only" id="sceneTabs" aria-label="Scene">
+          <button type="button" class="vui-tab scene-tab is-active" data-scene="vault" data-i18n="scene.vault">Vault</button>
+          <button type="button" class="vui-tab scene-tab" data-scene="classifier" data-i18n="scene.classifier">Classifier</button>
+          <button type="button" class="vui-tab scene-tab" data-scene="activity" data-i18n="scene.activity">Activity</button>
+        </nav>
+        <h1 class="browser-only vui-tab is-active" data-i18n="app.shortTitle">Adamancia Vault</h1>
+        <div class="vui-topbar-links">
+          <button id="settingsButton" type="button" data-i18n="settings.button">Settings</button>
+          <button id="manualButton" type="button" data-i18n="manual.button">Manual</button>
         </div>
       </header>
 
@@ -88,27 +56,18 @@
 
       <section id="layout" class="layout">
         <aside class="groups-panel">
-          <div class="panel-header">
-            <div>
-              <h2 data-i18n="groups.title">Block Groups</h2>
-              <p class="panel-copy" data-i18n="groups.copy">
-                Drag groups to reorder them. Each group has its own rules and toggle.
-              </p>
-            </div>
+          <div class="groups-head">
+            <h2 data-i18n="groups.title">Groups</h2>
             <div class="add-group-controls">
               <select id="addGroupType" aria-label="Block group type to add" data-i18n-aria-label="groups.addTypeAria">
                 <option value="site" data-i18n="groupType.site">Default</option>
                 <option value="platform" data-i18n="groupType.platform">Platform</option>
                 <option value="custom" data-i18n="groupType.custom">Custom</option>
               </select>
-              <div class="add-group-buttons">
-                <button id="addGroupButton" type="button" data-i18n="groups.addButton">Add</button>
-                <button id="deleteAllGroupsButton" type="button" class="secondary danger" data-i18n="groups.deleteAllButton">Clear</button>
-              </div>
+              <button id="addGroupButton" type="button" data-i18n="groups.addButton">Add</button>
             </div>
           </div>
           <p id="bulkActionNotice" class="field-help"></p>
-
           <div id="groupList" class="group-list" aria-label="Block groups" data-i18n-aria-label="groups.listAria"></div>
         </aside>
 
@@ -123,78 +82,30 @@
         ></div>
 
         <section class="editor-panel">
-          <div class="panel-header editor-header">
-            <div>
-              <h2 id="editorTitle" data-i18n="editor.title">Edit Group</h2>
-              <p id="editorCopy" class="panel-copy" data-i18n="editor.copy">
-                Add one website per line. Domains and full URLs are both accepted.
-              </p>
-              <p id="groupTypeSummary" class="panel-copy"></p>
-            </div>
-            <div class="editor-actions">
-              <button id="exportGroupButton" type="button" class="secondary" data-i18n="editor.exportGroupButton">
-                Export
-              </button>
-              <button id="importGroupButton" type="button" class="secondary" data-i18n="editor.importGroupButton">
-                Import
-              </button>
-              <button id="deleteGroupButton" type="button" class="secondary danger" data-i18n="editor.deleteGroupButton">
-                Delete Group
-              </button>
-            </div>
-          </div>
-
-          <label class="label" for="groupName" data-i18n="editor.groupName">Group name</label>
-          <input
-            id="groupName"
-            type="text"
-            maxlength="60"
-            placeholder="Work distractions"
-            data-i18n-placeholder="editor.groupNamePlaceholder"
-          />
-
-          <label class="checkbox-row" for="groupEnabled">
-            <input id="groupEnabled" type="checkbox" />
-            <span data-i18n="editor.enableGroup">Enable this block group</span>
-          </label>
-
-          <div id="groupLinkSection" class="link-section">
-            <span class="label" data-i18n="link.title">Link</span>
-            <p id="groupLinkStatus" class="hint"></p>
-            <div class="link-row">
-              <select id="groupLinkTarget" aria-label="Group to link with" data-i18n-aria-label="link.pick"></select>
-              <button id="groupLinkButton" type="button" class="secondary" data-i18n="link.link">Link</button>
-              <button id="groupUnlinkButton" type="button" class="secondary" data-i18n="link.unlink">Unlink</button>
-            </div>
-          </div>
-
-
-          <div id="blockModeSection">
-            <label class="label" for="blockMode" data-i18n="editor.blockMode">Blocking behavior</label>
-            <select id="blockMode">
-              <option value="instant" data-i18n="mode.instant">Block immediately</option>
-              <option value="after-minutes" data-i18n="mode.afterMinutes">Block after a number of minutes</option>
-            </select>
-          </div>
-
-          <div id="fallbackUrlSection">
-            <label class="label" for="fallbackUrl" data-i18n="filter.fallbackUrl">When blocked: redirect address or message</label>
+          <div class="editor-head">
             <input
-              id="fallbackUrl"
+              id="groupName"
+              class="editor-name"
               type="text"
-              placeholder="https://example.com — or a message to show"
-              data-i18n-placeholder="filter.fallbackUrlPlaceholder"
-              spellcheck="false"
+              maxlength="60"
+              placeholder="Work distractions"
+              data-i18n-placeholder="editor.groupNamePlaceholder"
+              aria-label="Group name"
+              data-i18n-aria-label="editor.groupName"
             />
-            <p class="field-help" data-i18n="filter.fallbackUrlHelp">
-              Leave empty and a blocked page is covered in place — nothing on it is lost, and it comes back when the block lifts. Any other text is shown on that cover. A web address sends the tab there instead (a pause never redirects).
-            </p>
+            <label class="editor-on" for="groupEnabled">
+              <input id="groupEnabled" type="checkbox" />
+              <span data-i18n="editor.enableGroup">Enable this block group</span>
+            </label>
           </div>
+          <!-- Kept for the editor's code; the name field above is the title. -->
+          <h2 id="editorTitle" hidden></h2>
+          <p id="editorCopy" hidden></p>
+          <p id="groupTypeSummary" hidden></p>
 
-          <!-- Where the group applies: one chip per platform (and "Websites"
-               for its site list). The cards below edit the selected chip's
-               lines; the group acts on the union of every chip. -->
-          <section id="groupScopesSection" class="hidden">
+          <section class="editor-block">
+            <h3 class="block-title" data-i18n="editor.whatTitle">What</h3>
+            <section id="groupScopesSection" class="hidden">
             <label class="label" for="groupScopesAdd" data-i18n="scopes.label">Applies to</label>
             <div id="groupScopesList" class="site-chip-list" role="list"></div>
             <select id="groupScopesAdd" class="scope-add-select"></select>
@@ -202,7 +113,9 @@
 
             <!-- The page action of the entry in view: cover its blocked pages,
                  or pause first (a countdown, then Continue lets the page through). -->
-            <div id="pageActionRow" class="page-action-row">
+            <details id="pageActionRow" class="vui-expand options-expand">
+              <summary data-i18n="editor.options">Options</summary>
+            <div class="page-action-row">
               <label class="label" for="pageAction" data-i18n="scopes.pageAction">When a page of this entry is blocked</label>
               <select id="pageAction">
                 <option value="block" data-i18n="scopes.pageActionBlock">Cover the page</option>
@@ -210,22 +123,14 @@
               </select>
               <div id="pauseSecondsRow" class="hidden">
                 <label class="label" for="pauseSeconds" data-i18n="scopes.pauseSeconds">Pause for (seconds)</label>
-                <input id="pauseSeconds" type="number" min="1" max="600" step="1" inputmode="numeric" placeholder="10" />
+                <input id="pauseSeconds" class="number-field" type="number" min="1" max="600" step="1" inputmode="numeric" placeholder="10" />
               </div>
             </div>
+            </details>
           </section>
 
-          <section id="siteSettingsSection">
+            <section id="siteSettingsSection">
             <label class="label" id="siteSettingsLabel" data-i18n="sites.label">Blocked websites</label>
-
-            <label class="checkbox-row compact" for="siteAllowlist">
-              <input id="siteAllowlist" type="checkbox" />
-              <span data-i18n="sites.allowlistLabel">Block everything except these sites</span>
-            </label>
-            <p class="field-help" data-i18n="sites.allowlistHelp">
-              When on, this group blocks the entire web except the sites listed below
-              (an allowlist). When off, it blocks only the listed sites.
-            </p>
 
             <!-- Hidden backing store: newline-separated hostnames. The chip list
                  below is the editable surface; this field keeps the existing
@@ -252,22 +157,35 @@
               </div>
             </div>
 
+            <details class="vui-expand options-expand">
+              <summary data-i18n="editor.options">Options</summary>
+            <label class="checkbox-row compact" for="siteAllowlist">
+              <input id="siteAllowlist" type="checkbox" />
+              <span data-i18n="sites.allowlistLabel">Block everything except these sites</span>
+            </label>
+            <p class="field-help" data-i18n="sites.allowlistHelp">
+              When on, this group blocks the entire web except the sites listed below
+              (an allowlist). When off, it blocks only the listed sites.
+            </p>
+
             <div class="actions">
               <button id="clearSitesButton" type="button" class="secondary danger" data-i18n="sites.clearButton">
                 Clear Sites
               </button>
             </div>
 
+            </details>
           </section>
 
-          <!-- The Apps entry: desktop applications ({ id, name }). Editable only
-               in the desktop app (it knows the installed apps); read-only
-               chips here when a linked group carries the entry. -->
-          <section id="appsSettingsSection" class="hidden">
+            <section id="appsSettingsSection" class="hidden">
             <label class="label" data-i18n="apps.label">Blocked applications</label>
             <p id="appsHelp" class="field-help" data-i18n="apps.help">
               Add the applications you want this group to block. Click the plus tile to search your installed apps.
             </p>
+            <input id="blockedAppsData" type="hidden" />
+            <div id="blockedAppsList" class="app-chip-list" role="list"></div>
+            <details class="vui-expand options-expand">
+              <summary data-i18n="editor.options">Options</summary>
             <label class="checkbox-row compact" for="appsAllowlist">
               <input id="appsAllowlist" type="checkbox" />
               <span data-i18n="apps.allowlistLabel">Block every application except these</span>
@@ -275,114 +193,15 @@
             <p class="field-help desktop-only" data-i18n="apps.allowlistHelp">
               When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.
             </p>
-            <input id="blockedAppsData" type="hidden" />
-            <div id="blockedAppsList" class="app-chip-list" role="list"></div>
             <div class="actions desktop-only">
               <button id="clearAppsButton" type="button" class="secondary danger" data-i18n="apps.clearButton">
                 Clear Apps
               </button>
             </div>
+            </details>
           </section>
 
-          <div id="timedSettings" class="timed-settings">
-            <div class="settings-grid">
-              <div id="allowedMinutesRow">
-                <label class="label" for="allowedMinutes" data-i18n="timed.allowedMinutes">Allowed minutes before block</label>
-                <input
-                  id="allowedMinutes"
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  inputmode="decimal"
-                  placeholder="15"
-                  data-i18n-placeholder="timed.allowedMinutesPlaceholder"
-                />
-              </div>
-
-              <div>
-                <label class="label" for="resetIntervalHours" data-i18n="timed.resetHours">Timer reset interval (hours)</label>
-                <input
-                  id="resetIntervalHours"
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  inputmode="decimal"
-                  placeholder="24"
-                  data-i18n-placeholder="timed.resetHoursPlaceholder"
-                />
-              </div>
-            </div>
-
-            <label class="checkbox-row compact" for="resetAtMidnight">
-              <input id="resetAtMidnight" type="checkbox" />
-              <span data-i18n="timed.resetAtMidnight">Also restart the reset cycle at midnight</span>
-            </label>
-
-            <label class="checkbox-row compact" for="rollingLimit">
-              <input id="rollingLimit" type="checkbox" />
-              <span data-i18n="timed.rollingLimit">Rolling limit: used time comes back once it is older than the reset interval</span>
-            </label>
-
-            <div class="usage-row">
-              <p id="usageSummary" class="usage-summary"></p>
-            </div>
-          </div>
-
-          <section id="customSettingsCard" class="section-card hidden">
-            <div class="section-header">
-              <div>
-                <h3 data-i18n="custom.title">Blocking Rules</h3>
-              </div>
-            </div>
-
-
-            <div id="blockingRulesEditor" class="code-editor">
-              <pre id="blockingRulesHighlight" class="code-editor-highlight" aria-hidden="true"></pre>
-              <textarea
-                id="blockingRules"
-                rows="8"
-                aria-label="Custom Rules"
-                data-i18n-aria-label="custom.rules"
-                placeholder="(event, helpers) => {&#10;  // Register handlers here.&#10;}"
-                data-i18n-placeholder="custom.rulesPlaceholder"
-                spellcheck="false"
-              ></textarea>
-            </div>
-            <p id="blockingRulesLint" class="code-editor-lint" aria-live="polite"></p>
-            <div class="field-actions">
-              <button id="runCustomGroupButton" type="button" class="weird" data-i18n="custom.runButton">
-                Run
-              </button>
-              <button id="checkSyntaxButton" type="button" class="secondary weird" data-i18n="custom.letAiCodeButton">
-                Let AI Code
-              </button>
-              <span id="runCustomGroupStatus" class="run-status"></span>
-            </div>
-            <div id="aiPromptPanel" class="ai-prompt-panel hidden">
-              <label class="label" for="aiPromptInput" data-i18n="custom.aiPromptLabel">Prompt for AI</label>
-              <textarea
-                id="aiPromptInput"
-                rows="4"
-                data-i18n-placeholder="custom.aiPromptPlaceholder"
-                spellcheck="true"
-              ></textarea>
-              <div class="field-actions">
-                <button id="aiPromptCopyButton" type="button" class="weird" data-i18n="custom.aiPromptCopyButton">
-                  Prompt for AI
-                </button>
-                <span id="aiPromptStatus" class="run-status"></span>
-              </div>
-              <p class="field-help" data-i18n="custom.aiPromptHelp">
-                This copies a bundled prompt with your request, the current rule, and the custom-rule API reference. Paste it into your AI tool, then paste the generated code back here.
-              </p>
-            </div>
-
-          </section>
-
-          <!-- Unified, data-driven platform-rules card. Which sub-blocks show
-               (creator/account list, subreddit list, server list, hide-element
-               toggles) is decided per platform by popup.js from the registry. -->
-          <section id="platformRulesCard" class="section-card hidden">
+            <section id="platformRulesCard" class="section-card hidden">
             <div class="section-header">
               <div>
                 <h3 id="platformRulesTitle"></h3>
@@ -463,14 +282,6 @@
                 ></textarea>
                 <div id="platformTagSuggestions" class="tag-suggestions hidden"></div>
                 <div class="content-tag-row">
-                  <label class="label" for="platformTagDefaultConfidence" data-i18n="tagFilter.defaultConfidence">Default minimum confidence</label>
-                  <select id="platformTagDefaultConfidence">
-                    <option value="3">&#8805; 3</option>
-                    <option value="4" selected>&#8805; 4</option>
-                    <option value="5">&#8805; 5</option>
-                  </select>
-                </div>
-                <div class="content-tag-row">
                   <label class="label" for="platformTagEffect" data-i18n="tagFilter.effect">When it matches</label>
                   <select id="platformTagEffect">
                     <option value="dim" data-i18n="tagFilter.effectDim">Black out the thumbnail (correctable)</option>
@@ -481,6 +292,16 @@
                   <input id="platformTagBlockPage" type="checkbox" checked />
                   <span data-i18n="tagFilter.blockPage">Also black out a matching video's own page</span>
                 </label>
+                <details class="vui-expand options-expand">
+                  <summary data-i18n="editor.options">Options</summary>
+                <div class="content-tag-row">
+                  <label class="label" for="platformTagDefaultConfidence" data-i18n="tagFilter.defaultConfidence">Default minimum confidence</label>
+                  <select id="platformTagDefaultConfidence">
+                    <option value="3">&#8805; 3</option>
+                    <option value="4" selected>&#8805; 4</option>
+                    <option value="5">&#8805; 5</option>
+                  </select>
+                </div>
                 <label class="checkbox-row compact" for="platformTagCoverUntilTagged">
                   <input id="platformTagCoverUntilTagged" type="checkbox" />
                   <span data-i18n="tagFilter.coverUntilTagged">Cover content until it has been tagged</span>
@@ -489,6 +310,7 @@
                   <input id="platformTagBlockUntagged" type="checkbox" />
                   <span data-i18n="tagFilter.blockUntagged">Also block content with no confident tag</span>
                 </label>
+                </details>
               </div>
             </div>
 
@@ -524,165 +346,205 @@
 
           </section>
 
-          <section id="scheduleSection" class="section-card">
+            <section id="customSettingsCard" class="section-card hidden">
             <div class="section-header">
               <div>
-                <h3 data-i18n="schedule.title">Schedule</h3>
-                <p class="section-copy" data-i18n="schedule.copy">
-                  Limit this group to certain days or time windows.
-                </p>
+                <h3 data-i18n="custom.title">Blocking Rules</h3>
               </div>
             </div>
 
-            <label class="label" data-i18n="schedule.days">Days to block</label>
-            <div id="daysGrid" class="days-grid">
-              <label class="day-pill"><input type="checkbox" value="monday" /> <span data-i18n="day.mon">Mon</span></label>
-              <label class="day-pill"><input type="checkbox" value="tuesday" /> <span data-i18n="day.tue">Tue</span></label>
-              <label class="day-pill"><input type="checkbox" value="wednesday" /> <span data-i18n="day.wed">Wed</span></label>
-              <label class="day-pill"><input type="checkbox" value="thursday" /> <span data-i18n="day.thu">Thu</span></label>
-              <label class="day-pill"><input type="checkbox" value="friday" /> <span data-i18n="day.fri">Fri</span></label>
-              <label class="day-pill"><input type="checkbox" value="saturday" /> <span data-i18n="day.sat">Sat</span></label>
-              <label class="day-pill"><input type="checkbox" value="sunday" /> <span data-i18n="day.sun">Sun</span></label>
+
+            <div id="blockingRulesEditor" class="code-editor">
+              <pre id="blockingRulesHighlight" class="code-editor-highlight" aria-hidden="true"></pre>
+              <textarea
+                id="blockingRules"
+                rows="8"
+                aria-label="Custom Rules"
+                data-i18n-aria-label="custom.rules"
+                placeholder="(event, helpers) => {&#10;  // Register handlers here.&#10;}"
+                data-i18n-placeholder="custom.rulesPlaceholder"
+                spellcheck="false"
+              ></textarea>
+            </div>
+            <p id="blockingRulesLint" class="code-editor-lint" aria-live="polite"></p>
+            <div class="field-actions">
+              <button id="runCustomGroupButton" type="button" class="weird" data-i18n="custom.runButton">
+                Run
+              </button>
+              <button id="checkSyntaxButton" type="button" class="secondary weird" data-i18n="custom.letAiCodeButton">
+                Let AI Code
+              </button>
+              <span id="runCustomGroupStatus" class="run-status"></span>
+            </div>
+            <div id="aiPromptPanel" class="ai-prompt-panel hidden">
+              <label class="label" for="aiPromptInput" data-i18n="custom.aiPromptLabel">Prompt for AI</label>
+              <textarea
+                id="aiPromptInput"
+                rows="4"
+                data-i18n-placeholder="custom.aiPromptPlaceholder"
+                spellcheck="true"
+              ></textarea>
+              <div class="field-actions">
+                <button id="aiPromptCopyButton" type="button" class="weird" data-i18n="custom.aiPromptCopyButton">
+                  Prompt for AI
+                </button>
+                <span id="aiPromptStatus" class="run-status"></span>
+              </div>
+              <p class="field-help" data-i18n="custom.aiPromptHelp">
+                This copies a bundled prompt with your request, the current rule, and the custom-rule API reference. Paste it into your AI tool, then paste the generated code back here.
+              </p>
             </div>
 
-            <label class="label" for="scheduleWindows" data-i18n="schedule.windows">Time windows</label>
-            <textarea
-              id="scheduleWindows"
-              rows="4"
-              placeholder="0900-1000&#10;1200-1300"
-              data-i18n-placeholder="schedule.windowsPlaceholder"
-              spellcheck="false"
-            ></textarea>
-            <p class="field-help" data-i18n="schedule.help">
-              Leave blank to apply all day. Use one range per line in `HHMM-HHMM` format.
-            </p>
+          </section>
           </section>
 
-          <section class="section-card freeze-section">
-            <div class="section-header">
-              <div>
-                <h3 data-i18n="freeze.title">Freeze</h3>
-                <p id="freezeSummary" class="section-copy"></p>
-              </div>
-              <button id="unfreezeButton" type="button" class="secondary hidden" data-i18n="freeze.unfreezeButton">
-                Unfreeze
-              </button>
+          <section class="editor-block">
+            <h3 class="block-title" data-i18n="editor.whenTitle">When</h3>
+            <div id="blockModeSection" class="field-row">
+              <label class="label" for="blockMode" data-i18n="editor.blockMode">Blocking behavior</label>
+              <select id="blockMode">
+                <option value="instant" data-i18n="mode.instant">Block immediately</option>
+                <option value="after-minutes" data-i18n="mode.afterMinutes">Block after a number of minutes</option>
+              </select>
             </div>
+            <div id="timedSettings" class="timed-settings">
+              <div id="allowedMinutesRow" class="field-row">
+                <label class="label" for="allowedMinutes" data-i18n="timed.allowedMinutes">Allowed minutes before block</label>
+                <input id="allowedMinutes" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="15" data-i18n-placeholder="timed.allowedMinutesPlaceholder" />
+              </div>
+              <p id="usageSummary" class="usage-summary"></p>
+              <details class="vui-expand options-expand">
+                <summary data-i18n="editor.resetOptions">Reset options</summary>
+                <div class="field-row">
+                  <label class="label" for="resetIntervalHours" data-i18n="timed.resetHours">Timer reset interval (hours)</label>
+                  <input id="resetIntervalHours" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="24" data-i18n-placeholder="timed.resetHoursPlaceholder" />
+                </div>
+                <label class="checkbox-row compact" for="resetAtMidnight">
+                  <input id="resetAtMidnight" type="checkbox" />
+                  <span data-i18n="timed.resetAtMidnight">Also restart the reset cycle at midnight</span>
+                </label>
+                <label class="checkbox-row compact" for="rollingLimit">
+                  <input id="rollingLimit" type="checkbox" />
+                  <span data-i18n="timed.rollingLimit">Rolling limit: used time comes back once it is older than the reset interval</span>
+                </label>
+              </details>
+            </div>
+            <section id="scheduleSection">
+              <label class="label" data-i18n="schedule.days">Days to block</label>
+              <div id="daysGrid" class="days-grid">
+                <label class="day-pill"><input type="checkbox" value="monday" /> <span data-i18n="day.mon">Mon</span></label>
+                <label class="day-pill"><input type="checkbox" value="tuesday" /> <span data-i18n="day.tue">Tue</span></label>
+                <label class="day-pill"><input type="checkbox" value="wednesday" /> <span data-i18n="day.wed">Wed</span></label>
+                <label class="day-pill"><input type="checkbox" value="thursday" /> <span data-i18n="day.thu">Thu</span></label>
+                <label class="day-pill"><input type="checkbox" value="friday" /> <span data-i18n="day.fri">Fri</span></label>
+                <label class="day-pill"><input type="checkbox" value="saturday" /> <span data-i18n="day.sat">Sat</span></label>
+                <label class="day-pill"><input type="checkbox" value="sunday" /> <span data-i18n="day.sun">Sun</span></label>
+              </div>
+              <label class="label" for="scheduleWindows" data-i18n="schedule.windows">Time windows</label>
+              <textarea
+                id="scheduleWindows"
+                rows="2"
+                placeholder="0900-1000&#10;1200-1300"
+                data-i18n-placeholder="schedule.windowsPlaceholder"
+                spellcheck="false"
+              ></textarea>
+              <p class="field-help" data-i18n="schedule.help">
+                Leave blank to apply all day. Use one range per line in `HHMM-HHMM` format.
+              </p>
+            </section>
+          </section>
 
-            <div id="freezeSetup" class="freeze-setup">
+          <section class="editor-block snooze-section">
+            <div class="block-head">
+              <h3 class="block-title" data-i18n="snooze.title">Snooze</h3>
+              <p id="snoozeSummary" class="block-summary"></p>
+              <button id="startSnoozeButton" type="button" data-i18n="snooze.startButton">Start Snooze</button>
+              <button id="endSnoozeButton" type="button" class="hidden" data-i18n="snooze.endButton">End Snooze</button>
+            </div>
+            <p id="snoozeWarning" class="inline-warning"></p>
+            <p id="snoozeCustomCopy" class="field-help hidden" data-i18n="snooze.customCopy">
+              Custom rules don't snooze: pressing Snooze sends the rule a "snooze" event, and the rule decides what happens.
+            </p>
+            <details class="vui-expand">
+              <summary data-i18n="editor.snoozeOptions">Snooze options</summary>
+              <label class="checkbox-row compact" for="allowSnooze">
+                <input id="allowSnooze" type="checkbox" />
+                <span data-i18n="snooze.allow">Allow snooze for this group</span>
+              </label>
+              <div id="snoozeNumericFields" class="settings-grid">
+                <div>
+                  <label class="label" for="snoozeMinutes" data-i18n="snooze.minutes">Snooze for (minutes)</label>
+                  <input id="snoozeMinutes" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="30" data-i18n-placeholder="snooze.minutesPlaceholder" />
+                </div>
+                <div>
+                  <label class="label" for="snoozeActivationDelay" data-i18n="snooze.activationDelay">Activation delay (minutes)</label>
+                  <input id="snoozeActivationDelay" class="number-field" type="number" min="0" step="0.1" inputmode="decimal" placeholder="0" data-i18n-placeholder="snooze.activationDelayPlaceholder" />
+                </div>
+                <div>
+                  <label class="label" for="snoozeCooldown" data-i18n="snooze.cooldown">Cooldown after snooze (minutes)</label>
+                  <input id="snoozeCooldown" class="number-field" type="number" min="0" max="5" step="0.1" inputmode="decimal" placeholder="0" data-i18n-placeholder="snooze.cooldownPlaceholder" />
+                </div>
+                <div>
+                  <label class="label" for="snoozeConfirmations" data-i18n="snooze.confirmations">Times of confirmation</label>
+                  <input id="snoozeConfirmations" class="number-field" type="number" min="0" step="1" inputmode="numeric" placeholder="0" data-i18n-placeholder="snooze.confirmationsPlaceholder" />
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section class="editor-block freeze-section">
+            <div class="block-head">
+              <h3 class="block-title" data-i18n="freeze.title">Freeze</h3>
+              <p id="freezeSummary" class="block-summary"></p>
+              <button id="applyFreezeButton" type="button" data-i18n="freeze.applyButton">Freeze Group</button>
+              <button id="unfreezeButton" type="button" class="hidden" data-i18n="freeze.unfreezeButton">Unfreeze</button>
+            </div>
+            <details id="freezeSetup" class="vui-expand freeze-setup">
+              <summary data-i18n="editor.freezeOptions">Freeze options</summary>
               <div class="settings-grid">
                 <div>
                   <label class="label" for="lockWaitHours" data-i18n="freeze.waitHours">Can't be unfrozen for (hours)</label>
-                  <input
-                    id="lockWaitHours"
-                    type="number"
-                    min="0"
-                    max="72"
-                    step="0.1"
-                    inputmode="decimal"
-                    placeholder="0"
-                  />
-                  <p class="field-help" data-i18n="freeze.waitHelp">
-                    0 = no wait. While frozen the wait can only be made longer.
-                  </p>
+                  <input id="lockWaitHours" class="number-field" type="number" min="0" max="72" step="0.1" inputmode="decimal" placeholder="0" />
+                  <p class="field-help" data-i18n="freeze.waitHelp">0 = no wait. While frozen the wait can only be made longer.</p>
                 </div>
                 <div>
                   <span class="label" data-i18n="freeze.pinLabel">PIN</span>
                   <p id="lockPinStatus" class="field-help"></p>
+                  <button
+                    id="parentalSettingsButton"
+                    type="button"
+                    class="parental-settings-button"
+                    data-i18n="freeze.parentalSettings"
+                  >Guardian password settings</button>
                 </div>
               </div>
-
-              <div class="actions">
-                <button
-                  id="parentalSettingsButton"
-                  type="button"
-                  class="secondary parental-settings-button"
-                  data-i18n-title="freeze.parentalSettings"
-                  title="Guardian password settings"
-                  aria-label="Guardian password settings"
-                >&#9881;</button>
-                <button id="applyFreezeButton" type="button" data-i18n="freeze.applyButton">Freeze Group</button>
-              </div>
-            </div>
+            </details>
           </section>
 
-          <section class="section-card snooze-section">
-            <div class="section-header">
-              <div>
-                <h3 data-i18n="snooze.title">Snooze</h3>
-                <p id="snoozeSummary" class="section-copy"></p>
-              </div>
-              <button id="endSnoozeButton" type="button" class="secondary hidden" data-i18n="snooze.endButton">
-                End Snooze
-              </button>
-            </div>
-
-            <label class="checkbox-row compact" for="allowSnooze">
-              <input id="allowSnooze" type="checkbox" />
-              <span data-i18n="snooze.allow">Allow snooze for this group</span>
-            </label>
-
-            <p id="snoozeCustomCopy" class="field-help hidden" data-i18n="snooze.customCopy">
-              Custom rules don't snooze: pressing Snooze sends the rule a "snooze" event, and the rule decides what happens.
-            </p>
-
-            <div id="snoozeNumericFields" class="settings-grid">
-              <div>
-                <label class="label" for="snoozeMinutes" data-i18n="snooze.minutes">Snooze for (minutes)</label>
-                <input
-                  id="snoozeMinutes"
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  inputmode="decimal"
-                  placeholder="30"
-                  data-i18n-placeholder="snooze.minutesPlaceholder"
-                />
-              </div>
-              <div>
-                <label class="label" for="snoozeActivationDelay" data-i18n="snooze.activationDelay">Activation delay (minutes)</label>
-                <input
-                  id="snoozeActivationDelay"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  inputmode="decimal"
-                  placeholder="0"
-                  data-i18n-placeholder="snooze.activationDelayPlaceholder"
-                />
-              </div>
-              <div>
-                <label class="label" for="snoozeCooldown" data-i18n="snooze.cooldown">Cooldown after snooze (minutes)</label>
-                <input
-                  id="snoozeCooldown"
-                  type="number"
-                  min="0"
-                  max="5"
-                  step="0.1"
-                  inputmode="decimal"
-                  placeholder="0"
-                  data-i18n-placeholder="snooze.cooldownPlaceholder"
-                />
-              </div>
-              <div>
-                <label class="label" for="snoozeConfirmations" data-i18n="snooze.confirmations">Times of confirmation</label>
-                <input
-                  id="snoozeConfirmations"
-                  type="number"
-                  min="0"
-                  step="1"
-                  inputmode="numeric"
-                  placeholder="0"
-                  data-i18n-placeholder="snooze.confirmationsPlaceholder"
-                />
+          <details class="vui-expand editor-block editor-more">
+            <summary data-i18n="editor.more">More</summary>
+            <div id="groupLinkSection" class="link-section">
+              <span class="label" data-i18n="link.title">Link</span>
+              <p id="groupLinkStatus" class="field-help"></p>
+              <div class="link-row">
+                <select id="groupLinkTarget" aria-label="Group to link with" data-i18n-aria-label="link.pick"></select>
+                <button id="groupLinkButton" type="button" data-i18n="link.link">Link</button>
+                <button id="groupUnlinkButton" type="button" data-i18n="link.unlink">Unlink</button>
               </div>
             </div>
-
-            <div class="actions">
-              <button id="startSnoozeButton" type="button" data-i18n="snooze.startButton">Start Snooze</button>
+            <div id="fallbackUrlSection" class="browser-only">
+              <label class="label" for="fallbackUrl" data-i18n="filter.fallbackUrl">When blocked: redirect address or message</label>
+              <input id="fallbackUrl" type="text" placeholder="https://example.com — or a message to show" data-i18n-placeholder="filter.fallbackUrlPlaceholder" spellcheck="false" />
+              <p class="field-help" data-i18n="filter.fallbackUrlHelp">
+                Leave empty and a blocked page is covered in place — nothing on it is lost, and it comes back when the block lifts. Any other text is shown on that cover. A web address sends the tab there instead (a pause never redirects).
+              </p>
             </div>
-            <p id="snoozeWarning" class="inline-warning"></p>
-          </section>
+            <div class="editor-actions">
+              <button id="exportGroupButton" type="button" data-i18n="editor.exportGroupButton">Export</button>
+              <button id="importGroupButton" type="button" data-i18n="editor.importGroupButton">Import</button>
+              <button id="deleteGroupButton" type="button" class="danger" data-i18n="editor.deleteGroupButton">Delete Group</button>
+            </div>
+          </details>
         </section>
       </section>
 
@@ -774,6 +636,7 @@
             </label>
             <input
               id="settingsDefaultSnoozeMinutes"
+              class="number-field"
               type="number"
               min="0.1"
               step="0.1"
@@ -789,7 +652,7 @@
             <label class="label" for="settingsQuitRetryMinutes" data-i18n="settings.quitRetryMinutes">
               Ask a blocked app to quit again every (minutes)
             </label>
-            <input id="settingsQuitRetryMinutes" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
+            <input id="settingsQuitRetryMinutes" class="number-field" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
             <p class="field-help" data-i18n="settings.quitRetryMinutesHelp">
               A blocked app (or one a custom rule closes) is asked to quit normally, like ⌘Q; if it stays open, for example to keep unsaved work, it is left open. Above 0, it is asked again this often while it stays open.
             </p>
@@ -805,7 +668,33 @@
           </div>
 
         </div>
-
+        <div class="settings-language">
+          <span class="label" data-i18n="language.label">Language</span>
+          <div class="language-picker">
+            <select id="languageSelect" aria-label="Language" data-i18n-aria-label="language.label" translate="no" class="notranslate">
+                <option value="en">English</option>
+                <option value="zh">简体中文</option>
+                <option value="es">Espanol</option>
+                <option value="hi">हिन्दी</option>
+                <option value="ar">العربية</option>
+                <option value="bn">বাংলা</option>
+                <option value="pt">Portugues</option>
+                <option value="ru">Русский</option>
+                <option value="ja">日本語</option>
+                <option value="pa">ਪੰਜਾਬੀ</option>
+                <option value="de">Deutsch</option>
+                <option value="fr">Francais</option>
+                <option value="ko">한국어</option>
+                <option value="tr">Turkce</option>
+                <option value="vi">Tieng Viet</option>
+                <option value="it">Italiano</option>
+                <option value="th">ไทย</option>
+                <option value="nl">Nederlands</option>
+                <option value="pl">Polski</option>
+                <option value="id">Bahasa Indonesia</option>
+              </select>
+          </div>
+        </div>
             </section>
 
             <section class="settings-col">
@@ -875,14 +764,16 @@
 
 
         <div class="modal-actions">
-          <button id="settingsResetButton" type="button" class="secondary danger" data-i18n="settings.reset">
+          <button id="settingsResetButton" type="button" class="danger" data-i18n="settings.reset">
             Reset to defaults
           </button>
+          <button id="deleteAllGroupsButton" type="button" class="danger" data-i18n="groups.deleteAllButton">Clear</button>
         </div>
         <p id="settingsStatus" class="inline-warning"></p>
       </div>
     </div>
 
+    <script src="vault-ui.js"></script>
     <script src="browser-compat.js"></script>
     <script src="bridge-protocol.js"></script>
     <script src="platform-profiles.js"></script>
