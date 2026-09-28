@@ -57,8 +57,32 @@ function cbActivityBoundBuffer(buffer, cap) {
   return list.length > max ? list.slice(list.length - max) : list;
 }
 
+// A favicon data URI Mac Vault will keep: an image, and no longer than its
+// per-icon cap (ActivityStore.maxWebIconBytes measures the whole data URI).
+const CB_ACTIVITY_MAX_ICON_BYTES = 24000;
+function cbActivityIconAccepted(dataURI) {
+  return typeof dataURI === "string"
+    && dataURI.startsWith("data:image/")
+    && dataURI.length <= CB_ACTIVITY_MAX_ICON_BYTES;
+}
+
+// The pending icons a flush carries: at most `limit` (a flush stays far under
+// the hub's 1 MiB message cap), oldest first.
+function cbActivityIconsToSend(pending, limit) {
+  const out = {};
+  const max = typeof limit === "number" && limit > 0 ? limit : 20;
+  for (const [domain, uri] of Object.entries(pending || {})) {
+    if (Object.keys(out).length >= max) break;
+    if (cbActivityIconAccepted(uri)) out[domain] = uri;
+  }
+  return out;
+}
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer };
+  module.exports = {
+    cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer,
+    cbActivityIconAccepted, cbActivityIconsToSend, CB_ACTIVITY_MAX_ICON_BYTES,
+  };
 }
 
 // ---- service-worker runtime ------------------------------------------------
@@ -66,6 +90,12 @@ if (typeof module !== "undefined" && module.exports) {
 
 const CB_ACTIVITY_SESSION_KEY = "cbActivitySession";
 const CB_ACTIVITY_BUFFER_KEY = "cbActivityBuffer";
+// domain → favicon data URI waiting to reach Mac Vault. Kept in storage, not in
+// the worker's memory, so an icon survives the worker sleeping while the hub is
+// unreachable; removed only once a flush carrying it succeeded.
+const CB_ACTIVITY_ICONS_KEY = "cbActivityPendingIcons";
+const CB_ACTIVITY_PENDING_ICONS_CAP = 200;
+const CB_ACTIVITY_ICONS_PER_FLUSH = 20;
 const CB_ACTIVITY_FLUSH_ALARM = "cb-activity-flush";
 const CB_ACTIVITY_BUFFER_CAP = 2000;
 const CB_ACTIVITY_FLUSH_BATCH = 400; // under ActivityWire.maxRecordsPerFlush (500)
@@ -75,9 +105,9 @@ const cbActivity = {
   // Cached per-category enabled flags from the native settings.
   enabled: { "web-visit": false, "content-watched": false },
   ready: false,
-  // domain → favicon data URI, gathered from tabs and flushed with the records
-  // (kept local: converted to a data URI here so the dashboard never fetches).
-  pendingIcons: {},
+  // Domains whose icon reached Mac Vault during this worker's life (no need to
+  // read it again on every visit).
+  sentIconDomains: new Set(),
 
   async init() {
     if (this.ready || typeof chrome === "undefined" || !chrome.tabs) return;
@@ -87,6 +117,9 @@ const cbActivity = {
     chrome.tabs.onActivated.addListener(() => { this.resolveActive("tab-activated"); });
     chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
       if (changeInfo.url && tab && tab.active) this.resolveActive("tab-url");
+      // A page reports its icon only after it starts loading — well after the
+      // visit began — so take the icon when the tab says it has one.
+      if (changeInfo.favIconUrl && tab && tab.active) this.noteFavicon(tab);
     });
     chrome.tabs.onRemoved.addListener((tabId) => { this.onTabGone(tabId); });
     if (chrome.windows && chrome.windows.onFocusChanged) {
@@ -141,23 +174,59 @@ const cbActivity = {
     }
   },
 
-  // Best-effort local favicon → data URI (so the native dashboard renders it
-  // without any network). Skips oversized icons; failure just means no icon.
-  async captureIcon(domain, favicon) {
-    if (!domain || !favicon || this.pendingIcons[domain]) return;
+  async noteFavicon(tab) {
+    if (!this.enabled["web-visit"]) return;
+    const domain = cbActivityDomainOf(tab.url);
+    if (domain) await this.captureIcon(domain, tab.favIconUrl);
+  },
+
+  async loadPendingIcons() {
     try {
-      if (favicon.startsWith("data:image/")) { this.pendingIcons[domain] = favicon; return; }
-      const response = await fetch(favicon);
-      const blob = await response.blob();
-      if (!blob.type.startsWith("image/") || blob.size > 24000) return;
-      const dataURI = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(blob);
-      });
-      if (dataURI && dataURI.startsWith("data:image/")) this.pendingIcons[domain] = dataURI;
-    } catch (_) { /* no icon for this domain */ }
+      const stored = await chrome.storage.local.get(CB_ACTIVITY_ICONS_KEY);
+      return stored[CB_ACTIVITY_ICONS_KEY] || {};
+    } catch (_) { return {}; }
+  },
+
+  // Best-effort local favicon → data URI (so the native dashboard renders it
+  // without any network). An icon Mac Vault would refuse (too big, not an
+  // image) is skipped; failure just means no icon.
+  async captureIcon(domain, favicon) {
+    if (!domain || !favicon || this.sentIconDomains.has(domain)) return;
+    const pending = await this.loadPendingIcons();
+    if (pending[domain]) return;
+    let dataURI = null;
+    try {
+      if (favicon.startsWith("data:image/")) {
+        dataURI = favicon;
+      } else {
+        const response = await fetch(favicon);
+        const blob = await response.blob();
+        if (!blob.type.startsWith("image/") || blob.size > CB_ACTIVITY_MAX_ICON_BYTES) return;
+        dataURI = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(blob);
+        });
+      }
+    } catch (_) { return; /* no icon for this domain */ }
+    if (!cbActivityIconAccepted(dataURI)) return;
+    try {
+      const latest = await this.loadPendingIcons();
+      latest[domain] = dataURI;
+      const domains = Object.keys(latest);
+      for (const old of domains.slice(0, Math.max(0, domains.length - CB_ACTIVITY_PENDING_ICONS_CAP))) delete latest[old];
+      await chrome.storage.local.set({ [CB_ACTIVITY_ICONS_KEY]: latest });
+    } catch (_) { /* best effort */ }
+  },
+
+  // The icon the visit's tab shows now (the one noted when the visit started
+  // may have been taken before the page had loaded any).
+  async currentFavicon(session) {
+    try {
+      const tab = await chrome.tabs.get(session.tabId);
+      return tab && cbActivityDomainOf(tab.url) === session.domain ? tab.favIconUrl || null : null;
+    } catch (_) { return null; }
   },
 
   async onTabGone(tabId) {
@@ -182,7 +251,7 @@ const cbActivity = {
       makeId: () => crypto.randomUUID(),
     });
     if (record) {
-      await this.captureIcon(session.domain, session.favicon);
+      await this.captureIcon(session.domain, session.favicon || await this.currentFavicon(session));
       await this.enqueue(record);
     }
   },
@@ -223,18 +292,24 @@ const cbActivity = {
     } catch (_) { return; }
     if (!buffer.length) return;
     const batch = buffer.slice(0, CB_ACTIVITY_FLUSH_BATCH);
-    // Include favicons for the domains in this batch (local data URIs; the
-    // native side dedupes them into a per-domain cache).
-    const icons = {};
-    for (const record of batch) {
-      if (record.category === "web-visit" && this.pendingIcons[record.key]) icons[record.key] = this.pendingIcons[record.key];
-    }
+    // Pending favicons ride along (local data URIs; the native side keeps one
+    // per domain). They leave storage only once this flush succeeded.
+    const icons = cbActivityIconsToSend(await this.loadPendingIcons(), CB_ACTIVITY_ICONS_PER_FLUSH);
     try {
       await cbClassifierHub.request("activity-record", { records: batch, icons });
     } catch (_) {
-      return; // hub unavailable; keep the buffer and retry on the next alarm
+      return; // hub unavailable; keep the buffer and the icons, retry on the next alarm
     }
-    for (const domain of Object.keys(icons)) delete this.pendingIcons[domain];
+    if (Object.keys(icons).length) {
+      try {
+        const latest = await this.loadPendingIcons();
+        for (const domain of Object.keys(icons)) {
+          delete latest[domain];
+          this.sentIconDomains.add(domain);
+        }
+        await chrome.storage.local.set({ [CB_ACTIVITY_ICONS_KEY]: latest });
+      } catch (_) { /* best effort */ }
+    }
     // Drop exactly the flushed records (identified by id); a concurrent enqueue
     // is preserved.
     try {
