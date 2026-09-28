@@ -20,8 +20,8 @@
         </nav>
         <h1 class="browser-only vui-tab is-active" data-i18n="app.shortTitle">Adamancia Vault</h1>
         <div class="vui-topbar-links">
-          <button id="settingsButton" type="button" data-i18n="settings.button">Settings</button>
-          <button id="manualButton" type="button" data-i18n="manual.button">Manual</button>
+          <button id="settingsButton" type="button" class="secondary" data-i18n="settings.button">Settings</button>
+          <button id="manualButton" type="button" class="secondary" data-i18n="manual.button">Manual</button>
         </div>
       </header>
 
@@ -40,7 +40,7 @@
           </span>
         </div>
         <div class="site-access-banner-actions">
-          <button id="siteAccessGrantButton" type="button" data-i18n="siteAccess.grant">
+          <button id="siteAccessGrantButton" type="button" class="primary" data-i18n="siteAccess.grant">
             Grant access
           </button>
           <button
@@ -64,7 +64,7 @@
                 <option value="platform" data-i18n="groupType.platform">Platform</option>
                 <option value="custom" data-i18n="groupType.custom">Custom</option>
               </select>
-              <button id="addGroupButton" type="button" data-i18n="groups.addButton">Add</button>
+              <button id="addGroupButton" type="button" class="primary" data-i18n="groups.addButton">Add</button>
             </div>
           </div>
           <p id="bulkActionNotice" class="field-help"></p>
@@ -151,7 +151,7 @@
                 <button id="siteAddCancelButton" type="button" class="secondary" data-i18n="sites.addCancel">
                   Cancel
                 </button>
-                <button id="siteAddConfirmButton" type="button" data-i18n="sites.addConfirm">
+                <button id="siteAddConfirmButton" type="button" class="primary" data-i18n="sites.addConfirm">
                   Add
                 </button>
               </div>
@@ -201,7 +201,7 @@
             </details>
           </section>
 
-            <section id="platformRulesCard" class="section-card hidden">
+            <section id="platformRulesCard" class="section-card vui-card tone-cyan hidden">
             <div class="section-header">
               <div>
                 <h3 id="platformRulesTitle"></h3>
@@ -346,7 +346,7 @@
 
           </section>
 
-            <section id="customSettingsCard" class="section-card hidden">
+            <section id="customSettingsCard" class="section-card vui-card tone-gold hidden">
             <div class="section-header">
               <div>
                 <h3 data-i18n="custom.title">Blocking Rules</h3>
@@ -398,7 +398,7 @@
           </section>
           </section>
 
-          <section class="editor-block">
+          <section class="editor-block vui-card tone-navy">
             <h3 class="block-title" data-i18n="editor.whenTitle">When</h3>
             <div id="blockModeSection" class="field-row">
               <label class="label" for="blockMode" data-i18n="editor.blockMode">Blocking behavior</label>
@@ -454,12 +454,12 @@
             </section>
           </section>
 
-          <section class="editor-block snooze-section">
+          <section class="editor-block snooze-section vui-card tone-pink">
             <div class="block-head">
               <h3 class="block-title" data-i18n="snooze.title">Snooze</h3>
               <p id="snoozeSummary" class="block-summary"></p>
-              <button id="startSnoozeButton" type="button" data-i18n="snooze.startButton">Start Snooze</button>
-              <button id="endSnoozeButton" type="button" class="hidden" data-i18n="snooze.endButton">End Snooze</button>
+              <button id="startSnoozeButton" type="button" class="primary" data-i18n="snooze.startButton">Start Snooze</button>
+              <button id="endSnoozeButton" type="button" class="secondary hidden" data-i18n="snooze.endButton">End Snooze</button>
             </div>
             <p id="snoozeWarning" class="inline-warning"></p>
             <p id="snoozeCustomCopy" class="field-help hidden" data-i18n="snooze.customCopy">
@@ -492,12 +492,12 @@
             </details>
           </section>
 
-          <section class="editor-block freeze-section">
+          <section class="editor-block freeze-section vui-card tone-red">
             <div class="block-head">
               <h3 class="block-title" data-i18n="freeze.title">Freeze</h3>
               <p id="freezeSummary" class="block-summary"></p>
-              <button id="applyFreezeButton" type="button" data-i18n="freeze.applyButton">Freeze Group</button>
-              <button id="unfreezeButton" type="button" class="hidden" data-i18n="freeze.unfreezeButton">Unfreeze</button>
+              <button id="applyFreezeButton" type="button" class="primary" data-i18n="freeze.applyButton">Freeze Group</button>
+              <button id="unfreezeButton" type="button" class="secondary hidden" data-i18n="freeze.unfreezeButton">Unfreeze</button>
             </div>
             <details id="freezeSetup" class="vui-expand freeze-setup">
               <summary data-i18n="editor.freezeOptions">Freeze options</summary>
@@ -528,8 +528,8 @@
               <p id="groupLinkStatus" class="field-help"></p>
               <div class="link-row">
                 <select id="groupLinkTarget" aria-label="Group to link with" data-i18n-aria-label="link.pick"></select>
-                <button id="groupLinkButton" type="button" data-i18n="link.link">Link</button>
-                <button id="groupUnlinkButton" type="button" data-i18n="link.unlink">Unlink</button>
+                <button id="groupLinkButton" type="button" class="secondary" data-i18n="link.link">Link</button>
+                <button id="groupUnlinkButton" type="button" class="secondary" data-i18n="link.unlink">Unlink</button>
               </div>
             </div>
             <div id="fallbackUrlSection" class="browser-only">
@@ -540,8 +540,8 @@
               </p>
             </div>
             <div class="editor-actions">
-              <button id="exportGroupButton" type="button" data-i18n="editor.exportGroupButton">Export</button>
-              <button id="importGroupButton" type="button" data-i18n="editor.importGroupButton">Import</button>
+              <button id="exportGroupButton" type="button" class="secondary" data-i18n="editor.exportGroupButton">Export</button>
+              <button id="importGroupButton" type="button" class="secondary" data-i18n="editor.importGroupButton">Import</button>
               <button id="deleteGroupButton" type="button" class="danger" data-i18n="editor.deleteGroupButton">Delete Group</button>
             </div>
           </details>
@@ -560,7 +560,7 @@
         <p id="confirmProgress" class="modal-copy"></p>
         <div class="modal-actions">
           <button id="confirmCancelButton" type="button" class="secondary" data-i18n="modal.cancel">Cancel</button>
-          <button id="confirmProceedButton" type="button" disabled data-i18n="modal.confirm">Confirm</button>
+          <button id="confirmProceedButton" type="button" class="primary" disabled data-i18n="modal.confirm">Confirm</button>
         </div>
       </div>
     </div>
@@ -700,7 +700,7 @@
             <section class="settings-col">
               <h4 class="settings-col-title" data-i18n="settings.colConnections">Data &amp; files</h4>
 
-        <section id="classifierBridgeSection" class="section-card settings-section-card browser-only">
+        <section id="classifierBridgeSection" class="section-card settings-section-card vui-card browser-only">
           <div class="section-header">
             <div>
               <h3 data-i18n="classifierBridge.title">Vault Classifier</h3>
@@ -737,7 +737,7 @@
           </details>
         </section>
 
-        <section class="section-card settings-section-card">
+        <section class="section-card settings-section-card vui-card">
           <div class="section-header">
             <div>
               <h3 data-i18n="settings.localFolderTitle">Local File Folder</h3>
