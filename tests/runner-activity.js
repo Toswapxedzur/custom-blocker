@@ -4,9 +4,10 @@
 "use strict";
 
 const path = require("path");
-const { cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer } = require(
-  path.join(__dirname, "..", "vault-activity.js")
-);
+const {
+  cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer,
+  cbActivityIconAccepted, cbActivityIconsToSend, CB_ACTIVITY_MAX_ICON_BYTES,
+} = require(path.join(__dirname, "..", "vault-activity.js"));
 
 let pass = 0;
 let fail = 0;
@@ -45,6 +46,18 @@ check("visit from null session is null", cbActivityMakeVisit(null, 1) === null);
 eq("buffer under cap unchanged", cbActivityBoundBuffer([1, 2, 3], 5), [1, 2, 3]);
 eq("buffer over cap drops oldest", cbActivityBoundBuffer([1, 2, 3, 4, 5], 3), [3, 4, 5]);
 eq("buffer non-array coerced", cbActivityBoundBuffer(undefined, 3), []);
+
+// favicons: the extension keeps exactly what Mac Vault keeps (its cap is the
+// whole data URI, ActivityStore.maxWebIconBytes = 24000).
+const png = (bytes) => "data:image/png;base64," + "A".repeat(bytes - "data:image/png;base64,".length);
+eq("icon cap matches Mac Vault", CB_ACTIVITY_MAX_ICON_BYTES, 24000);
+check("icon at the cap is kept", cbActivityIconAccepted(png(24000)));
+check("icon over the cap is refused", !cbActivityIconAccepted(png(24001)));
+check("a non-image is refused", !cbActivityIconAccepted("data:text/html;base64,AAAA"));
+check("a URL is refused", !cbActivityIconAccepted("https://example.com/favicon.ico"));
+const pending = { "a.com": png(100), "b.com": "data:text/html,x", "c.com": png(100), "d.com": png(100) };
+eq("send picks accepted icons, oldest first, up to the limit", Object.keys(cbActivityIconsToSend(pending, 2)), ["a.com", "c.com"]);
+eq("send with nothing pending", cbActivityIconsToSend(undefined, 20), {});
 
 console.log(`ACTIVITY TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 if (fail === 0) console.log("__CB_TEST_RESULT__: OK");
