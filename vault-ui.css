@@ -366,59 +366,46 @@ details.vui-expand[open] > summary::before {
   transform: rotate(90deg);
 }
 
-/* ── The header of every section (v2.1's hero + the scene switch) ────────── */
+/* ── The header of every section ──────────────────────────────────────── */
 .vui-topbar {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 4px;
-}
-
-.vui-tabs {
-  display: flex;
-  align-items: flex-end;
-  gap: 24px;
-}
-
-.vui-tab {
-  position: relative;
-  padding: 0 0 8px;
-  border-radius: 0;
-  background: transparent;
-  color: #94a3b8;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.1;
-  transition: color 0.2s ease;
-}
-
-.vui-tab:hover {
-  filter: none;
-  color: #64748b;
-}
-
-.vui-tab.is-active {
-  color: #1f2937;
-}
-
-.vui-tab.is-active::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  border-radius: 3px;
-  background: #2563eb;
+  margin-bottom: 10px;
 }
 
 .vui-topbar-links {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+}
+
+/* ── Switch: pick one of several (scenes, lists, ranges) ─────────────────── */
+/* The extension's pills, as everywhere: the chosen one navy, the rest grey. */
+.vui-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vui-tab {
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: #e2e8f0;
+  color: #0f172a;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.vui-tab.is-active {
+  background: var(--navy-700);
+  color: #ffffff;
+  cursor: default;
+}
+
+.vui-tab.is-active:hover {
+  filter: none;
 }
 
 /* ── Surfaces: v2.1's panel and tinted section card ──────────────────────── */
