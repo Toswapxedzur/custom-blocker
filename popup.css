@@ -1901,7 +1901,6 @@ body.is-native-desktop .browser-only {
 
 /* Header: v2.1's title (browser) or the scene switch (Mac), links right. */
 .app-title {
-  padding-bottom: 8px;
   font-size: 22px;
 }
 
