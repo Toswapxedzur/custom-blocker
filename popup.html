@@ -18,7 +18,7 @@
           <button type="button" class="vui-tab scene-tab" data-scene="classifier" data-i18n="scene.classifier">Classifier</button>
           <button type="button" class="vui-tab scene-tab" data-scene="activity" data-i18n="scene.activity">Activity</button>
         </nav>
-        <h1 class="browser-only vui-tab is-active" data-i18n="app.shortTitle">Adamancia Vault</h1>
+        <h1 class="browser-only app-title" data-i18n="app.shortTitle">Adamancia Vault</h1>
         <div class="vui-topbar-links">
           <button id="settingsButton" type="button" class="secondary" data-i18n="settings.button">Settings</button>
           <button id="manualButton" type="button" class="secondary" data-i18n="manual.button">Manual</button>
@@ -201,7 +201,7 @@
             </details>
           </section>
 
-            <section id="platformRulesCard" class="section-card vui-card tone-cyan hidden">
+            <section id="platformRulesCard" class="section-card hidden">
             <div class="section-header">
               <div>
                 <h3 id="platformRulesTitle"></h3>
@@ -346,7 +346,7 @@
 
           </section>
 
-            <section id="customSettingsCard" class="section-card vui-card tone-gold hidden">
+            <section id="customSettingsCard" class="section-card hidden">
             <div class="section-header">
               <div>
                 <h3 data-i18n="custom.title">Blocking Rules</h3>
@@ -398,7 +398,7 @@
           </section>
           </section>
 
-          <section class="editor-block vui-card tone-navy">
+          <section class="section-card when-card">
             <h3 class="block-title" data-i18n="editor.whenTitle">When</h3>
             <div id="blockModeSection" class="field-row">
               <label class="label" for="blockMode" data-i18n="editor.blockMode">Blocking behavior</label>
@@ -454,7 +454,7 @@
             </section>
           </section>
 
-          <section class="editor-block snooze-section vui-card tone-pink">
+          <section class="section-card snooze-section">
             <div class="block-head">
               <h3 class="block-title" data-i18n="snooze.title">Snooze</h3>
               <p id="snoozeSummary" class="block-summary"></p>
@@ -492,7 +492,7 @@
             </details>
           </section>
 
-          <section class="editor-block freeze-section vui-card tone-red">
+          <section class="section-card freeze-section">
             <div class="block-head">
               <h3 class="block-title" data-i18n="freeze.title">Freeze</h3>
               <p id="freezeSummary" class="block-summary"></p>
@@ -700,7 +700,7 @@
             <section class="settings-col">
               <h4 class="settings-col-title" data-i18n="settings.colConnections">Data &amp; files</h4>
 
-        <section id="classifierBridgeSection" class="section-card settings-section-card vui-card browser-only">
+        <section id="classifierBridgeSection" class="section-card settings-section-card browser-only">
           <div class="section-header">
             <div>
               <h3 data-i18n="classifierBridge.title">Vault Classifier</h3>
@@ -737,7 +737,7 @@
           </details>
         </section>
 
-        <section class="section-card settings-section-card vui-card">
+        <section class="section-card settings-section-card">
           <div class="section-header">
             <div>
               <h3 data-i18n="settings.localFolderTitle">Local File Folder</h3>

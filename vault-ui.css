@@ -1,49 +1,62 @@
-/* Vault UI — the one look shared by every Vault screen: the extension's
- * editor and Mac Vault's Vault, Classifier and Activity sections (owner
- * 2026-09-28). The extension's own theme (navy, Arial, tinted cards, small
- * pills), fixed light, with no borders, no native controls, one text size
- * (headings are the only bigger text). Canonical here; sync-webui.sh copies it.
+/* Vault UI — the look of the extension as released in v2.1.0 (owner
+ * 2026-09-28: "the 2.1 version browser extension is what I am looking for"),
+ * shared by the extension's editor and Mac Vault's Vault, Classifier and
+ * Activity sections. On top of v2.1 only the owner's rules: no borders, no
+ * native controls (our own dropdown, drawn checkboxes), fixed light theme.
+ * Canonical here; macosBlocker/sync-webui.sh copies it.
  */
 
 :root {
   color-scheme: light;
-  /* The extension's palette: navy on a pale blue-grey page, with tinted
-     cards (navy, cyan, gold, pink, red) marking the kinds of settings. */
-  --vui-bg: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  --navy-700: #1e3a8a;
+  --navy-800: #172554;
+  --navy-300: #c7d2fe;
+  --navy-100: #eef2ff;
+  --navy-ring: rgba(30, 58, 138, 0.18);
+  --gold-700: #ca8a04;
+  --gold-200: #fde68a;
+  --gold-100: #fef3c7;
+  --gold-50: #fffbeb;
+  --gold-text: #a16207;
+  --pink-700: #be185d;
+  --pink-800: #9d174d;
+  --pink-100: #fce7f3;
+  --pink-50: #fdf2f8;
+  --pink-text: #9d174d;
+  --cyan-700: #0e7490;
+  --cyan-100: #cffafe;
+  --cyan-50: #ecfeff;
+  --cyan-text: #155e75;
+  --red-700: #b91c1c;
+  --red-200: #fecaca;
+  --red-100: #fee2e2;
+  --red-50: #fef2f2;
+  --red-text: #991b1b;
+
+  /* The same values under the names the Classifier and Activity use. */
+  --vui-bg: linear-gradient(180deg, #f8fafc 0%, var(--navy-100) 100%);
   --vui-surface: #ffffff;
   --vui-fill: #f1f5f9;
   --vui-fill-strong: #e2e8f0;
   --vui-text: #1f2937;
   --vui-muted: #64748b;
-  --vui-accent: #1e3a8a;
-  --vui-accent-strong: #172554;
-  --vui-accent-soft: #eef2ff;
-  --vui-danger: #991b1b;
-  --vui-danger-strong: #b91c1c;
-  --vui-danger-soft: #fee2e2;
+  --vui-copy: #475569;
+  --vui-accent: var(--navy-700);
+  --vui-accent-soft: var(--navy-100);
+  --vui-danger: var(--red-text);
+  --vui-danger-soft: var(--red-100);
   --vui-ok: #166534;
-  --vui-navy-50: #f5f7ff;
-  --vui-cyan: #0e7490;
-  --vui-cyan-text: #155e75;
-  --vui-cyan-50: #ecfeff;
-  --vui-gold: #ca8a04;
-  --vui-gold-text: #a16207;
-  --vui-gold-100: #fef3c7;
-  --vui-gold-50: #fffbeb;
-  --vui-pink: #be185d;
-  --vui-pink-text: #9d174d;
-  --vui-pink-50: #fdf2f8;
-  --vui-red-50: #fef2f2;
   --vui-radius: 16px;
   --vui-radius-card: 12px;
-  --vui-radius-sm: 8px;
-  --vui-font: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --vui-radius-sm: 10px;
+  --vui-font: Arial, sans-serif;
   --vui-size: 12px;
   --vui-size-small: 11px;
   --vui-size-title: 16px;
   --vui-panel-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
   --vui-card-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
   --vui-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+  --vui-check: var(--navy-700);
 }
 
 *,
@@ -55,117 +68,78 @@
 html,
 body {
   margin: 0;
-  min-height: 100%;
+  color: #1f2937;
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
   background: var(--vui-bg);
-  color: var(--vui-text);
-  font: var(--vui-size) / 1.4 var(--vui-font);
 }
 
-h1, h2, h3, h4 {
-  margin: 0;
-  font-size: var(--vui-size-title);
-  font-weight: 700;
-  letter-spacing: -0.015em;
-}
-
-h3, h4 {
-  font-size: 13px;
-  letter-spacing: 0;
-}
-
+h1,
+h2,
+h3,
 p {
   margin: 0;
 }
 
-/* No borders anywhere: surfaces are told apart by fill and space. */
-button,
-input,
-select,
-textarea,
-fieldset,
-details,
-summary {
-  border: 0;
-  outline: 0;
-  font: inherit;
-  color: inherit;
-}
+h1 { font-size: 22px; }
+h2 { font-size: 16px; }
+h3 { font-size: 14px; }
 
-/* ── Clickables: plain text, or a small pill ──────────────────────────────
- * A bare button is a text link. .primary is the one solid navy pill of a
- * place (tinted cards recolour it), .secondary a grey pill, .danger a pale red
- * pill, .weird the gold pill of custom/AI things. */
+/* ── Buttons: v2.1's small pills ─────────────────────────────────────────── */
 button {
-  background: none;
-  padding: 4px 6px;
-  border-radius: 999px;
-  color: var(--vui-accent);
+  border: none;
+  border-radius: 10px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 10px;
   font-weight: 700;
   cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
-}
-
-button:hover:not(:disabled) {
-  background: var(--vui-accent-soft);
-}
-
-button.primary,
-button.secondary,
-button.danger,
-button.weird {
-  padding: 5px 11px;
-  font-size: var(--vui-size-small);
-}
-
-button.primary {
-  color: #fff;
-  background: var(--vui-accent);
-}
-
-button.primary:hover:not(:disabled) {
-  background: var(--vui-accent-strong);
+  background: var(--navy-700);
+  color: #ffffff;
 }
 
 button.secondary {
+  background: #e2e8f0;
   color: #0f172a;
-  background: var(--vui-fill-strong);
-}
-
-button.secondary:hover:not(:disabled) {
-  background: #cbd5e1;
 }
 
 button.danger,
-button.vui-danger {
-  color: var(--vui-danger);
-  background: var(--vui-danger-soft);
+button.secondary.danger {
+  background: var(--red-100);
+  color: var(--red-text);
 }
 
-button.danger:hover:not(:disabled),
-button.vui-danger:hover:not(:disabled) {
-  background: #fecaca;
+button.danger:hover,
+button.secondary.danger:hover {
+  background: var(--red-200);
 }
 
-button.weird {
-  color: var(--vui-gold-text);
-  background: var(--vui-gold-100);
+button.weird,
+button.secondary.weird {
+  background: var(--gold-100);
+  color: var(--gold-text);
 }
 
-button.weird:hover:not(:disabled) {
-  background: #fde68a;
+button:hover {
+  filter: brightness(0.96);
 }
 
 button:disabled {
-  opacity: 0.45;
-  cursor: default;
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 button:focus-visible {
-  box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.18);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--navy-ring);
 }
 
-/* ── Fields: filled, never outlined ──────────────────────────────────────── */
+/* ── Fields: v2.1's rounded fields, filled instead of outlined ───────────── */
 input[type="text"],
 input[type="number"],
 input[type="search"],
@@ -174,38 +148,43 @@ input[type="url"],
 input:not([type]),
 textarea {
   width: 100%;
-  background: var(--vui-fill);
+  padding: 10px 12px;
+  border: none;
   border-radius: 10px;
-  padding: 8px 11px;
-  transition: background 0.12s, box-shadow 0.12s;
+  font: inherit;
+  color: #1f2937;
+  background: var(--vui-fill);
 }
 
 input:focus,
 textarea:focus {
-  background: var(--vui-surface);
-  box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.18);
+  outline: none;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px var(--navy-ring);
 }
 
-/* On a tinted card fields are white. */
+/* On a tinted card fields are white, as in v2.1. */
 .vui-card input[type="text"],
 .vui-card input[type="number"],
 .vui-card input[type="search"],
 .vui-card input[type="password"],
-.vui-card input[type="url"],
 .vui-card input:not([type]),
 .vui-card textarea,
-.vui-card .vui-select-button {
-  background: var(--vui-surface);
-}
-
-input::placeholder,
-textarea::placeholder {
-  color: #a0a6b1;
+.vui-card .vui-select-button,
+.section-card input[type="text"],
+.section-card input[type="number"],
+.section-card textarea,
+.section-card .vui-select-button {
+  background: #ffffff;
 }
 
 textarea {
   resize: vertical;
-  min-height: 60px;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
 }
 
 input[type="number"] {
@@ -218,85 +197,61 @@ input[type="number"]::-webkit-outer-spin-button {
   margin: 0;
 }
 
-/* ── Checkbox = switch, radio = dot (drawn, not native) ──────────────────── */
-input[type="checkbox"] {
-  -webkit-appearance: none;
-  appearance: none;
-  flex: none;
-  width: 28px;
-  height: 16px;
-  margin: 0;
-  border-radius: 999px;
-  background: var(--vui-fill-strong);
-  position: relative;
-  cursor: pointer;
-  transition: background 0.15s;
-  vertical-align: middle;
-}
-
-input[type="checkbox"]::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: left 0.15s;
-}
-
-input[type="checkbox"]:checked {
-  background: var(--vui-accent);
-}
-
-input[type="checkbox"]:checked::after {
-  left: 14px;
-}
-
-input[type="checkbox"]:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
+/* ── Checkbox and radio: drawn like v2.1's, not native ───────────────────── */
+input[type="checkbox"],
 input[type="radio"] {
   -webkit-appearance: none;
   appearance: none;
+  position: relative;
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   margin: 0;
-  border-radius: 50%;
-  background: var(--vui-fill-strong);
+  border: none;
+  border-radius: 3px;
+  background: #cbd5e1;
   cursor: pointer;
   vertical-align: middle;
 }
 
-input[type="radio"]:checked {
-  background: radial-gradient(circle, #fff 0 3px, var(--vui-accent) 3.5px);
-}
-
-input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  background: transparent;
-  height: 16px;
-}
-
-input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: 99px;
-  background: var(--vui-fill-strong);
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  margin-top: -5px;
+input[type="radio"] {
   border-radius: 50%;
-  background: var(--vui-accent);
+}
+
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  background: var(--vui-check);
+}
+
+input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1.5px;
+  width: 3px;
+  height: 7px;
+  border-right: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+  transform: rotate(45deg);
+}
+
+input[type="radio"]:checked::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+input[type="checkbox"]:disabled,
+input[type="radio"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  box-shadow: 0 0 0 3px var(--navy-ring);
 }
 
 /* ── Our dropdown (vault-ui.js replaces every <select>) ──────────────────── */
@@ -305,8 +260,9 @@ select.vui-native {
 }
 
 .vui-select {
-  display: inline-flex;
-  max-width: 100%;
+  display: flex;
+  width: 100%;
+  min-width: 0;
 }
 
 .vui-select[hidden] {
@@ -314,28 +270,25 @@ select.vui-native {
 }
 
 .vui-select-button {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  padding: 7px 11px;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
   border-radius: 10px;
   background: var(--vui-fill);
-  color: var(--vui-text);
+  color: #1f2937;
+  font-size: 12px;
   font-weight: 400;
-}
-
-.vui-select-button:hover:not(:disabled) {
-  background: var(--vui-fill-strong);
-}
-
-.vui-card .vui-select-button:hover:not(:disabled) {
-  background: var(--vui-navy-50);
+  text-align: left;
 }
 
 .vui-select-label {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vui-select-button::after {
@@ -343,9 +296,9 @@ select.vui-native {
   flex: none;
   width: 6px;
   height: 6px;
-  margin-top: -3px;
-  border-right: 1.5px solid var(--vui-muted);
-  border-bottom: 1.5px solid var(--vui-muted);
+  margin: -3px 2px 0 0;
+  border-right: 1.6px solid #475569;
+  border-bottom: 1.6px solid #475569;
   transform: rotate(45deg);
 }
 
@@ -357,43 +310,41 @@ select.vui-native {
   max-height: 320px;
   overflow-y: auto;
   padding: 4px;
-  background: var(--vui-surface);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  background: #ffffff;
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.18);
 }
 
 .vui-menu-item {
   display: block;
   width: 100%;
-  text-align: left;
-  padding: 6px 10px;
-  border-radius: var(--vui-radius-sm);
-  color: var(--vui-text);
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: none;
+  color: #1f2937;
+  font-size: 12px;
   font-weight: 400;
+  text-align: left;
   white-space: normal;
 }
 
-.vui-menu-item:hover,
-.vui-menu-item.is-focused {
-  background: var(--vui-fill);
+.vui-menu-item:hover {
+  filter: none;
+  background: var(--navy-100);
 }
 
 .vui-menu-item.is-selected {
-  color: var(--vui-accent);
+  color: var(--navy-700);
   font-weight: 700;
 }
 
-.vui-menu-item:disabled {
-  opacity: 0.4;
-}
-
-/* ── Expand: rarely used things live under a quiet "More" ────────────────── */
+/* ── Expand: rarely used things live under it ────────────────────────────── */
 details.vui-expand > summary {
   list-style: none;
   cursor: pointer;
-  color: var(--vui-muted);
-  font-weight: 700;
   padding: 4px 0;
+  color: #475569;
+  font-weight: 700;
   user-select: none;
 }
 
@@ -402,116 +353,115 @@ details.vui-expand > summary::-webkit-details-marker {
 }
 
 details.vui-expand > summary::before {
-  content: "";
+  content: "›";
   display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin: 0 8px 2px 2px;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform 0.15s;
+  width: 12px;
+  color: var(--navy-700);
+  font-size: 15px;
+  line-height: 1;
+  transition: transform 120ms ease;
 }
 
 details.vui-expand[open] > summary::before {
-  transform: rotate(45deg);
+  transform: rotate(90deg);
 }
 
-details.vui-expand > summary:hover {
-  color: var(--vui-text);
-}
-
-/* ── The one top bar of every section ────────────────────────────────────── */
+/* ── The header of every section (v2.1's hero + the scene switch) ────────── */
 .vui-topbar {
   display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 10px 14px 8px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 4px;
 }
 
 .vui-tabs {
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   gap: 24px;
 }
 
-.vui-tab,
-.vui-tab:hover:not(:disabled) {
-  padding: 0;
+.vui-tab {
+  position: relative;
+  padding: 0 0 8px;
   border-radius: 0;
-  background: none;
+  background: transparent;
+  color: #94a3b8;
   font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.01em;
   line-height: 1.1;
-  color: #94a3b8;
+  transition: color 0.2s ease;
 }
 
-.vui-tab:hover:not(:disabled) {
-  color: var(--vui-muted);
+.vui-tab:hover {
+  filter: none;
+  color: #64748b;
 }
 
-.vui-tab.is-active,
-.vui-tab.is-active:hover:not(:disabled) {
-  color: var(--vui-text);
+.vui-tab.is-active {
+  color: #1f2937;
+}
+
+.vui-tab.is-active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 3px;
+  background: #2563eb;
 }
 
 .vui-topbar-links {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-bottom: 8px;
 }
 
-/* ── Surfaces ─────────────────────────────────────────────────────────────── */
+/* ── Surfaces: v2.1's panel and tinted section card ──────────────────────── */
 .vui-panel {
+  border-radius: 16px;
+  padding: 12px;
   background: rgba(255, 255, 255, 0.92);
-  border-radius: var(--vui-radius);
   box-shadow: var(--vui-panel-shadow);
 }
 
-/* A tinted card groups one kind of setting; the tone names the kind and
-   recolours the card's .primary pill. */
 .vui-card {
-  padding: 14px 16px 16px;
-  border-radius: var(--vui-radius-card);
-  background: var(--vui-navy-50);
+  position: relative;
+  padding: 14px 14px 14px 18px;
+  border-radius: 12px;
+  background: var(--navy-100);
   box-shadow: var(--vui-card-shadow);
+  overflow: hidden;
 }
 
-.vui-card.tone-navy { background: var(--vui-accent-soft); }
-.vui-card.tone-cyan { background: var(--vui-cyan-50); }
-.vui-card.tone-gold { background: var(--vui-gold-50); }
-.vui-card.tone-pink { background: var(--vui-pink-50); }
-.vui-card.tone-red { background: var(--vui-red-50); }
+.vui-card::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 0;
+  width: 4px;
+  border-radius: 0 999px 999px 0;
+  background: rgba(30, 58, 138, 0.28);
+}
 
-.vui-card.tone-cyan button.primary { background: var(--vui-cyan); }
-.vui-card.tone-gold button.primary { background: var(--vui-gold); }
-.vui-card.tone-pink button.primary { background: var(--vui-pink); }
-.vui-card.tone-red button.primary { background: var(--vui-danger-strong); }
-.vui-card.tone-cyan input[type="checkbox"]:checked { background: var(--vui-cyan); }
-.vui-card.tone-gold input[type="checkbox"]:checked { background: var(--vui-gold); }
-.vui-card.tone-pink input[type="checkbox"]:checked { background: var(--vui-pink); }
-.vui-card.tone-red input[type="checkbox"]:checked { background: var(--vui-danger-strong); }
+.vui-card.tone-cyan { background: var(--cyan-50); --vui-check: var(--cyan-700); }
+.vui-card.tone-cyan::before { background: var(--cyan-700); }
+.vui-card.tone-gold { background: var(--gold-50); --vui-check: var(--gold-700); }
+.vui-card.tone-gold::before { background: linear-gradient(180deg, #fbbf24 0%, var(--gold-700) 100%); }
+.vui-card.tone-pink { background: var(--pink-50); --vui-check: var(--pink-700); }
+.vui-card.tone-pink::before { background: var(--pink-700); }
+.vui-card.tone-red { background: var(--red-50); --vui-check: var(--red-700); }
+.vui-card.tone-red::before { background: var(--red-700); }
 
 .vui-muted {
-  color: var(--vui-muted);
+  color: #64748b;
 }
 
 .vui-small {
-  font-size: var(--vui-size-small);
-}
-
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--vui-fill-strong);
-  border-radius: 99px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
+  font-size: 11px;
 }
