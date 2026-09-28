@@ -62,6 +62,8 @@ COMMON_TOP_LEVEL_FILES = [
     "popup.js",
     "popup.css",
     "popup-markdown.js",
+    "vault-ui.css",
+    "vault-ui.js",
     "message-page.html",
     "message-page.js",
     "message-page.css",

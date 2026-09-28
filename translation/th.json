@@ -467,5 +467,12 @@
   "link.refused.group-not-found": "That group no longer exists.",
   "link.refused.invalid-link": "Choose a group in another program.",
   "link.refused.macapp-unavailable": "Mac Vault is away: links can be changed when it's back.",
-  "link.candidate": "{name} ({program})"
+  "link.candidate": "{name} ({program})",
+  "editor.whatTitle": "What",
+  "editor.whenTitle": "When",
+  "editor.snoozeOptions": "Snooze options",
+  "editor.freezeOptions": "Freeze options",
+  "editor.more": "More",
+  "editor.options": "Options",
+  "editor.resetOptions": "Reset options"
 }

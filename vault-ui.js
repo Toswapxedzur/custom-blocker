@@ -1,0 +1,171 @@
+/* Vault UI — no native controls (owner 2026-09-28). Every <select> on the page
+ * gets our own dropdown; the <select> stays (hidden) as the value the page's
+ * code reads and writes, so no page logic changes: setting .value /
+ * .selectedIndex, changing its options, disabling or hiding it all show up in
+ * the dropdown, and choosing an item sets the select and fires "input" and
+ * "change" as a user's pick would. Canonical here; sync-webui.sh copies it.
+ */
+(function (global) {
+  "use strict";
+
+  const document = global.document;
+  // Only a real page has selects to replace (not a test's stand-in DOM).
+  if (!document || typeof HTMLSelectElement === "undefined" || typeof MutationObserver === "undefined") {
+    global.VaultUI = Object.freeze({ enhance() {}, close() {} });
+    return;
+  }
+  const dropdowns = new WeakMap(); // select -> { wrap, button, label }
+  let menu = null;
+  let openFor = null;
+
+  function selectedText(select) {
+    if (select.multiple) {
+      return Array.from(select.selectedOptions, (option) => option.textContent.trim()).join(", ") || "—";
+    }
+    const option = select.options[select.selectedIndex];
+    return option ? option.textContent.trim() : "";
+  }
+
+  function sync(select) {
+    const entry = dropdowns.get(select);
+    if (!entry) return;
+    entry.label.textContent = selectedText(select) || " ";
+    entry.button.disabled = select.disabled;
+    entry.wrap.hidden = select.hidden || select.classList.contains("hidden");
+    const title = select.getAttribute("aria-label") || select.title || "";
+    if (title) entry.button.setAttribute("aria-label", title);
+    if (openFor === select) renderMenu(select);
+  }
+
+  function closeMenu() {
+    if (!menu) return;
+    menu.remove();
+    menu = null;
+    openFor = null;
+  }
+
+  // A multiple select keeps its menu open and toggles the picked item.
+  function choose(select, index) {
+    if (select.multiple) {
+      const option = select.options[index];
+      option.selected = !option.selected;
+      select.dispatchEvent(new Event("input", { bubbles: true }));
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      return;
+    }
+    closeMenu();
+    if (index === select.selectedIndex) return;
+    select.selectedIndex = index;
+    select.dispatchEvent(new Event("input", { bubbles: true }));
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function renderMenu(select) {
+    menu.textContent = "";
+    Array.from(select.options).forEach((option, index) => {
+      if (option.hidden) return;
+      const item = document.createElement("button");
+      item.type = "button";
+      const picked = select.multiple ? option.selected : index === select.selectedIndex;
+      item.className = "vui-menu-item" + (picked ? " is-selected" : "");
+      item.textContent = option.textContent.trim();
+      item.disabled = option.disabled;
+      item.addEventListener("click", (event) => {
+        event.stopPropagation();
+        choose(select, index);
+      });
+      menu.appendChild(item);
+    });
+  }
+
+  function placeMenu(button) {
+    const box = button.getBoundingClientRect();
+    menu.style.minWidth = Math.max(160, box.width) + "px";
+    const below = global.innerHeight - box.bottom;
+    const height = Math.min(menu.scrollHeight, 320);
+    menu.style.left = Math.max(8, Math.min(box.left, global.innerWidth - menu.offsetWidth - 8)) + "px";
+    menu.style.top = (below < height + 12 && box.top > below ? box.top - height - 4 : box.bottom + 4) + "px";
+  }
+
+  function openMenu(select) {
+    const entry = dropdowns.get(select);
+    if (!entry) return;
+    if (openFor === select) return closeMenu();
+    closeMenu();
+    menu = document.createElement("div");
+    menu.className = "vui-menu";
+    menu.setAttribute("role", "listbox");
+    openFor = select;
+    renderMenu(select);
+    document.body.appendChild(menu);
+    placeMenu(entry.button);
+    const current = menu.querySelector(".is-selected");
+    if (current) current.scrollIntoView({ block: "nearest" });
+  }
+
+  // Page code sets .value / .selectedIndex directly (no event): watch both.
+  function watchValue(select) {
+    for (const property of ["value", "selectedIndex"]) {
+      const native = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, property);
+      Object.defineProperty(select, property, {
+        configurable: true,
+        get() { return native.get.call(this); },
+        set(value) { native.set.call(this, value); sync(this); }
+      });
+    }
+  }
+
+  function enhance(select) {
+    if (!(select instanceof HTMLSelectElement) || dropdowns.has(select)) return;
+    const wrap = document.createElement("span");
+    wrap.className = "vui-select";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "vui-select-button";
+    const label = document.createElement("span");
+    label.className = "vui-select-label";
+    button.appendChild(label);
+    wrap.appendChild(button);
+    select.classList.add("vui-native");
+    select.after(wrap);
+    dropdowns.set(select, { wrap, button, label });
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openMenu(select);
+    });
+    watchValue(select);
+    select.addEventListener("change", () => sync(select));
+    new MutationObserver(() => sync(select)).observe(select, {
+      childList: true, subtree: true, characterData: true, attributes: true,
+      attributeFilter: ["disabled", "hidden", "class", "aria-label", "selected"]
+    });
+    // A <label for> pointing at the select opens the dropdown.
+    if (select.id) {
+      document.querySelectorAll(`label[for="${CSS.escape(select.id)}"]`).forEach((forLabel) => {
+        forLabel.addEventListener("click", (event) => { event.preventDefault(); button.focus(); });
+      });
+    }
+    sync(select);
+  }
+
+  function enhanceAll(root) {
+    if (root instanceof HTMLSelectElement) return enhance(root);
+    if (root && root.querySelectorAll) root.querySelectorAll("select").forEach(enhance);
+  }
+
+  function start() {
+    enhanceAll(document);
+    new MutationObserver((records) => {
+      for (const record of records) record.addedNodes.forEach((node) => enhanceAll(node));
+    }).observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("click", closeMenu);
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMenu(); });
+    global.addEventListener("resize", closeMenu);
+    document.addEventListener("scroll", (event) => { if (menu && !menu.contains(event.target)) closeMenu(); }, true);
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+
+  global.VaultUI = Object.freeze({ enhance, close: closeMenu });
+})(typeof window !== "undefined" ? window : globalThis);
