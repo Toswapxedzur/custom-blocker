@@ -208,7 +208,8 @@
 
   // ── Snooze ────────────────────────────────────────────────────────────────
   // One snooze entry per group: {startsAtMs, untilMs, cooldownUntilMs,
-  // confirmationCount, activeMsApplied, changedAtMs}. A group's LAST entry is
+  // confirmationCount, activeMsApplied, changedAtMs}, plus {kind: "budget",
+  // extraMs} for a budget snooze (below). A group's LAST entry is
   // kept after it runs out (phase "none"), never deleted: its changedAtMs is
   // how a device knows an older shared entry is not news (an ended snooze
   // can't come back). A locked group can still be snoozed; its snooze
@@ -240,6 +241,7 @@
       startsAtMs, untilMs, cooldownUntilMs,
       confirmationCount: Number.isFinite(confirmations) && confirmations >= 0 ? confirmations : 0,
       activeMsApplied: Boolean(raw?.activeMsApplied),
+      ...(raw?.kind === "budget" && Number(raw?.extraMs) > 0 ? { kind: "budget", extraMs: Number(raw.extraMs) } : {}),
       ...(changedAtMs ? { changedAtMs } : {})
     };
   }
@@ -251,18 +253,86 @@
     return { confirmations: Math.max(0, Number(group.snoozeConfirmations) || 0), intervalMs: CONFIRM_INTERVAL_MS };
   }
 
+  // Snooze kind (owner 2026-09-29), a setting of time-limit groups only:
+  // "time" (the default) exempts the group for the snooze minutes of clock
+  // time; "budget" keeps the group in effect and adds the snooze minutes to its
+  // allowance — spent only while the group's sites/apps are in use. The extra
+  // room lasts until the next budget reset (a rolling limit: one window, or
+  // until midnight with the midnight option), or until it is used up.
+  const SNOOZE_KINDS = Object.freeze(["time", "budget"]);
+
+  function isBudgetSnoozeGroup(group) {
+    return group?.mode === "after-minutes" && group?.snoozeKind === "budget";
+  }
+
+  // When a budget snooze's extra room lapses: the reset after it starts.
+  // `resetAtMs` is the group's stored budget anchor (fixed, not midnight).
+  function budgetSnoozeExpiryMs(group, startsAtMs, resetAtMs) {
+    const intervalMs = Math.max(MINUTE_MS, getResetIntervalMs(group));
+    if (group.rollingLimit) {
+      const end = startsAtMs + intervalMs;
+      return group.resetAtMidnight ? Math.min(end, cbNextMidnightMs(startsAtMs)) : end;
+    }
+    const anchor = Number(resetAtMs) > 0 ? Number(resetAtMs) : startsAtMs;
+    const next = cbNextResetMs(cbPeriodStartMs(anchor, group, startsAtMs), group, startsAtMs);
+    return Number.isFinite(next) && next > startsAtMs ? next : startsAtMs + intervalMs;
+  }
+
   // The new entry, from the group's stored settings (never unsaved form input).
-  function snoozeEntry(group, now) {
+  // `resetAtMs` (the group's budget anchor) only matters for a budget snooze.
+  function snoozeEntry(group, now, resetAtMs) {
     const startsAtMs = now + (Number(group.snoozeActivationDelayMinutes) || 0) * MINUTE_MS;
-    const untilMs = startsAtMs + (Number(group.snoozeMinutes) || 0) * MINUTE_MS;
-    return {
-      startsAtMs,
-      untilMs,
-      cooldownUntilMs: untilMs + (Number(group.snoozeCooldownMinutes) || 0) * MINUTE_MS,
+    const cooldownMs = (Number(group.snoozeCooldownMinutes) || 0) * MINUTE_MS;
+    const common = {
       confirmationCount: Math.max(0, Number(group.snoozeConfirmations) || 0),
       activeMsApplied: false,
       changedAtMs: now
     };
+    if (isBudgetSnoozeGroup(group)) {
+      const untilMs = budgetSnoozeExpiryMs(group, startsAtMs, resetAtMs);
+      return {
+        kind: "budget",
+        extraMs: (Number(group.snoozeMinutes) || 0) * MINUTE_MS,
+        startsAtMs, untilMs, cooldownUntilMs: untilMs + cooldownMs, ...common
+      };
+    }
+    const untilMs = startsAtMs + (Number(group.snoozeMinutes) || 0) * MINUTE_MS;
+    return { startsAtMs, untilMs, cooldownUntilMs: untilMs + cooldownMs, ...common };
+  }
+
+  // The allowance a budget snooze adds right now (0 for none or a time snooze).
+  function snoozeExtraMs(entry, now) {
+    return entry?.kind === "budget" && snoozePhase(entry, now) === "active" ? Math.max(0, Number(entry.extraMs) || 0) : 0;
+  }
+
+  // Whether the snooze exempts the group right now (a running time snooze).
+  function snoozeExempts(entry, now) {
+    return snoozePhase(entry, now) === "active" && entry?.kind !== "budget";
+  }
+
+  // The group's allowance right now, a running budget snooze's extra included.
+  function effectiveAllowedMs(group, entry, now) {
+    return getAllowedMs(group) + snoozeExtraMs(entry, now);
+  }
+
+  // The runtime owner's tidy (service worker, Mac Vault): a budget snooze whose
+  // extra room is used up ends now — the block returns, the cooldown runs, and
+  // a new snooze can follow → the ended entry, or null for no change.
+  function settleBudgetSnooze(entry, group, usedMs, now) {
+    if (!group || entry?.kind !== "budget" || snoozePhase(entry, now) !== "active") return null;
+    if ((Number(usedMs) || 0) < effectiveAllowedMs(group, entry, now)) return null;
+    return endSnoozeEntry(entry, now).entry || null;
+  }
+
+  // What a finished snooze adds to the group's snooze total (once): the clock
+  // time a time snooze ran, or the extra minutes a budget snooze actually gave
+  // (time used beyond the plain allowance, at most the extra).
+  function snoozeCountedMs(entry, group, usedMs) {
+    if (entry?.kind === "budget") {
+      if (!group) return 0;
+      return Math.min(Math.max(0, Number(entry.extraMs) || 0), Math.max(0, (Number(usedMs) || 0) - getAllowedMs(group)));
+    }
+    return Math.max(0, entry.untilMs - entry.startsAtMs);
   }
 
   // Ending early keeps an ENDED entry stamped now (it reaches linked devices
@@ -630,6 +700,7 @@
       bad("snoozeCooldownMinutes", (v) => parseSnoozeCooldownMinutes(v) !== null),
       bad("snoozeConfirmations", (v) => parseSnoozeConfirmations(v) !== null),
       bad("pauseSeconds", (v) => parsePauseSeconds(v) !== null),
+      bad("snoozeKind", (v) => SNOOZE_KINDS.includes(v)),
       bad("timeWindowsText", (v) => typeof v === "string" && parseTimeWindowsText(v).invalidLines.length === 0),
       // At least one day, as the editor's day boxes allow.
       bad("activeDays", (v) => Array.isArray(v) && v.length > 0 && v.every((day) => DAY_NAMES.includes(String(day).trim().toLowerCase()))),
@@ -731,6 +802,8 @@
     lock, tighten, setGates, upgradePinHash, unlockPlan, unlock, deleteAllPlan, confirmStart, confirmStep,
     lockUnit, lockContribution, adoptLock,
     snoozePhase, snoozeChangedAtMs, sanitizeSnoozeEntry, snoozePlan, snoozeEntry, endSnoozeEntry, adoptSnooze,
+    SNOOZE_KINDS, isBudgetSnoozeGroup, budgetSnoozeExpiryMs, snoozeExtraMs, snoozeExempts, effectiveAllowedMs,
+    settleBudgetSnooze, snoozeCountedMs,
     DAY_NAMES, DEFAULT_GROUP_TYPE, DEFAULT_ALLOWED_MINUTES, DEFAULT_RESET_INTERVAL_HOURS, DEFAULT_SNOOZE_MINUTES,
     DEFAULT_SNOOZE_CONFIRMATIONS, DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES, DEFAULT_SNOOZE_COOLDOWN_MINUTES,
     MAX_SNOOZE_COOLDOWN_MINUTES, DEFAULT_PAUSE_SECONDS, MAX_PAUSE_SECONDS, MS_PER_MINUTE, MS_PER_HOUR, USAGE_BUCKET_MS,

@@ -68,7 +68,7 @@ const {
   getDayNameForDate, normalizeBlockingMode, isTimedBlockingMode, parseAllowedMinutes,
   parseResetIntervalHours, parseSnoozeMinutes, parseSnoozeDelayMinutes, parseSnoozeCooldownMinutes,
   parsePauseSeconds, parseSnoozeConfirmations, parseTimeWindowsText, parseTimeWindowToMinutes,
-  getAllowedMs, cbPeriodStartMs, cbNextResetMs, cbUsageBucketStartMs, cbPruneUsageBuckets,
+  cbPeriodStartMs, cbNextResetMs, cbUsageBucketStartMs, cbPruneUsageBuckets,
   cbBucketsUsedMs, cbNextReturnMs, sanitizeUsageTimers, sanitizeSnoozeTotals, sanitizeResetTimes,
   sanitizeUsageBuckets, sanitizeSnoozes, isGroupActiveNow
 } = CBGroupActions;
@@ -264,9 +264,12 @@ function getSnoozePhase(snooze, now) {
   return CBGroupActions.snoozePhase(snooze, now);
 }
 
+// A snooze that exempts its group right now: a running time snooze. A budget
+// snooze keeps the group in effect and raises its allowance instead
+// (CBGroupActions.effectiveAllowedMs).
 function getActiveSnooze(groupId, groupSnoozes, now) {
   const snooze = groupSnoozes[groupId];
-  return getSnoozePhase(snooze, now) === "active" ? snooze : null;
+  return CBGroupActions.snoozeExempts(snooze, now) ? snooze : null;
 }
 
 // matchesVideoMode, isHomeFeedPage, isPlatformHost and the per-platform
@@ -372,12 +375,13 @@ function getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now) {
   return groups.filter((group) => cbGroupActive(group, groupSnoozes, now) && cbGroupBlocksPage(group, pageContext));
 }
 
-function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now, usageBucketsMs = {}) {
+function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now, usageBucketsMs = {}, groupSnoozes = {}) {
   return relevantGroups
     .filter((group) => isTimedBlockingMode(group.mode))
     .map((group) => {
       const usedMs = usageTimersMs[group.id] ?? 0;
-      const remainingMs = Math.max(getAllowedMs(group) - usedMs, 0);
+      const allowedMs = CBGroupActions.effectiveAllowedMs(group, groupSnoozes[group.id], now);
+      const remainingMs = Math.max(allowedMs - usedMs, 0);
       return {
         id: group.id,
         name: group.name,
@@ -395,7 +399,7 @@ function buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now, usa
           : cbNextResetMs(cbPeriodStartMs(usageResetAtMs[group.id] ?? now, group, now), group, now),
         remainingMs,
         displayMs: remainingMs,
-        blocksNow: usedMs >= getAllowedMs(group)
+        blocksNow: usedMs >= allowedMs
       };
     })
     // Least time left first.
@@ -465,6 +469,30 @@ function applyRuntimeNormalizations(
   const nextSnoozes = { ...groupSnoozes };
   const nextSnoozeTotals = { ...groupSnoozeTotalsMs };
   let changed = false;
+  const groupById = new Map(groups.map((group) => [group.id, group]));
+
+  // Snoozes first, on this period's usage (a budget snooze lapses at the reset
+  // below, and its used extra minutes belong to the period it ran in):
+  // a budget snooze whose extra room is used up ends now; a snooze that ran
+  // out (or was ended) adds to the group's total once. The entry itself stays
+  // (group-actions.js: a group's last entry is never deleted), so an older one
+  // shared by another device is never taken back.
+  for (const [groupId, snooze] of Object.entries(nextSnoozes)) {
+    const group = groupById.get(groupId);
+    const settled = CBGroupActions.settleBudgetSnooze(snooze, group, nextTimers[groupId], now);
+    if (settled) {
+      nextSnoozes[groupId] = settled;
+      changed = true;
+    }
+    const entry = nextSnoozes[groupId];
+    if (!entry.activeMsApplied && now >= entry.untilMs) {
+      nextSnoozeTotals[groupId] =
+        Math.max(0, Number(nextSnoozeTotals[groupId]) || 0) +
+        CBGroupActions.snoozeCountedMs(entry, group, nextTimers[groupId]);
+      nextSnoozes[groupId] = { ...entry, activeMsApplied: true };
+      changed = true;
+    }
+  }
 
   for (const group of groups) {
     if (!isTimedBlockingMode(group.mode)) continue;
@@ -491,19 +519,6 @@ function applyRuntimeNormalizations(
     nextTimers[group.id] = 0;
     nextResetAt[group.id] = periodStart;
     changed = true;
-  }
-
-  // A snooze that ran out adds its time to the group's total once. The entry
-  // itself stays (group-actions.js: a group's last entry is never deleted), so
-  // an older one shared by another device is never taken back.
-  for (const [groupId, snooze] of Object.entries(nextSnoozes)) {
-    if (!snooze.activeMsApplied && now >= snooze.untilMs) {
-      nextSnoozeTotals[groupId] =
-        Math.max(0, Number(nextSnoozeTotals[groupId]) || 0) +
-        Math.max(0, snooze.untilMs - snooze.startsAtMs);
-      nextSnoozes[groupId] = { ...snooze, activeMsApplied: true };
-      changed = true;
-    }
   }
 
   return {
@@ -568,9 +583,9 @@ async function getState() {
 // Whether a platform group should actually hide matched content right now
 // (vs. merely measuring exposure for its usage timer): instant always blocks,
 // "after-minutes" only after its allowance is spent.
-function isPlatformBlockEnforcing(group, usageTimersMs) {
+function isPlatformBlockEnforcing(group, usageTimersMs, groupSnoozes = {}, now = Date.now()) {
   if (group.mode === "instant") return true;
-  return (usageTimersMs[group.id] ?? 0) >= getAllowedMs(group);
+  return (usageTimersMs[group.id] ?? 0) >= CBGroupActions.effectiveAllowedMs(group, groupSnoozes[group.id], now);
 }
 
 // Emit a tagged "items" line as a SEPARATE feed-filter entry (own id + effect
@@ -751,7 +766,7 @@ function buildPageSession(
   passedGroupIds = new Set()
 ) {
   const relevantGroups = getRelevantGroupsForPage(pageContext, groups, groupSnoozes, now);
-  const relevantTimedItems = buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now);
+  const relevantTimedItems = buildTimedItems(relevantGroups, usageTimersMs, usageResetAtMs, now, {}, groupSnoozes);
   const exposedGroups = getExposedTimedGroups(
     exposedGroupIds,
     groups,
@@ -759,7 +774,7 @@ function buildPageSession(
     groupSnoozes,
     now
   );
-  const exposedTimedItems = buildTimedItems(exposedGroups, usageTimersMs, usageResetAtMs, now);
+  const exposedTimedItems = buildTimedItems(exposedGroups, usageTimersMs, usageResetAtMs, now, {}, groupSnoozes);
   const timedItems = relevantTimedItems.concat(exposedTimedItems);
   const feedFilters = buildPlatformFeedFilters(
     pageContext,
@@ -991,7 +1006,7 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
   const offlineDeltas = {};
   for (const group of accrualGroups) {
     const currentValue = nextTimers[group.id] ?? 0;
-    const thresholdMs = getAllowedMs(group);
+    const thresholdMs = CBGroupActions.effectiveAllowedMs(group, groupSnoozes[group.id], now);
     // Several visible tabs of one group report the same seconds: a group's
     // budget counts each moment once, however many of its pages are showing.
     const accruedUntil = cbGroupAccruedUntilMs.get(group.id) || 0;
@@ -1590,13 +1605,13 @@ async function cbFireSnoozePress(groupId) {
 // entry, re-syncs blocking and shares it with linked members (newest start
 // wins there, exactly like a snooze started in the popup).
 async function cbStartSnooze(groupId, now = Date.now()) {
-  const { groups, groupSnoozes } = await getState();
+  const { groups, groupSnoozes, usageResetAtMs } = await getState();
   const group = groups.find((item) => item.id === groupId);
   if (!group) throw new Error("group-not-found");
   if (cbEnforceOnly(group)) throw new Error("mac-vault-away");
   const plan = CBGroupActions.snoozePlan(group, groupSnoozes[group.id], now);
   if (plan.error) throw new Error(plan.error);
-  const entry = CBGroupActions.snoozeEntry(group, now);
+  const entry = CBGroupActions.snoozeEntry(group, now, usageResetAtMs[group.id]);
   const next = { ...groupSnoozes, [group.id]: entry };
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: next });
   return entry;
@@ -2384,7 +2399,7 @@ function cbGroupActive(group, groupSnoozes, now) {
 function cbGroupEnforcing(group, usageTimersMs, groupSnoozes, now) {
   if (!cbGroupActive(group, groupSnoozes, now)) return false;
   if (group.groupType === "custom") return true;
-  return isPlatformBlockEnforcing(group, usageTimersMs);
+  return isPlatformBlockEnforcing(group, usageTimersMs, groupSnoozes, now);
 }
 
 function cbEnforcementState(groups, usageTimersMs, groupSnoozes, now) {
