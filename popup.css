@@ -941,12 +941,6 @@ textarea:focus {
   margin-top: 10px;
 }
 
-.parental-settings-button {
-  font-size: 16px;
-  line-height: 1;
-  padding: 6px 10px;
-}
-
 button {
   border: none;
   border-radius: 10px;
@@ -2140,12 +2134,20 @@ input.editor-name:hover {
   color: inherit;
 }
 
-.options-expand {
-  margin: 4px 0 8px;
+.follow-hidden {
+  display: none !important;
 }
 
-.options-expand[open] {
+.block-fields {
+  margin-top: 8px;
+}
+
+.editor-more .more-row {
   margin-bottom: 12px;
+}
+
+.editor-more .more-row > .checkbox-row {
+  display: flex;
 }
 
 .editor-more {

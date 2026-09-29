@@ -110,23 +110,6 @@
             <div id="groupScopesList" class="site-chip-list" role="list"></div>
             <select id="groupScopesAdd" class="scope-add-select"></select>
             <p id="entryOwnerHint" class="field-help hidden" data-i18n="scopes.browserOwnedHint">Websites and platforms are set in the browser extension; Mac Vault only controls apps.</p>
-
-            <!-- The page action of the entry in view: cover its blocked pages,
-                 or pause first (a countdown, then Continue lets the page through). -->
-            <details id="pageActionRow" class="vui-expand options-expand">
-              <summary data-i18n="editor.options">Options</summary>
-            <div class="page-action-row">
-              <label class="label" for="pageAction" data-i18n="scopes.pageAction">When a page of this entry is blocked</label>
-              <select id="pageAction">
-                <option value="block" data-i18n="scopes.pageActionBlock">Cover the page</option>
-                <option value="pause" data-i18n="scopes.pageActionPause">Pause first, then let it through</option>
-              </select>
-              <div id="pauseSecondsRow" class="hidden">
-                <label class="label" for="pauseSeconds" data-i18n="scopes.pauseSeconds">Pause for (seconds)</label>
-                <input id="pauseSeconds" class="number-field" type="number" min="1" max="600" step="1" inputmode="numeric" placeholder="10" />
-              </div>
-            </div>
-            </details>
           </section>
 
             <section id="siteSettingsSection">
@@ -156,25 +139,6 @@
                 </button>
               </div>
             </div>
-
-            <details class="vui-expand options-expand">
-              <summary data-i18n="editor.options">Options</summary>
-            <label class="checkbox-row compact" for="siteAllowlist">
-              <input id="siteAllowlist" type="checkbox" />
-              <span data-i18n="sites.allowlistLabel">Block everything except these sites</span>
-            </label>
-            <p class="field-help" data-i18n="sites.allowlistHelp">
-              When on, this group blocks the entire web except the sites listed below
-              (an allowlist). When off, it blocks only the listed sites.
-            </p>
-
-            <div class="actions">
-              <button id="clearSitesButton" type="button" class="secondary danger" data-i18n="sites.clearButton">
-                Clear Sites
-              </button>
-            </div>
-
-            </details>
           </section>
 
             <section id="appsSettingsSection" class="hidden">
@@ -184,21 +148,6 @@
             </p>
             <input id="blockedAppsData" type="hidden" />
             <div id="blockedAppsList" class="app-chip-list" role="list"></div>
-            <details class="vui-expand options-expand">
-              <summary data-i18n="editor.options">Options</summary>
-            <label class="checkbox-row compact" for="appsAllowlist">
-              <input id="appsAllowlist" type="checkbox" />
-              <span data-i18n="apps.allowlistLabel">Block every application except these</span>
-            </label>
-            <p class="field-help desktop-only" data-i18n="apps.allowlistHelp">
-              When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.
-            </p>
-            <div class="actions desktop-only">
-              <button id="clearAppsButton" type="button" class="secondary danger" data-i18n="apps.clearButton">
-                Clear Apps
-              </button>
-            </div>
-            </details>
           </section>
 
             <section id="platformRulesCard" class="section-card hidden">
@@ -292,25 +241,6 @@
                   <input id="platformTagBlockPage" type="checkbox" checked />
                   <span data-i18n="tagFilter.blockPage">Also black out a matching video's own page</span>
                 </label>
-                <details class="vui-expand options-expand">
-                  <summary data-i18n="editor.options">Options</summary>
-                <div class="content-tag-row">
-                  <label class="label" for="platformTagDefaultConfidence" data-i18n="tagFilter.defaultConfidence">Default minimum confidence</label>
-                  <select id="platformTagDefaultConfidence">
-                    <option value="3">&#8805; 3</option>
-                    <option value="4" selected>&#8805; 4</option>
-                    <option value="5">&#8805; 5</option>
-                  </select>
-                </div>
-                <label class="checkbox-row compact" for="platformTagCoverUntilTagged">
-                  <input id="platformTagCoverUntilTagged" type="checkbox" />
-                  <span data-i18n="tagFilter.coverUntilTagged">Cover content until it has been tagged</span>
-                </label>
-                <label id="platformTagBlockUntaggedRow" class="checkbox-row compact" for="platformTagBlockUntagged">
-                  <input id="platformTagBlockUntagged" type="checkbox" />
-                  <span data-i18n="tagFilter.blockUntagged">Also block content with no confident tag</span>
-                </label>
-                </details>
               </div>
             </div>
 
@@ -412,22 +342,11 @@
                 <label class="label" for="allowedMinutes" data-i18n="timed.allowedMinutes">Allowed minutes before block</label>
                 <input id="allowedMinutes" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="15" data-i18n-placeholder="timed.allowedMinutesPlaceholder" />
               </div>
+              <div class="field-row">
+                <label class="label" for="resetIntervalHours" data-i18n="timed.resetHours">Timer reset interval (hours)</label>
+                <input id="resetIntervalHours" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="24" data-i18n-placeholder="timed.resetHoursPlaceholder" />
+              </div>
               <p id="usageSummary" class="usage-summary"></p>
-              <details class="vui-expand options-expand">
-                <summary data-i18n="editor.resetOptions">Reset options</summary>
-                <div class="field-row">
-                  <label class="label" for="resetIntervalHours" data-i18n="timed.resetHours">Timer reset interval (hours)</label>
-                  <input id="resetIntervalHours" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="24" data-i18n-placeholder="timed.resetHoursPlaceholder" />
-                </div>
-                <label class="checkbox-row compact" for="resetAtMidnight">
-                  <input id="resetAtMidnight" type="checkbox" />
-                  <span data-i18n="timed.resetAtMidnight">Also restart the reset cycle at midnight</span>
-                </label>
-                <label class="checkbox-row compact" for="rollingLimit">
-                  <input id="rollingLimit" type="checkbox" />
-                  <span data-i18n="timed.rollingLimit">Rolling limit: used time comes back once it is older than the reset interval</span>
-                </label>
-              </details>
             </div>
             <section id="scheduleSection">
               <label class="label" data-i18n="schedule.days">Days to block</label>
@@ -465,20 +384,12 @@
             <p id="snoozeCustomCopy" class="field-help hidden" data-i18n="snooze.customCopy">
               Custom rules don't snooze: pressing Snooze sends the rule a "snooze" event, and the rule decides what happens.
             </p>
-            <details class="vui-expand">
-              <summary data-i18n="editor.snoozeOptions">Snooze options</summary>
+            <div class="block-fields">
               <label class="checkbox-row compact" for="allowSnooze">
                 <input id="allowSnooze" type="checkbox" />
                 <span data-i18n="snooze.allow">Allow snooze for this group</span>
               </label>
               <div id="snoozeNumericFields" class="settings-grid">
-                <div id="snoozeKindRow" class="hidden">
-                  <label class="label" for="snoozeKind" data-i18n="snooze.kind">Snooze gives</label>
-                  <select id="snoozeKind">
-                    <option value="time" data-i18n="snooze.kind.time">Time off (the group pauses)</option>
-                    <option value="budget" data-i18n="snooze.kind.budget">Extra budget (minutes added to the time limit)</option>
-                  </select>
-                </div>
                 <div>
                   <label class="label" for="snoozeMinutes" data-i18n="snooze.minutes">Snooze for (minutes)</label>
                   <input id="snoozeMinutes" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="30" data-i18n-placeholder="snooze.minutesPlaceholder" />
@@ -496,7 +407,7 @@
                   <input id="snoozeConfirmations" class="number-field" type="number" min="0" step="1" inputmode="numeric" placeholder="0" data-i18n-placeholder="snooze.confirmationsPlaceholder" />
                 </div>
               </div>
-            </details>
+            </div>
           </section>
 
           <section class="section-card freeze-section">
@@ -506,30 +417,93 @@
               <button id="applyFreezeButton" type="button" class="primary" data-i18n="freeze.applyButton">Freeze Group</button>
               <button id="unfreezeButton" type="button" class="secondary hidden" data-i18n="freeze.unfreezeButton">Unfreeze</button>
             </div>
-            <details id="freezeSetup" class="vui-expand freeze-setup">
-              <summary data-i18n="editor.freezeOptions">Freeze options</summary>
+            <div id="freezeSetup" class="block-fields freeze-setup">
               <div class="settings-grid">
                 <div>
                   <label class="label" for="lockWaitHours" data-i18n="freeze.waitHours">Can't be unfrozen for (hours)</label>
                   <input id="lockWaitHours" class="number-field" type="number" min="0" max="72" step="0.1" inputmode="decimal" placeholder="0" />
                   <p class="field-help" data-i18n="freeze.waitHelp">0 = no wait. While frozen the wait can only be made longer.</p>
                 </div>
-                <div>
-                  <span class="label" data-i18n="freeze.pinLabel">PIN</span>
-                  <p id="lockPinStatus" class="field-help"></p>
-                  <button
-                    id="parentalSettingsButton"
-                    type="button"
-                    class="parental-settings-button"
-                    data-i18n="freeze.parentalSettings"
-                  >Guardian password settings</button>
-                </div>
               </div>
-            </details>
+            </div>
           </section>
 
           <details class="vui-expand editor-block editor-more">
             <summary data-i18n="editor.more">More</summary>
+            <!-- The one place for rarely used settings. A row marked data-follows
+                 shows only while the part it belongs to shows (syncMoreRows). -->
+            <!-- The page action of the entry in view: cover its blocked pages,
+                 or pause first (a countdown, then Continue lets the page through). -->
+            <div id="pageActionRow" class="more-row page-action-row">
+              <label class="label" for="pageAction" data-i18n="scopes.pageAction">When a page of this entry is blocked</label>
+              <select id="pageAction">
+                <option value="block" data-i18n="scopes.pageActionBlock">Cover the page</option>
+                <option value="pause" data-i18n="scopes.pageActionPause">Pause first, then let it through</option>
+              </select>
+              <div id="pauseSecondsRow" class="hidden">
+                <label class="label" for="pauseSeconds" data-i18n="scopes.pauseSeconds">Pause for (seconds)</label>
+                <input id="pauseSeconds" class="number-field" type="number" min="1" max="600" step="1" inputmode="numeric" placeholder="10" />
+              </div>
+            </div>
+            <div class="more-row" data-follows="siteSettingsSection">
+              <label class="checkbox-row compact" for="siteAllowlist">
+                <input id="siteAllowlist" type="checkbox" />
+                <span data-i18n="sites.allowlistLabel">Block everything except these sites</span>
+              </label>
+              <p class="field-help" data-i18n="sites.allowlistHelp">
+                When on, this group blocks the entire web except the sites listed below
+                (an allowlist). When off, it blocks only the listed sites.
+              </p>
+            </div>
+            <div class="more-row" data-follows="appsSettingsSection">
+              <label class="checkbox-row compact" for="appsAllowlist">
+                <input id="appsAllowlist" type="checkbox" />
+                <span data-i18n="apps.allowlistLabel">Block every application except these</span>
+              </label>
+              <p class="field-help desktop-only" data-i18n="apps.allowlistHelp">
+                When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.
+              </p>
+            </div>
+            <div class="more-row" data-follows="platformTagListBlock">
+              <div class="content-tag-row">
+                <label class="label" for="platformTagDefaultConfidence" data-i18n="tagFilter.defaultConfidence">Default minimum confidence</label>
+                <select id="platformTagDefaultConfidence">
+                  <option value="3">&#8805; 3</option>
+                  <option value="4" selected>&#8805; 4</option>
+                  <option value="5">&#8805; 5</option>
+                </select>
+              </div>
+              <label class="checkbox-row compact" for="platformTagCoverUntilTagged">
+                <input id="platformTagCoverUntilTagged" type="checkbox" />
+                <span data-i18n="tagFilter.coverUntilTagged">Cover content until it has been tagged</span>
+              </label>
+              <label id="platformTagBlockUntaggedRow" class="checkbox-row compact" for="platformTagBlockUntagged">
+                <input id="platformTagBlockUntagged" type="checkbox" />
+                <span data-i18n="tagFilter.blockUntagged">Also block content with no confident tag</span>
+              </label>
+            </div>
+            <div class="more-row" data-follows="timedSettings">
+              <label class="checkbox-row compact" for="resetAtMidnight">
+                <input id="resetAtMidnight" type="checkbox" />
+                <span data-i18n="timed.resetAtMidnight">Also restart the reset cycle at midnight</span>
+              </label>
+              <label class="checkbox-row compact" for="rollingLimit">
+                <input id="rollingLimit" type="checkbox" />
+                <span data-i18n="timed.rollingLimit">Rolling limit: used time comes back once it is older than the reset interval</span>
+              </label>
+            </div>
+            <div id="snoozeKindRow" class="more-row hidden">
+              <label class="label" for="snoozeKind" data-i18n="snooze.kind">Snooze gives</label>
+              <select id="snoozeKind">
+                <option value="time" data-i18n="snooze.kind.time">Time off (the group pauses)</option>
+                <option value="budget" data-i18n="snooze.kind.budget">Extra budget (minutes added to the time limit)</option>
+              </select>
+            </div>
+            <div class="more-row" data-follows="freezeSetup">
+              <span class="label" data-i18n="freeze.pinLabel">PIN</span>
+              <p id="lockPinStatus" class="field-help"></p>
+              <button id="parentalSettingsButton" type="button" class="secondary" data-i18n="freeze.parentalSettings">Guardian password settings</button>
+            </div>
             <div id="groupLinkSection" class="link-section">
               <span class="label" data-i18n="link.title">Link</span>
               <p id="groupLinkStatus" class="field-help"></p>
@@ -547,6 +521,8 @@
               </p>
             </div>
             <div class="editor-actions">
+              <button id="clearSitesButton" type="button" class="secondary danger" data-follows="siteSettingsSection" data-i18n="sites.clearButton">Clear Sites</button>
+              <button id="clearAppsButton" type="button" class="secondary danger desktop-only" data-follows="appsSettingsSection" data-i18n="apps.clearButton">Clear Apps</button>
               <button id="exportGroupButton" type="button" class="secondary" data-i18n="editor.exportGroupButton">Export</button>
               <button id="importGroupButton" type="button" class="secondary" data-i18n="editor.importGroupButton">Import</button>
               <button id="deleteGroupButton" type="button" class="danger" data-i18n="editor.deleteGroupButton">Delete Group</button>
