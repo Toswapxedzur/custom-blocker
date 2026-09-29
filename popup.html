@@ -472,6 +472,13 @@
                 <span data-i18n="snooze.allow">Allow snooze for this group</span>
               </label>
               <div id="snoozeNumericFields" class="settings-grid">
+                <div id="snoozeKindRow" class="hidden">
+                  <label class="label" for="snoozeKind" data-i18n="snooze.kind">Snooze gives</label>
+                  <select id="snoozeKind">
+                    <option value="time" data-i18n="snooze.kind.time">Time off (the group pauses)</option>
+                    <option value="budget" data-i18n="snooze.kind.budget">Extra budget (minutes added to the time limit)</option>
+                  </select>
+                </div>
                 <div>
                   <label class="label" for="snoozeMinutes" data-i18n="snooze.minutes">Snooze for (minutes)</label>
                   <input id="snoozeMinutes" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="30" data-i18n-placeholder="snooze.minutesPlaceholder" />

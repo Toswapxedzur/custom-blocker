@@ -543,6 +543,7 @@
       resetAtMidnight: false,
       rollingLimit: false,
       allowSnooze: true,
+      snoozeKind: "time",
       snoozeMinutes: A.parseSnoozeMinutes(overrides.snoozeMinutes) ?? A.DEFAULT_SNOOZE_MINUTES,
       snoozeActivationDelayMinutes: A.DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
       snoozeCooldownMinutes: A.DEFAULT_SNOOZE_COOLDOWN_MINUTES,
@@ -628,6 +629,7 @@
           resetAtMidnight: group?.resetAtMidnight === true,
           rollingLimit: group?.rollingLimit === true,
           allowSnooze: group?.allowSnooze !== false,
+          snoozeKind: group?.snoozeKind === "budget" ? "budget" : "time",
           snoozeMinutes: A.parseSnoozeMinutes(group?.snoozeMinutes) ?? A.DEFAULT_SNOOZE_MINUTES,
           snoozeActivationDelayMinutes:
             A.parseSnoozeDelayMinutes(group?.snoozeActivationDelayMinutes) ??
@@ -826,7 +828,7 @@
     // Everything is shared (owner 2026-09-27): the name and on/off too. A custom
     // rule's code is not (a linked custom group shares only its memory).
     "name", "enabled", "mode", "allowedMinutes", "resetIntervalHours", "resetAtMidnight", "rollingLimit",
-    "allowSnooze", "snoozeMinutes", "snoozeActivationDelayMinutes", "snoozeCooldownMinutes", "snoozeConfirmations",
+    "allowSnooze", "snoozeKind", "snoozeMinutes", "snoozeActivationDelayMinutes", "snoozeCooldownMinutes", "snoozeConfirmations",
     "activeDays", "timeWindowsText",
     "fallbackUrl", "pauseSeconds"
   ]);

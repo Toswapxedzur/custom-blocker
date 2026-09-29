@@ -332,6 +332,8 @@ const parentalSettingsButton = document.getElementById("parentalSettingsButton")
 const snoozeSummary = document.getElementById("snoozeSummary");
 const allowSnoozeField = document.getElementById("allowSnooze");
 const snoozeMinutesField = document.getElementById("snoozeMinutes");
+const snoozeKindRow = document.getElementById("snoozeKindRow");
+const snoozeKindField = document.getElementById("snoozeKind");
 const snoozeActivationDelayField = document.getElementById("snoozeActivationDelay");
 const snoozeCooldownField = document.getElementById("snoozeCooldown");
 const snoozeConfirmationsField = document.getElementById("snoozeConfirmations");
@@ -2769,6 +2771,7 @@ function getSerializableGroupSnapshot(group) {
     resetAtMidnight: group.resetAtMidnight === true,
     rollingLimit: group.rollingLimit === true,
     allowSnooze: group.allowSnooze !== false,
+    snoozeKind: group.snoozeKind === "budget" ? "budget" : "time",
     snoozeMinutes: group.snoozeMinutes,
     snoozeActivationDelayMinutes:
       group.snoozeActivationDelayMinutes ?? DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES,
@@ -2865,6 +2868,7 @@ function groupToDraft(group) {
     resetAtMidnight: group.resetAtMidnight === true,
     rollingLimit: group.rollingLimit === true,
     allowSnooze: group.allowSnooze !== false,
+    snoozeKind: group.snoozeKind === "budget" ? "budget" : "time",
     snoozeMinutes: String(group.snoozeMinutes),
     snoozeActivationDelayMinutes: String(
       group.snoozeActivationDelayMinutes ?? DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES
@@ -3335,6 +3339,14 @@ function getGroupMetaText(group, draft, now = Date.now()) {
 
   if (snoozePhase === "pending") {
     pieces.push(`${t("meta.snoozePending")} ${formatDurationMs(snooze.startsAtMs - now)}`);
+  } else if (snoozePhase === "active" && snooze.kind === "budget") {
+    // A budget snooze keeps the group in effect: its extra time is in "left".
+    const remainingMs = Math.max(
+      effectiveGroup.allowedMinutes * MS_PER_MINUTE + CBGroupActions.snoozeExtraMs(snooze, now) -
+        getDisplayUsageState(effectiveGroup, now).usedMs,
+      0
+    );
+    pieces.push(`${formatDurationMs(remainingMs)} ${t("meta.left")}`, t("meta.snoozeBudget"));
   } else if (snoozePhase === "active") {
     pieces.push(`${t("meta.snoozed")} ${formatDurationMs(snooze.untilMs - now)}`);
   } else if (snoozePhase === "cooldown") {
@@ -3542,7 +3554,10 @@ function updateUsageSummary(group, draft, now = Date.now()) {
     hours: formatHours(displayGroup.resetIntervalHours),
     suffix: displayGroup.resetIntervalHours === 1 ? "" : "s"
   };
-  const remainingMs = Math.max(displayGroup.allowedMinutes * MS_PER_MINUTE - usageState.usedMs, 0);
+  const remainingMs = Math.max(
+    displayGroup.allowedMinutes * MS_PER_MINUTE + CBGroupActions.snoozeExtraMs(state.groupSnoozes[group.id], now) - usageState.usedMs,
+    0
+  );
   let text = t(rolling ? "timed.summaryRolling" : "timed.summary", {
     ...vars,
     time: formatDurationMs(remainingMs)
@@ -3603,6 +3618,7 @@ function updateSnoozeUI(group, now = Date.now()) {
     snoozeSummary.textContent = "";
     allowSnoozeField.checked = true;
     allowSnoozeField.disabled = true;
+    snoozeKindField.disabled = true;
     snoozeMinutesField.disabled = true;
     snoozeActivationDelayField.disabled = true;
     snoozeCooldownField.disabled = true;
@@ -3627,7 +3643,11 @@ function updateSnoozeUI(group, now = Date.now()) {
   const settingsLocked = !isGroupEditable(group, now);
   allowSnoozeField.checked = allowSnooze;
   allowSnoozeField.disabled = settingsLocked;
+  snoozeKindField.disabled = settingsLocked || !allowSnooze;
   snoozeMinutesField.disabled = settingsLocked || !allowSnooze;
+  // The snooze kind is a setting of time-limit groups only (owner 2026-09-29).
+  const timeLimitMode = normalizeBlockingMode(draft?.mode ?? group.mode) === "after-minutes";
+  snoozeKindRow.classList.toggle("hidden", isCustomGroup || !timeLimitMode);
   snoozeActivationDelayField.disabled = settingsLocked || !allowSnooze;
   snoozeCooldownField.disabled = settingsLocked || !allowSnooze;
   snoozeConfirmationsField.disabled = settingsLocked || !allowSnooze;
@@ -3658,17 +3678,28 @@ function updateSnoozeUI(group, now = Date.now()) {
   }
 
   startSnoozeButton.disabled = true;
+  const budgetSnooze = snooze.kind === "budget";
   if (snoozePhase === "pending") {
-    snoozeSummary.textContent = t("snooze.summary.pending", {
-      delay: formatDurationMs(snooze.startsAtMs - now),
-      time: formatDurationMs(snooze.untilMs - snooze.startsAtMs)
-    });
+    snoozeSummary.textContent = budgetSnooze
+      ? t("snooze.summary.pendingBudget", {
+        delay: formatDurationMs(snooze.startsAtMs - now),
+        time: formatDurationMs(snooze.extraMs)
+      })
+      : t("snooze.summary.pending", {
+        delay: formatDurationMs(snooze.startsAtMs - now),
+        time: formatDurationMs(snooze.untilMs - snooze.startsAtMs)
+      });
     endSnoozeButton.classList.remove("hidden");
     endSnoozeButton.disabled = isEnforceOnly(group);
   } else if (snoozePhase === "active") {
-    snoozeSummary.textContent = t("snooze.summary.active", {
-      time: formatDurationMs(snooze.untilMs - now)
-    });
+    snoozeSummary.textContent = budgetSnooze
+      ? t("snooze.summary.activeBudget", {
+        time: formatDurationMs(snooze.extraMs),
+        until: formatDurationMs(snooze.untilMs - now)
+      })
+      : t("snooze.summary.active", {
+        time: formatDurationMs(snooze.untilMs - now)
+      });
     endSnoozeButton.classList.remove("hidden");
     endSnoozeButton.disabled = isEnforceOnly(group);
   } else {
@@ -3696,6 +3727,7 @@ function renderEditor(now = Date.now()) {
     resetIntervalHoursField.value = "";
     resetAtMidnightField.checked = false;
     rollingLimitField.checked = false;
+    snoozeKindField.value = "time";
     snoozeMinutesField.value = "";
     snoozeActivationDelayField.value = "";
     snoozeCooldownField.value = "";
@@ -3827,6 +3859,7 @@ function renderEditor(now = Date.now()) {
   resetAtMidnightField.checked = draft?.resetAtMidnight ?? group.resetAtMidnight === true;
   rollingLimitField.checked = draft?.rollingLimit ?? group.rollingLimit === true;
   allowSnoozeField.checked = draft?.allowSnooze ?? (group.allowSnooze !== false);
+  snoozeKindField.value = draft?.snoozeKind ?? (group.snoozeKind === "budget" ? "budget" : "time");
   snoozeMinutesField.value = draft?.snoozeMinutes ?? String(group.snoozeMinutes);
   snoozeActivationDelayField.value =
     draft?.snoozeActivationDelayMinutes ??
@@ -4108,6 +4141,7 @@ function stashCurrentDraft() {
     resetAtMidnight: resetAtMidnightField.checked,
     rollingLimit: rollingLimitField.checked,
     allowSnooze: allowSnoozeField.checked,
+    snoozeKind: snoozeKindField.value === "budget" ? "budget" : "time",
     snoozeMinutes: snoozeMinutesField.value,
     snoozeActivationDelayMinutes: snoozeActivationDelayField.value,
     snoozeCooldownMinutes: snoozeCooldownField.value,
@@ -4729,6 +4763,7 @@ function buildUpdatedGroupFromDraft(group, draft) {
   const resetAtMidnight = draft.resetAtMidnight === true;
   const rollingLimit = draft.rollingLimit === true;
   const allowSnooze = Boolean(draft.allowSnooze);
+  const snoozeKind = draft.snoozeKind === "budget" ? "budget" : "time";
   const snoozeMinutes = parseSnoozeMinutes(draft.snoozeMinutes);
   const snoozeActivationDelayMinutes = parseSnoozeDelayMinutes(draft.snoozeActivationDelayMinutes);
   const snoozeCooldownMinutes = parseSnoozeCooldownMinutes(draft.snoozeCooldownMinutes);
@@ -4809,6 +4844,7 @@ function buildUpdatedGroupFromDraft(group, draft) {
       resetAtMidnight: isCustomGroup ? group.resetAtMidnight === true : resetAtMidnight,
       rollingLimit: isCustomGroup ? group.rollingLimit === true : rollingLimit,
       allowSnooze,
+      snoozeKind: isCustomGroup ? (group.snoozeKind === "budget" ? "budget" : "time") : snoozeKind,
       snoozeMinutes: snoozeMinutes ?? group.snoozeMinutes,
       snoozeActivationDelayMinutes:
         snoozeActivationDelayMinutes ?? group.snoozeActivationDelayMinutes,
@@ -5231,10 +5267,10 @@ function closeUnfreezeFlow() {
 function showSnoozeNotice(group, snoozeEntry, totalBeforeMs) {
   const activationDelayMs = Math.max(0, snoozeEntry.startsAtMs - Date.now());
   cbDialog.alert(
-    t("snooze.noticePopup", {
+    t(snoozeEntry.kind === "budget" ? "snooze.noticePopupBudget" : "snooze.noticePopup", {
       name: group.name,
       total: formatDurationMs(totalBeforeMs),
-      upcoming: formatDurationMs(snoozeEntry.untilMs - snoozeEntry.startsAtMs),
+      upcoming: formatDurationMs(snoozeEntry.kind === "budget" ? snoozeEntry.extraMs : snoozeEntry.untilMs - snoozeEntry.startsAtMs),
       delay: formatDurationMs(activationDelayMs)
     }),
     { confirmText: t("modal.confirm") }
@@ -5433,7 +5469,8 @@ function showSnoozeInProgress(entry, phase) {
   if (phase === "pending") {
     setSnoozeWarning(t("snooze.warning.pending", { time: formatDurationMs(entry.startsAtMs - now) }));
   } else if (phase === "active") {
-    setSnoozeWarning(t("snooze.warning.active", { time: formatDurationMs(entry.untilMs - now) }));
+    setSnoozeWarning(t(entry.kind === "budget" ? "snooze.warning.activeBudget" : "snooze.warning.active",
+      { time: formatDurationMs(entry.untilMs - now) }));
   } else if (phase === "cooldown") {
     setSnoozeWarning(t("snooze.warning.cooldown", { time: formatDurationMs(entry.cooldownUntilMs - now) }));
   }
@@ -5450,7 +5487,7 @@ async function applySnoozeStart(group) {
     return;
   }
   const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
-  const snoozeEntry = CBGroupActions.snoozeEntry(group, now);
+  const snoozeEntry = CBGroupActions.snoozeEntry(group, now, state.usageResetAtMs[group.id]);
   state.groupSnoozes[group.id] = snoozeEntry;
   const minutes = Number(group.snoozeMinutes) || 0;
   await persistSnooze(
@@ -5458,7 +5495,8 @@ async function applySnoozeStart(group) {
     snoozeEntry,
     snoozeEntry.startsAtMs > now
       ? t("status.snoozeScheduled", { name: group.name, delay: formatDurationMs(snoozeEntry.startsAtMs - now) })
-      : t("status.snoozed", { name: group.name, minutes, suffix: minutes === 1 ? "" : "s" })
+      : t(snoozeEntry.kind === "budget" ? "status.snoozedBudget" : "status.snoozed",
+        { name: group.name, minutes, suffix: minutes === 1 ? "" : "s" })
   );
   render();
   showSnoozeNotice(group, snoozeEntry, totalBeforeMs);
@@ -5656,6 +5694,11 @@ for (const field of [resetAtMidnightField, rollingLimitField]) {
     scheduleAutosave();
   });
 }
+
+snoozeKindField.addEventListener("change", () => {
+  stashCurrentDraft();
+  scheduleAutosave();
+});
 
 snoozeMinutesField.addEventListener("input", () => {
   stashCurrentDraft();
