@@ -3714,6 +3714,20 @@ function updateSnoozeUI(group, now = Date.now()) {
 }
 
 function renderEditor(now = Date.now()) {
+  renderEditorFields(now);
+  syncMoreRows();
+}
+
+// "More" holds the rarely used settings, away from the part they belong to: a
+// row marked data-follows="<id>" shows only while that part shows.
+function syncMoreRows() {
+  for (const row of document.querySelectorAll("[data-follows]")) {
+    const part = document.getElementById(row.dataset.follows);
+    row.classList.toggle("follow-hidden", !part || Boolean(part.closest(".hidden, [hidden]")));
+  }
+}
+
+function renderEditorFields(now) {
   const group = getSelectedGroup();
 
   if (!group) {

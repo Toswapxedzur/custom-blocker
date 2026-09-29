@@ -479,9 +479,5 @@
   "link.candidate": "{name} ({program})",
   "editor.whatTitle": "What",
   "editor.whenTitle": "When",
-  "editor.snoozeOptions": "Snooze options",
-  "editor.freezeOptions": "Freeze options",
-  "editor.more": "More",
-  "editor.options": "Options",
-  "editor.resetOptions": "Reset options"
+  "editor.more": "More"
 }
