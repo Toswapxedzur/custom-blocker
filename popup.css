@@ -1539,8 +1539,9 @@ code {
   box-shadow: inset 0 0 0 1.5px var(--navy-700);
 }
 
-.scope-add-select {
-  margin-top: 8px;
+/* The select itself is hidden; vault-ui.js draws the dropdown right after it. */
+.scope-add-select + .vui-select {
+  margin-top: 12px;
 }
 
 .page-action-row {
