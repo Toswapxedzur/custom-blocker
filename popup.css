@@ -271,6 +271,12 @@ button,
   box-shadow: 0 18px 38px rgba(15, 23, 42, 0.22);
 }
 
+/* A group that is off is dimmed; its switch stays clear to turn it back on. */
+.group-card.is-off .group-name,
+.group-card.is-off .group-meta {
+  opacity: 0.5;
+}
+
 .group-card.active {
   background: var(--navy-100);
   box-shadow: 0 8px 18px rgba(30, 58, 138, 0.16);
@@ -2042,13 +2048,8 @@ textarea {
 .connection-group-section.bridge-linked { --vui-check: var(--gold-700); }
 
 /* Dropdowns: full width like v2.1's selects, except the small inline ones. */
-.add-group-controls .vui-select,
 .link-row .vui-select {
   width: auto;
-}
-
-.add-group-controls .vui-select-button {
-  padding: 7px 10px;
 }
 
 /* ── The editor's blocks (What / When / Snooze / Freeze / More) ─────────── */
