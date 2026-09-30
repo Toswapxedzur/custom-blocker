@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title data-i18n="app.title">Adamancia Vault — Website Blocker & Focus Timer</title>
+    <title data-i18n="app.title">Adamancia Vault</title>
     <link rel="icon" media="(prefers-color-scheme: light)" href="icons/adamancia-vault-lock-v3-128.png" />
     <link rel="icon" media="(prefers-color-scheme: dark)" href="icons/adamancia-vault-lock-inverse-dark-128.png?v=20260712b" />
     <link rel="stylesheet" href="vault-ui.css" />
@@ -59,11 +59,9 @@
           <div class="groups-head">
             <h2 data-i18n="groups.title">Groups</h2>
             <div class="add-group-controls">
-              <select id="addGroupType" aria-label="Block group type to add" data-i18n-aria-label="groups.addTypeAria">
-                <option value="site" data-i18n="groupType.site">Default</option>
-                <option value="platform" data-i18n="groupType.platform">Platform</option>
-                <option value="custom" data-i18n="groupType.custom">Custom</option>
-              </select>
+              <!-- A group covers websites, platforms and apps through "Applies to";
+                   only a custom rule is a different kind of group. -->
+              <button id="addCustomGroupButton" type="button" class="secondary" data-i18n="groups.addCustom">Add custom rule</button>
               <button id="addGroupButton" type="button" class="primary" data-i18n="groups.addButton">Add</button>
             </div>
           </div>
@@ -325,6 +323,20 @@
                 This copies a bundled prompt with your request, the current rule, and the custom-rule API reference. Paste it into your AI tool, then paste the generated code back here.
               </p>
             </div>
+            <!-- The rules' own output (v.log), under the code that writes it. -->
+            <details id="logFeedSection" class="log-feed">
+              <summary>
+                <span data-i18n="logFeed.title">Log</span>
+                <span id="logFeedCount" class="log-feed-count">0</span>
+              </summary>
+              <div class="log-feed-toolbar">
+                <button id="logFeedDownload" type="button" class="weird" title="Download logs" aria-label="Download logs">⬇</button>
+                <span class="log-feed-hint" data-i18n="logFeed.hint">Output from v.log() inside your custom rules.</span>
+                <button id="logFeedClear" type="button" class="weird" data-i18n="logFeed.clear">Clear</button>
+              </div>
+              <div id="logFeedList" class="log-feed-list" aria-live="polite"></div>
+              <p id="logFeedEmpty" class="log-feed-empty" data-i18n="logFeed.empty">No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.</p>
+            </details>
 
           </section>
           </section>
@@ -452,7 +464,7 @@
                 <span data-i18n="sites.allowlistLabel">Block everything except these sites</span>
               </label>
               <p class="field-help" data-i18n="sites.allowlistHelp">
-                When on, this group blocks the entire web except the sites listed below
+                When on, this group blocks the entire web except the sites listed above
                 (an allowlist). When off, it blocks only the listed sites.
               </p>
             </div>
@@ -462,7 +474,7 @@
                 <span data-i18n="apps.allowlistLabel">Block every application except these</span>
               </label>
               <p class="field-help desktop-only" data-i18n="apps.allowlistHelp">
-                When on, this group blocks every application except the ones listed below (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.
+                When on, this group blocks every application except the ones listed above (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.
               </p>
             </div>
             <div class="more-row" data-follows="platformTagListBlock">
@@ -702,19 +714,6 @@
           <p class="field-help" data-i18n="classifierBridge.taggingModeHelp">
             Tagging runs the local model. "Only while a tag filter is active" follows your groups' schedules, so nothing runs outside the hours you block. Paused: tag filters see everything as untagged.
           </p>
-          <details id="logFeedSection" class="log-feed">
-            <summary>
-              <span data-i18n="logFeed.title">Log</span>
-              <span id="logFeedCount" class="log-feed-count">0</span>
-            </summary>
-            <div class="log-feed-toolbar">
-              <button id="logFeedDownload" type="button" class="weird" title="Download logs" aria-label="Download logs">⬇</button>
-              <span class="log-feed-hint" data-i18n="logFeed.hint">Output from v.log() inside your custom rules.</span>
-              <button id="logFeedClear" type="button" class="weird" data-i18n="logFeed.clear">Clear</button>
-            </div>
-            <div id="logFeedList" class="log-feed-list" aria-live="polite"></div>
-            <p id="logFeedEmpty" class="log-feed-empty" data-i18n="logFeed.empty">No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.</p>
-          </details>
         </section>
 
         <section class="settings-group">
@@ -743,7 +742,7 @@
           <button id="settingsResetButton" type="button" class="danger" data-i18n="settings.reset">
             Reset to defaults
           </button>
-          <button id="deleteAllGroupsButton" type="button" class="danger" data-i18n="groups.deleteAllButton">Clear</button>
+          <button id="deleteAllGroupsButton" type="button" class="danger" data-i18n="groups.deleteAllButton">Delete all groups</button>
         </div>
         <p id="settingsStatus" class="inline-warning"></p>
       </div>
