@@ -153,13 +153,10 @@
             <div id="blockedAppsList" class="app-chip-list" role="list"></div>
           </section>
 
-            <section id="platformRulesCard" class="section-card hidden">
-            <div class="section-header">
-              <div>
-                <h3 id="platformRulesTitle"></h3>
-                <p id="platformRulesCopy" class="section-copy"></p>
-              </div>
-            </div>
+            <section id="platformRulesCard" class="hidden">
+            <!-- Straight in "What", like the custom rules (no card of its own). -->
+            <span id="platformRulesTitle" class="label"></span>
+            <p id="platformRulesCopy" class="field-help"></p>
 
             <!-- Verified card/content controls. Kept immediately below the
                  platform choice so each platform's actual available card
@@ -324,13 +321,13 @@
               </p>
             </div>
             <!-- The rules' own output (v.log), under the code that writes it. -->
-            <details id="logFeedSection" class="log-feed">
+            <details id="logFeedSection" class="vui-expand log-feed">
               <summary>
                 <span data-i18n="logFeed.title">Log</span>
                 <span id="logFeedCount" class="log-feed-count">0</span>
               </summary>
               <div class="log-feed-toolbar">
-                <button id="logFeedDownload" type="button" class="weird" title="Download logs" aria-label="Download logs">⬇</button>
+                <button id="logFeedDownload" type="button" class="weird" data-hint="Download logs" aria-label="Download logs">⬇</button>
                 <span class="log-feed-hint" data-i18n="logFeed.hint">Output from v.log() inside your custom rules.</span>
                 <button id="logFeedClear" type="button" class="weird" data-i18n="logFeed.clear">Clear</button>
               </div>
