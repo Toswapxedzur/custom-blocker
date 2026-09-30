@@ -90,7 +90,9 @@
           sourceKind: "account",
           entryURL: entry.href,
           sourceURL,
-          sourceName: core.firstText(source, ["[aria-label]"]) || core.compactText(source?.textContent, 256) || `@${route.handle}`,
+          // The profile link's text is the display name (an aria-label inside it
+          // is the "Verified account" badge, not the name).
+          sourceName: core.compactText(source?.textContent, 256) || `@${route.handle}`,
           title: core.compactText(text, 500) || core.compactText(entry.getAttribute("aria-label") || entry.textContent, 500),
           text,
           suppliedTags: suppliedTags(textRoot),
@@ -121,7 +123,7 @@
         sourceKind: "account",
         entryURL: global.location.href,
         sourceURL,
-        sourceName: core.firstText(root, ['[data-testid="User-Name"]']) || core.compactText(source?.textContent, 256) || `@${route.handle}`,
+        sourceName: core.compactText(source?.textContent, 256) || `@${route.handle}`,
         title,
         text,
         suppliedTags: suppliedTags(textRoot),
