@@ -47,8 +47,6 @@
   "groups.addButton": "जोड़ें",
   "groups.deleteAllButton": "Delete all groups",
   "groups.deleteAllDisabled": "Delete all groups is unavailable while a frozen group's wait is still running.",
-  "groups.deleteAllConfirm": "Delete all groups? This cannot be undone.",
-  "groups.deleteAllConfirmFrozen": "Delete all groups? Some are frozen. This cannot be undone.",
   "groupType.site": "गलती करना",
   "groupType.youtube": "यूट्यूब",
   "groupType.tiktok": "टिकटोक",
@@ -454,5 +452,6 @@
   "editor.whenTitle": "When",
   "editor.more": "More",
   "modal.confirmProgress": "{label}: {count} confirmations left",
-  "groups.addCustom": "Add custom rule"
+  "groups.addCustom": "Add custom rule",
+  "confirm.clickAgain": "Click again to delete"
 }

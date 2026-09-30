@@ -4,7 +4,8 @@
    next budget reset (rolling limit: one window, or midnight with that option),
    ended once used up. One copy of the rules in group-actions.js (editor, worker,
    Mac Vault via JavaScriptCore); the worker's tidy (applyRuntimeNormalizations)
-   ends a used-up budget snooze and counts it from the period it ran in. */
+   ends a used-up budget snooze; its time is counted as it is used
+   (snoozeGivenMs, added at each accrual step). */
 "use strict";
 process.env.TZ = "UTC";
 const fs = require("node:fs");
@@ -92,11 +93,19 @@ const group = (extra = {}) => ({
   check("used up: the snooze ends now (the block returns)", ended && ended.untilMs === at(21, 11, 30) && ended.kind === "budget", ended);
   check("…and its cooldown runs from now", ended.cooldownUntilMs === at(21, 11, 30) + 2 * MIN);
   check("…so a new snooze can follow the cooldown", call("snoozePlan(g, e, n).error", { g: group(), e: ended, n: at(21, 11, 33) }) === undefined);
-  check("counted: the extra minutes used (all 10)", call("snoozeCountedMs(e, g, u)", { e: ended, g: group(), u: 25 * MIN }) === 10 * MIN);
-  check("counted: only the part used beyond the allowance (18 min used → 3)", call("snoozeCountedMs(e, g, u)", { e: b, g: group(), u: 18 * MIN }) === 3 * MIN);
-  check("counted: nothing when the extra wasn't needed", call("snoozeCountedMs(e, g, u)", { e: b, g: group(), u: 9 * MIN }) === 0);
+  // Counted as it is used (owner 2026-09-30: to the second): the part of each
+  // accrual step above the plain allowance, while the snooze runs.
+  const given = (before, added, n = at(21, 11, 30), e = b) => call("snoozeGivenMs(g, e, u, d, n)", { g: group(), e, u: before, d: added, n });
+  check("given: a second used beyond the allowance counts (15:00 → 15:01)", given(15 * MIN, 1000) === 1000);
+  check("given: only the part above the allowance (14:59.5 + 1 s → 0.5 s)", given(15 * MIN - 500, 1000) === 500);
+  check("given: nothing below the allowance", given(9 * MIN, 1000) === 0);
+  check("given: nothing before the snooze runs", given(15 * MIN, 1000, at(21, 10, 59)) === 0);
+  check("given: nothing once the room has lapsed", given(15 * MIN, 1000, at(21, 12, 1)) === 0);
+  check("given: nothing after it ended (used up)", given(15 * MIN, 1000, at(21, 11, 31), ended) === 0);
+  check("a finished budget snooze adds nothing more at the end", call("snoozeCountedMs(e)", { e: ended }) === 0);
   const t = call("snoozeEntry(g, n, a)", { g: group({ snoozeKind: "time" }), n: at(21, 11), a: at(21, 10) });
-  check("a time snooze still counts its clock time", call("snoozeCountedMs(e, g, u)", { e: t, g: group(), u: 0 }) === 10 * MIN);
+  check("a time snooze still counts its clock time", call("snoozeCountedMs(e)", { e: t }) === 10 * MIN);
+  check("a time snooze gives nothing per step (it exempts instead)", given(15 * MIN, 1000, at(21, 11, 5), t) === 0);
 }
 
 // Stored and shared entries keep their kind; tools check the setting
@@ -115,14 +124,14 @@ const group = (extra = {}) => ({
   const g = group();
   const b = call("snoozeEntry(g, n, a)", { g, n: at(21, 11), a: at(21, 10) });
   let out = call("applyRuntimeNormalizations([g], t, r, s, tot, n, {})",
-    { g, t: { g: 25 * MIN }, r: { g: at(21, 10) }, s: { g: b }, tot: { g: 0 }, n: at(21, 11, 40) });
+    { g, t: { g: 25 * MIN }, r: { g: at(21, 10) }, s: { g: b }, tot: { g: 7 * MIN }, n: at(21, 11, 40) });
   check("tidy: a used-up budget snooze is ended", out.groupSnoozes.g.untilMs === at(21, 11, 40), out.groupSnoozes.g);
-  check("tidy: …and counted once (10 min)", out.groupSnoozeTotalsMs.g === 10 * MIN && out.groupSnoozes.g.activeMsApplied === true);
-  // A budget snooze that lapses at the reset: counted from the period it ran in, then the budget resets.
+  check("tidy: …and marked done without adding (its time was counted as used)", out.groupSnoozeTotalsMs.g === 7 * MIN && out.groupSnoozes.g.activeMsApplied === true, out.groupSnoozeTotalsMs);
+  // A budget snooze that lapses at the reset: nothing more to count, and the budget resets.
   const b2 = call("snoozeEntry(g, n, a)", { g, n: at(21, 11), a: at(21, 10) });
   out = call("applyRuntimeNormalizations([g], t, r, s, tot, n, {})",
-    { g, t: { g: 19 * MIN }, r: { g: at(21, 10) }, s: { g: b2 }, tot: { g: 0 }, n: at(21, 12, 1) });
-  check("tidy: a snooze lapsing at the reset counts the extra used before it (4 min)", out.groupSnoozeTotalsMs.g === 4 * MIN, out.groupSnoozeTotalsMs);
+    { g, t: { g: 19 * MIN }, r: { g: at(21, 10) }, s: { g: b2 }, tot: { g: 4 * MIN }, n: at(21, 12, 1) });
+  check("tidy: a snooze lapsing at the reset keeps the total counted while used (4 min)", out.groupSnoozeTotalsMs.g === 4 * MIN, out.groupSnoozeTotalsMs);
   check("tidy: …and the budget still resets", out.usageTimersMs.g === 0 && out.usageResetAtMs.g === at(21, 12));
 }
 

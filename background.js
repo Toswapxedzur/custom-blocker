@@ -472,9 +472,10 @@ function applyRuntimeNormalizations(
   const groupById = new Map(groups.map((group) => [group.id, group]));
 
   // Snoozes first, on this period's usage (a budget snooze lapses at the reset
-  // below, and its used extra minutes belong to the period it ran in):
-  // a budget snooze whose extra room is used up ends now; a snooze that ran
-  // out (or was ended) adds to the group's total once. The entry itself stays
+  // below): a budget snooze whose extra room is used up ends now; a time
+  // snooze that ran out (or was ended) adds its clock time to the group's total
+  // once (a budget snooze's time is counted as it is used, in applyElapsedTime).
+  // The entry itself stays
   // (group-actions.js: a group's last entry is never deleted), so an older one
   // shared by another device is never taken back.
   for (const [groupId, snooze] of Object.entries(nextSnoozes)) {
@@ -488,7 +489,7 @@ function applyRuntimeNormalizations(
     if (!entry.activeMsApplied && now >= entry.untilMs) {
       nextSnoozeTotals[groupId] =
         Math.max(0, Number(nextSnoozeTotals[groupId]) || 0) +
-        CBGroupActions.snoozeCountedMs(entry, group, nextTimers[groupId]);
+        CBGroupActions.snoozeCountedMs(entry);
       nextSnoozes[groupId] = { ...entry, activeMsApplied: true };
       changed = true;
     }
@@ -957,6 +958,7 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
     usageResetAtMs,
     usageBucketsMs,
     groupSnoozes,
+    groupSnoozeTotalsMs,
     didApplyResets
   } = await getState();
 
@@ -996,6 +998,8 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
   const nextTimers = { ...usageTimersMs };
   const nextBuckets = { ...(usageBucketsMs ?? {}) };
   const bucketDeltas = {};
+  // What running budget snoozes gave in this step (counted as it is used).
+  const snoozeGiven = {};
   let changed = false;
   let bucketsChanged = false;
   let reachedLimit = false;
@@ -1028,9 +1032,11 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
       nextBuckets[group.id] = cbPruneUsageBuckets(buckets, group, now);
       bucketsChanged = true;
       nextValue = cbBucketsUsedMs(nextBuckets[group.id]);
+      snoozeGiven[group.id] = CBGroupActions.snoozeGivenMs(group, groupSnoozes[group.id], currentValue, added, now);
     } else {
       nextValue = Math.min(currentValue + groupElapsedMs, thresholdMs);
       if (hubAway && nextValue > currentValue && cbGroupInLink(group)) offlineDeltas[group.id] = { ms: nextValue - currentValue };
+      snoozeGiven[group.id] = CBGroupActions.snoozeGivenMs(group, groupSnoozes[group.id], currentValue, nextValue - currentValue, now);
     }
     if (nextValue !== currentValue) {
       nextTimers[group.id] = nextValue;
@@ -1042,6 +1048,12 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
   if (changed || bucketsChanged) {
     const writes = { [USAGE_TIMERS_KEY]: nextTimers };
     if (bucketsChanged) writes[USAGE_BUCKETS_KEY] = nextBuckets;
+    const given = Object.entries(snoozeGiven).filter(([, ms]) => ms > 0);
+    if (given.length) {
+      const totals = { ...groupSnoozeTotalsMs };
+      for (const [id, ms] of given) totals[id] = (Number(totals[id]) || 0) + ms;
+      writes[GROUP_SNOOZE_TOTALS_KEY] = totals;
+    }
     await chrome.storage.local.set(writes);
     // Report accrual to the hub so clustered Default groups keep one shared
     // live budget even while this browser's popup is closed.

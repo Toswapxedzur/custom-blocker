@@ -70,6 +70,33 @@ const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
   await run(`applyElapsedTime("example.com", 1000, [])`);
   check("a heartbeat overlapping counted time adds only the new part", await used("a") === 2500, await used("a"));
 
+  // A budget snooze's time is counted as it is used, to the second (owner
+  // 2026-09-30), also on a rolling limit whose usage is kept per minute.
+  const budgetGroups = run(`sanitizeGroups(${JSON.stringify([
+    { id: "c", name: "C", groupType: "site", sites: ["fixed.test"], enabled: true, mode: "after-minutes", allowedMinutes: 1, resetIntervalHours: 24, snoozeKind: "budget", snoozeMinutes: 1, activeDays: days, timeWindowsText: "" },
+    { id: "d", name: "D", groupType: "site", sites: ["rolling.test"], enabled: true, mode: "after-minutes", allowedMinutes: 1, resetIntervalHours: 3, rollingLimit: true, snoozeKind: "budget", snoozeMinutes: 1, activeDays: days, timeWindowsText: "" }
+  ])})`);
+  const minute = Math.floor(clock / 60000) * 60000;
+  const snooze = { kind: "budget", extraMs: 60000, startsAtMs: clock - 1000, untilMs: clock + 3600000, cooldownUntilMs: clock + 3600000, confirmationCount: 0, activeMsApplied: false, changedAtMs: clock - 1000 };
+  await context.chrome.storage.local.set({
+    blockedGroups: [...groups, ...budgetGroups],
+    usageTimersMs: { ...((await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {}), c: 59500, d: 60000 },
+    usageResetAtMs: { c: clock - 1000 },
+    usageBucketsMs: { d: { [String(minute - 120000)]: 60000 } },
+    groupSnoozes: { c: snooze, d: snooze },
+    groupSnoozeTotalsMs: {}
+  });
+  const totals = async () => (await context.chrome.storage.local.get("groupSnoozeTotalsMs")).groupSnoozeTotalsMs || {};
+  for (let i = 0; i < 3; i += 1) {
+    clock += 1000;
+    await run(`applyElapsedTime("fixed.test", 1000, [])`);
+    await run(`applyElapsedTime("rolling.test", 1000, [])`);
+  }
+  const t = await totals();
+  check("budget snooze, fixed budget: only the part past the allowance counts (0.5 s under it, then 3 s → 2.5 s)", t.c === 2500, t);
+  check("budget snooze, rolling limit: each second used past the allowance counts (3 s)", t.d === 3000, t);
+  check("…and the usage itself runs on", await used("c") === 62500 && await used("d") === 63000, [await used("c"), await used("d")]);
+
   console.log(`USAGE ONCE TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
   if (fail) process.exitCode = 1;

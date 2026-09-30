@@ -1132,6 +1132,7 @@ function applyStaticTranslations() {
   document.title = t("app.title");
 
   for (const element of document.querySelectorAll("[data-i18n]")) {
+    if (element.dataset.armed) continue; // a delete button asking to be clicked again
     element.textContent = t(element.dataset.i18n);
   }
 
@@ -1515,7 +1516,8 @@ if (appPickerModal) {
 }
 if (clearAppsButton) {
   clearAppsButton.addEventListener("click", () => {
-    if (blockedAppsEditable) commitBlockedApps([]);
+    if (!blockedAppsEditable || !VaultUI.confirmClick(clearAppsButton, t("confirm.clickAgain"))) return;
+    commitBlockedApps([]);
   });
 }
 if (appsAllowlistField) {
@@ -4452,15 +4454,6 @@ async function deleteAllGroups() {
     return;
   }
 
-  const confirmed = await cbDialog.confirm(
-    plan.needsConfirmation ? t("groups.deleteAllConfirmFrozen") : t("groups.deleteAllConfirm"),
-    { danger: true, confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
-  );
-
-  if (!confirmed) {
-    return;
-  }
-
   if (!(await unlockParentalGroupsForDeleteAll(plan))) return;
 
   if (plan.needsConfirmation) {
@@ -6138,6 +6131,7 @@ if (settingsResetButton) {
 }
 
 deleteAllGroupsButton.addEventListener("click", () => {
+  if (!VaultUI.confirmClick(deleteAllGroupsButton, t("confirm.clickAgain"))) return;
   deleteAllGroups().catch((error) => {
     console.error("Failed to delete all groups.", error);
     setStatus(t("status.errorDeleteAllGroups"), true);
@@ -6159,6 +6153,7 @@ importGroupButton.addEventListener("click", () => {
 });
 
 deleteGroupButton.addEventListener("click", () => {
+  if (!VaultUI.confirmClick(deleteGroupButton, t("confirm.clickAgain"))) return;
   deleteSelectedGroup().catch((error) => {
     console.error("Failed to delete block group.", error);
     setStatus(t("status.errorDeleteGroup"), true);
@@ -6166,7 +6161,7 @@ deleteGroupButton.addEventListener("click", () => {
 });
 
 clearSitesButton.addEventListener("click", () => {
-  clearSelectedSites();
+  if (VaultUI.confirmClick(clearSitesButton, t("confirm.clickAgain"))) clearSelectedSites();
 });
 
 applyFreezeButton.addEventListener("click", () => {

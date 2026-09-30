@@ -47,8 +47,6 @@
   "groups.addButton": "Add",
   "groups.deleteAllButton": "Delete all groups",
   "groups.deleteAllDisabled": "Delete all groups is unavailable while a frozen group's wait is still running.",
-  "groups.deleteAllConfirm": "Delete all groups? This cannot be undone.",
-  "groups.deleteAllConfirmFrozen": "Delete all groups? Some are frozen. This cannot be undone.",
   "groupType.site": "Default",
   "groupType.youtube": "YouTube",
   "groupType.tiktok": "TikTok",
@@ -215,8 +213,8 @@
   "schedule.copy": "Limit this group to certain days or time windows.",
   "schedule.days": "Days to block",
   "schedule.windows": "Time windows",
-  "schedule.windowsPlaceholder": "0900-1000\n1200-1300",
-  "schedule.help": "Leave blank to apply all day. Use one range per line in HHMM-HHMM format.",
+  "schedule.windowsPlaceholder": "09:00-10:00\n12:00-13:00",
+  "schedule.help": "Leave blank to apply all day. One range per line, like 09:00-10:00.",
   "day.mon": "Mon",
   "day.tue": "Tue",
   "day.wed": "Wed",
@@ -368,7 +366,7 @@
   "status.invalidSnoozeConfirmations": "Times of confirmation must be an integer greater than or equal to 0.",
   "status.invalidResetHours": "Timer reset interval must be greater than 0 hours.",
   "status.invalidSnoozeMinutes": "Snooze minutes must be a number greater than 0.",
-  "status.invalidTimeWindows": "Invalid time windows: {list}. Use HHMM-HHMM.",
+  "status.invalidTimeWindows": "Invalid time windows: {list}. Use a range like 09:00-10:00.",
   "status.invalidSites": "These entries are invalid: {list}",
   "status.errorRunCustomGroup": "Could not (re)load custom-group handlers. Check the rule for syntax / runtime errors.",
   "status.customRunHaltedTimeBudget": "Run halted: rule exceeded the time budget.",
@@ -454,5 +452,6 @@
   "editor.whenTitle": "When",
   "editor.more": "More",
   "modal.confirmProgress": "{label}: {count} confirmations left",
-  "groups.addCustom": "Add custom rule"
+  "groups.addCustom": "Add custom rule",
+  "confirm.clickAgain": "Click again to delete"
 }
