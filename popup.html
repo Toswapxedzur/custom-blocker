@@ -81,7 +81,12 @@
           tabindex="0"
         ></div>
 
-        <section class="editor-panel">
+        <section id="editorPanel" class="editor-panel">
+          <!-- No groups yet: the editor shows only this (owner 2026-09-30). -->
+          <div id="editorEmpty" class="editor-empty hidden">
+            <p data-i18n="empty.noGroups">No block groups yet. Add your first group to begin.</p>
+            <button id="emptyAddGroupButton" type="button" class="primary" data-i18n="groups.addButton">Add</button>
+          </div>
           <div class="editor-head">
             <input
               id="groupName"
@@ -276,12 +281,8 @@
 
           </section>
 
-            <section id="customSettingsCard" class="section-card hidden">
-            <div class="section-header">
-              <div>
-                <h3 data-i18n="custom.title">Blocking Rules</h3>
-              </div>
-            </div>
+            <section id="customSettingsCard" class="hidden">
+            <span class="label" data-i18n="custom.title">Blocking Rules</span>
 
 
             <div id="blockingRulesEditor" class="code-editor">
@@ -328,7 +329,7 @@
           </section>
           </section>
 
-          <section class="section-card when-card">
+          <section id="whenSection" class="section-card when-card">
             <h3 class="block-title" data-i18n="editor.whenTitle">When</h3>
             <div id="blockModeSection" class="field-row">
               <label class="label" for="blockMode" data-i18n="editor.blockMode">Blocking behavior</label>
@@ -683,12 +684,8 @@
             <section class="settings-col">
               <h4 class="settings-col-title" data-i18n="settings.colConnections">Data &amp; files</h4>
 
-        <section id="classifierBridgeSection" class="section-card settings-section-card browser-only">
-          <div class="section-header">
-            <div>
-              <h3 data-i18n="classifierBridge.title">Vault Classifier</h3>
-            </div>
-          </div>
+        <section id="classifierBridgeSection" class="settings-group browser-only">
+          <span class="label" data-i18n="classifierBridge.title">Vault Classifier</span>
           <label class="checkbox-row compact" for="classifierCollectionToggle">
             <input id="classifierCollectionToggle" type="checkbox" checked />
             <span data-i18n="classifierBridge.collection">Collect supported platform entries</span>
@@ -720,15 +717,11 @@
           </details>
         </section>
 
-        <section class="section-card settings-section-card">
-          <div class="section-header">
-            <div>
-              <h3 data-i18n="settings.localFolderTitle">Local File Folder</h3>
-              <p class="section-copy" data-i18n="settings.localFolderCopy">
-                Grant a folder for custom rules to read and write .txt, .csv, and .json files. Paths stay inside this folder.
-              </p>
-            </div>
-          </div>
+        <section class="settings-group">
+          <span class="label" data-i18n="settings.localFolderTitle">Local File Folder</span>
+          <p class="field-help" data-i18n="settings.localFolderCopy">
+            Grant a folder for custom rules to read and write .txt, .csv, and .json files. Paths stay inside this folder.
+          </p>
           <div class="field-actions">
             <button id="localFolderChooseButton" type="button" class="secondary" data-i18n="settings.localFolderChoose">
               Choose folder
