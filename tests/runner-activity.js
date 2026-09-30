@@ -17,6 +17,28 @@ function check(label, ok, detail) {
 }
 function eq(label, a, b) { check(label, JSON.stringify(a) === JSON.stringify(b), `${JSON.stringify(a)} vs ${JSON.stringify(b)}`); }
 
+// contentFor (vault-activity-content.js): which one piece of content an address shows.
+globalThis.VaultClassifierExtensionContract = {
+  youtubeVideoIDFromURL: (href) => { const m = String(href).match(/[?&]v=([A-Za-z0-9_-]{11})/); return m ? m[1] : null; },
+};
+require(path.join(__dirname, "..", "vault-activity-content.js"));
+const contentFor = globalThis.VaultActivityContent.contentFor;
+const piece = (platform, href, title) => { const c = contentFor(platform, href, title); return c && [c.key, c.label, c.video]; };
+eq("youtube watch", piece("youtube", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "Song - YouTube"), ["youtube:dQw4w9WgXcQ", "Song", true]);
+eq("youtube feed is no one piece", piece("youtube", "https://www.youtube.com/", "YouTube"), null);
+eq("bilibili video", piece("bilibili", "https://www.bilibili.com/video/BV1xx411c7mD/", "标题_哔哩哔哩_bilibili"), ["bilibili:BV1xx411c7mD", "标题", true]);
+eq("twitch live channel", piece("twitch", "https://www.twitch.tv/Shroud", "shroud - Twitch"), ["twitch:shroud", "shroud", true]);
+eq("twitch past video", piece("twitch", "https://www.twitch.tv/videos/123456", "Stream - Twitch"), ["twitch:video:123456", "Stream", true]);
+eq("twitch directory is no one piece", piece("twitch", "https://www.twitch.tv/directory", "Twitch"), null);
+eq("reddit post", piece("reddit", "https://www.reddit.com/r/Brawlstars/comments/1abcde/new_brawler/", "New brawler : r/Brawlstars"), ["reddit:1abcde", "New brawler", false]);
+eq("reddit subreddit feed is no one piece", piece("reddit", "https://www.reddit.com/r/Brawlstars/", "r/Brawlstars"), null);
+eq("x post", piece("twitter", "https://x.com/ClashReport/status/1840000000000000000", "Clash Report on X: \"news\" / X"), ["twitter:1840000000000000000", "Clash Report on X: \"news\"", false]);
+eq("instagram reel", piece("instagram", "https://www.instagram.com/reel/C9abcdef/", "Reel • Instagram"), ["instagram:C9abcdef", "Reel", false]);
+eq("facebook watch", piece("facebook", "https://www.facebook.com/watch/?v=10150000000", "Video | Facebook"), ["facebook:10150000000", "Video", false]);
+eq("facebook post", piece("facebook", "https://www.facebook.com/somepage/posts/pfbid02abcDEF", "Post | Facebook"), ["facebook:pfbid02abcDEF", "Post", false]);
+eq("discord channel", piece("discord", "https://discord.com/channels/111/222", "Discord | #general | Server"), ["discord:111/222", "#general | Server", false]);
+eq("discord direct messages are not recorded", piece("discord", "https://discord.com/channels/@me/333", "Discord"), null);
+
 // domainOf
 eq("domain strips www", cbActivityDomainOf("https://www.youtube.com/watch?v=x"), "youtube.com");
 eq("domain keeps subdomain", cbActivityDomainOf("https://m.bilibili.com/x"), "m.bilibili.com");
