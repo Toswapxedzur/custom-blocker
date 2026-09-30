@@ -343,6 +343,9 @@ const endSnoozeButton = document.getElementById("endSnoozeButton");
 const snoozeNumericFields = document.getElementById("snoozeNumericFields");
 const snoozeCustomCopy = document.getElementById("snoozeCustomCopy");
 const siteSettingsSection = document.getElementById("siteSettingsSection");
+const whenSection = document.getElementById("whenSection");
+const editorPanel = document.getElementById("editorPanel");
+const editorEmpty = document.getElementById("editorEmpty");
 const siteSettingsLabel = document.getElementById("siteSettingsLabel");
 const siteAllowlistField = document.getElementById("siteAllowlist");
 const blockedSitesField = document.getElementById("blockedSites");
@@ -2962,15 +2965,6 @@ function getCurrentSnooze(groupId, now = Date.now()) {
   return getSnoozePhase(snooze, now) === "none" ? null : snooze;
 }
 
-function getDisplayedSnoozeTotalMs(groupId, now = Date.now()) {
-  const baseTotal = Math.max(0, Number(state.groupSnoozeTotalsMs[groupId]) || 0);
-  const snooze = state.groupSnoozes[groupId];
-  if (getSnoozePhase(snooze, now) !== "active") {
-    return baseTotal;
-  }
-  return baseTotal + Math.max(0, now - snooze.startsAtMs);
-}
-
 // The lock's state for the editor (the UI calls it "freeze"): locked or not,
 // and whether its wait gate still holds. The rules are group-actions.js.
 function getFreezeStatus(group, now = Date.now()) {
@@ -3409,13 +3403,8 @@ function renderGroupList(now = Date.now()) {
   groupList.classList.remove("is-reordering");
   groupList.textContent = "";
 
-  if (state.groups.length === 0) {
-    const emptyState = document.createElement("div");
-    emptyState.className = "empty-state";
-    emptyState.textContent = t("empty.noGroups");
-    groupList.appendChild(emptyState);
-    return;
-  }
+  // No groups: the editor says so, with its own Add button.
+  if (state.groups.length === 0) return;
 
   for (const group of state.groups) {
     const draft = getDraftForGroup(group.id);
@@ -3588,7 +3577,7 @@ function updateFreezeUI(group, now = Date.now()) {
   if (parentalSettingsButton) parentalSettingsButton.disabled = enforceOnly;
   freezeSetup.classList.remove("hidden");
   if (document.activeElement !== lockWaitHoursField) {
-    lockWaitHoursField.value = freezeStatus.waitHours > 0 ? String(freezeStatus.waitHours) : "";
+    lockWaitHoursField.value = String(freezeStatus.waitHours || 0);
   }
   lockPinStatus.textContent = freezeStatus.hasParentalPassword ? t("freeze.pinSet") : t("freeze.pinNone");
   applyFreezeButton.textContent = freezeStatus.isFrozen ? t("freeze.tightenButton") : t("freeze.applyButton");
@@ -3631,11 +3620,9 @@ function updateSnoozeUI(group, now = Date.now()) {
 
   const snooze = getCurrentSnooze(group.id, now);
   const snoozePhase = getSnoozePhase(snooze, now);
-  const freezeStatus = getFreezeStatus(group, now);
   // Prefer the draft so optimistic UI doesn't snap back during autosave.
   const draft = getDraftForGroup(group.id);
   const allowSnooze = draft?.allowSnooze ?? (group.allowSnooze !== false);
-  const totalSnoozedMs = getDisplayedSnoozeTotalMs(group.id, now);
   const isCustomGroup = group.groupType === "custom";
 
   // Snooze settings change only when the group can (not frozen, Mac Vault
@@ -3662,17 +3649,10 @@ function updateSnoozeUI(group, now = Date.now()) {
   }
 
   if (!snooze) {
+    // No snooze: the block says nothing (owner 2026-09-30); a line shows only
+    // while a snooze is scheduled, running or cooling down.
     startSnoozeButton.disabled = !allowSnooze || isEnforceOnly(group);
-    snoozeSummary.textContent = !allowSnooze
-      ? freezeStatus.isFrozen
-        ? t("snooze.summary.disabledFrozen")
-        : t("snooze.summary.disabled")
-      : freezeStatus.isFrozen
-        ? t("snooze.summary.frozen")
-        : t("snooze.summary.normal");
-    snoozeSummary.textContent += ` ${t("snooze.summary.total", {
-      time: formatDurationMs(totalSnoozedMs)
-    })}`;
+    snoozeSummary.textContent = "";
     endSnoozeButton.classList.add("hidden");
     return;
   }
@@ -3708,12 +3688,12 @@ function updateSnoozeUI(group, now = Date.now()) {
     });
     endSnoozeButton.classList.add("hidden");
   }
-  snoozeSummary.textContent += ` ${t("snooze.summary.total", {
-    time: formatDurationMs(totalSnoozedMs)
-  })}`;
 }
 
 function renderEditor(now = Date.now()) {
+  const noGroups = state.groups.length === 0;
+  editorPanel.classList.toggle("is-empty", noGroups);
+  editorEmpty.classList.toggle("hidden", !noGroups);
   renderEditorFields(now);
   syncMoreRows();
 }
@@ -3957,6 +3937,8 @@ function renderEditorFields(now) {
     fallbackUrlSection.classList.toggle("hidden", isCustomGroup);
   }
   scheduleSection.classList.toggle("hidden", isCustomGroup);
+  // A custom rule decides for itself when it acts: no "When" (owner 2026-09-30).
+  whenSection.classList.toggle("hidden", isCustomGroup);
   // The cards show the entry in view: the website list, the app list, or the
   // platform card. Custom rules define their own behavior and have no entries.
   siteSettingsSection.classList.toggle("hidden", !isSiteView);
@@ -4494,12 +4476,11 @@ function renderGroupScopes(group, editable) {
   groupScopesList.innerHTML = "";
   for (const key of keys) {
     const chip = document.createElement("div");
-    chip.className = `site-chip scope-chip${key === active ? " active" : ""}`;
+    chip.className = `vui-tab scope-chip${key === active ? " is-active" : ""}`;
     chip.setAttribute("role", "listitem");
     chip.tabIndex = 0;
     chip.setAttribute("aria-pressed", key === active ? "true" : "false");
     const label = document.createElement("span");
-    label.className = "site-chip-name";
     label.textContent = platformKeyLabel(key);
     chip.appendChild(label);
     const open = () => {
@@ -6195,6 +6176,8 @@ lockWaitHoursField.addEventListener("change", () => {
   const result = CBGroupActions.setGates(group, { waitHours: hours });
   persistGroupFields(group.id, CBGroupActions.lockUnit(result.group), "").catch(() => {});
 });
+
+document.getElementById("emptyAddGroupButton").addEventListener("click", () => addGroupButton.click());
 
 addGroupButton.addEventListener("click", () => {
   addGroup(addGroupTypeField.value).catch((error) => {
