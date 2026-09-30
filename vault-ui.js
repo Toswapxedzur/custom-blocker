@@ -11,7 +11,7 @@
   const document = global.document;
   // Only a real page has selects to replace (not a test's stand-in DOM).
   if (!document || typeof HTMLSelectElement === "undefined" || typeof MutationObserver === "undefined") {
-    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {} });
+    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {}, confirmClick: () => true });
     return;
   }
   const dropdowns = new WeakMap(); // select -> { wrap, button, label }
@@ -172,8 +172,30 @@
     document.addEventListener("scroll", (event) => { if (menu && !menu.contains(event.target)) closeMenu(); }, true);
   }
 
+  // One way to confirm a delete in every section (owner 2026-09-30): the first
+  // click arms the button (it shows `prompt` for a few seconds); a second click
+  // while armed confirms → true. No dialog.
+  const ARMED_MS = 4000;
+  function disarm(button) {
+    if (button.dataset.armedLabel !== undefined) button.textContent = button.dataset.armedLabel;
+    delete button.dataset.armed;
+    delete button.dataset.armedLabel;
+  }
+  function confirmClick(button, prompt) {
+    const timer = Number(button.dataset.armed);
+    if (timer) {
+      clearTimeout(timer);
+      disarm(button);
+      return true;
+    }
+    button.dataset.armedLabel = button.textContent;
+    button.textContent = prompt;
+    button.dataset.armed = String(setTimeout(() => disarm(button), ARMED_MS));
+    return false;
+  }
+
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 
-  global.VaultUI = Object.freeze({ enhance, observe, close: closeMenu });
+  global.VaultUI = Object.freeze({ enhance, observe, close: closeMenu, confirmClick });
 })(typeof window !== "undefined" ? window : globalThis);
