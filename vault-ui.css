@@ -3,7 +3,9 @@
  * shared by the extension's editor and Mac Vault's Vault, Classifier and
  * Activity sections. On top of v2.1 only the owner's rules: no borders, no
  * native controls (our own dropdown, drawn checkboxes), fixed light theme.
- * Canonical here; macosBlocker/sync-webui.sh copies it.
+ * Canonical here; macosBlocker/sync-webui.sh copies it. The ONE palette of
+ * all three sections (owner 2026-09-30): custom properties set here reach the
+ * Classifier and Activity shadow roots by inheritance.
  */
 
 :root {
@@ -20,10 +22,12 @@
   --gold-text: #a16207;
   --pink-700: #be185d;
   --pink-800: #9d174d;
+  --pink-200: #fbcfe8;
   --pink-100: #fce7f3;
   --pink-50: #fdf2f8;
   --pink-text: #9d174d;
   --cyan-700: #0e7490;
+  --cyan-200: #a5f3fc;
   --cyan-100: #cffafe;
   --cyan-50: #ecfeff;
   --cyan-text: #155e75;
@@ -32,6 +36,8 @@
   --red-100: #fee2e2;
   --red-50: #fef2f2;
   --red-text: #991b1b;
+  --green-50: #f0fdf4;
+  --green-text: #166534;
 
   /* The same values under the names the Classifier and Activity use. */
   --vui-bg: linear-gradient(180deg, #f8fafc 0%, var(--navy-100) 100%);
@@ -381,6 +387,102 @@ details.vui-expand[open] > summary::before {
   gap: 8px;
 }
 
+/* ── Dialogs: one surface in every section (owner 2026-09-30) ───────────── */
+.vui-dialog-backdrop,
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.vui-dialog,
+.modal-card {
+  width: min(460px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  padding: 18px;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
+}
+
+.vui-dialog-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.vui-dialog-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #475569;
+  white-space: pre-wrap;
+}
+
+.vui-dialog-field {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.vui-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* ── Hints: a hovered or focused [data-hint] explains itself in our own
+   card (Activity's hover card), never the system tooltip ───────────────── */
+.vui-hint {
+  position: fixed;
+  z-index: 2147483647;
+  max-width: 280px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.18);
+  color: #1f2937;
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+
+.vui-hint[hidden] {
+  display: none;
+}
+
+/* ── Icon buttons: one small round button for every remove / close, in every
+   section (owner 2026-09-30). A section keeps only its placement rules. ── */
+.vui-icon-button,
+.entry-chip-remove,
+.site-chip-remove,
+.app-chip-remove,
+.chip-remove,
+.tree-popover-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
 /* ── Switch: pick one of several (scenes, lists, ranges) ─────────────────── */
 /* The extension's pills, as everywhere: the chosen one navy, the rest grey. */
 .vui-tabs {
@@ -416,7 +518,10 @@ details.vui-expand[open] > summary::before {
   box-shadow: var(--vui-panel-shadow);
 }
 
-.vui-card {
+/* The one tinted-card recipe of every section (the editor's and Classifier's
+   .section-card too, owner 2026-09-30). */
+.vui-card,
+.section-card {
   position: relative;
   padding: 14px 14px 14px 18px;
   border-radius: 12px;
@@ -425,7 +530,8 @@ details.vui-expand[open] > summary::before {
   overflow: hidden;
 }
 
-.vui-card::before {
+.vui-card::before,
+.section-card::before {
   content: "";
   position: absolute;
   top: 12px;
