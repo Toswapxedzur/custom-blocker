@@ -220,7 +220,6 @@ const ownsEntry = (key) => CBGroupScopes.entryOwner(key) === LOCAL_OWNER;
 // markup is shown or hidden by this one class (see popup.css).
 document.body.classList.toggle("is-native-desktop", IS_NATIVE_DESKTOP);
 
-const DEFAULT_PLATFORM_RULE_GROUP_TYPE = "youtube";
 // Every unlock and "delete all" ends with this confirmation (group-actions.js).
 const UNFREEZE_CONFIRMATIONS_REQUIRED = CBGroupActions.CONFIRMATIONS;
 const UNFREEZE_CONFIRMATION_INTERVAL_MS = CBGroupActions.CONFIRM_INTERVAL_MS;
@@ -236,7 +235,6 @@ const siteAccessBanner = document.getElementById("siteAccessBanner");
 const siteAccessGrantButton = document.getElementById("siteAccessGrantButton");
 const siteAccessDismissButton = document.getElementById("siteAccessDismissButton");
 const manualButton = document.getElementById("manualButton");
-const addGroupTypeField = document.getElementById("addGroupType");
 const addGroupButton = document.getElementById("addGroupButton");
 const deleteAllGroupsButton = document.getElementById("deleteAllGroupsButton");
 const deleteGroupButton = document.getElementById("deleteGroupButton");
@@ -1152,9 +1150,6 @@ function applyStaticTranslations() {
     element.setAttribute("title", t(element.dataset.i18nTitle));
   }
 
-  addGroupTypeField.setAttribute("aria-label", t("groups.addTypeAria"));
-  // Platform groups are a browser's scope: Mac Vault doesn't offer them.
-  if (IS_NATIVE_DESKTOP) addGroupTypeField.querySelector('option[value="platform"]')?.remove();
   languageSelect.setAttribute("aria-label", t("language.label"));
   groupList.setAttribute("aria-label", t("groups.listAria"));
   layoutResizer.setAttribute("aria-label", t("layout.resizeAria"));
@@ -2191,95 +2186,6 @@ function parseDiscordTargetsTextarea(value) {
   };
 }
 
-function describePlatformVideoScope(groupLike) {
-  const authors = Array.isArray(groupLike.sources) ? groupLike.sources : [];
-  const scopes = [];
-  const videoMode = normalizeVideoMode(groupLike.platformVideoMode);
-  const groupType = normalizeGroupType(groupLike.groupType);
-
-  if (videoMode === "short" || videoMode === "long" || videoMode === "post") {
-    scopes.push(getPlatformTypeLabel(groupType, videoMode));
-  }
-
-  const authorMode = normalizeSourceMode(groupLike.sourceMode, groupLike.sources);
-  if (authorMode === "include") {
-    scopes.push(`${authors.length} ${t("meta.creators")}`);
-  } else if (authorMode === "exclude") {
-    scopes.push(t("meta.allExceptCreators", { count: authors.length }));
-  } else if (authorMode === "nobody") {
-    scopes.push(t("meta.noAuthors"));
-  }
-
-  if (scopes.length > 0) {
-    return scopes.join(" + ");
-  }
-
-  const metaKeyByGroupType = {
-    youtube: "meta.allYouTube",
-    tiktok: "meta.allTikTok",
-    facebook: "meta.allFacebook",
-    instagram: "meta.allInstagram",
-    twitch: "meta.allTwitch"
-  };
-  return t(metaKeyByGroupType[groupType] ?? "meta.allYouTube");
-}
-
-function describeTwitterScope(groupLike) {
-  const accounts = Array.isArray(groupLike.sources) ? groupLike.sources : [];
-  const mode = normalizeSourceMode(groupLike.sourceMode, groupLike.sources);
-
-  if (mode === "include") {
-    return `${accounts.length} ${t("meta.creators")}`;
-  }
-  if (mode === "exclude") {
-    return t("meta.allExceptCreators", { count: accounts.length });
-  }
-  if (mode === "nobody") {
-    return t("meta.noAuthors");
-  }
-  return t("meta.allTwitter");
-}
-
-function describeFeedPlatformScope(groupLike) {
-  const authors = Array.isArray(groupLike.sources) ? groupLike.sources : [];
-  const mode = normalizeSourceMode(groupLike.sourceMode, groupLike.sources);
-  if (mode === "include") return `${authors.length} ${t("meta.creators")}`;
-  if (mode === "exclude") return t("meta.allExceptCreators", { count: authors.length });
-  if (mode === "nobody") return t("meta.noAuthors");
-  return getPlatformDisplayName(groupLike.groupType);
-}
-
-function describeRedditScope(groupLike) {
-  const subreddits = Array.isArray(groupLike.sources) ? groupLike.sources : [];
-  const mode = normalizeSourceMode(groupLike.sourceMode, subreddits);
-
-  if (mode === "all") {
-    return t("meta.allReddit");
-  }
-  if (mode === "nobody") return t("meta.noAuthors");
-
-  if (mode === "exclude") {
-    return t("meta.allExceptSubreddits", { count: subreddits.length });
-  }
-
-  return t("meta.subredditCount", { count: subreddits.length });
-}
-
-function describeDiscordScope(groupLike) {
-  const targets = Array.isArray(groupLike.discordTargets) ? groupLike.discordTargets : [];
-  const mode = normalizeDiscordMode(groupLike.discordMode, targets);
-
-  if (mode === "all") {
-    return t("meta.allDiscord");
-  }
-
-  if (mode === "exclude") {
-    return t("meta.allExceptDiscordTargets", { count: targets.length });
-  }
-
-  return t("meta.discordTargetCount", { count: targets.length });
-}
-
 function getLocalizedUnfreezeMessages() {
   return Array.from({ length: UNFREEZE_CONFIRMATIONS_REQUIRED }, (_, index) =>
     t(`unfreeze.message.${index + 1}`)
@@ -2689,11 +2595,15 @@ function startGroupReorder(event, groupId) {
 // the flat form fields of the entry in view.
 const { normalizeSiteInput, normalizeTagFilterMode, clampTagConfidence } = CBGroupScopes;
 
-// The entry the cards show first: a custom group has none; a Websites group
-// opens on its Apps entry in the desktop app; otherwise the stored type.
+// The entry the cards show first: a custom group has none. In the desktop app
+// a group opens on its apps, or on its first entry when it has none yet (the
+// add menu offers Apps; no empty Apps chip on a group that has no apps);
+// otherwise the stored type.
 function defaultEntryView(stored) {
   if (stored.groupType === "custom") return "custom";
-  return IS_NATIVE_DESKTOP ? "apps" : stored.groupType;
+  if (!IS_NATIVE_DESKTOP) return stored.groupType;
+  const entries = CBGroupScopes.groupPlatforms(stored);
+  return entries.includes("apps") || entries.length === 0 ? "apps" : entries[0];
 }
 
 // A stored (canonical) group as the editor shows it.
@@ -2709,8 +2619,7 @@ function sanitizeGroups(groups) {
 // A new group, with the editor's defaults: a unique name in the user's
 // language, their default snooze length, the custom-rule template.
 function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
-  // The add menu offers one unified Platform rule; it starts with YouTube.
-  const type = normalizeGroupType(groupType === "platform" ? DEFAULT_PLATFORM_RULE_GROUP_TYPE : groupType);
+  const type = normalizeGroupType(groupType);
   const stored = CBGroupScopes.newGroup(type, {
     name: CBGroupScopes.defaultGroupName(state.groups, type, (kind, number) => t(`groupName.${kind}Pattern`, { number })),
     snoozeMinutes: state.globalSettings?.defaultSnoozeMinutes,
@@ -3248,87 +3157,44 @@ function getEffectiveGroup(group, draft) {
   };
 }
 
+// A few names, then "+N" for the rest.
+function summarizeNames(names) {
+  const list = names.filter(Boolean);
+  if (list.length <= 2) return list.join(", ");
+  return `${list.slice(0, 2).join(", ")} +${list.length - 2}`;
+}
+
+// The card's line (owner 2026-09-30): what the group covers, then when.
 function getGroupMetaText(group, draft, now = Date.now()) {
   const effectiveGroup = getEffectiveGroup(group, draft);
   const snooze = getCurrentSnooze(group.id, now);
   const snoozePhase = getSnoozePhase(snooze, now);
   const freezeStatus = getFreezeStatus(group, now);
-  // The card names what the group stores, whichever entry is in view.
-  const platformKeys = group.groupType === "custom" ? [] : CBGroupScopes.groupPlatforms(group);
-  const pieces = [
-    platformKeys.length > 1 ? platformKeys.map(platformKeyLabel).join(" + ") : getGroupTypeLabel(group.groupType)
-  ];
+  const pieces = [];
 
-  if (isPlatformVideoGroupType(group.groupType)) {
-    const draftAuthors = parsePlatformAuthorsTextarea(
-      group.groupType,
-      draft?.sourcesText ?? ""
-    ).validAuthors;
-    pieces.push(
-      describePlatformVideoScope({
-        groupType: group.groupType,
-        platformVideoMode: draft?.platformVideoMode ?? group.platformVideoMode,
-        sourceMode: draft?.sourceMode ?? group.sourceMode,
-        sources: draftAuthors.length > 0 ? draftAuthors : group.sources
-      })
-    );
-  } else if (group.groupType === "reddit") {
-    const draftSubreddits = parsePlatformAuthorsTextarea(
-      "reddit",
-      draft?.sourcesText ?? ""
-    ).validAuthors;
-    pieces.push(
-      describeRedditScope({
-        sourceMode: draft?.sourceMode ?? group.sourceMode,
-        sources: draftSubreddits.length > 0 ? draftSubreddits : group.sources
-      })
-    );
-  } else if (group.groupType === "discord") {
-    const draftTargets = parseDiscordTargetsTextarea(
-      draft?.discordTargetsText ?? ""
-    ).validTargets;
-    pieces.push(
-      describeDiscordScope({
-        discordMode: draft?.discordMode ?? group.discordMode,
-        discordTargets: draftTargets.length > 0 ? draftTargets : group.discordTargets
-      })
-    );
-  } else if (isPlatformFeedGroupType(group.groupType)) {
-    const draftAuthors = parsePlatformAuthorsTextarea(
-      group.groupType,
-      draft?.sourcesText ?? ""
-    ).validAuthors;
-    const scopeGroup = {
-      groupType: group.groupType,
-        sourceMode: draft?.sourceMode ?? group.sourceMode,
-        sources: draftAuthors.length > 0 ? draftAuthors : group.sources
-    };
-    pieces.push(
-      group.groupType === "twitter"
-        ? describeTwitterScope(scopeGroup)
-        : describeFeedPlatformScope(scopeGroup)
-    );
-  } else if (group.groupType === "custom") {
+  if (group.groupType === "custom") {
     pieces.push(t("meta.customRules"));
   } else {
-    // Counts from the stored lines; the entry in view shows its unsaved edit.
+    // What it covers, from the stored lines; the entry in view shows its unsaved edit.
     const lines = Array.isArray(group.scopes) ? group.scopes : [];
     const active = activeEntryKey(group);
-    const siteLine = lines.find((line) => line.surface === "site");
-    const appsLine = lines.find((line) => line.surface === "apps");
-    if (siteLine || (active === "site" && draft)) {
-      const siteCount = draft && active === "site" ? parseSiteTextareaValue(draft.sitesText).validSites.length : (siteLine?.sites || []).length;
-      pieces.push(`${siteCount} ${t("meta.siteCount", { suffix: siteCount === 1 ? "" : "s" })}`);
+    const covers = [];
+    for (const key of CBGroupScopes.groupPlatforms(group)) {
+      if (key === "site") {
+        const sites = draft && active === "site"
+          ? parseSiteTextareaValue(draft.sitesText).validSites
+          : lines.find((line) => line.surface === "site")?.sites || [];
+        if (sites.length) covers.push(summarizeNames(sites));
+      } else if (key === "apps") {
+        const apps = draft && active === "apps"
+          ? parseAppsData(draft.appsData)
+          : lines.find((line) => line.surface === "apps")?.apps || [];
+        if (apps.length) covers.push(summarizeNames(apps.map((app) => app.name || app.id)));
+      } else {
+        covers.push(platformKeyLabel(key));
+      }
     }
-    if (appsLine || (active === "apps" && draft)) {
-      const appCount = draft && active === "apps" ? parseAppsData(draft.appsData).length : (appsLine?.apps || []).length;
-      pieces.push(`${appCount} ${t("meta.appCount", { suffix: appCount === 1 ? "" : "s" })}`);
-    }
-  }
-
-  const blockHomePage = draft?.blockHomePage ?? group.blockHomePage;
-  if (blockHomePage && group.groupType !== "site" && group.groupType !== "custom") {
-    pieces.push(t("meta.homeFeed"));
+    if (covers.length) pieces.push(covers.join(", "));
   }
 
   if (snoozePhase === "pending") {
@@ -3345,6 +3211,8 @@ function getGroupMetaText(group, draft, now = Date.now()) {
     pieces.push(`${t("meta.snoozed")} ${formatDurationMs(snooze.untilMs - now)}`);
   } else if (snoozePhase === "cooldown") {
     pieces.push(`${t("meta.snoozeCooldown")} ${formatDurationMs(snooze.cooldownUntilMs - now)}`);
+  } else if (group.groupType === "custom") {
+    // A custom rule decides when it acts: no "when" on its card.
   } else if (effectiveGroup.mode === "instant") {
     pieces.push(t("meta.instantBlock"));
   } else {
@@ -3363,7 +3231,6 @@ function getGroupMetaText(group, draft, now = Date.now()) {
     );
   }
 
-  pieces.push(group.enabled ? t("meta.enabled") : t("meta.disabled"));
   return pieces.join(" • ");
 }
 
@@ -3409,7 +3276,7 @@ function renderGroupList(now = Date.now()) {
   for (const group of state.groups) {
     const draft = getDraftForGroup(group.id);
     const card = document.createElement("div");
-    card.className = `group-card${group.id === state.selectedGroupId ? " active" : ""}`;
+    card.className = `group-card${group.id === state.selectedGroupId ? " active" : ""}${group.enabled ? "" : " is-off"}`;
     card.dataset.groupId = group.id;
 
     if (group.id === state.draggedGroupId) {
@@ -5316,7 +5183,10 @@ function renderUnfreezeModal(now = Date.now()) {
     confirmTitle.textContent = t("modal.unfreezeTitle");
     confirmMessage.textContent = localizedMessages[messageIndex];
   }
-  confirmProgress.textContent = `${state.unfreezeFlow.confirmationsLeft} ${t("modal.confirm")} ${t("meta.left")} - "${state.unfreezeFlow.label}"`;
+  confirmProgress.textContent = t("modal.confirmProgress", {
+    label: state.unfreezeFlow.label,
+    count: state.unfreezeFlow.confirmationsLeft
+  });
   confirmProceedButton.disabled = remainingCooldownMs > 0;
   confirmProceedButton.textContent =
     remainingCooldownMs > 0
@@ -6179,12 +6049,14 @@ lockWaitHoursField.addEventListener("change", () => {
 
 document.getElementById("emptyAddGroupButton").addEventListener("click", () => addGroupButton.click());
 
-addGroupButton.addEventListener("click", () => {
-  addGroup(addGroupTypeField.value).catch((error) => {
-    console.error("Failed to add block group.", error);
-    setStatus(t("status.errorCreateGroup"), true);
+for (const [button, groupType] of [[addGroupButton, DEFAULT_GROUP_TYPE], [document.getElementById("addCustomGroupButton"), "custom"]]) {
+  button.addEventListener("click", () => {
+    addGroup(groupType).catch((error) => {
+      console.error("Failed to add block group.", error);
+      setStatus(t("status.errorCreateGroup"), true);
+    });
   });
-});
+}
 
 manualButton.addEventListener("click", () => {
   openManual();
