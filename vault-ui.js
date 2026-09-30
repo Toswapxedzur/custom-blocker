@@ -164,8 +164,44 @@
     if (scope !== document) scope.addEventListener("scroll", closeMenu, true);
   }
 
+  // Hints (owner 2026-09-30: no system tooltips): any element with data-hint,
+  // in the page or a section's shadow root, shows it in a small card while
+  // hovered or focused.
+  let hint = null;
+  function hintTarget(event) {
+    return event.composedPath().find((node) => node instanceof Element && node.dataset && node.dataset.hint) || null;
+  }
+  function showHint(target) {
+    if (!hint) {
+      hint = document.createElement("div");
+      hint.className = "vui-hint";
+      hint.setAttribute("role", "tooltip");
+      document.body.appendChild(hint);
+    }
+    hint.textContent = target.dataset.hint;
+    hint.hidden = false;
+    const box = target.getBoundingClientRect();
+    const width = hint.offsetWidth;
+    const height = hint.offsetHeight;
+    const below = box.bottom + 6 + height <= global.innerHeight;
+    hint.style.top = `${below ? box.bottom + 6 : Math.max(4, box.top - 6 - height)}px`;
+    hint.style.left = `${Math.max(4, Math.min(box.left, global.innerWidth - width - 4))}px`;
+  }
+  function hideHint() {
+    if (hint) hint.hidden = true;
+  }
+  function watchHints() {
+    const on = (event) => { const target = hintTarget(event); if (target) showHint(target); else hideHint(); };
+    document.addEventListener("mouseover", on);
+    document.addEventListener("focusin", on);
+    document.addEventListener("mouseout", (event) => { if (!event.relatedTarget) hideHint(); });
+    document.addEventListener("focusout", hideHint);
+    document.addEventListener("scroll", hideHint, true);
+  }
+
   function start() {
     observe(document);
+    watchHints();
     document.addEventListener("click", closeMenu);
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMenu(); });
     global.addEventListener("resize", closeMenu);

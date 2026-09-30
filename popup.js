@@ -67,93 +67,72 @@ function cbDebugError(...args) { if (cbDebugMode) { try { console.error(...args)
 // so callers can `await` the result; destructive confirms pass { danger: true }
 // to get a red confirm button. Styles are injected once — no popup.css needed.
 const cbDialog = (function () {
-  let styleInjected = false;
-  function injectStyle() {
-    if (styleInjected) return;
-    styleInjected = true;
-    const style = document.createElement("style");
-    style.textContent = [
-      ".cbdlg-overlay{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;",
-      "justify-content:center;padding:20px;background:rgba(15,23,42,0.32);opacity:0;",
-      "transition:opacity .15s ease;}",
-      ".cbdlg-overlay.cbdlg-show{opacity:1;}",
-      ".cbdlg-card{background:#fff;color:#0f172a;max-width:380px;width:100%;border-radius:14px;",
-      "padding:18px 18px 14px;box-shadow:0 18px 48px rgba(15,23,42,.32);",
-      "transform:translateY(8px) scale(.98);transition:transform .18s ease;font-family:inherit;}",
-      ".cbdlg-overlay.cbdlg-show .cbdlg-card{transform:none;}",
-      ".cbdlg-msg{margin:0 0 14px;font-size:13.5px;line-height:1.5;white-space:pre-wrap;}",
-      ".cbdlg-input{width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;",
-      "border:none;border-radius:8px;background:#f1f5f9;margin:0 0 14px;font-family:inherit;}",
-      ".cbdlg-actions{display:flex;justify-content:flex-end;gap:8px;}",
-      ".cbdlg-btn{border:none;border-radius:8px;padding:8px 14px;font-weight:700;font-size:12.5px;",
-      "cursor:pointer;font-family:inherit;}",
-      ".cbdlg-cancel{background:#e2e8f0;color:#0f172a;}",
-      ".cbdlg-ok{background:#1e293b;color:#fff;}",
-      ".cbdlg-ok.cbdlg-danger{background:#dc2626;color:#fff;}",
-      ".cbdlg-btn:hover{filter:brightness(.95);}"
-    ].join("");
-    (document.head || document.documentElement).appendChild(style);
-  }
-
+  // kind: "alert" (one button), "confirm", "prompt" (a text field), or "show"
+  // (a read-only text to copy, one Close button). The surface is the shared
+  // .vui-dialog (vault-ui.css), as every section's dialogs.
   function open(opts) {
-    injectStyle();
     return new Promise(function (resolve) {
       const overlay = document.createElement("div");
-      overlay.className = "cbdlg-overlay";
+      overlay.className = "vui-dialog-backdrop";
       const card = document.createElement("div");
-      card.className = "cbdlg-card";
+      card.className = "vui-dialog";
       card.setAttribute("role", opts.kind === "alert" ? "alertdialog" : "dialog");
       card.setAttribute("aria-modal", "true");
 
+      if (opts.title) {
+        const title = document.createElement("h3");
+        title.className = "vui-dialog-title";
+        title.textContent = opts.title;
+        card.appendChild(title);
+      }
       const msg = document.createElement("p");
-      msg.className = "cbdlg-msg";
+      msg.className = "vui-dialog-text";
       msg.textContent = opts.message || "";
       card.appendChild(msg);
 
       let input = null;
-      if (opts.kind === "prompt") {
+      if (opts.kind === "prompt" || opts.kind === "show") {
         input = document.createElement("input");
-        input.className = "cbdlg-input";
+        input.className = "vui-dialog-field";
         input.type = "text";
+        input.readOnly = opts.kind === "show";
         input.value = opts.defaultValue != null ? String(opts.defaultValue) : "";
         card.appendChild(input);
       }
 
       const actions = document.createElement("div");
-      actions.className = "cbdlg-actions";
+      actions.className = "vui-dialog-actions";
 
       let cancelBtn = null;
-      if (opts.kind !== "alert") {
+      if (opts.kind === "confirm" || opts.kind === "prompt") {
         cancelBtn = document.createElement("button");
         cancelBtn.type = "button";
-        cancelBtn.className = "cbdlg-btn cbdlg-cancel";
+        cancelBtn.className = "secondary";
         cancelBtn.textContent = opts.cancelText || "Cancel";
         actions.appendChild(cancelBtn);
       }
 
       const okBtn = document.createElement("button");
       okBtn.type = "button";
-      okBtn.className = "cbdlg-btn cbdlg-ok" + (opts.danger ? " cbdlg-danger" : "");
+      if (opts.danger) okBtn.className = "danger";
       okBtn.textContent = opts.confirmText || "OK";
       actions.appendChild(okBtn);
 
       card.appendChild(actions);
       overlay.appendChild(card);
       document.body.appendChild(overlay);
-      requestAnimationFrame(function () { overlay.classList.add("cbdlg-show"); });
 
-      function cleanup() {
+      function done(result) {
         document.removeEventListener("keydown", onKey, true);
-        overlay.classList.remove("cbdlg-show");
-        setTimeout(function () { overlay.remove(); }, 180);
+        overlay.remove();
+        resolve(result);
       }
-      function done(result) { cleanup(); resolve(result); }
       function onOk() {
         if (opts.kind === "prompt") done(input ? input.value : "");
-        else if (opts.kind === "alert") done(undefined);
-        else done(true);
+        else if (opts.kind === "confirm") done(true);
+        else done(undefined);
       }
-      function onCancel() { done(opts.kind === "prompt" ? null : false); }
+      function onCancel() { done(opts.kind === "prompt" ? null : opts.kind === "confirm" ? false : undefined); }
       function onKey(e) {
         if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onCancel(); }
         else if (e.key === "Enter") { e.preventDefault(); onOk(); }
@@ -172,21 +151,25 @@ const cbDialog = (function () {
   return {
     alert: function (message, o) {
       o = o || {};
-      return open({ kind: "alert", message: message, confirmText: o.confirmText || "OK" });
+      return open({ kind: "alert", title: o.title, message: message, confirmText: o.confirmText || "OK" });
     },
     confirm: function (message, o) {
       o = o || {};
       return open({
-        kind: "confirm", message: message, danger: !!o.danger,
+        kind: "confirm", title: o.title, message: message, danger: !!o.danger,
         confirmText: o.confirmText || "OK", cancelText: o.cancelText || "Cancel"
       });
     },
     prompt: function (message, defaultValue, o) {
       o = o || {};
       return open({
-        kind: "prompt", message: message, defaultValue: defaultValue,
+        kind: "prompt", title: o.title, message: message, defaultValue: defaultValue,
         confirmText: o.confirmText || "OK", cancelText: o.cancelText || "Cancel"
       });
+    },
+    show: function (message, text, o) {
+      o = o || {};
+      return open({ kind: "show", title: o.title, message: message, defaultValue: text, confirmText: o.closeText || "Close" });
     }
   };
 })();
@@ -1148,7 +1131,7 @@ function applyStaticTranslations() {
 
   // Generic title (tooltip) binding.
   for (const element of document.querySelectorAll("[data-i18n-title]")) {
-    element.setAttribute("title", t(element.dataset.i18nTitle));
+    element.dataset.hint = t(element.dataset.i18nTitle);
   }
 
   languageSelect.setAttribute("aria-label", t("language.label"));
@@ -1422,7 +1405,7 @@ function renderBlockedApps() {
     const chip = document.createElement("div");
     chip.className = "app-chip";
     chip.setAttribute("role", "listitem");
-    chip.title = app.id;
+    chip.dataset.hint = app.id;
     chip.appendChild(makeAppIconElement(app));
     const label = document.createElement("span");
     label.className = "app-chip-name";
@@ -1566,7 +1549,7 @@ function renderBlockedSites() {
     const chip = document.createElement("div");
     chip.className = "site-chip";
     chip.setAttribute("role", "listitem");
-    chip.title = host;
+    chip.dataset.hint = host;
 
     chip.appendChild(makeSiteIconElement(siteEntryHost(host)));
 
@@ -1715,7 +1698,7 @@ function setupChipField(field, options) {
       const valid = normalize(entry) !== null;
       const chip = document.createElement("span");
       chip.className = "entry-chip" + (valid ? "" : " entry-chip-invalid");
-      chip.title = valid ? entry : t("chip.invalid");
+      chip.dataset.hint = valid ? entry : t("chip.invalid");
 
       const label = document.createElement("span");
       label.className = "entry-chip-label";
@@ -2118,6 +2101,7 @@ function renderSurfaceHides(group, draft, editable) {
       // turned on. Cancelling reverts the checkbox without saving.
       if (input.checked && entry.warnOnEnableKey) {
         const accepted = await cbDialog.confirm(t(entry.warnOnEnableKey), {
+          title: t("surfaceHide.contentTitle"),
           danger: true,
           confirmText: t("modal.confirm"),
           cancelText: t("modal.cancel")
@@ -2975,10 +2959,10 @@ function __cbEnsureOverlayStyles() {
   const style = document.createElement("style");
   style.id = "cb-overlay-styles";
   style.textContent = [
-    ".cb-overlay-backdrop{position:fixed;inset:0;background:rgba(15,23,42,0.42);display:flex;align-items:center;justify-content:center;z-index:2147483647;padding:20px;box-sizing:border-box;animation:cbOverlayFade .15s ease;}",
-    ".cb-overlay-card{width:min(360px,100%);box-sizing:border-box;background:var(--surface,#fff);color:var(--text,#0f172a);border-radius:16px;padding:20px;box-shadow:0 18px 40px rgba(15,23,42,0.22);display:flex;flex-direction:column;gap:14px;animation:cbOverlayPop .18s cubic-bezier(.2,.8,.3,1);}",
-    ".cb-overlay-title{font-size:18px;font-weight:600;margin:0;}",
-    ".cb-overlay-text{font-size:13px;color:#475569;line-height:1.45;}",
+    // The surface is the shared .vui-dialog (vault-ui.css); only the layout
+    // of the controls is the overlay's own.
+    ".cb-overlay-card{width:min(360px,100%);display:flex;flex-direction:column;gap:14px;}",
+    ".cb-overlay-card .vui-dialog-title,.cb-overlay-card .vui-dialog-actions{margin:0;}",
     ".cb-overlay-label{font-size:11px;font-weight:600;color:#64748b;margin-bottom:6px;}",
     ".cb-overlay-row{display:flex;flex-direction:column;}",
     ".cb-overlay-pin{display:flex;gap:10px;align-items:center;justify-content:center;cursor:text;}",
@@ -2988,12 +2972,6 @@ function __cbEnsureOverlayStyles() {
     ".cb-overlay-pin-input{position:absolute;opacity:0;width:1px;height:1px;border:0;padding:0;}",
     ".cb-overlay-input{box-sizing:border-box;width:100%;border:none;background:#f1f5f9;border-radius:10px;padding:8px 10px;font-size:13px;}",
     ".cb-overlay-input:focus{outline:none;box-shadow:0 0 0 3px rgba(30,58,138,0.16);}",
-    ".cb-overlay-buttons{display:flex;gap:8px;justify-content:flex-end;margin-top:6px;}",
-    ".cb-overlay-button{border:none;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;background:#e2e8f0;color:#0f172a;transition:filter .12s;}",
-    ".cb-overlay-button:hover{filter:brightness(0.96);}",
-    ".cb-overlay-button-primary{background:var(--navy-700,#1e3a8a);color:#fff;}",
-    "@keyframes cbOverlayFade{from{opacity:0}to{opacity:1}}",
-    "@keyframes cbOverlayPop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}"
   ].join("");
   document.head.appendChild(style);
 }
@@ -3004,9 +2982,9 @@ function __cbOpenInPopupOverlay(panelId, snap, onEvent) {
   if (backdrop) backdrop.remove();
   backdrop = document.createElement("div");
   backdrop.id = panelId + "-backdrop";
-  backdrop.className = "cb-overlay-backdrop";
+  backdrop.className = "vui-dialog-backdrop";
   const card = document.createElement("div");
-  card.className = "cb-overlay-card";
+  card.className = "vui-dialog cb-overlay-card";
   backdrop.appendChild(card);
   document.body.appendChild(backdrop);
 
@@ -3019,7 +2997,7 @@ function __cbOpenInPopupOverlay(panelId, snap, onEvent) {
     row.className = "cb-overlay-row";
     if (type === "text" || type === "section") {
       const p = document.createElement("div");
-      p.className = "cb-overlay-text";
+      p.className = "vui-dialog-text";
       p.textContent = control.text || control.label || "";
       row.appendChild(p);
     } else if (type === "pin") {
@@ -3091,8 +3069,8 @@ function __cbOpenInPopupOverlay(panelId, snap, onEvent) {
     } else if (type === "button") {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "cb-overlay-button";
-      if (control.action === "submit") btn.classList.add("cb-overlay-button-primary");
+      // Submit is the navy pill; the rest are secondary (vault-ui.css buttons).
+      if (control.action !== "submit") btn.className = "secondary";
       btn.textContent = control.label || "Button";
       btn.addEventListener("click", () => {
         const action =
@@ -3111,12 +3089,12 @@ function __cbOpenInPopupOverlay(panelId, snap, onEvent) {
     for (const k of Object.keys(values)) delete values[k];
     if (snapshot.title) {
       const h = document.createElement("div");
-      h.className = "cb-overlay-title";
+      h.className = "vui-dialog-title";
       h.textContent = snapshot.title;
       card.appendChild(h);
     }
     const buttonRow = document.createElement("div");
-    buttonRow.className = "cb-overlay-buttons";
+    buttonRow.className = "vui-dialog-actions";
     for (const control of Array.isArray(snapshot.controls) ? snapshot.controls : []) {
       const el = renderControl(control);
       if (control.type === "button") buttonRow.appendChild(el);
@@ -3289,9 +3267,6 @@ function renderGroupList(now = Date.now()) {
       card.classList.add("bridge-connected");
     }
     const quickAddOn = state.globalSettings?.quickAddEnabled === true && group.groupType !== "custom";
-    if (quickAddOn && group.id === state.quickAddGroupId) {
-      card.classList.add("quick-add-target");
-    }
 
     const header = document.createElement("div");
     header.className = "group-card-header";
@@ -3338,7 +3313,7 @@ function renderGroupList(now = Date.now()) {
       badge.type = "button";
       badge.className = "quick-add-badge";
       badge.textContent = "+";
-      badge.title = t("groups.quickAddBadge");
+      badge.dataset.hint = t("groups.quickAddBadge");
       badge.setAttribute("aria-label", t("groups.quickAddBadge") + ": " + group.name);
       badge.setAttribute("aria-pressed", group.id === state.quickAddGroupId ? "true" : "false");
       badge.addEventListener("mousedown", (event) => event.stopPropagation());
@@ -4514,10 +4489,10 @@ async function exportSelectedGroup() {
       console.warn("Failed to copy block group export string.", error);
     }
 
-    await cbDialog.prompt(
+    await cbDialog.show(
       t(copiedToClipboard ? "editor.exportGroupPromptCopied" : "editor.exportGroupPrompt"),
       exportString,
-      { confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
+      { title: t("editor.exportGroupButton"), closeText: t("manual.close") }
     );
     setStatus(
       t(copiedToClipboard ? "status.exportedGroupCopied" : "status.exportedGroup", {
@@ -4548,6 +4523,7 @@ async function importIntoSelectedGroup() {
       console.warn("Failed to read block group import string from clipboard.", error);
       clipboardText =
         (await cbDialog.prompt(t("editor.importGroupPrompt"), "", {
+          title: t("editor.importGroupButton"),
           confirmText: t("modal.confirm"),
           cancelText: t("modal.cancel")
         })) ?? "";
@@ -4559,7 +4535,7 @@ async function importIntoSelectedGroup() {
         current: group.name,
         imported: importedGroup.name
       }),
-      { danger: true, confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
+      { title: t("editor.importGroupButton"), danger: true, confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
     );
 
     if (!confirmed) {
@@ -5128,7 +5104,7 @@ function showSnoozeNotice(group, snoozeEntry, totalBeforeMs) {
       upcoming: formatDurationMs(snoozeEntry.kind === "budget" ? snoozeEntry.extraMs : snoozeEntry.untilMs - snoozeEntry.startsAtMs),
       delay: formatDurationMs(activationDelayMs)
     }),
-    { confirmText: t("modal.confirm") }
+    { title: t("snooze.title"), confirmText: t("modal.confirm") }
   );
 }
 

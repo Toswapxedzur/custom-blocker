@@ -1,42 +1,6 @@
 :root {
   --groups-panel-width: 300px;
-
-  /* Navy primary (replaces sky-blue) */
-  --navy-700: #1e3a8a;
-  --navy-300: #c7d2fe;
-  --navy-100: #eef2ff;
-  --navy-ring: rgba(30, 58, 138, 0.18);
-
-  /* Gold / yellow accent for custom/AI/experimental surfaces. A true golden
-     amber rather than the old olive-brown, for better synergy with the cream
-     gold-50/100/200 tints. */
-  --gold-700: #ca8a04;
-  --gold-200: #fde68a;
-  --gold-100: #fef3c7;
-  --gold-50: #fffbeb;
-  --gold-text: #a16207;
-
-  /* Pink accent for Snooze. */
-  --pink-700: #be185d;
-  --pink-800: #9d174d;
-  --pink-200: #fbcfe8;
-  --pink-100: #fce7f3;
-  --pink-50: #fdf2f8;
-  --pink-text: #9d174d;
-
-  /* Cyan accent for filter cards. */
-  --cyan-700: #0e7490;
-  --cyan-200: #a5f3fc;
-  --cyan-100: #cffafe;
-  --cyan-50: #ecfeff;
-  --cyan-text: #155e75;
-
-  /* Red accent (freeze + "dangerous / irreversible").
-     Same idea — pale tint with red text rather than solid red. */
-  --red-200: #fecaca;
-  --red-100: #fee2e2;
-  --red-50: #fef2f2;
-  --red-text: #991b1b;
+  /* The colours are vault-ui.css's one palette. */
 }
 
 .popup {
@@ -282,12 +246,6 @@ button,
   box-shadow: 0 8px 18px rgba(30, 58, 138, 0.16);
 }
 
-/* Quick-add target: the group the floating "+" appends to. */
-.group-card.quick-add-target {
-  background: var(--navy-100);
-  box-shadow: inset 0 0 0 1.5px var(--navy-700), 0 8px 18px rgba(30, 58, 138, 0.16);
-}
-
 .quick-add-badge {
   flex: 0 0 auto;
   width: 20px;
@@ -295,17 +253,18 @@ button,
   min-width: 0;
   padding: 0;
   border-radius: 999px;
-  border: 1.5px solid var(--navy-300);
-  background: #ffffff;
+  border: none;
+  background: #e2e8f0;
   color: var(--navy-700);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
 }
 
+/* The quick-add target (the group the floating "+" appends to) is shown by
+   its filled badge alone; the card itself looks like any other. */
 .quick-add-badge[aria-pressed="true"] {
   background: var(--navy-700);
-  border-color: var(--navy-700);
   color: #ffffff;
 }
 
@@ -510,27 +469,7 @@ textarea:focus {
   box-shadow: inset 0 0 0 1px rgba(217, 45, 32, 0.55);
 }
 
-.entry-chip-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  margin: 0;
-  border: none;
-  border-radius: 999px;
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-  color: inherit;
-  background: transparent;
-  box-shadow: none;
-}
-
-.entry-chip-remove:hover {
-  background: rgba(15, 23, 42, 0.12);
-}
+/* .entry-chip-remove: the shared icon button (vault-ui.css). */
 
 .entry-chip-input {
   flex: 1 1 120px;
@@ -609,26 +548,9 @@ textarea:focus {
   margin-top: 12px;
 }
 
+/* .section-card: vault-ui.css's one card recipe; here only its spacing. */
 .section-card {
-  position: relative;
   margin-top: 14px;
-  padding: 14px 14px 14px 18px;
-  border: none;
-  border-radius: 12px;
-  background: var(--navy-100);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
-  overflow: hidden;
-}
-
-.section-card::before {
-  content: "";
-  position: absolute;
-  top: 12px;
-  bottom: 12px;
-  left: 0;
-  width: 4px;
-  border-radius: 0 999px 999px 0;
-  background: rgba(30, 58, 138, 0.28);
 }
 
 /* The rules editor sits straight in "What" (no card of its own). */
@@ -762,26 +684,11 @@ textarea:focus {
   color: #e2e8f0;
 }
 
-#platformRulesCard {
-  background: var(--cyan-50);
-}
-
-#platformRulesCard::before {
-  background: var(--cyan-700);
-}
-
-#platformRulesCard h3 {
-  color: color-mix(in srgb, var(--cyan-text) 34%, #334155);
-}
-
-
-
-#platformRulesCard select:focus,
-#platformRulesCard textarea:focus {
-  outline: none;
-  box-shadow:
-    inset 0 0 0 1px var(--cyan-700),
-    0 0 0 3px rgba(14, 116, 144, 0.16);
+/* The platform rules sit straight in "What" (owner 2026-09-30, as the custom
+   rules): each field 12px below the last, like every other block. */
+#platformRulesCard .label:not(#platformRulesTitle),
+#platformRulesCard .checkbox-row {
+  margin-top: 12px;
 }
 
 /* Freeze section: faint red wash with a single bold red action button.
@@ -860,15 +767,11 @@ textarea:focus {
   color: color-mix(in srgb, var(--navy-700) 24%, #334155);
 }
 
-#platformRulesCard :where(h3, .label, .section-copy, .field-help, .checkbox-row) {
-  color: color-mix(in srgb, var(--cyan-text) 34%, #334155);
-}
-
+/* Content controls: one column of plain checkboxes, as everywhere else. */
 .surface-hides-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .surface-hide-row {
@@ -876,11 +779,6 @@ textarea:focus {
   align-items: center;
   gap: 10px;
   font-weight: 700;
-  min-height: 42px;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--cyan-text) 18%, white);
-  border-radius: 10px;
-  background: color-mix(in srgb, white 72%, var(--cyan-surface));
 }
 
 .surface-hide-row input[type="checkbox"] {
@@ -1012,22 +910,6 @@ button.secondary.weird {
   border: none;
 }
 
-#customSettingsCard .field-actions button,
-#customSettingsCard .log-feed-toolbar button {
-  background: #dbeafe;
-  color: var(--navy-700);
-  border: none;
-}
-
-#customSettingsCard #runCustomGroupButton {
-  background: var(--navy-700);
-  color: #ffffff;
-}
-
-#customSettingsCard #runCustomGroupButton:hover {
-  background: #172554;
-}
-
 button:hover {
   filter: brightness(0.96);
 }
@@ -1072,8 +954,8 @@ textarea:disabled {
 .status-toast {
   max-width: min(520px, calc(100vw - 32px));
   padding: 12px 16px;
-  border-radius: 14px;
-  background: rgba(15, 118, 110, 0.96);
+  border-radius: 12px;
+  background: var(--navy-700);
   color: #ffffff;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.24);
   text-align: left;
@@ -1084,7 +966,7 @@ textarea:disabled {
 }
 
 .status-toast.error {
-  background: rgba(185, 28, 28, 0.96);
+  background: var(--red-text);
 }
 
 .status-toast.visible {
@@ -1121,7 +1003,7 @@ textarea:disabled {
   border: none;
   box-shadow: inset 4px 0 0 rgba(161, 98, 7, 0.28);
   color: var(--gold-text);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -1138,7 +1020,7 @@ textarea:disabled {
 }
 
 .site-access-banner-text strong {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--gold-text);
 }
 
@@ -1148,25 +1030,7 @@ textarea:disabled {
   flex: 0 0 auto;
 }
 
-.modal {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(15, 23, 42, 0.42);
-  padding: 20px;
-  box-sizing: border-box;
-  z-index: 2147483647;
-}
-
-.modal-card {
-  width: min(460px, 100%);
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 18px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.22);
-}
+/* .modal / .modal-card: vault-ui.css's one dialog surface. */
 
 
 
@@ -1315,7 +1179,7 @@ textarea:disabled {
   width: 100%;
   border-collapse: collapse;
   margin: 12px 0;
-  font-size: 13px;
+  font-size: 12px;
   display: block;
   overflow-x: auto;
 }
@@ -1390,46 +1254,13 @@ code {
   font-size: 12px;
 }
 
+/* The rule log: a standard expand (vui-expand); its count sits in the summary. */
 .log-feed {
   margin-top: 12px;
-  border: none;
-  border-radius: 8px;
-  background: rgba(248, 250, 252, 0.78);
-  box-shadow: inset 4px 0 0 rgba(30, 58, 138, 0.16);
-}
-
-.log-feed > summary {
-  list-style: none;
-  cursor: pointer;
-  padding: 8px 12px;
-  font-weight: 600;
-  font-size: 13px;
-  color: #1e293b;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  user-select: none;
-}
-
-.log-feed > summary::-webkit-details-marker {
-  display: none;
-}
-
-.log-feed > summary::before {
-  content: "▸";
-  display: inline-block;
-  font-size: 11px;
-  color: #64748b;
-  width: 12px;
-  transition: transform 120ms ease;
-}
-
-.log-feed[open] > summary::before {
-  transform: rotate(90deg);
 }
 
 .log-feed-count {
-  margin-left: auto;
+  margin-left: 8px;
   font-size: 11px;
   font-weight: 500;
   color: #475569;
@@ -1444,8 +1275,7 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 12px 6px;
-  border-top: 1px solid #e2e8f0;
+  padding: 6px 0;
 }
 
 .log-feed-hint {
@@ -1457,7 +1287,7 @@ code {
 .log-feed-list {
   max-height: 220px;
   overflow-y: auto;
-  padding: 0 12px 8px;
+  padding: 0 0 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1470,23 +1300,21 @@ code {
   display: none;
 }
 
+/* An entry's level is its tint (no coloured line). */
 .log-feed-entry {
   padding: 6px 8px;
-  border-left: 3px solid #38bdf8;
-  background: #fff;
-  border-radius: 4px;
+  background: #f1f5f9;
+  border-radius: 8px;
   word-break: break-word;
   white-space: pre-wrap;
 }
 
 .log-feed-entry.warn {
-  border-left-color: #f59e0b;
-  background: #fffbeb;
+  background: var(--gold-50);
 }
 
 .log-feed-entry.error {
-  border-left-color: #ef4444;
-  background: #fef2f2;
+  background: var(--red-50);
 }
 
 .log-feed-meta {
@@ -1574,25 +1402,13 @@ code {
   white-space: nowrap;
 }
 
+/* The shared icon button (vault-ui.css), floating on the chip's corner. */
 .site-chip-remove {
   position: absolute;
   top: -6px;
   right: -6px;
-  width: 18px;
-  height: 18px;
-  min-width: 0;
-  padding: 0;
-  border-radius: 999px;
-  border: none;
-  background: var(--red-text);
-  color: #ffffff;
-  font-size: 13px;
-  line-height: 1;
   display: none;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.3);
-  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
 }
 
 .site-chip:hover .site-chip-remove,
@@ -1609,23 +1425,16 @@ code {
   min-width: 0;
   padding: 0;
   border-radius: 9px;
-  border: 1.5px dashed rgba(30, 58, 138, 0.4);
+  border: none;
   background: var(--navy-100);
   color: var(--navy-700);
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
-}
-
-.site-chip-add:hover:not(:disabled) {
-  background: #dbeafe;
-  border-color: var(--navy-700);
-  transform: translateY(-1px);
 }
 
 .site-chip-add:disabled {
-  opacity: 0.45;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
@@ -1648,9 +1457,7 @@ code {
 
 /* Content-tag filter (platform rules). */
 .platform-tag-fields {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--navy-100, #eef2ff);
+  margin-top: 12px;
 }
 
 /* Classifier tag-name suggestions under a tag-list textarea. */
@@ -1766,25 +1573,13 @@ body.is-native-desktop .browser-only {
   text-overflow: ellipsis;
 }
 
+/* The shared icon button (vault-ui.css), floating on the chip's corner. */
 .app-chip-remove {
   position: absolute;
-  top: -7px;
-  right: -7px;
-  width: 20px;
-  height: 20px;
-  min-width: 0;
-  padding: 0;
-  border-radius: 999px;
-  border: none;
-  background: var(--red-text, #991b1b);
-  color: #ffffff;
-  font-size: 14px;
-  line-height: 1;
+  top: -6px;
+  right: -6px;
   display: none;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.3);
-  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
 }
 
 .app-chip:hover .app-chip-remove,
@@ -1792,32 +1587,27 @@ body.is-native-desktop .browser-only {
   display: inline-flex;
 }
 
+/* The same small "+" as the website list's (owner 2026-09-30: no big buttons). */
 .app-chip-add {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
+  align-self: center;
+  width: 28px;
+  height: 28px;
   min-width: 0;
   padding: 0;
-  border-radius: 12px;
-  border: 1.5px dashed rgba(30, 58, 138, 0.4);
+  border-radius: 9px;
+  border: none;
   background: var(--navy-100);
   color: var(--navy-700);
-  font-size: 24px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
-}
-
-.app-chip-add:hover:not(:disabled) {
-  background: #dbeafe;
-  border-color: var(--navy-700);
-  transform: translateY(-1px);
 }
 
 .app-chip-add:disabled {
-  opacity: 0.45;
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
@@ -1870,7 +1660,7 @@ body.is-native-desktop .browser-only {
 }
 
 .app-picker-row-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: #1f2937;
   white-space: nowrap;
@@ -1959,11 +1749,6 @@ textarea {
 }
 
 
-.site-chip-add,
-.app-chip-add {
-  border: none;
-}
-
 .app-chip {
   box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
 }
@@ -1980,24 +1765,8 @@ textarea {
   box-shadow: none;
 }
 
-.quick-add-badge {
-  border: none;
-}
-
-.surface-hide-row {
-  border: none;
-}
-
-.platform-tag-fields {
-  border-top: none;
-}
-
 .tag-suggestions button {
   border: none;
-}
-
-.log-feed-toolbar {
-  border-top: none;
 }
 
 .code-editor,
@@ -2043,7 +1812,6 @@ textarea {
 /* Drawn checkboxes take each card's colour, as v2.1's native ones did. */
 .snooze-section { --vui-check: var(--pink-700); }
 .freeze-section { --vui-check: #b91c1c; }
-#platformRulesCard { --vui-check: var(--cyan-700); }
 #customSettingsCard,
 .connection-group-section.bridge-linked { --vui-check: var(--gold-700); }
 
