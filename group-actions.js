@@ -324,15 +324,21 @@
     return endSnoozeEntry(entry, now).entry || null;
   }
 
+  // What a budget snooze gives, counted as it is used (owner 2026-09-30: to
+  // the second, a rolling window's minute buckets notwithstanding): the part of
+  // one accrual step that lies above the plain allowance while the snooze runs.
+  // The usage owners (service worker, Mac Vault) add it to the snooze total.
+  function snoozeGivenMs(group, entry, usedBeforeMs, addedMs, now) {
+    if (!group || snoozeExtraMs(entry, now) <= 0) return 0;
+    const before = Math.max(0, Number(usedBeforeMs) || 0);
+    const after = before + Math.max(0, Number(addedMs) || 0);
+    return Math.max(0, after - Math.max(before, getAllowedMs(group)));
+  }
+
   // What a finished snooze adds to the group's snooze total (once): the clock
-  // time a time snooze ran, or the extra minutes a budget snooze actually gave
-  // (time used beyond the plain allowance, at most the extra).
-  function snoozeCountedMs(entry, group, usedMs) {
-    if (entry?.kind === "budget") {
-      if (!group) return 0;
-      return Math.min(Math.max(0, Number(entry.extraMs) || 0), Math.max(0, (Number(usedMs) || 0) - getAllowedMs(group)));
-    }
-    return Math.max(0, entry.untilMs - entry.startsAtMs);
+  // time a time snooze ran. A budget snooze's time was counted as it was used.
+  function snoozeCountedMs(entry) {
+    return entry?.kind === "budget" ? 0 : Math.max(0, entry.untilMs - entry.startsAtMs);
   }
 
   // Ending early keeps an ENDED entry stamped now (it reaches linked devices
@@ -471,18 +477,24 @@
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
   }
 
-  // "HHMM-HHMM"; an end before the start runs past midnight (2300-0100), only
-  // an empty window is invalid.
-  function normalizeTimeWindowLine(line) {
-    const match = String(line ?? "").trim().match(/^(\d{4})-(\d{4})$/);
+  // One time of day: "HH:MM" (or "H:MM") or the older "HHMM" → "HH:MM", or null.
+  function normalizeTimeOfDay(text) {
+    const match = String(text).match(/^(?:(\d{1,2}):(\d{2})|(\d{2})(\d{2}))$/);
     if (!match) return null;
-    const [, start, end] = match;
-    const startHours = Number.parseInt(start.slice(0, 2), 10);
-    const startMinutes = Number.parseInt(start.slice(2), 10);
-    const endHours = Number.parseInt(end.slice(0, 2), 10);
-    const endMinutes = Number.parseInt(end.slice(2), 10);
-    if (startHours > 23 || endHours > 23 || startMinutes > 59 || endMinutes > 59) return null;
-    if (startHours * 60 + startMinutes === endHours * 60 + endMinutes) return null;
+    const hours = Number(match[1] ?? match[3]);
+    const minutes = Number(match[2] ?? match[4]);
+    if (hours > 23 || minutes > 59) return null;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  }
+
+  // One window, "09:00-10:00" (owner 2026-09-30; the older "0900-1000" still
+  // reads) → the stored form "09:00-10:00". An end before the start runs past
+  // midnight (23:00-01:00); only an empty window is invalid.
+  function normalizeTimeWindowLine(line) {
+    const parts = String(line ?? "").trim().split(/\s*[-\u2013]\s*/);
+    if (parts.length !== 2) return null;
+    const [start, end] = parts.map(normalizeTimeOfDay);
+    if (!start || !end || start === end) return null;
     return `${start}-${end}`;
   }
 
@@ -501,12 +513,13 @@
     return { normalizedLines: [...new Set(normalizedLines)], invalidLines };
   }
 
+  // A normalized window ("09:00-10:00") in minutes since midnight.
   function parseTimeWindowToMinutes(windowText) {
-    const [start, end] = windowText.split("-");
-    return {
-      startMinutes: Number.parseInt(start.slice(0, 2), 10) * 60 + Number.parseInt(start.slice(2), 10),
-      endMinutes: Number.parseInt(end.slice(0, 2), 10) * 60 + Number.parseInt(end.slice(2), 10)
-    };
+    const [start, end] = windowText.split("-").map((time) => {
+      const [hours, minutes] = time.split(":").map(Number);
+      return hours * 60 + minutes;
+    });
+    return { startMinutes: start, endMinutes: end };
   }
 
   // In its schedule now (Mac Vault: Schedule.swift isActive).
@@ -803,7 +816,7 @@
     lockUnit, lockContribution, adoptLock,
     snoozePhase, snoozeChangedAtMs, sanitizeSnoozeEntry, snoozePlan, snoozeEntry, endSnoozeEntry, adoptSnooze,
     SNOOZE_KINDS, isBudgetSnoozeGroup, budgetSnoozeExpiryMs, snoozeExtraMs, snoozeExempts, effectiveAllowedMs,
-    settleBudgetSnooze, snoozeCountedMs,
+    settleBudgetSnooze, snoozeGivenMs, snoozeCountedMs,
     DAY_NAMES, DEFAULT_GROUP_TYPE, DEFAULT_ALLOWED_MINUTES, DEFAULT_RESET_INTERVAL_HOURS, DEFAULT_SNOOZE_MINUTES,
     DEFAULT_SNOOZE_CONFIRMATIONS, DEFAULT_SNOOZE_ACTIVATION_DELAY_MINUTES, DEFAULT_SNOOZE_COOLDOWN_MINUTES,
     MAX_SNOOZE_COOLDOWN_MINUTES, DEFAULT_PAUSE_SECONDS, MAX_PAUSE_SECONDS, MS_PER_MINUTE, MS_PER_HOUR, USAGE_BUCKET_MS,

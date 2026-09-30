@@ -63,7 +63,15 @@ const group = (hours, extra = {}) => ({ resetIntervalHours: hours, resetAtMidnig
 {
   check("2300-0100 is a valid window", call("normalizeTimeWindowLine(l)", { l: "2300-0100" }) !== null);
   check("an empty window (1200-1200) is still rejected", call("normalizeTimeWindowLine(l)", { l: "1200-1200" }) === null);
-  check("the editor sees the invalid line", JSON.stringify(call("parseTimeWindowsText(t)", { t: "0900-1700\n1200-1200\n0900-1700" })) === JSON.stringify({ normalizedLines: ["0900-1700"], invalidLines: ["1200-1200"] }));
+  check("the editor sees the invalid line", JSON.stringify(call("parseTimeWindowsText(t)", { t: "0900-1700\n1200-1200\n0900-1700" })) === JSON.stringify({ normalizedLines: ["09:00-17:00"], invalidLines: ["1200-1200"] }));
+  // "09:00-10:30" (owner 2026-09-30) reads like the older "0900-1030"; the same
+  // lines as Mac Vault's ScheduleParserTests.
+  check("09:00-10:30 is stored as written", call("normalizeTimeWindowLine(l)", { l: "09:00-10:30" }) === "09:00-10:30");
+  check("the older 0900-1030 is stored as 09:00-10:30", call("normalizeTimeWindowLine(l)", { l: "0900-1030" }) === "09:00-10:30");
+  check("H:MM and an en dash read too", call("normalizeTimeWindowLine(l)", { l: "9:05 \u2013 9:30" }) === "09:05-09:30");
+  for (const bad of ["9-10", "12:5-13:00", "24:00-01:00", "+1:00-02:00", "2500-2600", "bad"]) {
+    check(`${bad} is rejected`, call("normalizeTimeWindowLine(l)", { l: bad }) === null);
+  }
   const g = { groupType: "site", activeDays: ["monday"], timeWindowsText: "2300-0100" };
   const active = (day, hour, minute) => call("isGroupActiveNow(g, n)", { g, n: at(day, hour, minute) });
   check("Monday evening part is active", active(21, 23, 30) === true);
