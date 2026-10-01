@@ -8,6 +8,19 @@ async () => {
   const buttonFor = key => [...document.querySelectorAll('.vui-info-button')].find(button => button.infoEntry.key.includes(key));
   let button = buttonFor('settings.quickAddHelp');
   check(button && button.getClientRects().length && getComputedStyle(source).display === 'none', 'English help becomes a visible circled Info button');
+  const style = getComputedStyle(button), size = button.getBoundingClientRect();
+  check(size.width === 14 && size.height === 14 && style.color === 'rgb(148, 163, 184)', 'Info uses the compact shared blue-gray appearance');
+  check(getComputedStyle(button, '::before').left === '-5px', 'Small icon retains its larger invisible hit area');
+  check(buttonFor('language.label'), 'Language field has its own explanation');
+  const group = createDefaultGroup('site'); group.id = 'info-field-test'; group.name = 'Field test'; group.mode = 'after-minutes';
+  state.groups = [group]; state.selectedGroupId = group.id; render(); await delay();
+  for (const id of ['groupName','groupEnabled','blockMode','allowedMinutes','resetIntervalHours','scheduleWindows','allowSnooze','snoozeMinutes','snoozeActivationDelay','snoozeCooldown','snoozeConfirmations','lockWaitHours']) {
+    const field = document.getElementById(id);
+    const anchor = field.closest('[data-info-copy]') || document.querySelector(`label[for="${id}"]`)?.querySelector('[data-info-copy]') || document.querySelector(`label[for="${id}"]`);
+    check(anchor?.querySelector('.vui-info-button'), `${id} has a field explanation`);
+  }
+  // Settings survives unrelated editor renders; re-find its Info control.
+  button = buttonFor('settings.quickAddHelp');
   const toggle = document.getElementById('settingsQuickAdd'), checked = toggle.checked;
   const dialog = document.querySelector('.settings-modal-card');
   const before = dialog.getBoundingClientRect();
