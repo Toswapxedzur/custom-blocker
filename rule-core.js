@@ -78,7 +78,7 @@
     const v = {
       log(...args) {
         check();
-        if (record) push(record.logs, { groupId, level: "log", args: args.map(logValue) }, LIMITS.logsPerDispatch);
+        if (record) push(record.logs, { groupId, source: "v.log", level: "log", args: args.map(logValue) }, LIMITS.logsPerDispatch);
       },
       emit(type, data) {
         check();
@@ -130,7 +130,7 @@
     };
 
     const begin = () => {
-      record = { actions: [], logs: [], emits: [], overrun: false };
+      record = { actions: [], logs: [], diagnostics: [], emits: [], overrun: false };
       deadline = now() + LIMITS.handlerMs;
     };
     const end = () => {
@@ -144,7 +144,7 @@
         call();
       } catch (error) {
         if (error && error.__ruleBudget) record.overrun = true;
-        push(record.logs, { groupId, level: "error", args: [where + ": " + (error && error.message ? error.message : String(error))] }, LIMITS.logsPerDispatch);
+        push(record.diagnostics, { groupId, level: "error", args: [where + ": " + (error && error.message ? error.message : String(error))] }, LIMITS.logsPerDispatch);
       }
     };
 
@@ -262,7 +262,7 @@
     // logs, changed panels ({ groupId: [panel] }), changed states
     // ({ groupId: state }) and a quarantine, if a rule earned one.
     function dispatch(descriptor) {
-      const out = { ok: true, actions: [], logs: [], panels: {}, states: {}, quarantine: null };
+      const out = { ok: true, actions: [], logs: [], diagnostics: [], panels: {}, states: {}, quarantine: null };
       const queue = [];
       for (const [groupId, rule] of rules) {
         if (descriptor.targetGroupId && descriptor.targetGroupId !== groupId) continue;
@@ -275,6 +275,7 @@
         const record = rule.dispatch({ type: event.type, now: event.now ?? Date.now(), data: event.data ?? null });
         out.actions.push(...record.actions);
         out.logs.push(...record.logs);
+        out.diagnostics.push(...record.diagnostics);
         if (record.overrun && overran(rule.groupId) && !out.quarantine) {
           out.quarantine = { groupId: rule.groupId, reason: "deadline-overrun" };
         }
@@ -288,7 +289,7 @@
         const panels = rule.takePanels();
         if (panels) out.panels[groupId] = panels;
         const state = rule.takeState();
-        if (state && state.error) out.logs.push({ groupId, level: "error", args: [state.error] });
+        if (state && state.error) out.diagnostics.push({ groupId, level: "error", args: [state.error] });
         else if (state !== undefined) out.states[groupId] = state;
       }
       return out;
