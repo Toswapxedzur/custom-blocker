@@ -54,7 +54,7 @@ const chrome = {
   runtime: {
     lastError: null,
     sendMessage(message, callback) {
-      if (message.type === "vault-classifier-collection-info") return callback({ ok: true, enabled: true });
+      if (message.type === "vault-classifier-collection-info") return callback({ ok: true, enabled: true, tagging: true });
       return callback({ ok: true, accepted: true });
     }
   },

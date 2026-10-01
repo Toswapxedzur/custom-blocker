@@ -69,7 +69,7 @@ const chrome = {
     lastError: null,
     sendMessage(message, callback) {
       messages.push(message);
-      if (message.type === "vault-classifier-collection-info") return callback({ ok: true, enabled: true });
+      if (message.type === "vault-classifier-collection-info") return callback({ ok: true, enabled: true, tagging: true });
       return callback({ ok: true, accepted: true });
     }
   },
