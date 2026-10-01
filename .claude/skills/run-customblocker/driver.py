@@ -22,6 +22,8 @@ def main():
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--eval", default=None)
     ap.add_argument("--popup-test", help="JavaScript file containing an async popup regression function")
+    ap.add_argument("--width", type=int, default=1280)
+    ap.add_argument("--height", type=int, default=900)
     ap.add_argument("--hold", type=float, default=8)
     a = ap.parse_args()
     profile = os.environ.get("PROFILE") or tempfile.mkdtemp(prefix="cb-profile-")
@@ -68,6 +70,7 @@ def main():
                 # Give the freshly created offscreen document time to register its relay.
                 sw.evaluate("async () => await ensureOffscreenDocument()")
                 page = ctx.new_page()
+                page.set_viewport_size({"width": a.width, "height": a.height})
                 page.on("pageerror", lambda error: print(f"[popup error] {error}", flush=True))
                 page.goto(f"chrome-extension://{sw.url.split('/')[2]}/popup.html")
                 deadline = time.monotonic() + 10
