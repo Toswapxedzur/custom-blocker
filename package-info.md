@@ -34,3 +34,5 @@
 - **Classifier activation regression:** `tests/browser-classifier-activation.py` uses the existing extension driver `--ui-script` on mini1. A synthetic YouTube page and hub response exercise group creation, pending-to-tag push, pause/hide and resume without reloading. Tagging controls and the retired `extension_set_classifier` tool are removed from the extension; Mac Vault owns activation and Activity owns recording.
 
 - **English terminology:** blocking groups apply policy; Classifier groups assign tags. Source labels use Creators, Accounts, or Communities; Knowledge uses Content sources. Freeze credentials are PINs. `tests/popup-terminology.js` checks snooze labels through the isolated extension driver on mini1. Other locales remain for the pre-release translation batch.
+
+- **Info explanations (2026-10-01):** `vault-info.js` / `vault-info.css` implement click-to-open English explanations, with explicit data-info sources, one anchored bounded popover, Escape/outside dismissal and language restoration. `tests/popup-info.js` checks real extension behavior at wide/narrow widths on mini1.

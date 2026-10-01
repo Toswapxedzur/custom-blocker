@@ -8,6 +8,7 @@
     <link rel="icon" media="(prefers-color-scheme: dark)" href="icons/adamancia-vault-lock-inverse-dark-128.png?v=20260712b" />
     <link rel="stylesheet" href="vault-ui.css" />
     <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="vault-info.css" />
   </head>
   <body>
     <main class="popup">
@@ -103,7 +104,7 @@
           <!-- Kept for the editor's code; the name field above is the title. -->
           <h2 id="editorTitle" hidden></h2>
           <p id="editorCopy" hidden></p>
-          <p id="groupTypeSummary" hidden></p>
+          <p id="groupTypeSummary" hidden data-info></p>
 
           <section class="editor-block">
             <h3 class="block-title" data-i18n="editor.whatTitle">What</h3>
@@ -111,7 +112,7 @@
             <label id="groupScopesLabel" class="label" for="groupScopesAdd" data-i18n="scopes.label">Applies to</label>
             <div id="groupScopesList" class="site-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="groupScopesLabel"></div>
             <select id="groupScopesAdd" class="scope-add-select"></select>
-            <p id="entryOwnerHint" class="field-help hidden" data-i18n="scopes.browserOwnedHint">Websites and platforms are set in the browser extension; Mac Vault only controls apps.</p>
+            <p id="entryOwnerHint" class="field-help hidden" data-i18n="scopes.browserOwnedHint" data-info="scopes.browserOwnedHint">Websites and platforms are set in the browser extension; Mac Vault only controls apps.</p>
           </section>
 
             <section id="siteSettingsSection">
@@ -145,7 +146,7 @@
 
             <section id="appsSettingsSection" class="hidden">
             <label id="appsSettingsLabel" class="label" data-i18n="apps.label">Blocked apps</label>
-            <p id="appsHelp" class="field-help" data-i18n="apps.help">
+            <p id="appsHelp" class="field-help" data-i18n="apps.help" data-info="apps.help">
               Add the apps you want this group to block. Use the plus button to search installed apps.
             </p>
             <input id="blockedAppsData" type="hidden" />
@@ -155,14 +156,14 @@
             <section id="platformRulesCard" class="hidden">
             <!-- Straight in "What", like the custom rules (no card of its own). -->
             <span id="platformRulesTitle" class="label"></span>
-            <p id="platformRulesCopy" class="field-help"></p>
+            <p id="platformRulesCopy" class="field-help" data-info></p>
 
             <!-- Verified card/content controls. Kept immediately below the
                  platform choice so each platform's actual available card
                  controls are visible before author and feed-scope settings. -->
             <div id="surfaceHidesSection" class="platform-fields hidden">
               <label id="surfaceHidesTitle" class="label" data-i18n="surfaceHide.contentTitle">Content controls</label>
-              <p id="surfaceHidesHelp" class="field-help" data-i18n="surfaceHide.contentHelp">
+              <p id="surfaceHidesHelp" class="field-help" data-i18n="surfaceHide.contentHelp" data-info="surfaceHide.contentHelp">
                 Hide the supported parts of a page that you choose. You can combine these controls.
               </p>
               <div id="surfaceHidesList" class="surface-hides-list"></div>
@@ -178,12 +179,12 @@
                   <option value="long"></option>
                   <option value="post"></option>
                 </select>
-                <p id="platformVideoModeHelp" class="field-help"></p>
+                <p id="platformVideoModeHelp" class="field-help" data-info></p>
               </div>
 
               <label id="platformAuthorModeLabel" class="label" for="platformAuthorMode"></label>
               <select id="platformAuthorMode"></select>
-              <p id="platformAuthorModeHelp" class="field-help"></p>
+              <p id="platformAuthorModeHelp" class="field-help" data-info></p>
 
               <div id="platformAuthorsBlock">
                 <label id="platformAuthorsLabel" class="label" for="platformAuthors"></label>
@@ -194,7 +195,7 @@
                   data-i18n-placeholder="filter.platformAuthorsPlaceholder"
                   spellcheck="false"
                 ></textarea>
-                <p id="platformVideoHelp" class="field-help"></p>
+                <p id="platformVideoHelp" class="field-help" data-info></p>
               </div>
 
               <!-- Content-tag filter: block by what the Vault classifier tagged
@@ -216,7 +217,7 @@
                 <option value="include" data-i18n="tagFilter.modeInclude">Block certain tags</option>
                 <option value="exclude" data-i18n="tagFilter.modeExclude">Block all except certain tags</option>
               </select>
-              <p class="field-help" data-i18n="tagFilter.help">
+              <p class="field-help" data-i18n="tagFilter.help" data-info="tagFilter.help">
                 Filter content using its Classifier tags. One rule per line: "Gaming" matches that tag; "Gaming @3" sets a minimum confidence; "Gaming + Drama" requires both; "!Tutorial" makes an exception.
               </p>
               <div id="platformTagListBlock">
@@ -260,7 +261,7 @@
                 data-i18n-placeholder="discord.targetsPlaceholder"
                 spellcheck="false"
               ></textarea>
-              <p id="discordTargetsHelp" class="field-help" data-i18n="discord.targetsHelp">
+              <p id="discordTargetsHelp" class="field-help" data-i18n="discord.targetsHelp" data-info="discord.targetsHelp">
                 Use one Discord server ID or channel ID per line. Both kinds may be mixed in the same list. Plain snowflake IDs and links of the form <code>discord.com/channels/&lt;serverId&gt;</code> or <code>discord.com/channels/&lt;serverId&gt;/&lt;channelId&gt;</code> are accepted; channel links keep the channel ID as the entry.
               </p>
 
@@ -268,7 +269,7 @@
                 <input id="discordBlockHomePage" type="checkbox" />
                 <span data-i18n="filter.blockHomePage">Block home/feed pages</span>
               </label>
-              <p class="field-help" data-i18n="filter.blockHomePageDiscordHelp">
+              <p class="field-help" data-i18n="filter.blockHomePageDiscordHelp" data-info="filter.blockHomePageDiscordHelp">
                 Blocks the Discord DMs home screen (/channels/@me) when enabled.
               </p>
             </div>
@@ -315,7 +316,7 @@
                 </button>
                 <span id="aiPromptStatus" class="run-status"></span>
               </div>
-              <p class="field-help" data-i18n="custom.aiPromptHelp">
+              <p class="field-help" data-i18n="custom.aiPromptHelp" data-info="custom.aiPromptHelp">
                 This copies a bundled prompt with your request, the current rule, and the custom-rule API reference. Paste it into your AI tool, then paste the generated code back here.
               </p>
             </div>
@@ -327,7 +328,7 @@
               </summary>
               <div class="log-feed-toolbar">
                 <button id="logFeedDownload" type="button" class="weird" data-hint="Download logs" aria-label="Download logs">⬇</button>
-                <span class="log-feed-hint" data-i18n="logFeed.hint">Output from v.log() in this group’s custom rule.</span>
+                <span class="log-feed-hint" data-i18n="logFeed.hint" data-info="logFeed.hint">Output from v.log() in this group’s custom rule.</span>
                 <button id="logFeedClear" type="button" class="weird" data-i18n="logFeed.clear">Clear</button>
               </div>
               <div id="logFeedList" class="log-feed-list" aria-live="polite"></div>
@@ -376,7 +377,7 @@
                 data-i18n-placeholder="schedule.windowsPlaceholder"
                 spellcheck="false"
               ></textarea>
-              <p class="field-help" data-i18n="schedule.help">
+              <p class="field-help" data-i18n="schedule.help" data-info="schedule.help">
                 Leave blank to apply all day. One range per line, like 09:00-10:00.
               </p>
             </section>
@@ -390,7 +391,7 @@
               <button id="endSnoozeButton" type="button" class="secondary hidden" data-i18n="snooze.endButton">End Snooze</button>
             </div>
             <p id="snoozeWarning" class="inline-warning"></p>
-            <p id="snoozeCustomCopy" class="field-help hidden" data-i18n="snooze.customCopy">
+            <p id="snoozeCustomCopy" class="field-help hidden" data-i18n="snooze.customCopy" data-info="snooze.customCopy">
               Custom rules don't snooze: pressing Snooze sends the rule a "snooze" event, and the rule decides what happens.
             </p>
             <div class="block-fields">
@@ -431,7 +432,7 @@
                 <div>
                   <label class="label" for="lockWaitHours" data-i18n="freeze.waitHours">Wait before unfreezing (hours)</label>
                   <input id="lockWaitHours" class="number-field" type="number" min="0" max="72" step="0.1" inputmode="decimal" placeholder="0" />
-                  <p class="field-help" data-i18n="freeze.waitHelp">0 = no wait. While frozen the wait can only be made longer.</p>
+                  <p class="field-help" data-i18n="freeze.waitHelp" data-info="freeze.waitHelp">0 = no wait. While frozen the wait can only be made longer.</p>
                 </div>
               </div>
             </div>
@@ -459,7 +460,7 @@
                 <input id="siteAllowlist" type="checkbox" />
                 <span data-i18n="sites.allowlistLabel">Block everything except these sites</span>
               </label>
-              <p class="field-help" data-i18n="sites.allowlistHelp">
+              <p class="field-help" data-i18n="sites.allowlistHelp" data-info="sites.allowlistHelp">
                 When on, this group blocks the entire web except the sites listed above
                 (an allowlist). When off, it blocks only the listed sites.
               </p>
@@ -469,7 +470,7 @@
                 <input id="appsAllowlist" type="checkbox" />
                 <span data-i18n="apps.allowlistLabel">Block every app except these</span>
               </label>
-              <p class="field-help desktop-only" data-i18n="apps.allowlistHelp">
+              <p class="field-help desktop-only" data-i18n="apps.allowlistHelp" data-info="apps.allowlistHelp">
                 When on, this group blocks every app except those listed above. System apps, browsers, and Vault itself are excluded from blocking. When off, it blocks only the listed apps.
               </p>
             </div>
@@ -525,7 +526,7 @@
             <div id="fallbackUrlSection" class="browser-only">
               <label class="label" for="fallbackUrl" data-i18n="filter.fallbackUrl">When blocked: redirect address or message</label>
               <input id="fallbackUrl" type="text" placeholder="https://example.com — or a message to show" data-i18n-placeholder="filter.fallbackUrlPlaceholder" spellcheck="false" />
-              <p class="field-help" data-i18n="filter.fallbackUrlHelp">
+              <p class="field-help" data-i18n="filter.fallbackUrlHelp" data-info="filter.fallbackUrlHelp">
                 Leave empty and a blocked page is covered in place — nothing on it is lost, and it comes back when the block lifts. Any other text is shown on that cover. A web address sends the tab there instead (a pause never redirects).
               </p>
             </div>
@@ -565,7 +566,7 @@
         <div class="manual-modal-header">
           <div>
             <h3 id="appPickerDialogTitle" data-i18n="apps.pickerTitle">Add an app</h3>
-            <p class="modal-copy" data-i18n="apps.pickerCopy">
+            <p class="modal-copy" data-i18n="apps.pickerCopy" data-info="apps.pickerCopy">
               Choose an installed app for this group.
             </p>
           </div>
@@ -610,7 +611,7 @@
         <div class="manual-modal-header">
           <div>
             <h3 id="settingsDialogTitle" data-i18n="settings.title">Vault settings</h3>
-            <p class="modal-copy" data-i18n="settings.copy">
+            <p class="modal-copy" data-i18n="settings.copy" data-info="settings.copy">
               These settings apply to Vault rather than one blocking group.
             </p>
           </div>
@@ -629,7 +630,7 @@
               Ask a blocked app to quit again every (minutes)
             </label>
             <input id="settingsQuitRetryMinutes" class="number-field" type="number" min="0" step="1" inputmode="numeric" placeholder="0" />
-            <p class="field-help" data-i18n="settings.quitRetryMinutesHelp">
+            <p class="field-help" data-i18n="settings.quitRetryMinutesHelp" data-info="settings.quitRetryMinutesHelp">
               A blocked app (or one a custom rule closes) is asked to quit normally, like ⌘Q; if it stays open, for example to keep unsaved work, it is left open. Above 0, it is asked again this often while it stays open.
             </p>
           </div>
@@ -638,7 +639,7 @@
               <input id="settingsQuickAdd" type="checkbox" />
               <span data-i18n="settings.quickAdd">Show the quick-add "+"</span>
             </label>
-            <p class="field-help" data-i18n="settings.quickAddHelp">
+            <p class="field-help" data-i18n="settings.quickAddHelp" data-info="settings.quickAddHelp">
               A tiny "+" at the bottom right of every page (and of the desktop) adds the current site or app to the group whose "+" badge you chose in the list.
             </p>
           </div>
@@ -678,7 +679,7 @@
 
         <section class="settings-group">
           <span class="label" data-i18n="settings.localFolderTitle">Custom-rule folder</span>
-          <p class="field-help" data-i18n="settings.localFolderCopy">
+          <p class="field-help" data-i18n="settings.localFolderCopy" data-info="settings.localFolderCopy">
             Grant a folder for custom rules to read and write .txt, .csv, and .json files. Paths stay inside this folder.
           </p>
           <div class="field-actions">
@@ -718,6 +719,7 @@
     <script src="translations.js"></script>
     <script src="popup-markdown.js"></script>
     <script src="rule-core.js"></script>
+    <script src="vault-info.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
