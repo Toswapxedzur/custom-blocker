@@ -54,6 +54,19 @@ def run(context, worker):
     page.evaluate("VaultClassifierTagUI.observe({platform:'youtube',entryID:'youtube:video:test',creatorID:'youtube:channel:test',title:'Synthetic video',root:document.querySelector('article'),anchor:document.querySelector('a')})")
     page.wait_for_function("testShadows[0]?.querySelector('.chip-del')")
     def evaljs(source): return page.evaluate(source)
+    def chip_style():
+        return evaljs("() => {const c=getComputedStyle(testShadows[0].querySelector('.chip'));return [c.backgroundColor,c.color]}")
+    assert chip_style()==['rgb(158, 197, 232)','rgb(0, 0, 0)']
+    page.emulate_media(color_scheme='light')
+    page.wait_for_function("getComputedStyle(testShadows[0].querySelector('.chip')).backgroundColor==='rgb(26, 71, 117)'")
+    assert chip_style()==['rgb(26, 71, 117)','rgb(255, 255, 255)']
+    # Website colors do not select the pill palette.
+    page.evaluate("document.body.style.background='#111'")
+    assert chip_style()==['rgb(26, 71, 117)','rgb(255, 255, 255)']
+    page.emulate_media(color_scheme='dark')
+    page.wait_for_function("getComputedStyle(testShadows[0].querySelector('.chip')).backgroundColor==='rgb(158, 197, 232)'")
+    assert chip_style()==['rgb(158, 197, 232)','rgb(0, 0, 0)']
+    print('PASS mounted tag pills invert browser preference and ignore website colors')
     evaljs("testShadows[0].querySelector('.chip-wrap').focus()")
     page.keyboard.press('Delete')
     page.wait_for_function("messages.some(m=>m.type==='vault-classifier-submit-correction')")

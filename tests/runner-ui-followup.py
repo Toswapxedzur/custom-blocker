@@ -46,6 +46,7 @@ def run(context,worker):
 
     # Synthetic source transport, actual production closed-shadow renderer.
     page=context.new_page();page.set_viewport_size({'width':720,'height':820})
+    page.emulate_media(color_scheme='dark')
     page.set_content('<style>body{background:#111;color:#fff;font:14px Arial}article{position:absolute;left:595px;bottom:45px;width:120px}a{display:block;color:#fff}</style><article><a href="#">Sample video</a></article>')
     page.evaluate("""() => {
       window.testShadows=[];const original=Element.prototype.attachShadow;
@@ -73,6 +74,7 @@ def run(context,worker):
     page.mouse.click(20,20)
     results['tag_picker_outside']=page.evaluate("testShadows[0].querySelector('.panel').classList.contains('open')")
     page.evaluate("document.body.style.background='#fff';document.querySelector('a').style.color='#1f2937'")
+    page.emulate_media(color_scheme='light')
     results['prediction_light_page']=page.evaluate("getComputedStyle(testShadows[0].querySelector('.chip')).backgroundColor")
     page.screenshot(path=str(CAP/'tag-colored-light.png'))
     page.evaluate("testShadows[0].querySelector('.panel-close').click();testShadows[0].querySelector('.chip-wrap').focus()")
@@ -90,6 +92,8 @@ def run(context,worker):
     page.wait_for_function("testShadows[1]?.querySelector('.chip.tagging')")
     results['tagging_color']=page.evaluate("getComputedStyle(testShadows[1].querySelector('.chip.tagging')).backgroundColor")
     page.screenshot(path=str(CAP/'tagging-colored-light.png'))
+    page.emulate_media(color_scheme='dark')
+    results['tagging_dark_browser']=page.evaluate("() => {const c=getComputedStyle(testShadows[1].querySelector('.chip.tagging'));return {fill:c.backgroundColor,border:c.borderTopStyle}}")
     page.close()
 
     page=context.new_page();page.set_viewport_size({'width':720,'height':820});page.set_content('<body style="background:white"></body>')
@@ -110,12 +114,13 @@ def run(context,worker):
     expect(not results['provider_first_click']['actions'] and results['provider_second_click']==['confirmDeleteProviderProfile'],'Provider requires two clicks')
     expect(results['activity_focus']['focusPreserved'] and results['activity_focus']['selection']==[2,7],'Activity keeps name focus and caret')
     expect(results['activity_known_items_focus']['focusPreserved'],'Activity keeps search focus on known-items response')
-    expect(results['prediction_style']['background']=='rgb(158, 197, 232)' and results['prediction_light_page']=='rgb(158, 197, 232)','Prediction stays colored on dark and light pages')
+    expect(results['prediction_style']['background']=='rgb(158, 197, 232)' and results['prediction_light_page']=='rgb(26, 71, 117)','Predicted pills keep color and invert browser preference')
     bounds=results['tag_picker_bounds']
     expect(bounds['right']<=bounds['width'] and bounds['bottom']<=bounds['height'],'Tag picker stays within viewport')
     expect(not results['tag_picker_escape'] and not results['tag_picker_outside'],'Tag picker closes on Escape and outside click')
     expect(not results['tag_focus_after_push']['armed'] and results['tag_focus_after_push']['focusPreserved'],'Tag keyboard focus survives classification update without confirmation')
-    expect(results['tagging_color']=='rgb(219, 234, 254)','Tagging inherits a colored light fill')
+    expect(results['tagging_color']=='rgb(30, 58, 138)','Tagging uses a colored dark fill for a light browser')
+    expect(results['tagging_dark_browser']=={'fill':'rgb(219, 234, 254)','border':'dashed'},'Mounted Tagging pill flips to a light fill for a dark browser and keeps its dashed indicator')
     expect('Could not save tag correction' in results['failed_correction']['text'],'Correction failure is visible')
     expect(results['correction_retry']=={'tag':'None','status':''},'Retry saves the failed correction')
     expect(results['rule_html_styles']['background']=='rgba(15, 23, 42, 0.96)' and 'Arial' in results['rule_html_styles']['font'],'Rule HTML cannot override fixed panel theme')
