@@ -20,6 +20,12 @@
   driver’s `--ui-script` hook on mini1. Popup checks use actual chrome APIs;
   tag checks use synthetic transport with the production renderer in Chromium.
 
+- **Tag chooser regression:** `tests/popup-tag-chooser.js` runs through the
+  same driver's `--headed --popup-test` path on mini1. It uses a synthetic
+  500-tag catalog and isolated extension storage to check bounded scrolling,
+  search, selection through normal draft handlers, focus and dismissal.
+  Use `--headed` so the test browser identifies as Chrome and exposes tagging.
+
 - **Follow-up UI regression:** `tests/runner-ui-followup.py` uses the same
   driver hook with the sibling Mac source. It covers remaining dialogs,
   provider confirmation, Activity caret preservation, tag correction/picker
