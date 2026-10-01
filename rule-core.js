@@ -335,6 +335,11 @@
   // Raw HTML for the "html" control, without its execution vectors.
   function sanitizeHtml(value) {
     let html = text(value, 20000);
+    // Panel appearance belongs to Vault. Rules may format content, but cannot
+    // inject a stylesheet or override its palette/font through HTML.
+    html = html.replace(/<\s*style\b[\s\S]*?<\s*\/\s*style\s*>/gi, "")
+      .replace(/<\s*(?:style|link)\b[^>]*>/gi, "")
+      .replace(/\s(?:style|color|bgcolor|face|fill|stroke)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
     html = html.replace(/<\s*script\b[\s\S]*?<\s*\/\s*script\s*>/gi, "").replace(/<\s*script\b[^>]*>/gi, "");
     html = html.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "").replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "").replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "");
     return html.replace(/(href|src)\s*=\s*("|')\s*javascript:[^"']*\2/gi, "$1=$2#$2");

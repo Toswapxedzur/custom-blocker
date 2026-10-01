@@ -114,6 +114,10 @@ r = rule(`(on, v) => { v.panel("p", { controls: [{ id: "h", type: "html", html: 
 panels = r.takePanels();
 assert("a tab's panel keeps its tab", panels[0].tabId === 4);
 assert("html is sanitized", !/javascript:|<script/i.test(panels[0].controls[0].html || ""));
+const styledHtml = R.sanitizePanel({id:"html-style", controls:[{id:"h", type:"html", html:'<STYLE>div{color:red}</STYLE><link rel="stylesheet" href="x"><font color="red" face="serif"><strong style=background:black>Text</strong></font>'}]}).controls[0].html;
+assert("panel HTML cannot supply styles or font colors", !/<style|<link|\s(?:style|color|face)=/i.test(styledHtml));
+assert("panel HTML preserves content formatting", styledHtml.includes("<strong>Text</strong>"));
+
 
 log.section("C9: files");
 r = rule(`(on, v) => { on("tick", () => { v.state.id = v.file("read", "notes.txt"); }); }`);
