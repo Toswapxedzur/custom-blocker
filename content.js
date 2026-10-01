@@ -72,12 +72,11 @@ function mountOverlay() {
   container.style.zIndex = "2147483647";
   container.style.padding = "8px 10px";
   container.style.borderRadius = "10px";
-  container.style.background = "#ffffff";
-  container.style.color = "#1f2937";
+  container.style.background = "rgba(15, 23, 42, 0.86)";
+  container.style.color = "#f8fafc";
   container.style.fontFamily = "Arial, Helvetica, sans-serif";
-  container.style.colorScheme = "light";
+  container.style.colorScheme = "dark";
   container.style.fontVariantNumeric = "tabular-nums";
-  container.style.boxShadow = "0 4px 14px rgba(15,23,42,0.12)";
   container.style.fontSize = "13px";
   container.style.lineHeight = "1.35";
   container.style.whiteSpace = "pre";
@@ -2304,7 +2303,7 @@ function __cb_patchPanelControls(panelEl, controls, theme) {
 }
 
 function __cb_patchPanelChrome(panelEl, snapshot) {
-  const theme = { background: "#ffffff", foreground: "#1f2937", accent: "#1e3a8a", border: "transparent" };
+  const theme = { background: "rgba(15,23,42,0.96)", foreground: "#f8fafc", accent: "#1e3a8a", border: "transparent" };
   const titleSize = __cb_safeCssSize(null, "14px");
   const title = __cb_safePanelText(snapshot.title || "", 240);
   let titleEl = panelEl.querySelector("[data-cb-panel-title='1']");
@@ -2338,7 +2337,7 @@ function __cb_patchPanelChrome(panelEl, snapshot) {
 
 function __cb_patchPanelInPlace(panelEl, snapshot) {
   if (!panelEl || !snapshot) return false;
-  const theme = { background: "#ffffff", foreground: "#1f2937", accent: "#1e3a8a", border: "transparent" };
+  const theme = { background: "rgba(15,23,42,0.96)", foreground: "#f8fafc", accent: "#1e3a8a", border: "transparent" };
   __cb_patchPanelChrome(panelEl, snapshot);
   return __cb_patchPanelControls(panelEl, __cb_sortedPanelControls(snapshot.controls), theme);
 }
@@ -2891,7 +2890,7 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
         "border-radius:8px",
         "padding:7px 9px",
         "background:#f1f5f9",
-        "color:inherit",
+        "color:#1f2937",
         "font:inherit",
         "outline:none",
         "appearance:auto",
@@ -2962,9 +2961,9 @@ function __cb_renderPanel(snapshot) {
   }
   panelEl.textContent = "";
 
-  const theme = { background: "#ffffff", foreground: "#1f2937", accent: "#1e3a8a", border: "transparent" };
-  const background = "#ffffff";
-  const foreground = "#1f2937";
+  const theme = { background: "rgba(15,23,42,0.96)", foreground: "#f8fafc", accent: "#1e3a8a", border: "transparent" };
+  const background = theme.background;
+  const foreground = theme.foreground;
   const fontSize = __cb_safeCssSize(snapshot.textSize, "13px");
   const titleSize = __cb_safeCssSize(null, "14px");
   const align = ["left", "center", "right"].includes(snapshot.align) ? snapshot.align : "left";
@@ -2994,9 +2993,9 @@ function __cb_renderPanel(snapshot) {
     "background:" + background,
     "color:" + foreground,
     "border:0",
-    "color-scheme:light",
+    "color-scheme:dark",
     "border-radius:14px",
-    "box-shadow:0 12px 34px rgba(15,23,42,0.12)",
+    "box-shadow:0 12px 34px rgba(15,23,42,0.32)",
     "padding:12px",
     "font:" + fontSize + "/1.4 Arial,Helvetica,sans-serif",
     "text-align:" + align,
