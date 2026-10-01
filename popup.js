@@ -6263,6 +6263,8 @@ const logFeedCount = document.getElementById("logFeedCount");
 const logFeedClear = document.getElementById("logFeedClear");
 const logFeedDownload = document.getElementById("logFeedDownload");
 const logFeedSeenIds = new Set();
+let logFeedGroupId = null;
+let logFeedRequestId = 0;
 
 function formatLogFeedTime(ts) {
   if (!Number.isFinite(ts)) return "";
@@ -6275,21 +6277,14 @@ function formatLogFeedTime(ts) {
 }
 
 function renderLogFeedEntry(entry) {
-  if (!entry || !logFeedList) return;
+  if (!entry || !logFeedList || entry.source !== "v.log" || !entry.groupId
+      || entry.groupId !== state.selectedGroupId || entry.groupId !== logFeedGroupId) return;
   if (entry.id != null && logFeedSeenIds.has(entry.id)) return;
   if (entry.id != null) logFeedSeenIds.add(entry.id);
 
-  // Feed entries are tagged with the originating group's id (plus the
-  // eventType), never its display name — so filter by id against the
-  // selected group.
-  const gid = entry.groupId || "";
-
   const row = document.createElement("div");
-  row.className = "log-feed-entry " + (entry.level === "warn" ? "warn" : entry.level === "error" ? "error" : "");
-  if (gid) row.setAttribute("data-group-id", gid);
-  if (gid && state.selectedGroupId && gid !== state.selectedGroupId) {
-    row.style.display = "none";
-  }
+  row.className = "log-feed-entry";
+  row.setAttribute("data-group-id", entry.groupId);
   const meta = document.createElement("span");
   meta.className = "log-feed-meta";
   const parts = [];
@@ -6320,35 +6315,37 @@ function updateLogFeedVisibleCount() {
   logFeedCount.textContent = String(count);
 }
 
+function resetLogFeedView() {
+  if (logFeedList) logFeedList.replaceChildren();
+  logFeedSeenIds.clear();
+  if (logFeedCount) logFeedCount.textContent = "0";
+}
+
 function filterLogFeedByGroup() {
-  if (!logFeedList) return;
-  for (const row of logFeedList.children) {
-    const gid = row.getAttribute("data-group-id") || "";
-    if (!gid || !state.selectedGroupId || gid === state.selectedGroupId) {
-      row.style.display = "";
-    } else {
-      row.style.display = "none";
-    }
-  }
-  updateLogFeedVisibleCount();
+  const groupId = state.selectedGroupId || null;
+  if (groupId === logFeedGroupId) return;
+  logFeedGroupId = groupId;
+  resetLogFeedView();
+  loadLogFeedSnapshot();
 }
 
 async function loadLogFeedSnapshot() {
-  if (!logFeedList) return;
+  const groupId = logFeedGroupId;
+  const requestId = ++logFeedRequestId;
+  if (!logFeedList || !groupId) return;
   try {
-    const response = await chrome.runtime.sendMessage({ type: "get-log-feed" });
-    if (!response || !response.ok) return;
-    const entries = Array.isArray(response.entries) ? response.entries : [];
-    for (const entry of entries) renderLogFeedEntry(entry);
+    const response = await chrome.runtime.sendMessage({ type: "get-log-feed", groupId });
+    if (requestId !== logFeedRequestId || groupId !== logFeedGroupId || !response?.ok) return;
+    for (const entry of response.entries || []) renderLogFeedEntry(entry);
   } catch (_) {}
 }
 
 function clearLogFeed() {
-  if (!logFeedList) return;
-  while (logFeedList.firstChild) logFeedList.removeChild(logFeedList.firstChild);
-  logFeedSeenIds.clear();
-  if (logFeedCount) logFeedCount.textContent = "0";
-  try { chrome.runtime.sendMessage({ type: "clear-log-feed" }).catch(() => {}); } catch (_) {}
+  const groupId = logFeedGroupId;
+  if (!groupId) return;
+  ++logFeedRequestId; // An older snapshot must not undo Clear.
+  resetLogFeedView();
+  try { chrome.runtime.sendMessage({ type: "clear-log-feed", groupId }).catch(() => {}); } catch (_) {}
 }
 
 if (logFeedClear) {
@@ -6360,6 +6357,7 @@ if (logFeedDownload) {
     const entries = [];
     if (logFeedList) {
       logFeedList.querySelectorAll(".log-feed-entry").forEach((el) => {
+        if (el.getAttribute("data-group-id") !== logFeedGroupId) return;
         const meta = el.querySelector(".log-feed-meta");
         const msg = el.querySelector(".log-feed-message");
         entries.push((meta ? meta.textContent : "") + " " + (msg ? msg.textContent : ""));

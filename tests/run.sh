@@ -26,6 +26,7 @@ run_suite() {
 }
 
 failed=0
+node tests/runner-rule-log-isolation.js || failed=1
 run_suite "rule-core" tests/runner.js || failed=1
 run_suite "platform-profiles" tests/runner-platform-profiles.js || failed=1
 node_out=$(node tests/runner-manifest.js 2>&1) || failed=1
