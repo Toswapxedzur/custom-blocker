@@ -66,7 +66,7 @@
             </div>
           </div>
           <p id="bulkActionNotice" class="field-help"></p>
-          <div id="groupList" class="group-list" aria-label="Block groups" data-i18n-aria-label="groups.listAria"></div>
+          <div id="groupList" class="group-list vui-list-box" tabindex="0" aria-label="Block groups" data-i18n-aria-label="groups.listAria"></div>
         </aside>
 
         <div
@@ -109,8 +109,8 @@
           <section class="editor-block">
             <h3 class="block-title" data-i18n="editor.whatTitle">What</h3>
             <section id="groupScopesSection" class="hidden">
-            <label class="label" for="groupScopesAdd" data-i18n="scopes.label">Applies to</label>
-            <div id="groupScopesList" class="site-chip-list" role="list"></div>
+            <label id="groupScopesLabel" class="label" for="groupScopesAdd" data-i18n="scopes.label">Applies to</label>
+            <div id="groupScopesList" class="site-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="groupScopesLabel"></div>
             <select id="groupScopesAdd" class="scope-add-select"></select>
             <p id="entryOwnerHint" class="field-help hidden" data-i18n="scopes.browserOwnedHint">Websites and platforms are set in the browser extension; Mac Vault only controls apps.</p>
           </section>
@@ -123,7 +123,7 @@
                  draft / autosave / save pipeline working unchanged. -->
             <textarea id="blockedSites" hidden></textarea>
 
-            <div id="blockedSitesList" class="site-chip-list" role="list"></div>
+            <div id="blockedSitesList" class="site-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="siteSettingsLabel"></div>
 
             <div id="siteAddPanel" class="site-add-panel hidden">
               <textarea
@@ -145,12 +145,12 @@
           </section>
 
             <section id="appsSettingsSection" class="hidden">
-            <label class="label" data-i18n="apps.label">Blocked applications</label>
+            <label id="appsSettingsLabel" class="label" data-i18n="apps.label">Blocked applications</label>
             <p id="appsHelp" class="field-help" data-i18n="apps.help">
               Add the applications you want this group to block. Click the plus tile to search your installed apps.
             </p>
             <input id="blockedAppsData" type="hidden" />
-            <div id="blockedAppsList" class="app-chip-list" role="list"></div>
+            <div id="blockedAppsList" class="app-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="appsSettingsLabel"></div>
           </section>
 
             <section id="platformRulesCard" class="hidden">
@@ -229,7 +229,7 @@
                   data-i18n-placeholder="tagFilter.tagsPlaceholder"
                   spellcheck="false"
                 ></textarea>
-                <div id="platformTagSuggestions" class="tag-suggestions hidden"></div>
+                <div id="platformTagSuggestions" class="tag-suggestions vui-list-box hidden" tabindex="0"></div>
                 <div class="content-tag-row">
                   <label class="label" for="platformTagEffect" data-i18n="tagFilter.effect">When it matches</label>
                   <select id="platformTagEffect">

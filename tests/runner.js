@@ -70,14 +70,14 @@ assert("an event nobody handles does nothing", rec.actions.length === 0 && rec.l
 log.section("C4: a throwing handler");
 r = rule(`(on, v) => { on("tab", () => { throw new Error("bad"); }); on("tab", () => v.log("second")); }`);
 rec = r.dispatch({ type: "tab", now: 1, data: {} });
-assert("its error is logged", rec.logs.some((l) => l.level === "error" && /tab handler: bad/.test(l.args[0])));
+assert("its error is a diagnostic, not user log output", rec.logs.length === 1 && rec.diagnostics.some((l) => l.level === "error" && /tab handler: bad/.test(l.args[0])));
 assert("the next handler still runs", rec.logs.some((l) => l.args[0] === "second"));
 
 log.section("C5: the time limit");
 let clock = 0;
 r = rule(`(on, v) => { on("tick", () => { for (let i = 0; i < 10; i++) v.log(i); }); }`, { now: () => (clock += 400) });
 rec = r.dispatch({ type: "tick", now: 1, data: {} });
-assert("a handler past its time is stopped and marked overrun", rec.overrun === true && rec.logs.some((l) => /longer than/.test(String(l.args[0]))));
+assert("a handler past its time is stopped and marked overrun", rec.overrun === true && rec.diagnostics.some((l) => /longer than/.test(String(l.args[0]))));
 
 log.section("C6: limits per event");
 r = rule(`(on, v) => { on("tick", () => { for (let i = 0; i < 1000; i++) { v.log(i); v.item(1, "r" + i, "hide"); v.emit("e"); } }); }`);
