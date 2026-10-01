@@ -29,7 +29,7 @@
   // nothing applies" rather than looking like the extension simply failed.
   const NONE_TAGS = Object.freeze([Object.freeze({
     id: "vault:none",
-    name: "None",
+    name: "Untagged",
     lightColorHex: "#E5E7EB",
     darkColorHex: "#3F3F46"
   })]);

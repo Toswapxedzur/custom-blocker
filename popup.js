@@ -3452,6 +3452,9 @@ function updateSnoozeUI(group, now = Date.now()) {
   snoozeMinutesField.disabled = settingsLocked || !allowSnooze;
   // The snooze kind is a setting of time-limit groups only (owner 2026-09-29).
   const timeLimitMode = normalizeBlockingMode(draft?.mode ?? group.mode) === "after-minutes";
+  const budgetMode = timeLimitMode && (draft?.snoozeKind ?? group.snoozeKind) === "budget";
+  const durationLabel = document.querySelector('label[for="snoozeMinutes"]');
+  if (durationLabel) durationLabel.textContent = t(budgetMode ? "snooze.extraMinutes" : "snooze.minutes");
   snoozeKindRow.classList.toggle("hidden", isCustomGroup || !timeLimitMode);
   snoozeActivationDelayField.disabled = settingsLocked || !allowSnooze;
   snoozeCooldownField.disabled = settingsLocked || !allowSnooze;

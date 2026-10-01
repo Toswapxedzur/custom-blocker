@@ -457,7 +457,7 @@
       "\"tab\" when a tab opens, goes to an address or closes: data = { kind: open | navigate | close, tabId, url, previousUrl }.",
       "\"visible\" while a page is visible: data = { tabId, url, elapsedMs } (the visible time since the last one).",
       "\"items\" as a platform page (YouTube, Reddit, Bilibili, X…) shows items, each new or changed item once: data = { tabId, platform, items: [{ ref, url, title, authors, videoForm: short|long|post|unknown, tags: [{ name, confidence 1–5 }], tagsSettled, isPage }] }. The page itself is the item with isPage true (ref \"page\", title = the page's title); act on it with v.cover. tags come from Mac Vault's local classifier; tagsSettled is false until it answered — decide nothing about tags before that.",
-      "v.item(tabId, ref, verdict) hides (\"hide\"), blacks out (\"dim\") or rescues (\"allow\") a feed item; null clears it. Groups higher in the list win.",
+      "v.item(tabId, ref, verdict) hides (\"hide\"), covers (\"dim\") or rescues (\"allow\") a feed item; null clears it. Groups higher in the list win.",
       "v.cover(tabId, on, message?) covers the page in place (or lifts it); a new address lifts it.",
       "v.go(tabId, url | \"back\" | \"forward\" | \"reload\") navigates. v.close(tabId) closes the tab.",
       "v.css(tabId | \"*\", id, css | null) adds (or removes) a style sheet: on a tab's page until the tab goes to another address, or (\"*\") on every page, pages opened later too.",

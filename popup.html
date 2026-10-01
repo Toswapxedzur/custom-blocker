@@ -35,8 +35,7 @@
         <div class="site-access-banner-text">
           <strong data-i18n="siteAccess.title">Limited site access detected</strong>
           <span data-i18n="siteAccess.body">
-            Chrome is currently restricting this extension's access to web pages.
-            Adamancia Vault needs access to all sites in order to block them.
+            Your browser is restricting Vault's access to web pages. Allow access to all websites so Vault can block them.
           </span>
         </div>
         <div class="site-access-banner-actions">
@@ -57,7 +56,7 @@
       <section id="layout" class="layout">
         <aside class="groups-panel">
           <div class="groups-head">
-            <h2 data-i18n="groups.title">Groups</h2>
+            <h2 data-i18n="groups.title">Blocking groups</h2>
             <div class="add-group-controls">
               <!-- A group covers websites, platforms and apps through "Applies to";
                    only a custom rule is a different kind of group. -->
@@ -66,7 +65,7 @@
             </div>
           </div>
           <p id="bulkActionNotice" class="field-help"></p>
-          <div id="groupList" class="group-list vui-list-box" tabindex="0" aria-label="Block groups" data-i18n-aria-label="groups.listAria"></div>
+          <div id="groupList" class="group-list vui-list-box" tabindex="0" aria-label="Blocking groups" data-i18n-aria-label="groups.listAria"></div>
         </aside>
 
         <div
@@ -74,7 +73,7 @@
           class="layout-resizer"
           role="separator"
           aria-orientation="vertical"
-          aria-label="Resize block groups panel"
+          aria-label="Resize blocking groups panel"
           data-i18n-aria-label="layout.resizerAriaLabel"
           tabindex="0"
         ></div>
@@ -82,7 +81,7 @@
         <section id="editorPanel" class="editor-panel">
           <!-- No groups yet: the editor shows only this (owner 2026-09-30). -->
           <div id="editorEmpty" class="editor-empty hidden">
-            <p data-i18n="empty.noGroups">No block groups yet. Add your first group to begin.</p>
+            <p data-i18n="empty.noGroups">No blocking groups yet. Add your first group to begin.</p>
             <button id="emptyAddGroupButton" type="button" class="primary" data-i18n="groups.addButton">Add</button>
           </div>
           <div class="editor-head">
@@ -98,7 +97,7 @@
             />
             <label class="editor-on" for="groupEnabled">
               <input id="groupEnabled" type="checkbox" />
-              <span data-i18n="editor.enableGroup">Enable this block group</span>
+              <span data-i18n="editor.enableGroup">Enable this group</span>
             </label>
           </div>
           <!-- Kept for the editor's code; the name field above is the title. -->
@@ -145,9 +144,9 @@
           </section>
 
             <section id="appsSettingsSection" class="hidden">
-            <label id="appsSettingsLabel" class="label" data-i18n="apps.label">Blocked applications</label>
+            <label id="appsSettingsLabel" class="label" data-i18n="apps.label">Blocked apps</label>
             <p id="appsHelp" class="field-help" data-i18n="apps.help">
-              Add the applications you want this group to block. Click the plus tile to search your installed apps.
+              Add the apps you want this group to block. Use the plus button to search installed apps.
             </p>
             <input id="blockedAppsData" type="hidden" />
             <div id="blockedAppsList" class="app-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="appsSettingsLabel"></div>
@@ -164,7 +163,7 @@
             <div id="surfaceHidesSection" class="platform-fields hidden">
               <label id="surfaceHidesTitle" class="label" data-i18n="surfaceHide.contentTitle">Content controls</label>
               <p id="surfaceHidesHelp" class="field-help" data-i18n="surfaceHide.contentHelp">
-                Hide only the verified card types you choose. Combine controls to clear a feed.
+                Hide the supported parts of a page that you choose. You can combine these controls.
               </p>
               <div id="surfaceHidesList" class="surface-hides-list"></div>
             </div>
@@ -218,7 +217,7 @@
                 <option value="exclude" data-i18n="tagFilter.modeExclude">Block all except certain tags</option>
               </select>
               <p class="field-help" data-i18n="tagFilter.help">
-                Block videos by what the Vault classifier tagged them. One rule per line: "Gaming" · "Gaming @3" sets its own minimum confidence · "Gaming + Drama" needs both · "!Tutorial" is an exception.
+                Filter content using its Classifier tags. One rule per line: "Gaming" matches that tag; "Gaming @3" sets a minimum confidence; "Gaming + Drama" requires both; "!Tutorial" makes an exception.
               </p>
               <div id="platformTagListBlock">
                 <label class="label" for="platformTags" data-i18n="tagFilter.tags">Tags</label>
@@ -233,13 +232,13 @@
                 <div class="content-tag-row">
                   <label class="label" for="platformTagEffect" data-i18n="tagFilter.effect">When it matches</label>
                   <select id="platformTagEffect">
-                    <option value="dim" data-i18n="tagFilter.effectDim">Black out the thumbnail (correctable)</option>
-                    <option value="block" data-i18n="tagFilter.effectHide">Hide the video entirely</option>
+                    <option value="dim" data-i18n="tagFilter.effectDim">Cover content (tags remain editable)</option>
+                    <option value="block" data-i18n="tagFilter.effectHide">Hide content</option>
                   </select>
                 </div>
                 <label class="checkbox-row compact" for="platformTagBlockPage">
                   <input id="platformTagBlockPage" type="checkbox" checked />
-                  <span data-i18n="tagFilter.blockPage">Also black out a matching video's own page</span>
+                  <span data-i18n="tagFilter.blockPage">Also cover a matching content page</span>
                 </label>
               </div>
             </div>
@@ -277,7 +276,7 @@
           </section>
 
             <section id="customSettingsCard" class="hidden">
-            <span class="label" data-i18n="custom.title">Blocking Rules</span>
+            <span class="label" data-i18n="custom.title">Custom rule</span>
 
 
             <div id="blockingRulesEditor" class="code-editor">
@@ -298,7 +297,7 @@
                 Run
               </button>
               <button id="checkSyntaxButton" type="button" class="secondary weird" data-i18n="custom.letAiCodeButton">
-                Let AI Code
+                Write with AI
               </button>
               <span id="runCustomGroupStatus" class="run-status"></span>
             </div>
@@ -312,7 +311,7 @@
               ></textarea>
               <div class="field-actions">
                 <button id="aiPromptCopyButton" type="button" class="weird" data-i18n="custom.aiPromptCopyButton">
-                  Prompt for AI
+                  Copy AI prompt
                 </button>
                 <span id="aiPromptStatus" class="run-status"></span>
               </div>
@@ -328,11 +327,11 @@
               </summary>
               <div class="log-feed-toolbar">
                 <button id="logFeedDownload" type="button" class="weird" data-hint="Download logs" aria-label="Download logs">⬇</button>
-                <span class="log-feed-hint" data-i18n="logFeed.hint">Output from v.log() inside your custom rules.</span>
+                <span class="log-feed-hint" data-i18n="logFeed.hint">Output from v.log() in this group’s custom rule.</span>
                 <button id="logFeedClear" type="button" class="weird" data-i18n="logFeed.clear">Clear</button>
               </div>
               <div id="logFeedList" class="log-feed-list" aria-live="polite"></div>
-              <p id="logFeedEmpty" class="log-feed-empty" data-i18n="logFeed.empty">No activity yet. Trigger an event (e.g. press Start Snooze, switch tabs, or click Run) to see logs here.</p>
+              <p id="logFeedEmpty" class="log-feed-empty" data-i18n="logFeed.empty">No output from this rule yet. Call v.log("hello") in a handler to add an entry.</p>
             </details>
 
           </section>
@@ -344,16 +343,16 @@
               <label class="label" for="blockMode" data-i18n="editor.blockMode">Blocking behavior</label>
               <select id="blockMode">
                 <option value="instant" data-i18n="mode.instant">Block immediately</option>
-                <option value="after-minutes" data-i18n="mode.afterMinutes">Block after a number of minutes</option>
+                <option value="after-minutes" data-i18n="mode.afterMinutes">Block when the time allowance is used</option>
               </select>
             </div>
             <div id="timedSettings" class="timed-settings">
               <div id="allowedMinutesRow" class="field-row">
-                <label class="label" for="allowedMinutes" data-i18n="timed.allowedMinutes">Allowed minutes before block</label>
+                <label class="label" for="allowedMinutes" data-i18n="timed.allowedMinutes">Time allowance (minutes)</label>
                 <input id="allowedMinutes" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="15" data-i18n-placeholder="timed.allowedMinutesPlaceholder" />
               </div>
               <div class="field-row">
-                <label class="label" for="resetIntervalHours" data-i18n="timed.resetHours">Timer reset interval (hours)</label>
+                <label class="label" for="resetIntervalHours" data-i18n="timed.resetHours">Allowance reset interval (hours)</label>
                 <input id="resetIntervalHours" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="24" data-i18n-placeholder="timed.resetHoursPlaceholder" />
               </div>
               <p id="usageSummary" class="usage-summary"></p>
@@ -401,7 +400,7 @@
               </label>
               <div id="snoozeNumericFields" class="settings-grid">
                 <div>
-                  <label class="label" for="snoozeMinutes" data-i18n="snooze.minutes">Snooze for (minutes)</label>
+                  <label class="label" for="snoozeMinutes" data-i18n="snooze.minutes">Pause duration (minutes)</label>
                   <input id="snoozeMinutes" class="number-field" type="number" min="0.1" step="0.1" inputmode="decimal" placeholder="30" data-i18n-placeholder="snooze.minutesPlaceholder" />
                 </div>
                 <div>
@@ -413,7 +412,7 @@
                   <input id="snoozeCooldown" class="number-field" type="number" min="0" max="5" step="0.1" inputmode="decimal" placeholder="0" data-i18n-placeholder="snooze.cooldownPlaceholder" />
                 </div>
                 <div>
-                  <label class="label" for="snoozeConfirmations" data-i18n="snooze.confirmations">Times of confirmation</label>
+                  <label class="label" for="snoozeConfirmations" data-i18n="snooze.confirmations">Required confirmations</label>
                   <input id="snoozeConfirmations" class="number-field" type="number" min="0" step="1" inputmode="numeric" placeholder="0" data-i18n-placeholder="snooze.confirmationsPlaceholder" />
                 </div>
               </div>
@@ -430,7 +429,7 @@
             <div id="freezeSetup" class="block-fields freeze-setup">
               <div class="settings-grid">
                 <div>
-                  <label class="label" for="lockWaitHours" data-i18n="freeze.waitHours">Can't be unfrozen for (hours)</label>
+                  <label class="label" for="lockWaitHours" data-i18n="freeze.waitHours">Wait before unfreezing (hours)</label>
                   <input id="lockWaitHours" class="number-field" type="number" min="0" max="72" step="0.1" inputmode="decimal" placeholder="0" />
                   <p class="field-help" data-i18n="freeze.waitHelp">0 = no wait. While frozen the wait can only be made longer.</p>
                 </div>
@@ -468,10 +467,10 @@
             <div class="more-row" data-follows="appsSettingsSection">
               <label class="checkbox-row compact" for="appsAllowlist">
                 <input id="appsAllowlist" type="checkbox" />
-                <span data-i18n="apps.allowlistLabel">Block every application except these</span>
+                <span data-i18n="apps.allowlistLabel">Block every app except these</span>
               </label>
               <p class="field-help desktop-only" data-i18n="apps.allowlistHelp">
-                When on, this group blocks every application except the ones listed above (system apps, browsers and Vault itself are never blocked). When off, it blocks only the listed ones.
+                When on, this group blocks every app except those listed above. System apps, browsers, and Vault itself are excluded from blocking. When off, it blocks only the listed apps.
               </p>
             </div>
             <div class="more-row" data-follows="platformTagListBlock">
@@ -503,16 +502,16 @@
               </label>
             </div>
             <div id="snoozeKindRow" class="more-row hidden">
-              <label class="label" for="snoozeKind" data-i18n="snooze.kind">Snooze gives</label>
+              <label class="label" for="snoozeKind" data-i18n="snooze.kind">Snooze effect</label>
               <select id="snoozeKind">
-                <option value="time" data-i18n="snooze.kind.time">Time off (the group pauses)</option>
-                <option value="budget" data-i18n="snooze.kind.budget">Extra budget (minutes added to the time limit)</option>
+                <option value="time" data-i18n="snooze.kind.time">Pause blocking</option>
+                <option value="budget" data-i18n="snooze.kind.budget">Add to the time allowance</option>
               </select>
             </div>
             <div class="more-row" data-follows="freezeSetup">
               <span class="label" data-i18n="freeze.pinLabel">PIN</span>
               <p id="lockPinStatus" class="field-help"></p>
-              <button id="parentalSettingsButton" type="button" class="secondary" data-i18n="freeze.parentalSettings">Guardian password settings</button>
+              <button id="parentalSettingsButton" type="button" class="secondary" data-i18n="freeze.parentalSettings">PIN settings</button>
             </div>
             <div id="groupLinkSection" class="link-section">
               <span class="label" data-i18n="link.title">Link</span>
@@ -538,7 +537,7 @@
             </div>
           </details>
           <div class="editor-actions">
-            <button id="deleteGroupButton" type="button" class="danger" data-i18n="editor.deleteGroupButton">Delete Group</button>
+            <button id="deleteGroupButton" type="button" class="danger" data-i18n="editor.deleteGroupButton">Delete group</button>
           </div>
         </section>
       </section>
@@ -565,9 +564,9 @@
       <div class="modal-card app-picker-card" role="dialog" aria-modal="true" aria-labelledby="appPickerDialogTitle">
         <div class="manual-modal-header">
           <div>
-            <h3 id="appPickerDialogTitle" data-i18n="apps.pickerTitle">Add an application</h3>
+            <h3 id="appPickerDialogTitle" data-i18n="apps.pickerTitle">Add an app</h3>
             <p class="modal-copy" data-i18n="apps.pickerCopy">
-              Search your installed applications and choose one to block.
+              Choose an installed app for this group.
             </p>
           </div>
           <button id="appPickerCloseButton" type="button" class="secondary" data-i18n="manual.close">
@@ -580,11 +579,11 @@
           autocomplete="off"
           spellcheck="false"
           data-i18n-placeholder="apps.searchPlaceholder"
-          placeholder="Type an app name..."
+          placeholder="Search apps…"
         />
         <div id="appPickerResults" class="app-picker-results" role="listbox"></div>
         <p id="appPickerEmpty" class="field-help hidden" data-i18n="apps.noResults">
-          No matching applications found.
+          No matching apps.
         </p>
       </div>
     </div>
@@ -610,9 +609,9 @@
       <div class="modal-card settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsDialogTitle">
         <div class="manual-modal-header">
           <div>
-            <h3 id="settingsDialogTitle" data-i18n="settings.title">Global Settings</h3>
+            <h3 id="settingsDialogTitle" data-i18n="settings.title">Vault settings</h3>
             <p class="modal-copy" data-i18n="settings.copy">
-              These preferences apply across all block groups.
+              These settings apply to Vault rather than one blocking group.
             </p>
           </div>
           <button id="settingsCloseButton" type="button" class="secondary" data-i18n="manual.close">
@@ -678,7 +677,7 @@
               <h4 class="settings-col-title" data-i18n="settings.colConnections">Data &amp; files</h4>
 
         <section class="settings-group">
-          <span class="label" data-i18n="settings.localFolderTitle">Local File Folder</span>
+          <span class="label" data-i18n="settings.localFolderTitle">Custom-rule folder</span>
           <p class="field-help" data-i18n="settings.localFolderCopy">
             Grant a folder for custom rules to read and write .txt, .csv, and .json files. Paths stay inside this folder.
           </p>
@@ -687,11 +686,11 @@
               Choose folder
             </button>
             <button id="localFolderRevokeButton" type="button" class="secondary danger" data-i18n="settings.localFolderRevoke">
-              Revoke folder
+              Remove folder access
             </button>
           </div>
           <p id="localFolderStatus" class="field-help" data-i18n="settings.localFolderStatusNone">
-            No folder connected.
+            No folder selected.
           </p>
         </section>
             </section>
