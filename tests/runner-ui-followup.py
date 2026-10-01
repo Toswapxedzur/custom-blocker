@@ -53,7 +53,7 @@ def run(context,worker):
       window.messages=[];window.listeners=[];window.rejectCorrection=false;
       window.tags=[{id:'science',name:'Science',lightColorHex:'#9EC5E8',darkColorHex:'#1A4775'}];
       window.chrome={runtime:{id:'test',lastError:null,onMessage:{addListener:f=>listeners.push(f)},sendMessage(m,cb){messages.push(m);
-        let r={ok:true,platformID:'youtube',entryID:m.entryID,tags,predicted:true,pending:false};
+        let r={ok:true,platformID:'youtube',entryID:m.entryID,tags:window.pendingTags?[]:tags,predicted:true,pending:window.pendingTags===true};
         if(m.type==='vault-classifier-video-tags-batch')r.items=m.items.map(i=>({...r,entryID:i.entryID}));
         if(m.type==='vault-classifier-classifier-taxonomy')r={ok:true,types:[{typeID:'group',tags:[...tags,{id:'music',name:'Music',lightColorHex:'#E3B4E7',darkColorHex:'#6B246F'}]}]};
         if(m.type==='vault-classifier-submit-correction')r={ok:!rejectCorrection};
@@ -72,12 +72,13 @@ def run(context,worker):
     page.screenshot(path=str(CAP/'tag-picker-edge.png'))
     page.mouse.click(20,20)
     results['tag_picker_outside']=page.evaluate("testShadows[0].querySelector('.panel').classList.contains('open')")
-    page.evaluate("document.body.style.background='#fff'")
+    page.evaluate("document.body.style.background='#fff';document.querySelector('a').style.color='#1f2937'")
     results['prediction_light_page']=page.evaluate("getComputedStyle(testShadows[0].querySelector('.chip')).backgroundColor")
     page.screenshot(path=str(CAP/'tag-colored-light.png'))
-    page.evaluate("testShadows[0].querySelector('.panel-close').click();testShadows[0].querySelector('.chip-del').click()")
+    page.evaluate("testShadows[0].querySelector('.panel-close').click();testShadows[0].querySelector('.chip-wrap').focus();testShadows[0].querySelector('.chip-del').click()")
     page.evaluate("listeners.forEach(f=>f({type:'vault-classifier-video-tags-updated',platform:'youtube',items:[{entryID:'youtube:video:test',tags:[{...tags[0],name:'Renamed Science'}],predicted:true}]},{id:'test'}))")
-    results['tag_confirmation_after_push']=page.evaluate("({armed:testShadows[0].querySelector('.chip-del').classList.contains('armed'),label:testShadows[0].querySelector('.chip-del').textContent})")
+    page.wait_for_function("testShadows[0].activeElement?.classList.contains('chip-wrap')")
+    results['tag_confirmation_after_push']=page.evaluate("({armed:testShadows[0].querySelector('.chip-del').classList.contains('armed'),label:testShadows[0].querySelector('.chip-del').textContent,focusPreserved:testShadows[0].activeElement?.classList.contains('chip-wrap')})")
     page.evaluate("rejectCorrection=true;testShadows[0].querySelector('.chip-del').click()")
     page.wait_for_function("messages.some(m=>m.type==='vault-classifier-submit-correction')")
     page.wait_for_timeout(100)
@@ -85,6 +86,10 @@ def run(context,worker):
     page.evaluate("rejectCorrection=false;testShadows[0].querySelector('.retry').click()")
     page.wait_for_function("messages.filter(m=>m.type==='vault-classifier-submit-correction').length===2 && testShadows[0].querySelector('.correction-status').textContent===''")
     results['correction_retry']=page.evaluate("({tag:testShadows[0].querySelector('.chip').textContent,status:testShadows[0].querySelector('.correction-status').textContent})")
+    page.evaluate("pendingTags=true;VaultClassifierTagUI.clearPlatform('youtube');VaultClassifierTagUI.observe({platform:'youtube',entryID:'youtube:video:pending',creatorID:'youtube:channel:test',title:'Pending',root:document.querySelector('article'),anchor:document.querySelector('a')})")
+    page.wait_for_function("testShadows[1]?.querySelector('.chip.tagging')")
+    results['tagging_color']=page.evaluate("getComputedStyle(testShadows[1].querySelector('.chip.tagging')).backgroundColor")
+    page.screenshot(path=str(CAP/'tagging-colored-light.png'))
     page.close()
 
     page=context.new_page();page.set_viewport_size({'width':720,'height':820});page.set_content('<body style="background:white"></body>')
@@ -109,7 +114,8 @@ def run(context,worker):
     bounds=results['tag_picker_bounds']
     expect(bounds['right']<=bounds['width'] and bounds['bottom']<=bounds['height'],'Tag picker stays within viewport')
     expect(not results['tag_picker_escape'] and not results['tag_picker_outside'],'Tag picker closes on Escape and outside click')
-    expect(results['tag_confirmation_after_push']['armed'],'Tag confirmation survives classification update')
+    expect(results['tag_confirmation_after_push']['armed'] and results['tag_confirmation_after_push']['focusPreserved'],'Tag confirmation and keyboard focus survive classification update')
+    expect(results['tagging_color']=='rgb(219, 234, 254)','Tagging inherits a colored light fill')
     expect('Could not save tag correction' in results['failed_correction']['text'],'Correction failure is visible')
     expect(results['correction_retry']=={'tag':'None','status':''},'Retry saves the failed correction')
     expect(results['rule_html_styles']['background']=='rgb(255, 255, 255)' and 'Arial' in results['rule_html_styles']['font'],'Rule HTML cannot override fixed panel theme')
