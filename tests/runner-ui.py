@@ -56,12 +56,10 @@ def run(context, worker):
     def evaljs(source): return page.evaluate(source)
     evaljs("testShadows[0].querySelector('.chip-wrap').focus()")
     page.keyboard.press('Delete')
-    assert evaljs("messages.filter(m=>m.type==='vault-classifier-submit-correction').length") == 0
-    assert evaljs("testShadows[0].querySelector('.chip-del').classList.contains('armed')")
-    page.keyboard.press('Delete')
     page.wait_for_function("messages.some(m=>m.type==='vault-classifier-submit-correction')")
     assert evaljs("messages.find(m=>m.type==='vault-classifier-submit-correction').correctTagIDs.length") == 0
-    print('PASS Delete requires two presses and submits the correct tag set')
+    assert not evaljs("testShadows[0].querySelector('.chip-del')")
+    print('PASS one Delete press immediately removes the focused tag and submits its correction')
     evaljs("testShadows[0].querySelector('.add-btn').click()")
     page.wait_for_function("testShadows[0].querySelector('.panel-item')")
     styles=evaljs("""() => {const root=testShadows[0], p=getComputedStyle(root.querySelector('.panel')),f=getComputedStyle(root.querySelector('.panel-search'));return [p.backgroundColor,p.fontFamily,f.borderTopWidth,f.backgroundColor]}""")
@@ -70,14 +68,33 @@ def run(context, worker):
     evaljs("testShadows[0].querySelector('.panel-item').click()")
     page.wait_for_function("testShadows[0].querySelector('.chip-del')")
     evaljs("testShadows[0].querySelector('.chip-del').click()")
-    assert evaljs("messages.filter(m=>m.type==='vault-classifier-submit-correction').length") == 2
-    page.wait_for_timeout(4100)
-    assert not evaljs("testShadows[0].querySelector('.chip-del').classList.contains('armed')")
-    evaljs("testShadows[0].querySelector('.chip-del').click()")
-    assert evaljs("messages.filter(m=>m.type==='vault-classifier-submit-correction').length") == 2
-    evaljs("testShadows[0].querySelector('.chip-del').click()")
     page.wait_for_function("messages.filter(m=>m.type==='vault-classifier-submit-correction').length===3")
-    print('PASS click removal requires confirmation and confirmation expires after four seconds')
+    assert not evaljs("testShadows[0].querySelector('.chip-del')")
+    print('PASS one click immediately removes a tag')
     if os.getenv('UI_CAPTURE_DIR'):
         page.screenshot(path=str(Path(os.environ['UI_CAPTURE_DIR'])/'tag-ui.png'))
+    page.close()
+
+    page=context.new_page()
+    page.set_content('<body style="background:white"></body>')
+    page.evaluate("window.chrome={runtime:{id:'test',lastError:null,onMessage:{addListener(){}},sendMessage(m,cb){if(cb)cb({ok:false});return Promise.resolve({ok:false})}}}")
+    page.add_script_tag(path=str(ROOT/'rule-core.js'))
+    page.add_script_tag(path=str(ROOT/'content.js'))
+    page.evaluate("""() => {
+      const p=RuleCore.sanitizePanel({id:'theme',title:'Translucent panel',position:'center',theme:{background:'#ff0000'},controls:[{id:'field',type:'textInput',value:'Readable input'},{id:'check',type:'checkbox',label:'Readable label',value:true}]});
+      p.groupId='fixture';__cb_applyPanelSnapshots([p],['fixture']);
+      window.timerFixture=mountOverlay();timerFixture.container.textContent='Group: '+formatOverlayDurationMs(862000);
+    }""")
+    surfaces=page.evaluate("""() => {
+      const root=document.querySelector('#__custom_blocker_panel_root__').shadowRoot;
+      const panel=getComputedStyle(root.querySelector('[data-cb-panel-id]'));
+      const field=getComputedStyle(root.querySelector('input[type=text]'));
+      const label=getComputedStyle(root.querySelector('label'));
+      const timer=getComputedStyle(timerFixture.container);
+      return {panel:panel.backgroundColor,panelText:panel.color,field:field.backgroundColor,fieldText:field.color,label:label.color,timer:timer.backgroundColor,timerText:timer.color,time:timerFixture.container.textContent};
+    }""")
+    assert surfaces=={'panel':'rgba(15, 23, 42, 0.96)','panelText':'rgb(248, 250, 252)','field':'rgb(241, 245, 249)','fieldText':'rgb(31, 41, 55)','label':'rgb(248, 250, 252)','timer':'rgba(15, 23, 42, 0.86)','timerText':'rgb(248, 250, 252)','time':'Group: 00:14:22'},surfaces
+    print('PASS timer and rule panels restore translucent dark surfaces with readable fields and HH:MM:SS')
+    if os.getenv('UI_CAPTURE_DIR'):
+        page.screenshot(path=str(Path(os.environ['UI_CAPTURE_DIR'])/'translucent-surfaces.png'))
     page.close()
