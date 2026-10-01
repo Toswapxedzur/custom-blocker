@@ -36,3 +36,5 @@
 - **English terminology:** blocking groups apply policy; Classifier groups assign tags. Source labels use Creators, Accounts, or Communities; Knowledge uses Content sources. Freeze credentials are PINs. `tests/popup-terminology.js` checks snooze labels through the isolated extension driver on mini1. Other locales remain for the pre-release translation batch.
 
 - **Info explanations (2026-10-01):** `vault-info.js` / `vault-info.css` implement click-to-open English explanations, with explicit data-info sources, one anchored bounded popover, Escape/outside dismissal and language restoration. `tests/popup-info.js` checks real extension behavior at wide/narrow widths on mini1.
+
+- **Field Info (2026-10-02):** 14px blue-gray icons retain a 24px invisible hit area. English field explanations are explicit; built-in settings, names, switches, searches and picker fields use the shared component. Other locales retain inline help.
