@@ -1657,7 +1657,13 @@ function setupChipField(field, options) {
   const normalize = options?.normalize || ((value) => (String(value ?? "").trim() ? value : null));
 
   const list = document.createElement("div");
-  list.className = "entry-chip-list";
+  list.className = "entry-chip-list vui-list-box";
+  list.tabIndex = 0;
+  const fieldLabel = field.labels?.[0];
+  if (fieldLabel) {
+    if (!fieldLabel.id) fieldLabel.id = field.id + "-list-label";
+    list.setAttribute("aria-labelledby", fieldLabel.id);
+  }
   const addInput = document.createElement("input");
   addInput.type = "text";
   addInput.className = "entry-chip-input";
@@ -2964,7 +2970,8 @@ function __cbEnsureOverlayStyles() {
   style.textContent = [
     // The surface is the shared .vui-dialog (vault-ui.css); only the layout
     // of the controls is the overlay's own.
-    ".cb-overlay-card{width:min(360px,100%);display:flex;flex-direction:column;gap:14px;}",
+    ".cb-overlay-card{width:min(360px,100%);max-height:calc(100vh - 40px);overflow:auto;display:flex;flex-direction:column;gap:14px;}",
+    ".cb-overlay-card>*{flex-shrink:0;}",
     ".cb-overlay-card .vui-dialog-title,.cb-overlay-card .vui-dialog-actions{margin:0;}",
     ".cb-overlay-label{font-size:11px;font-weight:600;color:#64748b;margin-bottom:6px;}",
     ".cb-overlay-row{display:flex;flex-direction:column;}",
@@ -5786,6 +5793,8 @@ function renderTagSuggestions(container, textarea, names) {
   if (names.length === 0) return;
   const label = document.createElement("span");
   label.className = "tag-suggestions-label";
+  label.id = container.id + "-label";
+  container.setAttribute("aria-labelledby", label.id);
   label.textContent = t("tagFilter.available");
   container.appendChild(label);
   const used = usedTagNames(textarea);
@@ -6266,6 +6275,8 @@ const logFeedCount = document.getElementById("logFeedCount");
 const logFeedClear = document.getElementById("logFeedClear");
 const logFeedDownload = document.getElementById("logFeedDownload");
 const logFeedSeenIds = new Set();
+let logFeedGroupId = null;
+let logFeedRequestId = 0;
 
 function formatLogFeedTime(ts) {
   if (!Number.isFinite(ts)) return "";
@@ -6278,21 +6289,14 @@ function formatLogFeedTime(ts) {
 }
 
 function renderLogFeedEntry(entry) {
-  if (!entry || !logFeedList) return;
+  if (!entry || !logFeedList || entry.source !== "v.log" || !entry.groupId
+      || entry.groupId !== state.selectedGroupId || entry.groupId !== logFeedGroupId) return;
   if (entry.id != null && logFeedSeenIds.has(entry.id)) return;
   if (entry.id != null) logFeedSeenIds.add(entry.id);
 
-  // Feed entries are tagged with the originating group's id (plus the
-  // eventType), never its display name — so filter by id against the
-  // selected group.
-  const gid = entry.groupId || "";
-
   const row = document.createElement("div");
-  row.className = "log-feed-entry " + (entry.level === "warn" ? "warn" : entry.level === "error" ? "error" : "");
-  if (gid) row.setAttribute("data-group-id", gid);
-  if (gid && state.selectedGroupId && gid !== state.selectedGroupId) {
-    row.style.display = "none";
-  }
+  row.className = "log-feed-entry";
+  row.setAttribute("data-group-id", entry.groupId);
   const meta = document.createElement("span");
   meta.className = "log-feed-meta";
   const parts = [];
@@ -6323,35 +6327,37 @@ function updateLogFeedVisibleCount() {
   logFeedCount.textContent = String(count);
 }
 
+function resetLogFeedView() {
+  if (logFeedList) logFeedList.replaceChildren();
+  logFeedSeenIds.clear();
+  if (logFeedCount) logFeedCount.textContent = "0";
+}
+
 function filterLogFeedByGroup() {
-  if (!logFeedList) return;
-  for (const row of logFeedList.children) {
-    const gid = row.getAttribute("data-group-id") || "";
-    if (!gid || !state.selectedGroupId || gid === state.selectedGroupId) {
-      row.style.display = "";
-    } else {
-      row.style.display = "none";
-    }
-  }
-  updateLogFeedVisibleCount();
+  const groupId = state.selectedGroupId || null;
+  if (groupId === logFeedGroupId) return;
+  logFeedGroupId = groupId;
+  resetLogFeedView();
+  loadLogFeedSnapshot();
 }
 
 async function loadLogFeedSnapshot() {
-  if (!logFeedList) return;
+  const groupId = logFeedGroupId;
+  const requestId = ++logFeedRequestId;
+  if (!logFeedList || !groupId) return;
   try {
-    const response = await chrome.runtime.sendMessage({ type: "get-log-feed" });
-    if (!response || !response.ok) return;
-    const entries = Array.isArray(response.entries) ? response.entries : [];
-    for (const entry of entries) renderLogFeedEntry(entry);
+    const response = await chrome.runtime.sendMessage({ type: "get-log-feed", groupId });
+    if (requestId !== logFeedRequestId || groupId !== logFeedGroupId || !response?.ok) return;
+    for (const entry of response.entries || []) renderLogFeedEntry(entry);
   } catch (_) {}
 }
 
 function clearLogFeed() {
-  if (!logFeedList) return;
-  while (logFeedList.firstChild) logFeedList.removeChild(logFeedList.firstChild);
-  logFeedSeenIds.clear();
-  if (logFeedCount) logFeedCount.textContent = "0";
-  try { chrome.runtime.sendMessage({ type: "clear-log-feed" }).catch(() => {}); } catch (_) {}
+  const groupId = logFeedGroupId;
+  if (!groupId) return;
+  ++logFeedRequestId; // An older snapshot must not undo Clear.
+  resetLogFeedView();
+  try { chrome.runtime.sendMessage({ type: "clear-log-feed", groupId }).catch(() => {}); } catch (_) {}
 }
 
 if (logFeedClear) {
@@ -6363,6 +6369,7 @@ if (logFeedDownload) {
     const entries = [];
     if (logFeedList) {
       logFeedList.querySelectorAll(".log-feed-entry").forEach((el) => {
+        if (el.getAttribute("data-group-id") !== logFeedGroupId) return;
         const meta = el.querySelector(".log-feed-meta");
         const msg = el.querySelector(".log-feed-message");
         entries.push((meta ? meta.textContent : "") + " " + (msg ? msg.textContent : ""));
