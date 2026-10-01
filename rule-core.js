@@ -339,7 +339,7 @@
     // inject a stylesheet or override its palette/font through HTML.
     html = html.replace(/<\s*style\b[\s\S]*?<\s*\/\s*style\s*>/gi, "")
       .replace(/<\s*(?:style|link)\b[^>]*>/gi, "")
-      .replace(/\s(?:style|color|bgcolor|face|fill|stroke)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+      .replace(/<[^>]*>/g, (tag) => tag.replace(/\s(?:style|color|bgcolor|face|fill|stroke)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, ""));
     html = html.replace(/<\s*script\b[\s\S]*?<\s*\/\s*script\s*>/gi, "").replace(/<\s*script\b[^>]*>/gi, "");
     html = html.replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, "").replace(/\son[a-z]+\s*=\s*'[^']*'/gi, "").replace(/\son[a-z]+\s*=\s*[^\s>]+/gi, "");
     return html.replace(/(href|src)\s*=\s*("|')\s*javascript:[^"']*\2/gi, "$1=$2#$2");
@@ -445,7 +445,7 @@
     "v.state is the group's memory: one JSON object (≤ 64 KB), kept across restarts and across Run (a new version of the rule finds what the old one saved), deleted with the group. Change it freely inside handlers.",
     "v.log(...values) writes to the group's log in the editor.",
     "v.emit(type, data) delivers a \"type\" event with that data to this group, right after the current one.",
-    "v.panel(id, spec, tabId?) shows a panel (spec = { title, description, position: top-left|top-right|bottom-left|bottom-right|center, layout, width: small|medium|large, controls: [...] }); calling again replaces it; v.panel(id, null) removes it. Controls: { id, type, label, value, ... } with type text (text), html (html, sanitized), button (action submit|cancel|close), checkbox, toggle, select / radio (options), textInput / textarea (placeholder), numberInput / range (min, max, step), date, time, color, pin (length, masked), section (controls). Interactions arrive as \"panel\" events: data = { panelId, controlId, eventName, value, values }.",
+    "v.panel(id, spec, tabId?) shows a panel (spec = { title, description, position: top-left|top-right|bottom-left|bottom-right|center, layout, width: small|medium|large, controls: [...] }); calling again replaces it; v.panel(id, null) removes it. Controls: { id, type, label, value, ... } with type text (text), html (html, sanitized; inherits Vault colors/font and discards CSS), button (action submit|cancel|close), checkbox, toggle, select / radio (options), textInput / textarea (placeholder), numberInput / range (min, max, step), date, time, color, pin (length, masked), section (controls). Interactions arrive as \"panel\" events: data = { panelId, controlId, eventName, value, values }.",
     "v.file(op, path, payload?) uses the folder the user chose in Settings (.txt, .csv, .json; paths relative to it): op read | write | append | list | exists. It returns a request id; the answer arrives as a \"file\" event: data = { requestId, ok, op, path, text, entries, exists, error }.",
     "Other events: \"snooze\" (the user pressed the group's Snooze), plus every type you v.emit.",
     "Limits per event: 256 actions, 200 log entries, 64 emits; 24 panels of 32 controls per group."

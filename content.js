@@ -2582,8 +2582,8 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
       htmlBox.style.maxWidth = "100%";
     }
     if (controlHeight) htmlBox.style.height = controlHeight;
-    // control.html is pre-sanitized in helpers.sanitizePanelHtml (script
-    // blocks + on* handlers stripped). innerHTML is intentional here.
+    // RuleCore sanitizes the payload; parse-time filtering also enforces the
+    // panel appearance. Content formatting remains available.
     htmlBox.innerHTML = __cb_panelContentHtml(control.html);
     body.appendChild(htmlBox);
     return;

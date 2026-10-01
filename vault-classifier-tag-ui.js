@@ -468,6 +468,7 @@
   function updateCorrectionStatus(state) {
     if (!state.status) return;
     state.status.replaceChildren();
+    state.status.dataset.failed = String(Boolean(state.failedCorrection));
     const document = state.status.ownerDocument || global.document;
     if (state.correctionPending) state.status.textContent = "Saving…";
     else if (state.failedCorrection) {
@@ -610,7 +611,8 @@
       ".panel-dot{flex:0 0 auto;width:9px;height:9px;border-radius:999px}",
       ".panel-empty{padding:8px 10px;color:#888}",
       ".correction-status:empty{display:none}",
-      ".correction-status{display:inline-block;margin-left:5px;padding:3px 7px;border-radius:8px;background:#fff;color:#991b1b;font:500 11px/1.4 Arial,Helvetica,sans-serif}",
+      ".correction-status{display:inline-block;margin-left:5px;padding:3px 7px;border-radius:8px;background:#fff;color:#1e3a8a;font:500 11px/1.4 Arial,Helvetica,sans-serif}",
+      '.correction-status[data-failed="true"]{color:#991b1b}',
       ".retry{border:0;border-radius:999px;padding:2px 6px;background:#eef2ff;color:#1e3a8a;font:inherit;cursor:pointer}",
     ].join("");
     // The host anchors the absolutely-positioned panel.
