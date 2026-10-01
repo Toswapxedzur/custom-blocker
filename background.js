@@ -3900,7 +3900,7 @@ async function cbEndSnoozeForTool(input) {
 }
 
 // The global settings the editor's Settings shows — all a tool may read or set.
-const CB_EDITOR_GLOBAL_FIELDS = Object.freeze(["defaultSnoozeMinutes", "quitRetryMinutes", "quickAddEnabled"]);
+const CB_EDITOR_GLOBAL_FIELDS = Object.freeze(["quitRetryMinutes", "quickAddEnabled"]);
 function cbEditorGlobalSettings(settings) {
   return Object.fromEntries(CB_EDITOR_GLOBAL_FIELDS.map((key) => [key, settings[key]]));
 }
@@ -3975,10 +3975,9 @@ async function cbBrowserRequestBody(operation, body) {
       const groupType = typeof input.groupType === "string" ? input.groupType : "";
       const patch = input.patch && typeof input.patch === "object" && !Array.isArray(input.patch) ? input.patch : {};
       const { groups } = await getState();
-      // As the editor's New group: the user's default snooze length, a free
+      // As the editor's New group: 30-minute snooze duration, a free
       // numbered name, never locked, only a browser's lines.
-      const snoozeMinutes = CBGroupActions.sanitizeGlobalSettings((await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY))?.[CB_GLOBAL_SETTINGS_KEY]).defaultSnoozeMinutes;
-      const result = CBGroupScopes.createToolGroup(groups, groupType, patch, "browser", { snoozeMinutes });
+      const result = CBGroupScopes.createToolGroup(groups, groupType, patch, "browser");
       if (result.error) throw new Error(result.error);
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: [...groups, result.group] });
       return { group: cbPublicGroup(result.group) };

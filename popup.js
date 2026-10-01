@@ -362,7 +362,6 @@ const manualCloseButton = document.getElementById("manualCloseButton");
 const settingsButton = document.getElementById("settingsButton");
 const settingsModal = document.getElementById("settingsModal");
 const settingsCloseButton = document.getElementById("settingsCloseButton");
-const settingsDefaultSnoozeMinutesField = document.getElementById("settingsDefaultSnoozeMinutes");
 const settingsQuitRetryMinutesField = document.getElementById("settingsQuitRetryMinutes");
 const settingsQuickAddField = document.getElementById("settingsQuickAdd");
 const localFolderChooseButton = document.getElementById("localFolderChooseButton");
@@ -1057,7 +1056,6 @@ function requestClusters() {
 
 function syncSettingsFormFromState() {
   const s = state.globalSettings || DEFAULT_GLOBAL_SETTINGS;
-  if (settingsDefaultSnoozeMinutesField) settingsDefaultSnoozeMinutesField.value = String(s.defaultSnoozeMinutes);
   if (settingsQuickAddField) settingsQuickAddField.checked = s.quickAddEnabled === true;
   if (settingsQuitRetryMinutesField) settingsQuitRetryMinutesField.value = String(s.quitRetryMinutes ?? 0);
   if (settingsStatus) settingsStatus.textContent = "";
@@ -1087,12 +1085,11 @@ async function saveSettingsFromForm() {
     // stored values through a save so a developer's debug flag is not reset.
     autosaveDebounceMs: state.globalSettings?.autosaveDebounceMs,
     debugMode: state.globalSettings?.debugMode,
-    defaultSnoozeMinutes: settingsDefaultSnoozeMinutesField?.value,
     quickAddEnabled: settingsQuickAddField ? settingsQuickAddField.checked : state.globalSettings?.quickAddEnabled,
     quitRetryMinutes: settingsQuitRetryMinutesField ? settingsQuitRetryMinutesField.value : state.globalSettings?.quitRetryMinutes
   };
   // A value the field can't hold is refused (the last saved value stays).
-  if (CBGroupActions.validateSettingsPatch({ defaultSnoozeMinutes: draft.defaultSnoozeMinutes, quitRetryMinutes: draft.quitRetryMinutes })) {
+  if (CBGroupActions.validateSettingsPatch({ quitRetryMinutes: draft.quitRetryMinutes })) {
     if (settingsStatus) {
       settingsStatus.textContent = t("settings.invalidValue");
       settingsStatus.classList.add("error");
@@ -2630,12 +2627,11 @@ function sanitizeGroups(groups) {
 }
 
 // A new group, with the editor's defaults: a unique name in the user's
-// language, their default snooze length, the custom-rule template.
+// language, 30-minute snooze duration, and the custom-rule template.
 function createDefaultGroup(groupType = DEFAULT_GROUP_TYPE) {
   const type = normalizeGroupType(groupType);
   const stored = CBGroupScopes.newGroup(type, {
     name: CBGroupScopes.defaultGroupName(state.groups, type, (kind, number) => t(`groupName.${kind}Pattern`, { number })),
-    snoozeMinutes: state.globalSettings?.defaultSnoozeMinutes,
     blockingRulesText: t("custom.defaultRule")
   }, LOCAL_OWNER);
   return groupView(stored);
@@ -6173,7 +6169,7 @@ if (settingsModal) {
 
 // Global settings auto-save: persist on every committed edit (no Save button).
 {
-  const settingsAutoSaveFields = [settingsDefaultSnoozeMinutesField, settingsQuitRetryMinutesField, settingsQuickAddField];
+  const settingsAutoSaveFields = [settingsQuitRetryMinutesField, settingsQuickAddField];
   const autoSaveSettings = () => {
     saveSettingsFromForm().catch((error) => {
       console.error("Failed to save global settings.", error);

@@ -127,6 +127,8 @@ Normal-group configuration fields are:
 | Cooldown | Zero through five minutes. Blank means zero. |
 | Confirmations | A non-negative whole number. The product requires that many confirmation interactions before granting the request. |
 
+New normal groups start with a 30-minute snooze duration. Change the duration in each group; existing groups retain their own value.
+
 A Custom group treats the Snooze button as an input event only. Vault emits the Custom event named snoozePress for that group; it does not apply the normal duration/delay/cooldown fallback on the rule's behalf. A Custom rule can use the event, its own persistence, a panel, a timer, or no action at all.
 
 ### 2.7 Freeze
@@ -282,7 +284,6 @@ Global settings apply to the extension rather than one group.
 | Autosave debounce | 400 ms | Delay after the last editor change before normal settings persist. Maximum is 5,000 ms. |
 | Debug mode | Off | Enables verbose Custom-rule trace output and the on-page debug log overlay. It does not control whether a rule's ordinary log calls reach the popup log. |
 | Show custom-rule logs on web pages | On | Controls ordinary page log toasts. Rule authors can still request screen-only or popup-only output explicitly. |
-| Default snooze duration | 30 minutes | Seed used when creating new normal groups. Existing groups retain their own duration. |
 | Help classify creators | Off | Explicit opt-in. It sends encountered YouTube channel ids only to the configured classification service; it does not send titles or watch history. |
 | Local File Folder | None | Optional folder capability for Custom rules. See section 9. |
 

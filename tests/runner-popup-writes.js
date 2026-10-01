@@ -110,6 +110,10 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const seededC1 = JSON.stringify(byId("c1"));
   const seededLines = JSON.stringify(byId("a1").scopes);
 
+  run(`state.globalSettings = sanitizeGlobalSettings({ defaultSnoozeMinutes: 7 });`);
+  check("new editor groups use 30 minutes with a retired stored default", run(`createDefaultGroup("site").snoozeMinutes`) === 30);
+  check("Settings no longer displays the snooze default", !html.includes("settingsDefaultSnoozeMinutes"));
+
   // A policy edit on one group.
   run(`state.selectedGroupId = "a1"; state.drafts.a1 = { allowedMinutes: "20", mode: "after-minutes" };`);
   await run("autosaveSelectedGroup()");

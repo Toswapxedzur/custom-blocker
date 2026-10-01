@@ -809,10 +809,10 @@
     return { group };
   }
   // A tool's new group, as the editor's New group makes it.
-  function createToolGroup(groups, groupType, patch, owner, defaults = {}) {
+  function createToolGroup(groups, groupType, patch, owner) {
     if (groupType !== "site" && groupType !== "custom" && !isPlatformType(groupType)) return { error: "unknown-group-type" };
     const name = typeof patch?.name === "string" && patch.name.trim() ? patch.name : defaultGroupName(groups, groupType);
-    const base = newGroup(groupType, { name, snoozeMinutes: defaults.snoozeMinutes, blockingRulesText: defaults.blockingRulesText }, owner);
+    const base = newGroup(groupType, { name }, owner);
     const result = applyToolEdit(base, patch, owner);
     if (result.error) return result;
     if (crossesScopeLine(null, result.group, owner)) return { error: owner === "desktop" ? "browser-lines" : "desktop-lines" };
