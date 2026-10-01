@@ -6573,3 +6573,5 @@ initializePopupApp().catch((error) => {
   console.error("Failed to initialize popup.", error);
   setStatus(t("status.errorLoadGroups"), true);
 });
+
+window.VaultInfo?.watch(document, { enabled: () => state.language === "en" });
