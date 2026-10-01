@@ -1654,7 +1654,13 @@ function setupChipField(field, options) {
   const normalize = options?.normalize || ((value) => (String(value ?? "").trim() ? value : null));
 
   const list = document.createElement("div");
-  list.className = "entry-chip-list";
+  list.className = "entry-chip-list vui-list-box";
+  list.tabIndex = 0;
+  const fieldLabel = field.labels?.[0];
+  if (fieldLabel) {
+    if (!fieldLabel.id) fieldLabel.id = field.id + "-list-label";
+    list.setAttribute("aria-labelledby", fieldLabel.id);
+  }
   const addInput = document.createElement("input");
   addInput.type = "text";
   addInput.className = "entry-chip-input";
@@ -2961,7 +2967,8 @@ function __cbEnsureOverlayStyles() {
   style.textContent = [
     // The surface is the shared .vui-dialog (vault-ui.css); only the layout
     // of the controls is the overlay's own.
-    ".cb-overlay-card{width:min(360px,100%);display:flex;flex-direction:column;gap:14px;}",
+    ".cb-overlay-card{width:min(360px,100%);max-height:calc(100vh - 40px);overflow:auto;display:flex;flex-direction:column;gap:14px;}",
+    ".cb-overlay-card>*{flex-shrink:0;}",
     ".cb-overlay-card .vui-dialog-title,.cb-overlay-card .vui-dialog-actions{margin:0;}",
     ".cb-overlay-label{font-size:11px;font-weight:600;color:#64748b;margin-bottom:6px;}",
     ".cb-overlay-row{display:flex;flex-direction:column;}",
@@ -5783,6 +5790,8 @@ function renderTagSuggestions(container, textarea, names) {
   if (names.length === 0) return;
   const label = document.createElement("span");
   label.className = "tag-suggestions-label";
+  label.id = container.id + "-label";
+  container.setAttribute("aria-labelledby", label.id);
   label.textContent = t("tagFilter.available");
   container.appendChild(label);
   const used = usedTagNames(textarea);
