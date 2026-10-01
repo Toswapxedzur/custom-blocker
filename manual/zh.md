@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 |禁用（panelId，controlId），启用（panelId，controlId）|切换控制可用性。 |
 | setOptions(panelId, controlId, 选项) |替换选择/单选选项。 |
 | setText(panelId, controlId, 文本) |更新按钮标签、文本/部分文本或其他控件标签。 |
-| setTheme(panelId, 主题) |更换面板主题。 |
 | setTitle(panelId, 标题), setDescription(panelId, 描述) |更新文字。 |
 | getValue(面板 ID, 控制 ID) |返回克隆值或未定义值。 |
 |获取值（面板 ID）|返回由控件 id 键控的所有可写值。 |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel |可访问的标签。 |
 |角色 |区域、对话框、警报、状态、表单或组。 |
 |自动对焦 |布尔值。 |
-|主题/颜色 |背景、前景、重音、边框、静音、字体大小/文本大小、标题大小。 |
 |控制|最多包含 32 个控件的数组，部分嵌套最多三层。 |
 |可见| False 隐藏面板。 |
 |范围（url），域（url）|控制可用性/显示的功能。域优先；没有域，范围控制显示。 |

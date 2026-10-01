@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | 비활성화(panelId, controlId), 활성화(panelId, controlId) | 제어 가용성을 전환합니다. |
 | setOptions(panelId, controlId, 옵션) | 선택/라디오 선택을 바꿉니다. |
 | setText(panelId, controlId, text) | 버튼 라벨, 텍스트/섹션 텍스트 또는 다른 컨트롤 라벨을 업데이트합니다. |
-| setTheme(panelId, 테마) | 패널 테마를 교체합니다. |
 | setTitle(panelId, 제목), setDescription(panelId, 설명) | 텍스트를 업데이트하세요. |
 | getValue(panelId, controlId) | 복제된 값 또는 정의되지 않은 값을 반환합니다. |
 | getValues(패널Id) | 컨트롤 ID로 입력된 모든 쓰기 가능한 값을 반환합니다. |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | 접근 가능한 라벨. |
 | 역할 | 지역, 대화 상자, 경고, 상태, 양식 또는 그룹. |
 | 자동 초점 | 부울. |
-| 테마/색상 | 배경, 전경, 악센트, 테두리, 음소거, 글꼴 크기/텍스트 크기, 제목 크기. |
 | 제어 | 최대 32개의 컨트롤 배열, 섹션은 최대 3개 레벨까지 중첩됩니다. |
 | 보이는 | False는 패널을 숨깁니다. |
 | 범위(url), 도메인(url) | 가용성/표시를 제어하는 ​​기능입니다. 도메인이 우선 적용됩니다. 도메인이 없으면 범위 제어가 표시됩니다. |

@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | devre dışı bırak(panelId, kontrolId), etkinleştir(panelId, kontrolId) | Kontrol kullanılabilirliğini açın/kapatın. |
 | setOptions(panelId, controlId, seçenekler) | Seçim/radyo seçeneklerini değiştirin. |
 | setText(panelId, kontrolId, metin) | Bir düğme etiketini, metni/bölüm metnini veya başka bir kontrol etiketini güncelleyin. |
-| setTheme(panelId, tema) | Panel temasını değiştirin. |
 | setTitle(panelId, başlık), setDescription(panelId, açıklama) | Metni güncelle. |
 | getValue(panelId, controlId) | Klonlanmış veya tanımsız bir değer döndürün. |
 | getValues(panelId) | Kontrol kimliği tarafından anahtarlanan tüm yazılabilir değerleri döndürür. |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | Erişilebilir etiket. |
 | rolü | bölge, iletişim kutusu, uyarı, durum, form veya grup. |
 | otomatik Odaklama | Boolean. |
-| tema/renkler | arka plan, ön plan, vurgu, kenarlık, sessiz, fontSize/textSize, titleSize. |
 | kontroller | Üç seviyeye kadar iç içe geçmiş bölümlerle 32'ye kadar kontrolden oluşan dizi. |
 | görünür | False paneli gizler. |
 | kapsam(url), etki alanı(url) | Kullanılabilirliği/görüntüyü kontrol eden işlevler. etki alanı önceliklidir; etki alanı olmadan kapsam kontrolleri görüntülenir. |

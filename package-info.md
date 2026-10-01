@@ -11,3 +11,7 @@
 - **Key files:** `background.js` (service worker, hub client), `content.js` (feed/overlay logic incl. content-based block), `popup.*` (editor UI), `rule-core.js` (the custom-rule contract both engines run: `(on, v) => {…}`, raw events in, a small action set out, no helper library — owner 2026-09-27; also the reference the editor's "Let AI Code" prompt carries) + `event-sandbox.js` (the browser's engine, glue around rule-core; Safari runs it inside Mac Vault), `platform-profiles.js`, `local-hub-*.js` (authenticated hub protocol v4), `bridge-protocol.js`.
 - **Folders:** `tests/` (run `bash tests/run.sh`, uses macOS `jsc`), `tools/` (`package.py` builds `dist/` zips, icon/locale/promo builders), `scripts/` (translation + documentation audits, custom-rule AI reference generator), `manual/` (20-language in-app manual, `en.md` is source), `translation/` + `_locales/` (UI catalogs), `i18n-docs/` (translated copies of this repo's docs), `icons/`, `promotionpicture/`, `docs/` (internal engineering notes, not localized), `dist/` (built packages).
 - **Legal:** `PRIVACY.md` / `TERMS.md` are canonical; the website vendors byte-identical copies.
+
+- **UI regression:** `tests/runner-ui.py` runs through the existing extension
+  driver’s `--ui-script` hook on mini1. Popup checks use actual chrome APIs;
+  tag checks use synthetic transport with the production renderer in Chromium.
