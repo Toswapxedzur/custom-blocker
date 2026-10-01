@@ -5,11 +5,12 @@ its background service-worker console / evaluate JS inside the SW context.
   python3 driver.py                  # headless (new headless), stream SW console ~8s
   python3 driver.py --headed         # visible Chromium (fallback if no SW appears headless)
   python3 driver.py --eval "() => chrome.storage.local.get(null)"   # run code IN the SW
+  python3 driver.py --popup-test tests/popup-rule-logs.js --hold 0
   python3 driver.py --hold 30        # keep the browser open N seconds (default 8)
 Env: EXT_DIR=<dir> to load a different unpacked extension; PROFILE=<dir> to reuse a profile.
 Exit 0 = service worker found; 2 = no service worker (extension failed to load).
 """
-import argparse, os, runpy, sys, tempfile, time
+import argparse, os, runpy, shutil, sys, tempfile, time
 from playwright.sync_api import sync_playwright
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -21,12 +22,16 @@ def main():
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--eval", default=None)
     ap.add_argument("--ui-script", help="Python script exporting run(context, service_worker) for UI checks")
+    ap.add_argument("--popup-test", help="JavaScript file containing an async popup regression function")
+    ap.add_argument("--width", type=int, default=1280)
+    ap.add_argument("--height", type=int, default=900)
     ap.add_argument("--hold", type=float, default=8)
     a = ap.parse_args()
     profile = os.environ.get("PROFILE") or tempfile.mkdtemp(prefix="cb-profile-")
     print(f"[driver] extension: {EXT}")
     print(f"[driver] profile:   {profile}  headless={not a.headed}", flush=True)
     seen = []
+    failed = False
 
     def on_console(msg):
         line = f"[SW console.{msg.type}] {msg.text}"
@@ -63,10 +68,32 @@ def main():
                 except Exception as e: print(f"[driver] --eval FAILED: {e}", file=sys.stderr)
             if a.ui_script:
                 runpy.run_path(a.ui_script)["run"](ctx, sw)
+        if sws and a.popup_test:
+            try:
+                # Give the freshly created offscreen document time to register its relay.
+                sw.evaluate("async () => await ensureOffscreenDocument()")
+                page = ctx.new_page()
+                page.set_viewport_size({"width": a.width, "height": a.height})
+                page.on("pageerror", lambda error: print(f"[popup error] {error}", flush=True))
+                page.goto(f"chrome-extension://{sw.url.split('/')[2]}/popup.html")
+                deadline = time.monotonic() + 10
+                while not page.evaluate("() => typeof render === 'function' && typeof state === 'object'"):
+                    if time.monotonic() > deadline:
+                        raise RuntimeError("Popup renderer did not initialize")
+                    time.sleep(0.05)
+                page.wait_for_timeout(1000)
+                with open(a.popup_test, encoding="utf-8") as test_file:
+                    result = page.evaluate(test_file.read())
+                print(f"[driver] popup-test OK: {result}", flush=True)
+            except Exception as error:
+                failed = True
+                print(f"[driver] popup-test FAILED: {error}", file=sys.stderr)
         time.sleep(a.hold)
         ctx.close()
+    if not os.environ.get("PROFILE"):
+        shutil.rmtree(profile)
     print(f"[driver] captured {len(seen)} SW console line(s)")
-    return 0 if sws else 2
+    return 1 if failed else (0 if sws else 2)
 
 if __name__ == "__main__":
     sys.exit(main())
