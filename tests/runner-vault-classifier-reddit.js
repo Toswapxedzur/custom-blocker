@@ -141,7 +141,7 @@ const chrome = {
     sendMessage(message, callback) {
       messages.push(message);
       if (message.type === "vault-classifier-collection-info") {
-        callback({ ok: true, enabled: true });
+        callback({ ok: true, enabled: true, tagging: true });
       } else {
         callback({ ok: true, accepted: true, queued: true });
       }

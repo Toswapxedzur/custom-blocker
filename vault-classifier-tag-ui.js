@@ -242,10 +242,12 @@
       return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true });
     }
 
+    const epoch = platformEpochs.get(platform) || 0;
     const pending = new Promise((resolve) => {
       pendingBatch.push({ platform, entryID, creatorID, title, key, resolve });
       scheduleDrain();
     }).then((result) => {
+      if (epoch !== (platformEpochs.get(platform) || 0)) return null;
       // The app is still classifying this video: show the "Tagging" placeholder
       // and re-check soon so the real tags replace it quickly. Never dim/hide
       // while provisional — a card is only ever acted on by a resolved verdict.
@@ -886,6 +888,13 @@
 
   try {
     global.chrome?.runtime?.onMessage?.addListener?.((message, sender) => {
+      if (message?.type === "vault-classifier-state-updated"
+        && (!sender?.id || sender.id === global.chrome.runtime.id)
+        && ["youtube", "reddit", "twitter", "bilibili"].includes(message.platform)) {
+        clearPlatform(message.platform);
+        taxonomyCache.delete(message.platform);
+        return false;
+      }
       if (!message
         || message.type !== "vault-classifier-video-tags-updated"
         || (sender && sender.id && sender.id !== global.chrome.runtime.id)

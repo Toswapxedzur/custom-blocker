@@ -96,7 +96,7 @@ async function op(operation, body) {
   const check = (label, ok, detail) => { if (ok) { pass++; console.log(`PASS ${label}`); } else { fail++; console.log(`FAIL ${label}${detail ? " — " + JSON.stringify(detail).slice(0, 300) : ""}`); } };
 
   const initial = await op("settings-get", {});
-  check("settings-get answers with groups, classifier settings and the op list", initial?.body && Array.isArray(initial.body.groups) && initial.body.classifierSettings?.taggingMode === "whenFiltering" && initial.body.operations.includes("settings-set-group"), initial);
+  check("settings-get exposes Vault groups but no retired classifier controls", initial?.body && Array.isArray(initial.body.groups) && !Object.hasOwn(initial.body,"classifierSettings") && !initial.body.operations.includes("settings-set-classifier") && initial.body.operations.includes("settings-set-group"), initial);
 
   const created = await op("settings-create-group", { groupType: "twitter", patch: { name: "X tags", platformTagMode: "include", platformTags: [{ name: "Gaming", confidence: 3 }, { name: "Sports" }], platformTagCoverUntilTagged: true } });
   const g = created?.body?.group;
@@ -147,9 +147,7 @@ async function op(operation, body) {
   groups.find((x) => x.id === g.id).lockedAtMs = null; storage.set("blockedGroups", groups);
 
   const mode = await op("settings-set-classifier", { taggingMode: "always" });
-  check("set-classifier writes the tagging mode the bridge reads", mode?.body?.classifierSettings?.taggingMode === "always" && storage.get("vaultClassifierSettings")?.taggingMode === "always", mode);
-  const badMode = await op("settings-set-classifier", { taggingMode: "sometimes" });
-  check("an unknown tagging mode is refused", badMode?.error === "invalid-tagging-mode", badMode);
+  check("retired extension classifier action is rejected", mode?.error === "unsupported-operation", mode);
 
   const deleted = await op("settings-delete-group", { id: g.id });
   check("delete-group removes the group", deleted?.body?.deleted === g.id && !(storage.get("blockedGroups") || []).some((x) => x.id === g.id), deleted);

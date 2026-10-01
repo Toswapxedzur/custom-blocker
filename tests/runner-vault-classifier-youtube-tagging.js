@@ -69,15 +69,15 @@ function run({ tagging }) {
 (async () => {
   const on = await run({ tagging: true });
   const off = await run({ tagging: false });
-  const legacy = await run({ tagging: undefined });
+  const missing = await run({ tagging: undefined });
   const collected = (r) => r.messages.some((m) => m.type === "vault-classifier-collect" && m.entry?.entryID === "youtube:video:dQw4w9WgXcQ");
   const checks = {
     "tagging on: the card is collected AND pilled": collected(on) && on.tagPresentations.length === 1,
-    "tagging off (schedule window closed): collected for History, NO pill": collected(off) && off.tagPresentations.length === 0,
-    "an older app that sends no `tagging` field still pills (default on)": collected(legacy) && legacy.tagPresentations.length === 1
+    "native tagging paused: recorded, NO pill": collected(off) && off.tagPresentations.length === 0,
+    "missing native activation never authorizes tagging": collected(missing) && missing.tagPresentations.length === 0
   };
   let failed = false;
   for (const [label, ok] of Object.entries(checks)) { console.log(`${ok ? "PASS" : "FAIL"} ${label}`); if (!ok) failed = true; }
-  if (failed) { console.error({ on: on.tagPresentations.length, off: off.tagPresentations.length, legacy: legacy.tagPresentations.length }); console.log("__CB_TEST_RESULT__: FAIL"); process.exitCode = 1; return; }
+  if (failed) { console.error({ on: on.tagPresentations.length, off: off.tagPresentations.length, missing: missing.tagPresentations.length }); console.log("__CB_TEST_RESULT__: FAIL"); process.exitCode = 1; return; }
   console.log("__CB_TEST_RESULT__: OK");
 })();

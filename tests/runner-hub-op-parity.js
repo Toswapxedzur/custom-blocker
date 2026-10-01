@@ -68,8 +68,7 @@ function classifierEnumOps(source) {
   return ops;
 }
 function classifierBroadcastOps(source) {
-  const m = source.match(/videoTagsUpdatedBroadcast\s*=\s*"([a-z-]+)"/);
-  return m ? [m[1]] : [];
+  return [...source.matchAll(/static let \w+Broadcast\s*=\s*"([a-z-]+)"/g)].map(match => match[1]);
 }
 
 // Request-operation allowlists. In the Mac hub they are `[...].contains(operation)`
@@ -77,6 +76,7 @@ function classifierBroadcastOps(source) {
 const swiftLists = [
   classifierEnumOps(sources.classifierBridge),
   classifierBroadcastOps(sources.classifierBridge),
+  ...(sources.macHub.includes("SharedBrowserBridgeOperation.relayableBroadcastOperations.contains(operation)") ? [classifierBroadcastOps(sources.classifierBridge)] : []),
   ...quotedLists(sources.macHub, /\[((?:\s*"[a-z-]+",?)+)\]\.contains\(operation\)/g)
 ];
 const requestLists = swiftLists.filter((list) => list.includes("bridge-info"));

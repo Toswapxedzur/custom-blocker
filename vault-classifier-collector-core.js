@@ -15,7 +15,6 @@
   // Reddit + Bilibili since 2026-09-13; X/Twitter since 2026-09-23.
   // The tagging platforms (platform-profiles.js), YouTube aside.
   const PILL_PLATFORMS = new Set(TAGGING_PLATFORMS.filter((platform) => platform !== "youtube"));
-  const SETTINGS_KEY = "vaultClassifierSettings";
   const SOURCE_ICON_ATTRIBUTES = Object.freeze([
     "src", "srcset", "data-src", "data-lazy-src", "data-original", "data-srcset"
   ]);
@@ -466,7 +465,7 @@
           }
           collectionEnabled = Boolean(response?.ok === true && response.enabled === true);
           const taggingWas = taggingEnabled;
-          taggingEnabled = collectionEnabled && response.tagging !== false;
+          taggingEnabled = collectionEnabled && response.tagging === true;
           // Every scan observes the cards on screen (before the collection
           // de-dupe), so a schedule window opening just needs the rescan below;
           // one closing must take the pills down.
@@ -519,7 +518,6 @@
         sourceIconDebugEnabled = changes.globalSettings.newValue?.debugMode === true;
         if (sourceIconDebugEnabled) reportSourceIconDebug("debug-ready");
       }
-      if (changes[SETTINGS_KEY]) refreshCollectionEnabled();
     });
     try {
       if (typeof chrome.storage?.local?.get !== "function") {
@@ -534,6 +532,14 @@
     } catch (_) {
       resolveSourceIconDebugSettingsOnce();
     }
+    chrome.runtime.onMessage?.addListener?.((message, sender) => {
+      if (message?.type === "vault-classifier-state-updated" && message.platform === platform
+        && (!sender?.id || sender.id === chrome.runtime.id)) {
+        taggingEnabled = false;
+        refreshCollectionEnabled();
+      }
+      return false;
+    });
     reportDiagnostic("collector-started");
     sourceIconDebugSettingsReady.then(() => {
       refreshCollectionEnabled();

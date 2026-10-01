@@ -370,8 +370,6 @@ const localFolderStatus = document.getElementById("localFolderStatus");
 let localFolderHandle = null;
 const settingsResetButton = document.getElementById("settingsResetButton");
 const settingsStatus = document.getElementById("settingsStatus");
-const classifierCollectionToggle = document.getElementById("classifierCollectionToggle");
-const classifierTaggingModeField = document.getElementById("classifierTaggingMode");
 const dayCheckboxes = Array.from(daysGrid.querySelectorAll('input[type="checkbox"]'));
 
 const state = {
@@ -420,53 +418,6 @@ const state = {
   clustersLastJSON: "",
   quickAddGroupId: ""
 };
-
-// This remains separate from the group-sync connection. Its browser evidence
-// requests share the public broker but never receive a group definition.
-const CLASSIFIER_BRIDGE_SETTINGS_KEY = "vaultClassifierSettings";
-const CLASSIFIER_TAGGING_MODES = ["whenFiltering", "always", "paused"];
-const DEFAULT_CLASSIFIER_BRIDGE_SETTINGS = Object.freeze({
-  collectionEnabled: true,
-  taggingMode: "whenFiltering"
-});
-let classifierBridgeSettings = { ...DEFAULT_CLASSIFIER_BRIDGE_SETTINGS };
-
-function sanitizeClassifierBridgeSettings(raw) {
-  return {
-    // Existing deliberate opt-outs stay off; new extension settings collect by
-    // default once the matching local app platform is enabled.
-    collectionEnabled: !raw || raw.collectionEnabled !== false,
-    taggingMode: raw && CLASSIFIER_TAGGING_MODES.includes(raw.taggingMode) ? raw.taggingMode : "whenFiltering"
-  };
-}
-
-function classifierBridgeStorageGet() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([CLASSIFIER_BRIDGE_SETTINGS_KEY], (result) => {
-      resolve(sanitizeClassifierBridgeSettings(result && result[CLASSIFIER_BRIDGE_SETTINGS_KEY]));
-    });
-  });
-}
-
-function classifierBridgeStorageSet(next) {
-  classifierBridgeSettings = sanitizeClassifierBridgeSettings(next);
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.set({ [CLASSIFIER_BRIDGE_SETTINGS_KEY]: classifierBridgeSettings }, () => {
-      const error = chrome.runtime.lastError;
-      error ? reject(new Error(error.message)) : resolve(classifierBridgeSettings);
-    });
-  });
-}
-
-function renderClassifierBridgeSettings() {
-  if (classifierCollectionToggle) classifierCollectionToggle.checked = classifierBridgeSettings.collectionEnabled;
-  if (classifierTaggingModeField) classifierTaggingModeField.value = classifierBridgeSettings.taggingMode;
-}
-
-async function loadClassifierBridgeSettings() {
-  classifierBridgeSettings = await classifierBridgeStorageGet();
-  renderClassifierBridgeSettings();
-}
 
 function getAiPromptStorageKey(groupId) {
   return `${AI_PROMPT_STORAGE_PREFIX}${groupId}`;
@@ -1064,7 +1015,6 @@ function syncSettingsFormFromState() {
 function openSettings() {
   state.isSettingsOpen = true;
   syncSettingsFormFromState();
-  loadClassifierBridgeSettings().catch(() => renderClassifierBridgeSettings());
   settingsModal.classList.remove("hidden");
   focusVaultModal(settingsModal, settingsCloseButton, closeSettings);
   renderLocalFolderStatus().catch((error) => {
@@ -6179,17 +6129,6 @@ if (settingsModal) {
     if (!field) continue;
     field.addEventListener("change", autoSaveSettings);
   }
-}
-
-if (classifierCollectionToggle) {
-  classifierCollectionToggle.addEventListener("change", () => {
-    classifierBridgeStorageSet({ ...classifierBridgeSettings, collectionEnabled: classifierCollectionToggle.checked }).catch(() => {});
-  });
-}
-if (classifierTaggingModeField) {
-  classifierTaggingModeField.addEventListener("change", () => {
-    classifierBridgeStorageSet({ ...classifierBridgeSettings, taggingMode: classifierTaggingModeField.value }).catch(() => {});
-  });
 }
 
 if (localFolderChooseButton) {

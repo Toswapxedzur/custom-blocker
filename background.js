@@ -532,18 +532,6 @@ function applyRuntimeNormalizations(
   };
 }
 
-// Tagging schedule (owner idea, 2026-09-23): the classifier is only asked to tag
-// a platform while a tag filter for it is active — i.e. some enabled, un-snoozed
-// group of that site whose schedule window is open has a tag filter. Reuses
-// the feed-filter builder so "active" means exactly what blocking means.
-globalThis.cbHasActiveTagFilter = async function cbHasActiveTagFilter(platform, now = Date.now()) {
-  if (typeof platform !== "string" || !platform) return false;
-  const { groups, usageTimersMs, groupSnoozes } = await getState();
-  const pageContext = { hostname: "", videoSite: platform };
-  return buildPlatformFeedFilters(pageContext, groups, usageTimersMs, groupSnoozes, now)
-    .some((filter) => filter && filter.tagFilter);
-};
-
 async function getState() {
   await cbClusterCopyReady;
   const baseState = await loadStoredState();
@@ -3749,7 +3737,6 @@ const CB_BROWSER_REQUEST_OPERATIONS = Object.freeze([
   "settings-set-group",
   "settings-create-group",
   "settings-delete-group",
-  "settings-set-classifier",
   "settings-set-global",
   "settings-lock-group",
   "settings-unlock-group",
@@ -3760,8 +3747,6 @@ const CB_BROWSER_REQUEST_OPERATIONS = Object.freeze([
   "settings-delete-all",
   "settings-run-custom-rule"
 ]);
-const CB_CLASSIFIER_SETTINGS_STORAGE_KEY = "vaultClassifierSettings";
-const CB_TAGGING_MODES = Object.freeze(["whenFiltering", "always", "paused"]);
 
 // Locking and unlocking from a tool pass the editor's own gates (owner
 // 2026-09-26: a tool may do what the user can, no more, no less). The rules
@@ -3956,16 +3941,11 @@ async function cbBrowserRequestBody(operation, body) {
   switch (operation) {
     case "settings-get": {
       const { groups, usageTimersMs, groupSnoozes } = await getState();
-      const stored = await chrome.storage.local.get([CB_CLASSIFIER_SETTINGS_STORAGE_KEY, CB_GLOBAL_SETTINGS_KEY]);
-      const raw = stored?.[CB_CLASSIFIER_SETTINGS_STORAGE_KEY];
+      const stored = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);
       return {
         groups: groups.map(cbPublicGroup),
         usageTimersMs,
         groupSnoozes,
-        classifierSettings: {
-          collectionEnabled: !raw || raw.collectionEnabled !== false,
-          taggingMode: raw && CB_TAGGING_MODES.includes(raw.taggingMode) ? raw.taggingMode : "whenFiltering"
-        },
         globalSettings: cbEditorGlobalSettings(CBGroupActions.sanitizeGlobalSettings(stored?.[CB_GLOBAL_SETTINGS_KEY])),
         quickAddGroupId: (await chrome.storage.local.get({ [CB_QUICK_ADD_GROUP_KEY]: "" }))[CB_QUICK_ADD_GROUP_KEY],
         operations: CB_BROWSER_REQUEST_OPERATIONS
@@ -4044,23 +4024,6 @@ async function cbBrowserRequestBody(operation, body) {
       next.splice(to, 0, moved);
       await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
       return { order: next.map((group) => group.id) };
-    }
-    case "settings-set-classifier": {
-      const stored = await chrome.storage.local.get(CB_CLASSIFIER_SETTINGS_STORAGE_KEY);
-      const current = stored?.[CB_CLASSIFIER_SETTINGS_STORAGE_KEY] && typeof stored[CB_CLASSIFIER_SETTINGS_STORAGE_KEY] === "object"
-        ? { ...stored[CB_CLASSIFIER_SETTINGS_STORAGE_KEY] } : {};
-      if (input.taggingMode !== undefined) {
-        if (!CB_TAGGING_MODES.includes(input.taggingMode)) throw new Error("invalid-tagging-mode");
-        current.taggingMode = input.taggingMode;
-      }
-      if (input.collectionEnabled !== undefined) current.collectionEnabled = input.collectionEnabled === true;
-      await chrome.storage.local.set({ [CB_CLASSIFIER_SETTINGS_STORAGE_KEY]: current });
-      return {
-        classifierSettings: {
-          collectionEnabled: current.collectionEnabled !== false,
-          taggingMode: CB_TAGGING_MODES.includes(current.taggingMode) ? current.taggingMode : "whenFiltering"
-        }
-      };
     }
     case "settings-set-global": {
       // Exactly the editor's Settings (owner 2026-09-27), sanitized the way its

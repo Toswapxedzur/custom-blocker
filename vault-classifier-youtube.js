@@ -12,7 +12,6 @@
   const TagUI = globalThis.VaultClassifierTagUI;
   if (!C || typeof C.youtubeVideoIDFromURL !== "function") return;
 
-  const SETTINGS_KEY = "vaultClassifierSettings";
   // The same cards the feed filters act on (platform-profiles.js, loaded
   // first in this isolated world).
   const CARD_SELECTOR = PLATFORM_PROFILES.youtube.feed.cardSelectors.join(",");
@@ -527,7 +526,7 @@
           const enabled = Boolean(response && response.ok === true && response.enabled === true);
           resolve({
             enabled,
-            tagging: enabled && response.tagging !== false,
+            tagging: enabled && response.tagging === true,
             failed: !(response && response.ok === true)
           });
         });
@@ -778,7 +777,10 @@
   // One-time full sweep of the current DOM (start and navigation). Steady-state
   // updates are surgical, handled by the mutation observer below.
   function sweepCards() {
-    document.querySelectorAll(CARD_SELECTOR).forEach(registerCard);
+    document.querySelectorAll(CARD_SELECTOR).forEach((card) => {
+      if (registeredCards.has(card)) scheduleCardProcess(card);
+      else registerCard(card);
+    });
   }
 
   function schedulePageCheck() {
@@ -821,8 +823,14 @@
       applySourceIconDebugSettings(changes.globalSettings.newValue);
       if (sourceIconDebugEnabled) reportSourceIconDebug("debug-ready");
     }
-    if (area !== "local" || !changes[SETTINGS_KEY]) return;
-    refreshCollectionEnabled();
+  });
+  chrome.runtime.onMessage?.addListener?.((message, sender) => {
+    if (message?.type === "vault-classifier-state-updated" && message.platform === PLATFORM
+      && (!sender?.id || sender.id === chrome.runtime.id)) {
+      taggingEnabled = false;
+      refreshCollectionEnabled();
+    }
+    return false;
   });
   window.addEventListener("yt-navigate-finish", () => {
     collectedEntryIDs.clear();

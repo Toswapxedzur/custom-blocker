@@ -10,7 +10,6 @@
   const C = self.VaultClassifierExtensionContract;
   if (!C || typeof C.fitEntryForNativeTransport !== "function" || typeof C.isTrustedCollectionURL !== "function" || typeof chrome === "undefined" || !chrome.runtime) return;
 
-  const SETTINGS_KEY = "vaultClassifierSettings";
   const COLLECTION_QUEUE_KEY = "__vault_classifier_collection_queue_v1__";
   const COLLECTION_QUEUE_VERSION = 1;
   const COLLECTION_QUEUE_MAX_ITEMS = 512;
@@ -46,13 +45,6 @@
   let collectionQueueFlush = null;
   let collectionQueueFlushScheduled = false;
 
-  function storageGet(key) {
-    return new Promise((resolve) => chrome.storage.local.get(key, (result) => {
-      if (chrome.runtime.lastError) return resolve({});
-      resolve(result || {});
-    }));
-  }
-
   function sessionStorageGet(defaults) {
     return new Promise((resolve) => {
       if (typeof chrome.storage?.session?.get !== "function") {
@@ -84,28 +76,10 @@
     });
   }
 
-  // Tagging schedule: "whenFiltering" (default) tags a platform only while one
-  // of its groups has an active tag filter; "always" tags whenever collection
-  // is on; "paused" tags nothing. Collection (History) is unaffected.
-  const TAGGING_MODES = new Set(["whenFiltering", "always", "paused"]);
-  async function settings() {
-    const result = await storageGet(SETTINGS_KEY);
-    const raw = result[SETTINGS_KEY];
-    return {
-      collectionEnabled: !raw || raw.collectionEnabled !== false,
-      taggingMode: raw && TAGGING_MODES.has(raw.taggingMode) ? raw.taggingMode : "whenFiltering"
-    };
-  }
-
-  // Whether the classifier may be asked to tag `platform` now. The schedule
-  // check lives in background.js (it owns the groups); when that hook is absent
-  // (Safari package, tests) tagging follows collection as before.
-  async function taggingAllowed(platform, current) {
-    if (current.taggingMode === "paused") return false;
-    if (current.taggingMode === "always") return true;
-    const hook = typeof globalThis.cbHasActiveTagFilter === "function" ? globalThis.cbHasActiveTagFilter : null;
-    if (!hook) return true;
-    try { return (await hook(platform, Date.now())) === true; } catch (_) { return true; }
+  // Activation belongs to the native Classifier, including new group defaults.
+  async function taggingAllowed(platform) {
+    const info = await collectionInfo(platform);
+    return info.ok === true && info.tagging === true;
   }
 
   function hubRequest(operation, body) {
@@ -298,19 +272,6 @@
     });
   }
 
-  async function clearCollectionQueue(outcome = "disabled") {
-    return mutateQueue((state) => {
-      const removed = state.items.length;
-      state.items = [];
-      state.authorizedPlatformIDs = [];
-      if (removed > 0) {
-        state.droppedCount = Math.min(Number.MAX_SAFE_INTEGER, state.droppedCount + removed);
-        queueDiagnostic("collection-dropped", state, outcome);
-      }
-      return state;
-    });
-  }
-
   async function enqueueCollection(entry) {
     if (typeof chrome.storage?.session?.set !== "function") {
       return { accepted: false, reason: "session-storage-unavailable" };
@@ -356,11 +317,6 @@
   async function flushCollectionQueue() {
     if (collectionQueueFlush) return collectionQueueFlush;
     collectionQueueFlush = (async () => {
-      const current = await settings();
-      if (!current.collectionEnabled) {
-        await clearCollectionQueue();
-        return { flushed: 0 };
-      }
       let info;
       try {
         info = await hubRequest("collection-info", {});
@@ -456,11 +412,6 @@
   // settings mean no platform metadata leaves the page at all.
   async function collectionInfo(platform) {
     try {
-      const current = await settings();
-      if (!current.collectionEnabled) {
-        await clearCollectionQueue();
-        return { ok: true, enabled: false };
-      }
       const body = await hubRequest("collection-info", {});
       const enabledPlatformIDs = Array.isArray(body && body.enabledPlatformIDs)
         ? body.enabledPlatformIDs.filter((id) => typeof id === "string" && id.length > 0 && id.length <= 64)
@@ -471,7 +422,7 @@
       await syncDevMode(body && body.developmentMode === true);
       scheduleCollectionQueueFlush();
       const enabled = enabledPlatformIDs.includes(platform);
-      return { ok: true, enabled, tagging: enabled && await taggingAllowed(platform, current) };
+      return { ok: true, enabled, tagging: enabled && cleanQueuePlatformIDs(body?.taggingPlatformIDs).includes(platform) };
     } catch (error) {
       return { ok: false, enabled: false, reason: String(error && error.message || error) };
     }
@@ -484,11 +435,6 @@
     }
     const entry = C.fitEntryForNativeTransport(normalized);
     if (!entry) return { ok: false, accepted: false, reason: "oversized-collection-entry" };
-    const current = await settings();
-    if (!current.collectionEnabled) {
-      await clearCollectionQueue();
-      return { ok: true, accepted: false, reason: "collection-disabled" };
-    }
     const queued = await enqueueCollection(entry);
     if (queued.accepted) scheduleCollectionQueueFlush();
     return { ok: Boolean(queued.accepted), ...queued };
@@ -504,8 +450,7 @@
       return { ok: false, tags: [], pending: false };
     }
     try {
-      const current = await settings();
-      if (!current.collectionEnabled || !(await taggingAllowed(platform, current))) {
+      if (!(await taggingAllowed(platform))) {
         return { ok: true, platformID: platform, entryID, tags: [], pending: false };
       }
       const body = await hubRequest("video-tags", {
@@ -550,8 +495,7 @@
     }
     if (!items.length) return { ok: true, platformID: platform, items: [] };
     try {
-      const current = await settings();
-      if (!current.collectionEnabled || !(await taggingAllowed(platform, current))) return { ok: true, platformID: platform, items: [] };
+      if (!(await taggingAllowed(platform))) return { ok: true, platformID: platform, items: [] };
       const body = await hubRequest("video-tags-batch", { platformID: platform, items });
       const expected = new Set(items.map((item) => item.entryID));
       const results = C.normalizeVideoTagsBatchResponse?.(body, platform, expected);
@@ -575,8 +519,6 @@
   }
   async function classifierTaxonomy(platform) {
     try {
-      const current = await settings();
-      if (!current.collectionEnabled) return { ok: true, platformID: platform, types: [] };
       const body = await hubRequest("classifier-taxonomy", { platformID: platform });
       if (!body || body.platformID !== platform || !Array.isArray(body.types)) return { ok: false, types: [] };
       const types = body.types.map((type) => ({
@@ -602,8 +544,6 @@
       return { ok: false };
     }
     try {
-      const current = await settings();
-      if (!current.collectionEnabled) return { ok: false };
       const uniqueTagIDs = [...new Set(correctTagIDs)];
       const body = await hubRequest("submit-correction", { platformID: platform, entryID, creatorID, typeID, correctTagIDs: uniqueTagIDs });
       if (!body || body.platformID !== platform || body.entryID !== entryID || !Array.isArray(body.tags)) return { ok: false };
@@ -779,6 +719,19 @@
   // for the platform; tag-ui swaps provisional pills in place without another
   // request round-trip.
   function handleClassifierBroadcast(frame) {
+    if (frame?.operation === "classifier-state-updated") {
+      if (!frame.body || typeof frame.body !== "object" || Array.isArray(frame.body)) return;
+      chrome.tabs?.query?.({}, (tabs) => {
+        if (chrome.runtime.lastError) return;
+        for (const tab of tabs || []) {
+          if (typeof tab?.id !== "number" || typeof tab.url !== "string") continue;
+          const platform = ["youtube", "reddit", "twitter", "bilibili"].find(id => C.isTrustedCollectionURL(id, tab.url));
+          if (!platform) continue;
+          try { chrome.tabs.sendMessage(tab.id, { type: "vault-classifier-state-updated", platform }, () => { void chrome.runtime.lastError; }); } catch (_) {}
+        }
+      });
+      return;
+    }
     if (!frame || frame.operation !== "video-tags-updated") return;
     const normalized = C.normalizeVideoTagsBroadcast?.(frame.body);
     if (!normalized || typeof chrome.tabs?.query !== "function") return;
@@ -809,14 +762,6 @@
     }
     forwardDevLog(message.layer, message.event, message.fields);
     return false;
-  });
-
-  chrome.storage.onChanged?.addListener?.((changes, area) => {
-    if (area === "local"
-      && changes[SETTINGS_KEY]
-      && changes[SETTINGS_KEY].newValue?.collectionEnabled === false) {
-      void clearCollectionQueue();
-    }
   });
 
   scheduleCollectionQueueFlush();

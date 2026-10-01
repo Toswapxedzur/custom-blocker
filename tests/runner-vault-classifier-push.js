@@ -128,6 +128,10 @@ const sentToTabs = [];
     body: { platformID: "youtube", items: [{ entryID: "reddit:post:x", tags: VALID_TAGS }] }
   });
   check("bridge drops a malformed broadcast", sentToTabs.length === before);
+  receiveInContext({operation:"classifier-state-updated",body:{}});
+  check("native activation signal reaches only supported platform tabs", sentToTabs.length === before + 1
+    && sentToTabs.at(-1).tabId === 1 && sentToTabs.at(-1).message.type === "vault-classifier-state-updated", sentToTabs);
+
 }
 
 // ------------------------------------------------------------------ tag-ui --
