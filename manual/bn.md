@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | disable(panelId, controlId), enable(panelId, controlId) | নিয়ন্ত্রণ প্রাপ্যতা টগল করুন। |
 | setOptions(panelId, controlId, options) | নির্বাচন/রেডিও পছন্দ প্রতিস্থাপন করুন। |
 | setText(panelId, controlId, text) | একটি বোতাম লেবেল, পাঠ্য/বিভাগ পাঠ্য, বা অন্য নিয়ন্ত্রণ লেবেল আপডেট করুন৷ |
-| setTheme(প্যানেলআইডি, থিম) | প্যানেল থিম প্রতিস্থাপন করুন। |
 | setTitle(panelId, title), setDescription(panelId, description) | পাঠ্য আপডেট করুন। |
 | getValue(panelId, controlId) | একটি ক্লোন করা মান বা অনির্ধারিত ফেরত দিন। |
 | getValues(panelId) | কন্ট্রোল আইডি দ্বারা কী করা সমস্ত লিখনযোগ্য মান ফেরত দিন। |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | অ্যাক্সেসযোগ্য লেবেল। |
 | ভূমিকা | অঞ্চল, ডায়ালগ, সতর্কতা, স্থিতি, ফর্ম বা গোষ্ঠী৷ |
 | অটোফোকাস | বুলিয়ান। |
-| থিম/রঙ | ব্যাকগ্রাউন্ড, ফোরগ্রাউন্ড, অ্যাকসেন্ট, বর্ডার, মিউট করা, ফন্ট সাইজ/টেক্সট সাইজ, টাইটেল সাইজ। |
 | নিয়ন্ত্রণ | তিনটি স্তর পর্যন্ত সেকশন নেস্টিং সহ 32টি পর্যন্ত নিয়ন্ত্রণের অ্যারে। |
 | দৃশ্যমান | মিথ্যা প্যানেল লুকায়। |
 | স্কোপ(url), ডোমেইন(url) | প্রাপ্যতা/প্রদর্শন নিয়ন্ত্রণকারী ফাংশন। ডোমেইন অগ্রাধিকার নেয়; ডোমেন ছাড়াই, স্কোপ কন্ট্রোল ডিসপ্লে। |

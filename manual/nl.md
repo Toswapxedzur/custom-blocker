@@ -674,7 +674,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | uitschakelen(paneelId, controleId), inschakelen(paneelId, controleId) | Schakel de beschikbaarheid van controle in. |
 | setOptions(panelId, controlId, opties) | Vervang selectie-/radiokeuzes. |
 | setText(paneelId, controleId, tekst) | Update een knoplabel, tekst/sectietekst of een ander besturingselementlabel. |
-| setTheme(panelId, thema) | Paneelthema vervangen. |
 | setTitle(paneelId, titel), setDescription(paneelId, beschrijving) | Tekst bijwerken. |
 | getValue(paneelId, controleId) | Retourneert een gekloonde waarde of ongedefinieerd. |
 | getValues(paneelId) | Retourneert alle beschrijfbare waarden die zijn ingetoetst op controle-ID. |
@@ -701,7 +700,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | Toegankelijk etiket. |
 | rol | regio, dialoogvenster, waarschuwing, status, formulier of groep. |
 | autoFocus | Booleaans. |
-| thema/kleuren | achtergrond, voorgrond, accent, rand, gedempt, fontSize/textSize, titleSize. |
 | controles | Array van maximaal 32 bedieningselementen, met secties die maximaal drie niveaus kunnen nesten. |
 | zichtbaar | Vals verbergt het paneel. |
 | bereik(url), domein(url) | Functies die de beschikbaarheid/weergave regelen. domein heeft voorrang; zonder domein worden de bereikbedieningen weergegeven. |

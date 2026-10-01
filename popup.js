@@ -78,6 +78,8 @@ const cbDialog = (function () {
       card.className = "vui-dialog";
       card.setAttribute("role", opts.kind === "alert" ? "alertdialog" : "dialog");
       card.setAttribute("aria-modal", "true");
+      card.setAttribute("aria-label", opts.title || opts.message || opts.confirmText || "Dialog");
+      const opener = document.activeElement;
 
       if (opts.title) {
         const title = document.createElement("h3");
@@ -124,7 +126,9 @@ const cbDialog = (function () {
 
       function done(result) {
         document.removeEventListener("keydown", onKey, true);
+        releaseFocus(false);
         overlay.remove();
+        if (opener?.isConnected) opener.focus({ preventScroll: true });
         resolve(result);
       }
       function onOk() {
@@ -134,8 +138,7 @@ const cbDialog = (function () {
       }
       function onCancel() { done(opts.kind === "prompt" ? null : opts.kind === "confirm" ? false : undefined); }
       function onKey(e) {
-        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onCancel(); }
-        else if (e.key === "Enter") { e.preventDefault(); onOk(); }
+        if (e.key === "Enter" && e.target === input) { e.preventDefault(); onOk(); }
       }
 
       okBtn.addEventListener("click", onOk);
@@ -143,7 +146,7 @@ const cbDialog = (function () {
       overlay.addEventListener("click", function (e) { if (e.target === overlay) onCancel(); });
       document.addEventListener("keydown", onKey, true);
 
-      (input || okBtn).focus();
+      const releaseFocus = VaultUI.focusDialog(card, { initialFocus: input || okBtn, onEscape: onCancel });
       if (input) input.select();
     });
   }

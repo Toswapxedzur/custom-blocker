@@ -524,35 +524,32 @@
     style.textContent = [
       // layout+style containment (not paint) so the hover delete affordance and
       // the add panel can overflow the host without being clipped.
-      ":host{all:initial;display:inline-block;max-width:100%;color-scheme:light dark;contain:layout style}",
+      ":host{all:initial;display:inline-block;max-width:100%;color-scheme:light;contain:layout style}",
       ".rail{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;max-width:100%;vertical-align:middle}",
-      ".chip{box-sizing:border-box;display:inline-flex;align-items:center;max-width:220px;min-height:18px;padding:1px 7px;border:0;border-radius:999px;background:var(--vault-tag-color-light);color:#000;font:600 11px/16px -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 2px rgba(0,0,0,.18)}",
+      ".chip{box-sizing:border-box;display:inline-flex;align-items:center;max-width:220px;min-height:18px;padding:1px 7px;border:0;border-radius:999px;background:var(--vault-tag-color-light);color:#000;font:600 11px/16px Arial,Helvetica,sans-serif;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 2px rgba(0,0,0,.18)}",
       // A local-model prediction (no confirmed decision) reads as a hollow, dashed
       // chip in the tag's own color so it is visibly a guess.
       ".chip.predicted{background:transparent;color:var(--vault-tag-color-dark);border:1px dashed var(--vault-tag-color-dark);box-shadow:none}",
       // The temporary "Tagging" placeholder: muted, dashed, gently pulsing.
       ".chip.tagging{background:transparent;color:var(--vault-tag-color-dark);border:1px dashed var(--vault-tag-color-dark);box-shadow:none;animation:vault-tagging 1.2s ease-in-out infinite}",
       "@keyframes vault-tagging{0%,100%{opacity:.45}50%{opacity:.9}}",
-      "@media (prefers-color-scheme:dark){.chip{background:var(--vault-tag-color-dark);color:#fff}}",
-      "@media (prefers-color-scheme:dark){.chip.predicted{background:transparent;color:var(--vault-tag-color-light);border-color:var(--vault-tag-color-light)}}",
-      "@media (prefers-color-scheme:dark){.chip.tagging{color:var(--vault-tag-color-light);border-color:var(--vault-tag-color-light)}}",
       // Live correction: a delete affordance on hover, an add button, and a small panel.
       ".chip-wrap{position:relative;display:inline-flex;align-items:center}",
-      ".chip-del{position:absolute;top:-6px;right:-6px;width:14px;height:14px;padding:0;display:none;align-items:center;justify-content:center;border:0;border-radius:999px;background:#111;color:#fff;font:700 10px/1 -apple-system,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.35)}",
-      ".chip-wrap:hover .chip-del{display:inline-flex}",
-      ".add-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-height:18px;padding:1px 8px;border:1px dashed rgba(120,120,120,.75);border-radius:999px;background:transparent;color:inherit;font:600 11px/16px -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;cursor:pointer;opacity:.7}",
+      ".chip-del{position:absolute;top:-6px;right:-6px;width:14px;height:14px;padding:0;display:none;align-items:center;justify-content:center;border:0;border-radius:999px;background:#fee2e2;color:#991b1b;font:700 10px/1 Arial,Helvetica,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.35)}",
+      ".chip-wrap:hover .chip-del,.chip-wrap:focus-within .chip-del{display:inline-flex}",
+      ".add-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-height:18px;padding:1px 8px;border:0;border-radius:999px;background:#eef2ff;color:#1e3a8a;font:600 11px/16px Arial,Helvetica,sans-serif;cursor:pointer;opacity:.7}",
       ".add-btn:hover{opacity:1}",
-      ".panel{position:absolute;top:calc(100% + 4px);left:0;z-index:2147483647;width:190px;max-height:230px;display:none;flex-direction:column;background:#fff;color:#111;border:1px solid rgba(0,0,0,.15);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.22);overflow:hidden;font:500 12px/1.3 -apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif}",
+      ".chip-del.armed{display:inline-flex;width:auto;white-space:nowrap;padding:2px 6px;height:18px;top:-10px}",
+      ".panel{position:absolute;top:calc(100% + 4px);left:0;z-index:2147483647;width:190px;max-height:230px;display:none;flex-direction:column;background:#fff;color:#1f2937;border:0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.22);overflow:hidden;font:500 12px/1.3 Arial,Helvetica,sans-serif}",
       ".panel.open{display:flex}",
       ".panel-head{display:flex;align-items:center;justify-content:space-between;padding:7px 9px 4px;font-weight:700}",
       ".panel-close{border:0;background:transparent;cursor:pointer;font-size:14px;line-height:1;color:#666;padding:0 2px}",
-      ".panel-search{margin:0 9px 6px;padding:5px 8px;border:1px solid rgba(0,0,0,.15);border-radius:7px;font:inherit;outline:none}",
+      ".panel-search{margin:0 9px 6px;padding:5px 8px;border:0;border-radius:7px;background:#f1f5f9;color:#1f2937;font:inherit;outline:none}",
       ".panel-list{overflow-y:auto;max-height:158px;padding:0 5px 6px}",
       ".panel-item{display:flex;align-items:center;gap:7px;width:100%;padding:5px 7px;border:0;border-radius:6px;background:transparent;cursor:pointer;font:inherit;text-align:left;color:#111}",
       ".panel-item:hover{background:rgba(0,0,0,.06)}",
       ".panel-dot{flex:0 0 auto;width:9px;height:9px;border-radius:999px}",
       ".panel-empty{padding:8px 10px;color:#888}",
-      "@media (prefers-color-scheme:dark){.panel{background:#1c1c1e;color:#eee;border-color:rgba(255,255,255,.15)}.panel-item{color:#eee}.panel-item:hover{background:rgba(255,255,255,.08)}.panel-search{background:#2c2c2e;color:#eee;border-color:rgba(255,255,255,.15)}.panel-close{color:#aaa}}"
     ].join("");
     // The host anchors the absolutely-positioned panel.
     host.style.position = "relative";
@@ -571,7 +568,7 @@
       const target = event.target;
       if (typeof target?.closest !== "function") return;
       const del = target.closest(".chip-del");
-      if (del) { event.preventDefault(); event.stopPropagation(); editTags(state, { removeID: del.dataset.tagId }); return; }
+      if (del) { event.preventDefault(); event.stopPropagation(); confirmTagRemoval(state, del); return; }
       if (target.closest(".add-btn")) { event.preventDefault(); event.stopPropagation(); openAddPanel(state, panel); return; }
       // The pill host is injected inside the card's own link; any click within
       // the panel (search box, list, backdrop) must be swallowed so it never
@@ -593,6 +590,15 @@
         }
       }
     });
+    shadow.addEventListener("keydown", (event) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      const chip = event.target?.closest?.(".chip-wrap");
+      const del = chip?.querySelector(".chip-del");
+      const state = hostState.get(host);
+      if (!del || !state || event.repeat) return;
+      event.preventDefault(); event.stopPropagation();
+      confirmTagRemoval(state, del);
+    });
     shadow.addEventListener("input", (event) => {
       const search = event.target?.closest?.(".panel-search");
       if (!search) return;
@@ -613,6 +619,28 @@
       return null;
     }
     return { host, rail };
+  }
+
+  function confirmTagRemoval(state, button) {
+    const id = button.dataset.tagId;
+    if (!(state.currentTags || []).some((tag) => tag.id === id)) return;
+    const now = Date.now();
+    if (Number(button.dataset.confirmUntil) > now) {
+      delete button.dataset.confirmUntil;
+      editTags(state, { removeID: id });
+      return;
+    }
+    button.dataset.confirmUntil = String(now + 4000);
+    button.textContent = "Confirm ×";
+    button.classList.add("armed");
+    button.setAttribute("aria-label", "Click again or press Delete again to remove tag");
+    global.setTimeout(() => {
+      if (!button.isConnected) return;
+      delete button.dataset.confirmUntil;
+      button.textContent = "×";
+      button.classList.remove("armed");
+      button.setAttribute("aria-label", "Remove tag");
+    }, 4000);
   }
 
   function render(state, tags, predicted = false) {
@@ -661,6 +689,9 @@
       wrap.appendChild(chip);
       // Real tags carry a hover delete affordance; the None/Tagging placeholders do not.
       if (!SYNTHETIC_IDS.has(tag.id)) {
+        wrap.tabIndex = 0;
+        wrap.setAttribute("aria-label", tag.name + ". Press Delete twice to remove");
+        wrap.setAttribute("aria-keyshortcuts", "Delete Backspace");
         const del = document.createElement("button");
         del.className = "chip-del";
         del.type = "button";

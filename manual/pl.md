@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | wyłącz (panelId, controlId), włącz (panelId, controlId) | Przełącz dostępność kontroli. |
 | setOptions(identyfikator panelu, identyfikator kontroli, opcje) | Zastąp opcje wyboru/radia. |
 | setText(id panelu, identyfikator kontroli, tekst) | Zaktualizuj etykietę przycisku, tekst/tekst sekcji lub inną etykietę kontrolki. |
-| setTheme(id panelu, motyw) | Zamień motyw panelu. |
 | setTitle(idpanelu, tytuł), setDescription(idpanelu, opis) | Zaktualizuj tekst. |
 | getValue(id panelu, identyfikator kontroli) | Zwróć sklonowaną wartość lub niezdefiniowaną. |
 | getValues(id panelu) | Zwróć wszystkie zapisywalne wartości oznaczone identyfikatorem kontrolki. |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | Dostępna etykieta. |
 | rola | region, okno dialogowe, alert, stan, formularz lub grupa. |
 | autofokus | Wartość logiczna. |
-| motyw/kolory | tło, pierwszy plan, akcent, obramowanie, wyciszony, rozmiar czcionki/tekstu, rozmiar tytułu. |
 | kontroluje | Tablica maksymalnie 32 elementów sterujących z zagnieżdżeniem sekcji na maksymalnie trzech poziomach. |
 | widoczne | Fałsz ukrywa panel. |
 | zakres(url), domena(url) | Funkcje sterujące dostępnością/wyświetlaniem. domena ma pierwszeństwo; bez domeny, wyświetlane są elementy sterujące zakresem. |

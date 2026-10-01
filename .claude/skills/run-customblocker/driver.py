@@ -9,7 +9,7 @@ its background service-worker console / evaluate JS inside the SW context.
 Env: EXT_DIR=<dir> to load a different unpacked extension; PROFILE=<dir> to reuse a profile.
 Exit 0 = service worker found; 2 = no service worker (extension failed to load).
 """
-import argparse, os, sys, tempfile, time
+import argparse, os, runpy, sys, tempfile, time
 from playwright.sync_api import sync_playwright
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +20,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--headed", action="store_true")
     ap.add_argument("--eval", default=None)
+    ap.add_argument("--ui-script", help="Python script exporting run(context, service_worker) for UI checks")
     ap.add_argument("--hold", type=float, default=8)
     a = ap.parse_args()
     profile = os.environ.get("PROFILE") or tempfile.mkdtemp(prefix="cb-profile-")
@@ -60,6 +61,8 @@ def main():
             if a.eval:
                 try:    print(f"[driver] --eval => {sw.evaluate(a.eval)}", flush=True)
                 except Exception as e: print(f"[driver] --eval FAILED: {e}", file=sys.stderr)
+            if a.ui_script:
+                runpy.run_path(a.ui_script)["run"](ctx, sw)
         time.sleep(a.hold)
         ctx.close()
     print(f"[driver] captured {len(seen)} SW console line(s)")

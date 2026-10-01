@@ -60,10 +60,7 @@ function formatOverlayDurationMs(totalMs) {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
 }
 
 function mountOverlay() {
@@ -75,9 +72,12 @@ function mountOverlay() {
   container.style.zIndex = "2147483647";
   container.style.padding = "8px 10px";
   container.style.borderRadius = "10px";
-  container.style.background = "rgba(15, 23, 42, 0.86)";
-  container.style.color = "#f8fafc";
-  container.style.fontFamily = "SFMono-Regular, Consolas, monospace";
+  container.style.background = "#ffffff";
+  container.style.color = "#1f2937";
+  container.style.fontFamily = "Arial, Helvetica, sans-serif";
+  container.style.colorScheme = "light";
+  container.style.fontVariantNumeric = "tabular-nums";
+  container.style.boxShadow = "0 4px 14px rgba(15,23,42,0.12)";
   container.style.fontSize = "13px";
   container.style.lineHeight = "1.35";
   container.style.whiteSpace = "pre";
@@ -1390,22 +1390,22 @@ function cbCoverIsUp() {
 function cbCoverStyle() {
   return `
     #${CB_COVER_ID} { position: fixed; inset: 0; width: 100vw; height: 100vh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
-      background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%); color: #f8fafc; font-family: Arial, Helvetica, sans-serif; z-index: 2147483647; }
-    #${CB_COVER_ID}::backdrop { background: #0f172a; }
+      background: #f8fafc; color: #1f2937; color-scheme: light; font-family: Arial, Helvetica, sans-serif; z-index: 2147483647; }
+    #${CB_COVER_ID}::backdrop { background: #f8fafc; }
     #${CB_COVER_ID} .cb-shell { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 32px; box-sizing: border-box; text-align: center; }
-    #${CB_COVER_ID} .cb-logo { width: 96px; height: 96px; border-radius: 24px; box-shadow: 0 18px 40px rgba(15, 23, 42, 0.42); background: rgba(255, 255, 255, 0.05); }
+    #${CB_COVER_ID} .cb-logo { width: 96px; height: 96px; border-radius: 24px; box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08); background: #ffffff; }
     #${CB_COVER_ID} .cb-title { font-size: clamp(28px, 5vw, 56px); font-weight: 700; line-height: 1.2; max-width: min(900px, 90vw); white-space: pre-wrap; word-break: break-word; margin: 0; }
-    #${CB_COVER_ID} .cb-sub { margin: 0; font-size: 16px; color: rgba(248, 250, 252, 0.72); }
+    #${CB_COVER_ID} .cb-sub { margin: 0; font-size: 16px; color: #64748b; }
     #${CB_COVER_ID} .cb-countdown { font-size: clamp(40px, 8vw, 88px); font-weight: 700; font-variant-numeric: tabular-nums; margin: 0; }
-    #${CB_COVER_ID} button { font: inherit; font-size: 15px; font-weight: 600; padding: 10px 22px; border-radius: 10px; border: 0; cursor: pointer; }
+    #${CB_COVER_ID} button { font: inherit; font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 999px; border: 0; cursor: pointer; }
     #${CB_COVER_ID} button:disabled { opacity: 0.45; cursor: default; }
-    #${CB_COVER_ID} .cb-continue { background: #f8fafc; color: #0f172a; }
+    #${CB_COVER_ID} .cb-continue { background: #1e3a8a; color: #ffffff; }
     #${CB_COVER_ID} .cb-snooze-panel { background: #fdf2f8; color: #334155; border-radius: 16px; padding: 16px 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: min(360px, 90vw); box-shadow: inset 4px 0 0 #be185d; }
     #${CB_COVER_ID} .cb-snooze-panel h3 { margin: 0; font-size: 15px; color: #6b3350; }
     #${CB_COVER_ID} .cb-snooze-button { background: #be185d; color: #ffffff; }
     #${CB_COVER_ID} .cb-snooze-button:hover:not(:disabled) { background: #9d174d; }
     #${CB_COVER_ID} .cb-status { margin: 0; font-size: 13px; color: #6b3350; min-height: 1.2em; }
-    #${CB_COVER_ID} .cb-foot { margin: 0; color: rgba(248, 250, 252, 0.6); font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
+    #${CB_COVER_ID} .cb-foot { margin: 0; color: #64748b; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
   `;
 }
 
@@ -1522,9 +1522,9 @@ function cbRenderCover() {
 
   if (isPause) {
     if (cbCover.countdownLeft > 0) {
-      shell.appendChild(cbCoverElement("p", "cb-countdown", String(cbCover.countdownLeft)));
+      shell.appendChild(cbCoverElement("p", "cb-countdown", formatOverlayDurationMs(cbCover.countdownLeft * 1000)));
     }
-    const go = cbCoverElement("button", "cb-continue", cbCover.countdownLeft > 0 ? "Continue in " + cbCover.countdownLeft + "s" : "Continue");
+    const go = cbCoverElement("button", "cb-continue", cbCover.countdownLeft > 0 ? "Continue in " + formatOverlayDurationMs(cbCover.countdownLeft * 1000) : "Continue");
     go.disabled = cbCover.countdownLeft > 0;
     go.addEventListener("click", () => {
       go.disabled = true;
@@ -1545,7 +1545,7 @@ function cbRenderCover() {
     else if (cbCover.confirmationsLeft > 0) {
       const waitMs = cbCover.nextConfirmAt - Date.now();
       button.textContent = waitMs > 0
-        ? "Confirm (" + cbCover.confirmationsLeft + " left, " + Math.ceil(waitMs / 1000) + "s)"
+        ? "Confirm (" + cbCover.confirmationsLeft + " left, " + formatOverlayDurationMs(waitMs) + ")"
         : "Confirm (" + cbCover.confirmationsLeft + " left)";
       button.disabled = waitMs > 0;
     }
@@ -1567,7 +1567,7 @@ function cbCoverSnoozePress() {
   if (cbCover.confirmationsLeft === 0 && needed > 0 && cbCover.nextConfirmAt === 0) {
     cbCover.confirmationsLeft = needed;
     cbCover.nextConfirmAt = Date.now() + CB_SNOOZE_CONFIRM_INTERVAL_MS;
-    cbCover.statusText = "This snooze needs " + needed + " confirmation step(s), " + (CB_SNOOZE_CONFIRM_INTERVAL_MS / 1000) + " seconds apart.";
+    cbCover.statusText = "This snooze needs " + needed + " confirmation step(s), " + formatOverlayDurationMs(CB_SNOOZE_CONFIRM_INTERVAL_MS) + " apart.";
     if (cbCover.confirmId === null) cbCover.confirmId = window.setInterval(() => cbRenderCover(), 250);
     cbRenderCover();
     return;
@@ -1609,7 +1609,7 @@ function cbMountQuickAdd(target) {
     button.id = CB_QUICK_ADD_ID;
     button.type = "button";
     button.textContent = "+";
-    button.setAttribute("style", "position:fixed;right:8px;bottom:8px;width:18px;height:18px;margin:0;padding:0;border:0;border-radius:50%;background:#0f172a;color:#f8fafc;font:700 14px/18px Arial,Helvetica,sans-serif;text-align:center;z-index:2147483646;opacity:0.55;cursor:pointer;box-shadow:0 2px 6px rgba(15,23,42,0.35);");
+    button.setAttribute("style", "position:fixed;right:8px;bottom:8px;width:18px;height:18px;margin:0;padding:0;border:0;border-radius:50%;background:#eef2ff;color:#1e3a8a;color-scheme:light;font:700 14px/18px Arial,Helvetica,sans-serif;text-align:center;z-index:2147483646;opacity:0.55;cursor:pointer;box-shadow:0 2px 6px rgba(15,23,42,0.35);");
     button.addEventListener("mouseenter", () => { button.style.opacity = "1"; });
     button.addEventListener("mouseleave", () => { button.style.opacity = "0.55"; });
     button.addEventListener("click", (event) => {
@@ -1646,7 +1646,7 @@ function cbApplyExit(exit) {
     if (exitAttempted) return;
     exitAttempted = true;
     cbHideCover();
-    if (overlay) overlay.container.textContent = "0:00";
+    if (overlay) overlay.container.textContent = "00:00:00";
     try { location.replace(exit.target); } catch { location.href = exit.target; }
     return;
   }
@@ -2230,8 +2230,8 @@ function __cb_patchPanelControls(panelEl, controls, theme) {
 }
 
 function __cb_patchPanelChrome(panelEl, snapshot) {
-  const theme = snapshot.theme && typeof snapshot.theme === "object" ? snapshot.theme : {};
-  const titleSize = __cb_safeCssSize(theme.titleSize, "14px");
+  const theme = { background: "#ffffff", foreground: "#1f2937", accent: "#1e3a8a", border: "transparent" };
+  const titleSize = __cb_safeCssSize(null, "14px");
   const title = __cb_safePanelText(snapshot.title || "", 240);
   let titleEl = panelEl.querySelector("[data-cb-panel-title='1']");
   if (title) {
@@ -2264,7 +2264,7 @@ function __cb_patchPanelChrome(panelEl, snapshot) {
 
 function __cb_patchPanelInPlace(panelEl, snapshot) {
   if (!panelEl || !snapshot) return false;
-  const theme = snapshot.theme && typeof snapshot.theme === "object" ? snapshot.theme : {};
+  const theme = { background: "#ffffff", foreground: "#1f2937", accent: "#1e3a8a", border: "transparent" };
   __cb_patchPanelChrome(panelEl, snapshot);
   return __cb_patchPanelControls(panelEl, __cb_sortedPanelControls(snapshot.controls), theme);
 }
@@ -2516,7 +2516,8 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
       "flex-direction:column",
       "gap:6px",
       "padding:8px",
-      "border:1px solid " + __cb_safeCssColor(theme.border, "rgba(148,163,184,0.35)"),
+      "border:0",
+      "background:#f8fafc",
       "border-radius:10px",
       "width:" + (controlWidth && controlWidth !== "auto" ? controlWidth : "fit-content"),
       "max-width:100%",
@@ -2613,7 +2614,7 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
         "width:15px",
         "height:15px",
         "margin:0",
-        "accent-color:" + __cb_safeCssColor(theme.accent, "#2563eb"),
+        "accent-color:#1e3a8a",
         "cursor:" + (control.disabled === true ? "default" : "pointer")
       ].join(";");
       const span = document.createElement("span");
@@ -2647,10 +2648,10 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
       boxEl.style.cssText = [
         "width:30px", "height:38px", "border-radius:6px",
         "background:rgba(148,163,184,0.25)",
-        "border:1px solid " + __cb_safeCssColor(theme.border, "rgba(148,163,184,0.55)"),
+        "border:0",
         "display:flex", "align-items:center", "justify-content:center",
         "font:600 18px ui-monospace,SFMono-Regular,Menlo,monospace",
-        "color:" + __cb_safeCssColor(theme.foreground, "#0f172a"),
+        "color:#1f2937",
         "cursor:" + (control.disabled === true ? "default" : "text")
       ].join(";");
       boxes.push(boxEl);
@@ -2789,7 +2790,7 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
         "margin:0",
         "padding:0",
         "vertical-align:middle",
-        "accent-color:" + __cb_safeCssColor(theme.accent, "#2563eb"),
+        "accent-color:#1e3a8a",
         "cursor:" + (control.disabled === true ? "default" : "pointer"),
         "appearance:auto",
         "-webkit-appearance:checkbox"
@@ -2798,10 +2799,10 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
       input.style.cssText = [
         "box-sizing:border-box",
         "width:" + (controlWidth && controlWidth !== "auto" ? "100%" : "auto"),
-        "border:1px solid " + __cb_safeCssColor(theme.border, "rgba(148,163,184,0.55)"),
+        "border:0",
         "border-radius:8px",
         "padding:7px 9px",
-        "background:rgba(255,255,255,0.08)",
+        "background:#f1f5f9",
         "color:inherit",
         "font:inherit",
         "outline:none",
@@ -2810,8 +2811,8 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
       ].join(";");
       if (controlHeight) input.style.height = controlHeight;
       if (type === "button") {
-        input.style.background = __cb_safeCssColor(theme.accent, "#2563eb");
-        input.style.color = __cb_safeCssColor(theme.buttonForeground, "#ffffff");
+        input.style.background = "#1e3a8a";
+        input.style.color = "#ffffff";
         input.style.cursor = "pointer";
         input.style.userSelect = "none";
       }
@@ -2871,12 +2872,11 @@ function __cb_renderPanel(snapshot) {
   }
   panelEl.textContent = "";
 
-  const theme = snapshot.theme && typeof snapshot.theme === "object" ? snapshot.theme : {};
-  const background = __cb_safeCssColor(theme.background, "rgba(15,23,42,0.96)");
-  const foreground = __cb_safeCssColor(theme.foreground, "#f8fafc");
-  const border = __cb_safeCssColor(theme.border, "rgba(148,163,184,0.45)");
-  const fontSize = __cb_safeCssSize(snapshot.textSize || theme.fontSize, "13px");
-  const titleSize = __cb_safeCssSize(theme.titleSize, "14px");
+  const theme = { background: "#ffffff", foreground: "#1f2937", accent: "#1e3a8a", border: "transparent" };
+  const background = "#ffffff";
+  const foreground = "#1f2937";
+  const fontSize = __cb_safeCssSize(snapshot.textSize, "13px");
+  const titleSize = __cb_safeCssSize(null, "14px");
   const align = ["left", "center", "right"].includes(snapshot.align) ? snapshot.align : "left";
   const layout = String(snapshot.layout || "vertical");
   const width = snapshot.width === "small"
@@ -2903,11 +2903,12 @@ function __cb_renderPanel(snapshot) {
     "overscroll-behavior:contain",
     "background:" + background,
     "color:" + foreground,
-    "border:1px solid " + border,
+    "border:0",
+    "color-scheme:light",
     "border-radius:14px",
-    "box-shadow:0 14px 40px rgba(0,0,0,0.32)",
+    "box-shadow:0 12px 34px rgba(15,23,42,0.12)",
     "padding:12px",
-    "font:" + fontSize + "/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    "font:" + fontSize + "/1.4 Arial,Helvetica,sans-serif",
     "text-align:" + align,
     "display:flex",
     "flex-direction:column",

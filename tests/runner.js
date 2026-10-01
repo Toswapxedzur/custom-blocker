@@ -99,11 +99,12 @@ assert("a non-object state becomes {}", JSON.stringify(r.takeState() ?? {}) === 
 
 log.section("C8: panels");
 r = rule(`(on, v) => {
-  v.panel("p", { title: "Hi", position: "nowhere", controls: [{ id: "b", type: "button", label: "Go" }, { id: "t", type: "timer" }] });
+  v.panel("p", { title: "Hi", position: "nowhere", theme: { background: "#000000", foreground: "#ffffff" }, colors: { accent: "#ff0000" }, controls: [{ id: "b", type: "button", label: "Go" }, { id: "t", type: "timer" }] });
   on("panel", (ev) => { if (ev.data.controlId === "b") v.panel("p", null); });
 }`);
 let panels = r.takePanels();
 assert("a panel is reported with its group", panels.length === 1 && panels[0].groupId === "g1" && panels[0].title === "Hi");
+assert("rule-supplied panel colors are discarded", !("theme" in panels[0]) && !("colors" in panels[0]));
 assert("an unknown position falls back", panels[0].position === "bottom-right");
 assert("an unknown control type shows as text", panels[0].controls.length === 2 && panels[0].controls[1].type === "text");
 assert("unchanged panels are not reported again", r.takePanels() === null);

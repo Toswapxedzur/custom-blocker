@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 |無効にする (パネル ID、コントロール ID)、有効にする (パネル ID、コントロール ID) |コントロールの可用性を切り替えます。 |
 | setOptions(パネルId、コントロールId、オプション) |選択/ラジオの選択肢を置き換えます。 |
 | setText(パネルId, コントロールId, テキスト) |ボタンのラベル、テキスト/セクションのテキスト、または別のコントロールのラベルを更新します。 |
-| setTheme(パネルID, テーマ) |パネルのテーマを置き換えます。 |
 | setTitle(パネルId, タイトル), setDescription(パネルId, 説明) |テキストを更新します。 |
 | getValue(パネルID, コントロールID) |クローン値または未定義の値を返します。 |
 | getValues(パネルID) |コントロール ID をキーとするすべての書き込み可能な値を返します。 |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel |アクセシブルなラベル。 |
 |役割 |リージョン、ダイアログ、アラート、ステータス、フォーム、またはグループ。 |
 |オートフォーカス |ブール値。 |
-|テーマ/色 |背景、前景、アクセント、境界線、ミュート、fontSize/textSize、titleSize。 |
 |コントロール |最大 32 個のコントロールの配列。セクションは最大 3 レベルまでネストされます。 |
 |見える | False はパネルを非表示にします。 |
 |スコープ (URL)、ドメイン (URL) |可用性/表示を制御する関数。ドメインが優先されます。ドメインがない場合、スコープ コントロールが表示されます。 |

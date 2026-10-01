@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | vô hiệu hóa(panelId, controlId), kích hoạt(panelId, controlId) | Chuyển đổi kiểm soát tính khả dụng. |
 | setOptions(panelId, controlId, tùy chọn) | Thay thế các lựa chọn chọn/radio. |
 | setText(panelId, controlId, văn bản) | Cập nhật nhãn nút, văn bản/phần văn bản hoặc nhãn điều khiển khác. |
-| setTheme(panelId, theme) | Thay thế chủ đề bảng điều khiển. |
 | setTitle(panelId, title), setDescription(panelId, description) | Cập nhật văn bản. |
 | getValue(panelId, controlId) | Trả về một giá trị nhân bản hoặc không xác định. |
 | getValues(panelId) | Trả về tất cả các giá trị có thể ghi được khóa theo id điều khiển. |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | Nhãn có thể truy cập được. |
 | vai trò | vùng, hộp thoại, cảnh báo, trạng thái, biểu mẫu hoặc nhóm. |
 | tự động lấy nét | Boolean. |
-| chủ đề/màu sắc | nền, tiền cảnh, dấu, đường viền, tắt tiếng, kích thước phông chữ/kích thước văn bản, kích thước tiêu đề. |
 | điều khiển | Mảng có tới 32 điều khiển, với phần lồng tối đa ba cấp độ. |
 | có thể nhìn thấy | Sai ẩn bảng điều khiển. |
 | phạm vi(url), tên miền(url) | Chức năng kiểm soát tính khả dụng/hiển thị. tên miền được ưu tiên; không có miền, điều khiển phạm vi sẽ hiển thị. |

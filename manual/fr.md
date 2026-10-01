@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | désactiver (panelId, controlId), activer (panelId, controlId) | Basculer la disponibilité du contrôle. |
 | setOptions(panelId, controlId, options) | Remplacez les choix de sélection/radio. |
 | setText(panelId, controlId, texte) | Mettez à jour une étiquette de bouton, un texte/texte de section ou une autre étiquette de contrôle. |
-| setTheme(panelId, thème) | Remplacer le thème du panneau. |
 | setTitle(panelId, titre), setDescription(panelId, description) | Mettre à jour le texte. |
 | getValue(panelId, controlId) | Renvoie une valeur clonée ou non définie. |
 | getValues(panelId) | Renvoie toutes les valeurs inscriptibles saisies par ID de contrôle. |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | Etiquette accessible. |
 | rôle | région, boîte de dialogue, alerte, état, formulaire ou groupe. |
 | mise au point automatique | Booléen. |
-| thème/couleurs | arrière-plan, premier plan, accent, bordure, sourdine, fontSize/textSize, titleSize. |
 | contrôles | Tableau pouvant contenir jusqu'à 32 contrôles, avec une imbrication de sections jusqu'à trois niveaux. |
 | visible | False masque le panneau. |
 | portée (url), domaine (url) | Fonctions de contrôle de disponibilité/affichage. le domaine est prioritaire ; sans domaine, les contrôles de portée s'affichent. |

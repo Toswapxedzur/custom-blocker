@@ -11,7 +11,7 @@
   const document = global.document;
   // Only a real page has selects to replace (not a test's stand-in DOM).
   if (!document || typeof HTMLSelectElement === "undefined" || typeof MutationObserver === "undefined") {
-    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {}, confirmClick: () => true });
+    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {}, focusDialog: () => () => {}, confirmClick: () => true });
     return;
   }
   const dropdowns = new WeakMap(); // select -> { wrap, button, label }
@@ -208,6 +208,38 @@
     document.addEventListener("scroll", (event) => { if (menu && !menu.contains(event.target)) closeMenu(); }, true);
   }
 
+  // Dialog focus stays within its controls and returns to the opener on close.
+  // This also works inside Mac Vault's scene shadow roots.
+  function focusDialog(card, options = {}) {
+    const root = card.getRootNode();
+    const opener = options.returnFocus || root.activeElement;
+    const controls = () => Array.from(card.querySelectorAll(
+      'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'
+    )).filter((node) => !node.disabled && node.getClientRects().length);
+    function onKey(event) {
+      if (!card.isConnected || !card.getClientRects().length) return;
+      if (event.key === "Escape" && options.onEscape) {
+        event.preventDefault(); event.stopPropagation(); options.onEscape();
+      } else if (event.key === "Tab") {
+        const items = controls(), active = root.activeElement;
+        if (!items.length) { event.preventDefault(); card.focus(); return; }
+        const index = items.indexOf(active);
+        if (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === items.length - 1)) {
+          event.preventDefault(); items[event.shiftKey ? items.length - 1 : 0].focus();
+        }
+      }
+    }
+    card.tabIndex = -1;
+    document.addEventListener("keydown", onKey, true);
+    (options.initialFocus || controls()[0] || card).focus({ preventScroll: true });
+    return (restore = true) => {
+      document.removeEventListener("keydown", onKey, true);
+      if (!restore) return;
+      if (typeof opener === "function") opener()?.focus({ preventScroll: true });
+      else if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }
+
   // One way to confirm a delete in every section (owner 2026-09-30): the first
   // click arms the button (it shows `prompt` for a few seconds); a second click
   // while armed confirms → true. No dialog.
@@ -233,5 +265,5 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 
-  global.VaultUI = Object.freeze({ enhance, observe, close: closeMenu, confirmClick });
+  global.VaultUI = Object.freeze({ enhance, observe, close: closeMenu, focusDialog, confirmClick });
 })(typeof window !== "undefined" ? window : globalThis);

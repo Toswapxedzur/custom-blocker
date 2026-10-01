@@ -418,12 +418,6 @@
     if (!isPlainObject(spec)) return null;
     const id = sanitizePanelId(spec.id);
     if (!id) return null;
-    const theme = {};
-    const rawTheme = isPlainObject(spec.theme) ? spec.theme : {};
-    for (const key of ["background", "foreground", "accent", "border", "muted"]) {
-      const c = color(rawTheme[key]);
-      if (c) theme[key] = c;
-    }
     return {
       id,
       title: text(spec.title ?? "", 240),
@@ -433,7 +427,6 @@
       layout: PANEL_LAYOUTS.has(spec.layout) ? spec.layout : "vertical",
       width: PANEL_WIDTHS.has(spec.width) ? spec.width : size(spec.width, 180, 520),
       role: PANEL_ROLES.has(spec.role) ? spec.role : "region",
-      theme,
       controls: (Array.isArray(spec.controls) ? spec.controls : []).slice(0, LIMITS.controlsPerPanel)
         .map((control, i) => sanitizeControl(control, i, 0, values)).filter(Boolean)
     };
@@ -446,7 +439,7 @@
     "v.state is the group's memory: one JSON object (≤ 64 KB), kept across restarts and across Run (a new version of the rule finds what the old one saved), deleted with the group. Change it freely inside handlers.",
     "v.log(...values) writes to the group's log in the editor.",
     "v.emit(type, data) delivers a \"type\" event with that data to this group, right after the current one.",
-    "v.panel(id, spec, tabId?) shows a panel (spec = { title, description, position: top-left|top-right|bottom-left|bottom-right|center, layout, width: small|medium|large, theme: { background, foreground, accent, border, muted }, controls: [...] }); calling again replaces it; v.panel(id, null) removes it. Controls: { id, type, label, value, ... } with type text (text), html (html, sanitized), button (action submit|cancel|close), checkbox, toggle, select / radio (options), textInput / textarea (placeholder), numberInput / range (min, max, step), date, time, color, pin (length, masked), section (controls). Interactions arrive as \"panel\" events: data = { panelId, controlId, eventName, value, values }.",
+    "v.panel(id, spec, tabId?) shows a panel (spec = { title, description, position: top-left|top-right|bottom-left|bottom-right|center, layout, width: small|medium|large, controls: [...] }); calling again replaces it; v.panel(id, null) removes it. Controls: { id, type, label, value, ... } with type text (text), html (html, sanitized), button (action submit|cancel|close), checkbox, toggle, select / radio (options), textInput / textarea (placeholder), numberInput / range (min, max, step), date, time, color, pin (length, masked), section (controls). Interactions arrive as \"panel\" events: data = { panelId, controlId, eventName, value, values }.",
     "v.file(op, path, payload?) uses the folder the user chose in Settings (.txt, .csv, .json; paths relative to it): op read | write | append | list | exists. It returns a request id; the answer arrives as a \"file\" event: data = { requestId, ok, op, path, text, entries, exists, error }.",
     "Other events: \"snooze\" (the user pressed the group's Snooze), plus every type you v.emit.",
     "Limits per event: 256 actions, 200 log entries, 64 emits; 24 panels of 32 controls per group."

@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | deaktivieren(PanelId, ControlId), aktivieren(PanelId, ControlId) | Schalten Sie die Verfügbarkeit der Steuerung um. |
 | setOptions(panelId, controlId, Optionen) | Ersetzen Sie Auswahl-/Radiooptionen. |
 | setText(panelId, controlId, text) | Aktualisieren Sie eine Schaltflächenbeschriftung, einen Text/Abschnittstext oder eine andere Steuerelementbeschriftung. |
-| setTheme(panelId, theme) | Ersetzen Sie das Panel-Thema. |
 | setTitle(panelId, title), setDescription(panelId, description) | Text aktualisieren. |
 | getValue(panelId, controlId) | Gibt einen geklonten oder undefinierten Wert zurück. |
 | getValues(panelId) | Gibt alle beschreibbaren Werte zurück, verschlüsselt durch die Kontroll-ID. |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | Zugängliches Etikett. |
 | Rolle | Region, Dialog, Warnung, Status, Formular oder Gruppe. |
 | Autofokus | Boolescher Wert. |
-| Thema/Farben | Hintergrund, Vordergrund, Akzent, Rand, stummgeschaltet, Schriftgröße/Textgröße, Titelgröße. |
 | steuert | Array mit bis zu 32 Steuerelementen, wobei die Abschnitte auf bis zu drei Ebenen verschachtelt sind. |
 | sichtbar | False blendet das Panel aus. |
 | Bereich(URL), Domäne(URL) | Funktionen zur Steuerung der Verfügbarkeit/Anzeige. Domain hat Vorrang; Ohne Domäne werden Bereichssteuerelemente angezeigt. |
