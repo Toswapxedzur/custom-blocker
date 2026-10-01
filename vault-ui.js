@@ -210,14 +210,16 @@
 
   // Dialog focus stays within its controls and returns to the opener on close.
   // This also works inside Mac Vault's scene shadow roots.
+  const dialogStack = [];
   function focusDialog(card, options = {}) {
+    dialogStack.push(card);
     const root = card.getRootNode();
     const opener = options.returnFocus || root.activeElement;
     const controls = () => Array.from(card.querySelectorAll(
       'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'
     )).filter((node) => !node.disabled && node.getClientRects().length);
     function onKey(event) {
-      if (!card.isConnected || !card.getClientRects().length) return;
+      if (dialogStack[dialogStack.length - 1] !== card || !card.isConnected || !card.getClientRects().length) return;
       if (event.key === "Escape" && options.onEscape) {
         event.preventDefault(); event.stopPropagation(); options.onEscape();
       } else if (event.key === "Tab") {
@@ -234,6 +236,8 @@
     (options.initialFocus || controls()[0] || card).focus({ preventScroll: true });
     return (restore = true) => {
       document.removeEventListener("keydown", onKey, true);
+      const index = dialogStack.lastIndexOf(card);
+      if (index >= 0) dialogStack.splice(index, 1);
       if (!restore) return;
       if (typeof opener === "function") opener()?.focus({ preventScroll: true });
       else if (opener?.isConnected) opener.focus({ preventScroll: true });

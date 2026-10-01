@@ -19,3 +19,8 @@
 - **UI regression:** `tests/runner-ui.py` runs through the existing extension
   driver’s `--ui-script` hook on mini1. Popup checks use actual chrome APIs;
   tag checks use synthetic transport with the production renderer in Chromium.
+
+- **Follow-up UI regression:** `tests/runner-ui-followup.py` uses the same
+  driver hook with the sibling Mac source. It covers remaining dialogs,
+  provider confirmation, Activity caret preservation, tag correction/picker
+  behavior, and rule HTML/control styling. Captures use `UI_CAPTURE_DIR`.

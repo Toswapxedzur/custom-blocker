@@ -59,7 +59,28 @@ class FakeElement {
     closedShadows.set(this, shadow);
     return shadow;
   }
-  get shadowRoot() { return null; }
+  get classList() {
+      return { toggle: (name, enabled) => {
+        const names = new Set(this.className.split(/\s+/).filter(Boolean));
+        if (enabled) names.add(name); else names.delete(name);
+        this.className = [...names].join(" ");
+      } };
+    }
+    querySelectorAll(selector) {
+      const found = [];
+      const visit = (node) => {
+        for (const child of node.children) {
+          const matches = selector.startsWith(".")
+            ? child.className.split(/\s+/).includes(selector.slice(1))
+            : child.tagName === selector.toUpperCase();
+          if (matches) found.push(child);
+          visit(child);
+        }
+      };
+      visit(this);
+      return found;
+    }
+    get shadowRoot() { return null; }
   remove() {
     if (this.parentNode) {
       const index = this.parentNode.children.indexOf(this);

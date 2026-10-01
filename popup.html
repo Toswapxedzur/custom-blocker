@@ -545,8 +545,8 @@
     </main>
 
     <div id="confirmModal" class="modal hidden">
-      <div class="modal-card">
-        <h3 data-i18n="modal.unfreezeTitle">Unfreeze Group</h3>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle">
+        <h3 id="confirmDialogTitle" data-i18n="modal.unfreezeTitle">Unfreeze Group</h3>
         <p id="confirmMessage" class="modal-copy" data-i18n="modal.unfreezeMessageDefault">
           Are you sure you want to give up your self-discipline?
         </p>
@@ -560,10 +560,10 @@
 
     <!-- Desktop host only: the app picker. -->
     <div id="appPickerModal" class="modal hidden">
-      <div class="modal-card app-picker-card">
+      <div class="modal-card app-picker-card" role="dialog" aria-modal="true" aria-labelledby="appPickerDialogTitle">
         <div class="manual-modal-header">
           <div>
-            <h3 data-i18n="apps.pickerTitle">Add an application</h3>
+            <h3 id="appPickerDialogTitle" data-i18n="apps.pickerTitle">Add an application</h3>
             <p class="modal-copy" data-i18n="apps.pickerCopy">
               Search your installed applications and choose one to block.
             </p>
@@ -588,10 +588,10 @@
     </div>
 
     <div id="manualModal" class="modal hidden">
-      <div class="modal-card manual-modal-card">
+      <div class="modal-card manual-modal-card" role="dialog" aria-modal="true" aria-labelledby="manualDialogTitle">
         <div class="manual-modal-header">
           <div>
-            <h3 data-i18n="manual.title">Instruction Manual</h3>
+            <h3 id="manualDialogTitle" data-i18n="manual.title">Instruction Manual</h3>
             <p id="manualStatus" class="modal-copy" data-i18n="manual.loading">
               Loading manual...
             </p>
@@ -605,10 +605,10 @@
     </div>
 
     <div id="settingsModal" class="modal hidden">
-      <div class="modal-card settings-modal-card">
+      <div class="modal-card settings-modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsDialogTitle">
         <div class="manual-modal-header">
           <div>
-            <h3 data-i18n="settings.title">Global Settings</h3>
+            <h3 id="settingsDialogTitle" data-i18n="settings.title">Global Settings</h3>
             <p class="modal-copy" data-i18n="settings.copy">
               These preferences apply across all block groups.
             </p>
