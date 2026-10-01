@@ -5807,35 +5807,122 @@ function usedTagNames(textarea) {
   }
   return used;
 }
-function renderTagSuggestions(container, textarea, names) {
-  if (!container || !textarea) return;
-  container.replaceChildren();
-  container.classList.toggle("hidden", names.length === 0);
-  if (names.length === 0) return;
-  const label = document.createElement("span");
-  label.className = "tag-suggestions-label";
-  label.id = container.id + "-label";
-  container.setAttribute("aria-labelledby", label.id);
-  label.textContent = t("tagFilter.available");
-  container.appendChild(label);
-  const used = usedTagNames(textarea);
-  for (const name of names) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.textContent = name;
-    const isUsed = used.has(name.toLowerCase());
-    chip.classList.toggle("used", isUsed);
-    chip.disabled = isUsed;
-    chip.addEventListener("click", () => {
+let activeTagChooser = null;
+const tagSuggestionState = new WeakMap();
+function closeTagChooser(restoreFocus = false) {
+  const chooser = activeTagChooser;
+  if (!chooser) return;
+  activeTagChooser = null;
+  chooser.menu.remove();
+  chooser.button.setAttribute("aria-expanded", "false");
+  if (restoreFocus && chooser.button.isConnected) chooser.button.focus({ preventScroll: true });
+}
+function placeTagChooser() {
+  const chooser = activeTagChooser;
+  if (!chooser) return;
+  if (!chooser.button.isConnected || !chooser.button.getClientRects().length) return closeTagChooser();
+  const box = chooser.button.getBoundingClientRect(), menu = chooser.menu;
+  const width = Math.min(Math.max(240, box.width), innerWidth - 16);
+  menu.style.width = `${width}px`;
+  menu.style.left = `${Math.max(8, Math.min(box.left, innerWidth - width - 8))}px`;
+  menu.style.maxHeight = `${Math.min(320, innerHeight - 16)}px`;
+  const below = innerHeight - box.bottom - 12, above = box.top - 12;
+  const up = below < menu.offsetHeight && above > below;
+  menu.style.maxHeight = `${Math.max(0, Math.min(320, up ? above : below))}px`;
+  menu.style.top = `${Math.max(8, Math.min(up ? box.top - menu.offsetHeight - 4 : box.bottom + 4, innerHeight - menu.offsetHeight - 8))}px`;
+}
+function updateTagChooser() {
+  const chooser = activeTagChooser;
+  if (!chooser) return;
+  if (chooser.groupID !== getSelectedGroup()?.id) return closeTagChooser();
+  const { textarea, names } = tagSuggestionState.get(chooser.container);
+  const query = chooser.search.value.trim().toLowerCase(), used = usedTagNames(textarea);
+  const scroll = chooser.list.scrollTop;
+  chooser.list.replaceChildren();
+  for (const name of names.filter(name => name.toLowerCase().includes(query))) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "vui-menu-item" + (used.has(name.toLowerCase()) ? " is-selected" : "");
+    item.textContent = name;
+    item.disabled = used.has(name.toLowerCase());
+    item.addEventListener("click", () => {
       const current = textarea.value.replace(/\s+$/, "");
       textarea.value = current ? `${current}\n${name}` : name;
-      // Fire the same event typing would, so drafts/autosave react.
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
-      renderTagSuggestions(container, textarea, names);
+      updateTagChooser();
+      chooser.search.focus({ preventScroll: true });
     });
-    container.appendChild(chip);
+    chooser.list.appendChild(item);
   }
+  chooser.list.scrollTop = scroll;
+  placeTagChooser();
 }
+function openTagChooser(container, button) {
+  if (activeTagChooser?.container === container) return closeTagChooser(true);
+  closeTagChooser();
+  window.VaultUI.close();
+  const menu = document.createElement("div");
+  menu.className = "vui-menu tag-chooser";
+  const search = document.createElement("input");
+  search.type = "search";
+  search.placeholder = t("tagFilter.tags");
+  search.setAttribute("aria-label", t("tagFilter.available"));
+  const list = document.createElement("div");
+  list.className = "vui-list-box tag-chooser-list";
+  list.setAttribute("aria-label", t("tagFilter.available"));
+  menu.append(search, list);
+  document.body.appendChild(menu);
+  activeTagChooser = { container, button, menu, search, list, groupID: getSelectedGroup()?.id };
+  button.setAttribute("aria-expanded", "true");
+  search.addEventListener("input", updateTagChooser);
+  menu.addEventListener("keydown", event => {
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeTagChooser(true); }
+    if (["ArrowDown", "ArrowUp"].includes(event.key) && !event.isComposing) {
+      const items = [...list.querySelectorAll("button:not(:disabled)")];
+      if (!items.length) return;
+      const index = items.indexOf(document.activeElement);
+      const next = index < 0 ? (event.key === "ArrowDown" ? 0 : items.length - 1)
+        : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      event.preventDefault();
+      items[next].focus({ preventScroll: true });
+      items[next].scrollIntoView({ block: "nearest" });
+    }
+  });
+  menu.addEventListener("focusout", () => requestAnimationFrame(() => {
+    if (activeTagChooser?.menu === menu && !menu.contains(document.activeElement) && document.activeElement !== button) closeTagChooser();
+  }));
+  updateTagChooser();
+  search.focus({ preventScroll: true });
+}
+function renderTagSuggestions(container, textarea, names) {
+  if (!container || !textarea) return;
+  tagSuggestionState.set(container, { textarea, names });
+  container.classList.toggle("hidden", names.length === 0);
+  if (!names.length) {
+    if (activeTagChooser?.container === container) closeTagChooser();
+    container.replaceChildren();
+    return;
+  }
+  let button = container.querySelector("button");
+  if (!button) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary tag-suggestion-trigger";
+    button.setAttribute("aria-expanded", "false");
+    button.addEventListener("click", () => openTagChooser(container, button));
+    container.replaceChildren(button);
+  }
+  button.textContent = t("tagFilter.available");
+  if (activeTagChooser?.container === container) updateTagChooser();
+}
+document.addEventListener("pointerdown", event => {
+  const chooser = activeTagChooser;
+  if (chooser && !chooser.menu.contains(event.target) && !chooser.button.contains(event.target)) closeTagChooser();
+}, true);
+document.addEventListener("scroll", event => {
+  if (activeTagChooser && !activeTagChooser.menu.contains(event.target)) placeTagChooser();
+}, true);
+window.addEventListener("resize", placeTagChooser);
 const tagSuggestionRequests = new WeakMap(); // container -> latest request token
 function refreshTagSuggestions(container, textarea, platform) {
   if (!container || !textarea) return;

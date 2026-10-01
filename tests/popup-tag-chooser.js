@@ -1,0 +1,44 @@
+async () => {
+  const results = [], check = (condition, label) => { if (!condition) throw Error(label); results.push(label); };
+  const wait = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const names = Array.from({ length: 500 }, (_, i) => `Topic ${String(i).padStart(3, '0')}`);
+  tagNameCache.set('youtube', { at: Date.now(), names });
+  const group = createDefaultGroup('youtube'); group.id = 'tag-chooser-test'; group.platformTagMode = 'include';
+  await chrome.storage.local.set({ blockedGroups: [toStoredGroup(foldEntryIntoLines(group))] });
+  const end = Date.now() + 5000;
+  while (!state.groups.some(item => item.id === group.id)) {
+    if (Date.now() > end) throw Error('Group fixture did not load');
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  state.selectedGroupId = group.id; render(); await wait();
+  const container = document.getElementById('platformTagSuggestions'), textarea = platformTagsField;
+  renderTagSuggestions(container, textarea, names); await wait();
+  const button = container.querySelector('button'); button.scrollIntoView({ block: 'center' }); await wait();
+  const downstream = document.querySelector('.content-tag-row'), y = downstream.getBoundingClientRect().top;
+  button.click(); await wait();
+  const chooser = document.querySelector('.tag-chooser');
+  check(!!chooser, 'tag trigger opens its chooser');
+  const list = chooser.querySelector('.tag-chooser-list');
+  check(Math.abs(downstream.getBoundingClientRect().top - y) < 1, 'opening 500 tags leaves downstream fields in place');
+  check(list.children.length === 500 && list.scrollHeight > list.clientHeight && getComputedStyle(list).overflowY === 'auto', 'all tags remain reachable inside a bounded menu');
+  const box = chooser.getBoundingClientRect();
+  check(box.left >= 7 && box.right <= innerWidth - 7 && box.top >= 7 && box.bottom <= innerHeight - 7, 'tag chooser fits viewport');
+  list.scrollTop = list.scrollHeight; check(list.scrollTop > 0, 'last tag can be reached by scrolling');
+  const search = chooser.querySelector('input'); search.value = '499'; search.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  check(list.children.length === 1 && list.firstChild.textContent === 'Topic 499', 'search finds a tag at the end of the catalog');
+  search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  check(document.activeElement === list.firstChild, 'arrow key focuses matching tag');
+  list.firstChild.click(); await wait();
+  check(textarea.value.includes('Topic 499') && list.firstChild.disabled && document.querySelector('.tag-chooser'), 'choosing a tag updates normal drafts and keeps chooser available');
+  renderTagSuggestions(container, textarea, names); await wait();
+  check(search.value === '499' && document.activeElement === search, 'renderer updates preserve chooser query and focus');
+  search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  check(!document.querySelector('.tag-chooser') && document.activeElement === button, 'Escape dismisses chooser and restores trigger focus');
+  button.click(); await wait();
+  textarea.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  check(!document.querySelector('.tag-chooser'), 'outside click dismisses tag chooser');
+  button.click(); await wait();
+  state.selectedGroupId = 'other-group'; renderTagSuggestions(container, textarea, names);
+  check(!document.querySelector('.tag-chooser'), 'group change dismisses the previous group chooser');
+  return results;
+}
