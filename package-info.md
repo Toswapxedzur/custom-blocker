@@ -2,6 +2,8 @@
 
 > 🤖 **AI protocol:** Read `../package-info.md` (group), the group `AGENTS.md`, and `../misc/project-memory/PROJECT-MEMORY.md` before working here. Update this file when the folder changes. Never delete without owner consent; keep secrets out of git.
 
+- **Growing lists (owner 2026-10-01):** the shared `vui-list-box` bounds editor collections without limiting item counts. Group navigation, sites/apps, creator/account filters, Discord targets and tag suggestions scroll inside their containers. `tests/popup-bounded-lists.js` verifies large collections in the actual popup on mini1; the existing driver accepts `--width`/`--height` for viewport coverage.
+
 - **Custom-rule logs (owner 2026-10-01):** the Log panel contains only `v.log()` output, independently retained by immutable group ID (200 entries per rule). Clear and Download operate on the selected rule. Engine errors and collection/transport diagnostics stay in developer diagnostics. Browser feed tests: `customBlocker/tests/runner-rule-log-isolation.js`; native persistence tests: `macosBlocker/Tests/RuleLogShim.test.js`.
 
 - **What:** the Manifest V3 browser extension (public name **Vault extension**) and the **canonical source** every other web surface mirrors from: Safari (`../safariBlocker/build.sh`), the Mac/Windows WebAssets, and the website's Replica (`../blockerWebsite/vendor/ext`).

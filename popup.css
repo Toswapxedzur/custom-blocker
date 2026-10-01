@@ -205,12 +205,23 @@ button,
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: none;
-  height: calc(100% - 74px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 10px;
   align-items: flex-start;
 }
+
+.groups-panel { display: flex; flex-direction: column; overflow: hidden; }
+.groups-panel > :not(.group-list) { flex: none; }
+.group-list.vui-list-box { max-height: none; }
+
+.site-chip-list,
+.app-chip-list,
+.entry-chip-list,
+.tag-suggestions { --vui-list-height: min(28vh, 240px); }
+
+.app-picker-results { min-height: 0; }
 
 .group-card {
   width: calc(100% - 12px);
