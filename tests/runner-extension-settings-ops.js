@@ -164,12 +164,17 @@ async function op(operation, body) {
   const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
   const mk = async (name) => (await op("settings-create-group", { groupType: "site", patch: { name, sites: ["a.example"], activeDays: days } })).body.group.id;
   const [a, b, c] = [await mk("Lock A"), await mk("Lock B"), await mk("Lock C")];
-  await op("settings-set-global", { patch: { defaultSnoozeMinutes: 7 } });
+  storage.set("globalSettings", { ...storage.get("globalSettings"), defaultSnoozeMinutes: 7 });
+  const retiredDefault = await op("settings-set-global", { patch: { defaultSnoozeMinutes: 7 } });
+  check("set-global refuses the retired snooze default", retiredDefault?.error === "not-an-editor-setting:defaultSnoozeMinutes", retiredDefault);
   const unnamed1 = (await op("settings-create-group", { groupType: "site" }))?.body?.group;
   const unnamed2 = (await op("settings-create-group", { groupType: "site" }))?.body?.group;
   // 3 site groups exist → "Block Group 4", "Block Group 5" (the editor's numbering).
   check("unnamed tool-created groups get the editor's numbered names", unnamed1?.name === "Block Group 4" && unnamed2?.name === "Block Group 5", [unnamed1?.name, unnamed2?.name]);
-  check("…and the user's default snooze length", unnamed1?.snoozeMinutes === 7, unnamed1?.snoozeMinutes);
+  check("new groups use 30 minutes despite a retired stored default", unnamed1?.snoozeMinutes === 30 && unnamed2?.snoozeMinutes === 30, [unnamed1?.snoozeMinutes, unnamed2?.snoozeMinutes]);
+  const explicit = await op("settings-set-group", { id: unnamed1.id, patch: { snoozeMinutes: 11 } });
+  await op("settings-set-global", { patch: { quickAddEnabled: false } });
+  check("settings discard the retired default without changing a group duration", !("defaultSnoozeMinutes" in storage.get("globalSettings")) && explicit?.body?.group?.snoozeMinutes === 11 && storage.get("blockedGroups").find((x) => x.id === unnamed1.id)?.snoozeMinutes === 11, explicit);
   const dup = await op("settings-create-group", { groupType: "site", patch: { name: "lock a" } });
   check("a name another group has (any case) is refused", dup?.error === "duplicate-name", dup);
 

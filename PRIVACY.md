@@ -50,7 +50,7 @@ storage so it can do its job across sessions:
   minutes of a delayed-allowance budget remain today, when a snooze
   ends, when a strict-freeze period ends).
 - Your own preferences set in **Settings** (tick rate, autosave
-  debounce, default snooze duration, default fallback URL, debug-mode
+  debounce, default fallback URL, debug-mode
   toggle, chosen UI language).
 - Activity log entries shown in the in-app **Log** panel, which you can
   clear from the UI.
