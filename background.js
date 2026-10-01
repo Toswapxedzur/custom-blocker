@@ -1721,7 +1721,7 @@ async function hydrateTabStateFromSession() {
 // Activity log panel reads this on open, then subscribes to live entries
 // via the "log-feed-entry" broadcast below.
 const LOG_FEED_MAX_ENTRIES = 200;
-const logFeedBuffer = []; // each: { ts, level, groupId, message, eventType }
+const logFeeds = new Map(); // groupId -> that rule's v.log entries
 let logFeedSeq = 0;
 
 // Rate-limit defense in depth: even with sandbox-side caps, a misbehaving
@@ -1730,17 +1730,17 @@ let logFeedSeq = 0;
 // renderer never gets pummeled.
 const LOG_FEED_BURST_PER_SEC = 50;
 const LOG_FEED_MAX_MESSAGE_BYTES = 4096;
-let logFeedBurstWindowStart = 0;
-let logFeedBurstCount = 0;
+const logFeedBursts = new Map();
 
 function pushLogFeedEntry(entry) {
-  if (!entry || typeof entry !== "object") return;
+  if (!entry || entry.source !== "v.log" || typeof entry.groupId !== "string" || !entry.groupId) return;
   const now = Date.now();
-  if (now - logFeedBurstWindowStart > 1000) {
-    logFeedBurstWindowStart = now;
-    logFeedBurstCount = 0;
+  let burst = logFeedBursts.get(entry.groupId);
+  if (!burst || now - burst.start > 1000) {
+    burst = { start: now, count: 0 };
+    logFeedBursts.set(entry.groupId, burst);
   }
-  if (logFeedBurstCount >= LOG_FEED_BURST_PER_SEC) {
+  if (burst.count >= LOG_FEED_BURST_PER_SEC) {
     return;
   }
   let message = Array.isArray(entry.args)
@@ -1757,19 +1757,20 @@ function pushLogFeedEntry(entry) {
     message = message.slice(0, LOG_FEED_MAX_MESSAGE_BYTES) +
       "…[" + dropped + " more chars truncated]";
   }
-  logFeedBurstCount += 1;
+  burst.count += 1;
   const record = {
     id: ++logFeedSeq,
     ts: now,
-    level: entry.level || "log",
+    source: "v.log",
+    level: "log",
     groupId: entry.groupId || "",
     eventType: entry.eventType || "",
     message
   };
-  logFeedBuffer.push(record);
-  if (logFeedBuffer.length > LOG_FEED_MAX_ENTRIES) {
-    logFeedBuffer.splice(0, logFeedBuffer.length - LOG_FEED_MAX_ENTRIES);
-  }
+  const feed = logFeeds.get(entry.groupId) || [];
+  feed.push(record);
+  if (feed.length > LOG_FEED_MAX_ENTRIES) feed.splice(0, feed.length - LOG_FEED_MAX_ENTRIES);
+  logFeeds.set(entry.groupId, feed);
   // Best-effort broadcast. Popups that aren't open simply ignore it; the
   // catch silences "Receiving end does not exist" noise.
   try {
@@ -1779,7 +1780,7 @@ function pushLogFeedEntry(entry) {
 
 // Collection diagnostics never include page text, titles, creator identities,
 // URLs, or entry IDs. They make the local collection hops inspectable in the
-// existing extension Activity Log without creating browser-side browsing data.
+// developer console without creating browser-side browsing data.
 function recordVaultClassifierDiagnostic(entry) {
   if (!entry || typeof entry !== "object") return;
   const event = typeof entry.event === "string" && /^[a-z0-9-]{1,64}$/.test(entry.event) ? entry.event : "invalid-event";
@@ -1787,11 +1788,7 @@ function recordVaultClassifierDiagnostic(entry) {
   const detail = typeof entry.detail === "string" && /^[a-z0-9-]{1,64}$/.test(entry.detail) ? entry.detail : "";
   const outcome = typeof entry.outcome === "string" && /^[a-z0-9-]{1,32}$/.test(entry.outcome) ? entry.outcome : "unknown";
   const isFailure = event.endsWith("failed") || event.endsWith("rejected") || outcome === "unavailable" || outcome === "rejected";
-  pushLogFeedEntry({
-    level: isFailure ? "warn" : "log",
-    eventType: "vault-collection",
-    message: [platform, event, detail, outcome].filter(Boolean).join(" · ")
-  });
+  (isFailure ? cbDebugWarn : cbDebugLog)("[Vault collection]", platform, event, detail, outcome);
 }
 self.CBRecordVaultClassifierDiagnostic = recordVaultClassifierDiagnostic;
 
@@ -2116,7 +2113,7 @@ async function loadCustomGroupSource(group, { run = false } = {}) {
     result = await sendToEventSandbox({ kind: "load-source", groupId: group.id, source, state: stored });
     if (result) {
       for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType: "run" });
-      if (!result.ok && result.error) pushLogFeedEntry({ level: "error", groupId: group.id, args: [result.error], eventType: "run" });
+      if (!result.ok && result.error) cbDebugError("[Vault rule]", group.id, "run", result.error);
       if (result.quarantine) quarantineGroup(group.id, result.quarantine.reason || "load-source-timeout").catch(() => {});
       // A rule that didn't load leaves the one before it running.
       if (result.ok) {
@@ -2160,6 +2157,7 @@ async function dispatchRule(type, data, { targetGroupId = null } = {}) {
 async function applyRuleResult(result, eventType) {
   if (!result) return;
   for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType });
+  for (const entry of result.diagnostics || []) cbDebugError("[Vault rule]", entry.groupId, eventType, ...(entry.args || []));
   if (result.quarantine && result.quarantine.groupId) {
     quarantineGroup(result.quarantine.groupId, result.quarantine.reason || "deadline-overrun").catch(() => {});
   }
@@ -2614,12 +2612,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 
   if (message.type === "get-log-feed") {
-    sendResponse({ ok: true, entries: logFeedBuffer.slice() });
+    sendResponse({ ok: true, entries: (logFeeds.get(message.groupId) || []).slice() });
     return false;
   }
 
   if (message.type === "clear-log-feed") {
-    logFeedBuffer.length = 0;
+    logFeeds.delete(message.groupId);
+    logFeedBursts.delete(message.groupId);
     sendResponse({ ok: true });
     return false;
   }
@@ -2980,6 +2979,8 @@ if (chrome.storage && chrome.storage.onChanged) {
       });
     }
     if (groupsChange) {
+      const retained = new Set((groupsChange.newValue || []).map((group) => group.id));
+      for (const id of logFeeds.keys()) if (!retained.has(id)) { logFeeds.delete(id); logFeedBursts.delete(id); }
       reconcileCustomGroupHandlers(groupsChange).catch((error) => {
         console.error("Failed to reconcile custom-group handlers.", error);
       });
