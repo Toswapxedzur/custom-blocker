@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | disable(panelId, controlId), enable(panelId, controlId) | ਕੰਟਰੋਲ ਉਪਲਬਧਤਾ ਨੂੰ ਟੌਗਲ ਕਰੋ। |
 | setOptions(panelId, controlId, ਵਿਕਲਪ) | ਚੁਣੋ/ਰੇਡੀਓ ਵਿਕਲਪਾਂ ਨੂੰ ਬਦਲੋ। |
 | setText(panelId, controlId, ਟੈਕਸਟ) | ਇੱਕ ਬਟਨ ਲੇਬਲ, ਟੈਕਸਟ/ਸੈਕਸ਼ਨ ਟੈਕਸਟ, ਜਾਂ ਕੋਈ ਹੋਰ ਕੰਟਰੋਲ ਲੇਬਲ ਅੱਪਡੇਟ ਕਰੋ। |
-| setTheme(panelId, ਥੀਮ) | ਪੈਨਲ ਥੀਮ ਨੂੰ ਬਦਲੋ। |
 | setTitle(panelId, title), setDescription(panelId, ਵਰਣਨ) | ਟੈਕਸਟ ਅੱਪਡੇਟ ਕਰੋ। |
 | getValue(panelId, controlId) | ਕਲੋਨ ਕੀਤਾ ਮੁੱਲ ਜਾਂ ਪਰਿਭਾਸ਼ਿਤ ਮੁੱਲ ਵਾਪਸ ਕਰੋ। |
 | getValues(panelId) | ਕੰਟਰੋਲ id ਦੁਆਰਾ ਕੁੰਜੀਬੱਧ ਸਾਰੇ ਲਿਖਣਯੋਗ ਮੁੱਲ ਵਾਪਸ ਕਰੋ। |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | ਪਹੁੰਚਯੋਗ ਲੇਬਲ। |
 | ਭੂਮਿਕਾ | ਖੇਤਰ, ਡਾਇਲਾਗ, ਚੇਤਾਵਨੀ, ਸਥਿਤੀ, ਫਾਰਮ, ਜਾਂ ਸਮੂਹ। |
 | ਆਟੋਫੋਕਸ | ਬੁਲੀਅਨ। |
-| ਥੀਮ/ਰੰਗ | ਬੈਕਗ੍ਰਾਉਂਡ, ਫੋਰਗਰਾਉਂਡ, ਐਕਸੈਂਟ, ਬਾਰਡਰ, ਮਿਊਟ, ਫੋਂਟਸਾਈਜ਼/ਟੈਕਸਟਸਾਈਜ਼, ਟਾਇਟਲਸਾਈਜ਼। |
 | ਨਿਯੰਤਰਣ | ਤਿੰਨ ਪੱਧਰਾਂ ਤੱਕ ਸੈਕਸ਼ਨ ਆਲ੍ਹਣੇ ਦੇ ਨਾਲ, 32 ਤੱਕ ਨਿਯੰਤਰਣਾਂ ਦਾ ਐਰੇ। |
 | ਦਿਖਾਈ ਦੇਣ ਵਾਲਾ | ਝੂਠੇ ਪੈਨਲ ਨੂੰ ਛੁਪਾਉਂਦਾ ਹੈ। |
 | ਸਕੋਪ(url), ਡੋਮੇਨ(url) | ਉਪਲਬਧਤਾ/ਡਿਸਪਲੇਅ ਨੂੰ ਕੰਟਰੋਲ ਕਰਨ ਵਾਲੇ ਫੰਕਸ਼ਨ। ਡੋਮੇਨ ਤਰਜੀਹ ਲੈਂਦਾ ਹੈ; ਡੋਮੇਨ ਤੋਂ ਬਿਨਾਂ, ਸਕੋਪ ਕੰਟਰੋਲ ਡਿਸਪਲੇ। |

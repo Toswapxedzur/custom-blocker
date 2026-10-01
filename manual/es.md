@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | deshabilitar (Id del panel, Id de control), habilitar (Id del panel, Id de control) | Alternar control de disponibilidad. |
 | setOptions(ID de panel, ID de control, opciones) | Reemplace las opciones de selección/radio. |
 | setText(ID del panel, ID de control, texto) | Actualice la etiqueta de un botón, texto/texto de sección u otra etiqueta de control. |
-| setTheme(ID del panel, tema) | Reemplazar el tema del panel. |
 | setTitle(panelId, título), setDescription(panelId, descripción) | Actualizar texto. |
 | getValue(Id. del panel, Id. del control) | Devuelve un valor clonado o indefinido. |
 | getValues(ID del panel) | Devuelve todos los valores grabables codificados por la identificación del control. |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | Etiqueta accesible. |
 | papel | región, cuadro de diálogo, alerta, estado, formulario o grupo. |
 | enfoque automático | Booleano. |
-| tema/colores | fondo, primer plano, acento, borde, silenciado, tamaño de fuente/tamaño de texto, tamaño de título. |
 | controles | Matriz de hasta 32 controles, con secciones anidadas de hasta tres niveles. |
 | visibles | Falso oculta el panel. |
 | alcance(url), dominio(url) | Funciones que controlan la disponibilidad/visualización. el dominio tiene prioridad; sin dominio, se muestran los controles de alcance. |

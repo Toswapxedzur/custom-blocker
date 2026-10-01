@@ -205,9 +205,9 @@ setTimeout(() => {
     && pillStyle.includes("border-radius:999px")
     && pillStyle.includes("background:var(--vault-tag-color-light)")
     && pillStyle.includes("color:#000")
-    && pillStyle.includes("@media (prefers-color-scheme:dark)")
-    && pillStyle.includes("background:var(--vault-tag-color-dark)")
-    && pillStyle.includes("color:#fff");
+    && !pillStyle.includes("prefers-color-scheme:dark")
+    && pillStyle.includes("color-scheme:light")
+    && pillStyle.includes("Arial,Helvetica,sans-serif");
 
   // content.js tells "untagged" from "no answer yet" through this export.
   // A wrapper element that merely CONTAINS one pilled card (Reddit's <article>

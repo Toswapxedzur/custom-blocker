@@ -91,7 +91,7 @@ const code = [
   extractFunction("safeSendMessage"),
   extractLine("const CB_COVER_ID"), extractLine("const CB_SNOOZE_CONFIRM_INTERVAL_MS"),
   extractConst("cbCover"),
-  ...["cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbStopCoverTimers", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "cbSetRuleCover", "cbSyncCover"].map(extractFunction), extractLine("const CB_RULE_EXIT")
+  ...["formatOverlayDurationMs", "cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbStopCoverTimers", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "cbSetRuleCover", "cbSyncCover"].map(extractFunction), extractLine("const CB_RULE_EXIT")
 ].join("\n");
 vm.runInContext(code, ctx, { filename: "content-cover-extract.js" });
 const run = (expr) => vm.runInContext(expr, ctx);
@@ -102,6 +102,10 @@ const check = (label, ok, detail) => { if (ok) { pass += 1; console.log(`PASS ${
 const tick = (id) => { const t = timers.intervals.get(id); if (t) t.fn(); };
 const dialog = () => doc.documentElement.children.find((c) => c.tagName === "DIALOG") || null;
 const buttons = () => dialog() ? dialog().querySelectorAll("button") : [];
+
+for (const [ms, expected] of [[0,'00:00:00'],[1,'00:00:01'],[59000,'00:00:59'],[60000,'00:01:00'],[3600000,'01:00:00'],[360000000,'100:00:00']]) {
+  check(`duration ${ms} uses HH:MM:SS`, run(`formatOverlayDurationMs(${ms})`) === expected);
+}
 
 // Page content: an app root with a playing video, a text input holding a draft.
 const app = new El("div"); app.className = "app"; doc.body.appendChild(app);
@@ -119,6 +123,7 @@ check("media the site restarts under the cover is paused again", video.paused ==
 check("the worker is told to mute the tab", sent.some((m) => m.type === "cover-state" && m.covered === true), sent);
 check("the message and the group show on the cover", dialog().querySelectorAll("h1")[0].textContent === "Go work" && dialog().querySelectorAll("p").some((p) => p.textContent === "Blocked by Sites"));
 check("the cover does not poll: the worker pushes when the block lifts", ![...timers.intervals.values()].some((t) => t.ms === 3000));
+check("cover uses the fixed light palette", run("cbCoverStyle()").includes("background: #f8fafc; color: #1f2937; color-scheme: light"), run("cbCoverStyle()"));
 check("no navigation happened", ctx.location.replaced === null);
 // The site removes the cover → it is put back.
 dialog().remove(); ctx.__observer.fn();
@@ -148,7 +153,7 @@ check("the poll stops", timers.intervals.size === 0, [...timers.intervals.values
 // 4. Pause: countdown then Continue, which asks for a pass.
 run(`cbApplyExit({ action: "pause", target: "", message: "", groupId: "p1", groupName: "News", pauseSeconds: 3, allowSnooze: false, snoozeConfirmations: 0, snoozePhase: "none" })`);
 let go = buttons().find((b) => b.className === "cb-continue");
-check("a pause cover counts down with Continue disabled", go && go.disabled === true && /Continue in 3s/.test(go.textContent) && !buttons().some((b) => b.className === "cb-snooze-button"), go && go.textContent);
+check("a pause cover counts down with Continue disabled", go && go.disabled === true && /Continue in 00:00:03/.test(go.textContent) && !buttons().some((b) => b.className === "cb-snooze-button"), go && go.textContent);
 const countdown = [...timers.intervals.entries()].find(([, t]) => t.ms === 1000)[0];
 tick(countdown); tick(countdown); tick(countdown);
 go = buttons().find((b) => b.className === "cb-continue");

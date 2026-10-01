@@ -711,7 +711,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | disable(panelId, controlId), enable(panelId, controlId) | Toggle control availability. |
 | setOptions(panelId, controlId, options) | Replace select/radio choices. |
 | setText(panelId, controlId, text) | Update a button label, text/section text, or another control label. |
-| setTheme(panelId, theme) | Replace panel theme. |
 | setTitle(panelId, title), setDescription(panelId, description) | Update text. |
 | getValue(panelId, controlId) | Return a cloned value or undefined. |
 | getValues(panelId) | Return all writable values keyed by control id. |
@@ -738,7 +737,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | Accessible label. |
 | role | region, dialog, alert, status, form, or group. |
 | autoFocus | Boolean. |
-| theme/colors | background, foreground, accent, border, muted, fontSize/textSize, titleSize. |
 | controls | Array of up to 32 controls, with section nesting up to three levels. |
 | visible | False hides the panel. |
 | scope(url), domain(url) | Functions controlling availability/display. domain takes precedence; without domain, scope controls display. |

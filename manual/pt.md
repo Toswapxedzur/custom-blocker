@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | desativar(panelId, controlId), ativar(panelId, controlId) | Alternar disponibilidade de controle. |
 | setOptions(panelId, controlId, opções) | Substitua as opções de seleção/rádio. |
 | setText(panelId, controlId, texto) | Atualize um rótulo de botão, texto/texto de seção ou outro rótulo de controle. |
-| setTheme(painelId, tema) | Substitua o tema do painel. |
 | setTitle(panelId, título), setDescription(panelId, descrição) | Atualizar texto. |
 | getValue(panelId, controlId) | Retorna um valor clonado ou indefinido. |
 | getValues(panelId) | Retorna todos os valores graváveis ​​codificados pelo ID de controle. |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | Etiqueta acessível. |
 | papel | região, caixa de diálogo, alerta, status, formulário ou grupo. |
 | foco automático | Booleano. |
-| tema/cores | plano de fundo, primeiro plano, acento, borda, silenciado, fontSize/textSize, titleSize. |
 | controles | Conjunto de até 32 controles, com aninhamento de seções em até três níveis. |
 | visível | False oculta o painel. |
 | escopo(url), domínio(url) | Funções que controlam a disponibilidade/exibição. o domínio tem precedência; sem domínio, os controles de escopo são exibidos. |

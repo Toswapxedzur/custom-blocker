@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | تعطيل (panelId، controlId)، تمكين (panelId، controlId) | تبديل توفر التحكم. |
 | setOptions(panelId, controlId, options) | استبدل اختيارات التحديد/الراديو. |
 | setText(panelId, controlId, text) | قم بتحديث تسمية زر أو نص/نص مقطع أو تسمية تحكم أخرى. |
-| setTheme(panelId, theme) | استبدال موضوع اللوحة. |
 | setTitle(panelId, title), setDescription(panelId, description) | تحديث النص. |
 | getValue(panelId, controlId) | قم بإرجاع قيمة مستنسخة أو غير محددة. |
 | getValues(panelId) | قم بإرجاع كافة القيم القابلة للكتابة المرتبطة بمعرف التحكم. |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | تسمية يمكن الوصول إليها. |
 | دور | المنطقة أو الحوار أو التنبيه أو الحالة أو النموذج أو المجموعة. |
 | التركيز التلقائي | منطقية. |
-| الموضوع/الألوان | الخلفية، المقدمة، التمييز، الحدود، كتم الصوت، حجم الخط/حجم النص، حجم العنوان. |
 | الضوابط | مصفوفة تصل إلى 32 عنصر تحكم، مع تداخل الأقسام حتى ثلاثة مستويات. |
 | مرئية | خطأ يخفي اللوحة. |
 | النطاق (url)، المجال (url) | وظائف التحكم في التوفر/العرض. المجال له الأسبقية؛ بدون المجال، يتم عرض عناصر التحكم في النطاق. |

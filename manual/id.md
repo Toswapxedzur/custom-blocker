@@ -676,7 +676,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | nonaktifkan(panelId, controlId), aktifkan(panelId, controlId) | Alihkan ketersediaan kontrol. |
 | setOptions(panelId, controlId, opsi) | Ganti pilihan pilih/radio. |
 | setText(panelId, controlId, teks) | Perbarui label tombol, teks/teks bagian, atau label kontrol lainnya. |
-| setTema(panelId, tema) | Ganti tema panel. |
 | setTitle(panelId, judul), setDescription(panelId, deskripsi) | Perbarui teks. |
 | getValue(panelId, controlId) | Mengembalikan nilai yang dikloning atau tidak ditentukan. |
 | getValues(panelId) | Kembalikan semua nilai yang dapat ditulis yang dikunci oleh id kontrol. |
@@ -703,7 +702,6 @@ The panel helper creates safe, declarative on-page panels. Get it with helpers.g
 | ariaLabel/a11yLabel | Label yang dapat diakses. |
 | peran | wilayah, dialog, peringatan, status, formulir, atau grup. |
 | fokus otomatis | Boolean. |
-| tema/warna | latar belakang, latar depan, aksen, batas, tidak bersuara, ukuran font/ukuran teks, ukuran judul. |
 | kontrol | Susunan hingga 32 kontrol, dengan bagian bersarang hingga tiga tingkat. |
 | terlihat | False menyembunyikan panel. |
 | ruang lingkup(url), domain(url) | Fungsi mengontrol ketersediaan/tampilan. domain diutamakan; tanpa domain, tampilan kontrol cakupan. |
