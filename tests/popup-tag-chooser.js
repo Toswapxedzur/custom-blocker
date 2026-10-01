@@ -23,7 +23,13 @@ async () => {
   check(list.children.length === 500 && list.scrollHeight > list.clientHeight && getComputedStyle(list).overflowY === 'auto', 'all tags remain reachable inside a bounded menu');
   const box = chooser.getBoundingClientRect();
   check(box.left >= 7 && box.right <= innerWidth - 7 && box.top >= 7 && box.bottom <= innerHeight - 7, 'tag chooser fits viewport');
-  list.scrollTop = list.scrollHeight; check(list.scrollTop > 0, 'last tag can be reached by scrolling');
+  list.scrollTop = list.scrollHeight; check(list.scrollTop > 0, 'last tag can be reached by scrolling'); await wait();
+  const info = chooser.querySelector('.vui-info-button'), beforeValue = textarea.value;
+  check(info && info.getBoundingClientRect().width === 14, 'Tag search has compact Info');
+  info.click(); await wait();
+  check(chooser.querySelector('.vui-info-popover') && textarea.value === beforeValue, 'Search Info stays inside the chooser and changes no tag rules');
+  info.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true})); await wait();
+  check(document.querySelector('.tag-chooser') && !chooser.querySelector('.vui-info-popover'), 'Escape dismisses Info before its tag chooser');
   const search = chooser.querySelector('input'); search.value = '499'; search.dispatchEvent(new InputEvent('input', { bubbles: true }));
   check(list.children.length === 1 && list.firstChild.textContent === 'Topic 499', 'search finds a tag at the end of the catalog');
   search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));

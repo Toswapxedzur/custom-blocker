@@ -12,13 +12,14 @@ async () => {
   }
   state.selectedGroupId = group.id; render();
   const label = document.querySelector('label[for="snoozeMinutes"]');
-  check(label.textContent === 'Pause duration (minutes)', 'Time snooze describes a pause');
+  const labelText = node => [...node.childNodes].filter(n => !n.classList?.contains('vui-info-button')).map(n => n.textContent).join('');
+  check(labelText(label) === 'Pause duration (minutes)', 'Time snooze describes a pause');
   const draft = state.drafts[group.id] = getDraftForGroup(group.id);
   draft.snoozeKind = 'budget'; updateSnoozeUI(getSelectedGroup());
-  check(label.textContent === 'Extra allowance (minutes)', 'Allowance snooze describes usable minutes');
+  check(labelText(label) === 'Extra allowance (minutes)', 'Allowance snooze describes usable minutes');
   draft.mode = 'instant'; updateSnoozeUI(getSelectedGroup());
-  check(label.textContent === 'Pause duration (minutes)', 'Immediate blocking cannot imply an extra allowance');
-  check(document.querySelector('[data-i18n="freeze.pinLabel"]').textContent === 'PIN', 'Freeze uses PIN terminology');
+  check(labelText(label) === 'Pause duration (minutes)', 'Immediate blocking cannot imply an extra allowance');
+  check(labelText(document.querySelector('[data-i18n="freeze.pinLabel"]')) === 'PIN', 'Freeze uses PIN terminology');
   check(t('logFeed.hint').includes('this group'), 'Log explains group isolation');
   return results;
 }
