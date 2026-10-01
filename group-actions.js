@@ -766,7 +766,6 @@
     debugMode: false,
     // The tiny floating "+" on pages and in the desktop app (off by default).
     quickAddEnabled: false,
-    defaultSnoozeMinutes: DEFAULT_SNOOZE_MINUTES,
     // Desktop: how often a blocked (or rule-closed) app that stayed open is
     // asked to quit again, in minutes; 0 = never (owner 2026-09-26).
     quitRetryMinutes: 0
@@ -790,7 +789,6 @@
       return text !== "" && Number.isInteger(n) && n >= 0 && n <= QUIT_RETRY_MAX_MINUTES;
     };
     return [
-      bad("defaultSnoozeMinutes", (v) => parseSnoozeMinutes(v) !== null),
       bad("quitRetryMinutes", wholeMinutes),
       bad("quickAddEnabled", (v) => typeof v === "boolean")
     ].find(Boolean) || null;
@@ -802,7 +800,6 @@
     return {
       autosaveDebounceMs: Math.round(clampNumber(src.autosaveDebounceMs, 0, AUTOSAVE_DEBOUNCE_MAX_MS, defaults.autosaveDebounceMs)),
       debugMode: src.debugMode === true,
-      defaultSnoozeMinutes: parseSnoozeMinutes(src.defaultSnoozeMinutes) ?? defaults.defaultSnoozeMinutes,
       quickAddEnabled: src.quickAddEnabled === true,
       quitRetryMinutes: Math.round(clampNumber(src.quitRetryMinutes, 0, QUIT_RETRY_MAX_MINUTES, defaults.quitRetryMinutes))
     };
