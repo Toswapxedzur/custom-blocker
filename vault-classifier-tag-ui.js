@@ -37,8 +37,8 @@
   const TAGGING_TAGS = Object.freeze([Object.freeze({
     id: "vault:tagging",
     name: "Tagging",
-    lightColorHex: "#E5E7EB",
-    darkColorHex: "#3F3F46"
+    lightColorHex: "#DBEAFE",
+    darkColorHex: "#1E3A8A"
   })]);
 
   // Maps a resolved lookup to what should render. A definitive answer with no
@@ -422,6 +422,7 @@
   // background and revert only if it fails. `addTag` is a full display tag
   // {id,name,lightColorHex,darkColorHex}; `removeID` is a tag id.
   function editTags(state, { addTag, removeID }) {
+    if (state.correctionPending) return;
     const before = (state.currentTags || []).filter((tag) => !SYNTHETIC_IDS.has(tag.id));
     let next;
     if (removeID) {
@@ -436,19 +437,75 @@
     // max confidence (5). Mirror that locally so the optimistic block decision
     // equals the one the confirming broadcast will produce.
     next = next.map((tag) => ({ ...tag, confidence: 5 }));
+    state.correctionPending = true;
+    state.failedCorrection = null;
     applyLocalTags(state, next);   // instant — and the block re-decides from the new tags
 
+    updateCorrectionStatus(state);
     (async () => {
       const taxonomy = await fetchTaxonomy(state.platform);
       const typeID = typeForTag(taxonomy, removeID || addTag.id);
-      if (!typeID) { applyLocalTags(state, before); return; }
+      if (!typeID) { fail(); return; }
       const correctTagIDs = next.filter((tag) => typeForTag(taxonomy, tag.id) === typeID).map((tag) => tag.id);
       const result = await sendCorrection(state.platform, state.entryID, state.creatorID, typeID, correctTagIDs);
       if (!result || result.ok !== true) {
-        applyLocalTags(state, before);   // revert on failure (the block re-decides with it)
+        fail();
+        return;
       }
+      state.correctionPending = false;
+      updateCorrectionStatus(state);
       // success → the video-tags-updated broadcast confirms (same signature).
-    })();
+    })().catch(fail);
+    function fail() {
+      if (stateByRoot.get(state.root) !== state) return;
+      state.correctionPending = false;
+      state.failedCorrection = { addTag, removeID };
+      applyLocalTags(state, before);
+      updateCorrectionStatus(state);
+    }
+  }
+
+  function updateCorrectionStatus(state) {
+    if (!state.status) return;
+    state.status.replaceChildren();
+    const document = state.status.ownerDocument || global.document;
+    if (state.correctionPending) state.status.textContent = "Saving…";
+    else if (state.failedCorrection) {
+      const message = document.createElement("span");
+      message.textContent = "Could not save tag correction. ";
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "retry";
+      retry.textContent = "Retry";
+      retry.addEventListener("click", (event) => {
+        event.preventDefault(); event.stopPropagation();
+        editTags(state, state.failedCorrection);
+      });
+      state.status.append(message, retry);
+    }
+    state.rail?.querySelectorAll("button").forEach((button) => { button.disabled = state.correctionPending === true; });
+    state.panel?.querySelectorAll(".panel-item").forEach((button) => { button.disabled = state.correctionPending === true; });
+  }
+
+  function closeTagPanel(state, restoreFocus = true) {
+    if (!state.panel?.classList.contains("open")) return;
+    state.panel.classList.remove("open");
+    if (restoreFocus) state.rail?.querySelector(".add-btn")?.focus();
+  }
+
+  function placeTagPanel(state) {
+    const panel = state.panel;
+    if (!panel?.classList.contains("open")) return;
+    const host = state.host.getBoundingClientRect();
+    const anchor = state.rail.querySelector(".add-btn").getBoundingClientRect();
+    panel.style.maxWidth = Math.max(0, global.innerWidth - 16) + "px";
+    panel.style.maxHeight = Math.max(0, global.innerHeight - 16) + "px";
+    const box = panel.getBoundingClientRect();
+    const left = Math.max(8, Math.min(anchor.left, global.innerWidth - box.width - 8));
+    const below = global.innerHeight - anchor.bottom - 12;
+    const top = below >= box.height ? anchor.bottom + 4 : Math.max(8, anchor.top - box.height - 4);
+    panel.style.left = (left - host.left) + "px";
+    panel.style.top = (Math.min(top, global.innerHeight - box.height - 8) - host.top) + "px";
   }
 
   // Builds the small add-a-tag panel: a search box + the addable tags (all
@@ -474,6 +531,8 @@
     const list = document.createElement("div");
     list.className = "panel-list";
     panel.append(head, search, list);
+    placeTagPanel(state);
+    try { search.focus(); } catch (_) {}
 
     const taxonomy = await fetchTaxonomy(state.platform);
     if (!panel.classList.contains("open")) return;
@@ -505,7 +564,8 @@
         list.append(item);
       }
     }
-    try { search.focus(); } catch (_) {}
+    placeTagPanel(state);
+    updateCorrectionStatus(state);
   }
 
   function makeHost(root, anchor) {
@@ -527,12 +587,11 @@
       ":host{all:initial;display:inline-block;max-width:100%;color-scheme:light;contain:layout style}",
       ".rail{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;max-width:100%;vertical-align:middle}",
       ".chip{box-sizing:border-box;display:inline-flex;align-items:center;max-width:220px;min-height:18px;padding:1px 7px;border:0;border-radius:999px;background:var(--vault-tag-color-light);color:#000;font:600 11px/16px Arial,Helvetica,sans-serif;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 2px rgba(0,0,0,.18)}",
-      // A local-model prediction (no confirmed decision) reads as a hollow, dashed
-      // chip in the tag's own color so it is visibly a guess.
-      ".chip.predicted{background:transparent;color:var(--vault-tag-color-dark);border:1px dashed var(--vault-tag-color-dark);box-shadow:none}",
+      // Predictions keep the tag's light color and a dashed outline.
+      ".chip.predicted{background:var(--vault-tag-color-light);color:var(--vault-tag-color-dark);border:1px dashed var(--vault-tag-color-dark);box-shadow:none}",
       // The temporary "Tagging" placeholder: muted, dashed, gently pulsing.
-      ".chip.tagging{background:transparent;color:var(--vault-tag-color-dark);border:1px dashed var(--vault-tag-color-dark);box-shadow:none;animation:vault-tagging 1.2s ease-in-out infinite}",
-      "@keyframes vault-tagging{0%,100%{opacity:.45}50%{opacity:.9}}",
+      ".chip.tagging{background:var(--vault-tag-color-light);color:var(--vault-tag-color-dark);border:1px dashed var(--vault-tag-color-dark);box-shadow:none;animation:vault-tagging 1.2s ease-in-out infinite}",
+      "@keyframes vault-tagging{0%,100%{filter:brightness(.94)}50%{filter:brightness(1)}}",
       // Live correction: a delete affordance on hover, an add button, and a small panel.
       ".chip-wrap{position:relative;display:inline-flex;align-items:center}",
       ".chip-del{position:absolute;top:-6px;right:-6px;width:14px;height:14px;padding:0;display:none;align-items:center;justify-content:center;border:0;border-radius:999px;background:#fee2e2;color:#991b1b;font:700 10px/1 Arial,Helvetica,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.35)}",
@@ -550,6 +609,9 @@
       ".panel-item:hover{background:rgba(0,0,0,.06)}",
       ".panel-dot{flex:0 0 auto;width:9px;height:9px;border-radius:999px}",
       ".panel-empty{padding:8px 10px;color:#888}",
+      ".correction-status:empty{display:none}",
+      ".correction-status{display:inline-block;margin-left:5px;padding:3px 7px;border-radius:8px;background:#fff;color:#991b1b;font:500 11px/1.4 Arial,Helvetica,sans-serif}",
+      ".retry{border:0;border-radius:999px;padding:2px 6px;background:#eef2ff;color:#1e3a8a;font:inherit;cursor:pointer}",
     ].join("");
     // The host anchors the absolutely-positioned panel.
     host.style.position = "relative";
@@ -557,7 +619,10 @@
     rail.className = "rail";
     const panel = document.createElement("div");
     panel.className = "panel";
-    shadow.append(style, rail, panel);
+    const status = document.createElement("span");
+    status.className = "correction-status";
+    status.setAttribute("role", "status");
+    shadow.append(style, rail, panel, status);
 
     // One delegated listener drives every correction affordance; the rail is
     // re-populated on each render but the shadow root (and this listener) persist.
@@ -577,7 +642,7 @@
       if (target.closest(".panel")) {
         event.preventDefault();
         event.stopPropagation();
-        if (target.closest(".panel-close")) { panel.classList.remove("open"); return; }
+        if (target.closest(".panel-close")) { closeTagPanel(state); return; }
         const item = target.closest(".panel-item");
         if (item) {
           item.remove();
@@ -591,6 +656,11 @@
       }
     });
     shadow.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        const state = hostState.get(host);
+        if (state?.panel?.classList.contains("open")) { event.preventDefault(); event.stopPropagation(); closeTagPanel(state); }
+        return;
+      }
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       const chip = event.target?.closest?.(".chip-wrap");
       const del = chip?.querySelector(".chip-del");
@@ -618,28 +688,31 @@
     } catch (_) {
       return null;
     }
-    return { host, rail };
+    return { host, rail, panel, status };
+  }
+
+  function showRemovalConfirmation(state, button) {
+    const armed = state.removal?.id === button.dataset.tagId && state.removal.until > Date.now();
+    button.textContent = armed ? "Confirm ×" : "×";
+    button.classList.toggle("armed", armed);
+    button.setAttribute("aria-label", armed ? "Click again or press Delete again to remove tag" : "Remove tag");
   }
 
   function confirmTagRemoval(state, button) {
     const id = button.dataset.tagId;
-    if (!(state.currentTags || []).some((tag) => tag.id === id)) return;
+    if (state.correctionPending || !(state.currentTags || []).some((tag) => tag.id === id)) return;
     const now = Date.now();
-    if (Number(button.dataset.confirmUntil) > now) {
-      delete button.dataset.confirmUntil;
+    if (state.removal?.id === id && state.removal.until > now) {
+      state.removal = null;
       editTags(state, { removeID: id });
       return;
     }
-    button.dataset.confirmUntil = String(now + 4000);
-    button.textContent = "Confirm ×";
-    button.classList.add("armed");
-    button.setAttribute("aria-label", "Click again or press Delete again to remove tag");
+    const removal = state.removal = { id, until: now + 4000 };
+    state.rail.querySelectorAll(".chip-del").forEach((del) => showRemovalConfirmation(state, del));
     global.setTimeout(() => {
-      if (!button.isConnected) return;
-      delete button.dataset.confirmUntil;
-      button.textContent = "×";
-      button.classList.remove("armed");
-      button.setAttribute("aria-label", "Remove tag");
+      if (state.removal !== removal) return;
+      state.removal = null;
+      state.rail?.querySelectorAll(".chip-del").forEach((del) => showRemovalConfirmation(state, del));
     }, 4000);
   }
 
@@ -660,6 +733,8 @@
       if (!mount) return;
       state.host = mount.host;
       state.rail = mount.rail;
+      state.panel = mount.panel;
+      state.status = mount.status;
       // A freshly mounted host has an empty rail. Clear the cached signature so
       // the chips are (re)populated below; otherwise, when the host is remounted
       // after the page detached it, the unchanged signature would skip the fill
@@ -673,8 +748,10 @@
     )).join("");
     if (state.signature === signature) return;
     state.signature = signature;
+    const focusedTag = state.rail.getRootNode?.().activeElement?.closest?.(".chip-wrap")?.querySelector(".chip-del")?.dataset.tagId;
     state.rail.replaceChildren?.();
     state.currentTags = tags;
+    if (state.removal && !tags.some((tag) => tag.id === state.removal.id)) state.removal = null;
     const document = state.root.ownerDocument || global.document;
     const isTagging = tags.length === 1 && tags[0].id === "vault:tagging";
     for (const tag of tags) {
@@ -698,7 +775,9 @@
         del.textContent = "×";
         del.dataset.tagId = tag.id;
         del.setAttribute("aria-label", "Remove tag");
+        showRemovalConfirmation(state, del);
         wrap.appendChild(del);
+        if (tag.id === focusedTag) global.setTimeout(() => { if (wrap.isConnected) wrap.focus(); }, 0);
       }
       state.rail.appendChild(wrap);
     }
@@ -712,6 +791,7 @@
       add.setAttribute("aria-label", "Add tag");
       state.rail.appendChild(add);
     }
+    updateCorrectionStatus(state);
   }
 
   // A provisional ("Tagging") pill upgrades by re-requesting once its short
@@ -830,6 +910,21 @@
       if (key.startsWith(prefix)) sourceCache.delete(key);
     }
   }
+
+  // One set of page listeners, shared by every private tag host.
+  global.document?.addEventListener?.("pointerdown", (event) => {
+    const path = event.composedPath?.() || [];
+    for (const state of mountedStates) {
+      if (!path.includes(state.host)) closeTagPanel(state, false);
+    }
+  }, true);
+  global.addEventListener?.("resize", () => {
+    for (const state of mountedStates) closeTagPanel(state, false);
+  });
+  global.document?.addEventListener?.("scroll", (event) => {
+    const path = event.composedPath?.() || [];
+    for (const state of mountedStates) if (!path.includes(state.host)) closeTagPanel(state, false);
+  }, true);
 
   global.VaultClassifierTagUI = Object.freeze({ observe, clearPlatform });
 })(typeof globalThis !== "undefined" ? globalThis : this);

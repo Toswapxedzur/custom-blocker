@@ -615,9 +615,21 @@ async function loadManualContent() {
   }
 }
 
+// Each modal owns one focus lifecycle; timer/state updates never re-open it.
+const modalFocusReleases = new Map();
+function focusVaultModal(modal, initialFocus, onEscape) {
+  if (modalFocusReleases.has(modal)) return;
+  modalFocusReleases.set(modal, VaultUI.focusDialog(modal.querySelector(".modal-card"), { initialFocus, onEscape }));
+}
+function releaseVaultModal(modal) {
+  modalFocusReleases.get(modal)?.();
+  modalFocusReleases.delete(modal);
+}
+
 function openManual() {
   state.isManualOpen = true;
   manualModal.classList.remove("hidden");
+  focusVaultModal(manualModal, manualCloseButton, closeManual);
   loadManualContent().catch((error) => {
     manualStatus.textContent = error?.message || t("manual.error");
   });
@@ -626,6 +638,7 @@ function openManual() {
 function closeManual() {
   state.isManualOpen = false;
   manualModal.classList.add("hidden");
+  releaseVaultModal(manualModal);
 }
 
 function openLocalFolderDb() {
@@ -1055,6 +1068,7 @@ function openSettings() {
   syncSettingsFormFromState();
   loadClassifierBridgeSettings().catch(() => renderClassifierBridgeSettings());
   settingsModal.classList.remove("hidden");
+  focusVaultModal(settingsModal, settingsCloseButton, closeSettings);
   renderLocalFolderStatus().catch((error) => {
     if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
   });
@@ -1063,6 +1077,7 @@ function openSettings() {
 function closeSettings() {
   state.isSettingsOpen = false;
   settingsModal.classList.add("hidden");
+  releaseVaultModal(settingsModal);
   if (settingsStatus) settingsStatus.textContent = "";
 }
 
@@ -1443,11 +1458,14 @@ function openAppPicker() {
   appPickerSearch.value = "";
   renderAppPickerResults("");
   appPickerModal.classList.remove("hidden");
-  window.setTimeout(() => appPickerSearch.focus(), 0);
+  focusVaultModal(appPickerModal, appPickerSearch, closeAppPicker);
 }
 
 function closeAppPicker() {
-  if (appPickerModal) appPickerModal.classList.add("hidden");
+  if (appPickerModal) {
+    appPickerModal.classList.add("hidden");
+    releaseVaultModal(appPickerModal);
+  }
 }
 
 function renderAppPickerResults(query) {
@@ -5098,6 +5116,7 @@ function openParentalSettings(group) {
 function closeUnfreezeFlow() {
   state.unfreezeFlow = null;
   confirmModal.classList.add("hidden");
+  releaseVaultModal(confirmModal);
 
   if (state.confirmIntervalId !== null) {
     window.clearInterval(state.confirmIntervalId);
@@ -5121,6 +5140,7 @@ function showSnoozeNotice(group, snoozeEntry, totalBeforeMs) {
 function renderUnfreezeModal(now = Date.now()) {
   if (!state.unfreezeFlow) {
     confirmModal.classList.add("hidden");
+  releaseVaultModal(confirmModal);
     return;
   }
 
@@ -5145,6 +5165,7 @@ function renderUnfreezeModal(now = Date.now()) {
   const remainingCooldownMs = Math.max(state.unfreezeFlow.nextAllowedAtMs - now, 0);
 
   confirmModal.classList.remove("hidden");
+  focusVaultModal(confirmModal, confirmCancelButton, closeUnfreezeFlow);
   if (state.unfreezeFlow.kind === "delete-all") {
     const localizedMessages = getLocalizedUnfreezeMessages();
     const messageIndex = Math.min(completedCount, localizedMessages.length - 1);

@@ -2140,6 +2140,79 @@ function __cb_patchSectionControl(root, control) {
   else root.removeAttribute("aria-label");
 }
 
+// Parse HTML as inert content and remove styling after parsing too: malformed
+// attributes must not get a second chance to supply CSS in the browser.
+function __cb_panelContentHtml(value) {
+  const template = document.createElement("template");
+  template.innerHTML = String(value || "");
+  const clean = (root) => {
+    root.querySelectorAll("style,link,script").forEach((node) => node.remove());
+    root.querySelectorAll("*").forEach((node) => {
+      for (const attribute of Array.from(node.attributes)) {
+        if (/^(style|color|bgcolor|face|fill|stroke)$/i.test(attribute.name)) node.removeAttribute(attribute.name);
+      }
+      if (node.content) clean(node.content);
+    });
+  };
+  clean(template.content);
+  return template.innerHTML;
+}
+
+function __cb_drawPanelSelect(panelEl, control, input) {
+  input.hidden = true;
+  const box = document.createElement("div");
+  box.setAttribute("data-cb-panel-select", "1");
+  box.style.cssText = "display:flex;flex-direction:column;gap:4px;min-width:100%;";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.style.cssText = "border:0;border-radius:999px;padding:7px 12px;background:#eef2ff;color:#1e3a8a;font:inherit;text-align:left;cursor:pointer;";
+  const menu = document.createElement("div");
+  menu.style.cssText = "display:flex;flex-direction:column;max-height:200px;overflow-y:auto;background:#f1f5f9;border-radius:8px;padding:4px;";
+  let open = false;
+  function sync() {
+    button.textContent = (input.selectedOptions[0]?.textContent || "—") + " ▾";
+    button.disabled = input.disabled;
+    button.setAttribute("aria-expanded", String(open && !input.disabled));
+    button.setAttribute("aria-label", input.getAttribute("aria-label") || button.textContent);
+    menu.replaceChildren();
+    menu.hidden = !open || input.disabled;
+    menu.style.display = menu.hidden ? "none" : "flex";
+    for (const option of input.options) {
+      if (option.hidden) continue;
+      const item = document.createElement("button");
+      item.type = "button";
+      item.textContent = option.textContent;
+      item.disabled = option.disabled;
+      item.style.cssText = "border:0;border-radius:6px;padding:6px 9px;font:inherit;text-align:left;cursor:pointer;background:" + (option.selected ? "#dbeafe" : "transparent") + ";color:#1f2937;";
+      item.addEventListener("click", () => {
+        input.value = option.value;
+        open = false;
+        sync();
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        button.focus();
+      });
+      menu.appendChild(item);
+    }
+  }
+  button.addEventListener("click", () => { open = !open; sync(); });
+  box.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && open) { event.stopPropagation(); open = false; sync(); button.focus(); }
+  });
+  box.addEventListener("focusout", (event) => {
+    if (!box.contains(event.relatedTarget)) { open = false; sync(); }
+  });
+  input.after(box);
+  box.append(button, menu);
+  input.__cbSyncSelect = sync;
+  if (control.autoFocus === true) {
+    input.removeAttribute("data-cb-panel-autofocus");
+    button.setAttribute("data-cb-panel-autofocus", "1");
+  }
+  __cb_attachPanelControlEvents(panelEl, control, button, () => input.value);
+  sync();
+}
+
 function __cb_patchPanelControl(panelEl, control, theme) {
   const root = __cb_findPanelControlRoot(panelEl, control);
   if (!root) return false;
@@ -2156,7 +2229,7 @@ function __cb_patchPanelControl(panelEl, control, theme) {
   }
 
   if (type === "html") {
-    const html = String(control.html || "");
+    const html = __cb_panelContentHtml(control.html);
     if (root.innerHTML !== html) root.innerHTML = html;
     return true;
   }
@@ -2188,6 +2261,7 @@ function __cb_patchPanelControl(panelEl, control, theme) {
     __cb_patchSelectOptions(input, control);
     __cb_setInputValueIfSafe(input, __cb_safePanelText(control.value, 256));
     root.setAttribute("data-cb-panel-control-options-key", __cb_panelControlOptionsKey(control));
+    input.__cbSyncSelect?.();
     return true;
   }
   if (type === "numberInput" || type === "range") {
@@ -2304,6 +2378,19 @@ function __cb_ensurePanelStyle(root) {
   const style = document.createElement("style");
   style.id = __cb_PANEL_STYLE_ID;
   style.textContent = `
+    [data-cb-panel-control-type="html"] * { font-family:inherit; }
+    input[data-cb-panel-control-type="checkbox"]:checked,
+    input[data-cb-panel-control-type="toggle"]:checked { background:#1e3a8a !important; }
+    input[data-cb-panel-control-type="checkbox"]:checked::after {
+      content:"✓"; display:block; color:white; text-align:center; font:700 13px/16px Arial,Helvetica,sans-serif;
+    }
+    input[data-cb-panel-control-type="toggle"] { width:32px !important; border-radius:999px !important; }
+    input[data-cb-panel-control-type="toggle"]::after {
+      content:""; display:block; width:12px; height:12px; margin:2px; border-radius:999px; background:white;
+    }
+    input[data-cb-panel-control-type="toggle"]:checked::after { margin-left:18px; }
+    input[data-cb-panel-control-type="radio"]:checked { background:#1e3a8a !important; box-shadow:inset 0 0 0 4px #dbeafe; }
+    input[type="number"]::-webkit-inner-spin-button { appearance:none; }
     button[data-cb-panel-control-type="button"] {
       transition: transform 80ms ease, filter 120ms ease, box-shadow 120ms ease;
     }
@@ -2497,7 +2584,7 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     if (controlHeight) htmlBox.style.height = controlHeight;
     // control.html is pre-sanitized in helpers.sanitizePanelHtml (script
     // blocks + on* handlers stripped). innerHTML is intentional here.
-    htmlBox.innerHTML = String(control.html || "");
+    htmlBox.innerHTML = __cb_panelContentHtml(control.html);
     body.appendChild(htmlBox);
     return;
   }
@@ -2614,7 +2701,7 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
         "width:15px",
         "height:15px",
         "margin:0",
-        "accent-color:#1e3a8a",
+        "appearance:none", "border:0", "border-radius:999px", "background:#e2e8f0",
         "cursor:" + (control.disabled === true ? "default" : "pointer")
       ].join(";");
       const span = document.createElement("span");
@@ -2650,7 +2737,7 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
         "background:rgba(148,163,184,0.25)",
         "border:0",
         "display:flex", "align-items:center", "justify-content:center",
-        "font:600 18px ui-monospace,SFMono-Regular,Menlo,monospace",
+        "font:600 18px Arial,Helvetica,sans-serif", "font-variant-numeric:tabular-nums",
         "color:#1f2937",
         "cursor:" + (control.disabled === true ? "default" : "text")
       ].join(";");
@@ -2792,8 +2879,9 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
         "vertical-align:middle",
         "accent-color:#1e3a8a",
         "cursor:" + (control.disabled === true ? "default" : "pointer"),
-        "appearance:auto",
-        "-webkit-appearance:checkbox"
+        "appearance:none",
+        "-webkit-appearance:none",
+        "border:0", "border-radius:5px", "background:#e2e8f0"
       ].join(";");
     } else {
       input.style.cssText = [
@@ -2815,10 +2903,12 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
         input.style.color = "#ffffff";
         input.style.cursor = "pointer";
         input.style.userSelect = "none";
+        input.style.borderRadius = "999px";
       }
     }
   }
 
+  if (type === "select") __cb_drawPanelSelect(panelEl, control, input);
   body.appendChild(wrap);
 }
 
