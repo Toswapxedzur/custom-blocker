@@ -1,0 +1,30 @@
+<!-- The expanded viewBox gives Finder a 7.1% transparent edge around the tile.
+     Its 85.7% footprint matches current macOS system app icons without returning
+     to the oversized full-bleed v0.0.1 artwork. -->
+<svg viewBox="-3 -3 70 70" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="chrome: Narrow breaks">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22344f"/><stop offset="1" stop-color="#070d18"/>
+    </linearGradient>
+    <linearGradient id="white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#eaf3ff"/><stop offset="1" stop-color="#c2dbfa"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#56a8f2"/><stop offset="1" stop-color="#1c5ca8"/>
+    </linearGradient>
+    <filter id="shadow" x="-45%" y="-45%" width="190%" height="190%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.7" flood-color="#03101f" flood-opacity=".55"/>
+    </filter>
+  <linearGradient id="symbol-blue" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="32"><stop offset="0" stop-color="#56a8f2"/><stop offset="1" stop-color="#1c5ca8"/></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#tile)"/>
+  <rect x="2" y="2" width="60" height="26" rx="16" fill="#fff" opacity=".07"/>
+  <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="15" fill="none" stroke="#fff" stroke-opacity=".08"/>
+  <!-- Shared shield: 10% larger about its original bounds center (32, 31.5). -->
+  <g id="vault-shield" transform="translate(32 31.5) scale(1.1) translate(-32 -31.5)">
+  <g filter="url(#shadow)"><path d="M32 13 16 19v13.2c0 9.4 6.6 15.3 16 17.8 9.4-2.5 16-8.4 16-17.8V19L32 13Z" fill="url(#white)"/></g>
+  <path d="M32 13 16 19v13.2c0 9.4 6.6 15.3 16 17.8V13Z" fill="#bcd6f6" opacity=".55"/>
+  </g>
+  <!-- Platform symbols are composed separately above this shared base. -->
+<g id="platform-symbol" transform="translate(20 18.5) scale(0.75)"><g fill="url(#symbol-blue)"><path d="M17.253 1.0524 A15.0 15.0 0 0 1 29.5715 22.3886 Q29.3052 22.9262 28.773 22.6492 L23.4509 19.8787 Q22.9187 19.6016 23.175 19.0593 A7.8 7.8 0 0 0 16.9381 8.2566 Q16.3402 8.2074 16.3664 7.608 L16.6281 1.6137 Q16.6543 1.0143 17.253 1.0524 Z"/><path d="M28.3185 24.5589 A15.0 15.0 0 0 1 3.6815 24.5589 Q3.3491 24.0595 3.8552 23.7371 L8.9155 20.5133 Q9.4215 20.1909 9.7631 20.6841 A7.8 7.8 0 0 0 22.2369 20.6841 Q22.5785 20.1909 23.0845 20.5133 L28.1448 23.7371 Q28.6509 24.0595 28.3185 24.5589 Z"/><path d="M2.4285 22.3886 A15.0 15.0 0 0 1 14.747 1.0524 Q15.3457 1.0143 15.3719 1.6137 L15.6336 7.608 Q15.6598 8.2074 15.0619 8.2566 A7.8 7.8 0 0 0 8.825 19.0593 Q9.0813 19.6016 8.5491 19.8787 L3.227 22.6492 Q2.6948 22.9262 2.4285 22.3886 Z"/><circle cx="16" cy="16" r="5.7"/></g></g>
+</svg>

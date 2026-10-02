@@ -1,0 +1,282 @@
+[
+  {
+    "product": "mac",
+    "title": "Mac Vault",
+    "choice": 1,
+    "label": "Classic",
+    "file": "mac-01.svg"
+  },
+  {
+    "product": "mac",
+    "title": "Mac Vault",
+    "choice": 2,
+    "label": "Soft loops",
+    "file": "mac-02.svg"
+  },
+  {
+    "product": "mac",
+    "title": "Mac Vault",
+    "choice": 3,
+    "label": "Open center",
+    "file": "mac-03.svg"
+  },
+  {
+    "product": "mac",
+    "title": "Mac Vault",
+    "choice": 4,
+    "label": "Broad loops",
+    "file": "mac-04.svg"
+  },
+  {
+    "product": "mac",
+    "title": "Mac Vault",
+    "choice": 5,
+    "label": "Rounded cross",
+    "file": "mac-05.svg"
+  },
+  {
+    "product": "mac",
+    "title": "Mac Vault",
+    "choice": 6,
+    "label": "Bold",
+    "file": "mac-06.svg"
+  },
+  {
+    "product": "mac",
+    "title": "Mac Vault",
+    "choice": 7,
+    "label": "Airy",
+    "file": "mac-07.svg"
+  },
+  {
+    "product": "mac",
+    "title": "Mac Vault",
+    "choice": 8,
+    "label": "Compact loops",
+    "file": "mac-08.svg"
+  },
+  {
+    "product": "mac",
+    "title": "Mac Vault",
+    "choice": 9,
+    "label": "Large",
+    "file": "mac-09.svg"
+  },
+  {
+    "product": "mac",
+    "title": "Mac Vault",
+    "choice": 10,
+    "label": "Smooth",
+    "file": "mac-10.svg"
+  },
+  {
+    "product": "windows",
+    "title": "Windows Vault",
+    "choice": 1,
+    "label": "Classic",
+    "file": "windows-01.svg"
+  },
+  {
+    "product": "windows",
+    "title": "Windows Vault",
+    "choice": 2,
+    "label": "Soft corners",
+    "file": "windows-02.svg"
+  },
+  {
+    "product": "windows",
+    "title": "Windows Vault",
+    "choice": 3,
+    "label": "Rounded",
+    "file": "windows-03.svg"
+  },
+  {
+    "product": "windows",
+    "title": "Windows Vault",
+    "choice": 4,
+    "label": "Wide spacing",
+    "file": "windows-04.svg"
+  },
+  {
+    "product": "windows",
+    "title": "Windows Vault",
+    "choice": 5,
+    "label": "Close spacing",
+    "file": "windows-05.svg"
+  },
+  {
+    "product": "windows",
+    "title": "Windows Vault",
+    "choice": 6,
+    "label": "Full squares",
+    "file": "windows-06.svg"
+  },
+  {
+    "product": "windows",
+    "title": "Windows Vault",
+    "choice": 7,
+    "label": "Airy",
+    "file": "windows-07.svg"
+  },
+  {
+    "product": "windows",
+    "title": "Windows Vault",
+    "choice": 8,
+    "label": "Soft tiles",
+    "file": "windows-08.svg"
+  },
+  {
+    "product": "windows",
+    "title": "Windows Vault",
+    "choice": 9,
+    "label": "Large",
+    "file": "windows-09.svg"
+  },
+  {
+    "product": "windows",
+    "title": "Windows Vault",
+    "choice": 10,
+    "label": "Balanced",
+    "file": "windows-10.svg"
+  },
+  {
+    "product": "chrome",
+    "title": "Vault extension",
+    "choice": 1,
+    "label": "Classic",
+    "file": "chrome-01.svg"
+  },
+  {
+    "product": "chrome",
+    "title": "Vault extension",
+    "choice": 2,
+    "label": "Soft joins",
+    "file": "chrome-02.svg"
+  },
+  {
+    "product": "chrome",
+    "title": "Vault extension",
+    "choice": 3,
+    "label": "Open ring",
+    "file": "chrome-03.svg"
+  },
+  {
+    "product": "chrome",
+    "title": "Vault extension",
+    "choice": 4,
+    "label": "Broad ring",
+    "file": "chrome-04.svg"
+  },
+  {
+    "product": "chrome",
+    "title": "Vault extension",
+    "choice": 5,
+    "label": "Large center",
+    "file": "chrome-05.svg"
+  },
+  {
+    "product": "chrome",
+    "title": "Vault extension",
+    "choice": 6,
+    "label": "Narrow breaks",
+    "file": "chrome-06.svg"
+  },
+  {
+    "product": "chrome",
+    "title": "Vault extension",
+    "choice": 7,
+    "label": "Airy",
+    "file": "chrome-07.svg"
+  },
+  {
+    "product": "chrome",
+    "title": "Vault extension",
+    "choice": 8,
+    "label": "Round ends",
+    "file": "chrome-08.svg"
+  },
+  {
+    "product": "chrome",
+    "title": "Vault extension",
+    "choice": 9,
+    "label": "Large",
+    "file": "chrome-09.svg"
+  },
+  {
+    "product": "chrome",
+    "title": "Vault extension",
+    "choice": 10,
+    "label": "Flowing edges",
+    "file": "chrome-10.svg"
+  },
+  {
+    "product": "safari",
+    "title": "Safari Vault",
+    "choice": 1,
+    "label": "Classic",
+    "file": "safari-01.svg"
+  },
+  {
+    "product": "safari",
+    "title": "Safari Vault",
+    "choice": 2,
+    "label": "Soft edges",
+    "file": "safari-02.svg"
+  },
+  {
+    "product": "safari",
+    "title": "Safari Vault",
+    "choice": 3,
+    "label": "Broad needles",
+    "file": "safari-03.svg"
+  },
+  {
+    "product": "safari",
+    "title": "Safari Vault",
+    "choice": 4,
+    "label": "Slender",
+    "file": "safari-04.svg"
+  },
+  {
+    "product": "safari",
+    "title": "Safari Vault",
+    "choice": 5,
+    "label": "Open center",
+    "file": "safari-05.svg"
+  },
+  {
+    "product": "safari",
+    "title": "Safari Vault",
+    "choice": 6,
+    "label": "Full needles",
+    "file": "safari-06.svg"
+  },
+  {
+    "product": "safari",
+    "title": "Safari Vault",
+    "choice": 7,
+    "label": "Swept edges",
+    "file": "safari-07.svg"
+  },
+  {
+    "product": "safari",
+    "title": "Safari Vault",
+    "choice": 8,
+    "label": "Soft tips",
+    "file": "safari-08.svg"
+  },
+  {
+    "product": "safari",
+    "title": "Safari Vault",
+    "choice": 9,
+    "label": "Large",
+    "file": "safari-09.svg"
+  },
+  {
+    "product": "safari",
+    "title": "Safari Vault",
+    "choice": 10,
+    "label": "Curved diamond",
+    "file": "safari-10.svg"
+  }
+]

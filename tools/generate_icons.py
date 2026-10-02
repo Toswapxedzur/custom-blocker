@@ -1,102 +1,99 @@
-"""Render Vault extension icons from the canonical SVG source.
+"""Render the owner's selected vector icons with Chromium, preserving SVG shadows.
 
-The SVG is the single design source. Rasterize every target directly from that
-vector so the 16 / 32 / 48 / 128px variants stay crisp. The normal mark emits
-both stable and active cache-busting filenames; the inverse-dark companion
-mark emits its own explicitly named files for dark browser surfaces.
-
-Run: `python3 tools/generate_icons.py`
+Run on mini1 with its Playwright Python environment. The defaults regenerate
+Chrome and Safari browser assets. --product mac/windows/safari --output PATH
+also creates native masters, browser aliases, and .icns/.ico files as appropriate.
 """
-
-from __future__ import annotations
-
 from pathlib import Path
+import argparse
 import shutil
+import struct
 import subprocess
+import xml.etree.ElementTree as ET
+from playwright.sync_api import sync_playwright
+
+ROOT = Path(__file__).resolve().parent.parent
+SELECTIONS = {'mac': 4, 'windows': 3, 'chrome': 9, 'safari': 5}
+NS = {'s': 'http://www.w3.org/2000/svg'}
+ET.register_namespace('', NS['s'])
 
 
-def render_official_svg(source: Path, output: Path, size: int) -> None:
-    """Rasterize the canonical SVG with an available transparency-safe tool."""
-    try:
-        import cairosvg  # type: ignore
-    except ImportError:
-        cairosvg = None
-
-    if cairosvg is not None:
-        cairosvg.svg2png(
-            url=str(source),
-            write_to=str(output),
-            output_width=size,
-            output_height=size,
-        )
-        return
-
-    if shutil.which("rsvg-convert"):
-        subprocess.run(
-            [
-                "rsvg-convert",
-                "-w",
-                str(size),
-                "-h",
-                str(size),
-                "-o",
-                str(output),
-                str(source),
-            ],
-            check=True,
-        )
-        return
-
-    if shutil.which("sips"):
-        subprocess.run(
-            [
-                "sips",
-                "-z",
-                str(size),
-                str(size),
-                "-s",
-                "format",
-                "png",
-                str(source),
-                "--out",
-                str(output),
-            ],
-            check=True,
-            stdout=subprocess.DEVNULL,
-        )
-        return
-
-    raise RuntimeError(
-        "Install CairoSVG or librsvg, or run this tool on macOS with sips."
-    )
+def inverse(svg):
+    """Keep the existing light-tile/dark-shield toolbar appearance, new symbol."""
+    root = ET.fromstring(svg)
+    for name, colors in [('tile', ['#ffffff', '#c2dbfa']), ('white', ['#22344f', '#152339', '#070d18'])]:
+        for stop, color in zip(root.find(f's:defs/s:linearGradient[@id="{name}"]', NS), colors):
+            stop.set('stop-color', color)
+    rects = root.findall('s:rect', NS)
+    rects[1].set('opacity', '.52')
+    rects[2].set('stroke', '#1c5ca8'); rects[2].set('stroke-opacity', '.18')
+    shade = root.find('s:g[@id="vault-shield"]/s:path', NS)
+    shade.set('fill', '#fff'); shade.set('opacity', '.07')
+    root.find('s:defs/s:filter/s:feDropShadow', NS).set('flood-opacity', '.42')
+    return '\n'.join(line.rstrip() for line in ET.tostring(root, encoding='unicode').splitlines()) + '\n'
 
 
-def main() -> None:
-    out_dir = Path(__file__).resolve().parent.parent / "icons"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    source = out_dir / "official-vault-extension.svg"
-    render_official_svg(source, out_dir / "icon-master.png", 1024)
-
-    for px in (16, 32, 48, 128):
-        stable_path = out_dir / f"icon-{px}.png"
-        render_official_svg(source, stable_path, px)
-        shutil.copyfile(
-            stable_path,
-            out_dir / f"adamancia-vault-lock-v3-{px}.png",
-        )
-
-    inverse_source = out_dir / "official-vault-extension-inverse-dark.svg"
-    render_official_svg(inverse_source, out_dir / "icon-inverse-dark-master.png", 1024)
-    for px in (16, 32, 48, 128):
-        render_official_svg(
-            inverse_source,
-            out_dir / f"adamancia-vault-lock-inverse-dark-{px}.png",
-            px,
-        )
-
-    print(f"Wrote icons to {out_dir}")
+def render(page, svg, path, size):
+    page.set_viewport_size({'width': size, 'height': size})
+    page.set_content('<style>html,body{margin:0;background:transparent}svg{display:block;width:100vw;height:100vh}</style>' + svg)
+    page.locator('svg').screenshot(path=str(path), omit_background=True)
 
 
-if __name__ == "__main__":
-    main()
+def generate(page, product, output):
+    output.mkdir(parents=True, exist_ok=True)
+    svg = (ROOT / f'tools/branding/choices/{product}-{SELECTIONS[product]:02d}.svg').read_text()
+    dark = inverse(svg)
+    name = 'official-vault-extension' if product == 'chrome' else f'{product}-vault'
+    (output / f'{name}.svg').write_text(svg)
+    (output / f'{name}-inverse-dark.svg').write_text(dark)
+    render(page, svg, output / (f'{name}-master.png' if product != 'chrome' else 'icon-master.png'), 1024)
+    render(page, dark, output / (f'{name}-inverse-dark-master.png' if product != 'chrome' else 'icon-inverse-dark-master.png'), 1024)
+    browser_icons = output if product == 'chrome' else output / 'BrowserIcons'
+    browser_icons.mkdir(exist_ok=True)
+    (browser_icons / 'official-vault-extension.svg').write_text(svg)
+    (browser_icons / 'official-vault-extension-inverse-dark.svg').write_text(dark)
+    for size in (16, 32, 48, 128):
+        normal = browser_icons / f'icon-{size}.png'
+        render(page, svg, normal, size)
+        shutil.copyfile(normal, browser_icons / f'adamancia-vault-lock-v3-{size}.png')
+        render(page, dark, browser_icons / f'adamancia-vault-lock-inverse-dark-{size}.png', size)
+    for retired in browser_icons.glob('adamancia-vault-lock-v2-*.png'):
+        retired.unlink()
+    if product in ('mac', 'safari'):
+        iconset = output / f'{name}.iconset'
+        iconset.mkdir(exist_ok=True)
+        for size in (16, 32, 128, 256, 512):
+            render(page, svg, iconset / f'icon_{size}x{size}.png', size)
+            render(page, svg, iconset / f'icon_{size}x{size}@2x.png', size * 2)
+        subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(output / f'{name}.icns')], check=True)
+        shutil.rmtree(iconset)
+    if product == 'windows':
+        frames=[]
+        for size in (16, 24, 32, 48, 64, 128, 256):
+            tmp=output / f'frame-{size}.png'
+            render(page, svg, tmp, size)
+            frames.append((size, tmp.read_bytes())); tmp.unlink()
+        offset=6+16*len(frames); entries=[]; data=[]
+        for size, png in frames:
+            entries.append(struct.pack('<BBBBHHII', size if size<256 else 0, size if size<256 else 0, 0, 0, 1, 32, len(png), offset))
+            data.append(png); offset+=len(png)
+        (output/'windows-vault.ico').write_bytes(struct.pack('<HHH', 0, 1, len(frames))+b''.join(entries+data))
+    print(f'{product} choice {SELECTIONS[product]:02d}: {output}')
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--product', choices=SELECTIONS)
+    parser.add_argument('--output', type=Path)
+    args=parser.parse_args()
+    if bool(args.product) != bool(args.output): parser.error('--product and --output must be supplied together')
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True)
+        page=browser.new_page(device_scale_factor=1)
+        if args.product: generate(page, args.product, args.output)
+        else:
+            generate(page, 'chrome', ROOT/'icons')
+            generate(page, 'safari', ROOT/'tools/branding/safari')
+        browser.close()
+
+if __name__ == '__main__': main()
