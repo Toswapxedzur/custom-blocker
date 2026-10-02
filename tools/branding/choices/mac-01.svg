@@ -1,0 +1,30 @@
+<!-- The expanded viewBox gives Finder a 7.1% transparent edge around the tile.
+     Its 85.7% footprint matches current macOS system app icons without returning
+     to the oversized full-bleed v0.0.1 artwork. -->
+<svg viewBox="-3 -3 70 70" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="mac: Classic">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22344f"/><stop offset="1" stop-color="#070d18"/>
+    </linearGradient>
+    <linearGradient id="white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#eaf3ff"/><stop offset="1" stop-color="#c2dbfa"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#56a8f2"/><stop offset="1" stop-color="#1c5ca8"/>
+    </linearGradient>
+    <filter id="shadow" x="-45%" y="-45%" width="190%" height="190%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.7" flood-color="#03101f" flood-opacity=".55"/>
+    </filter>
+  <linearGradient id="symbol-blue" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="32"><stop offset="0" stop-color="#56a8f2"/><stop offset="1" stop-color="#1c5ca8"/></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#tile)"/>
+  <rect x="2" y="2" width="60" height="26" rx="16" fill="#fff" opacity=".07"/>
+  <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="15" fill="none" stroke="#fff" stroke-opacity=".08"/>
+  <!-- Shared shield: 10% larger about its original bounds center (32, 31.5). -->
+  <g id="vault-shield" transform="translate(32 31.5) scale(1.1) translate(-32 -31.5)">
+  <g filter="url(#shadow)"><path d="M32 13 16 19v13.2c0 9.4 6.6 15.3 16 17.8 9.4-2.5 16-8.4 16-17.8V19L32 13Z" fill="url(#white)"/></g>
+  <path d="M32 13 16 19v13.2c0 9.4 6.6 15.3 16 17.8V13Z" fill="#bcd6f6" opacity=".55"/>
+  </g>
+  <!-- Platform symbols are composed separately above this shared base. -->
+<g id="platform-symbol" transform="translate(20 18.5) scale(0.75)"><g fill="none" stroke="url(#symbol-blue)" stroke-width="3.7" stroke-linecap="round" stroke-linejoin="round"><rect x="10.5" y="10.5" width="11" height="11" rx="0.5"/><path d="M10.5 10.5 H6.4 A4.1 4.1 0 1 1 10.5 6.4 V10.5 M21.5 10.5 H25.6 A4.1 4.1 0 1 0 21.5 6.4 V10.5 M10.5 21.5 H6.4 A4.1 4.1 0 1 0 10.5 25.6 V21.5 M21.5 21.5 H25.6 A4.1 4.1 0 1 1 21.5 25.6 V21.5"/></g></g>
+</svg>
