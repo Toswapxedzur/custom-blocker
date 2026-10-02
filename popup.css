@@ -1805,10 +1805,19 @@ textarea {
 }
 
 .editor-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 16px;
+  gap: 10px 16px;
   margin-bottom: 14px;
+}
+
+.editor-head > #deleteGroupButton {
+  justify-self: end;
+}
+
+.editor-head > .editor-on {
+  grid-column: 1 / -1;
 }
 
 input.editor-name {
