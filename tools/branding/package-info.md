@@ -11,8 +11,8 @@
   onto the approved shared base; leaves active product icons untouched.
 - `choices/`: generated 40 SVGs and numbered review index; identical base/colors.
 
-- Active selections: Mac 04, Windows 03, Safari 05; extension grid size 06 / stroke A. `../generate_icons.py` renders these exact SVGs on mini1, including native containers and browser aliases.
-- `chrome-grid.svg`: approved extension grid, two darker horizontal lines beneath two lighter vertical lines; both use blue gradients and rounded caps. Size 06 retains a 24-unit footprint; stroke A is 15% thinner (3.4 normalized units). It replaces the Chrome circle symbol.
+- Active selections: Mac 04, Windows 03, Safari 05; extension restored to its original lock. `../generate_icons.py` renders these exact SVGs on mini1, including native containers and browser aliases.
+- `extension-lock.svg`, `extension-lock-inverse-dark.svg`: original lock artwork and toolbar inverse from `af5194e`, with the later 1.32 enlargement removed to match the owner's screenshot (`prog-lock` proportions). Original background and keyhole retained; the grid source is retired.
 - `safari/`: generated compass masters and browser icons used by Safari packaging.
 
-- Approved symbol scales: Mac and Windows 0.85; Safari 0.90, relative to the original selected choices. `chrome-grid.svg` already has its approved size; the generator applies no additional reduction. The shared base stays unchanged.
+- Approved symbol scales: Mac and Windows 0.85; Safari 0.90, relative to the original selected choices. The extension uses the exact original lock SVGs without further scaling.
