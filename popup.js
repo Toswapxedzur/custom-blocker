@@ -952,18 +952,8 @@ function renderLinkSection(group, editable) {
   const candidates = linkCandidates();
   groupLinkStatus.textContent = t(candidates.length > 0 || !hubOnline ? "link.none" : "link.noCandidates");
   const current = groupLinkTarget.value;
-  groupLinkTarget.innerHTML = "";
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = t("link.pickPlaceholder");
-  groupLinkTarget.appendChild(placeholder);
-  for (const candidate of candidates) {
-    const option = document.createElement("option");
-    option.value = `${candidate.program}␟${candidate.id}`;
-    option.textContent = t("link.candidate", { name: candidate.name, program: programLabel(candidate.program) });
-    groupLinkTarget.appendChild(option);
-  }
-  if ([...groupLinkTarget.options].some((o) => o.value === current)) groupLinkTarget.value = current;
+  const choices = [["", t("link.pickPlaceholder")], ...candidates.map(candidate => [`${candidate.program}␟${candidate.id}`, t("link.candidate", { name: candidate.name, program: programLabel(candidate.program) })])];
+  window.VaultUI.setSelectOptions(groupLinkTarget, choices, choices.some(choice => choice[0] === current) ? current : "");
   groupLinkTarget.classList.remove("hidden");
   groupLinkButton.classList.remove("hidden");
   groupUnlinkButton.classList.add("hidden");

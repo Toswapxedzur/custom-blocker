@@ -31,13 +31,16 @@
   core.start({
     platform: "facebook",
     matchesPage,
-    scan({ document, collect }) {
+    cardSelector: "[role=\"article\"], [data-pagelet*=\"FeedUnit\"], [data-pagelet*=\"Video\"]",
+    async scan({ document, collect }) {
       const cards = core.uniqueElements([
         ...core.selectorElements(document, '[role="article"]'),
         ...core.selectorElements(document, '[data-pagelet*="FeedUnit"]'),
         ...core.selectorElements(document, '[data-pagelet*="Video"]')
-      ]).slice(0, 80);
+      ]);
+      let scanned = 0;
       for (const card of cards) {
+        if (++scanned % 32 === 0) await core.yieldScan();
         const entry = core.firstAnchor(card, ['a[href*="/reel/"]', 'a[href*="/watch/"]', 'a[href*="/videos/"]', 'a[href*="/posts/"]', 'a[href*="/permalink/"]', 'a[href*="/share/r/"]', 'a[href*="/share/v/"]'], isContent);
         if (!entry) continue;
         const source = core.firstVerifiedSourceAnchor("facebook", card, [

@@ -17,7 +17,7 @@ function extractFunction(name) {
     if (source[i] === "{") depth += 1;
     else if (source[i] === "}") { depth -= 1; if (depth === 0) break; }
   }
-  return source.slice(start, i + 1);
+  return source.slice(source.slice(start-6,start) === "async " ? start-6 : start, i + 1);
 }
 function extractBlock(name) {
   const start = source.indexOf(`const ${name} = `);
@@ -93,7 +93,7 @@ const resolve = (rootEl) => { if (tagsByArticle.has(rootEl)) return rootEl; let 
 
 const context = vm.createContext({
   document, window: null, location: { hostname: "x.com", pathname: "/home", href: "https://x.com/home" },
-  console, getComputedStyle: () => ({ position: "static" }),
+  setTimeout, clearTimeout, console, getComputedStyle: () => ({ position: "static" }),
   requestAnimationFrame: (fn) => { fn(); return 1; },
   vaultTagsForCard: (rootEl) => { const a = resolve(rootEl); return a ? tagsByArticle.get(a) : []; },
   vaultTagsSettledForCard: (rootEl) => Boolean(resolve(rootEl)),
@@ -103,9 +103,9 @@ const context = vm.createContext({
 context.window = context;
 vm.runInContext(fs.readFileSync(path.join(root, "platform-profiles.js"), "utf8"), context, { filename: "platform-profiles.js" });
 vm.runInContext([
-  "let latestFeedFilters = []; let latestSurfaceHides = []; let latestExposedGroupIds = []; let feedApplyRafId = null; let cbTagPageContext = null; let cbDebugMode = false; function cbDebugLog() {}",
+  "const feedCardExposures = new Map(), feedExposureCounts = new Map(); let cbSessionFilterKey = ''; let exitAttempted = false, extensionContextInvalid = false; let latestFeedFilters = []; let latestSurfaceHides = []; let latestExposedGroupIds = []; let feedApplyRafId = null; let cbTagPageContext = null; let cbDebugMode = false; function cbDebugLog() {}",
   "const cbVerdictLedger = new WeakMap(); const cbTrackedCards = new Set(); let cbGroupIndex = new Map(); let cbGroupOrderKey = '';",
-  ...["normalizeHostname", "getCurrentFeedSite", "cbContentBlockProfile", "cbFindMediaAll", "cbCoverMedia", "cbUncoverMedia", "getFeedCardElements", "getFeedCardTags", "getFeedCardData",
+  ...["normalizeHostname", "getCurrentFeedSite", "cbContentBlockProfile", "cbFindMediaAll", "cbCoverMedia", "cbUncoverMedia", "feedQuery", "forgetFeedExposure", "getFeedCardElements", "getFeedCardTags", "getFeedCardData",
       "matchesTagFilter", "matchesFeedFilter", "cbSetGroupOrder", "cbSetCardVerdict", "cbClearSource", "cbResolveCardVerdict", "cbApplyCard",
       "cbEnsureRelative", "dimElement", "undimElement", "hideElement", "showElement", "applyFeedFilters", "extractRedditSubredditFromCard", "isPostCard", "getFeedCardHref", "getFeedCardCreators"].map(extractFunction)
 ].join("\n"), context);
@@ -144,5 +144,22 @@ check("hide beats dim whatever the order", verdict([["a", "dim"], ["c", "hide"]]
 check("dim alone dims", verdict([["b", "dim"]]) === "dim");
 check("an allow() rescues the card from the groups below it", verdict([["a", "allow", "custom"], ["b", "hide"]]) === "show");
 check("…but not from the groups above it", verdict([["a", "dim"], ["b", "allow", "custom"], ["c", "hide"]]) === "dim");
-console.log(fail ? "__CB_TEST_RESULT__: FAIL" : "__CB_TEST_RESULT__: OK");
-if (fail) process.exitCode = 1;
+(async () => {
+  context.__filters[0].effectVerdict = "hide";
+  vm.runInContext("latestFeedFilters = __filters;", context);
+  await vm.runInContext("applyFeedFilters()", context);
+  tagsByArticle.set(gaming.article, [{ id: "t1", name: "News & Politics", confidence: 5 }]);
+  context.__changed = gaming.cell;
+  vm.runInContext("let __reads = 0; const __getData = getFeedCardData; getFeedCardData = card => { __reads++; return __getData(card); };", context);
+  await vm.runInContext("applyFeedFilters([__changed])", context);
+  check("a changed-card scan reads only that card", vm.runInContext("__reads", context) === 1);
+  check("a changed-card scan retains unchanged cards' exposure", vm.runInContext("feedExposureCounts.get('g')", context) === 3);
+  const extra = Array.from({ length: 1000 }, (_, index) => tweet({statusID: String(index + 100), handle: "news", photo: false}));
+  for (const row of extra) { body.append(row.cell); tagsByArticle.set(row.article, [{id:"t1",name:"News & Politics",confidence:5}]); }
+  let yielded = false; setTimeout(() => { yielded = true; }, 0);
+  await vm.runInContext("applyFeedFilters()", context);
+  check("a 1,000-card initial pass yields to browser input", yielded);
+  check("cards beyond the first batch are all filtered and counted", vm.runInContext("feedExposureCounts.get('g')", context) === 1003 && extra[999].cell.dataset.customBlockerFeedHidden === "true");
+  console.log(fail ? "__CB_TEST_RESULT__: FAIL" : "__CB_TEST_RESULT__: OK");
+  if (fail) process.exitCode = 1;
+})().catch(error => { console.error(error); process.exitCode = 1; });
