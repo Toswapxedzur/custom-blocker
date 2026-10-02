@@ -13,9 +13,33 @@ import xml.etree.ElementTree as ET
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
-SELECTIONS = {'mac': 4, 'windows': 3, 'chrome': 9, 'safari': 5}
+PRODUCTS = ('mac', 'windows', 'chrome', 'safari')
+SELECTIONS = {'mac': 4, 'windows': 3, 'safari': 5}
+SYMBOL_SCALES = {'mac': .85, 'windows': .85, 'safari': .90}
+SYMBOL_CENTERS = {'mac': (32, 30.5), 'windows': (32, 30), 'safari': (32, 30.5)}
 NS = {'s': 'http://www.w3.org/2000/svg'}
 ET.register_namespace('', NS['s'])
+
+
+def selected_svg(product):
+    """Use the approved grid or apply a native symbol's reduction once."""
+    if product == 'chrome':
+        # Size 05 / stroke A already has its approved 22-unit footprint.
+        # Do not apply the retired Chrome-circle reduction to this grid.
+        return (ROOT / 'tools/branding/chrome-grid.svg').read_text()
+    source = (ROOT / f'tools/branding/choices/{product}-{SELECTIONS[product]:02d}.svg').read_text()
+    root = ET.fromstring(source)
+    symbol = root.find('s:g[@id="platform-symbol"]', NS)
+    x, y = SYMBOL_CENTERS[product]
+    wrapper = ET.Element('{'+NS['s']+'}g', {
+        'id': 'symbol-scale',
+        'transform': f'translate({x} {y}) scale({SYMBOL_SCALES[product]:g}) translate({-x} {-y})'
+    })
+    position = list(root).index(symbol)
+    root.remove(symbol)
+    wrapper.append(symbol)
+    root.insert(position, wrapper)
+    return '\n'.join(line.rstrip() for line in ET.tostring(root, encoding='unicode').splitlines()) + '\n'
 
 
 def inverse(svg):
@@ -41,7 +65,7 @@ def render(page, svg, path, size):
 
 def generate(page, product, output):
     output.mkdir(parents=True, exist_ok=True)
-    svg = (ROOT / f'tools/branding/choices/{product}-{SELECTIONS[product]:02d}.svg').read_text()
+    svg = selected_svg(product)
     dark = inverse(svg)
     name = 'official-vault-extension' if product == 'chrome' else f'{product}-vault'
     (output / f'{name}.svg').write_text(svg)
@@ -78,12 +102,13 @@ def generate(page, product, output):
             entries.append(struct.pack('<BBBBHHII', size if size<256 else 0, size if size<256 else 0, 0, 0, 1, 32, len(png), offset))
             data.append(png); offset+=len(png)
         (output/'windows-vault.ico').write_bytes(struct.pack('<HHH', 0, 1, len(frames))+b''.join(entries+data))
-    print(f'{product} choice {SELECTIONS[product]:02d}: {output}')
+    selection = 'grid size 05, stroke A' if product == 'chrome' else f'choice {SELECTIONS[product]:02d}, symbol −{round((1-SYMBOL_SCALES[product])*100)}%'
+    print(f'{product} {selection}: {output}')
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--product', choices=SELECTIONS)
+    parser.add_argument('--product', choices=PRODUCTS)
     parser.add_argument('--output', type=Path)
     args=parser.parse_args()
     if bool(args.product) != bool(args.output): parser.error('--product and --output must be supplied together')
