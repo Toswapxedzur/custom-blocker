@@ -542,18 +542,6 @@ textarea:focus {
   accent-color: var(--gold-700);
 }
 
-.ai-prompt-panel {
-  margin-top: 10px;
-  padding: 10px;
-  border-radius: 12px;
-  background: var(--gold-50);
-  box-shadow: inset 4px 0 0 rgba(161, 98, 7, 0.28);
-}
-
-.ai-prompt-panel textarea {
-  min-height: 96px;
-}
-
 .timed-settings {
   margin-top: 12px;
 }
@@ -595,6 +583,8 @@ textarea:focus {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   line-height: 1.55;
   tab-size: 2;
+  font-size: 12px;
+  letter-spacing: normal;
 }
 
 .code-editor-highlight {
