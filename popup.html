@@ -233,7 +233,7 @@
                 ></textarea>
                 <div id="platformTagSuggestions" class="tag-suggestions hidden"></div>
                 <div class="content-tag-row">
-                  <label class="label" for="platformTagEffect" data-i18n="tagFilter.effect" data-info-key="tagFilter.effect" data-info-copy="Choose whether matching content is covered or skipped. Available effects depend on the platform.">When it matches</label>
+                  <label class="label" for="platformTagEffect" data-i18n="tagFilter.effect" data-info-key="tagFilter.effect" data-info-copy="Choose whether matching content is covered or hidden. Available effects depend on the platform.">When it matches</label>
                   <select id="platformTagEffect">
                     <option value="dim" data-i18n="tagFilter.effectDim">Cover content (tags remain editable)</option>
                     <option value="block" data-i18n="tagFilter.effectHide">Hide content</option>
@@ -287,9 +287,9 @@
               <textarea
                 id="blockingRules"
                 rows="8"
-                aria-label="Custom Rules"
+                aria-label="Custom rule"
                 data-i18n-aria-label="custom.rules"
-                placeholder="(event, helpers) => {&#10;  // Register handlers here.&#10;}"
+                placeholder="(on, v) => {&#10;  // Register handlers here.&#10;}"
                 data-i18n-placeholder="custom.rulesPlaceholder"
                 spellcheck="false"
               ></textarea>
@@ -299,28 +299,10 @@
               <button id="runCustomGroupButton" type="button" class="weird" data-i18n="custom.runButton">
                 Run
               </button>
-              <button id="checkSyntaxButton" type="button" class="secondary weird" data-i18n="custom.letAiCodeButton">
-                Write with AI
+              <button id="copyCodeDocsButton" type="button" class="secondary weird" data-i18n="custom.copyCodeDocs">
+                Copy code docs
               </button>
               <span id="runCustomGroupStatus" class="run-status"></span>
-            </div>
-            <div id="aiPromptPanel" class="ai-prompt-panel hidden">
-              <label class="label" for="aiPromptInput" data-i18n="custom.aiPromptLabel" data-info-key="custom.aiPromptLabel" data-info-copy="Describe the rule you want. Copy prompt for AI includes your request, current code, and the rule API reference.">Prompt for AI</label>
-              <textarea
-                id="aiPromptInput"
-                rows="4"
-                data-i18n-placeholder="custom.aiPromptPlaceholder"
-                spellcheck="true"
-              ></textarea>
-              <div class="field-actions">
-                <button id="aiPromptCopyButton" type="button" class="weird" data-i18n="custom.aiPromptCopyButton">
-                  Copy AI prompt
-                </button>
-                <span id="aiPromptStatus" class="run-status"></span>
-              </div>
-              <p class="field-help" data-i18n="custom.aiPromptHelp" data-info="custom.aiPromptHelp">
-                This copies a bundled prompt with your request, the current rule, and the custom-rule API reference. Paste it into your AI tool, then paste the generated code back here.
-              </p>
             </div>
             <!-- The rules' own output (v.log), under the code that writes it. -->
             <details id="logFeedSection" class="vui-expand log-feed">
@@ -389,8 +371,8 @@
             <div class="block-head">
               <h3 class="block-title" data-i18n="snooze.title">Snooze</h3>
               <p id="snoozeSummary" class="block-summary"></p>
-              <button id="startSnoozeButton" type="button" class="primary" data-i18n="snooze.startButton">Start Snooze</button>
-              <button id="endSnoozeButton" type="button" class="secondary hidden" data-i18n="snooze.endButton">End Snooze</button>
+              <button id="startSnoozeButton" type="button" class="primary" data-i18n="snooze.startButton">Start snooze</button>
+              <button id="endSnoozeButton" type="button" class="secondary hidden" data-i18n="snooze.endButton">End snooze</button>
             </div>
             <p id="snoozeWarning" class="inline-warning"></p>
             <p id="snoozeCustomCopy" class="field-help hidden" data-i18n="snooze.customCopy" data-info="snooze.customCopy">
@@ -426,7 +408,7 @@
             <div class="block-head">
               <h3 class="block-title" data-i18n="freeze.title">Freeze</h3>
               <p id="freezeSummary" class="block-summary"></p>
-              <button id="applyFreezeButton" type="button" class="primary" data-i18n="freeze.applyButton">Freeze Group</button>
+              <button id="applyFreezeButton" type="button" class="primary" data-i18n="freeze.applyButton">Freeze group</button>
               <button id="unfreezeButton" type="button" class="secondary hidden" data-i18n="freeze.unfreezeButton">Unfreeze</button>
             </div>
             <div id="freezeSetup" class="block-fields freeze-setup">
@@ -491,7 +473,7 @@
               </label>
               <label id="platformTagBlockUntaggedRow" class="checkbox-row compact" for="platformTagBlockUntagged">
                 <input id="platformTagBlockUntagged" type="checkbox" />
-                <span data-i18n="tagFilter.blockUntagged" data-info-key="tagFilter.blockUntagged" data-info-copy="Block content whose completed tagging result contains no tags. Pending results use the separate pending-content setting.">Also block content with no confident tag</span>
+                <span data-i18n="tagFilter.blockUntagged" data-info-key="tagFilter.blockUntagged" data-info-copy="Block completed results with no tag at the default confidence threshold, including low-confidence results. Explicit listed tag rules are checked first. Pending results use the separate pending-content setting.">Also block content with no confident tag</span>
               </label>
             </div>
             <div class="more-row" data-follows="timedSettings">
@@ -517,7 +499,7 @@
               <button id="parentalSettingsButton" type="button" class="secondary" data-i18n="freeze.parentalSettings">PIN settings</button>
             </div>
             <div id="groupLinkSection" class="link-section">
-              <span class="label" data-i18n="link.title" data-info-key="link.title" data-info-copy="Link this group to another group so their freeze state is coordinated.">Link</span>
+              <span class="label" data-i18n="link.title" data-info-key="link.title" data-info-copy="Link selected groups across Vault programs to share their name, supported settings, usage, and freeze conditions. Targets remain specific to each program.">Link</span>
               <p id="groupLinkStatus" class="field-help"></p>
               <div class="link-row">
                 <select id="groupLinkTarget" aria-label="Group to link with" data-i18n-aria-label="link.pick"></select>
@@ -533,8 +515,8 @@
               </p>
             </div>
             <div class="editor-actions">
-              <button id="clearSitesButton" type="button" class="secondary danger" data-follows="siteSettingsSection" data-i18n="sites.clearButton">Clear Sites</button>
-              <button id="clearAppsButton" type="button" class="secondary danger desktop-only" data-follows="appsSettingsSection" data-i18n="apps.clearButton">Clear Apps</button>
+              <button id="clearSitesButton" type="button" class="secondary danger" data-follows="siteSettingsSection" data-i18n="sites.clearButton">Clear websites</button>
+              <button id="clearAppsButton" type="button" class="secondary danger desktop-only" data-follows="appsSettingsSection" data-i18n="apps.clearButton">Clear apps</button>
               <button id="exportGroupButton" type="button" class="secondary" data-i18n="editor.exportGroupButton">Export</button>
               <button id="importGroupButton" type="button" class="secondary" data-i18n="editor.importGroupButton">Import</button>
             </div>
@@ -595,7 +577,7 @@
       <div class="modal-card manual-modal-card" role="dialog" aria-modal="true" aria-labelledby="manualDialogTitle">
         <div class="manual-modal-header">
           <div>
-            <h3 id="manualDialogTitle" data-i18n="manual.title">Instruction Manual</h3>
+            <h3 id="manualDialogTitle" data-i18n="manual.title">User manual</h3>
             <p id="manualStatus" class="modal-copy" data-i18n="manual.loading">
               Loading manual...
             </p>

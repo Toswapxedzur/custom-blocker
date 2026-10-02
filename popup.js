@@ -26,26 +26,25 @@ const LANGUAGE_STORAGE_KEY = "custom-blocker-language";
 const LANGUAGE_FALLBACKS = Object.freeze({
   en: { label: "English", nativeLabel: "English" },
   zh: { label: "Chinese (Simplified)", nativeLabel: "简体中文" },
-  es: { label: "Spanish", nativeLabel: "Espanol" },
+  es: { label: "Spanish", nativeLabel: "Español" },
   hi: { label: "Hindi", nativeLabel: "हिन्दी" },
   ar: { label: "Arabic", nativeLabel: "العربية" },
   bn: { label: "Bengali", nativeLabel: "বাংলা" },
-  pt: { label: "Portuguese", nativeLabel: "Portugues" },
+  pt: { label: "Portuguese", nativeLabel: "Português" },
   ru: { label: "Russian", nativeLabel: "Русский" },
   ja: { label: "Japanese", nativeLabel: "日本語" },
   pa: { label: "Punjabi", nativeLabel: "ਪੰਜਾਬੀ" },
   de: { label: "German", nativeLabel: "Deutsch" },
-  fr: { label: "French", nativeLabel: "Francais" },
+  fr: { label: "French", nativeLabel: "Français" },
   ko: { label: "Korean", nativeLabel: "한국어" },
-  tr: { label: "Turkish", nativeLabel: "Turkce" },
-  vi: { label: "Vietnamese", nativeLabel: "Tieng Viet" },
+  tr: { label: "Turkish", nativeLabel: "Türkçe" },
+  vi: { label: "Vietnamese", nativeLabel: "Tiếng Việt" },
   it: { label: "Italian", nativeLabel: "Italiano" },
   th: { label: "Thai", nativeLabel: "ไทย" },
   nl: { label: "Dutch", nativeLabel: "Nederlands" },
   pl: { label: "Polish", nativeLabel: "Polski" },
   id: { label: "Indonesian", nativeLabel: "Bahasa Indonesia" }
 });
-const AI_PROMPT_STORAGE_PREFIX = "custom-blocker-ai-prompt:";
 const GROUP_TRANSFER_PREFIX = "custom-blocker-group:v1:";
 const LOCAL_FOLDER_DB_NAME = "custom-blocker-local-folder";
 const LOCAL_FOLDER_DB_VERSION = 1;
@@ -347,13 +346,8 @@ const siteAddConfirmButton = document.getElementById("siteAddConfirmButton");
 const siteAddCancelButton = document.getElementById("siteAddCancelButton");
 const clearSitesButton = document.getElementById("clearSitesButton");
 const runCustomGroupButton = document.getElementById("runCustomGroupButton");
-const checkSyntaxButton = document.getElementById("checkSyntaxButton");
+const copyCodeDocsButton = document.getElementById("copyCodeDocsButton");
 const runCustomGroupStatus = document.getElementById("runCustomGroupStatus");
-// No-code content-tag rule builder (inside the custom editor).
-const aiPromptPanel = document.getElementById("aiPromptPanel");
-const aiPromptInput = document.getElementById("aiPromptInput");
-const aiPromptCopyButton = document.getElementById("aiPromptCopyButton");
-const aiPromptStatus = document.getElementById("aiPromptStatus");
 const editorTitle = document.getElementById("editorTitle");
 const statusMessage = document.getElementById("statusMessage");
 const confirmModal = document.getElementById("confirmModal");
@@ -403,13 +397,15 @@ const state = {
   unfreezeFlow: null,
   isManualOpen: false,
   manualCache: {},
+  manualKind: "user",
+  manualSection: "",
+  manualLoadRevision: 0,
   // The worker's copy of this browser's links (cbClusterCopy), for isEnforceOnly.
   linkCopy: [],
   // Every program's groups ({program: [{id, name, frozen}]}), for the Link picker.
   linkRosters: {},
   nameEditing: null,
   panelWidth: 300,
-  aiPromptGroupId: null,
   language: "en",
   translationMessages: {},
   translationLoadPromises: {},
@@ -425,30 +421,6 @@ const state = {
   clustersLastJSON: "",
   quickAddGroupId: ""
 };
-
-function getAiPromptStorageKey(groupId) {
-  return `${AI_PROMPT_STORAGE_PREFIX}${groupId}`;
-}
-
-function loadAiPromptDraft(groupId) {
-  try {
-    return window.localStorage.getItem(getAiPromptStorageKey(groupId)) || "";
-  } catch {
-    return "";
-  }
-}
-
-function saveAiPromptDraft(groupId, value) {
-  try {
-    const key = getAiPromptStorageKey(groupId);
-    const text = String(value ?? "");
-    if (text) {
-      window.localStorage.setItem(key, text);
-    } else {
-      window.localStorage.removeItem(key);
-    }
-  } catch {}
-}
 
 function getTranslationsConfig() {
   return window.CUSTOM_BLOCKER_I18N ?? {
@@ -539,15 +511,16 @@ function loadLanguage() {
 // load them under jsc without dragging the whole DOM-bound popup along.
 // popup.html includes that script before this one.
 
-async function fetchManualMarkdown(languageCode) {
+async function fetchManualMarkdown(languageCode, kind = "user") {
   const candidates = languageCode === "en" ? ["en"] : [languageCode, "en"];
   for (const candidate of candidates) {
-    if (state.manualCache[candidate]) return state.manualCache[candidate];
+    const cacheKey = `${kind}:${candidate}`;
+    if (state.manualCache[cacheKey]) return state.manualCache[cacheKey];
     try {
-      const response = await fetch(chrome.runtime.getURL(`manual/${candidate}.md`));
+      const response = await fetch(chrome.runtime.getURL(`${kind === "code" ? "code-manual" : "manual"}/${candidate}.md`));
       if (!response.ok) continue;
       const markdown = await response.text();
-      state.manualCache[candidate] = markdown;
+      state.manualCache[cacheKey] = markdown;
       return markdown;
     } catch {}
   }
@@ -555,18 +528,26 @@ async function fetchManualMarkdown(languageCode) {
 }
 
 async function loadManualContent() {
+  const revision = ++state.manualLoadRevision;
+  const kind = state.manualKind, section = state.manualSection, language = state.language;
   manualStatus.textContent = t("manual.loading");
   manualContent.innerHTML = "";
 
   try {
-    const markdown = await fetchManualMarkdown(state.language);
+    const markdown = await fetchManualMarkdown(language, kind);
+    if (revision !== state.manualLoadRevision || !state.isManualOpen) return;
     manualStatus.textContent = "";
     let html = renderMarkdownToHtml(markdown);
     if (state.language && state.language !== "en") {
       html = `<blockquote class="mt-banner">${escapeHtml(t("manual.mtBanner"))}</blockquote>${html}`;
     }
     manualContent.innerHTML = html;
+    document.getElementById("manualDialogTitle").textContent = t(kind === "code" ? "manual.codeTitle" : "manual.title");
+    const heading = Array.from(manualContent.querySelectorAll("h2, h3")).find((node) => node.textContent === section);
+    if (heading) heading.scrollIntoView({ block: "start" });
+    else manualContent.scrollTop = 0;
   } catch (error) {
+    if (revision !== state.manualLoadRevision || !state.isManualOpen) return;
     manualStatus.textContent = error?.message || t("manual.error");
     manualContent.innerHTML = "";
   }
@@ -576,14 +557,18 @@ async function loadManualContent() {
 const modalFocusReleases = new Map();
 function focusVaultModal(modal, initialFocus, onEscape) {
   if (modalFocusReleases.has(modal)) return;
-  modalFocusReleases.set(modal, VaultUI.focusDialog(modal.querySelector(".modal-card"), { initialFocus, onEscape }));
+  let opener = document.activeElement;
+  while (opener?.shadowRoot?.activeElement) opener = opener.shadowRoot.activeElement;
+  modalFocusReleases.set(modal, VaultUI.focusDialog(modal.querySelector(".modal-card"), { initialFocus, onEscape, returnFocus: opener }));
 }
 function releaseVaultModal(modal) {
   modalFocusReleases.get(modal)?.();
   modalFocusReleases.delete(modal);
 }
 
-function openManual() {
+function openManual(kind = "user", section = "") {
+  state.manualKind = kind === "code" ? "code" : "user";
+  state.manualSection = section;
   state.isManualOpen = true;
   manualModal.classList.remove("hidden");
   focusVaultModal(manualModal, manualCloseButton, closeManual);
@@ -591,6 +576,17 @@ function openManual() {
     manualStatus.textContent = error?.message || t("manual.error");
   });
 }
+
+window.VaultManual = { open: openManual };
+manualContent.addEventListener("click", (event) => {
+  const link = event.target.closest("a");
+  if (!link) return;
+  const href = link.getAttribute("href");
+  if (href === "code-manual/en.md" || href === "manual/en.md") {
+    event.preventDefault();
+    openManual(href.startsWith("code-") ? "code" : "user");
+  }
+});
 
 function closeManual() {
   state.isManualOpen = false;
@@ -2170,7 +2166,7 @@ const CUSTOM_RULE_KEYWORDS = new Set([
   "var", "void", "while", "with", "yield"
 ]);
 const CUSTOM_RULE_LITERALS = new Set(["true", "false", "null", "undefined", "NaN", "Infinity"]);
-const CUSTOM_RULE_API_NAMES = new Set(["event", "events", "helpers", "ev", "h"]);
+const CUSTOM_RULE_API_NAMES = new Set(["on", "v", "ev", "state", "log", "emit", "panel", "file", "item", "cover", "go", "close", "css", "dom", "query", "apps", "quit", "block"]);
 
 function escapeCodeEditorHtml(value) {
   return String(value ?? "")
@@ -3614,21 +3610,6 @@ function renderEditorFields(now) {
     platformBlockHomePageField.disabled = true;
     discordBlockHomePageField.disabled = true;
     fallbackUrlField.disabled = true;
-    state.aiPromptGroupId = null;
-    if (aiPromptPanel) {
-      aiPromptPanel.classList.add("hidden");
-    }
-    if (aiPromptInput) {
-      aiPromptInput.value = "";
-      aiPromptInput.disabled = true;
-    }
-    if (aiPromptCopyButton) {
-      aiPromptCopyButton.disabled = true;
-    }
-    if (aiPromptStatus) {
-      aiPromptStatus.textContent = "";
-      aiPromptStatus.className = "run-status";
-    }
     updateFreezeUI(null, now);
     updateSnoozeUI(null, now);
     setSnoozeWarning("");
@@ -3651,18 +3632,6 @@ function renderEditorFields(now) {
   const isAppsView = entryKey === "apps";
   // The entry in view is edited only by the program that owns it (scope line).
   const entryEditable = editable && ownsEntry(entryKey);
-
-  if (aiPromptInput) {
-    if (isCustomGroup) {
-      if (state.aiPromptGroupId !== group.id) {
-        aiPromptInput.value = loadAiPromptDraft(group.id);
-        state.aiPromptGroupId = group.id;
-      }
-    } else {
-      aiPromptInput.value = "";
-      state.aiPromptGroupId = null;
-    }
-  }
 
   if (isPlatformProfileGroup) {
     applyPlatformRulesHeader(group.groupType);
@@ -3830,21 +3799,8 @@ function renderEditorFields(now) {
   if (runCustomGroupButton) {
     runCustomGroupButton.disabled = !editable || !isCustomGroup;
   }
-  if (checkSyntaxButton) {
-    checkSyntaxButton.disabled = !editable || !isCustomGroup;
-  }
-  if (aiPromptInput) {
-    aiPromptInput.disabled = !editable || !isCustomGroup;
-  }
-  if (aiPromptCopyButton) {
-    aiPromptCopyButton.disabled = !editable || !isCustomGroup;
-  }
-  if (!isCustomGroup && aiPromptPanel) {
-    aiPromptPanel.classList.add("hidden");
-  }
-  if (aiPromptStatus && (!isCustomGroup || !editable)) {
-    aiPromptStatus.textContent = "";
-    aiPromptStatus.className = "run-status";
+  if (copyCodeDocsButton) {
+    copyCodeDocsButton.disabled = !isCustomGroup;
   }
   if (runCustomGroupStatus && (!isCustomGroup || !editable)) {
     runCustomGroupStatus.textContent = "";
@@ -5592,19 +5548,6 @@ blockingRulesField.addEventListener("blur", () => {
   });
 });
 
-if (aiPromptInput) {
-  aiPromptInput.addEventListener("input", () => {
-    const group = getSelectedGroup();
-    if (!group || group.groupType !== "custom") return;
-    state.aiPromptGroupId = group.id;
-    saveAiPromptDraft(group.id, aiPromptInput.value);
-    if (aiPromptStatus) {
-      aiPromptStatus.textContent = "";
-      aiPromptStatus.className = "run-status";
-    }
-  });
-}
-
 // Wall-clock watchdog for the Run flow. If a previous custom rule
 // already locked the sandbox iframe with an infinite loop, the worker's
 // sandbox request hangs until offscreen.js's hard timeout fires (~5s) and
@@ -5619,29 +5562,6 @@ function timeoutFallback(ms) {
     ok: false,
     error: "timeout"
   }), ms));
-}
-
-function buildCustomRuleAiPrompt(userRequest, currentRule) {
-  const demand = String(userRequest || "").trim() || "(No extra user request was provided.)";
-  const existingRule = String(currentRule || "").trim() || "(No current rule.)";
-  // The engine this editor runs rules on: Mac Vault's (apps) or the browser's.
-  const reference = RuleCore.reference(IS_NATIVE_DESKTOP ? "mac" : "browser");
-
-  return [
-    "TASK: Generate a Custom-rule source for Adamancia Vault.",
-    "OUTPUT_CONTRACT: Return exactly one fenced javascript code block containing the complete source. Do not include prose, pseudocode, placeholders, imports, or markdown outside that one code block.",
-    "QUALITY_CONTRACT: Implement the user's request with the current API reference below. Preserve useful behaviour from the current rule only when it does not conflict with the user's request. Never invent API methods.",
-    "CUSTOM_RULE_API_REFERENCE_BEGIN",
-    reference,
-    "CUSTOM_RULE_API_REFERENCE_END",
-    "USER_REQUEST_BEGIN",
-    demand,
-    "USER_REQUEST_END",
-    "CURRENT_RULE_BEGIN",
-    existingRule,
-    "CURRENT_RULE_END",
-    "Return the final JavaScript source now."
-  ].join("\n");
 }
 
 async function copyTextToClipboard(text) {
@@ -5660,7 +5580,7 @@ async function copyTextToClipboard(text) {
   const copied = document.execCommand("copy");
   textarea.remove();
   if (!copied) {
-    throw new Error(t("custom.aiPromptCopyFailed"));
+    throw new Error(t("custom.copyFailed"));
   }
 }
 
@@ -5908,58 +5828,17 @@ function bindTagSuggestions(containerId, textarea, platformOf) {
   });
 }
 bindTagSuggestions("platformTagSuggestions", platformTagsField, () => String(getSelectedGroup()?.groupType || ""));
-function toggleAiPromptPanel() {
-  const group = getSelectedGroup();
-  if (!group || group.groupType !== "custom") return;
-  if (!aiPromptPanel) return;
-  const shouldOpen = aiPromptPanel.classList.contains("hidden");
-  aiPromptPanel.classList.toggle("hidden", !shouldOpen);
-  if (aiPromptStatus) {
-    aiPromptStatus.textContent = "";
-    aiPromptStatus.className = "run-status";
-  }
-  if (shouldOpen) {
-    aiPromptInput?.focus();
-  }
-}
-
-async function copyAiPromptForCustomRule() {
-  const group = getSelectedGroup();
-  if (!group || group.groupType !== "custom") return;
-
-  const prompt = buildCustomRuleAiPrompt(
-    aiPromptInput?.value ?? "",
-    blockingRulesField?.value ?? group.blockingRulesText
-  );
-
+async function copyCodeDocs() {
   try {
-    await copyTextToClipboard(prompt);
-    if (aiPromptStatus) {
-      aiPromptStatus.textContent = t("custom.aiPromptCopied");
-      aiPromptStatus.className = "run-status success";
-    }
-    setStatus(t("custom.aiPromptCopied"));
+    const docs = await fetchManualMarkdown("en", "code");
+    await copyTextToClipboard(docs);
+    setStatus(t("custom.docsCopied"));
   } catch (error) {
-    const text = error?.message || t("custom.aiPromptCopyFailed");
-    if (aiPromptStatus) {
-      aiPromptStatus.textContent = text;
-      aiPromptStatus.className = "run-status error";
-    }
-    setStatus(text, true);
+    setStatus(error?.message || t("custom.copyFailed"), true);
   }
 }
 
-if (checkSyntaxButton) {
-  checkSyntaxButton.addEventListener("click", () => {
-    toggleAiPromptPanel();
-  });
-}
-
-if (aiPromptCopyButton) {
-  aiPromptCopyButton.addEventListener("click", () => {
-    copyAiPromptForCustomRule();
-  });
-}
+copyCodeDocsButton?.addEventListener("click", copyCodeDocs);
 
 setupPlatformChipInputs();
 
