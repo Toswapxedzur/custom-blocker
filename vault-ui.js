@@ -11,7 +11,7 @@
   const document = global.document;
   // Only a real page has selects to replace (not a test's stand-in DOM).
   if (!document || typeof HTMLSelectElement === "undefined" || typeof MutationObserver === "undefined") {
-    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {}, focusDialog: () => () => {}, confirmClick: () => true, refreshList() {}, captureSearch: () => null, restoreSearch() {}, searchQuery: () => "" });
+    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {}, focusDialog: () => () => {}, confirmClick: () => true, refreshList() {}, captureSearch: () => null, restoreSearch() {}, searchQuery: () => "", renderList() {}, isManagedList: () => false });
     return;
   }
   const dropdowns = new WeakMap(); // select -> { wrap, button, label }
@@ -19,6 +19,7 @@
   let openFor = null;
   const searchStates = new WeakMap(); // scope -> queries; display state only
   const searchableLists = new WeakMap();
+  const managedLists = new WeakMap();
   const SEARCH_THRESHOLD = 5;
 
   function searchState(list) {
@@ -56,6 +57,8 @@
 
   function refreshList(list) {
     if (!list.isConnected || !list.dataset.vuiSearch) return;
+    const managed = managedLists.get(list);
+    if (managed) { managed.attach(); return; }
     let entry = searchableLists.get(list);
     if (entry && entry.key !== list.dataset.vuiSearch) { entry.bar.remove(); entry = null; }
     const state = searchState(list);
@@ -121,6 +124,93 @@
     }
     state.lastQuery = query;
     list.dispatchEvent(new CustomEvent("vui-search-filtered", { detail: { query, shown, total: items.length } }));
+  }
+
+  // Bounded pages support variable-height forms and wrapping chips without
+  // guessing geometry. Stored items and search cover the entire collection.
+  function renderList(list, options) {
+    const scope = options.scope || list.getRootNode();
+    if (!searchStates.has(scope)) searchStates.set(scope, new Map());
+    const states = searchStates.get(scope), key = options.key || list.dataset.vuiSearch;
+    if (!states.has(key)) states.set(key, { query: "", page: 0 });
+    const state = states.get(key);
+    const old = managedLists.get(list);
+    if (old) { old.update(options); return old; }
+    searchableLists.get(list)?.bar.remove();
+    const size = options.pageSize || 40;
+    let matches = options.items, revision = 0, remoteRows = null, remoteTotal = options.total || 0;
+    const controls = searchControls(options.label || list.dataset.vuiSearchLabel || "Search this list", value => {
+      state.query = value; state.page = 0; search();
+    });
+    controls.input.dataset.vuiSearchInput = key;
+    controls.bar.dataset.infoKey = "list-search:" + key;
+    controls.bar.dataset.infoCopy = list.dataset.vuiSearchCopy || controls.bar.dataset.infoCopy;
+    const empty = document.createElement("span");
+    empty.className = "vui-search-empty"; empty.textContent = "No matches"; empty.setAttribute("role", "status");
+    controls.bar.append(empty);
+    const pager = document.createElement("div");
+    pager.className = "vui-page-controls";
+    pager.dataset.vuiSearchIgnore = "";
+    const previous = document.createElement("button"), next = document.createElement("button"), count = document.createElement("span");
+    previous.type = next.type = "button";
+    previous.textContent = "Previous"; next.textContent = "Next";
+    count.setAttribute("role", "status");
+    pager.append(previous, count, next);
+    function paint() {
+      options.beforePaint?.();
+      const length = options.queryPage ? remoteTotal : matches.length;
+      state.page = Math.max(0, Math.min(state.page || 0, Math.ceil(length / size) - 1));
+      const start = state.page * size;
+      const fragment = document.createDocumentFragment();
+      for (const item of remoteRows || matches.slice(start, start + size)) {
+        const row = options.render(item);
+        if (typeof row === "string") {
+          const template = document.createElement("template"); template.innerHTML = row; fragment.append(template.content);
+        } else if (row) fragment.append(row);
+      }
+      options.trailing?.(fragment);
+      list.replaceChildren(fragment);
+      previous.disabled = !state.page; next.disabled = start + size >= length;
+      count.textContent = length ? `${start + 1}–${Math.min(start + size, length)} / ${length}` : "No matches";
+      pager.hidden = length <= size;
+      controls.input.value = state.query;
+      controls.clear.hidden = !state.query;
+      controls.bar.hidden = options.searchable === false || ((options.total ?? options.items.length) <= SEARCH_THRESHOLD && !state.query);
+      empty.hidden = !state.query || length > 0;
+      options.afterPaint?.();
+      list.dispatchEvent(new CustomEvent("vui-search-filtered", { detail: { query: state.query.trim().toLowerCase(), shown: length, total: options.total ?? options.items.length } }));
+    }
+    function attach() {
+      if (list.parentNode) { if (controls.bar.nextSibling !== list) list.before(controls.bar); if (list.nextSibling !== pager) list.after(pager); }
+    }
+    async function search() {
+      const current = ++revision, query = state.query.trim().toLowerCase();
+      if (options.queryPage) {
+        const result = await options.queryPage({ query, offset: (state.page || 0) * size, limit: size });
+        if (current !== revision || !result) return;
+        remoteRows = result.items; remoteTotal = result.total;
+        paint(); return;
+      }
+      if (!query) { matches = options.items; paint(); return; }
+      const found = [];
+      // Yield between bounded chunks; obsolete keystrokes never replace a newer query.
+      for (let start = 0; start < options.items.length; start += 512) {
+        if (current !== revision) return;
+        for (const item of options.items.slice(start, start + 512)) {
+          if (String(options.text(item)).toLowerCase().includes(query)) found.push(item);
+        }
+        if (options.items.length > 512) await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      if (current !== revision) return;
+      matches = found; paint();
+    }
+    previous.onclick = () => { state.page--; list.scrollTop = 0; options.queryPage ? search() : paint(); };
+    next.onclick = () => { state.page++; list.scrollTop = 0; options.queryPage ? search() : paint(); };
+    const entry = { attach, repaint: paint, update(next) { options = next; if (state.query || options.queryPage) search(); else { matches = options.items; paint(); } }, dispose() { revision++; controls.bar.remove(); pager.remove(); } };
+    managedLists.set(list, entry);
+    attach();
+    if (state.query || options.queryPage) search(); else paint();
+    return entry;
   }
 
   function jumpToMatch(list, entry, state) {
@@ -292,33 +382,24 @@
     bar.querySelector(".vui-search-clear").hidden = !search.value;
     const available = Array.from(select.options).filter((option) => !option.hidden);
     bar.hidden = available.length <= SEARCH_THRESHOLD && !search.value;
-    options.textContent = "";
-    let group = null, count = 0;
-    Array.from(select.options).forEach((option, index) => {
-      if (option.hidden) return;
-      if (query && !option.textContent.toLowerCase().includes(query)) return;
-      const parent = option.parentElement;
-      if (parent?.tagName === "OPTGROUP" && parent !== group) {
-        const heading = document.createElement("div");
-        heading.className = "vui-menu-group";
-        heading.textContent = parent.label;
-        options.appendChild(heading);
-      }
-      group = parent;
-      const item = document.createElement("button");
-      item.type = "button";
-      const picked = select.multiple ? option.selected : index === select.selectedIndex;
-      item.className = "vui-menu-item" + (picked ? " is-selected" : "");
-      item.textContent = option.textContent.trim();
-      item.disabled = option.disabled || (parent?.tagName === "OPTGROUP" && parent.disabled);
-      item.addEventListener("click", (event) => {
-        event.stopPropagation();
-        choose(select, index);
-      });
-      options.appendChild(item);
-      count++;
-    });
-    if (!count) { const empty = document.createElement("div"); empty.className = "vui-menu-group"; empty.textContent = "No matches"; options.appendChild(empty); }
+    const rows = Array.from(select.options).map((option, index) => ({ option, index })).filter(({ option }) =>
+      !option.hidden && (!query || option.textContent.toLowerCase().includes(query)));
+    renderList(options, { scope: menu, key: "options", searchable: false, pageSize: 40, items: rows,
+      text: ({ option }) => option.textContent, render: ({ option, index }) => {
+        const parent = option.parentElement;
+        const fragment = document.createDocumentFragment();
+        if (parent?.tagName === "OPTGROUP") {
+          const heading = document.createElement("div"); heading.className = "vui-menu-group"; heading.textContent = parent.label; fragment.append(heading);
+        }
+        const item = document.createElement("button"); item.type = "button";
+        const picked = select.multiple ? option.selected : index === select.selectedIndex;
+        item.className = "vui-menu-item" + (picked ? " is-selected" : "");
+        item.textContent = option.textContent.trim();
+        item.disabled = option.disabled || (parent?.tagName === "OPTGROUP" && parent.disabled);
+        item.addEventListener("click", event => { event.stopPropagation(); choose(select, index); });
+        fragment.append(item); return fragment;
+      } });
+    if (!rows.length) { const empty = document.createElement("div"); empty.className = "vui-menu-group"; empty.textContent = "No matches"; options.appendChild(empty); }
   }
 
   function placeMenu(button) {
@@ -545,6 +626,6 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 
-  global.VaultUI = Object.freeze({ enhance, observe, close: closeMenu, showMenuLayer, hideMenuLayer, focusDialog, confirmClick, refreshList, captureSearch, restoreSearch,
+  global.VaultUI = Object.freeze({ renderList, isManagedList: list => managedLists.has(list), enhance, observe, close: closeMenu, showMenuLayer, hideMenuLayer, focusDialog, confirmClick, refreshList, captureSearch, restoreSearch,
     searchQuery: (list) => searchState(list).query });
 })(typeof window !== "undefined" ? window : globalThis);
