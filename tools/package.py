@@ -292,7 +292,14 @@ def build_target(target: str) -> Path:
         ))
 
     for f in collect_dir_files():
-        entries.append((f, f.relative_to(REPO_ROOT).as_posix(), None))
+        # Safari shares the browser UI, but uses its own compass artwork.
+        source = f
+        if target == "safari" and f.parent == REPO_ROOT / "icons":
+            replacement = REPO_ROOT / "tools/branding/safari/BrowserIcons" / f.name
+            if not replacement.is_file():
+                raise RuntimeError(f"Missing Safari branding asset: {replacement}")
+            source = replacement
+        entries.append((source, f.relative_to(REPO_ROOT).as_posix(), None))
 
     # Validate sources exist.
     missing = [
