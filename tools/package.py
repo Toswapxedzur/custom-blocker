@@ -118,6 +118,7 @@ INCLUDE_DIRS = [
     "icons",
     "translation",
     "manual",
+    "code-manual",
 ]
 
 EXCLUDE_NAMES = {
