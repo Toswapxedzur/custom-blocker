@@ -56,3 +56,12 @@
   Escape order in the actual isolated mini1 extension.
 
 - `tests/popup-list-performance.js`: isolated 10,000-entry rendering/search/page/timer regression through the existing extension driver. `VaultUI.renderList` bounds DOM rows while retaining complete stored collections.
+
+- Growing-list performance: shared editable lists/chips use 40-row pages with
+  complete backing data and cooperative full-list search. Long selects keep a
+  complete option model while mounting one backing option and 40 menu results.
+  Feed collectors/filtering process changed card roots in 32-card batches;
+  navigation/policy changes still require full scans. Taxonomy transport pages
+  all tags; attached content tags retain their separate 16-tag limit. Browser
+  panels construct cooperatively and defer offscreen paint. Timer rows are
+  reused and remain click-through. No constant-time total-data claim.
