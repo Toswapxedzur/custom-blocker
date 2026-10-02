@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -3 70 70" role="img" aria-label="Vault grid size 05, stroke A">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -3 70 70" role="img" aria-label="Vault grid size 06, stroke A">
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#ffffff" /><stop offset="1" stop-color="#c2dbfa" />
@@ -22,4 +22,4 @@
   <path d="M32 13 16 19v13.2c0 9.4 6.6 15.3 16 17.8V13Z" fill="#fff" opacity=".07" />
   </g>
 
-<g id="platform-symbol" transform="translate(21 19) scale(0.6875)" fill="none" stroke="url(#symbol-blue)" stroke-width="3.4" stroke-linecap="round"><path d="M11.333333 1.7V30.3" /><path d="M20.666667 1.7V30.3" /><path d="M1.7 11.333333H30.3" /><path d="M1.7 20.666667H30.3" /></g></svg>
+<g id="platform-symbol" transform="translate(20 18) scale(0.75)" fill="none" stroke="url(#symbol-blue)" stroke-width="3.4" stroke-linecap="round"><path d="M11.333333 1.7V30.3" /><path d="M20.666667 1.7V30.3" /><path d="M1.7 11.333333H30.3" /><path d="M1.7 20.666667H30.3" /></g></svg>
