@@ -325,7 +325,12 @@ select.vui-native {
 
 .vui-menu {
   position: fixed;
-  z-index: 10000;
+  /* Fallback for hosts without the Popover API; supported hosts use top layer. */
+  z-index: 2147483647;
+  inset: auto;
+  margin: 0;
+  border: 0;
+  box-sizing: border-box;
   min-width: 160px;
   max-width: 420px;
   max-height: 320px;

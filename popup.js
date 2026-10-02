@@ -569,6 +569,9 @@ function focusVaultModal(modal, initialFocus, onEscape) {
   modalFocusReleases.set(modal, VaultUI.focusDialog(modal.querySelector(".modal-card"), { initialFocus, onEscape, returnFocus }));
 }
 function releaseVaultModal(modal) {
+  if (!modalFocusReleases.has(modal)) return;
+  VaultUI.close();
+  VaultInfo.close();
   modalFocusReleases.get(modal)?.();
   modalFocusReleases.delete(modal);
 }
@@ -5795,6 +5798,7 @@ function openTagChooser(container, button) {
   searchRow.dataset.infoCopy = "Find a tag by name, then select it to add it to this group.";
   searchRow.appendChild(search); menu.append(searchRow, list);
   document.body.appendChild(menu);
+  VaultUI.showMenuLayer(menu);
   activeTagChooser = { container, button, menu, search, list, groupID: getSelectedGroup()?.id };
   button.setAttribute("aria-expanded", "true");
   search.addEventListener("input", updateTagChooser);
