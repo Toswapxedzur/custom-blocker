@@ -50,3 +50,7 @@
 - English language/manual regression: `tests/popup-language-manuals.js` checks the separate guides, code-doc copying, safe syntax coloring, matched editor layers, navigation, and Escape in the actual mini1 extension popup.
 - List search (owner 2026-10-02): `vault-ui.js` adds local search to marked lists and dropdowns with more than five entries. Queries remain display state; selectors keep their original values/events. `tests/popup-search.js` and `tests/browser-panel-search.py` verify list/dropdown/custom-panel behavior on mini1.
 - Remembered group selection: `tests/popup-group-selection.js` exercises the shared editor with Chrome storage or Mac's native shim; `tests/browser-group-selection.py` uses the existing driver to verify real reload/reopen and the worker's + destination.
+
+- Menu layering: `tests/popup-layering.js` checks Settings language hit testing,
+  transformed clipping, viewport bounds, fallback layering, and dialog/menu
+  Escape order in the actual isolated mini1 extension.

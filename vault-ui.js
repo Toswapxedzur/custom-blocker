@@ -183,8 +183,8 @@
 
   // Scene renderers capture before replacing their DOM and restore afterward.
   function captureSearch(scope) {
-    if (menu && openFor?.__vuiScope === scope && document.activeElement === menu.querySelector("input")) {
-      const input = document.activeElement;
+    if (menu && openFor?.__vuiScope === scope && menu.getRootNode().activeElement === menu.querySelector("input")) {
+      const input = menu.querySelector("input");
       return { menu: true, start: input.selectionStart, end: input.selectionEnd };
     }
     const input = scope.activeElement;
@@ -233,11 +233,32 @@
     if (openFor === select) renderMenu(select);
   }
 
-  function closeMenu() {
+  // Keep overlays out of ancestor clipping/stacking contexts without moving
+  // their DOM ownership (dialog focus and shadow-root handlers still work).
+  function showMenuLayer(node) {
+    if (typeof node.showPopover !== "function") return;
+    node.setAttribute("popover", "manual");
+    if (!node.matches(":popover-open")) node.showPopover();
+  }
+
+  function hideMenuLayer(node) {
+    if (typeof node?.hidePopover === "function" && node.hasAttribute("popover") && node.matches(":popover-open")) node.hidePopover();
+  }
+
+  function closeMenu(restoreFocus = false) {
     if (!menu) return;
+    const button = dropdowns.get(openFor)?.button;
+    button?.setAttribute("aria-expanded", "false");
     menu.remove();
     menu = null;
     openFor = null;
+    if (restoreFocus && button?.isConnected) button.focus({ preventScroll: true });
+  }
+
+  function mountMenu(select) {
+    const owner = typeof menu.showPopover === 'function' ? select.closest('[role="dialog"]') : null;
+    (owner || document.body).appendChild(menu);
+    showMenuLayer(menu);
   }
 
   // A multiple select keeps its menu open and toggles the picked item.
@@ -301,12 +322,18 @@
   }
 
   function placeMenu(button) {
-    const box = button.getBoundingClientRect();
-    menu.style.minWidth = Math.max(160, box.width) + "px";
-    const below = global.innerHeight - box.bottom;
-    const height = Math.min(menu.scrollHeight, 320);
-    menu.style.left = Math.max(8, Math.min(box.left, global.innerWidth - menu.offsetWidth - 8)) + "px";
-    menu.style.top = (below < height + 12 && box.top > below ? box.top - height - 4 : box.bottom + 4) + "px";
+    const box = button.getBoundingClientRect(), margin = 8, gap = 4;
+    const width = Math.min(Math.max(160, box.width), global.innerWidth - margin * 2);
+    menu.style.minWidth = "0";
+    menu.style.width = width + "px";
+    menu.style.maxWidth = width + "px";
+    menu.style.maxHeight = Math.min(320, global.innerHeight - margin * 2) + "px";
+    const height = menu.offsetHeight;
+    const below = global.innerHeight - box.bottom - gap - margin, above = box.top - gap - margin;
+    const up = below < height && above > below;
+    menu.style.maxHeight = Math.max(0, Math.min(320, up ? above : below)) + "px";
+    menu.style.left = Math.max(margin, Math.min(box.left, global.innerWidth - menu.offsetWidth - margin)) + "px";
+    menu.style.top = Math.max(margin, Math.min(up ? box.top - menu.offsetHeight - gap : box.bottom + gap, global.innerHeight - menu.offsetHeight - margin)) + "px";
   }
 
   function openMenu(select) {
@@ -319,7 +346,8 @@
     menu.setAttribute("role", "listbox");
     openFor = select;
     renderMenu(select);
-    document.body.appendChild(menu);
+    mountMenu(select);
+    entry.button.setAttribute("aria-expanded", "true");
     placeMenu(entry.button);
     const current = menu.querySelector(".is-selected");
     if (current) current.scrollIntoView({ block: "nearest" });
@@ -346,6 +374,8 @@
     const button = document.createElement("button");
     button.type = "button";
     button.className = "vui-select-button";
+    button.setAttribute("aria-haspopup", "listbox");
+    button.setAttribute("aria-expanded", "false");
     const label = document.createElement("span");
     label.className = "vui-select-label";
     button.appendChild(label);
@@ -358,6 +388,8 @@
     if (openFor && !openFor.isConnected && openFor.__vuiScope === select.getRootNode()
         && selectKey(openFor) !== ":" && selectKey(openFor) === selectKey(select)) {
       openFor = select;
+      if (!menu.isConnected) mountMenu(select);
+      button.setAttribute("aria-expanded", "true");
       renderMenu(select);
       placeMenu(button);
     }
@@ -439,9 +471,9 @@
   function start() {
     observe(document);
     watchHints();
-    document.addEventListener("click", closeMenu);
-    document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMenu(); });
-    global.addEventListener("resize", closeMenu);
+    document.addEventListener("click", () => closeMenu());
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeMenu(true); });
+    global.addEventListener("resize", () => closeMenu());
     document.addEventListener("scroll", (event) => { if (menu && !menu.contains(event.target)) closeMenu(); }, true);
   }
 
@@ -449,18 +481,25 @@
   // This also works inside Mac Vault's scene shadow roots.
   const dialogStack = [];
   function focusDialog(card, options = {}) {
+    hideHint();
     dialogStack.push(card);
     const root = card.getRootNode();
     const opener = options.returnFocus || root.activeElement;
-    const controls = () => Array.from(card.querySelectorAll(
-      'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])'
-    )).filter((node) => !node.disabled && node.getClientRects().length);
+    const controls = () => {
+      const selector = 'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])';
+      const items = Array.from(card.querySelectorAll(selector));
+      // The non-Popover fallback is portalled to body to escape clipping.
+      if (menu && !card.contains(menu) && card.contains(dropdowns.get(openFor)?.button)) items.push(...menu.querySelectorAll(selector));
+      return items.filter((node) => !node.disabled && node.getClientRects().length);
+    };
     function onKey(event) {
       if (dialogStack[dialogStack.length - 1] !== card || !card.isConnected || !card.getClientRects().length) return;
-      if (event.key === "Escape" && options.onEscape) {
+      if (event.key === "Escape" && menu) {
+        event.preventDefault(); event.stopImmediatePropagation(); closeMenu(true);
+      } else if (event.key === "Escape" && options.onEscape) {
         event.preventDefault(); event.stopPropagation(); options.onEscape();
       } else if (event.key === "Tab") {
-        const items = controls(), active = root.activeElement;
+        const items = controls(), active = menu?.contains(document.activeElement) ? document.activeElement : root.activeElement;
         if (!items.length) { event.preventDefault(); card.focus(); return; }
         const index = items.indexOf(active);
         if (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === items.length - 1)) {
@@ -506,6 +545,6 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 
-  global.VaultUI = Object.freeze({ enhance, observe, close: closeMenu, focusDialog, confirmClick, refreshList, captureSearch, restoreSearch,
+  global.VaultUI = Object.freeze({ enhance, observe, close: closeMenu, showMenuLayer, hideMenuLayer, focusDialog, confirmClick, refreshList, captureSearch, restoreSearch,
     searchQuery: (list) => searchState(list).query });
 })(typeof window !== "undefined" ? window : globalThis);
