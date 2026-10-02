@@ -10,6 +10,7 @@ let nativeResponse = { ok: true, proof: "p".repeat(43) };
 const context = vm.createContext({
   CBLocalHubEnvironment: {
     current: {
+      name: "development",
       nativeHost: "com.adamancia.vault.local_hub.development"
     }
   },
@@ -45,6 +46,14 @@ function assert(name, ok, detail) {
   } catch (_) {
     assert("rejects browsers without the Chromium bootstrap", true);
   }
+  nativeResponse = { ok: true, proof: "s".repeat(43), environment: "development" };
+  const safariProof = await context.CBLocalHubAuthentication.proofForChallenge("safari", "s".repeat(43));
+  assert("Safari uses native challenge proof", safariProof === "s".repeat(43) && calls.at(-1)?.message?.program === "safari");
+  nativeResponse = { ok: true, proof: "s".repeat(43), environment: "production" };
+  try {
+    await context.CBLocalHubAuthentication.proofForChallenge("safari", "s".repeat(43));
+    assert("Safari refuses native environment mismatch", false);
+  } catch (_) { assert("Safari refuses native environment mismatch", true); }
   nativeResponse = { ok: false };
   try {
     await context.CBLocalHubAuthentication.proofForChallenge("chrome", "d".repeat(43));
