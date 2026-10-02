@@ -202,13 +202,19 @@ const POST_CARD_SELECTOR =
 // A platform's feed cards, from its profile (platform-profiles.js): either
 // the card wrappers themselves (`cardSelectors`, optionally lifted to their
 // `cardClosest` container), or the containers around its anchors.
-function getFeedCardElements(site) {
+function feedQuery(root, selector) {
+  const nodes = [...root.querySelectorAll(selector)];
+  if (root.matches?.(selector)) nodes.unshift(root);
+  return nodes;
+}
+function getFeedCardElements(site, root = document) {
   const feedProfile = PLATFORM_PROFILES?.[site]?.feed;
   if (Array.isArray(feedProfile?.cardSelectors)) {
+    if (root !== document) for (let parent = root.parentElement; parent; parent = parent.parentElement) if (feedProfile.cardSelectors.some(selector => { try { return parent.matches(selector); } catch { return false; } })) root = parent;
     const cards = new Set();
     for (const selector of feedProfile.cardSelectors) {
       let nodes = [];
-      try { nodes = document.querySelectorAll(selector); } catch { continue; }
+      try { nodes = feedQuery(root, selector); } catch { continue; }
       for (const node of nodes) {
         cards.add((feedProfile.cardClosest && node.closest?.(feedProfile.cardClosest)) || node);
       }
@@ -244,7 +250,7 @@ function getFeedCardElements(site) {
         ]
   ).join(", ");
 
-  for (const anchor of document.querySelectorAll(anchorSelectors.join(", "))) {
+  for (const anchor of feedQuery(root, anchorSelectors.join(", "))) {
     const container = anchor.closest(containerSelector);
     if (container) containers.add(container);
   }
@@ -934,9 +940,9 @@ function cbPageCoversUntilTagged(platform) {
 // Tags changed for something on this page (resolved, pushed, or corrected):
 // re-run the tag filters now rather than waiting for a DOM mutation — the pill
 // may render inside a shadow root the feed observer cannot see.
-function cbReapplyTagFilters() {
-  cbScheduleRuleItems();
-  if (latestFeedFilters.length > 0) scheduleApplyFeedFilters();
+function cbReapplyTagFilters(card) {
+  cbScheduleRuleItems(card ? [card] : null);
+  if (latestFeedFilters.length > 0) scheduleApplyFeedFilters(card ? [card] : null);
   if (cbTagPageContext) cbEvaluateTagPage(cbTagPageContext.root, cbTagPageContext);
 }
 if (typeof window !== "undefined") {
@@ -967,7 +973,7 @@ function collectNavElementsToHide(filter) {
     return [];
   }
 
-  for (const anchor of document.querySelectorAll(anchorSelectors.join(", "))) {
+  for (const anchor of feedQuery(root, anchorSelectors.join(", "))) {
     const container = anchor.closest(containerSelectors);
     if (container) containers.add(container);
   }
@@ -1011,10 +1017,34 @@ function collectFormShelvesToHide(filter) {
 // feed — that would clobber the "custom" verdicts an in-flight async scan is
 // about to apply (the sync/async race). Nav/shelf chrome is hidden through the
 // surface-hide marker so it stays out of the per-card cascade.
-function applyFeedFilters() {
+const feedDirtyRoots = new Set(), feedCardExposures = new Map(), feedExposureCounts = new Map();
+let feedFullScan = false, feedScanRunning = false;
+function forgetFeedExposure(card) {
+  for (const id of feedCardExposures.get(card) || []) {
+    const count = (feedExposureCounts.get(id) || 1) - 1;
+    if (count) feedExposureCounts.set(id, count); else feedExposureCounts.delete(id);
+  }
+  feedCardExposures.delete(card);
+}
+function changedFeedRoots(records) {
+  const roots = new Set(), profile = PLATFORM_PROFILES?.[getCurrentFeedSite()]?.feed;
+  const selector = [...(profile?.cardSelectors || []), ...(profile?.containerSelectors || [])].join(",");
+  for (const record of records) {
+    const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+    let card = null; try { card = selector && target?.closest?.(selector); } catch {}
+    if (card) roots.add(card);
+    else for (const added of record.addedNodes || []) if (added.nodeType === 1) roots.add(added);
+    for (const removed of record.removedNodes || []) if (removed.nodeType === 1) {
+      for (const card of getFeedCardElements(getCurrentFeedSite(), removed)) if (!card.isConnected) { forgetFeedExposure(card); cbTrackedCards.delete(card); }
+    }
+  }
+  latestExposedGroupIds = [...feedExposureCounts.keys()];
+  return [...roots];
+}
+async function applyFeedFilters(roots = null) {
   feedApplyRafId = null;
   // Cards the page removed (a virtualised feed drops them) are forgotten.
-  for (const card of cbTrackedCards) if (!card.isConnected) cbTrackedCards.delete(card);
+  if (!roots) for (const card of cbTrackedCards) if (!card.isConnected) { cbTrackedCards.delete(card); forgetFeedExposure(card); }
   applySurfaceHides();
   applyNavShelfHides();
 
@@ -1026,13 +1056,19 @@ function applyFeedFilters() {
   // Candidates = live feed cards plus anything we previously hid, so cards stop
   // being hidden when their filter is removed even if they aren't re-listed.
   const candidates = new Set();
-  if (currentSite) for (const card of getFeedCardElements(currentSite)) candidates.add(card);
-  for (const card of document.querySelectorAll('[data-custom-blocker-feed-hidden="true"]')) {
-    candidates.add(card);
+  if (currentSite) for (const root of roots || [document]) for (const card of getFeedCardElements(currentSite, root)) candidates.add(card);
+  if (!roots) {
+    for (const card of document.querySelectorAll('[data-custom-blocker-feed-hidden="true"]')) candidates.add(card);
+    for (const card of feedCardExposures.keys()) if (!card.isConnected) forgetFeedExposure(card);
   }
-
-  const exposed = new Set();
+  let processed = 0;
+  const filterKey = cbSessionFilterKey;
   for (const card of candidates) {
+    if (++processed % 32 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+    if (filterKey !== cbSessionFilterKey || exitAttempted || extensionContextInvalid) return;
+    if (card.isConnected === false) { forgetFeedExposure(card); continue; }
+    forgetFeedExposure(card);
+    const exposed = new Set();
     // Re-derive this card's platform verdicts from scratch; custom verdicts on
     // the same card are left untouched.
     cbClearSource(card, "platform");
@@ -1066,9 +1102,13 @@ function applyFeedFilters() {
       }
     }
     cbApplyCard(card);
+    if (exposed.size) {
+      feedCardExposures.set(card, exposed);
+      for (const id of exposed) feedExposureCounts.set(id, (feedExposureCounts.get(id) || 0) + 1);
+    }
   }
 
-  latestExposedGroupIds = [...exposed];
+  latestExposedGroupIds = [...feedExposureCounts.keys()];
 
   if (cbDebugMode) {
     // Debug mode only: one line per pass so a blackout that "does nothing" can
@@ -1102,9 +1142,20 @@ function applyNavShelfHides() {
   }
 }
 
-function scheduleApplyFeedFilters() {
-  if (feedApplyRafId !== null) return;
-  feedApplyRafId = window.requestAnimationFrame(() => applyFeedFilters());
+function scheduleApplyFeedFilters(roots = null) {
+  if (!roots) { feedFullScan = true; feedDirtyRoots.clear(); }
+  else if (!feedFullScan) for (const root of roots) feedDirtyRoots.add(root);
+  if (feedApplyRafId !== null || feedScanRunning) return;
+  feedApplyRafId = window.requestAnimationFrame(async () => {
+    feedApplyRafId = null; feedScanRunning = true;
+    try {
+      while (feedFullScan || feedDirtyRoots.size) {
+        const roots = feedFullScan ? null : [...feedDirtyRoots];
+        feedFullScan = false; feedDirtyRoots.clear();
+        await applyFeedFilters(roots);
+      }
+    } finally { feedScanRunning = false; }
+  });
 }
 
 // The last feed order / filters / surface hides applied (see handleSession).
@@ -1116,6 +1167,7 @@ function applySessionFilters(order, filters, surfaceHides) {
   const key = JSON.stringify([order, filters, surfaceHides]);
   if (key === cbSessionFilterKey) return;
   cbSessionFilterKey = key;
+  feedCardExposures.clear(); feedExposureCounts.clear(); latestExposedGroupIds = [];
   cbSetGroupOrder(order);
   latestFeedFilters = Array.isArray(filters) ? filters : [];
   latestSurfaceHides = Array.isArray(surfaceHides) ? surfaceHides.filter(Boolean) : [];
@@ -1181,13 +1233,14 @@ function ensureFeedObserver() {
     return;
   }
   if (feedObserver) return;
-  feedObserver = new MutationObserver(() => scheduleApplyFeedFilters());
+  feedObserver = new MutationObserver(records => { const roots = changedFeedRoots(records); if (roots.length) scheduleApplyFeedFilters(roots); });
   const root = document.body || document.documentElement;
   if (!root) return;
   feedObserver.observe(root, { childList: true, subtree: true });
 }
 
 function stopFeedObserver() {
+  feedFullScan = false; feedDirtyRoots.clear();
   if (feedObserver) {
     feedObserver.disconnect();
     feedObserver = null;
@@ -2465,7 +2518,10 @@ function __cb_ensurePanelStack(position) {
     "display:flex",
     "gap:10px",
     "pointer-events:none",
-    "max-width:min(92vw,560px)"
+    "max-width:min(92vw,560px)",
+    "max-height:calc(100vh - 16px)",
+    "overflow-y:auto",
+    "overscroll-behavior:contain"
   ];
   const byPosition = {
     "top-left": ["top:6.4px", "left:6.4px", "flex-direction:column", "align-items:flex-start"],
@@ -3006,6 +3062,8 @@ function __cb_renderPanel(snapshot) {
 
   panelEl.style.cssText = [
     "box-sizing:border-box",
+    "content-visibility:auto",
+    "contain-intrinsic-size:auto 220px",
     "pointer-events:auto",
     "width:" + width,
     "min-width:0",
@@ -3152,14 +3210,21 @@ function cbRuleCardRef(card) {
 
 // Sends the platform page's items that are new or changed since they were
 // last sent, and the page itself (ref "page").
-function cbScanRuleItems() {
+async function cbScanRuleItems() {
   cbRuleScanTimer = null;
   if (!cbRuleItemsEpoch || exitAttempted || extensionContextInvalid) return;
   const platform = getCurrentFeedSite();
   if (!platform) return;
   for (const [ref, card] of cbRuleRefs) if (!card.isConnected) cbRuleRefs.delete(ref);
-  const items = [];
-  for (const card of getFeedCardElements(platform)) {
+  let items = [], processed = 0;
+  const epoch = cbRuleItemsEpoch, roots = cbRuleFullScan ? [document] : [...cbRuleDirtyRoots];
+  cbRuleDirtyRoots.clear(); cbRuleFullScan = false;
+  for (const root of roots) for (const card of getFeedCardElements(platform, root)) {
+    if (++processed % 32 === 0) {
+      if (items.length) safeSendMessage({ type: "rule-items", platform, items });
+      items = []; await new Promise(resolve => setTimeout(resolve, 0));
+      if (epoch !== cbRuleItemsEpoch || exitAttempted || extensionContextInvalid) return;
+    }
     const data = getFeedCardData(card);
     if (!data) continue;
     let url = "";
@@ -3183,8 +3248,15 @@ function cbScanRuleItems() {
   if (items.length > 0) safeSendMessage({ type: "rule-items", platform, items });
 }
 
-function cbScheduleRuleItems() {
-  if (cbRuleItemsEpoch && cbRuleScanTimer === null) cbRuleScanTimer = setTimeout(cbScanRuleItems, 250);
+let cbRuleFullScan = false, cbRuleScanRunning = false;
+const cbRuleDirtyRoots = new Set();
+function cbScheduleRuleItems(roots = null) {
+  if (!roots || !Array.isArray(roots)) { cbRuleFullScan = true; cbRuleDirtyRoots.clear(); }
+  else if (!cbRuleFullScan) for (const root of roots) cbRuleDirtyRoots.add(root);
+  if (cbRuleItemsEpoch && cbRuleScanTimer === null && !cbRuleScanRunning) cbRuleScanTimer = setTimeout(async () => {
+    cbRuleScanRunning = true;
+    try { await cbScanRuleItems(); } finally { cbRuleScanRunning = false; if (cbRuleFullScan || cbRuleDirtyRoots.size) cbScheduleRuleItems([...cbRuleDirtyRoots]); }
+  }, 250);
 }
 
 // The session says whether a rule wants items (a new epoch: send them all again).
@@ -3195,7 +3267,7 @@ function cbSetRuleItemsEpoch(epoch) {
   cbRuleSent = new WeakMap();
   cbRulePageSent = "";
   if (next && !cbRuleObserver && document.documentElement) {
-    cbRuleObserver = new MutationObserver(cbScheduleRuleItems);
+    cbRuleObserver = new MutationObserver(records => { const roots = changedFeedRoots(records); if (roots.length) cbScheduleRuleItems(roots); });
     cbRuleObserver.observe(document.documentElement, { childList: true, subtree: true });
   } else if (!next) {
     cbStopRuleItems();

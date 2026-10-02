@@ -57,23 +57,26 @@
   core.start({
     platform: "twitter",
     matchesPage,
-    scan({ document, collect }) {
+    cardSelector: "article[data-testid=\"tweet\"], [data-testid=\"cellInnerDiv\"]:has(article[data-testid=\"tweet\"])",
+    async scan({ document, collect }) {
       const candidates = core.uniqueElements([
         ...core.selectorElements(document, 'article[data-testid="tweet"]'),
         ...core.selectorElements(document, '[data-testid="cellInnerDiv"]:has(article[data-testid="tweet"])')
-      ]).slice(0, 80);
+      ]);
       // A timeline cell wraps its <article>; both match, so keep only the
       // innermost of any nested pair — one pill per tweet, on the article
       // (the element the tag filter resolves a cell to).
-      const cards = candidates.filter(
-        (card) => !candidates.some((other) => other !== card && card.contains?.(other))
-      );
+      const candidateSet = new Set(candidates), outer = new Set();
+      for (const card of candidates) for (let parent = card.parentElement; parent; parent = parent.parentElement) if (candidateSet.has(parent)) outer.add(parent);
+      const cards = candidates.filter(card => !outer.has(card));
       // On a post's own page every other article in the conversation is a
       // reply, a thread parent or a recommendation — comments, not feed cards
       // (owner 2026-09-24: "every comment also gets a tag, should not happen").
       // Only the page's post is tagged there; the timelines tag everything.
       const page = pageRoute(global.location);
+      let scanned = 0;
       for (const card of cards) {
+        if (++scanned % 32 === 0) await core.yieldScan();
         const entry = core.firstAnchor(card, ['a[href*="/status/"]'], isStatus);
         if (!entry) continue;
         const route = statusRoute(entry.href);

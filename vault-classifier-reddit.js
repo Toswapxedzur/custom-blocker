@@ -62,20 +62,23 @@
   core.start({
     platform: "reddit",
     matchesPage,
-    scan({ document, collect }) {
+    cardSelector: "shreddit-post, article:has(shreddit-post), div.thing[data-subreddit]",
+    async scan({ document, collect }) {
       const candidates = core.uniqueElements([
         ...core.selectorElements(document, "shreddit-post"),
         ...core.selectorElements(document, "article:has(shreddit-post)"),
         ...core.selectorElements(document, "div.thing[data-subreddit]")
-      ]).slice(0, 80);
+      ]);
       // One post matches more than one selector — an <article> wraps its
       // <shreddit-post> — so both appear here and each would inject its own pill.
       // Keep only the innermost of any nested pair; the <shreddit-post> is where
       // the post's data attributes live.
-      const cards = candidates.filter(
-        (card) => !candidates.some((other) => other !== card && card.contains?.(other))
-      );
+      const candidateSet = new Set(candidates), outer = new Set();
+      for (const card of candidates) for (let parent = card.parentElement; parent; parent = parent.parentElement) if (candidateSet.has(parent)) outer.add(parent);
+      const cards = candidates.filter(card => !outer.has(card));
+      let scanned = 0;
       for (const card of cards) {
+        if (++scanned % 32 === 0) await core.yieldScan();
         const entry = core.firstAnchor(card, ['a[href*="/comments/"]'], isPost);
         if (!entry) continue;
         const route = postRoute(entry.href);
