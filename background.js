@@ -4037,7 +4037,7 @@ async function cbBrowserRequestBody(operation, body) {
       if (unknown) throw new Error(`not-an-editor-setting:${unknown}`);
       const invalid = CBGroupActions.validateSettingsPatch(settings);
       if (invalid) throw new Error(invalid);
-      // The quick-add "+" target (the editor's badge): a group id, or "".
+      // The quick-add "+" target (the editor's remembered selection): a group id, or "".
       if (quickAddGroupId !== undefined) {
         const target = String(quickAddGroupId || "");
         if (target && !(await getState()).groups.some((group) => group.id === target)) throw new Error("group-not-found");

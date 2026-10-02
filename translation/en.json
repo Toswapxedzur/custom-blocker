@@ -408,7 +408,7 @@
   "apps.readOnlyHint": "Edited in the linked desktop app. Shown here read-only.",
   "status.invalidPauseSeconds": "Pause seconds must be a whole number from 1 to 600.",
   "settings.quickAdd": "Show the quick-add \"+\"",
-  "settings.quickAddHelp": "A tiny \"+\" at the bottom right of every page (and of the desktop) adds the current site or app to the group whose \"+\" badge you chose in the list.",
+  "settings.quickAddHelp": "A tiny \"+\" at the bottom right of every page (and of the desktop) adds the current site or app to the group selected in the list. Your choice is remembered when Vault reopens.",
   "groups.quickAddBadge": "Quick-add target",
   "apps.allowlistLabel": "Block every app except these",
   "apps.allowlistHelp": "When on, this group blocks every app except those listed above. System apps, browsers, and Vault itself are excluded from blocking. When off, it blocks only the listed apps.",

@@ -19,7 +19,7 @@ const USAGE_BUCKETS_KEY = "usageBucketsMs";
 const GROUP_SNOOZES_KEY = "groupSnoozes";
 const GROUP_SNOOZE_TOTALS_KEY = "groupSnoozeTotalsMs";
 const GLOBAL_SETTINGS_KEY = "globalSettings";
-// The group the quick-add "+" appends to (chosen by its card's badge).
+// The remembered editor selection is also the quick-add destination.
 const QUICK_ADD_GROUP_KEY = "quickAddGroupId";
 const LAYOUT_WIDTH_STORAGE_KEY = "custom-blocker-groups-panel-width";
 const LANGUAGE_STORAGE_KEY = "custom-blocker-language";
@@ -3342,13 +3342,22 @@ function renderGroupList(now = Date.now()) {
   }
 }
 
-// The chosen quick-add group: persistent until another badge is clicked; the
-// editor shows it (owner 2026-09-25).
+// The badge and the card select the same remembered destination.
 function setQuickAddGroup(groupId) {
-  state.quickAddGroupId = groupId;
-  chrome.storage.local.set({ [QUICK_ADD_GROUP_KEY]: groupId }).catch(() => {});
-  selectGroup(groupId);
+  return selectGroup(groupId);
 }
+
+function rememberGroupSelection(groupId = state.selectedGroupId) {
+  const id = groupId || "";
+  if (state.quickAddGroupId === id) return Promise.resolve();
+  state.quickAddGroupId = id;
+  return chrome.storage.local.set({ [QUICK_ADD_GROUP_KEY]: id }).catch((error) => {
+    console.error("Failed to remember the selected group.", error);
+    setStatus(t("status.errorSaveGroup"), true);
+  });
+}
+
+let groupSelectionRevision = 0;
 
 function formatResetClock(ms, now) {
   const at = new Date(ms);
@@ -4013,22 +4022,25 @@ function flushAutosaveOnExit() {
   } catch (_) {}
 }
 
-function selectGroup(groupId) {
-  if (groupId === state.selectedGroupId) {
-    return;
-  }
-
-  closeUnfreezeFlow();
-  stashCurrentDraft();
-  flushAutosave()
-    .catch((error) => {
+async function selectGroup(groupId) {
+  if (!state.groups.some((group) => group.id === groupId)) return;
+  const revision = ++groupSelectionRevision;
+  // Send the choice immediately, even if the editor closes during autosave.
+  const remembered = rememberGroupSelection(groupId);
+  if (groupId !== state.selectedGroupId) {
+    closeUnfreezeFlow();
+    stashCurrentDraft();
+    try {
+      await flushAutosave();
+    } catch (error) {
       console.error("Failed to flush autosave before selection change.", error);
-    })
-    .finally(() => {
-      state.selectedGroupId = groupId;
-      setSnoozeWarning("");
-      render();
-    });
+    }
+    if (revision !== groupSelectionRevision || !state.groups.some((group) => group.id === groupId)) return;
+    state.selectedGroupId = groupId;
+    setSnoozeWarning("");
+    render();
+  }
+  await remembered;
 }
 
 async function loadStoredState() {
@@ -4117,8 +4129,9 @@ async function loadGroups() {
   state.globalSettings = loaded.globalSettings;
   state.quickAddGroupId = loaded.quickAddGroupId;
   state.linkCopy = loaded.linkCopy;
-  state.selectedGroupId = state.groups[0]?.id ?? null;
+  state.selectedGroupId = state.groups.find((group) => group.id === loaded.quickAddGroupId)?.id ?? state.groups[0]?.id ?? null;
   state.drafts = {};
+  await rememberGroupSelection();
   render();
 }
 
@@ -4150,9 +4163,11 @@ async function addGroup(groupType = DEFAULT_GROUP_TYPE) {
 
   const newGroup = createDefaultGroup(groupType);
   state.groups = [...state.groups, newGroup];
+  ++groupSelectionRevision;
   state.selectedGroupId = newGroup.id;
 
   await persistGroups([newGroup.id], { message: t("status.created", { name: newGroup.name }) });
+  await rememberGroupSelection();
   render();
   groupNameField.focus();
   groupNameField.select();
@@ -4399,10 +4414,12 @@ async function clearAllGroups() {
   const ids = state.groups.map((group) => group.id);
   state.groups = [];
   state.drafts = {};
+  ++groupSelectionRevision;
   state.selectedGroupId = null;
 
   // The service worker / Mac Vault drop the groups' usage and snoozes.
   await persistGroups(ids, { message: t("status.bulkDeleted") });
+  await rememberGroupSelection();
   render();
 }
 
@@ -4423,9 +4440,11 @@ async function deleteSelectedGroup() {
 
   state.groups = state.groups.filter((item) => item.id !== group.id);
   delete state.drafts[group.id];
+  ++groupSelectionRevision;
   state.selectedGroupId = state.groups[0]?.id ?? null;
 
   await persistGroups([group.id], { message: t("status.deleted", { name: group.name }) });
+  await rememberGroupSelection();
   render();
 }
 
@@ -5392,10 +5411,10 @@ function syncExternalState(changes) {
     }
   }
 
-  if (changes[QUICK_ADD_GROUP_KEY]) {
-    state.quickAddGroupId = typeof changes[QUICK_ADD_GROUP_KEY].newValue === "string" ? changes[QUICK_ADD_GROUP_KEY].newValue : "";
-    renderGroupList();
-  }
+  const selectionChange = changes[QUICK_ADD_GROUP_KEY];
+  const incomingSelection = typeof selectionChange?.newValue === "string" ? selectionChange.newValue : "";
+  const selectionChangedElsewhere = selectionChange && incomingSelection !== state.quickAddGroupId;
+  if (selectionChange) state.quickAddGroupId = incomingSelection;
 
   if (changes[BLOCKED_GROUPS_KEY]) {
     // Any writer's change (this editor, a linked device, the "+", an AI tool)
@@ -5408,10 +5427,21 @@ function syncExternalState(changes) {
       if (!state.groups.some((group) => group.id === id)) delete state.drafts[id];
     }
     if (!state.groups.some((group) => group.id === state.selectedGroupId)) {
-      state.selectedGroupId = state.groups[0]?.id ?? null;
+      ++groupSelectionRevision;
+      state.selectedGroupId = state.groups.find((group) => group.id === state.quickAddGroupId)?.id ?? state.groups[0]?.id ?? null;
+    }
+    if (selectionChangedElsewhere && state.groups.some((group) => group.id === incomingSelection)) {
+      void selectGroup(incomingSelection);
+    } else if (!state.groups.some((group) => group.id === state.quickAddGroupId)) {
+      void rememberGroupSelection();
     }
     render();
     return;
+  }
+
+  if (selectionChangedElsewhere) {
+    if (state.groups.some((group) => group.id === incomingSelection)) void selectGroup(incomingSelection);
+    else void rememberGroupSelection();
   }
 
   if (shouldRenderDynamicOnly) {

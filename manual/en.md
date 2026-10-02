@@ -71,7 +71,7 @@ Click an item's tag to open the correction chooser. Choose a suggested tag or en
 
 ## Settings and connection
 
-**Show the quick-add +** adds a small button to supported pages. Choose a group's + badge as the destination, then use the page button to add that page to its website list. On an allowlist this allows the page. Frozen groups do not accept quick additions.
+**Show the quick-add +** adds a small button to supported pages. Select a group in the list as the destination; your selection is remembered when Vault reopens. Use the page button to add that page to its website list. On an allowlist this allows the page. Frozen groups do not accept quick additions.
 
 The Classifier connection reports the local Mac Vault service. Configure Classifier groups, model downloads, Knowledge, research consent, and API providers in Mac Vault, not in this extension.
 
