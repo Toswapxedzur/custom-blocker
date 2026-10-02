@@ -25,7 +25,7 @@ async () => {
   check(box.left >= 7 && box.right <= innerWidth - 7 && box.top >= 7 && box.bottom <= innerHeight - 7, 'tag chooser fits viewport');
   list.scrollTop = list.scrollHeight; check(list.scrollTop > 0, 'last tag can be reached by scrolling'); await wait();
   const info = chooser.querySelector('.vui-info-button'), beforeValue = textarea.value;
-  check(info && info.getBoundingClientRect().width === 14, 'Tag search has compact Info');
+  check(info && info.getBoundingClientRect().width === 10, 'Tag search has compact Info');
   info.click(); await wait();
   check(chooser.querySelector('.vui-info-popover') && textarea.value === beforeValue, 'Search Info stays inside the chooser and changes no tag rules');
   info.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true})); await wait();

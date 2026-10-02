@@ -5832,7 +5832,7 @@ function openTagChooser(container, button) {
   const searchRow = document.createElement("div");
   searchRow.className = "vui-info-field";
   searchRow.dataset.infoKey = "tag-search"; searchRow.dataset.infoLabel = "Search tags";
-  searchRow.dataset.infoCopy = "Filter the available tag catalog by name. Select a tag to add it to this group’s rules.";
+  searchRow.dataset.infoCopy = "Find a tag by name, then select it to add it to this group.";
   searchRow.appendChild(search); menu.append(searchRow, list);
   document.body.appendChild(menu);
   activeTagChooser = { container, button, menu, search, list, groupID: getSelectedGroup()?.id };
