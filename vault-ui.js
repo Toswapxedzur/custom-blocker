@@ -143,6 +143,7 @@
       state.query = value; state.page = 0; search();
     });
     controls.input.dataset.vuiSearchInput = key;
+    controls.input.value = state.query;
     controls.bar.dataset.infoKey = "list-search:" + key;
     controls.bar.dataset.infoCopy = list.dataset.vuiSearchCopy || controls.bar.dataset.infoCopy;
     const empty = document.createElement("span");
@@ -155,8 +156,10 @@
     previous.type = next.type = "button";
     previous.textContent = "Previous"; next.textContent = "Next";
     count.setAttribute("role", "status");
-    pager.append(previous, count, next);
+    const retry = document.createElement("button"); retry.type = "button"; retry.textContent = "Retry"; retry.hidden = true;
+    pager.append(previous, count, next, retry);
     function paint() {
+      retry.hidden = true;
       options.beforePaint?.();
       const length = options.queryPage ? remoteTotal : matches.length;
       state.page = Math.max(0, Math.min(state.page || 0, Math.ceil(length / size) - 1));
@@ -187,7 +190,10 @@
       const current = ++revision, query = state.query.trim().toLowerCase();
       if (options.queryPage) {
         const result = await options.queryPage({ query, offset: (state.page || 0) * size, limit: size });
-        if (current !== revision || !result) return;
+        if (current !== revision || !list.isConnected) return;
+        if (!result) { count.textContent = "Could not load entries."; pager.hidden = false; retry.hidden = false; previous.disabled = next.disabled = true; return; }
+        const lastPage = Math.max(0, Math.ceil(result.total / size) - 1);
+        if (state.page > lastPage) { state.page = lastPage; search(); return; }
         remoteRows = result.items; remoteTotal = result.total;
         paint(); return;
       }
@@ -204,6 +210,7 @@
       if (current !== revision) return;
       matches = found; paint();
     }
+    retry.onclick = () => search();
     previous.onclick = () => { state.page--; list.scrollTop = 0; options.queryPage ? search() : paint(); };
     next.onclick = () => { state.page++; list.scrollTop = 0; options.queryPage ? search() : paint(); };
     const entry = { attach, repaint: paint, update(next) { options = next; if (state.query || options.queryPage) search(); else { matches = options.items; paint(); } }, dispose() { revision++; controls.bar.remove(); pager.remove(); } };

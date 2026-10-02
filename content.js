@@ -1333,25 +1333,30 @@ function updateOverlay(items, showTimer) {
   const nextOverlay = ensureOverlay();
   const anyStyled = visibleItems.some((item) => item.overlayStyle && typeof item.overlayStyle === "object");
   if (!anyStyled) {
-    // Fast path: no per-timer styling — keep the single-textContent box.
-    nextOverlay.container.textContent = visibleItems
-      .map((item) => {
-        const value = item.displayMs ?? item.remainingMs ?? item.currentMs ?? 0;
-        return `${item.name}: ${formatOverlayDurationMs(value)}`;
-      })
-      .join("\n");
+    const text = visibleItems.map(item => `${item.name}: ${formatOverlayDurationMs(item.displayMs ?? item.remainingMs ?? item.currentMs ?? 0)}`).join("\n");
+    if (nextOverlay.rows || nextOverlay.container.textContent !== text) nextOverlay.container.textContent = text;
+    nextOverlay.rows = null;
     return;
   }
-  // At least one timer opted into overlayStyle: render each as its own
-  // line element so styles apply independently.
-  nextOverlay.container.textContent = "";
-  for (const item of visibleItems) {
+  if (!nextOverlay.rows) { nextOverlay.container.replaceChildren(); nextOverlay.rows = new Map(); }
+  const wanted = new Set(); let before = nextOverlay.container.firstChild;
+  visibleItems.forEach((item, index) => {
+    const key = String(item.id || item.groupId || index); wanted.add(key);
+    let line = nextOverlay.rows.get(key);
+    if (!line) { line = document.createElement("div"); nextOverlay.rows.set(key, line); }
+    const style = item.overlayStyle, styleKey = JSON.stringify(style || {});
     const value = item.displayMs ?? item.remainingMs ?? item.currentMs ?? 0;
-    const line = document.createElement("div");
-    line.textContent = `${item.name}: ${formatOverlayDurationMs(value)}`;
-    applyOverlayLineStyle(line, item.overlayStyle);
-    nextOverlay.container.appendChild(line);
-  }
+    const text = `${style?.icon ? style.icon + " " : ""}${item.name}: ${formatOverlayDurationMs(value)}`;
+    if (line.__styleKey !== styleKey) {
+      line.style.cssText = "content-visibility:auto;contain-intrinsic-size:auto 18px";
+      applyOverlayLineStyle(line, style); line.__styleKey = styleKey;
+    }
+    if (line.textContent !== text) line.textContent = text;
+    if (line !== before) nextOverlay.container.insertBefore(line, before);
+    before = line.nextSibling;
+  });
+  for (const [key, line] of nextOverlay.rows) if (!wanted.has(key)) { line.remove(); nextOverlay.rows.delete(key); }
+
 }
 
 function applyOverlayLineStyle(el, style) {
@@ -3009,6 +3014,10 @@ function __cb_renderPanel(snapshot) {
     __cb_activePanelElements.set(key, panelEl);
     isNewPanel = true;
   }
+  const fingerprint = JSON.stringify(snapshot);
+  const hasActiveControl = __cb_panelHasActiveControl(panelEl);
+  if (hasActiveControl) panelEl.__appliedFingerprint = null;
+  else if (panelEl.parentNode === stack && panelEl.__appliedFingerprint === fingerprint) return key;
   const snapshotKey = __cb_panelSnapshotKey(snapshot);
   const alreadyMounted = panelEl.parentNode === stack;
   if (
@@ -3016,6 +3025,7 @@ function __cb_renderPanel(snapshot) {
     panelEl.getAttribute("data-cb-panel-snapshot") === snapshotKey
   ) {
     if (__cb_patchPanelInPlace(panelEl, snapshot)) {
+      if (!hasActiveControl) panelEl.__appliedFingerprint = fingerprint;
       return key;
     }
   }
@@ -3122,6 +3132,7 @@ function __cb_renderPanel(snapshot) {
   }
   panelEl.appendChild(body);
 
+  panelEl.__appliedFingerprint = fingerprint;
   stack.appendChild(panelEl);
   if (isNewPanel) {
     __cb_sendPanelEvent(panelEl, { id: "", type: "panel" }, "mount", true);
@@ -3136,7 +3147,9 @@ function __cb_renderPanel(snapshot) {
   return key;
 }
 
-function __cb_applyPanelSnapshots(panelSnapshots, panelGroups) {
+let __cb_panelPresentationRevision = 0;
+async function __cb_applyPanelSnapshots(panelSnapshots, panelGroups) {
+  const revision = ++__cb_panelPresentationRevision;
   const snapshots = Array.isArray(panelSnapshots) ? panelSnapshots : [];
   const groups = new Set(Array.isArray(panelGroups) ? panelGroups.filter((id) => typeof id === "string") : []);
   const incoming = new Set();
@@ -3146,7 +3159,9 @@ function __cb_applyPanelSnapshots(panelSnapshots, panelGroups) {
     if (pb !== pa) return pb - pa;
     return String(a?.id || "").localeCompare(String(b?.id || ""));
   });
+  let count = 0;
   for (const snapshot of sortedSnapshots) {
+    if (++count % 32 === 0) { await new Promise(resolve => setTimeout(resolve, 0)); if (revision !== __cb_panelPresentationRevision) return; }
     const key = __cb_renderPanel(snapshot);
     if (key) incoming.add(key);
   }
