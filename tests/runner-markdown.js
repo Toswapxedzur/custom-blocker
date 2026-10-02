@@ -78,6 +78,12 @@ assertEqual("inline: link",
 assertEqual("inline: HTML inside backticks is escaped",
   renderInlineMarkdown("`<x>`"),
   "<code>&lt;x&gt;</code>");
+assertEqual("inline: wildcard API arguments stay literal",
+  renderInlineMarkdown('`v.css(tabId | "*", id, css | null)` or `"*"`'),
+  '<code>v.css(tabId | &quot;*&quot;, id, css | null)</code> or <code>&quot;*&quot;</code>');
+assertEqual("inline: code does not interpret links or emphasis",
+  renderInlineMarkdown('`**bold** [x](url)` and **bold**'),
+  '<code>**bold** [x](url)</code> and <strong>bold</strong>');
 
 // ── block features ─────────────────────────────────────────────────────
 log.section("M3: block features");

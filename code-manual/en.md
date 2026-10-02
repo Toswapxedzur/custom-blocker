@@ -76,7 +76,7 @@ These actions control browser tabs and supported page items. They cannot block n
 
 - v.go(tabId, url | "back" | "forward" | "reload") navigates. v.close(tabId) closes the tab.
 
-- v.css(tabId | "*", id, css | null) adds (or removes) a style sheet: on a tab's page until the tab goes to another address, or ("*") on every page, pages opened later too.
+- `v.css(tabId | "*", id, css | null)` adds (or removes) a style sheet: on a tab's page until the tab goes to another address, or (`"*"`) on every page, pages opened later too.
 
 - v.dom(tabId, selector, op, arg?) acts on the page's elements: op hide | show | click | setText (arg) | addClass (arg) | removeClass (arg) | scrollTo.
 
