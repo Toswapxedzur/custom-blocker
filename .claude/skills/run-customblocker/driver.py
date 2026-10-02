@@ -6,6 +6,7 @@ its background service-worker console / evaluate JS inside the SW context.
   python3 driver.py --headed         # visible Chromium (fallback if no SW appears headless)
   python3 driver.py --eval "() => chrome.storage.local.get(null)"   # run code IN the SW
   python3 driver.py --popup-test tests/popup-rule-logs.js --hold 0
+  python3 driver.py --connect-cdp http://127.0.0.1:9333 --eval "() => chrome.runtime.id"
   python3 driver.py --hold 30        # keep the browser open N seconds (default 8)
 Env: EXT_DIR=<dir> to load a different unpacked extension; PROFILE=<dir> to reuse a profile.
 Exit 0 = service worker found; 2 = no service worker (extension failed to load).
@@ -20,6 +21,8 @@ EXT = os.path.abspath(os.environ.get("EXT_DIR") or os.path.join(HERE, "..", ".."
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--headed", action="store_true")
+    ap.add_argument("--connect-cdp", help="Attach to an already running isolated test browser; its launcher owns shutdown")
+    ap.add_argument("--extension-id", help="Select the target worker when the remote browser includes built-in extensions")
     ap.add_argument("--eval", default=None)
     ap.add_argument("--ui-script", help="Python script exporting run(context, service_worker) for UI checks")
     ap.add_argument("--popup-test", help="JavaScript file containing an async popup regression function")
@@ -27,9 +30,9 @@ def main():
     ap.add_argument("--height", type=int, default=900)
     ap.add_argument("--hold", type=float, default=8)
     a = ap.parse_args()
-    profile = os.environ.get("PROFILE") or tempfile.mkdtemp(prefix="cb-profile-")
+    profile = None if a.connect_cdp else os.environ.get("PROFILE") or tempfile.mkdtemp(prefix="cb-profile-")
     print(f"[driver] extension: {EXT}")
-    print(f"[driver] profile:   {profile}  headless={not a.headed}", flush=True)
+    print(f"[driver] remote CDP: {a.connect_cdp}" if a.connect_cdp else f"[driver] profile:   {profile}  headless={not a.headed}", flush=True)
     seen = []
     failed = False
 
@@ -42,10 +45,17 @@ def main():
         sw.on("console", on_console)
 
     with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(
-            profile, channel="chromium", headless=not a.headed,
-            args=[f"--disable-extensions-except={EXT}", f"--load-extension={EXT}"],
-        )
+        if a.connect_cdp:
+            browser = p.chromium.connect_over_cdp(a.connect_cdp)
+            if not browser.contexts:
+                raise RuntimeError("Remote test browser has no default context")
+            ctx = browser.contexts[0]
+        else:
+            ctx = p.chromium.launch_persistent_context(
+                profile, channel="chromium", headless=not a.headed,
+                args=[f"--disable-extensions-except={EXT}", f"--load-extension={EXT}"],
+            )
+        original_pages = set(ctx.pages)
         ctx.on("serviceworker", attach)          # future SWs
         for sw in ctx.service_workers: attach(sw) # SWs already up
         if not ctx.service_workers:
@@ -53,7 +63,9 @@ def main():
                 ctx.wait_for_event("serviceworker", timeout=15000)
             except Exception as e:
                 print(f"[driver] NO service worker within 15s: {e}", file=sys.stderr)
-        sws = ctx.service_workers
+        sws = [sw for sw in ctx.service_workers if not a.extension_id or sw.url.startswith(f"chrome-extension://{a.extension_id}/")]
+        if a.connect_cdp and not a.extension_id and len(sws) > 1:
+            raise RuntimeError("Remote browser has multiple extensions; specify --extension-id")
         if sws:
             sw = sws[0]
             print(f"[driver] extension id: {sw.url.split('/')[2]}")
@@ -89,8 +101,15 @@ def main():
                 failed = True
                 print(f"[driver] popup-test FAILED: {error}", file=sys.stderr)
         time.sleep(a.hold)
-        ctx.close()
-    if not os.environ.get("PROFILE"):
+        if a.connect_cdp:
+            # Only pages created by this invocation belong to the driver. The
+            # guest launcher owns its browser/profile and its final shutdown.
+            for page in ctx.pages:
+                if page not in original_pages:
+                    page.close()
+        else:
+            ctx.close()
+    if profile is not None and not os.environ.get("PROFILE"):
         shutil.rmtree(profile)
     print(f"[driver] captured {len(seen)} SW console line(s)")
     return 1 if failed else (0 if sws else 2)
