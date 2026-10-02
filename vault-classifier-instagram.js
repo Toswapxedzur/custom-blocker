@@ -36,13 +36,16 @@
   core.start({
     platform: "instagram",
     matchesPage,
-    scan({ document, collect }) {
+    cardSelector: "article, [role=\"article\"], [role=\"button\"]",
+    async scan({ document, collect }) {
       const cards = core.uniqueElements([
         ...core.selectorElements(document, "article"),
         ...core.selectorElements(document, '[role="article"]'),
         ...core.selectorElements(document, '[role="button"]')
-      ]).slice(0, 80);
+      ]);
+      let scanned = 0;
       for (const card of cards) {
+        if (++scanned % 32 === 0) await core.yieldScan();
         const entry = core.firstAnchor(card, ['a[href^="/reel/"]', 'a[href^="/p/"]', 'a[href^="/tv/"]'], isContent);
         if (!entry) continue;
         const source = core.firstVerifiedSourceAnchor("instagram", card, [
