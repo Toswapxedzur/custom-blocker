@@ -1540,7 +1540,7 @@ function cbRenderCover() {
     const button = cbCoverElement("button", "cb-snooze-button", "Start Snooze");
     let status = cbCover.statusText;
     if (phase === "pending") { button.disabled = true; status = status || "A snooze is scheduled and will start shortly."; }
-    else if (phase === "cooldown") { button.disabled = true; status = status || "Snooze cooldown — try again in a moment."; }
+    else if (phase === "cooldown") { button.disabled = true; status = status || "Snooze is cooling down. Try again when the cooldown ends."; }
     else if (cbCover.confirmationsLeft > 0) {
       const waitMs = cbCover.nextConfirmAt - Date.now();
       button.textContent = waitMs > 0
@@ -1588,7 +1588,7 @@ function cbCoverSnoozePress() {
       return;
     }
     const startsIn = Number(response.snooze && response.snooze.startsAtMs) - Date.now();
-    cbCover.statusText = startsIn > 1000 ? "Snooze starts in " + Math.ceil(startsIn / 60000) + " min." : "";
+    cbCover.statusText = startsIn > 1000 ? "Snooze starts in " + formatOverlayDurationMs(startsIn) + "." : "";
     refreshSession();
   });
 }
