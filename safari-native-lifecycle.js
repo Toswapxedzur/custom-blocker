@@ -17,7 +17,11 @@
         // marker is checked both directly and inside that native envelope.
         const payload = message?.userInfo || message?.message || message;
         if (message?.name !== "safari-lifecycle-tick" && payload?.type !== "safari-lifecycle-tick") return;
-        if (typeof root.CBSafariLifetimeTick === "function") root.CBSafariLifetimeTick().catch(() => {});
+        if (typeof root.CBSafariLifetimeTick === "function") {
+          // The shared background tick schedules its work and returns void;
+          // an async host may instead return a promise.
+          try { Promise.resolve(root.CBSafariLifetimeTick()).catch(() => {}); } catch (_) {}
+        }
       });
       port.onDisconnect.addListener(() => {
         port = null;
