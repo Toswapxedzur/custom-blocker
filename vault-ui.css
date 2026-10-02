@@ -573,3 +573,14 @@ details.vui-expand[open] > summary::before {
 .vui-small {
   font-size: 11px;
 }
+
+/* Searches stay above the bounded list; filtering never changes stored data. */
+.vui-search { display: flex; align-items: center; gap: 6px; margin: 6px 0; min-width: 0; flex: none; flex-wrap: wrap; }
+.vui-search[hidden], .vui-search [hidden], .vui-search-hidden { display: none !important; }
+.vui-search input { flex: 1; min-width: 60px; width: 0; padding: 7px 10px; border: 0; border-radius: 10px; font: inherit; }
+.vui-search-clear { padding: 4px 8px; background: var(--vui-fill-strong); color: var(--vui-text); }
+.vui-search-empty { width: 100%; color: var(--vui-muted); font-size: 11px; }
+.vui-menu .vui-search { position: sticky; top: 0; background: white; z-index: 1; margin: 0; padding: 4px; }
+.vui-menu-group { padding: 6px 10px; color: var(--vui-muted); font-size: 11px; }
+
+.vui-search-count { width: auto; }
