@@ -28,8 +28,11 @@ messageListener({name:"safari-lifecycle-tick",userInfo:{type:"safari-lifecycle-t
 check(pulses===1,"native envelope wakes lifetime tick with no content tab");
 messageListener({type:"safari-lifecycle-tick"});
 check(pulses===2,"direct native heartbeat wakes lifetime tick");
+context.CBSafariLifetimeTick=()=>{pulses++;};
+messageListener({type:"safari-lifecycle-tick"});
+check(pulses===3,"shared void-returning background tick does not throw in native listener");
 messageListener({name:"other",userInfo:{type:"unrelated"}});
-check(pulses===2,"unrelated native messages do not run rules");
+check(pulses===3,"unrelated native messages do not run rules");
 context.CBSafariNativeLifecycle.connect();
 check(calls===1,"a live native port is reused");
 disconnectListener();
