@@ -1,4 +1,4 @@
 # Code manual
 
-- `en.md` — English custom-rule editor guide and supported API for this platform.
+- `en.md` — English standalone custom-rule contract, event/action schemas, panel/file behavior and limits for this platform.
 - `package-info.md` — directory guide.

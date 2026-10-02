@@ -1,85 +1,147 @@
 # Vault browser extension code manual
 
-[Back to the user manual](../manual/en.md)
+[User manual](../manual/en.md)
 
-## Write and activate a rule
+## Rule contract
 
-A custom rule is one JavaScript function expression: `(on, v) => { ... }`. The editor colors JavaScript syntax; coloring does not establish that a rule is valid or safe to run. Editing saves the source. **Run** loads it and replaces the previous handlers. Check Run status for loading errors.
+Source: one function expression `(on, v) => { ... }`. Only synchronous JavaScript and the API below are supported; no timers, network, extension APIs or direct DOM access. Time-based rules use `ev.now` and events.
 
-**Copy code docs** copies this platform's code manual. It does not include your group's source, send a request to an AI service, or run a rule. You can use these docs in your own editor or AI tool.
+- Editing saves a draft; **Run** activates it and enables the group. Frozen groups cannot Run. Empty source unloads the rule.
+- Successful Run replaces handlers and panels, preserving `v.state`. Compilation/registration failure keeps the previous rule; a timeout can stop it. Reloading the engine registers the last activated source again; closure variables reset.
+- Registration may initialize state, register handlers, show panels and log. Page/file actions and emits belong in handlers; their registration-time queue is discarded.
+- Disable suppresses handlers and lifts managed panels, sheets, covers and item verdicts. Enable restores retained panels/sheets and requests items again. Run does not clear existing sheets, covers or item verdicts. Delete removes the rule and its state/effects. Navigation, DOM mutations and file writes are not undone.
+- Events are not restricted by ordinary group targets; filter URLs/items in the rule. Actions are queued, then applied after dispatch. Exceptions stop that handler without rolling back its state/actions; later handlers may still run. No action acknowledgement exists except file/query events.
 
-Disabling the group suspends its handlers and lifts its effects. Enabling resumes the loaded rule. Deleting the group removes its handlers and persistent state. Built-in schedules and snooze settings are replaced by the behavior your custom rule implements.
+## Shared API
 
-## Events, state, and logs
+- `on(type, handler)` → boolean. Registers `handler(ev)`; multiple handlers run in registration order. False means invalid arguments or handler limit reached. `ev = { type: string, now: number, data }`; `now` is Unix milliseconds.
+- `v.state`: mutable JSON object, persisted after event dispatch. Initialize missing fields rather than overwriting existing state. Assigning a non-object or array resets it to `{}`; nonserializable/oversized updates are not persisted.
+- `v.log(...values)`: the only producer of this group's Log. Logs/Clear are independent per group. Load errors appear in Run status; handler diagnostics do not populate Log.
+- `v.emit(type, data)`: queues a JSON copy of `data` for this group's handlers after the current event, with a fresh `now`; not a synchronous call.
+- `v.panel(id, spec, tabId?)`: replaces this group's named panel; omit `tabId` for every accessible web page, or use an integer tab ID. Null `spec` removes it. See Panels.
+- `v.file(op, path, payload?)` → request ID string. See Files.
 
-Register synchronous handlers with `on(type, handler)`. The function runs once on Run; handlers respond to later events. Use `v.state` for the group's persistent JSON state. Run preserves that state.
+Other shared calls return `undefined`. IDs/state belong to one group, not its display name.
 
-Only `v.log(...)` adds entries to this group's **Log**. Each group has its own log; clearing one does not clear another. Loading and runtime failures appear in status rather than adding log entries. The Snooze button sends a `"snooze"` event; its handler decides the effect.
+## Browser events
 
-Rules have no direct network, DOM, or timer access. Browser page operations must use the browser API below. File access uses the folder selected under **Custom-rule folder** in Settings. Only `.txt`, `.csv`, and `.json` paths relative to that folder are supported. A file request returns an ID immediately and reports its result in a later `"file"` event.
+Payload notation below describes types; it is not executable code. `?` marks optional fields.
 
-## Example
+```text
+tick (~1 second): { tabs: { tabId: number, url: string, active: boolean }[] }
+tab: { kind: "open" | "navigate" | "close", tabId: number,
+       url: string, previousUrl: string | null }
+visible: { tabId: number, url: string, elapsedMs: number }
+items: { tabId: number, platform: string, items: Item[] }
+snooze: {}
+panel: { panelId: string, controlId: string, eventName: string,
+         value: string | number | boolean | null,
+         values: { [controlId: string]: string | number | boolean } }
+query: { requestId: string, tabId: number, url: string, selector: string,
+         matches: Match[], error: string }
+file: see Files
 
-Cover confidently tagged Gaming items in the browser. Wait for tagging to finish before deciding.
+Item = { ref: string, url: string, title: string, authors: string[],
+         videoForm: "short" | "long" | "post" | "unknown",
+         tags: { name: string, confidence: number }[],
+         tagsSettled: boolean, isPage: boolean }
+Match = { tag: string, text: string, href: string, src: string,
+          title: string, label: string, value: string }
+```
+
+- `tick` is approximate; use timestamps, not tick counts. `active` means selected within a browser window, not proof the user is looking at it. URLs may be empty/restricted.
+- `visible` comes from accessible, non-hidden pages; `elapsedMs` is time since their last heartbeat, zero while covered. It is not accumulated usage or playback time.
+- `items` reports new/changed supported feed items, and resends them after Run/re-enable. `ref` identifies a card on that page, not a durable content ID; `ref === "page"` denotes the page itself. Empty titles/URLs/authors are possible. `authors` contains platform-specific source identifiers.
+- Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. Item availability depends on the page's supported markup.
+- Tags require the connected Mac Classifier and a tagging-enabled build/platform (Chromium: YouTube, Reddit, Bilibili, X/`twitter`). Confidence is 1–5. `tagsSettled === false` is pending/unavailable, not untagged; settled `tags: []` is untagged. Safari/Firefox builds do not provide this tagging integration.
+- `snooze` means the group's Snooze button was pressed. It applies no pause by itself.
+- Query/file replies target the requesting group. Correlate `requestId`, check `error`/`ok`, and set a deadline using ticks: replies can be lost when a page closes, the engine reloads or the group is disabled. Request IDs can repeat after Run; pending requests are not durable work.
+
+## Browser actions
+
+Integer `tabId` must come from an event. Page actions require a page where Vault has access; internal browser pages are unavailable. Invalid inputs/unavailable targets generally produce no effect.
+
+- `v.item(tabId, ref, verdict)`: `"hide"` removes a feed card, `"dim"` covers its media, `"allow"` exempts it from lower groups, `null` clears this group's verdict. Unknown refs do nothing; use `v.cover` for `isPage`. Verdicts follow group-list order: higher hide wins; higher dim survives lower allow; allow prevents lower verdicts. A recycled/removed card needs a new decision.
+- `v.cover(tabId, on, message?)`: true covers the page, false lifts its custom cover; message defaults to empty (max 500 characters). One custom-cover slot per page; the last applied cover call wins, irrespective of group order. Address changes lift it; ordinary blocking may still cover the page.
+- `v.go(tabId, target)`: an HTTP(S) URL or `"back"`, `"forward"`, `"reload"` (target max 4096 characters).
+- `v.close(tabId)`: closes the tab.
+- `v.css(tabIdOrStar, id, css)`: integer tab ID or `"*"`; replace the group's sheet with that ID, or remove with null. Tab sheets end on address change; `"*"` sheets reach future pages. ID max 80, CSS max 100000 characters.
+- `v.dom(tabId, selector, op, arg?)`: CSS selector (max 1000); all matches, except `scrollTo` uses the first. Ops: `hide` sets inline `display:none!important`; `show` removes inline display; `click`; `setText` replaces text with `arg`; `addClass`/`removeClass` use one class name; `scrollTo` scrolls into view. Arg max 2000. Mutations persist until explicitly reversed/page replacement.
+- `v.query(tabId, selector)` → request ID string, or null for invalid arguments. Result is a later `query` event: up to 50 matches, lowercase `tag`, normalized text ≤1000 characters, attributes ≤2000, value ≤1000. No matches is successful `[]`; invalid CSS gives `error: "invalid-selector"`. A page without Vault's receiver may never reply.
+
+## Panels
+
+```text
+spec = { title?: string, description?: string, controls?: Control[],
+         position?: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "center",
+         width?: "small" | "medium" | "large" | number,
+         layout?: Layout, align?: "left" | "center" | "right", role?: Role }
+Control = { id?: string, type?: string, label?: string, value?, disabled?: boolean,
+            ariaLabel?: string, autoFocus?: boolean,
+            align?: "left" | "center" | "right", layout?: Layout,
+            width?: "full" | "auto" | number, height?: "auto" | number,
+            ...type-specific fields below }
+Layout = "vertical" | "compact" | "comfortable" | "spacious" | "inline" | "row"
+       | "wrap" | "twoColumn" | "grid" | "split" | "form" | "toolbar" | "stack"
+Role = "region" | "dialog" | "alert" | "status" | "form" | "group"
+```
+
+Defaults: position bottom-right; layout vertical; align left; role region; width content-sized. Width presets are 220/280/360px; numeric panel width clamps to 180–520px. Control width clamps to 32–520px, height to 20–360px. Numeric sizes also accept pixel strings. Vertical variants change spacing; inline/row do not wrap; wrap/toolbar wrap; twoColumn/grid/split/form use grids; stack minimizes spacing. Role supplies accessibility semantics, not modal blocking.
+
+IDs normalize to ASCII letters/digits/`_`/`-` (max 80); choose unique stable IDs. Omitted control ID becomes `control-N`, omitted/unknown type becomes text. Omitted text/lists are empty; disabled is false. Calling `v.panel` replaces the whole spec. Omitted `value` reuses the last control event value, then applies type normalization; explicit `value` overrides it. Autofocus defaults to false. Unknown fields are discarded; rule-supplied panel colors/fonts/CSS are unsupported.
+
+Control fields and values:
+
+- `text`: `text` string; defaults to label. `html`: `html` string; scripts, event attributes, dangerous URLs and styling removed.
+- `button`: `label`, optional `action: "submit" | "cancel" | "close"`; value is a string (default empty). Actions emit events; they do not submit/close anything automatically.
+- `checkbox`, `toggle`: boolean `value` (default false).
+- `select`, `radio`: `options: (string | { value: string, label?: string })[]`; string value (default empty). Empty option values removed; labels default to value.
+- `textInput`, `textarea`: string value (default empty), `placeholder`; textarea `rows` 1–12 (default 3).
+- `numberInput`, `range`: numeric value (default 0), `min`, `max`, positive `step`. Values clamp to bounds; unspecified normalization bounds are −1000000…1000000. Range widgets default to 0…100; set explicit bounds.
+- `date`: string `YYYY-MM-DD`; `time`: string `HH:MM` or `HH:MM:SS`; invalid initial formats become empty. `color`: `#RRGGBB` (default `#000000`).
+- `pin`: digit string; `length` 3–12 (default 6), `masked` true by default, `autoSubmit` false. `section`: `text`, `controls`, optional layout/align/role (role default group); child sections at depth 3 have no children (root controls depth 0).
+
+Panel events: input controls send `input`/`change` (text input changes on blur/Enter; textarea on blur/Ctrl-or-Cmd+Enter). Ordinary controls also send `focus`, `blur`, `key`; key metadata is not forwarded to the rule. Buttons send `click` **and** their configured action as separate events—handle one. PIN sends `change`, plus `submit` when autoSubmit fills it. Mount/unmount use `controlId: ""`, `value: true`. `values` contains current input values keyed by ID; it excludes buttons/text/HTML. Events have no originating tab ID; use separate panel IDs for tab-specific interactions.
+
+Text limits: title/label/ariaLabel 240; description/text 1000; HTML 20000; placeholder 500; input text 2000; other value strings 512; option value/label 256. Excess is truncated.
+
+## Files
+
+`op`: `"read"`, `"write"`, `"append"`, `"list"`, `"exists"`. Requires **Custom-rule folder** in Settings and its permission. Safari's native transport returns `local-folder-not-available`.
+
+- `path` is relative; `/` separates directories. Segments permit ASCII letters/digits, spaces and `_.,@()-`; no leading dot, `.`/`..`, absolute path or URL. File suffix: `.txt`, `.csv`, `.json` (case-insensitive). List path is a directory; `""` lists the chosen root.
+- Read returns UTF-8 text. Write replaces/creates; append creates/appends without an automatic newline. Parent directories are created on writes. String payload is written verbatim; other JSON payloads are serialized; null/omitted means empty text. JSON/CSV parsing is the rule's job. Maximum file size: 1048576 UTF-8 bytes.
+- List returns immediate visible subdirectories and supported files. Entries: `{ name: string, path: string, kind: "directory" | "file", extension?: string }`; extension includes the dot on files. Exists returns a boolean for a supported file path.
+
+```text
+file.data = { requestId: string, op: string, path: string, ok: boolean,
+              text: string | null, entries: Entry[] | null,
+              exists: boolean | null, error: string }
+```
+
+Unused result fields are null; success has empty error. Failures include invalid-path, unsupported-file-type, permission/folder unavailable, missing file and file-too-large. Treat error as a string, not a fixed exhaustive enum. Requests have no transaction/order guarantee; serialize read-modify-write operations per path.
+
+## Limits
+
+Per event per group: 256 queued actions, 200 log calls, 64 emits; excess is dropped. Per rule: 1000 handlers, 24 panels; each control list has 32 entries and each choice 64 options; excess is ignored/truncated. Emit chains stop after 16 generations. Serialized state limit: 65536 JavaScript string characters. Keep registration and each event's combined handlers under 1 second; repeated overruns or a hard timeout stop the group until Run. Log retains 200 entries, accepts 50/sec per group, and truncates long messages near 4096 characters. Timers/replies are best-effort, not real-time guarantees.
+
+## Complete rule
+
+A five-minute pause, triggered by Snooze or its panel button:
 
 ```javascript
 (on, v) => {
-  on("items", (ev) => {
-    for (const item of ev.data.items) {
-      if (item.tagsSettled && item.tags.some((tag) => tag.name === "Gaming" && tag.confidence >= 4)) {
-        v.item(ev.data.tabId, item.ref, "dim");
-        v.log("Covered", item.title);
-      }
+  v.state.pauseUntil ??= 0;
+  const pause = ev => { v.state.pauseUntil = ev.now + 300000; };
+  v.panel("pause", { controls: [{ id: "pause", type: "button", label: "Pause 5 min" }] });
+  on("snooze", pause);
+  on("panel", ev => {
+    if (ev.data.panelId === "pause" && ev.data.controlId === "pause" && ev.data.eventName === "click") pause(ev);
+  });
+  on("tick", ev => {
+    for (const tab of ev.data.tabs) {
+      if (/^https?:\/\/(www\.)?youtube\.com(?:\/|$)/i.test(tab.url)) v.cover(tab.tabId, ev.now >= v.state.pauseUntil);
     }
   });
 }
 ```
-
-## Supported API
-
-These actions control browser tabs and supported page items. They cannot block native apps.
-
-
-- CUSTOM RULE API — use only what is listed; there are no other helpers.
-
-- A rule is ONE JavaScript function expression: (on, v) => { … }. It runs once when the user presses Run: register handlers there. Run replaces the old handlers; deleting the group removes them. While the group is disabled no handler runs and what the rule did is lifted (its panels, style sheets, covers, blocks); enabling it resumes the rule as it was.
-
-- on(type, handler) adds a handler; several per type are fine. handler(ev) gets ev = { type, now (ms since 1970), data }. Handlers are synchronous and must finish within 1 s: no loops that wait, no network, no timers, no DOM of your own (you run in a sandbox).
-
-- v.state is the group's memory: one JSON object (≤ 64 KB), kept across restarts and across Run (a new version of the rule finds what the old one saved), deleted with the group. Change it freely inside handlers.
-
-- v.log(...values) writes to the group's log in the editor.
-
-- v.emit(type, data) delivers a "type" event with that data to this group, right after the current one.
-
-- v.panel(id, spec, tabId?) shows a panel (spec = { title, description, position: top-left|top-right|bottom-left|bottom-right|center, layout, width: small|medium|large, controls: [...] }); calling again replaces it; v.panel(id, null) removes it. Controls: { id, type, label, value, ... } with type text (text), html (html, sanitized; inherits Vault colors/font and discards CSS), button (action submit|cancel|close), checkbox, toggle, select / radio (options), textInput / textarea (placeholder), numberInput / range (min, max, step), date, time, color, pin (length, masked), section (controls). Interactions arrive as "panel" events: data = { panelId, controlId, eventName, value, values }.
-
-- v.file(op, path, payload?) uses the folder the user chose in Settings (.txt, .csv, .json; paths relative to it): op read | write | append | list | exists. It returns a request id; the answer arrives as a "file" event: data = { requestId, ok, op, path, text, entries, exists, error }.
-
-- Other events: "snooze" (the user pressed the group's Snooze), plus every type you v.emit.
-
-- Limits per event: 256 actions, 200 log entries, 64 emits; 24 panels of 32 controls per group.
-
-- ENGINE: the browser extension. It controls the browser only (never apps).
-
-- "tick" every second: data = { tabs: [{ tabId, url, active }] }.
-
-- "tab" when a tab opens, goes to an address or closes: data = { kind: open | navigate | close, tabId, url, previousUrl }.
-
-- "visible" while a page is visible: data = { tabId, url, elapsedMs } (the visible time since the last one).
-
-- "items" as a platform page (YouTube, Reddit, Bilibili, X…) shows items, each new or changed item once: data = { tabId, platform, items: [{ ref, url, title, authors, videoForm: short|long|post|unknown, tags: [{ name, confidence 1–5 }], tagsSettled, isPage }] }. The page itself is the item with isPage true (ref "page", title = the page's title); act on it with v.cover. tags come from Mac Vault's local classifier; tagsSettled is false until it answered — decide nothing about tags before that.
-
-- v.item(tabId, ref, verdict) hides ("hide"), covers ("dim") or rescues ("allow") a feed item; null clears it. Groups higher in the list win.
-
-- v.cover(tabId, on, message?) covers the page in place (or lifts it); a new address lifts it.
-
-- v.go(tabId, url | "back" | "forward" | "reload") navigates. v.close(tabId) closes the tab.
-
-- `v.css(tabId | "*", id, css | null)` adds (or removes) a style sheet: on a tab's page until the tab goes to another address, or (`"*"`) on every page, pages opened later too.
-
-- v.dom(tabId, selector, op, arg?) acts on the page's elements: op hide | show | click | setText (arg) | addClass (arg) | removeClass (arg) | scrollTo.
-
-- v.query(tabId, selector) reads the page: it returns a request id; the answer arrives as a "query" event: data = { requestId, tabId, url, selector, matches: [{ tag, text, href, src, title, label, value }] (at most 50, text ≤ 1000 characters), error }. A tab without a web page never answers.
-
-- EXAMPLE: (on, v) => { on("items", (ev) => { for (const item of ev.data.items) if (item.tagsSettled && item.tags.some((t) => t.name === "Gaming" && t.confidence >= 4)) v.item(ev.data.tabId, item.ref, "dim"); }); }
