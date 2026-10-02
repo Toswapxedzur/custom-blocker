@@ -56,59 +56,66 @@ def main():
                 args=[f"--disable-extensions-except={EXT}", f"--load-extension={EXT}"],
             )
         original_pages = set(ctx.pages)
-        ctx.on("serviceworker", attach)          # future SWs
-        for sw in ctx.service_workers: attach(sw) # SWs already up
-        if not ctx.service_workers:
-            try:
-                ctx.wait_for_event("serviceworker", timeout=15000)
-            except Exception as e:
-                print(f"[driver] NO service worker within 15s: {e}", file=sys.stderr)
-        sws = [sw for sw in ctx.service_workers if not a.extension_id or sw.url.startswith(f"chrome-extension://{a.extension_id}/")]
-        if a.connect_cdp and not a.extension_id and len(sws) > 1:
-            raise RuntimeError("Remote browser has multiple extensions; specify --extension-id")
-        if sws:
-            sw = sws[0]
-            print(f"[driver] extension id: {sw.url.split('/')[2]}")
-            try:   # definitive proof we can execute inside the SW context
-                info = sw.evaluate("""() => ({ name: chrome.runtime.getManifest().name,
-                    version: chrome.runtime.getManifest().version, id: chrome.runtime.id })""")
-                print(f"[driver] evaluate-in-SW OK: {info}", flush=True)
-            except Exception as e:
-                print(f"[driver] evaluate-in-SW FAILED: {e}", file=sys.stderr)
-            if a.eval:
-                try:    print(f"[driver] --eval => {sw.evaluate(a.eval)}", flush=True)
-                except Exception as e: print(f"[driver] --eval FAILED: {e}", file=sys.stderr)
-            if a.ui_script:
-                runpy.run_path(a.ui_script)["run"](ctx, sw)
-        if sws and a.popup_test:
-            try:
-                # Give the freshly created offscreen document time to register its relay.
-                sw.evaluate("async () => await ensureOffscreenDocument()")
-                page = ctx.new_page()
-                page.set_viewport_size({"width": a.width, "height": a.height})
-                page.on("pageerror", lambda error: print(f"[popup error] {error}", flush=True))
-                page.goto(f"chrome-extension://{sw.url.split('/')[2]}/popup.html")
-                deadline = time.monotonic() + 10
-                while not page.evaluate("() => typeof render === 'function' && typeof state === 'object'"):
-                    if time.monotonic() > deadline:
-                        raise RuntimeError("Popup renderer did not initialize")
-                    time.sleep(0.05)
-                page.wait_for_timeout(1000)
-                with open(a.popup_test, encoding="utf-8") as test_file:
-                    result = page.evaluate(test_file.read())
-                print(f"[driver] popup-test OK: {result}", flush=True)
-            except Exception as error:
-                failed = True
-                print(f"[driver] popup-test FAILED: {error}", file=sys.stderr)
-        time.sleep(a.hold)
-        if a.connect_cdp:
-            # Only pages created by this invocation belong to the driver. The
-            # guest launcher owns its browser/profile and its final shutdown.
-            for page in ctx.pages:
-                if page not in original_pages:
-                    page.close()
-        else:
-            ctx.close()
+        try:
+            ctx.on("serviceworker", attach)          # future SWs
+            for sw in ctx.service_workers: attach(sw) # SWs already up
+            if a.connect_cdp and a.extension_id and not any(sw.url.startswith(f"chrome-extension://{a.extension_id}/") for sw in ctx.service_workers):
+                # An existing MV3 worker may be suspended. Opening its owned popup
+                # wakes it without reloading/unloading the extension or browser.
+                wake_page = ctx.new_page()
+                wake_page.goto(f"chrome-extension://{a.extension_id}/popup.html")
+            if not any(not a.extension_id or sw.url.startswith(f"chrome-extension://{a.extension_id}/") for sw in ctx.service_workers):
+                try:
+                    ctx.wait_for_event("serviceworker", predicate=lambda sw: not a.extension_id or sw.url.startswith(f"chrome-extension://{a.extension_id}/"), timeout=15000)
+                except Exception as e:
+                    print(f"[driver] NO service worker within 15s: {e}", file=sys.stderr)
+            sws = [sw for sw in ctx.service_workers if not a.extension_id or sw.url.startswith(f"chrome-extension://{a.extension_id}/")]
+            if a.connect_cdp and not a.extension_id and len(sws) > 1:
+                raise RuntimeError("Remote browser has multiple extensions; specify --extension-id")
+            if sws:
+                sw = sws[0]
+                print(f"[driver] extension id: {sw.url.split('/')[2]}")
+                try:   # definitive proof we can execute inside the SW context
+                    info = sw.evaluate("""() => ({ name: chrome.runtime.getManifest().name,
+                        version: chrome.runtime.getManifest().version, id: chrome.runtime.id })""")
+                    print(f"[driver] evaluate-in-SW OK: {info}", flush=True)
+                except Exception as e:
+                    print(f"[driver] evaluate-in-SW FAILED: {e}", file=sys.stderr)
+                if a.eval:
+                    try:    print(f"[driver] --eval => {sw.evaluate(a.eval)}", flush=True)
+                    except Exception as e: print(f"[driver] --eval FAILED: {e}", file=sys.stderr)
+                if a.ui_script:
+                    runpy.run_path(a.ui_script)["run"](ctx, sw)
+            if sws and a.popup_test:
+                try:
+                    # Give the freshly created offscreen document time to register its relay.
+                    sw.evaluate("async () => await ensureOffscreenDocument()")
+                    page = ctx.new_page()
+                    page.set_viewport_size({"width": a.width, "height": a.height})
+                    page.on("pageerror", lambda error: print(f"[popup error] {error}", flush=True))
+                    page.goto(f"chrome-extension://{sw.url.split('/')[2]}/popup.html")
+                    deadline = time.monotonic() + 10
+                    while not page.evaluate("() => typeof render === 'function' && typeof state === 'object'"):
+                        if time.monotonic() > deadline:
+                            raise RuntimeError("Popup renderer did not initialize")
+                        time.sleep(0.05)
+                    page.wait_for_timeout(1000)
+                    with open(a.popup_test, encoding="utf-8") as test_file:
+                        result = page.evaluate(test_file.read())
+                    print(f"[driver] popup-test OK: {result}", flush=True)
+                except Exception as error:
+                    failed = True
+                    print(f"[driver] popup-test FAILED: {error}", file=sys.stderr)
+            time.sleep(a.hold)
+        finally:
+            if a.connect_cdp:
+                # Only pages created by this invocation belong to the driver. The
+                # guest launcher owns its browser/profile and its final shutdown.
+                for page in ctx.pages:
+                    if page not in original_pages:
+                        page.close()
+            else:
+                ctx.close()
     if profile is not None and not os.environ.get("PROFILE"):
         shutil.rmtree(profile)
     print(f"[driver] captured {len(seen)} SW console line(s)")
