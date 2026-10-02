@@ -54,3 +54,5 @@
 - Menu layering: `tests/popup-layering.js` checks Settings language hit testing,
   transformed clipping, viewport bounds, fallback layering, and dialog/menu
   Escape order in the actual isolated mini1 extension.
+
+- `tests/popup-list-performance.js`: isolated 10,000-entry rendering/search/page/timer regression through the existing extension driver. `VaultUI.renderList` bounds DOM rows while retaining complete stored collections.
