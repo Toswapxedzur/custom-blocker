@@ -40,7 +40,7 @@ vm.runInContext(read("group-actions.js"), context);
 vm.runInContext("Object.assign(globalThis, CBGroupActions)", context);
 // The worker's tidy, run as written (link state stubbed: no link).
 vm.runInContext([
-  "var cbConnection = { routeIsReady: () => false }; function cbGroupInLink() { return false; }",
+  "var cbConnection = { desktopRouteIsReady: () => false }; function cbGroupInLink() { return false; }",
   extractFunction(read("background.js"), "applyRuntimeNormalizations")
 ].join("\n"), context);
 const call = (expr, vars) => { Object.assign(context, vars); return vm.runInContext(expr, context); };

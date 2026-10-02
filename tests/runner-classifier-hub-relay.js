@@ -33,6 +33,7 @@ class FakeWebSocket {
 const connection = {
   ws: { readyState: FakeWebSocket.OPEN },
   status: { state: "connected" },
+  desktopProgram() { return "windowsapp"; },
   targetIsPresent(target) { return target === "classifier" && classifierPresent; },
   waitForStartup() { return startupGate; },
   sendWS(message) { sent.push(message); return true; }
@@ -69,6 +70,8 @@ function assert(name, condition, detail) {
 }
 
 (async () => {
+  assert("Activity targets the current Windows desktop while tagging targets Classifier",
+    hub.targetFor("activity-settings") === "windowsapp" && hub.targetFor("video-tags") === "classifier");
   assert(
     "browser timeout leaves a response margin after the native relay expires",
     context.__classifierHubTimeoutMs === 32_000,
