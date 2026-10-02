@@ -19,6 +19,12 @@
 - **UI regression:** `tests/runner-ui.py` runs through the existing extension
   driver’s `--ui-script` hook on mini1. Popup checks use actual chrome APIs;
   tag checks use synthetic transport with the production renderer in Chromium.
+  Content tag removal is immediate by click or Delete/Backspace; Classifier
+  tree-node deletion still confirms. Pills invert the browser color preference
+  via CSS (dark browser → light tags, light browser → dark tags), including
+  prediction/Tagging fills. Browser/native timers
+  and custom-rule panels use their earlier dark translucent surfaces, with
+  readable filled controls; settings and pause pages retain the light theme.
 
 - **Tag chooser regression:** `tests/popup-tag-chooser.js` runs through the
   same driver's `--headed --popup-test` path on mini1. It uses a synthetic
