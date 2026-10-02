@@ -137,6 +137,7 @@ button,
 }
 
 .layout-resizer:hover::before,
+.layout-resizer:focus-visible::before,
 .layout-resizer.dragging::before {
   background: var(--navy-700);
 }
@@ -1777,11 +1778,6 @@ textarea {
 .manual-content hr {
   height: 10px;
   border: none;
-}
-
-/* The resizer shows its line only while it is used. */
-.layout-resizer::before {
-  background: transparent;
 }
 
 /* Drawn checkboxes take each card's colour, as v2.1's native ones did. */
