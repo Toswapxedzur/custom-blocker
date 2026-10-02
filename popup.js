@@ -1630,6 +1630,9 @@ function setupChipField(field, options) {
 
   const list = document.createElement("div");
   list.className = "entry-chip-list vui-list-box";
+  list.dataset.vuiSearch = "vault-chips:" + field.id;
+  list.dataset.vuiSearchLabel = "Search saved entries";
+  list.dataset.vuiSearchItems = ".entry-chip";
   list.tabIndex = 0;
   const fieldLabel = field.labels?.[0];
   if (fieldLabel) {
@@ -2479,8 +2482,8 @@ function finishGroupDragRelease(context, insertIndex, callback) {
 const GROUP_DRAG_THRESHOLD_PX = 5;
 
 function startGroupReorder(event, groupId) {
-  if (event.button !== 0) {
-    return;
+  if (event.button !== 0 || VaultUI.searchQuery(groupList).trim()) {
+    return; // Clear search before reordering the full group list.
   }
   // A locked group stays where it is (its place decides which group's look a
   // page it blocks takes), like every other setting of a locked group.
@@ -6334,6 +6337,7 @@ const logFeedList = document.getElementById("logFeedList");
 const logFeedCount = document.getElementById("logFeedCount");
 const logFeedClear = document.getElementById("logFeedClear");
 const logFeedDownload = document.getElementById("logFeedDownload");
+if (logFeedList) logFeedList.addEventListener("vui-search-filtered", updateLogFeedVisibleCount);
 const logFeedSeenIds = new Set();
 let logFeedGroupId = null;
 let logFeedRequestId = 0;
@@ -6382,7 +6386,7 @@ function updateLogFeedVisibleCount() {
   if (!logFeedCount || !logFeedList) return;
   let count = 0;
   for (const child of logFeedList.children) {
-    if (child.style.display !== "none") count++;
+    if (child.style.display !== "none" && !child.classList.contains("vui-search-hidden")) count++;
   }
   logFeedCount.textContent = String(count);
 }

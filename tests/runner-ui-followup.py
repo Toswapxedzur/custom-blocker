@@ -103,7 +103,7 @@ def run(context,worker):
     results['rule_html_styles']=page.evaluate("""() => {const root=document.querySelector('#__custom_blocker_panel_root__').shadowRoot;const card=root.querySelector('[data-cb-panel-id]');const c=getComputedStyle(card);return {background:c.backgroundColor,color:c.color,font:c.fontFamily,select:root.querySelector('select')?.tagName}}""")
     results['rule_controls']=page.evaluate("""() => {const r=document.querySelector('#__custom_blocker_panel_root__').shadowRoot;return {nativeSelectHidden:getComputedStyle(r.querySelector('select')).display==='none',checkboxAppearance:getComputedStyle(r.querySelector('input[type=checkbox]')).appearance,pinFont:getComputedStyle(r.querySelector('[data-cb-panel-control-root-type=pin] div div')).fontFamily}}""")
     page.evaluate("document.querySelector('#__custom_blocker_panel_root__').shadowRoot.querySelector('[data-cb-panel-select] button').click()")
-    page.evaluate("document.querySelector('#__custom_blocker_panel_root__').shadowRoot.querySelectorAll('[data-cb-panel-select] button')[2].click()")
+    page.evaluate("[...document.querySelector('#__custom_blocker_panel_root__').shadowRoot.querySelectorAll('[data-cb-panel-select] button')].find(button=>button.textContent==='Two').click()")
     results['rule_select_choice']=page.evaluate("document.querySelector('#__custom_blocker_panel_root__').shadowRoot.querySelector('select').value")
     page.screenshot(path=str(CAP/'rule-html-styling.png'));page.close()
     expect=lambda condition,label: check(condition,label)

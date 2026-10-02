@@ -2167,17 +2167,39 @@ function __cb_drawPanelSelect(panelEl, control, input) {
   button.style.cssText = "border:0;border-radius:999px;padding:7px 12px;background:#eef2ff;color:#1e3a8a;font:inherit;text-align:left;cursor:pointer;";
   const menu = document.createElement("div");
   menu.style.cssText = "display:flex;flex-direction:column;max-height:200px;overflow-y:auto;background:#f1f5f9;border-radius:8px;padding:4px;";
+  const searchRow = document.createElement("div");
+  searchRow.style.cssText = "display:flex;gap:4px;position:sticky;top:0;background:#f1f5f9;padding:4px;";
+  const search = document.createElement("input");
+  search.type = "text";
+  search.inputMode = "search";
+  search.placeholder = "Search options";
+  search.setAttribute("aria-label", "Search options");
+  search.style.cssText = "min-width:0;width:100%;border:0;border-radius:8px;padding:6px 9px;background:white;color:#1f2937;font:inherit;";
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.textContent = "×";
+  clear.setAttribute("aria-label", "Clear search");
+  clear.style.cssText = "border:0;border-radius:8px;background:#e2e8f0;color:#1f2937;";
+  searchRow.append(search, clear);
+  const options = document.createElement("div");
+  options.style.cssText = "display:flex;flex-direction:column;";
+  menu.append(searchRow, options);
   let open = false;
   function sync() {
     button.textContent = (input.selectedOptions[0]?.textContent || "—") + " ▾";
     button.disabled = input.disabled;
     button.setAttribute("aria-expanded", String(open && !input.disabled));
     button.setAttribute("aria-label", input.getAttribute("aria-label") || button.textContent);
-    menu.replaceChildren();
+    options.replaceChildren();
     menu.hidden = !open || input.disabled;
     menu.style.display = menu.hidden ? "none" : "flex";
+    const query = search.value.trim().toLowerCase();
+    searchRow.style.display = Array.from(input.options).filter(o => !o.hidden).length > 5 || search.value ? "flex" : "none";
+    clear.hidden = !search.value;
+    let count = 0;
     for (const option of input.options) {
       if (option.hidden) continue;
+      if (query && !option.textContent.toLowerCase().includes(query)) continue;
       const item = document.createElement("button");
       item.type = "button";
       item.textContent = option.textContent;
@@ -2191,10 +2213,14 @@ function __cb_drawPanelSelect(panelEl, control, input) {
         input.dispatchEvent(new Event("change", { bubbles: true }));
         button.focus();
       });
-      menu.appendChild(item);
+      options.appendChild(item);
+      count++;
     }
+    if (!count) { const empty = document.createElement("span"); empty.textContent = "No matches"; empty.style.cssText = "padding:6px 9px;color:#64748b;"; options.appendChild(empty); }
   }
-  button.addEventListener("click", () => { open = !open; sync(); });
+  search.addEventListener("input", sync);
+  clear.addEventListener("click", () => { search.value = ""; sync(); search.focus(); });
+  button.addEventListener("click", () => { open = !open; sync(); if (open && searchRow.style.display !== "none") search.focus(); });
   box.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && open) { event.stopPropagation(); open = false; sync(); button.focus(); }
   });
