@@ -65,3 +65,7 @@
   all tags; attached content tags retain their separate 16-tag limit. Browser
   panels construct cooperatively and defer offscreen paint. Timer rows are
   reused and remain click-through. No constant-time total-data claim.
+- Icon redesign base (owner 2026-10-02): `tools/branding/vault-shield-base.svg`
+  preserves the exact current Mac Vault background and shield finish, with
+  only the complete shield scaled 1.20. Platform symbols compose separately;
+  installed icons remain unchanged during this base-review stage.
