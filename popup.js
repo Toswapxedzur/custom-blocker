@@ -688,12 +688,24 @@ window.__cbLocalFolderStatus = function (payload) {
     : t("settings.localFolderStatusNone");
 };
 
+async function safariLocalFolderRequest(type) {
+  const host = window.CBLocalHubEnvironment?.current?.nativeHost || "com.adamancia.vault.safari";
+  const response = await chrome.runtime.sendNativeMessage(host, { type });
+  if (!response || !response.ok) throw new Error(response?.error || "local-folder-not-available");
+  window.__cbLocalFolderStatus(response);
+}
+
 async function renderLocalFolderStatus() {
   if (!localFolderStatus) return;
   // Desktop: the folder grant is native (the web view has no directory picker);
   // ask the host for the current grant and let __cbLocalFolderStatus render it.
   if (IS_NATIVE_DESKTOP) {
     postToNativeShell({ kind: "local-folder-status" });
+    return;
+  }
+  if (LOCAL_PROGRAM_ID === "safari") {
+    try { await safariLocalFolderRequest("local-folder-status"); }
+    catch (error) { localFolderStatus.textContent = String(error?.message || error); }
     return;
   }
   if (!("showDirectoryPicker" in window)) {
@@ -735,6 +747,7 @@ async function renderLocalFolderStatus() {
 }
 
 async function chooseLocalFolder() {
+  if (LOCAL_PROGRAM_ID === "safari") return safariLocalFolderRequest("local-folder-choose");
   if (!("showDirectoryPicker" in window)) {
     if (localFolderStatus) localFolderStatus.textContent = t("settings.localFolderUnsupported");
     return;
@@ -780,6 +793,7 @@ async function chooseLocalFolder() {
 }
 
 async function revokeLocalFolder() {
+  if (LOCAL_PROGRAM_ID === "safari") return safariLocalFolderRequest("local-folder-revoke");
   await localFolderDbDelete(LOCAL_FOLDER_ROOT_KEY);
   await localFolderDbDelete(LOCAL_FOLDER_META_KEY);
   localFolderHandle = null;
@@ -790,14 +804,14 @@ async function revokeLocalFolder() {
 function applyConnectionStatus(raw) {
   const incoming = raw && typeof raw === "object" ? raw : {};
   const wasOnline = bridgeIsOnline();
-  const wasAway = macVaultAway();
+  const wasAway = desktopVaultAway();
   state.connectionStatus = {
     received: true,
     state: typeof incoming.state === "string" ? incoming.state : "off",
     hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
-  // Linked groups turn enforce-only (or editable again) with Mac Vault.
-  if (wasAway !== macVaultAway()) render();
+  // Linked groups turn enforce-only (or editable again) with the desktop Vault.
+  if (wasAway !== desktopVaultAway()) render();
   if (!wasOnline && bridgeIsOnline()) requestClusters();
 }
 
@@ -937,7 +951,7 @@ function renderLinkSection(group, editable) {
   if (!groupLinkSection) return;
   const cluster = groupConnectionCluster(group);
   // The Mac editor runs inside the hub itself: always reachable there.
-  const hubOnline = IS_NATIVE_DESKTOP || (bridgeIsOnline() && !macVaultAway());
+  const hubOnline = IS_NATIVE_DESKTOP || (bridgeIsOnline() && !desktopVaultAway());
   if (cluster) {
     const others = (cluster.members || []).filter((m) => m && m.program !== LOCAL_PROGRAM_ID);
     groupLinkStatus.textContent = t("link.linkedWith", {
@@ -985,7 +999,7 @@ async function sendLinkRequest(message) {
     const response = await chrome.runtime.sendMessage(message);
     if (response && response.ok === false) showLinkRefusal(response.error);
   } catch (_) {
-    showLinkRefusal("macapp-unavailable");
+    showLinkRefusal("desktop-unavailable");
   }
 }
 
@@ -2869,31 +2883,31 @@ function isGroupEditable(group, now = Date.now()) {
   return !getFreezeStatus(group, now).isFrozen && !isEnforceOnly(group);
 }
 
-// Owner 2026-09-26: Mac Vault holds a linked group's real state. While it is
+// The desktop Vault holds a linked group's real state. While it is
 // away this browser only ENFORCES a linked group (from its copy of the links,
 // kept by the worker): nothing about the group can change — settings, entries,
-// freeze, snooze, delete — until Mac Vault is back.
-function macVaultAway() {
+// freeze, snooze, delete — until the desktop Vault is back.
+function desktopVaultAway() {
   if (IS_NATIVE_DESKTOP) return false;
   const s = state.connectionStatus || {};
   // Unknown until the worker's first status push: not "away" yet.
   if (!s.received) return false;
-  return !(s.state === "connected" && s.hubProgram === "macapp");
+  return !(s.state === "connected" && (s.hubProgram === "macapp" || s.hubProgram === "windowsapp"));
 }
 
 // True (and says why) when the group is enforce-only right now.
 // The one refusal for a change the group can't take right now, with its
-// reason: Mac Vault is away (enforce-only) or the group is frozen.
+// reason: the desktop Vault is away (enforce-only) or the group is frozen.
 function refuseUnlessEditable(group) {
   if (!group) return true;
-  if (refuseWhileMacVaultAway(group)) return true;
+  if (refuseWhileDesktopVaultAway(group)) return true;
   if (isGroupEditable(group)) return false;
   setStatus(t("status.frozenCannotChange"), true);
   render();
   return true;
 }
 
-function refuseWhileMacVaultAway(group) {
+function refuseWhileDesktopVaultAway(group) {
   if (!isEnforceOnly(group)) return false;
   setStatus(t("link.enforceOnly"), true);
   render();
@@ -2901,7 +2915,7 @@ function refuseWhileMacVaultAway(group) {
 }
 
 function isEnforceOnly(group) {
-  if (!group || !macVaultAway()) return false;
+  if (!group || !desktopVaultAway()) return false;
   const links = Array.isArray(state.linkCopy) ? state.linkCopy : [];
   return links.some((cluster) => window.CBBridgeProtocol.clusterForGroup([cluster], group, LOCAL_PROGRAM_ID) === cluster);
 }
@@ -4113,7 +4127,7 @@ async function persistGroups(ids, { reorder = false, message = "" } = {}) {
 // A snooze entry the user started or ended here; the service worker / Mac
 // Vault count its time and share it with linked devices.
 async function persistSnooze(groupId, entry, message = "") {
-  if (refuseWhileMacVaultAway(state.groups.find((item) => item.id === groupId))) return;
+  if (refuseWhileDesktopVaultAway(state.groups.find((item) => item.id === groupId))) return;
   const stored = (await chrome.storage.local.get({ [GROUP_SNOOZES_KEY]: {} }))[GROUP_SNOOZES_KEY];
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: { ...(stored && typeof stored === "object" ? stored : {}), [groupId]: entry } });
   if (message) setStatus(message);
@@ -4387,7 +4401,7 @@ function deleteAllStillCovered(passedPinHashes, now = Date.now()) {
 async function deleteAllGroups() {
   await flushAutosave();
   const away = state.groups.find(isEnforceOnly);
-  if (away && refuseWhileMacVaultAway(away)) return;
+  if (away && refuseWhileDesktopVaultAway(away)) return;
 
   const plan = CBGroupActions.deleteAllPlan(state.groups, Date.now());
   if (plan.error) {
@@ -4413,7 +4427,7 @@ async function deleteAllGroups() {
 async function clearAllGroups() {
   // The last step's own check: a linked group turned enforce-only meanwhile.
   const away = state.groups.find(isEnforceOnly);
-  if (away && refuseWhileMacVaultAway(away)) return;
+  if (away && refuseWhileDesktopVaultAway(away)) return;
   const ids = state.groups.map((group) => group.id);
   state.groups = [];
   state.drafts = {};
@@ -4434,7 +4448,7 @@ async function deleteSelectedGroup() {
     return;
   }
 
-  if (refuseWhileMacVaultAway(group)) return;
+  if (refuseWhileDesktopVaultAway(group)) return;
   if (!isGroupEditable(group)) {
     setStatus(t("status.frozenCannotDelete"), true);
     render();
@@ -4802,7 +4816,7 @@ async function reorderGroups(draggedGroupId, insertIndex) {
 // hours are the wait gate; a PIN is set in the guardian settings (gear).
 async function applyFreeze() {
   const group = getSelectedGroup();
-  if (!group || refuseWhileMacVaultAway(group)) return;
+  if (!group || refuseWhileDesktopVaultAway(group)) return;
   await flushAutosave();
   const current = getSelectedGroup();
   const now = Date.now();
@@ -4829,7 +4843,7 @@ async function applyFreeze() {
 // the confirmation — always (owner 2026-09-26).
 function openUnfreezeFlow() {
   const group = getSelectedGroup();
-  if (!group || refuseWhileMacVaultAway(group)) return;
+  if (!group || refuseWhileDesktopVaultAway(group)) return;
   const plan = CBGroupActions.unlockPlan(group, Date.now());
   if (plan.error) {
     if (plan.waitUntilMs) setStatus(t("status.strictLocked"), true);
@@ -4869,7 +4883,7 @@ function openUnfreezeFlow() {
 async function persistGroupFields(groupId, fields, statusMsg) {
   // A long flow (a 10 × 5 s confirmation, an open PIN panel) checks again at
   // the end: Mac Vault may have gone away meanwhile.
-  if (refuseWhileMacVaultAway(state.groups.find((item) => item.id === groupId))) return;
+  if (refuseWhileDesktopVaultAway(state.groups.find((item) => item.id === groupId))) return;
   state.groups = state.groups.map((item) =>
     item.id === groupId ? { ...item, ...fields } : item
   );
@@ -4965,7 +4979,7 @@ function openPinEntry({ title, description, onSubmit, onCancel }) {
 
 // Guardian settings overlay: set / verify / clear the group's password.
 function openParentalSettings(group) {
-  if (refuseWhileMacVaultAway(group)) return;
+  if (refuseWhileDesktopVaultAway(group)) return;
   const pinId = "settings-pin";
   const vals = {};
   let handle = null;
@@ -5199,7 +5213,7 @@ async function handleUnfreezeConfirm() {
 async function startSnooze() {
   let group = getSelectedGroup();
 
-  if (!group || refuseWhileMacVaultAway(group)) {
+  if (!group || refuseWhileDesktopVaultAway(group)) {
     return;
   }
 
@@ -5316,7 +5330,7 @@ async function applySnoozeStart(group) {
 
 async function endSnooze() {
   const group = getSelectedGroup();
-  if (!group || refuseWhileMacVaultAway(group)) return;
+  if (!group || refuseWhileDesktopVaultAway(group)) return;
   // Ending keeps an ENDED entry (stamped now) so the end reaches linked
   // devices as the newest change (group-actions.js).
   const result = CBGroupActions.endSnoozeEntry(state.groupSnoozes[group.id], Date.now());

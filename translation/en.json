@@ -124,7 +124,7 @@
   "scopes.label": "Applies to",
   "scopes.websites": "Websites",
   "scopes.add": "Add…",
-  "scopes.browserOwnedHint": "Websites and platforms are set in the browser extension; Mac Vault only controls apps.",
+  "scopes.browserOwnedHint": "Websites and platforms are set in the browser extension; the desktop Vault controls apps.",
   "scopes.removeAria": "Remove {name} from this group",
   "scopes.apps": "Apps",
   "scopes.pageAction": "When a page of this entry is blocked",
@@ -228,7 +228,7 @@
   "freeze.gate.wait": "wait {time}",
   "freeze.gate.pin": "the PIN",
   "freeze.gate.confirm": "{count} confirmations",
-  "link.enforceOnly": "Mac Vault is offline. This group still applies here, but cannot be edited. Open Mac Vault to reconnect.",
+  "link.enforceOnly": "The desktop Vault is offline. This group still applies here, but cannot be edited. Open the desktop app to reconnect.",
   "snooze.title": "Snooze",
   "snooze.endButton": "End snooze",
   "snooze.allow": "Allow snooze for this group",
@@ -431,7 +431,6 @@
   "link.refused.not-linked": "This group isn't linked.",
   "link.refused.group-not-found": "That group no longer exists.",
   "link.refused.invalid-link": "Choose a group in another program.",
-  "link.refused.macapp-unavailable": "Open Mac Vault to change linked groups.",
   "link.candidate": "{name} ({program})",
   "editor.whatTitle": "What",
   "editor.whenTitle": "When",
@@ -443,5 +442,6 @@
   "custom.copyCodeDocs": "Copy code docs",
   "custom.docsCopied": "Code docs copied.",
   "custom.copyFailed": "Could not copy to the clipboard.",
-  "manual.codeTitle": "Code manual"
+  "manual.codeTitle": "Code manual",
+  "link.refused.desktop-unavailable": "Open the desktop Vault to change linked groups."
 }
