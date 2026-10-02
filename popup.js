@@ -5833,8 +5833,16 @@ function bindTagSuggestions(containerId, textarea, platformOf) {
 bindTagSuggestions("platformTagSuggestions", platformTagsField, () => String(getSelectedGroup()?.groupType || ""));
 async function copyCodeDocs() {
   try {
-    const docs = await fetchManualMarkdown("en", "code");
-    await copyTextToClipboard(docs);
+    const docs = fetchManualMarkdown("en", "code");
+    // WebKit requires the write request inside the click gesture. The item
+    // may resolve later, after the bundled guide finishes loading.
+    if (navigator.clipboard?.write && typeof ClipboardItem === "function") {
+      await navigator.clipboard.write([new ClipboardItem({
+        "text/plain": docs.then(text => new Blob([text], { type: "text/plain" }))
+      })]);
+    } else {
+      await copyTextToClipboard(await docs);
+    }
     setStatus(t("custom.docsCopied"));
   } catch (error) {
     setStatus(error?.message || t("custom.copyFailed"), true);

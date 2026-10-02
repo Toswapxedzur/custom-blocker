@@ -25,6 +25,20 @@ async () => {
   check(copied?.startsWith('# Vault browser extension code manual'), 'Copy code docs uses the browser guide');
   check(copied.includes('v.item') && !copied.includes('USER_REQUEST_BEGIN') && !copied.includes('onerror=alert'), 'Copied docs contain supported API without current rule or AI prompt');
   check(!document.getElementById('aiPromptPanel'), 'Retired AI prompt controls are removed');
+  const docs = copied, realFetch = window.fetch;
+  delete state.manualCache['code:en'];
+  let resolveFetch, writeStarted = false;
+  window.fetch = url => String(url).includes('code-manual/') ? new Promise(resolve => { resolveFetch = resolve; }) : realFetch(url);
+  Object.defineProperty(navigator, 'clipboard', {configurable:true, value:{write:async items => {
+    writeStarted = true;
+    copied = await (await items[0].getType('text/plain')).text();
+  }}});
+  document.getElementById('copyCodeDocsButton').click();
+  check(writeStarted && resolveFetch, 'Clipboard write starts in the click before the guide fetch resolves');
+  resolveFetch(new Response(docs)); await delay();
+  check(copied === docs, 'Deferred clipboard item resolves to the complete code guide');
+  window.fetch = realFetch;
+
   document.getElementById('manualButton').click(); await delay();
   const content = document.getElementById('manualContent');
   check(!content.textContent.includes('v.log') && !content.querySelector('pre'), 'User manual contains no code tutorial');
