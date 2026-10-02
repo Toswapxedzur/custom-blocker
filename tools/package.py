@@ -78,7 +78,7 @@ CHROMIUM_SERVICE_WORKER_FILES = [
 ]
 
 # The in-browser eval sandbox. Present on Chromium + Firefox; omitted on
-# Safari, where custom rules run natively in the macosBlocker app.
+# Safari, where custom rules run in its separate native app extension.
 SANDBOX_FILES = [
     "event-sandbox.html",
     "event-sandbox.js",

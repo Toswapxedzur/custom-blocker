@@ -1952,13 +1952,20 @@ async function createOffscreenDocumentOnce() {
 }
 
 // Safari client transport: forward an event-sandbox request to the
-// macosBlocker app's SafariWebExtensionHandler, which runs the rule in
+// separate Safari containing app's native handler, which runs the rule in
 // JavaScriptCore and returns the same { ok, result } shape the in-browser
 // sandbox produces. Any DOM/redirect intents in the reply are applied by
 // the caller exactly as for the offscreen path.
 async function sendToEventSandboxNative(payload) {
   try {
-    const message = { type: "event-sandbox-request", payload };
+    // The native journal survives Safari background restarts. Prune deleted
+    // groups before restoring it, using browser storage as the authority.
+    const stored = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] });
+    const groups = stored[BLOCKED_GROUPS_KEY];
+    const groupIds = [...new Set((Array.isArray(groups) ? groups : [])
+      .filter((group) => group?.groupType === "custom" && typeof group.id === "string" && group.id.length > 0)
+      .map((group) => group.id))];
+    const message = { type: "event-sandbox-request", payload: { ...payload, groupIds } };
     let response;
     if (chrome.runtime && typeof chrome.runtime.sendNativeMessage === "function") {
       // Safari accepts a single-arg form (routes to the container app); other
@@ -2144,17 +2151,23 @@ async function dispatchRule(type, data, { targetGroupId = null } = {}) {
 // state and panels, and the actions (per tab to its page, or by the worker).
 async function applyRuleResult(result, eventType) {
   if (!result) return;
-  for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType });
-  for (const entry of result.diagnostics || []) cbDebugError("[Vault rule]", entry.groupId, eventType, ...(entry.args || []));
-  if (result.quarantine && result.quarantine.groupId) {
+  // A group can be deleted or disabled while an asynchronous dispatch runs.
+  // Stale native/offscreen replies cannot recreate its state or act on tabs.
+  const snapshot = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [], [CB_RULE_STATE_KEY]: {} });
+  const groups = Array.isArray(snapshot[BLOCKED_GROUPS_KEY]) ? snapshot[BLOCKED_GROUPS_KEY] : [];
+  const current = new Map(groups.filter((group) => group?.groupType === "custom").map((group) => [group.id, group]));
+  for (const entry of result.logs || []) if (current.has(entry.groupId)) pushLogFeedEntry({ ...entry, eventType });
+  for (const entry of result.diagnostics || []) if (current.has(entry.groupId)) cbDebugError("[Vault rule]", entry.groupId, eventType, ...(entry.args || []));
+  if (result.quarantine && current.has(result.quarantine.groupId)) {
     quarantineGroup(result.quarantine.groupId, result.quarantine.reason || "deadline-overrun").catch(() => {});
   }
-  const states = result.states && typeof result.states === "object" ? result.states : {};
+  const states = Object.fromEntries(Object.entries(result.states && typeof result.states === "object" ? result.states : {})
+    .filter(([groupId]) => current.has(groupId)));
   if (Object.keys(states).length > 0) {
-    const stored = (await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {};
+    const stored = snapshot[CB_RULE_STATE_KEY] || {};
     await chrome.storage.local.set({ [CB_RULE_STATE_KEY]: { ...stored, ...states } });
   }
-  for (const [groupId, panels] of Object.entries(result.panels || {})) cbSetRulePanels(groupId, panels);
+  for (const [groupId, panels] of Object.entries(result.panels || {})) if (current.has(groupId)) cbSetRulePanels(groupId, panels);
   const pages = new Map(); // tabId | "*" -> { items, dom, queries, cover }
   const sheetTabs = new Set(); // tabs (or "*") whose sheets changed
   const page = (tabId) => {
@@ -2163,6 +2176,7 @@ async function applyRuleResult(result, eventType) {
   };
   for (const action of result.actions || []) {
     const { groupId, kind, tabId } = action || {};
+    if (!current.get(groupId)?.enabled) continue;
     try {
       if (kind === "item") page(tabId).items.push({ groupId, ref: action.ref, verdict: action.verdict });
       else if (kind === "cover") page(tabId).cover = { groupId, on: action.on, message: action.message };
