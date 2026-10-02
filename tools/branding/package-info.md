@@ -7,3 +7,6 @@
   viewBox and transparent margin remain unchanged. The Mac symbol is omitted;
   separate platform-symbol layers are the next stage. This is a design source,
   not a replacement installed app icon or a shipped extension resource.
+- `generate_choices.py`: compose ten curved, gradient symbol choices per app
+  onto the approved shared base; leaves active product icons untouched.
+- `choices/`: generated 40 SVGs and numbered review index; identical base/colors.
