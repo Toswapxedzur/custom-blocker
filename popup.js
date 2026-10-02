@@ -559,7 +559,14 @@ function focusVaultModal(modal, initialFocus, onEscape) {
   if (modalFocusReleases.has(modal)) return;
   let opener = document.activeElement;
   while (opener?.shadowRoot?.activeElement) opener = opener.shadowRoot.activeElement;
-  modalFocusReleases.set(modal, VaultUI.focusDialog(modal.querySelector(".modal-card"), { initialFocus, onEscape, returnFocus: opener }));
+  const openerRoot = opener?.getRootNode();
+  const returnFocus = () => {
+    if (opener?.isConnected) return opener;
+    if (opener?.id) return openerRoot?.getElementById(opener.id);
+    if (opener?.dataset?.action === "openManual") return openerRoot?.querySelector('[data-action="openManual"]');
+    return null;
+  };
+  modalFocusReleases.set(modal, VaultUI.focusDialog(modal.querySelector(".modal-card"), { initialFocus, onEscape, returnFocus }));
 }
 function releaseVaultModal(modal) {
   modalFocusReleases.get(modal)?.();
