@@ -582,9 +582,9 @@ manualContent.addEventListener("click", (event) => {
   const link = event.target.closest("a");
   if (!link) return;
   const href = link.getAttribute("href");
-  if (href === "code-manual/en.md" || href === "manual/en.md") {
+  if (href === "../code-manual/en.md" || href === "../manual/en.md") {
     event.preventDefault();
-    openManual(href.startsWith("code-") ? "code" : "user");
+    openManual(href.startsWith("../code-") ? "code" : "user");
   }
 });
 
