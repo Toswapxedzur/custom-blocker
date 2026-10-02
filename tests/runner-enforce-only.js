@@ -62,7 +62,7 @@ const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
   check("a linked group is enforce-only while Mac Vault is away", run(`cbEnforceOnly(${JSON.stringify(groups[0])})`) === true);
   check("…an unlinked group is not", run(`cbEnforceOnly(${JSON.stringify(groups[1])})`) === false);
   let err = ""; try { await run(`cbStartSnooze("L")`); } catch (e) { err = String(e.message || e); }
-  check("the cover's Snooze is refused for it", err === "mac-vault-away", err);
+  check("the cover's Snooze is refused for it", err === "desktop-vault-away", err);
   check("…but works for an unlinked group", (await run(`cbStartSnooze("U")`)).startsAtMs > 0);
   const quick = await run(`cbQuickAddState()`);
   check("the quick-add '+' offers no target while its group is enforce-only", quick.enabled === false, quick);
