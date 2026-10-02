@@ -24,7 +24,7 @@ ET.register_namespace('', NS['s'])
 def selected_svg(product):
     """Use the approved grid or apply a native symbol's reduction once."""
     if product == 'chrome':
-        # Size 05 / stroke A already has its approved 22-unit footprint.
+        # Size 06 / stroke A already has its approved 24-unit footprint.
         # Do not apply the retired Chrome-circle reduction to this grid.
         return (ROOT / 'tools/branding/chrome-grid.svg').read_text()
     source = (ROOT / f'tools/branding/choices/{product}-{SELECTIONS[product]:02d}.svg').read_text()
@@ -102,7 +102,7 @@ def generate(page, product, output):
             entries.append(struct.pack('<BBBBHHII', size if size<256 else 0, size if size<256 else 0, 0, 0, 1, 32, len(png), offset))
             data.append(png); offset+=len(png)
         (output/'windows-vault.ico').write_bytes(struct.pack('<HHH', 0, 1, len(frames))+b''.join(entries+data))
-    selection = 'grid size 05, stroke A' if product == 'chrome' else f'choice {SELECTIONS[product]:02d}, symbol −{round((1-SYMBOL_SCALES[product])*100)}%'
+    selection = 'grid size 06, stroke A' if product == 'chrome' else f'choice {SELECTIONS[product]:02d}, symbol −{round((1-SYMBOL_SCALES[product])*100)}%'
     print(f'{product} {selection}: {output}')
 
 
