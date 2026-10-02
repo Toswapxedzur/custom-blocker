@@ -1,6 +1,6 @@
 # Vault browser extension code manual
 
-[Back to the user manual](manual/en.md)
+[Back to the user manual](../manual/en.md)
 
 ## Write and activate a rule
 

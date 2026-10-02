@@ -45,7 +45,7 @@ If a linked member is offline, editing can be unavailable. Open Mac Vault and th
 
 Click the small **i** beside a field to see its explanation. Click outside it or press Escape to close it. Lists stay inside scrollable boxes; scroll the box to reach more entries. Search filters the visible list without deleting entries.
 
-Custom rules have their own [Code manual](code-manual/en.md). It explains the editor, activation, logs, file access, and the supported API.
+Custom rules have their own [Code manual](../code-manual/en.md). It explains the editor, activation, logs, file access, and the supported API.
 
 ## Websites and platform content
 
@@ -56,6 +56,8 @@ A target can cover a matching page or pause first and offer Continue after a cou
 Platform targets use **Creators** for video platforms, **Accounts** for Twitter / X, **Communities** for Reddit, and server/channel IDs for Discord. Controls apply where Vault can identify the source and content type. Content controls hide supported page elements, such as ads or video cards. Browser permissions and website changes can affect these controls.
 
 ### Content tag filters
+
+The Classifier connection and tag correction are currently available in supported Chromium browsers, such as Chrome and Edge.
 
 Connect Mac Vault and configure its Classifier to obtain tags. A blocking group's tag filter chooses what to cover or hide. It does not start or pause tagging; use Mac Vault's Classifier settings or the individual Classifier group's pause control.
 

@@ -42,10 +42,10 @@ async () => {
   document.getElementById('manualButton').click(); await delay();
   const content = document.getElementById('manualContent');
   check(!content.textContent.includes('v.log') && !content.querySelector('pre'), 'User manual contains no code tutorial');
-  const codeLink = content.querySelector('a[href="code-manual/en.md"]');
+  const codeLink = content.querySelector('a[href="../code-manual/en.md"]');
   codeLink.click(); await delay();
   check(document.getElementById('manualDialogTitle').textContent === 'Code manual' && content.textContent.includes('v.log'), 'Code link opens the separate guide in the same dialog');
-  content.querySelector('a[href="manual/en.md"]').click(); await delay();
+  content.querySelector('a[href="../manual/en.md"]').click(); await delay();
   check(document.getElementById('manualDialogTitle').textContent === 'User manual', 'Back link returns to the user guide');
   document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',bubbles:true}));
   check(document.getElementById('manualModal').classList.contains('hidden'), 'Escape dismisses the manual');
