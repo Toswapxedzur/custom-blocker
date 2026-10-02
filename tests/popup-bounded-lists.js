@@ -19,11 +19,11 @@ async () => {
   platformRulesCard.classList.remove('hidden');platformVideoFields.classList.remove('hidden');
   document.getElementById('platformAuthorsBlock').classList.remove('hidden');
   platformAuthorsField.value=Array.from({length:400},(_,i)=>'@creator'+i).join('\n');refreshChipField(platformAuthorsField);await wait();
-  bounded(platformAuthorsField.__cbChip ? platformAuthorsField.nextElementSibling : null,'creator filters');
+  bounded(platformAuthorsField.__cbChip ? document.querySelector("[data-vui-search=\"vault-chips:"+platformAuthorsField.id+"\"]") : null,'creator filters');
   const tags=document.getElementById('platformTagSuggestions');
   document.getElementById('platformTagFields').classList.remove('hidden');
   document.getElementById('platformTagListBlock').classList.remove('hidden');
-  renderTagSuggestions(tags,document.getElementById('platformTags'),Array.from({length:400},(_,i)=>'Tag '+i));await wait();bounded(tags,'tag suggestions');
+  renderTagSuggestions(tags,document.getElementById('platformTags'),Array.from({length:400},(_,i)=>'Tag '+i));await wait();tags.querySelector('button').click();await wait();bounded(document.querySelector('.tag-chooser-list'),'tag suggestions');closeTagChooser();
   const sitesHeight=blockedSitesList.clientHeight;
   blockedSitesField.value='short.example';renderBlockedSites();await wait();
   check(blockedSitesList.clientHeight<sitesHeight,'short lists fit their contents');

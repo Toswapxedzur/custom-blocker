@@ -48,3 +48,4 @@
 - **Compact Info (2026-10-02):** 10px icons retain a 24px click area; explanations use 12px text in a softly shaded, 260px-wide popup with tighter padding. English search copy is concise.
 
 - English language/manual regression: `tests/popup-language-manuals.js` checks the separate guides, code-doc copying, safe syntax coloring, matched editor layers, navigation, and Escape in the actual mini1 extension popup.
+- List search (owner 2026-10-02): `vault-ui.js` adds local search to marked lists and dropdowns with more than five entries. Queries remain display state; selectors keep their original values/events. `tests/popup-search.js` and `tests/browser-panel-search.py` verify list/dropdown/custom-panel behavior on mini1.

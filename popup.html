@@ -66,7 +66,7 @@
             </div>
           </div>
           <p id="bulkActionNotice" class="field-help"></p>
-          <div id="groupList" class="group-list vui-list-box" tabindex="0" aria-label="Blocking groups" data-i18n-aria-label="groups.listAria"></div>
+          <div id="groupList" data-vui-search="vault-groups" data-vui-search-copy="Find a blocking group by name. Clear search before reordering groups." data-vui-search-label="Search groups" data-vui-search-items=".group-card" class="group-list vui-list-box" tabindex="0" aria-label="Blocking groups" data-i18n-aria-label="groups.listAria"></div>
         </aside>
 
         <div
@@ -112,7 +112,7 @@
             <h3 class="block-title" data-i18n="editor.whatTitle">What</h3>
             <section id="groupScopesSection" class="hidden">
             <label id="groupScopesLabel" class="label" for="groupScopesAdd" data-i18n="scopes.label" data-info-key="scopes.label" data-info-copy="Choose the websites, platforms, or apps that this group applies to. Each entry keeps its own page controls.">Applies to</label>
-            <div id="groupScopesList" class="site-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="groupScopesLabel"></div>
+            <div id="groupScopesList" data-vui-search="vault-scopes" data-vui-search-label="Search targets" data-vui-search-items=".scope-chip" class="site-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="groupScopesLabel"></div>
             <select id="groupScopesAdd" class="scope-add-select"></select>
             <p id="entryOwnerHint" class="field-help hidden" data-i18n="scopes.browserOwnedHint" data-info="scopes.browserOwnedHint">Websites and platforms are set in the browser extension; Mac Vault only controls apps.</p>
           </section>
@@ -125,7 +125,7 @@
                  draft / autosave / save pipeline working unchanged. -->
             <textarea id="blockedSites" hidden></textarea>
 
-            <div id="blockedSitesList" class="site-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="siteSettingsLabel"></div>
+            <div id="blockedSitesList" data-vui-search="vault-sites" data-vui-search-label="Search websites" data-vui-search-items=".site-chip" class="site-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="siteSettingsLabel"></div>
 
             <div id="siteAddPanel" class="site-add-panel hidden">
               <textarea
@@ -152,7 +152,7 @@
               Add the apps you want this group to block. Use the plus button to search installed apps.
             </p>
             <input id="blockedAppsData" type="hidden" />
-            <div id="blockedAppsList" class="app-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="appsSettingsLabel"></div>
+            <div id="blockedAppsList" data-vui-search="vault-apps" data-vui-search-label="Search saved apps" data-vui-search-items=".app-chip" class="app-chip-list vui-list-box" role="list" tabindex="0" aria-labelledby="appsSettingsLabel"></div>
           </section>
 
             <section id="platformRulesCard" class="hidden">
@@ -225,7 +225,7 @@
               <div id="platformTagListBlock">
                 <label class="label" for="platformTags" data-i18n="tagFilter.tags" data-info-key="tagFilter.tags" data-info-copy="Add tags or tag rules to match against classified content. A confidence suffix such as @3 sets a minimum score.">Tags</label>
                 <textarea
-                  id="platformTags"
+                  id="platformTags" data-vui-find-text
                   rows="4"
                   placeholder="Gaming&#10;Drama @3"
                   data-i18n-placeholder="tagFilter.tagsPlaceholder"
@@ -315,7 +315,7 @@
                 <span class="log-feed-hint" data-i18n="logFeed.hint" data-info="logFeed.hint">Output from v.log() in this group’s custom rule.</span>
                 <button id="logFeedClear" type="button" class="weird" data-i18n="logFeed.clear">Clear</button>
               </div>
-              <div id="logFeedList" class="log-feed-list" aria-live="polite"></div>
+              <div id="logFeedList" data-vui-search="vault-logs" data-vui-search-label="Search log messages" data-vui-search-items=".log-feed-entry" class="log-feed-list" aria-live="polite"></div>
               <p id="logFeedEmpty" class="log-feed-empty" data-i18n="logFeed.empty">No output from this rule yet. Call v.log("hello") in a handler to add an entry.</p>
             </details>
 
