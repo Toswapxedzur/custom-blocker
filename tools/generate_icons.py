@@ -14,8 +14,27 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 SELECTIONS = {'mac': 4, 'windows': 3, 'chrome': 9, 'safari': 5}
+SYMBOL_SCALES = {'mac': .85, 'windows': .85, 'chrome': .90, 'safari': .90}
+SYMBOL_CENTERS = {'mac': (32, 30.5), 'windows': (32, 30), 'chrome': (32, 30), 'safari': (32, 30.5)}
 NS = {'s': 'http://www.w3.org/2000/svg'}
 ET.register_namespace('', NS['s'])
+
+
+def selected_svg(product):
+    """Apply the approved reduction once to the original selected symbol."""
+    source = (ROOT / f'tools/branding/choices/{product}-{SELECTIONS[product]:02d}.svg').read_text()
+    root = ET.fromstring(source)
+    symbol = root.find('s:g[@id="platform-symbol"]', NS)
+    x, y = SYMBOL_CENTERS[product]
+    wrapper = ET.Element('{'+NS['s']+'}g', {
+        'id': 'symbol-scale',
+        'transform': f'translate({x} {y}) scale({SYMBOL_SCALES[product]:g}) translate({-x} {-y})'
+    })
+    position = list(root).index(symbol)
+    root.remove(symbol)
+    wrapper.append(symbol)
+    root.insert(position, wrapper)
+    return '\n'.join(line.rstrip() for line in ET.tostring(root, encoding='unicode').splitlines()) + '\n'
 
 
 def inverse(svg):
@@ -41,7 +60,7 @@ def render(page, svg, path, size):
 
 def generate(page, product, output):
     output.mkdir(parents=True, exist_ok=True)
-    svg = (ROOT / f'tools/branding/choices/{product}-{SELECTIONS[product]:02d}.svg').read_text()
+    svg = selected_svg(product)
     dark = inverse(svg)
     name = 'official-vault-extension' if product == 'chrome' else f'{product}-vault'
     (output / f'{name}.svg').write_text(svg)
@@ -78,7 +97,7 @@ def generate(page, product, output):
             entries.append(struct.pack('<BBBBHHII', size if size<256 else 0, size if size<256 else 0, 0, 0, 1, 32, len(png), offset))
             data.append(png); offset+=len(png)
         (output/'windows-vault.ico').write_bytes(struct.pack('<HHH', 0, 1, len(frames))+b''.join(entries+data))
-    print(f'{product} choice {SELECTIONS[product]:02d}: {output}')
+    print(f'{product} choice {SELECTIONS[product]:02d}, symbol −{round((1-SYMBOL_SCALES[product])*100)}%: {output}')
 
 
 def main():
