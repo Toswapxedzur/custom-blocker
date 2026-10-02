@@ -1,5 +1,5 @@
-/* A video that resolves but carries no tags renders a "None" pill; a lookup that
- * fails renders nothing (and never a misleading "None"). */
+/* A video that resolves but carries no tags renders a "Untagged" pill; a lookup that
+ * fails renders nothing (and never a misleading "Untagged"). */
 "use strict";
 
 const fs = require("node:fs");
@@ -146,7 +146,7 @@ function chipNamesFor(hostRoot) {
     .map((wrap) => wrap.children[0].textContent);
 }
 
-// Phase 1: a classified video with no tags renders exactly one "None" chip.
+// Phase 1: a classified video with no tags renders exactly one "Untagged" chip.
 const noneRoot = new FakeElement("article", document);
 const noneAnchor = noneRoot.appendChild(new FakeElement("a", document));
 batchOutcome = "empty";
@@ -154,9 +154,9 @@ context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: "youtube:vi
 
 setTimeout(() => {
   const noneNames = chipNamesFor(noneRoot);
-  const rendersNone = JSON.stringify(noneNames) === JSON.stringify(["None"]);
+  const rendersNone = JSON.stringify(noneNames) === JSON.stringify(["Untagged"]);
 
-  // Phase 2: a failed lookup renders nothing — never a misleading "None".
+  // Phase 2: a failed lookup renders nothing — never a misleading "Untagged".
   const failRoot = new FakeElement("article", document);
   const failAnchor = failRoot.appendChild(new FakeElement("a", document));
   batchOutcome = "fail";
@@ -178,7 +178,7 @@ setTimeout(() => {
       const rendersTagging = JSON.stringify(pendingNames) === JSON.stringify(["Tagging"]);
 
       if (rendersNone && failBlank && rendersTagging) {
-        console.log("PASS tagless video -> None; failed lookup -> blank; pending video -> Tagging placeholder");
+        console.log("PASS tagless video -> Untagged; failed lookup -> blank; pending video -> Tagging placeholder");
         console.log("__CB_TEST_RESULT__: OK");
         return;
       }

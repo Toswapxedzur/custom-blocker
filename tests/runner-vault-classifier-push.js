@@ -284,12 +284,12 @@ const sentToTabs = [];
     check("push swaps the pill in place", JSON.stringify(chipNames()) === JSON.stringify(["Games"]), chipNames());
     check("push does not trigger another request", messages.length === requestsBeforePush, messages);
 
-    // A pushed empty result must read as the definitive "None" pill.
+    // A pushed empty result must read as the definitive "Untagged" pill.
     pushListener(
       { type: "vault-classifier-video-tags-updated", platform: "youtube", items: [{ entryID, tags: [] }] },
       { id: "ext" }
     );
-    check("pushed empty tags render the None pill", JSON.stringify(chipNames()) === JSON.stringify(["None"]), chipNames());
+    check("pushed empty tags render the Untagged pill", JSON.stringify(chipNames()) === JSON.stringify(["Untagged"]), chipNames());
 
     // A push for a not-yet-observed video pre-fills the cache: the later
     // observe renders from it without a request round-trip.

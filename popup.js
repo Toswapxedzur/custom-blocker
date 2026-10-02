@@ -99,7 +99,14 @@ const cbDialog = (function () {
         input.type = "text";
         input.readOnly = opts.kind === "show";
         input.value = opts.defaultValue != null ? String(opts.defaultValue) : "";
-        card.appendChild(input);
+        const inputRow = document.createElement("div");
+        inputRow.className = "vui-info-field";
+        if (opts.kind === "prompt") {
+          inputRow.dataset.infoKey = "dialog-value";
+          inputRow.dataset.infoLabel = opts.title || "Value";
+          inputRow.dataset.infoCopy = opts.message || "Enter the value requested by this dialog, then confirm to apply it.";
+        }
+        inputRow.appendChild(input); card.appendChild(inputRow);
       }
 
       const actions = document.createElement("div");
@@ -2090,6 +2097,9 @@ function renderSurfaceHides(group, draft, editable) {
 
     const text = document.createElement("span");
     text.textContent = t(entry.labelKey);
+    text.dataset.infoKey = "surface-hide:" + entry.id;
+    text.dataset.infoCopy = "Hide " + t(entry.labelKey).toLowerCase() +
+      (surfaceHideEntryScope(entry) === "entry" ? " on pages matching this group’s creator filter." : " on this platform’s supported pages.");
 
     // Entry-scoped hides (e.g. YouTube comments) only apply on pages matching
     // the group's author scope — flag that inline so it isn't mistaken for a
@@ -3452,6 +3462,9 @@ function updateSnoozeUI(group, now = Date.now()) {
   snoozeMinutesField.disabled = settingsLocked || !allowSnooze;
   // The snooze kind is a setting of time-limit groups only (owner 2026-09-29).
   const timeLimitMode = normalizeBlockingMode(draft?.mode ?? group.mode) === "after-minutes";
+  const budgetMode = timeLimitMode && (draft?.snoozeKind ?? group.snoozeKind) === "budget";
+  const durationLabel = document.querySelector('label[for="snoozeMinutes"]');
+  if (durationLabel) durationLabel.textContent = t(budgetMode ? "snooze.extraMinutes" : "snooze.minutes");
   snoozeKindRow.classList.toggle("hidden", isCustomGroup || !timeLimitMode);
   snoozeActivationDelayField.disabled = settingsLocked || !allowSnooze;
   snoozeCooldownField.disabled = settingsLocked || !allowSnooze;
@@ -5816,7 +5829,11 @@ function openTagChooser(container, button) {
   const list = document.createElement("div");
   list.className = "vui-list-box tag-chooser-list";
   list.setAttribute("aria-label", t("tagFilter.available"));
-  menu.append(search, list);
+  const searchRow = document.createElement("div");
+  searchRow.className = "vui-info-field";
+  searchRow.dataset.infoKey = "tag-search"; searchRow.dataset.infoLabel = "Search tags";
+  searchRow.dataset.infoCopy = "Find a tag by name, then select it to add it to this group.";
+  searchRow.appendChild(search); menu.append(searchRow, list);
   document.body.appendChild(menu);
   activeTagChooser = { container, button, menu, search, list, groupID: getSelectedGroup()?.id };
   button.setAttribute("aria-expanded", "true");
@@ -6570,3 +6587,5 @@ initializePopupApp().catch((error) => {
   console.error("Failed to initialize popup.", error);
   setStatus(t("status.errorLoadGroups"), true);
 });
+
+window.VaultInfo?.watch(document, { enabled: () => state.language === "en" });
