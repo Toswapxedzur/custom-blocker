@@ -16,7 +16,7 @@
   <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#outer)"/>
   <rect x="2" y="2" width="60" height="26" rx="16" fill="#fff" opacity=".52"/>
   <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="15" fill="none" stroke="#1c5ca8" stroke-opacity=".18"/>
-  <g>
+  <g transform="translate(32 32) scale(1.15) translate(-32 -32)">
     <g filter="url(#shadow)">
       <path d="M23 30v-4.5a9 9 0 0 1 18 0V30" fill="none" stroke="url(#inner)" stroke-width="3.6" stroke-linecap="round"/>
       <rect x="19" y="30" width="26" height="20" rx="4.5" fill="url(#inner)"/>
