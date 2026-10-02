@@ -298,6 +298,8 @@
     // cards are still collected for History but never sent for tags.
     let taggingEnabled = false;
     let scanTimer = null;
+    let scanRunning = false, scanAll = false;
+    const scanRoots = new Set();
     let pageTimer = null;
     let collectionEpoch = 0;
     let sourceIconDebugEnabled = false;
@@ -427,15 +429,25 @@
       });
     }
 
-    function scheduleScan(delay = 250) {
+    function scheduleScan(delay = 250, roots = null) {
       if (!collectionEnabled) return;
-      if (scanTimer) {
-        if (delay !== 0) return;
-        clearTimeout(scanTimer);
-      }
-      scanTimer = setTimeout(() => {
-        scanTimer = null;
-        try { config.scan({ document: global.document, collect: deliver, observe: observeOnly, core: api }); } catch (_) {}
+      if (!roots) { scanAll = true; scanRoots.clear(); }
+      else if (!scanAll) for (const root of roots) if (root?.nodeType === 1) scanRoots.add(root);
+      if (scanRunning) return;
+      if (scanTimer) { if (delay !== 0) return; clearTimeout(scanTimer); }
+      scanTimer = setTimeout(async () => {
+        scanTimer = null; scanRunning = true;
+        try {
+          while (collectionEnabled && (scanAll || scanRoots.size)) {
+            const roots = scanAll ? [global.document] : [...scanRoots];
+            scanAll = false; scanRoots.clear();
+            for (const document of roots) {
+              if (document !== global.document && !document.isConnected) continue;
+              try { await config.scan({ document, collect: deliver, observe: observeOnly, core: api }); } catch (_) {}
+              await new Promise(resolve => setTimeout(resolve, 0));
+            }
+          }
+        } finally { scanRunning = false; }
       }, delay);
     }
 
@@ -463,6 +475,7 @@
             reportDiagnostic("collection-info-failed", "runtime-last-error");
             return;
           }
+          const collectionWas = collectionEnabled;
           collectionEnabled = Boolean(response?.ok === true && response.enabled === true);
           const taggingWas = taggingEnabled;
           taggingEnabled = collectionEnabled && response.tagging === true;
@@ -472,7 +485,7 @@
           if (taggingWas && !taggingEnabled) TagUI?.clearPlatform?.(platform);
           if (collectionEnabled) {
             reportDiagnostic("collection-info-enabled");
-            scheduleScan();
+            if (!collectionWas || taggingWas !== taggingEnabled) scheduleScan();
             schedulePageCheck();
           } else {
             TagUI?.clearPlatform?.(platform);
@@ -489,7 +502,15 @@
       // Every collector gets the late-source handling previously required by
       // YouTube, but only approved image attributes trigger an attribute scan.
       const sourceIconChanged = records.some((record) => record.type === "attributes" && record.target?.matches?.("img, source"));
-      if (records.some((record) => record.type === "childList") || sourceIconChanged) scheduleScan(sourceIconChanged ? 0 : 250);
+      const roots = new Set();
+      for (const record of records) {
+        if (record.type !== "childList" && !sourceIconChanged) continue;
+        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+        const card = config.cardSelector && target?.closest?.(config.cardSelector);
+        if (card) roots.add(card);
+        else for (const added of record.addedNodes || []) if (added.nodeType === 1) roots.add(added);
+      }
+      if (roots.size) scheduleScan(sourceIconChanged ? 0 : 250, roots);
       schedulePageCheck();
     });
     const observerOptions = {
@@ -550,6 +571,7 @@
 
   const api = Object.freeze({
     SOURCE_ICON_ATTRIBUTES,
+    yieldScan: () => new Promise(resolve => setTimeout(resolve, 0)),
     compactText,
     safeURL,
     canonicalContentURL,
