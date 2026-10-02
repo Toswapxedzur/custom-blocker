@@ -22,11 +22,9 @@ ET.register_namespace('', NS['s'])
 
 
 def selected_svg(product):
-    """Use the approved grid or apply a native symbol's reduction once."""
+    """Restore the original extension lock or scale a native symbol once."""
     if product == 'chrome':
-        # Size 05 / stroke A already has its approved 22-unit footprint.
-        # Do not apply the retired Chrome-circle reduction to this grid.
-        return (ROOT / 'tools/branding/chrome-grid.svg').read_text()
+        return (ROOT / 'tools/branding/extension-lock.svg').read_text()
     source = (ROOT / f'tools/branding/choices/{product}-{SELECTIONS[product]:02d}.svg').read_text()
     root = ET.fromstring(source)
     symbol = root.find('s:g[@id="platform-symbol"]', NS)
@@ -66,7 +64,7 @@ def render(page, svg, path, size):
 def generate(page, product, output):
     output.mkdir(parents=True, exist_ok=True)
     svg = selected_svg(product)
-    dark = inverse(svg)
+    dark = (ROOT / 'tools/branding/extension-lock-inverse-dark.svg').read_text() if product == 'chrome' else inverse(svg)
     name = 'official-vault-extension' if product == 'chrome' else f'{product}-vault'
     (output / f'{name}.svg').write_text(svg)
     (output / f'{name}-inverse-dark.svg').write_text(dark)
@@ -102,7 +100,7 @@ def generate(page, product, output):
             entries.append(struct.pack('<BBBBHHII', size if size<256 else 0, size if size<256 else 0, 0, 0, 1, 32, len(png), offset))
             data.append(png); offset+=len(png)
         (output/'windows-vault.ico').write_bytes(struct.pack('<HHH', 0, 1, len(frames))+b''.join(entries+data))
-    selection = 'grid size 05, stroke A' if product == 'chrome' else f'choice {SELECTIONS[product]:02d}, symbol −{round((1-SYMBOL_SCALES[product])*100)}%'
+    selection = 'original lock' if product == 'chrome' else f'choice {SELECTIONS[product]:02d}, symbol −{round((1-SYMBOL_SCALES[product])*100)}%'
     print(f'{product} {selection}: {output}')
 
 
