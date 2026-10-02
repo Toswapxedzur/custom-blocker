@@ -55,12 +55,15 @@
   core.start({
     platform: "twitch",
     matchesPage,
-    scan({ document, collect }) {
+    cardSelector: "[data-a-target=\"preview-card\"], [data-a-target=\"preview-card-image-link\"]",
+    async scan({ document, collect }) {
       const cards = core.uniqueElements([
         ...core.selectorElements(document, '[data-a-target="preview-card"]'),
         ...core.selectorElements(document, '[data-a-target="preview-card-image-link"]')
-      ]).slice(0, 80);
+      ]);
+      let scanned = 0;
       for (const card of cards) {
+        if (++scanned % 32 === 0) await core.yieldScan();
         const entry = core.firstAnchor(card, ['a[data-a-target="preview-card-image-link"]', 'a[data-a-target="preview-card-title-link"]', 'a[href*="/clip/"]', 'a[href^="/videos/"]'], isPreview);
         if (!entry) continue;
         const source = channelSource(card, entry);

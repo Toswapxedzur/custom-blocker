@@ -154,7 +154,7 @@
       return;
     }
     const reapply = global.cbReapplyTagFilters;
-    if (typeof reapply === "function") { try { reapply(); } catch (_) {} }
+    if (typeof reapply === "function") { try { reapply(state.root); } catch (_) {} }
   }
 
   // The root is going away: lift a page blackout it owned. Feed cards need
@@ -542,13 +542,28 @@
     const applied = new Set(realTagIDs(state));
     const items = taxonomy ? [...taxonomy.tagByID.values()].filter((tag) => !applied.has(tag.id)) : [];
     items.sort((a, b) => a.name.localeCompare(b.name));
-    if (!items.length) {
+    let page = 0;
+    const pager = document.createElement("div"); pager.className = "panel-head";
+    const previous = document.createElement("button"), next = document.createElement("button"), count = document.createElement("span");
+    previous.type = next.type = "button"; previous.className = next.className = "panel-close";
+    previous.textContent = "‹"; next.textContent = "›";
+    previous.setAttribute("aria-label", "Previous tags"); next.setAttribute("aria-label", "Next tags"); count.setAttribute("role", "status");
+    pager.append(previous, count, next); panel.append(pager);
+    function paintChoices(reset = false) {
+      if (reset) page = 0;
+      const query = search.value.trim().toLowerCase(), matches = items.filter(tag => tag.name.toLowerCase().includes(query));
+      page = Math.max(0, Math.min(page, Math.ceil(matches.length / 40) - 1));
+      list.replaceChildren();
+      previous.disabled = !page; next.disabled = (page + 1) * 40 >= matches.length;
+      count.textContent = matches.length ? `${page * 40 + 1}–${Math.min((page + 1) * 40, matches.length)} / ${matches.length}` : "No matches";
+      pager.hidden = matches.length <= 40;
+    if (!matches.length) {
       const empty = document.createElement("div");
       empty.className = "panel-empty";
       empty.textContent = taxonomy ? "No more tags" : "No tags available";
       list.append(empty);
     } else {
-      for (const tag of items) {
+      for (const tag of matches.slice(page * 40, (page + 1) * 40)) {
         const item = document.createElement("button");
         item.className = "panel-item";
         item.type = "button";
@@ -567,6 +582,10 @@
         list.append(item);
       }
     }
+    }
+    panel.__paintChoices = paintChoices;
+    previous.onclick = () => { page--; paintChoices(); }; next.onclick = () => { page++; paintChoices(); };
+    paintChoices();
     placeTagPanel(state);
     updateCorrectionStatus(state);
   }
@@ -677,10 +696,7 @@
     shadow.addEventListener("input", (event) => {
       const search = event.target?.closest?.(".panel-search");
       if (!search) return;
-      const query = search.value.trim().toLowerCase();
-      panel.querySelectorAll(".panel-item").forEach((el) => {
-        el.style.display = !query || (el.dataset.name || "").includes(query) ? "flex" : "none";
-      });
+      panel.__paintChoices?.(true);
     });
     }
 
