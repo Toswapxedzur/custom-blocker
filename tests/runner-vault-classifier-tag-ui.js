@@ -225,8 +225,8 @@ setTimeout(() => {
     && JSON.stringify(secondDarkColors) === JSON.stringify(["#1A4775", "#6B246F"])
     && pillStyle.includes("border-radius:999px")
     && pillStyle.includes("background:var(--vault-tag-color-light)")
-    && pillStyle.includes("color:#000")
-    && !pillStyle.includes("prefers-color-scheme:dark")
+    && pillStyle.includes("color:#fff")
+    && pillStyle.includes("prefers-color-scheme:dark")
     && pillStyle.includes("color-scheme:light")
     && pillStyle.includes("Arial,Helvetica,sans-serif");
 

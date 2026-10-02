@@ -589,19 +589,20 @@
       // the add panel can overflow the host without being clipped.
       ":host{all:initial;display:inline-block;max-width:100%;color-scheme:light;contain:layout style}",
       ".rail{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;max-width:100%;vertical-align:middle}",
-      ".chip{box-sizing:border-box;display:inline-flex;align-items:center;max-width:220px;min-height:18px;padding:1px 7px;border:0;border-radius:999px;background:var(--vault-tag-color-light);color:#000;font:600 11px/16px Arial,Helvetica,sans-serif;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 2px rgba(0,0,0,.18)}",
-      // Predictions keep the tag's light color and a dashed outline.
-      ".chip.predicted{background:var(--vault-tag-color-light);color:var(--vault-tag-color-dark);border:1px dashed var(--vault-tag-color-dark);box-shadow:none}",
+      ".chip{box-sizing:border-box;display:inline-flex;align-items:center;max-width:220px;min-height:18px;padding:1px 7px;border:0;border-radius:999px;background:var(--vault-tag-color-dark);color:#fff;font:600 11px/16px Arial,Helvetica,sans-serif;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 2px rgba(0,0,0,.18)}",
+      // Pills contrast with the browser preference, keeping tag hues and prediction outlines.
+      ".chip.predicted{background:var(--vault-tag-color-dark);color:var(--vault-tag-color-light);border:1px dashed var(--vault-tag-color-light);box-shadow:none}",
       // The temporary "Tagging" placeholder: muted, dashed, gently pulsing.
-      ".chip.tagging{background:var(--vault-tag-color-light);color:var(--vault-tag-color-dark);border:1px dashed var(--vault-tag-color-dark);box-shadow:none;animation:vault-tagging 1.2s ease-in-out infinite}",
+      ".chip.tagging{background:var(--vault-tag-color-dark);color:var(--vault-tag-color-light);border:1px dashed var(--vault-tag-color-light);box-shadow:none;animation:vault-tagging 1.2s ease-in-out infinite}",
       "@keyframes vault-tagging{0%,100%{filter:brightness(.94)}50%{filter:brightness(1)}}",
       // Live correction: a delete affordance on hover, an add button, and a small panel.
       ".chip-wrap{position:relative;display:inline-flex;align-items:center}",
-      ".chip-del{position:absolute;top:-6px;right:-6px;width:14px;height:14px;padding:0;display:none;align-items:center;justify-content:center;border:0;border-radius:999px;background:#fee2e2;color:#991b1b;font:700 10px/1 Arial,Helvetica,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.35)}",
+      ".chip-del{position:absolute;top:-6px;right:-6px;width:14px;height:14px;padding:0;display:none;align-items:center;justify-content:center;border:0;border-radius:999px;background:#991b1b;color:#fee2e2;font:700 10px/1 Arial,Helvetica,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.35)}",
       ".chip-wrap:hover .chip-del,.chip-wrap:focus-within .chip-del{display:inline-flex}",
-      ".add-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-height:18px;padding:1px 8px;border:0;border-radius:999px;background:#eef2ff;color:#1e3a8a;font:600 11px/16px Arial,Helvetica,sans-serif;cursor:pointer;opacity:.7}",
+      ".add-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-height:18px;padding:1px 8px;border:0;border-radius:999px;background:#1e3a8a;color:#eef2ff;font:600 11px/16px Arial,Helvetica,sans-serif;cursor:pointer;opacity:.7}",
       ".add-btn:hover{opacity:1}",
-      ".chip-del.armed{display:inline-flex;width:auto;white-space:nowrap;padding:2px 6px;height:18px;top:-10px}",
+      // CSS updates already-mounted pills when the browser preference changes.
+      "@media (prefers-color-scheme:dark){.chip,.chip.predicted,.chip.tagging{background:var(--vault-tag-color-light);color:#000}.chip.predicted,.chip.tagging{color:var(--vault-tag-color-dark);border-color:var(--vault-tag-color-dark)}.add-btn{background:#eef2ff;color:#1e3a8a}.chip-del{background:#fee2e2;color:#991b1b}}",
       ".panel{position:absolute;top:calc(100% + 4px);left:0;z-index:2147483647;width:190px;max-height:230px;display:none;flex-direction:column;background:#fff;color:#1f2937;border:0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.22);overflow:hidden;font:500 12px/1.3 Arial,Helvetica,sans-serif}",
       ".panel.open{display:flex}",
       ".panel-head{display:flex;align-items:center;justify-content:space-between;padding:7px 9px 4px;font-weight:700}",
@@ -637,7 +638,7 @@
       const target = event.target;
       if (typeof target?.closest !== "function") return;
       const del = target.closest(".chip-del");
-      if (del) { event.preventDefault(); event.stopPropagation(); confirmTagRemoval(state, del); return; }
+      if (del) { event.preventDefault(); event.stopPropagation(); removeTag(state, del); return; }
       if (target.closest(".add-btn")) { event.preventDefault(); event.stopPropagation(); openAddPanel(state, panel); return; }
       // The pill host is injected inside the card's own link; any click within
       // the panel (search box, list, backdrop) must be swallowed so it never
@@ -671,7 +672,7 @@
       const state = hostState.get(host);
       if (!del || !state || event.repeat) return;
       event.preventDefault(); event.stopPropagation();
-      confirmTagRemoval(state, del);
+      removeTag(state, del);
     });
     shadow.addEventListener("input", (event) => {
       const search = event.target?.closest?.(".panel-search");
@@ -695,29 +696,10 @@
     return { host, rail, panel, status };
   }
 
-  function showRemovalConfirmation(state, button) {
-    const armed = state.removal?.id === button.dataset.tagId && state.removal.until > Date.now();
-    button.textContent = armed ? "Confirm ×" : "×";
-    button.classList.toggle("armed", armed);
-    button.setAttribute("aria-label", armed ? "Click again or press Delete again to remove tag" : "Remove tag");
-  }
-
-  function confirmTagRemoval(state, button) {
+  function removeTag(state, button) {
     const id = button.dataset.tagId;
     if (state.correctionPending || !(state.currentTags || []).some((tag) => tag.id === id)) return;
-    const now = Date.now();
-    if (state.removal?.id === id && state.removal.until > now) {
-      state.removal = null;
-      editTags(state, { removeID: id });
-      return;
-    }
-    const removal = state.removal = { id, until: now + 4000 };
-    state.rail.querySelectorAll(".chip-del").forEach((del) => showRemovalConfirmation(state, del));
-    global.setTimeout(() => {
-      if (state.removal !== removal) return;
-      state.removal = null;
-      state.rail?.querySelectorAll(".chip-del").forEach((del) => showRemovalConfirmation(state, del));
-    }, 4000);
+    editTags(state, { removeID: id });
   }
 
   function render(state, tags, predicted = false) {
@@ -755,7 +737,6 @@
     const focusedTag = state.rail.getRootNode?.().activeElement?.closest?.(".chip-wrap")?.querySelector(".chip-del")?.dataset.tagId;
     state.rail.replaceChildren?.();
     state.currentTags = tags;
-    if (state.removal && !tags.some((tag) => tag.id === state.removal.id)) state.removal = null;
     const document = state.root.ownerDocument || global.document;
     const isTagging = tags.length === 1 && tags[0].id === "vault:tagging";
     for (const tag of tags) {
@@ -771,7 +752,7 @@
       // Real tags carry a hover delete affordance; the None/Tagging placeholders do not.
       if (!SYNTHETIC_IDS.has(tag.id)) {
         wrap.tabIndex = 0;
-        wrap.setAttribute("aria-label", tag.name + ". Press Delete twice to remove");
+        wrap.setAttribute("aria-label", tag.name + ". Press Delete to remove");
         wrap.setAttribute("aria-keyshortcuts", "Delete Backspace");
         const del = document.createElement("button");
         del.className = "chip-del";
@@ -779,7 +760,6 @@
         del.textContent = "×";
         del.dataset.tagId = tag.id;
         del.setAttribute("aria-label", "Remove tag");
-        showRemovalConfirmation(state, del);
         wrap.appendChild(del);
         if (tag.id === focusedTag) global.setTimeout(() => { if (wrap.isConnected) wrap.focus(); }, 0);
       }
