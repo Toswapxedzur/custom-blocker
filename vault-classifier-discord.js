@@ -29,15 +29,18 @@
   core.start({
     platform: "discord",
     matchesPage,
-    scan({ document, collect }) {
+    cardSelector: "li[id^=\"chat-messages-\"], [role=\"listitem\"][id^=\"chat-messages-\"]",
+    async scan({ document, collect }) {
       const activeRoute = route(global.location);
       if (!activeRoute) return;
       const messages = core.uniqueElements([
         ...core.selectorElements(document, 'li[id^="chat-messages-"]'),
         ...core.selectorElements(document, '[role="listitem"][id^="chat-messages-"]')
-      ]).slice(0, 80);
-      const server = serverElement(document, activeRoute.serverID);
+      ]);
+      const server = serverElement(global.document, activeRoute.serverID);
+      let scanned = 0;
       for (const message of messages) {
+        if (++scanned % 32 === 0) await core.yieldScan();
         const match = String(message.id || "").match(/^chat-messages-([0-9]{6,24})$/);
         const messageID = match?.[1];
         const content = messageID

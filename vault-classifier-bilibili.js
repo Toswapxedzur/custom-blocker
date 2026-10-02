@@ -38,14 +38,17 @@
   core.start({
     platform: "bilibili",
     matchesPage,
-    scan({ document, collect, observe }) {
+    cardSelector: ".bili-video-card, .video-page-card-small, article",
+    async scan({ document, collect, observe }) {
       const cards = core.uniqueElements([
         ...core.selectorElements(document, ".bili-video-card"),
         // The video page's "up next" / recommendation sidebar (verified live 2026-09-10).
         ...core.selectorElements(document, ".video-page-card-small"),
         ...core.selectorElements(document, "article")
-      ]).slice(0, 80);
+      ]);
+      let scanned = 0;
       for (const card of cards) {
+        if (++scanned % 32 === 0) await core.yieldScan();
         const entry = core.firstAnchor(card, ['a[href*="/video/BV"]'], isVideo);
         if (!entry) continue;
         const source = core.firstAnchor(card, ['a[href*="space.bilibili.com/"]'], (anchor) => Boolean(core.normalizedSourceIdentity("bilibili", anchor.href)));

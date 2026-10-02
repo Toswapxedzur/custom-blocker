@@ -966,18 +966,8 @@ function renderLinkSection(group, editable) {
   const candidates = linkCandidates();
   groupLinkStatus.textContent = t(candidates.length > 0 || !hubOnline ? "link.none" : "link.noCandidates");
   const current = groupLinkTarget.value;
-  groupLinkTarget.innerHTML = "";
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = t("link.pickPlaceholder");
-  groupLinkTarget.appendChild(placeholder);
-  for (const candidate of candidates) {
-    const option = document.createElement("option");
-    option.value = `${candidate.program}␟${candidate.id}`;
-    option.textContent = t("link.candidate", { name: candidate.name, program: programLabel(candidate.program) });
-    groupLinkTarget.appendChild(option);
-  }
-  if ([...groupLinkTarget.options].some((o) => o.value === current)) groupLinkTarget.value = current;
+  const choices = [["", t("link.pickPlaceholder")], ...candidates.map(candidate => [`${candidate.program}␟${candidate.id}`, t("link.candidate", { name: candidate.name, program: programLabel(candidate.program) })])];
+  window.VaultUI.setSelectOptions(groupLinkTarget, choices, choices.some(choice => choice[0] === current) ? current : "");
   groupLinkTarget.classList.remove("hidden");
   groupLinkButton.classList.remove("hidden");
   groupUnlinkButton.classList.add("hidden");
@@ -1329,13 +1319,18 @@ function commitBlockedSites(sites) {
 // window.__cbAppInventory: id + name + icon); elsewhere the chips are read-only
 // and the entry arrives through a linked group.
 
+let appInventoryIndex = { source: null, size: -1, byID: new Map() };
 function getAppInventory() {
   return Array.isArray(window.__cbAppInventory) ? window.__cbAppInventory : [];
 }
 
 function findInventoryApp(bundleId) {
   if (!bundleId) return null;
-  return getAppInventory().find((entry) => entry && entry.id === bundleId) || null;
+  const inventory = getAppInventory();
+  if (appInventoryIndex.source !== inventory || appInventoryIndex.size !== inventory.length) {
+    appInventoryIndex = { source: inventory, size: inventory.length, byID: new Map(inventory.filter(Boolean).map(app => [app.id, app])) };
+  }
+  return appInventoryIndex.byID.get(bundleId) || null;
 }
 
 function appDisplayName(app) {
@@ -1392,8 +1387,8 @@ function makeAppIconElement(app) {
 
 function renderBlockedApps() {
   if (!blockedAppsList) return;
-  blockedAppsList.innerHTML = "";
-  for (const app of getDraftApps()) {
+  VaultUI.renderList(blockedAppsList, { scope: document, key: blockedAppsList.dataset.vuiSearch,
+    items: getDraftApps(), text: app => appDisplayName(app) + " " + app.id, render: app => {
     const chip = document.createElement("div");
     chip.className = "app-chip";
     chip.setAttribute("role", "listitem");
@@ -1415,8 +1410,8 @@ function renderBlockedApps() {
       });
       chip.appendChild(remove);
     }
-    blockedAppsList.appendChild(chip);
-  }
+    return chip;
+  }, trailing: fragment => {
   if (!blockedAppsEditable) return;
   const addTile = document.createElement("button");
   addTile.type = "button";
@@ -1424,7 +1419,8 @@ function renderBlockedApps() {
   addTile.setAttribute("aria-label", t("apps.addAria"));
   addTile.textContent = "+";
   addTile.addEventListener("click", () => openAppPicker());
-  blockedAppsList.appendChild(addTile);
+  fragment.appendChild(addTile);
+  } });
 }
 
 function openAppPicker() {
@@ -1452,10 +1448,8 @@ function renderAppPickerResults(query) {
       if (!normalizedQuery) return true;
       const name = (app.name || "").toLowerCase();
       return name.includes(normalizedQuery) || app.id.toLowerCase().includes(normalizedQuery);
-    })
-    .slice(0, 60);
-  appPickerResults.innerHTML = "";
-  for (const app of matches) {
+    });
+  VaultUI.renderList(appPickerResults, { scope: document, key: "app-picker", searchable: false, items: matches, text: app => app.name + " " + app.id, pageSize: 60, render: app => {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "app-picker-row";
@@ -1476,8 +1470,8 @@ function renderAppPickerResults(query) {
       commitBlockedApps([...getDraftApps(), { id: app.id, name: app.name || app.id }]);
       closeAppPicker();
     });
-    appPickerResults.appendChild(row);
-  }
+    return row;
+  } });
   if (appPickerEmpty) appPickerEmpty.classList.toggle("hidden", matches.length > 0);
 }
 
@@ -1538,9 +1532,8 @@ function renderBlockedSites() {
     closeSiteAddPanel();
   }
 
-  blockedSitesList.innerHTML = "";
-
-  for (const host of getDraftSites()) {
+  VaultUI.renderList(blockedSitesList, { scope: document, key: blockedSitesList.dataset.vuiSearch,
+    items: getDraftSites(), text: host => host, render: host => {
     const chip = document.createElement("div");
     chip.className = "site-chip";
     chip.setAttribute("role", "listitem");
@@ -1566,8 +1559,8 @@ function renderBlockedSites() {
       chip.appendChild(remove);
     }
 
-    blockedSitesList.appendChild(chip);
-  }
+    return chip;
+  }, trailing: fragment => {
 
   // Trailing "+" tile to reveal the multi-line add panel.
   const addTile = document.createElement("button");
@@ -1577,7 +1570,8 @@ function renderBlockedSites() {
   addTile.textContent = "+";
   addTile.disabled = !editable;
   addTile.addEventListener("click", () => openSiteAddPanel());
-  blockedSitesList.appendChild(addTile);
+  fragment.appendChild(addTile);
+  } });
 }
 
 function openSiteAddPanel() {
@@ -1697,8 +1691,7 @@ function setupChipField(field, options) {
   function renderChips() {
     const editable = !field.disabled;
     list.classList.toggle("entry-chip-list-disabled", !editable);
-    list.innerHTML = "";
-    for (const entry of getChipFieldEntries(field)) {
+    VaultUI.renderList(list, { scope: document, key: list.dataset.vuiSearch, items: getChipFieldEntries(field), text: entry => entry, render: entry => {
       const valid = normalize(entry) !== null;
       const chip = document.createElement("span");
       chip.className = "entry-chip" + (valid ? "" : " entry-chip-invalid");
@@ -1721,12 +1714,13 @@ function setupChipField(field, options) {
         });
         chip.appendChild(remove);
       }
-      list.appendChild(chip);
-    }
+      return chip;
+    }, trailing: fragment => {
 
     addInput.disabled = !editable;
     addInput.placeholder = t("chip.addPlaceholder");
-    list.appendChild(addInput);
+    fragment.appendChild(addInput);
+    } });
   }
 
   field.__cbChip = { render: renderChips };
@@ -2571,7 +2565,7 @@ function startGroupReorder(event, groupId) {
     }
 
     finishGroupDragRelease(dragContext, insertIndex, () => {
-      reorderGroups(draggedGroupId, insertIndex).catch((error) => {
+      reorderGroups(draggedGroupId, state.groups.findIndex(group => group.id === dragContext.cards[insertIndex].dataset.groupId)).catch((error) => {
         console.error("Failed to reorder block groups.", error);
         setStatus(t("status.errorReorderGroups"), true);
         clearDragState(true);
@@ -2829,8 +2823,16 @@ function markCustomGroupSourceActive(groupId, source) {
   }
 }
 
+let indexedGroups = null, indexedGroupCount = -1, groupsByID = new Map();
+function groupByID(groupId) {
+  if (indexedGroups !== state.groups || indexedGroupCount !== state.groups.length) {
+    indexedGroups = state.groups; indexedGroupCount = state.groups.length;
+    groupsByID = new Map(state.groups.map(group => [group.id, group]));
+  }
+  return groupsByID.get(groupId);
+}
 function getDraftForGroup(groupId) {
-  const group = state.groups.find((item) => item.id === groupId);
+  const group = groupByID(groupId);
   return group ? { ...groupToDraft(group), ...(state.drafts[groupId] || {}) } : null;
 }
 
@@ -3253,14 +3255,13 @@ function updateBulkActionsUI(now = Date.now()) {
   bulkActionNotice.textContent = strictLocked ? t("groups.deleteAllDisabled") : "";
 }
 
+let renderedGroups = null;
 function renderGroupList(now = Date.now()) {
   groupList.classList.remove("is-reordering");
-  groupList.textContent = "";
+  renderedGroups = state.groups;
 
-  // No groups: the editor says so, with its own Add button.
-  if (state.groups.length === 0) return;
-
-  for (const group of state.groups) {
+  VaultUI.renderList(groupList, { scope: document, key: groupList.dataset.vuiSearch,
+    items: state.groups, text: group => (getDraftForGroup(group.id)?.name || group.name) + " " + getGroupMetaText(group, getDraftForGroup(group.id), now), render: group => {
     const draft = getDraftForGroup(group.id);
     const card = document.createElement("div");
     card.className = `group-card${group.id === state.selectedGroupId ? " active" : ""}${group.enabled ? "" : " is-off"}`;
@@ -3355,8 +3356,8 @@ function renderGroupList(now = Date.now()) {
       selectGroup(group.id);
     });
 
-    groupList.appendChild(card);
-  }
+    return card;
+  } });
 }
 
 // The badge and the card select the same remembered destination.
@@ -3892,21 +3893,11 @@ function renderDynamicView() {
 function refreshGroupListInPlace(now) {
   const cards = groupList.querySelectorAll(".group-card[data-group-id]");
 
-  if (cards.length !== state.groups.length) {
-    renderGroupList(now);
-    return;
-  }
+  if (renderedGroups !== state.groups) { renderGroupList(now); return; }
 
-  for (let i = 0; i < cards.length; i++) {
-    if (cards[i].dataset.groupId !== state.groups[i].id) {
-      renderGroupList(now);
-      return;
-    }
-  }
-
-  for (let i = 0; i < cards.length; i++) {
-    const card = cards[i];
-    const group = state.groups[i];
+  for (const card of cards) {
+    const group = groupByID(card.dataset.groupId);
+    if (!group) { renderGroupList(now); return; }
     const draft = getDraftForGroup(group.id);
 
     const wantsActive = group.id === state.selectedGroupId;
@@ -5774,8 +5765,8 @@ function updateTagChooser() {
   const { textarea, names } = tagSuggestionState.get(chooser.container);
   const query = chooser.search.value.trim().toLowerCase(), used = usedTagNames(textarea);
   const scroll = chooser.list.scrollTop;
-  chooser.list.replaceChildren();
-  for (const name of names.filter(name => name.toLowerCase().includes(query))) {
+  VaultUI.renderList(chooser.list, { scope: chooser.menu, key: "available-tags", searchable: false, label: t("tagFilter.available"),
+    items: names.filter(name => name.toLowerCase().includes(query)), text: name => name, render: name => {
     const item = document.createElement("button");
     item.type = "button";
     item.className = "vui-menu-item" + (used.has(name.toLowerCase()) ? " is-selected" : "");
@@ -5788,8 +5779,8 @@ function updateTagChooser() {
       updateTagChooser();
       chooser.search.focus({ preventScroll: true });
     });
-    chooser.list.appendChild(item);
-  }
+    return item;
+  } });
   chooser.list.scrollTop = scroll;
   placeTagChooser();
 }
