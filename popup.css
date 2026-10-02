@@ -1798,10 +1798,14 @@ textarea {
 /* ── The editor's blocks (What / When / Snooze / Freeze / More) ─────────── */
 .groups-head {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
   margin-bottom: 14px;
+}
+
+.groups-head > h2 {
+  margin: 0;
 }
 
 .editor-head {
