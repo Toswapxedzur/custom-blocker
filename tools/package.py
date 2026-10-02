@@ -245,6 +245,21 @@ def validate_service_worker_imports(target: str, archive_paths: set[str]) -> Non
         )
 
 
+def safari_popup_source(source: str) -> str:
+    """Safari all-site grants cover web origins, not Chrome's file-inclusive wildcard.
+
+    Keep the shared editor canonical; specialize only the two browser permission
+    calls when generating its Safari copy. Fail if those call sites change so a
+    renamed helper cannot silently reintroduce a false limited-access warning.
+    """
+    for method in ("contains", "request"):
+        original = f'chrome.permissions.{method}({{ origins: ["<all_urls>"] }})'
+        if source.count(original) != 1:
+            raise RuntimeError(f"Safari popup requires exactly one {method} site-access call")
+        source = source.replace(original, f'chrome.permissions.{method}({{ origins: ["http://*/*", "https://*/*"] }})')
+    return source
+
+
 def build_target(target: str, environment: str = "production") -> Path:
     """Build one target. Returns the path to the written zip.
 
@@ -262,7 +277,11 @@ def build_target(target: str, environment: str = "production") -> Path:
     entries.append((REPO_ROOT / manifest_name, "manifest.json", None))
 
     for rel in COMMON_TOP_LEVEL_FILES:
-        entries.append((REPO_ROOT / rel, rel, None))
+        source = REPO_ROOT / rel
+        if target == "safari" and rel == "popup.js":
+            entries.append((None, rel, safari_popup_source(source.read_text(encoding="utf-8"))))
+        else:
+            entries.append((source, rel, None))
 
     if target in ("chrome", "edge"):
         for rel in CHROMIUM_SERVICE_WORKER_FILES:
