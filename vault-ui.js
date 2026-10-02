@@ -11,12 +11,208 @@
   const document = global.document;
   // Only a real page has selects to replace (not a test's stand-in DOM).
   if (!document || typeof HTMLSelectElement === "undefined" || typeof MutationObserver === "undefined") {
-    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {}, focusDialog: () => () => {}, confirmClick: () => true });
+    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {}, focusDialog: () => () => {}, confirmClick: () => true, refreshList() {}, captureSearch: () => null, restoreSearch() {}, searchQuery: () => "" });
     return;
   }
   const dropdowns = new WeakMap(); // select -> { wrap, button, label }
   let menu = null;
   let openFor = null;
+  const searchStates = new WeakMap(); // scope -> queries; display state only
+  const searchableLists = new WeakMap();
+  const SEARCH_THRESHOLD = 5;
+
+  function searchState(list) {
+    const scope = list.getRootNode();
+    if (!searchStates.has(scope)) searchStates.set(scope, new Map());
+    const states = searchStates.get(scope), key = list.dataset.vuiSearch;
+    if (!states.has(key)) states.set(key, { query: "" });
+    return states.get(key);
+  }
+
+  function searchControls(label, onInput) {
+    const bar = document.createElement("div");
+    bar.className = "vui-search";
+    const input = document.createElement("input");
+    input.type = "text"; // caret APIs work consistently in Chromium and WKWebView
+    input.setAttribute("role", "searchbox");
+    input.inputMode = "search";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.placeholder = label;
+    input.setAttribute("aria-label", label);
+    bar.dataset.infoKey = "search:" + label;
+    bar.dataset.infoCopy = "Find entries by name or identifier. Search changes only the displayed list.";
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "vui-search-clear";
+    clear.textContent = "×";
+    clear.setAttribute("aria-label", "Clear search");
+    const update = () => { clear.hidden = !input.value; onInput(input.value); };
+    input.addEventListener("input", update);
+    clear.addEventListener("click", () => { input.value = ""; update(); input.focus({ preventScroll: true }); });
+    bar.append(input, clear);
+    return { bar, input, clear };
+  }
+
+  function refreshList(list) {
+    if (!list.isConnected || !list.dataset.vuiSearch) return;
+    let entry = searchableLists.get(list);
+    if (entry && entry.key !== list.dataset.vuiSearch) { entry.bar.remove(); entry = null; }
+    const state = searchState(list);
+    if (!entry) {
+      entry = searchControls(list.dataset.vuiSearchLabel || "Search this list", (value) => {
+        searchState(list).query = value;
+        refreshList(list);
+      });
+      entry.key = list.dataset.vuiSearch;
+      entry.bar.dataset.infoKey = "list-search:" + entry.key;
+      if (list.dataset.vuiSearchCopy) entry.bar.dataset.infoCopy = list.dataset.vuiSearchCopy;
+      entry.input.dataset.vuiSearchInput = entry.key;
+      entry.empty = document.createElement("span");
+      entry.empty.className = "vui-search-empty";
+      entry.empty.textContent = "No matches";
+      entry.empty.setAttribute("role", "status");
+      entry.bar.appendChild(entry.empty);
+      if (list.dataset.vuiSearchMode === "find") {
+        entry.next = document.createElement("button");
+        entry.next.type = "button";
+        entry.next.textContent = "Next match";
+        entry.next.dataset.vuiNextMatch = "";
+        entry.empty.classList.add("vui-search-count");
+        entry.next.className = "vui-search-clear";
+        entry.next.addEventListener("click", () => {
+          state.matchIndex = ((state.matchIndex || 0) + 1) % Math.max(1, entry.matches.length);
+          refreshList(list);
+          jumpToMatch(list, entry, state);
+        });
+        entry.bar.appendChild(entry.next);
+      }
+      list.before(entry.bar);
+      searchableLists.set(list, entry);
+      new MutationObserver(() => refreshList(list)).observe(list, { childList: true, subtree: true, characterData: true });
+    }
+    const find = list.dataset.vuiSearchMode === "find";
+    const items = Array.from(find ? list.querySelectorAll(list.dataset.vuiSearchItems) : list.children).filter((item) =>
+      list.dataset.vuiSearchItems ? item.matches(list.dataset.vuiSearchItems) : !item.hasAttribute("data-vui-search-ignore"));
+    const query = state.query.trim().toLowerCase();
+    entry.input.value = state.query;
+    entry.clear.hidden = !state.query;
+    entry.bar.hidden = items.length <= SEARCH_THRESHOLD && !state.query;
+    let shown = 0;
+    entry.matches = [];
+    for (const item of items) {
+      const text = item.dataset.vuiSearchText ?? ((item.textContent || "") + " " + (item.dataset.hint || ""));
+      const hidden = !!query && !text.toLowerCase().includes(query);
+      item.classList.toggle("vui-search-hidden", !find && hidden);
+      item.classList.toggle("vui-search-match", find && !!query && !hidden);
+      if (!hidden) { shown++; entry.matches.push(item); }
+    }
+    entry.empty.hidden = !query || shown > 0;
+    if (find) {
+      entry.next.hidden = !query || !shown;
+      if (state.lastQuery !== query) {
+        state.matchIndex = 0;
+        if (query) jumpToMatch(list, entry, state);
+      }
+      if (query && shown) {
+        entry.empty.hidden = false;
+        entry.empty.textContent = `${(state.matchIndex || 0) % shown + 1} / ${shown} matches`;
+      } else entry.empty.textContent = "No matches";
+    }
+    state.lastQuery = query;
+    list.dispatchEvent(new CustomEvent("vui-search-filtered", { detail: { query, shown, total: items.length } }));
+  }
+
+  function jumpToMatch(list, entry, state) {
+    const item = entry.matches[(state.matchIndex || 0) % entry.matches.length];
+    if (!item) return;
+    // Move only the canvas, leaving the page and search field in place.
+    list.scrollLeft = Math.max(0, item.offsetLeft - (list.clientWidth - item.offsetWidth) / 2);
+    list.scrollTop = Math.max(0, item.offsetTop - (list.clientHeight - item.offsetHeight) / 2);
+  }
+
+  function enhanceLists(root) {
+    if (root?.matches?.("[data-vui-search]")) refreshList(root);
+    root?.querySelectorAll?.("[data-vui-search]").forEach(refreshList);
+    if (root?.matches?.("[data-vui-find-text]")) enhanceTextFind(root);
+    root?.querySelectorAll?.("[data-vui-find-text]").forEach(enhanceTextFind);
+  }
+
+  const textFinds = new WeakSet();
+  function enhanceTextFind(field) {
+    if (textFinds.has(field)) return;
+    textFinds.add(field);
+    let matches = [], index = 0;
+    const controls = searchControls("Find tag rule", () => { index = 0; update(); });
+    controls.bar.dataset.infoKey = "text-find:" + field.id;
+    controls.bar.dataset.infoCopy = "Find a saved tag rule without changing the text. Next match moves to the matching line.";
+    const next = document.createElement("button");
+    next.type = "button";
+    next.className = "vui-search-clear";
+    next.textContent = "Next match";
+    const status = document.createElement("span");
+    status.className = "vui-search-empty";
+    status.setAttribute("role", "status");
+    function update() {
+      const query = controls.input.value.trim().toLowerCase();
+      let start = 0;
+      matches = field.value.split("\n").flatMap((line) => {
+        const offset = start;
+        start += line.length + 1;
+        return query && line.toLowerCase().includes(query) ? [{ start: offset, end: offset + line.length }] : [];
+      });
+      controls.bar.hidden = field.value.split("\n").filter(line => line.trim()).length <= SEARCH_THRESHOLD && !controls.input.value;
+      index %= Math.max(1, matches.length);
+      next.hidden = !matches.length;
+      status.hidden = !query;
+      status.textContent = matches.length ? `${index + 1} / ${matches.length} matches` : "No matches";
+      if (matches.length) {
+        field.setSelectionRange(matches[index].start, matches[index].end);
+        field.scrollTop = field.value.slice(0, matches[index].start).split("\n").length * (parseFloat(global.getComputedStyle(field).lineHeight) || 18) - field.clientHeight / 2;
+      }
+    }
+    next.addEventListener("click", () => { index++; update(); field.focus({ preventScroll: true }); });
+    controls.bar.append(next, status);
+    field.before(controls.bar);
+    field.addEventListener("input", update);
+    new MutationObserver(update).observe(field, { childList: true, attributes: true, attributeFilter: ["disabled"] });
+    const native = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+    Object.defineProperty(field, "value", { configurable: true, get() { return native.get.call(this); }, set(value) { native.set.call(this, value); update(); } });
+    update();
+  }
+
+  // Scene renderers capture before replacing their DOM and restore afterward.
+  function captureSearch(scope) {
+    if (menu && openFor?.__vuiScope === scope && document.activeElement === menu.querySelector("input")) {
+      const input = document.activeElement;
+      return { menu: true, start: input.selectionStart, end: input.selectionEnd };
+    }
+    const input = scope.activeElement;
+    if (!input?.dataset?.vuiSearchInput) return null;
+    return { key: input.dataset.vuiSearchInput, start: input.selectionStart, end: input.selectionEnd };
+  }
+  function restoreSearch(scope, focus) {
+    enhanceAll(scope);
+    enhanceLists(scope);
+    if (!focus) return;
+    if (focus.menu) {
+      const input = menu?.querySelector("input");
+      if (input && openFor?.isConnected && openFor.__vuiScope === scope) {
+        input.focus({ preventScroll: true });
+        input.setSelectionRange(focus.start, focus.end);
+      }
+      return;
+    }
+    const input = Array.from(scope.querySelectorAll("[data-vui-search-input]")).find((node) => node.dataset.vuiSearchInput === focus.key);
+    if (input && !input.closest("[hidden]")) {
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(focus.start, focus.end);
+    }
+  }
+
+  function selectKey(select) {
+    return select.id || `${select.closest("[data-form-id]")?.dataset.formId || ""}:${select.dataset.field || select.getAttribute("aria-label") || ""}`;
+  }
 
   function selectedText(select) {
     if (select.multiple) {
@@ -61,21 +257,47 @@
   }
 
   function renderMenu(select) {
-    menu.textContent = "";
+    if (!menu.querySelector(".vui-menu-options")) {
+      const controls = searchControls("Search options", () => { renderMenu(select === openFor ? select : openFor); });
+      menu.appendChild(controls.bar);
+      const options = document.createElement("div");
+      options.className = "vui-menu-options";
+      menu.appendChild(options);
+      menu.addEventListener("click", (event) => event.stopPropagation());
+    }
+    const search = menu.querySelector("input"), bar = menu.querySelector(".vui-search");
+    const options = menu.querySelector(".vui-menu-options");
+    const query = search.value.trim().toLowerCase();
+    bar.querySelector(".vui-search-clear").hidden = !search.value;
+    const available = Array.from(select.options).filter((option) => !option.hidden);
+    bar.hidden = available.length <= SEARCH_THRESHOLD && !search.value;
+    options.textContent = "";
+    let group = null, count = 0;
     Array.from(select.options).forEach((option, index) => {
       if (option.hidden) return;
+      if (query && !option.textContent.toLowerCase().includes(query)) return;
+      const parent = option.parentElement;
+      if (parent?.tagName === "OPTGROUP" && parent !== group) {
+        const heading = document.createElement("div");
+        heading.className = "vui-menu-group";
+        heading.textContent = parent.label;
+        options.appendChild(heading);
+      }
+      group = parent;
       const item = document.createElement("button");
       item.type = "button";
       const picked = select.multiple ? option.selected : index === select.selectedIndex;
       item.className = "vui-menu-item" + (picked ? " is-selected" : "");
       item.textContent = option.textContent.trim();
-      item.disabled = option.disabled;
+      item.disabled = option.disabled || (parent?.tagName === "OPTGROUP" && parent.disabled);
       item.addEventListener("click", (event) => {
         event.stopPropagation();
         choose(select, index);
       });
-      menu.appendChild(item);
+      options.appendChild(item);
+      count++;
     });
+    if (!count) { const empty = document.createElement("div"); empty.className = "vui-menu-group"; empty.textContent = "No matches"; options.appendChild(empty); }
   }
 
   function placeMenu(button) {
@@ -101,6 +323,8 @@
     placeMenu(entry.button);
     const current = menu.querySelector(".is-selected");
     if (current) current.scrollIntoView({ block: "nearest" });
+    const search = menu.querySelector(".vui-search:not([hidden]) input");
+    if (search) search.focus({ preventScroll: true });
   }
 
   // Page code sets .value / .selectedIndex directly (no event): watch both.
@@ -129,6 +353,15 @@
     select.classList.add("vui-native");
     select.after(wrap);
     dropdowns.set(select, { wrap, button, label });
+    // Snapshot renderers replace selects. Rebind the open menu without losing
+    // its search input, query or focus.
+    if (openFor && !openFor.isConnected && openFor.__vuiScope === select.getRootNode()
+        && selectKey(openFor) !== ":" && selectKey(openFor) === selectKey(select)) {
+      openFor = select;
+      renderMenu(select);
+      placeMenu(button);
+    }
+    select.__vuiScope = select.getRootNode();
     button.addEventListener("click", (event) => {
       event.stopPropagation();
       openMenu(select);
@@ -157,11 +390,15 @@
   // root) now and whenever one is added.
   function observe(scope) {
     enhanceAll(scope);
+    enhanceLists(scope);
     new MutationObserver((records) => {
-      for (const record of records) record.addedNodes.forEach((node) => enhanceAll(node));
+      for (const record of records) record.addedNodes.forEach((node) => { enhanceAll(node); enhanceLists(node); });
+      if (openFor && !openFor.isConnected) closeMenu();
     }).observe(scope === document ? document.body : scope, { childList: true, subtree: true });
     // Scrolling does not leave a shadow root, so close the menu from inside it too.
-    if (scope !== document) scope.addEventListener("scroll", closeMenu, true);
+    if (scope !== document) scope.addEventListener("scroll", (event) => {
+      if (menu && !menu.contains(event.target)) closeMenu();
+    }, true);
   }
 
   // Hints (owner 2026-09-30: no system tooltips): any element with data-hint,
@@ -269,5 +506,6 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 
-  global.VaultUI = Object.freeze({ enhance, observe, close: closeMenu, focusDialog, confirmClick });
+  global.VaultUI = Object.freeze({ enhance, observe, close: closeMenu, focusDialog, confirmClick, refreshList, captureSearch, restoreSearch,
+    searchQuery: (list) => searchState(list).query });
 })(typeof window !== "undefined" ? window : globalThis);
