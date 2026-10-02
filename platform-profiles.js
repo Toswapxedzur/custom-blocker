@@ -95,7 +95,7 @@ function isTaggingPlatform(platform) {
   return TAGGING_PLATFORMS.includes(String(platform || ""));
 }
 function taggingAvailableFor(programId) {
-  return programId !== "safari" && programId !== "firefox";
+  return programId !== "firefox";
 }
 
 const PLATFORM_VIDEO_GROUP_TYPES = ["youtube", "tiktok", "facebook", "instagram", "twitch"];

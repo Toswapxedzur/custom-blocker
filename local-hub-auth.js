@@ -26,7 +26,7 @@
   }
 
   async function proofForChallenge(program, challenge) {
-    if (program !== "chrome" && program !== "edge") throw new Error("Unsupported browser.");
+    if (program !== "chrome" && program !== "edge" && program !== "safari") throw new Error("Unsupported browser.");
     if (typeof challenge !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(challenge)) {
       throw new Error("Invalid local-hub challenge.");
     }
@@ -35,6 +35,9 @@
     const response = await nativeMessage(host, { kind: "local-hub-challenge", v: 4, program, challenge });
     if (!response || response.ok !== true || typeof response.proof !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(response.proof)) {
       throw new Error("Native host authentication failed.");
+    }
+    if (program === "safari" && response.environment !== root.CBLocalHubEnvironment?.current?.name) {
+      throw new Error("Safari native environment does not match this extension.");
     }
     return response.proof;
   }

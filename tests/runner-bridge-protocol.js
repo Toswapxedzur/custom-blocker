@@ -23,6 +23,7 @@ function assertEqual(name, actual, expected) {
 
 log.section("P1: fixed local hub protocol");
 assertEqual("protocol version is v4", bridge.PROTOCOL_VERSION, 4);
+assert("Safari may connect using its native proof bootstrap", bridge.isRemoteProgram("safari"));
 assert("Chromium browsers may connect", bridge.isRemoteProgram("chrome") && bridge.isRemoteProgram("edge"));
 assert("other browsers cannot claim an unauthenticated local identity", !bridge.isRemoteProgram("firefox"));
 assert("desktop identities may not impersonate a remote peer", !bridge.isRemoteProgram("windowsapp"));

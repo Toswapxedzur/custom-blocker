@@ -11,11 +11,9 @@ One source tree, several stores. The browsers differ ONLY in packaging:
             page that hosts the sandbox iframe in-page (offscreen.firefox.html,
             shipped as offscreen.html). Uses manifest.firefox.json and the
             browser-compat.js namespace bridge.
-  safari  — Thin client. Default + platform groups run in the extension;
-            custom-rule logic is redirected to the macosBlocker app over
-            native messaging. Uses manifest.safari.json, omits the in-browser
-            eval sandbox, and pins the native transport via a generated
-            sandbox-transport.js.
+  safari  — Full browser client. Custom rules run in the separate Safari
+            Vault native app extension; Classifier/Activity use the authenticated
+            desktop hub. Explicit package environment keeps development isolated.
 
 Why an allowlist (not a denylist):
   Stores reject packages containing dev artefacts, dotfiles, reserved-prefix
@@ -87,9 +85,8 @@ SANDBOX_FILES = [
     "offscreen.js",
 ]
 
-# The opt-in Vault Classifier adapter is currently Chromium-only. Keep it out
-# of Firefox and Safari packages until their native transport contracts exist,
-# but include every manifest-declared Chrome/Edge content script.
+# The authenticated Classifier/Activity browser adapters. Safari uses the same
+# collectors and contracts as Chromium, with its own native proof bootstrap.
 VAULT_CLASSIFIER_FILES = [
     "vault-classifier-contract.js",
     "vault-classifier-tag-ui.js",
@@ -248,7 +245,7 @@ def validate_service_worker_imports(target: str, archive_paths: set[str]) -> Non
         )
 
 
-def build_target(target: str) -> Path:
+def build_target(target: str, environment: str = "production") -> Path:
     """Build one target. Returns the path to the written zip.
 
     Files are written into the zip under their final (in-package) names, so a
@@ -270,6 +267,8 @@ def build_target(target: str) -> Path:
     if target in ("chrome", "edge"):
         for rel in CHROMIUM_SERVICE_WORKER_FILES:
             entries.append((REPO_ROOT / rel, rel, None))
+
+    if target in ("chrome", "edge", "safari"):
         for rel in VAULT_CLASSIFIER_FILES:
             entries.append((REPO_ROOT / rel, rel, None))
 
@@ -282,6 +281,20 @@ def build_target(target: str) -> Path:
         else:
             entries.append((REPO_ROOT / "offscreen.html", "offscreen.html", None))
     else:
+        if environment not in ("production", "development"):
+            raise ValueError("unknown Safari environment")
+        development = environment == "development"
+        config = {
+            "environment": environment,
+            "address": "ws://127.0.0.1:18787" if development else "ws://127.0.0.1:8787",
+            "nativeHost": "com.adamancia.vault.safari" + (".development" if development else "") + ".extension",
+        }
+        entries.append((None, "safari-runtime-config.js",
+                        "/* generated Safari native identity; never infer it from an opaque runtime ID */\n"
+                        "self.CB_SAFARI_RUNTIME_CONFIG = Object.freeze(" + json.dumps(config, sort_keys=True) + ");\n"
+                        "self.CB_NATIVE_HOST_ID = self.CB_SAFARI_RUNTIME_CONFIG.nativeHost;\n"))
+        entries.append((REPO_ROOT / "safari-lifecycle.js", "safari-lifecycle.js", None))
+        entries.append((REPO_ROOT / "safari-native-lifecycle.js", "safari-native-lifecycle.js", None))
         # Safari: pin the native sandbox transport. background.js reads
         # self.CB_SANDBOX_TRANSPORT before deciding where to run custom rules.
         entries.append((
@@ -349,6 +362,8 @@ def main() -> None:
         default=ALL_TARGETS,
         help="Which target(s) to build (default: all).",
     )
+    parser.add_argument("--environment", choices=["production", "development"], default="production",
+                        help="Native Safari environment (other browser identities are unchanged).")
     args = parser.parse_args()
 
     if DIST_DIR.exists():
@@ -356,7 +371,7 @@ def main() -> None:
     DIST_DIR.mkdir(parents=True)
 
     for target in args.target:
-        build_target(target)
+        build_target(target, args.environment)
 
 
 if __name__ == "__main__":

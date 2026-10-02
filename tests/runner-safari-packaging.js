@@ -1,0 +1,29 @@
+"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const root = path.join(__dirname, "..");
+const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.safari.json"), "utf8"));
+const chromeManifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.json"), "utf8"));
+let failures = 0;
+function check(value, label) { if (value) console.log("PASS " + label); else { failures++; console.error("FAIL " + label); } }
+const safariScripts = new Set(manifest.content_scripts.flatMap(item => item.js));
+check(chromeManifest.content_scripts.flatMap(item => item.js).every(script => safariScripts.has(script)), "Safari includes all Chrome content collectors and Activity feeder");
+check(manifest.host_permissions.includes("<all_urls>"), "Safari requests all-website access");
+check(manifest.background.persistent === false && !manifest.background.service_worker, "Safari uses nonpersistent MV3 background page");
+check(["local-hub-environment.js", "local-hub-auth.js", "vault-classifier-bridge.js", "vault-activity.js"].every(script => manifest.background.scripts.includes(script)), "Safari starts authenticated Classifier and Activity adapters");
+check(manifest.background.scripts.indexOf("safari-runtime-config.js") < manifest.background.scripts.indexOf("local-hub-environment.js"), "Safari environment exists before hub bootstrap");
+const context = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(root, "platform-profiles.js"), "utf8"), context);
+check(context.taggingAvailableFor("safari") === true, "Safari exposes shared tagging controls");
+const callbacks = [];
+const compat = vm.createContext({ browser: { runtime: { sendNativeMessage: async (_host, request) => { if (request.fail) throw new Error("missing"); return { ok: true }; } } }, Promise });
+vm.runInContext(fs.readFileSync(path.join(root, "browser-compat.js"), "utf8"), compat);
+(async () => {
+  await new Promise(resolve => compat.chrome.runtime.sendNativeMessage("host", {fail:true}, value => { callbacks.push({value, error: compat.chrome.runtime.lastError}); resolve(); }));
+  await new Promise(resolve => compat.chrome.runtime.sendNativeMessage("host", {}, value => { callbacks.push({value, error: compat.chrome.runtime.lastError}); resolve(); }));
+  check(callbacks[0].error?.message === "missing" && callbacks[0].value === undefined, "Safari callback sees native failure");
+  check(callbacks[1].value?.ok === true && !callbacks[1].error && !compat.chrome.runtime.lastError, "Safari callback failure does not poison subsequent native calls");
+  console.log(`__CB_TEST_RESULT__: ${failures ? "FAIL" : "OK"} (${failures} failures)`);
+  process.exitCode = failures ? 1 : 0;
+})().catch(error => { console.error(error); process.exitCode = 1; });
