@@ -10,3 +10,6 @@
 - `generate_choices.py`: compose ten curved, gradient symbol choices per app
   onto the approved shared base; leaves active product icons untouched.
 - `choices/`: generated 40 SVGs and numbered review index; identical base/colors.
+
+- Active selections: Mac 04, Windows 03, Chrome 09, Safari 05. `../generate_icons.py` renders these exact SVGs on mini1, including native containers and browser aliases.
+- `safari/`: generated compass masters and browser icons used by Safari packaging.
