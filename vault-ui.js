@@ -213,6 +213,39 @@
     return entry;
   }
 
+  function bindFind(list, options) {
+    const state = searchState(list);
+    managedLists.get(list)?.dispose?.(); searchableLists.get(list)?.bar.remove();
+    let revision = 0, matches = [];
+    const controls = searchControls(list.dataset.vuiSearchLabel || "Find", value => { state.query = value; state.matchIndex = 0; search(true); });
+    controls.input.dataset.vuiSearchInput = list.dataset.vuiSearch;
+    const count = document.createElement("span"), next = document.createElement("button");
+    count.setAttribute("role", "status"); next.type = "button"; next.textContent = "Next match"; next.dataset.vuiNextMatch = "";
+    controls.bar.append(count, next);
+    function paint(jump) {
+      const query = state.query.trim().toLowerCase();
+      controls.input.value = state.query; controls.clear.hidden = !state.query;
+      const index = (state.matchIndex || 0) % Math.max(1, matches.length);
+      count.textContent = query ? (matches.length ? `${index + 1} / ${matches.length} matches` : "No matches") : "";
+      next.hidden = !query || !matches.length;
+      options.matches(new Set(matches.map(options.id)));
+      if (jump && matches.length) options.locate(matches[index]);
+    }
+    async function search(jump) {
+      const current = ++revision, query = state.query.trim().toLowerCase(), found = [];
+      if (query) for (let i = 0; i < options.items.length; i += 512) {
+        if (current !== revision) return;
+        for (const item of options.items.slice(i, i + 512)) if (options.text(item).toLowerCase().includes(query)) found.push(item);
+        if (options.items.length > 512) await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      if (current !== revision) return;
+      matches = found; paint(jump);
+    }
+    next.onclick = () => { state.matchIndex = (state.matchIndex || 0) + 1; paint(true); };
+    const entry = { attach() { if (list.parentNode && controls.bar.nextSibling !== list) list.before(controls.bar); }, dispose() { revision++; controls.bar.remove(); } };
+    managedLists.set(list, entry); entry.attach(); search(false);
+  }
+
   function jumpToMatch(list, entry, state) {
     const item = entry.matches[(state.matchIndex || 0) % entry.matches.length];
     if (!item) return;
@@ -304,6 +337,27 @@
     return select.id || `${select.closest("[data-form-id]")?.dataset.formId || ""}:${select.dataset.field || select.getAttribute("aria-label") || ""}`;
   }
 
+  const selectChoices = new WeakMap();
+  function materializeSelectValue(select, value) {
+    const entry = selectChoices.get(select); if (!entry) return;
+    const item = entry.byValue.get(String(value));
+    const option = document.createElement("option");
+    option.value = item?.value ?? ""; option.textContent = item?.textContent ?? ""; option.disabled = !!item?.disabled;
+    select.replaceChildren(option);
+  }
+  function setSelectOptions(select, choices, value = select.value) {
+    const items = choices.map(choice => Array.isArray(choice) ? { value: String(choice[0]), textContent: String(choice[1]) } : { ...choice, value: String(choice.value), textContent: String(choice.label ?? choice.textContent ?? "") });
+    if (items.length > 200 && !select.multiple) {
+      const byValue = new Map(items.map(item => [item.value, item]));
+      selectChoices.set(select, { items, byValue });
+      materializeSelectValue(select, byValue.has(String(value)) ? value : items[0]?.value);
+    } else {
+      selectChoices.delete(select);
+      select.replaceChildren(...items.map(item => { const option = document.createElement("option"); option.value = item.value; option.textContent = item.textContent; option.disabled = !!item.disabled; option.selected = item.value === String(value); return option; }));
+    }
+    sync(select);
+  }
+
   function selectedText(select) {
     if (select.multiple) {
       return Array.from(select.selectedOptions, (option) => option.textContent.trim()).join(", ") || "—";
@@ -353,6 +407,13 @@
 
   // A multiple select keeps its menu open and toggles the picked item.
   function choose(select, index) {
+    const choices = selectChoices.get(select);
+    if (choices) {
+      const item = choices.items[index]; if (!item || item.disabled) return;
+      const previous = select.value; closeMenu(); select.value = item.value;
+      if (select.value !== previous) { select.dispatchEvent(new Event("input", { bubbles: true })); select.dispatchEvent(new Event("change", { bubbles: true })); }
+      return;
+    }
     if (select.multiple) {
       const option = select.options[index];
       option.selected = !option.selected;
@@ -380,9 +441,9 @@
     const options = menu.querySelector(".vui-menu-options");
     const query = search.value.trim().toLowerCase();
     bar.querySelector(".vui-search-clear").hidden = !search.value;
-    const available = Array.from(select.options).filter((option) => !option.hidden);
+    const available = (selectChoices.get(select)?.items || Array.from(select.options)).filter((option) => !option.hidden);
     bar.hidden = available.length <= SEARCH_THRESHOLD && !search.value;
-    const rows = Array.from(select.options).map((option, index) => ({ option, index })).filter(({ option }) =>
+    const rows = (selectChoices.get(select)?.items || Array.from(select.options)).map((option, index) => ({ option, index })).filter(({ option }) =>
       !option.hidden && (!query || option.textContent.toLowerCase().includes(query)));
     renderList(options, { scope: menu, key: "options", searchable: false, pageSize: 40, items: rows,
       text: ({ option }) => option.textContent, render: ({ option, index }) => {
@@ -392,7 +453,7 @@
           const heading = document.createElement("div"); heading.className = "vui-menu-group"; heading.textContent = parent.label; fragment.append(heading);
         }
         const item = document.createElement("button"); item.type = "button";
-        const picked = select.multiple ? option.selected : index === select.selectedIndex;
+        const picked = select.multiple ? option.selected : option.value === select.value;
         item.className = "vui-menu-item" + (picked ? " is-selected" : "");
         item.textContent = option.textContent.trim();
         item.disabled = option.disabled || (parent?.tagName === "OPTGROUP" && parent.disabled);
@@ -443,7 +504,7 @@
       Object.defineProperty(select, property, {
         configurable: true,
         get() { return native.get.call(this); },
-        set(value) { native.set.call(this, value); sync(this); }
+        set(value) { if (property === "value") materializeSelectValue(this, value); native.set.call(this, value); sync(this); }
       });
     }
   }
@@ -626,6 +687,6 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();
 
-  global.VaultUI = Object.freeze({ renderList, isManagedList: list => managedLists.has(list), enhance, observe, close: closeMenu, showMenuLayer, hideMenuLayer, focusDialog, confirmClick, refreshList, captureSearch, restoreSearch,
+  global.VaultUI = Object.freeze({ setSelectOptions, renderList, bindFind, isManagedList: list => managedLists.has(list), enhance, observe, close: closeMenu, showMenuLayer, hideMenuLayer, focusDialog, confirmClick, refreshList, captureSearch, restoreSearch,
     searchQuery: (list) => searchState(list).query });
 })(typeof window !== "undefined" ? window : globalThis);
