@@ -1,0 +1,30 @@
+<!-- The expanded viewBox gives Finder a 7.1% transparent edge around the tile.
+     Its 85.7% footprint matches current macOS system app icons without returning
+     to the oversized full-bleed v0.0.1 artwork. -->
+<svg viewBox="-3 -3 70 70" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="chrome: Round ends">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22344f"/><stop offset="1" stop-color="#070d18"/>
+    </linearGradient>
+    <linearGradient id="white" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#eaf3ff"/><stop offset="1" stop-color="#c2dbfa"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#56a8f2"/><stop offset="1" stop-color="#1c5ca8"/>
+    </linearGradient>
+    <filter id="shadow" x="-45%" y="-45%" width="190%" height="190%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.7" flood-color="#03101f" flood-opacity=".55"/>
+    </filter>
+  <linearGradient id="symbol-blue" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="32"><stop offset="0" stop-color="#56a8f2"/><stop offset="1" stop-color="#1c5ca8"/></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#tile)"/>
+  <rect x="2" y="2" width="60" height="26" rx="16" fill="#fff" opacity=".07"/>
+  <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="15" fill="none" stroke="#fff" stroke-opacity=".08"/>
+  <!-- Shared shield: 10% larger about its original bounds center (32, 31.5). -->
+  <g id="vault-shield" transform="translate(32 31.5) scale(1.1) translate(-32 -31.5)">
+  <g filter="url(#shadow)"><path d="M32 13 16 19v13.2c0 9.4 6.6 15.3 16 17.8 9.4-2.5 16-8.4 16-17.8V19L32 13Z" fill="url(#white)"/></g>
+  <path d="M32 13 16 19v13.2c0 9.4 6.6 15.3 16 17.8V13Z" fill="#bcd6f6" opacity=".55"/>
+  </g>
+  <!-- Platform symbols are composed separately above this shared base. -->
+<g id="platform-symbol" transform="translate(20 18.5) scale(0.75)"><g fill="url(#symbol-blue)"><path d="M19.47 1.4069 A15.0 15.0 0 0 1 30.373 20.2915 Q29.7559 21.9812 28.1052 21.2635 L24.9872 19.9077 Q23.3365 19.19 23.8633 17.4728 A8.0 8.0 0 0 0 18.6562 8.4538 Q16.9056 8.0514 17.1094 6.263 L17.4943 2.8849 Q17.698 1.0964 19.47 1.4069 Z"/><path d="M26.903 26.3017 A15.0 15.0 0 0 1 5.097 26.3017 Q3.9421 24.9223 5.3891 23.8517 L8.1222 21.8293 Q9.5691 20.7586 10.7929 22.0734 A8.0 8.0 0 0 0 21.2071 22.0734 Q22.4309 20.7586 23.8778 21.8293 L26.6109 23.8517 Q28.0579 24.9223 26.903 26.3017 Z"/><path d="M1.627 20.2915 A15.0 15.0 0 0 1 12.53 1.4069 Q14.302 1.0964 14.5057 2.8849 L14.8906 6.263 Q15.0944 8.0514 13.3438 8.4538 A8.0 8.0 0 0 0 8.1367 17.4728 Q8.6635 19.19 7.0128 19.9077 L3.8948 21.2635 Q2.2441 21.9812 1.627 20.2915 Z"/><circle cx="16" cy="16" r="5.8"/></g></g>
+</svg>
