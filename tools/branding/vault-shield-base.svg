@@ -19,8 +19,8 @@
   <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#tile)"/>
   <rect x="2" y="2" width="60" height="26" rx="16" fill="#fff" opacity=".07"/>
   <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="15" fill="none" stroke="#fff" stroke-opacity=".08"/>
-  <!-- Shared shield: 20% larger about its original bounds center (32, 31.5). -->
-  <g id="vault-shield" transform="translate(32 31.5) scale(1.2) translate(-32 -31.5)">
+  <!-- Shared shield: 10% larger about its original bounds center (32, 31.5). -->
+  <g id="vault-shield" transform="translate(32 31.5) scale(1.1) translate(-32 -31.5)">
   <g filter="url(#shadow)"><path d="M32 13 16 19v13.2c0 9.4 6.6 15.3 16 17.8 9.4-2.5 16-8.4 16-17.8V19L32 13Z" fill="url(#white)"/></g>
   <path d="M32 13 16 19v13.2c0 9.4 6.6 15.3 16 17.8V13Z" fill="#bcd6f6" opacity=".55"/>
   </g>
