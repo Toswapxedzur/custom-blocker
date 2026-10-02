@@ -16,6 +16,7 @@ let hubAvailable = false;
 let enabledPlatformIDs = ["youtube", "reddit", "discord"];
 let taggingPlatformIDs = ["youtube", "reddit"];
 
+let pagedCatalog = false;
 const hub = {
   request(operation, body) {
     if (!hubAvailable) return Promise.reject(new Error("hub unavailable"));
@@ -41,6 +42,12 @@ const hub = {
           }]
         }));
       } else if (operation === "classifier-taxonomy") {
+        if (pagedCatalog) {
+          const offset = body.offset || 0, end = Math.min(513, offset + body.limit);
+          resolve(inExtensionRealm({ platformID: body.platformID, nextOffset: end < 513 ? end : null, total: 513,
+            types: [{typeID:'large',name:'Large',tags:Array.from({length:end-offset}, (_,i)=>({id:'t'+(offset+i),name:'Topic '+(offset+i),lightColorHex:'#DBE5F3',darkColorHex:'#253E62'}))}] }));
+          return;
+        }
         const tag = (id, name) => ({ id, name, lightColorHex: "#9EC5E8", darkColorHex: "#1A4775" });
         resolve(inExtensionRealm({ platformID: body.platformID, types: [
           { typeID: "t1", name: "Topics", tags: [tag("a", "Gaming"), tag("b", "Science & Education")] },
@@ -396,6 +403,9 @@ function assert(name, condition, detail) {
   const offInfo = await dispatch({ type: "vault-classifier-collection-info", platform: "reddit" }, trustedRedditSender);
   assert("native global disable stops tagging while recording stays enabled", offInfo.value?.enabled === true && offInfo.value?.tagging === false, offInfo);
 
+  pagedCatalog = true;
+  const complete = await dispatch({type:'vault-classifier-tag-names',platform:'youtube'}, {id:chrome.runtime.id,url:chrome.runtime.getURL('popup.html')});
+  assert('catalog bridge follows every page beyond the retired 16, 64 and 200 limits', complete.value?.names?.length===513 && complete.value.names[512]==='Topic 512', complete.value?.names?.length);
   console.log(`__CB_TEST_RESULT__: ${failures === 0 ? "OK" : "FAIL"} (${failures} failures)`);
   if (failures !== 0) process.exitCode = 1;
 })().catch((error) => {

@@ -11,7 +11,7 @@ const debugLogs = [];
 const observers = [];
 const tagPresentations = [];
 let sourceIconURL = null;
-const feedRoot = { isConnected: true };
+const feedRoot = { isConnected: true, nodeType: 1 };
 const pageRoot = { isConnected: true };
 
 const chrome = {
@@ -86,6 +86,7 @@ const matchingStatusRoot = Collector.matchingContentRoot("twitter", {
 }, ["article"], "https://x.com/visible/status/222", "https://x.com/visible/status/222");
 Collector.start({
   platform: "twitter",
+  cardSelector: "article",
   matchesPage: (location) => location.hostname === "x.com",
   scan({ collect }) {
     collect({
@@ -120,7 +121,7 @@ Collector.start({
 
 setTimeout(() => {
   sourceIconURL = "https://pbs.twimg.com/profile_images/1/visible-source-icon.jpeg";
-  observers.forEach((observer) => observer.callback([{ type: "attributes", target: { matches: (selector) => selector === "img, source" } }]));
+  observers.forEach((observer) => observer.callback([{ type: "attributes", target: { nodeType: 1, closest: () => feedRoot, matches: (selector) => selector === "img, source" } }]));
 }, 350);
 
 setTimeout(() => {

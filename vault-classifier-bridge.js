@@ -519,13 +519,24 @@
   }
   async function classifierTaxonomy(platform) {
     try {
-      const body = await hubRequest("classifier-taxonomy", { platformID: platform });
-      if (!body || body.platformID !== platform || !Array.isArray(body.types)) return { ok: false, types: [] };
-      const types = body.types.map((type) => ({
-        typeID: typeof type.typeID === "string" ? type.typeID : "",
-        name: typeof type.name === "string" ? type.name.slice(0, 200) : "",
-        tags: Array.isArray(type.tags) ? type.tags.filter(validTag).slice(0, 64) : []
-      })).filter((type) => type.typeID && type.tags.length).slice(0, 16);
+      const byType = new Map();
+      let offset = 0;
+      for (;;) {
+        const body = await hubRequest("classifier-taxonomy", { platformID: platform, offset, limit: 128 });
+        if (!body || body.platformID !== platform || !Array.isArray(body.types)) return { ok: false, types: [] };
+        for (const type of body.types) {
+          if (typeof type.typeID !== "string" || !type.typeID) continue;
+          let entry = byType.get(type.typeID);
+          if (!entry) { entry = { typeID: type.typeID, name: String(type.name || "").slice(0, 200), tags: [], ids: new Set() }; byType.set(type.typeID, entry); }
+          for (const tag of Array.isArray(type.tags) ? type.tags : []) {
+            if (validTag(tag) && !entry.ids.has(tag.id)) { entry.ids.add(tag.id); entry.tags.push(tag); }
+          }
+        }
+        if (body.nextOffset == null) break;
+        if (!Number.isSafeInteger(body.nextOffset) || body.nextOffset <= offset) return { ok: false, types: [] };
+        offset = body.nextOffset;
+      }
+      const types = [...byType.values()].filter(type => type.tags.length).map(({ ids, ...type }) => type);
       return { ok: true, platformID: platform, types };
     } catch (_) {
       return { ok: false, types: [] };
@@ -693,7 +704,7 @@
             names.push(tag.name);
           }
         }
-        sendResponse({ ok: Boolean(result && result.ok), names: names.slice(0, 200) });
+        sendResponse({ ok: Boolean(result && result.ok), names });
       })
       .catch(() => sendResponse({ ok: false, names: [] }));
     return true;
