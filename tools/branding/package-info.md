@@ -11,7 +11,8 @@
   onto the approved shared base; leaves active product icons untouched.
 - `choices/`: generated 40 SVGs and numbered review index; identical base/colors.
 
-- Active selections: Mac 04, Windows 03, Chrome 09, Safari 05. `../generate_icons.py` renders these exact SVGs on mini1, including native containers and browser aliases.
+- Active selections: Mac 04, Windows 03, Safari 05; extension grid size 05 / stroke A. `../generate_icons.py` renders these exact SVGs on mini1, including native containers and browser aliases.
+- `chrome-grid.svg`: approved extension grid, two horizontal and two vertical lines, rounded caps and blue gradient. Size 05 retains a 22-unit footprint; stroke A is 15% thinner (3.4 normalized units). It replaces the Chrome circle symbol.
 - `safari/`: generated compass masters and browser icons used by Safari packaging.
 
-- Approved symbol scales: Mac and Windows 0.85; Chrome and Safari 0.90, relative to the original selected choices. `generate_icons.py` transforms only the central symbol once, keeping the shared base unchanged.
+- Approved symbol scales: Mac and Windows 0.85; Safari 0.90, relative to the original selected choices. `chrome-grid.svg` already has its approved size; the generator applies no additional reduction. The shared base stays unchanged.
