@@ -10,6 +10,7 @@ function check(value, label) { if (value) console.log("PASS " + label); else { f
 const safariScripts = new Set(manifest.content_scripts.flatMap(item => item.js));
 check(chromeManifest.content_scripts.flatMap(item => item.js).every(script => safariScripts.has(script)), "Safari includes all Chrome content collectors and Activity feeder");
 check(manifest.host_permissions.includes("<all_urls>"), "Safari requests all-website access");
+check(manifest.permissions.includes("storage") && manifest.permissions.includes("unlimitedStorage"), "Safari local settings avoid WebKit Unicode shrink quota errors");
 check(manifest.background.persistent === false && !manifest.background.service_worker, "Safari uses nonpersistent MV3 background page");
 check(["local-hub-environment.js", "local-hub-auth.js", "vault-classifier-bridge.js", "vault-activity.js"].every(script => manifest.background.scripts.includes(script)), "Safari starts authenticated Classifier and Activity adapters");
 check(manifest.background.scripts.indexOf("safari-runtime-config.js") < manifest.background.scripts.indexOf("local-hub-environment.js"), "Safari environment exists before hub bootstrap");
