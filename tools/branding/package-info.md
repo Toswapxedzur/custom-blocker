@@ -13,3 +13,5 @@
 
 - Active selections: Mac 04, Windows 03, Chrome 09, Safari 05. `../generate_icons.py` renders these exact SVGs on mini1, including native containers and browser aliases.
 - `safari/`: generated compass masters and browser icons used by Safari packaging.
+
+- Approved symbol scales: Mac and Windows 0.85; Chrome and Safari 0.90, relative to the original selected choices. `generate_icons.py` transforms only the central symbol once, keeping the shared base unchanged.
