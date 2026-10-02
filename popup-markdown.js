@@ -31,10 +31,14 @@ function escapeHtml(value) {
 
 function renderInlineMarkdown(text) {
   return escapeHtml(text)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+    .split(/(`[^`]+`)/g)
+    .map((part) => part.startsWith("`") && part.endsWith("`")
+      ? `<code>${part.slice(1, -1)}</code>`
+      : part
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>'))
+    .join("");
 }
 
 function renderMarkdownToHtml(markdown) {
