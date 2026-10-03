@@ -837,7 +837,7 @@
   "classifier.bridge.researchMode.inherit": "設定に従う",
   "classifier.bridge.researchMode.on": "オン",
   "classifier.bridge.researchMode.off": "オフ",
-  "classifier.bridge.researchMasterGate": "分類器設定の調査への同意はすべてのグループに適用されます。同意がオフの場合、調査は使えません。",
+  "classifier.bridge.researchMasterGate": "設定の調査への同意はすべてのグループに適用されます。同意がオフの場合、調査は使えません。",
   "classifier.bridge.notTag": "否定",
   "classifier.bridge.platform": "プラットフォームの紐付け",
   "classifier.bridge.platformCopy": "各プラットフォームで有効なツリー、データセット、互換モデルを1つ選択します。",
