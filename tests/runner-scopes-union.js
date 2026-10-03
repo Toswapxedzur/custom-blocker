@@ -134,6 +134,28 @@ check("a custom group drops apps lines", customApps.scopes.length === 0, customA
 const ytPatched = sanitize([{ id: "y1", name: "Y", groupType: "youtube", enabled: true, scopes: S.scopeLinesFromFlat({ sourceMode: "all" }, "youtube"), sites: ["docs.example.org"] }])[0];
 check("a `sites` patch on a platform group adds its Websites entry", S.groupPlatforms(ytPatched).join(",") === "youtube,site" && S.flatFromScopes(ytPatched, "site").sites.join() === "docs.example.org" && S.flatFromScopes(ytPatched, "youtube").sourceMode === "all", ytPatched.scopes);
 
+// Two entries for the same platform retain independent predicates and one policy.
+let repeated = S.mergeFlatIntoScopes(group.scopes, { sourceMode: "include", sources: ["@mrbeast"] }, "youtube:creator-test");
+const repeatGroup = sanitize([{ ...group, scopes: repeated }])[0];
+check("repeated YouTube entries have independent identities", S.groupPlatforms(repeatGroup).includes("youtube:creator-test"));
+check("reading either entry does not absorb the other's settings", S.flatFromScopes(repeatGroup, "youtube").platformVideoMode === "short" && S.flatFromScopes(repeatGroup, "youtube:creator-test").sources.join() === "mrbeast");
+const editedRepeat = S.mergeFlatIntoScopes(repeatGroup.scopes, { sourceMode: "include", sources: ["@other"] }, "youtube:creator-test");
+check("editing a duplicate leaves the Shorts entry intact", S.flatFromScopes({ scopes: editedRepeat }, "youtube").platformVideoMode === "short");
+context.__groups = [repeatGroup];
+const repeatFilters = feed("https://www.youtube.com/", "/", { u1: 30 * 60 * 1000 });
+check("each duplicate produces a distinct enforced filter under one budget", repeatFilters.length === 2 && new Set(repeatFilters.map(f => f.id)).size === 2 && repeatFilters.every(f => f.baseGroupId === "u1" && f.enforce));
+check("repeated entries survive round trip without drift", JSON.stringify(sanitize([repeatGroup])[0]) === JSON.stringify(repeatGroup));
+check("tools refuse ambiguous flat patches", Boolean(S.applyToolEdit(repeatGroup, { sources: ["@a"] }, "browser").error));
+const explicitEdit = S.applyToolEdit(repeatGroup, { entryID: "youtube:creator-test", sources: ["@a"], sourceMode: "include" }, "browser");
+check("tools can target a stable entry explicitly", !explicitEdit.error && S.flatFromScopes(explicitEdit.group, "youtube:creator-test").sources.join() === "a" && S.flatFromScopes(explicitEdit.group, "youtube").platformVideoMode === "short");
+const oldParallel = sanitize([{ ...raw, scopes: [
+  ...S.scopeLinesFromFlat({ sourceMode: "include", sources: ["@a"] }, "youtube"),
+  ...S.scopeLinesFromFlat({ sourceMode: "nobody", platformTagMode: "include", platformTags: [{ name: "Gaming" }] }, "youtube")
+] }])[0];
+check("retired parallel filters migrate to independent entries", S.groupPlatforms(oldParallel).join() === "youtube,youtube:tags" && S.flatFromScopes(oldParallel, "youtube").platformTagMode === "all" && S.flatFromScopes(oldParallel, "youtube:tags").sourceMode === "nobody");
+check("migration preserves all old matching lines and actions", oldParallel.scopes.length === 4 && oldParallel.scopes[2].action === "dim" && oldParallel.scopes[3].action === "block");
+check("migrated entry identities are idempotent", JSON.stringify(sanitize([oldParallel])[0]) === JSON.stringify(oldParallel));
+
 console.log(`SCOPES UNION TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
 if (fail) process.exitCode = 1;

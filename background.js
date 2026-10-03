@@ -324,15 +324,16 @@ function cbLineView(group, line, overrides) {
 
 // The group's source axis (its untagged items/pages line), for the helpers
 // that gate on "does this group's author scope cover the current page".
-function cbGroupSourceLine(group, platform) {
+function cbGroupSourceLine(group, platform, entry) {
   return (Array.isArray(group?.scopes) ? group.scopes : []).find(
     (line) => (line.surface === "items" || line.surface === "pages") && !line.tagFilter
       && (!platform || line.platform === platform)
+      && (!entry || CBGroupScopes.lineBelongsTo(line, entry))
   ) || null;
 }
 
-function cbGroupSourceAxisView(group, platform) {
-  const line = cbGroupSourceLine(group, platform);
+function cbGroupSourceAxisView(group, platform, entry) {
+  const line = cbGroupSourceLine(group, platform, entry);
   return line
     ? cbLineView(group, line)
     : cbLineView(group, null, { groupType: platform || group.groupType, sourceMode: "nobody", discordMode: "include", discordTargets: [] });
@@ -610,6 +611,7 @@ function pushTagFilterEntry(filters, group, line, enforce) {
   if (tagMode === "include" && !hasBlockingEntry && !tagFilter.blockUntagged) return;
   const pagesLine = (Array.isArray(group.scopes) ? group.scopes : []).find(
     (candidate) => candidate.surface === "pages" && candidate.platform === line.platform
+      && CBGroupScopes.lineEntryKey(candidate) === CBGroupScopes.lineEntryKey(line)
       && candidate.tagFilter && cbSameTagFilter(candidate.tagFilter, tagFilter)
   );
   filters.push({
@@ -703,10 +705,12 @@ function buildSurfaceHideSelectors(pageContext, groups, usageTimersMs, groupSnoo
     // A group may carry shelf lines for several platforms; only this host's apply.
     const byPlatform = new Map();
     for (const line of shelves) {
-      if (!byPlatform.has(line.platform)) byPlatform.set(line.platform, []);
-      byPlatform.get(line.platform).push(line.shelf);
+      const entry = CBGroupScopes.lineEntryKey(line);
+      if (!byPlatform.has(entry)) byPlatform.set(entry, []);
+      byPlatform.get(entry).push(line.shelf);
     }
-    for (const [platform, ids] of byPlatform) {
+    for (const [entry, ids] of byPlatform) {
+      const platform = CBGroupScopes.entryPlatform(entry);
       // App-scoped hides (site chrome / content types) apply whenever the group
       // is active on the host.
       for (const sel of getSurfaceHideSelectors(platform, ids, "app")) {
@@ -717,7 +721,7 @@ function buildSurfaceHideSelectors(pageContext, groups, usageTimersMs, groupSnoo
       // so only emit them when the current page matches the group's source
       // scope on this platform.
       const entrySelectors = getSurfaceHideSelectors(platform, ids, "entry");
-      if (entrySelectors.length > 0 && platformGroupAuthorAxisMatchesPage(cbGroupSourceAxisView(group, platform), pageContext)) {
+      if (entrySelectors.length > 0 && platformGroupAuthorAxisMatchesPage(cbGroupSourceAxisView(group, platform, entry), pageContext)) {
         for (const sel of entrySelectors) selectors.add(sel);
       }
     }
