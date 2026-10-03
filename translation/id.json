@@ -834,7 +834,7 @@
   "classifier.research.status.setup": "Perlu penyiapan",
   "classifier.knowledge.lookupProvider": "Penyedia riset",
   "classifier.bridge.researchMode": "Riset untuk grup ini",
-  "classifier.bridge.researchMode.inherit": "Ikuti setelan pengklasifikasi",
+  "classifier.bridge.researchMode.inherit": "Ikuti Pengaturan",
   "classifier.bridge.researchMode.on": "Aktif",
   "classifier.bridge.researchMode.off": "Nonaktif",
   "classifier.bridge.researchMasterGate": "Persetujuan riset di Pengaturan berlaku untuk setiap grup. Riset tidak tersedia jika persetujuan nonaktif.",

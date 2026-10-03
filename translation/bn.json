@@ -837,7 +837,7 @@
   "classifier.bridge.researchMode.inherit": "সেটিংস অনুসরণ",
   "classifier.bridge.researchMode.on": "চালু",
   "classifier.bridge.researchMode.off": "বন্ধ",
-  "classifier.bridge.researchMasterGate": "শ্রেণিবিন্যাসকারী সেটিংসে গবেষণার সম্মতি সব গ্রুপে প্রযোজ্য। সম্মতি বন্ধ থাকলে গবেষণা করা যায় না।",
+  "classifier.bridge.researchMasterGate": "সেটিংসে গবেষণার সম্মতি সব গ্রুপে প্রযোজ্য। সম্মতি বন্ধ থাকলে গবেষণা করা যায় না।",
   "classifier.bridge.notTag": "নয়",
   "classifier.bridge.platform": "প্ল্যাটফর্ম সংযোগ",
   "classifier.bridge.platformCopy": "একটি প্ল্যাটফর্ম একটি সক্রিয় গাছ, ডেটাসেট ও সামঞ্জস্যপূর্ণ মডেল বেছে নেয়।",
