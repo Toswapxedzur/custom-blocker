@@ -16,3 +16,4 @@
 - `safari/`: generated compass masters and browser icons used by Safari packaging.
 
 - Approved symbol scales: Mac and Windows 0.85; Safari 0.90, relative to the original selected choices. The extension lock SVGs include their approved 1.15 scale; the generator applies no additional scaling.
+- Extension viewport: `2 2 60 60`, matching the complete rounded tile bounds. No outer padding; shapes and gradients are unchanged. Generated toolbar images fill the available slot without clipping the tile.
