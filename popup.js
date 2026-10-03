@@ -5394,7 +5394,7 @@ function startResizingPanels(event) {
 
   const handleMove = (moveEvent) => {
     const layoutRect = layout.getBoundingClientRect();
-    applyPanelWidth(moveEvent.clientX - layoutRect.left);
+    applyPanelWidth(document.documentElement.dir === "rtl" ? layoutRect.right - moveEvent.clientX : moveEvent.clientX - layoutRect.left);
   };
 
   const handleUp = () => {
@@ -6219,9 +6219,9 @@ endSnoozeButton.addEventListener("click", () => {
 layoutResizer.addEventListener("mousedown", startResizingPanels);
 layoutResizer.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft") {
-    applyPanelWidth(state.panelWidth - 20);
+    applyPanelWidth(state.panelWidth + (document.documentElement.dir === "rtl" ? 20 : -20));
   } else if (event.key === "ArrowRight") {
-    applyPanelWidth(state.panelWidth + 20);
+    applyPanelWidth(state.panelWidth + (document.documentElement.dir === "rtl" ? -20 : 20));
   }
 });
 
