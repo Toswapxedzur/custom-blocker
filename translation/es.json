@@ -241,7 +241,7 @@
   "snooze.minutesPlaceholder": "30",
   "snooze.activationDelay": "Retraso de activación (minutos)",
   "snooze.activationDelayPlaceholder": "0",
-  "snooze.cooldown": "Enfriamiento después de la repetición (minutos)",
+  "snooze.cooldown": "Tiempo de espera después de la pausa (minutos)",
   "snooze.cooldownPlaceholder": "0",
   "snooze.confirmations": "Confirmaciones necesarias",
   "snooze.confirmationsPlaceholder": "0",

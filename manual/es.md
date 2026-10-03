@@ -29,9 +29,9 @@ Configure la opción de posponer en cada grupo de bloqueo. **Pausar bloqueo** su
 
 **Retraso de activación** retrasa la pausa mientras continúa el bloqueo. **Tiempo de espera** es la espera tras finalizar la pausa antes de otra solicitud. **Confirmaciones requeridas** establece el número de pasos de confirmación. Posponer está disponible en un grupo congelado solo si se permitió antes de congelarlo.
 
-### Congelación y PIN
+### Bloqueo de edición y PIN
 
-**Congelar** impide los cambios habituales. Descongelar requiere diez confirmaciones separadas por cinco segundos, además de la espera configurada y el PIN de seis dígitos, si existen. **Espera antes de descongelar** acepta 0–72 horas; 0 no añade espera.
+**Bloquear edición** impide los cambios habituales. Desbloquear la edición requiere diez confirmaciones separadas por cinco segundos, además de la espera configurada y el PIN de seis dígitos, si existen. **Espera antes de desbloquear la edición** acepta 0–72 horas; 0 no añade espera.
 
 Mientras el grupo está congelado, se puede ampliar la espera y añadir un PIN si no existe ninguno. Estas condiciones no se pueden debilitar hasta descongelar el grupo. La eliminación también respeta la espera restante y el PIN.
 
