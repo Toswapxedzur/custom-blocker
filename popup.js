@@ -103,7 +103,7 @@ const cbDialog = (function () {
         if (opts.kind === "prompt") {
           inputRow.dataset.infoKey = "dialog-value";
           inputRow.dataset.infoLabel = opts.title || "Value";
-          inputRow.dataset.infoCopy = opts.message || "Enter the value requested by this dialog, then confirm to apply it.";
+          inputRow.dataset.infoCopy = opts.message || t("info.prompt");
         }
         inputRow.appendChild(input); card.appendChild(inputRow);
       }
@@ -1094,6 +1094,9 @@ function resetSettingsToDefaults() {
 
 function applyStaticTranslations() {
   document.documentElement.lang = state.language;
+  document.documentElement.dir = state.language === "ar" ? "rtl" : "ltr";
+  window.VaultTranslate = t;
+  chrome.storage?.local?.set?.({ vaultUiLanguage: state.language })?.catch?.(() => {});
   document.title = t("app.title");
 
   for (const element of document.querySelectorAll("[data-i18n]")) {
@@ -1116,6 +1119,13 @@ function applyStaticTranslations() {
     element.dataset.hint = t(element.dataset.i18nTitle);
   }
 
+  for (const element of document.querySelectorAll("[data-i18n-info]")) {
+    element.dataset.infoCopy = t(element.dataset.i18nInfo);
+  }
+  for (const element of document.querySelectorAll("[data-i18n-info-label]")) {
+    element.dataset.infoLabel = t(element.dataset.i18nInfoLabel);
+  }
+  window.VaultInfo?.refresh(document);
   languageSelect.setAttribute("aria-label", t("language.label"));
   groupList.setAttribute("aria-label", t("groups.listAria"));
   layoutResizer.setAttribute("aria-label", t("layout.resizeAria"));
@@ -2134,8 +2144,7 @@ function renderSurfaceHides(group, draft, editable) {
     const text = document.createElement("span");
     text.textContent = t(entry.labelKey);
     text.dataset.infoKey = "surface-hide:" + entry.id;
-    text.dataset.infoCopy = "Hide " + t(entry.labelKey).toLowerCase() +
-      (surfaceHideEntryScope(entry) === "entry" ? " on pages matching this group’s creator filter." : " on this platform’s supported pages.");
+    text.dataset.infoCopy = t(surfaceHideEntryScope(entry) === "entry" ? "info.hideEntry" : "info.hidePlatform", { control: t(entry.labelKey) });
 
     // Entry-scoped hides (e.g. YouTube comments) only apply on pages matching
     // the group's author scope — flag that inline so it isn't mistaken for a
@@ -5825,7 +5834,7 @@ function openTagChooser(container, button) {
   const searchRow = document.createElement("div");
   searchRow.className = "vui-info-field";
   searchRow.dataset.infoKey = "tag-search"; searchRow.dataset.infoLabel = "Search tags";
-  searchRow.dataset.infoCopy = "Find a tag by name, then select it to add it to this group.";
+  searchRow.dataset.infoCopy = t("info.tagSearch");
   searchRow.appendChild(search); menu.append(searchRow, list);
   document.body.appendChild(menu);
   VaultUI.showMenuLayer(menu);
@@ -6552,4 +6561,4 @@ initializePopupApp().catch((error) => {
   setStatus(t("status.errorLoadGroups"), true);
 });
 
-window.VaultInfo?.watch(document, { enabled: () => state.language === "en" });
+window.VaultInfo?.watch(document, { enabled: () => true });
