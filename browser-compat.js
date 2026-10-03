@@ -61,6 +61,8 @@
     "offscreen.createDocument": 1, "offscreen.closeDocument": 1, "offscreen.hasDocument": 1
   };
 
+  var callbackLastError = null;
+
   function adaptAsync(fn, ctx, path) {
     return function () {
       var args = Array.prototype.slice.call(arguments);
@@ -73,14 +75,12 @@
           .then(
             function (result) { try { cb(result); } catch (_) {} },
             function (err) {
-              try {
-                if (g.chrome && g.chrome.runtime) {
-                  g.chrome.runtime.lastError = {
-                    message: String((err && err.message) || err)
-                  };
-                }
-              } catch (_) {}
+              // Native browser runtime.lastError is read-only. Expose the
+              // callback failure only while this callback runs, as Chrome does;
+              // a rejected native message must not poison later successful calls.
+              callbackLastError = { message: String((err && err.message) || err) };
               try { cb(undefined); } catch (_) {}
+              finally { callbackLastError = null; }
             }
           );
         return undefined;
@@ -92,6 +92,7 @@
   function makeProxy(target, path) {
     return new Proxy(target, {
       get: function (obj, prop) {
+        if (path === "runtime" && prop === "lastError" && callbackLastError) return callbackLastError;
         var value = obj[prop];
         if (typeof prop === "symbol") return value;
         var childPath = path ? path + "." + prop : prop;

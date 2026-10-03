@@ -11,10 +11,9 @@
   // be the hub identity when they win the loopback listener.
   var DESKTOP_PROGRAMS = ["macapp", "windowsapp", "classifier"];
   var HUB_PROGRAMS = DESKTOP_PROGRAMS.slice();
-  // The authenticated local hub is currently Chromium-only. Firefox and
-  // Safari do not have this registered host bootstrap and therefore must not
-  // fall back to an unauthenticated loopback identity.
-  var REMOTE_PROGRAMS = ["chrome", "edge"];
+  // Safari proves its identity through its containing native app extension;
+  // Chromium uses its registered native host. Unsupported engines fail closed.
+  var REMOTE_PROGRAMS = ["chrome", "edge", "safari"];
 
   function isDesktopProgram(program) {
     return DESKTOP_PROGRAMS.indexOf(String(program || "")) >= 0;

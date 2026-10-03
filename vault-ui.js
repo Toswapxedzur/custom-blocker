@@ -11,7 +11,7 @@
   const document = global.document;
   // Only a real page has selects to replace (not a test's stand-in DOM).
   if (!document || typeof HTMLSelectElement === "undefined" || typeof MutationObserver === "undefined") {
-    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {}, focusDialog: () => () => {}, confirmClick: () => true, refreshList() {}, captureSearch: () => null, restoreSearch() {}, searchQuery: () => "", renderList() {}, isManagedList: () => false });
+    global.VaultUI = Object.freeze({ enhance() {}, observe() {}, close() {}, focusDialog: () => () => {}, confirmClick: () => true, refreshList() {}, captureSearch: () => null, restoreSearch() {}, searchQuery: () => "", setSelectOptions() {}, renderList() {}, isManagedList: () => false });
     return;
   }
   const dropdowns = new WeakMap(); // select -> { wrap, button, label }
@@ -21,6 +21,16 @@
   const searchableLists = new WeakMap();
   const managedLists = new WeakMap();
   const SEARCH_THRESHOLD = 5;
+  function translate(owner, key, fallback, values = {}) {
+    const scope = owner?.host ? owner : owner?.getRootNode?.();
+    const translator = scope?.host?.dataset?.scene === "classifier" ? global.VaultClassifierTranslate : global.VaultTranslate;
+    const fullKey = "ui." + key;
+    let result = translator?.(fullKey, values);
+    if (!result || result === fullKey) result = fallback;
+    for (const [name, value] of Object.entries(values)) result = result.replaceAll(`{${name}}`, String(value));
+    return result;
+  }
+
 
   function searchState(list) {
     const scope = list.getRootNode();
@@ -30,7 +40,8 @@
     return states.get(key);
   }
 
-  function searchControls(label, onInput) {
+  function searchControls(label, onInput, owner) {
+    const ui = (key, fallback, values) => translate(owner, key, fallback, values);
     const bar = document.createElement("div");
     bar.className = "vui-search";
     const input = document.createElement("input");
@@ -42,12 +53,12 @@
     input.placeholder = label;
     input.setAttribute("aria-label", label);
     bar.dataset.infoKey = "search:" + label;
-    bar.dataset.infoCopy = "Find entries by name or identifier. Search changes only the displayed list.";
+    bar.dataset.infoCopy = ui("searchInfo", "Find entries by name or identifier. Search changes only the displayed list.");
     const clear = document.createElement("button");
     clear.type = "button";
     clear.className = "vui-search-clear";
     clear.textContent = "×";
-    clear.setAttribute("aria-label", "Clear search");
+    clear.setAttribute("aria-label", ui("clearSearch", "Clear search"));
     const update = () => { clear.hidden = !input.value; onInput(input.value); };
     input.addEventListener("input", update);
     clear.addEventListener("click", () => { input.value = ""; update(); input.focus({ preventScroll: true }); });
@@ -56,6 +67,7 @@
   }
 
   function refreshList(list) {
+    const ui = (key, fallback, values) => translate(list, key, fallback, values);
     if (!list.isConnected || !list.dataset.vuiSearch) return;
     const managed = managedLists.get(list);
     if (managed) { managed.attach(); return; }
@@ -63,23 +75,23 @@
     if (entry && entry.key !== list.dataset.vuiSearch) { entry.bar.remove(); entry = null; }
     const state = searchState(list);
     if (!entry) {
-      entry = searchControls(list.dataset.vuiSearchLabel || "Search this list", (value) => {
+      entry = searchControls(list.dataset.vuiSearchLabel || ui("searchList", "Search this list"), (value) => {
         searchState(list).query = value;
         refreshList(list);
-      });
+      }, list);
       entry.key = list.dataset.vuiSearch;
       entry.bar.dataset.infoKey = "list-search:" + entry.key;
       if (list.dataset.vuiSearchCopy) entry.bar.dataset.infoCopy = list.dataset.vuiSearchCopy;
       entry.input.dataset.vuiSearchInput = entry.key;
       entry.empty = document.createElement("span");
       entry.empty.className = "vui-search-empty";
-      entry.empty.textContent = "No matches";
+      entry.empty.textContent = ui("noMatches", "No matches");
       entry.empty.setAttribute("role", "status");
       entry.bar.appendChild(entry.empty);
       if (list.dataset.vuiSearchMode === "find") {
         entry.next = document.createElement("button");
         entry.next.type = "button";
-        entry.next.textContent = "Next match";
+        entry.next.textContent = ui("nextMatch", "Next match");
         entry.next.dataset.vuiNextMatch = "";
         entry.empty.classList.add("vui-search-count");
         entry.next.className = "vui-search-clear";
@@ -119,8 +131,8 @@
       }
       if (query && shown) {
         entry.empty.hidden = false;
-        entry.empty.textContent = `${(state.matchIndex || 0) % shown + 1} / ${shown} matches`;
-      } else entry.empty.textContent = "No matches";
+        entry.empty.textContent = ui("matchesCount", "{index} / {count} matches", { index: (state.matchIndex || 0) % shown + 1, count: shown });
+      } else entry.empty.textContent = ui("noMatches", "No matches");
     }
     state.lastQuery = query;
     list.dispatchEvent(new CustomEvent("vui-search-filtered", { detail: { query, shown, total: items.length } }));
@@ -129,6 +141,7 @@
   // Bounded pages support variable-height forms and wrapping chips without
   // guessing geometry. Stored items and search cover the entire collection.
   function renderList(list, options) {
+    const ui = (key, fallback, values) => translate(options.scope || list, key, fallback, values);
     const scope = options.scope || list.getRootNode();
     if (!searchStates.has(scope)) searchStates.set(scope, new Map());
     const states = searchStates.get(scope), key = options.key || list.dataset.vuiSearch;
@@ -139,24 +152,24 @@
     searchableLists.get(list)?.bar.remove();
     const size = options.pageSize || 40;
     let matches = options.items, revision = 0, remoteRows = null, remoteTotal = options.total || 0;
-    const controls = searchControls(options.label || list.dataset.vuiSearchLabel || "Search this list", value => {
+    const controls = searchControls(options.label || list.dataset.vuiSearchLabel || ui("searchList", "Search this list"), value => {
       state.query = value; state.page = 0; search();
-    });
+    }, options.scope || list);
     controls.input.dataset.vuiSearchInput = key;
     controls.input.value = state.query;
     controls.bar.dataset.infoKey = "list-search:" + key;
     controls.bar.dataset.infoCopy = list.dataset.vuiSearchCopy || controls.bar.dataset.infoCopy;
     const empty = document.createElement("span");
-    empty.className = "vui-search-empty"; empty.textContent = "No matches"; empty.setAttribute("role", "status");
+    empty.className = "vui-search-empty"; empty.textContent = ui("noMatches", "No matches"); empty.setAttribute("role", "status");
     controls.bar.append(empty);
     const pager = document.createElement("div");
     pager.className = "vui-page-controls";
     pager.dataset.vuiSearchIgnore = "";
     const previous = document.createElement("button"), next = document.createElement("button"), count = document.createElement("span");
     previous.type = next.type = "button";
-    previous.textContent = "Previous"; next.textContent = "Next";
+    previous.textContent = ui("previous", "Previous"); next.textContent = ui("next", "Next");
     count.setAttribute("role", "status");
-    const retry = document.createElement("button"); retry.type = "button"; retry.textContent = "Retry"; retry.hidden = true;
+    const retry = document.createElement("button"); retry.type = "button"; retry.textContent = ui("retry", "Retry"); retry.hidden = true;
     pager.append(previous, count, next, retry);
     function paint() {
       retry.hidden = true;
@@ -174,7 +187,7 @@
       options.trailing?.(fragment);
       list.replaceChildren(fragment);
       previous.disabled = !state.page; next.disabled = start + size >= length;
-      count.textContent = length ? `${start + 1}–${Math.min(start + size, length)} / ${length}` : "No matches";
+      count.textContent = length ? `${start + 1}–${Math.min(start + size, length)} / ${length}` : ui("noMatches", "No matches");
       pager.hidden = length <= size;
       controls.input.value = state.query;
       controls.clear.hidden = !state.query;
@@ -191,7 +204,7 @@
       if (options.queryPage) {
         const result = await options.queryPage({ query, offset: (state.page || 0) * size, limit: size });
         if (current !== revision || !list.isConnected) return;
-        if (!result) { count.textContent = "Could not load entries."; pager.hidden = false; retry.hidden = false; previous.disabled = next.disabled = true; return; }
+        if (!result) { count.textContent = ui("loadFailed", "Could not load entries."); pager.hidden = false; retry.hidden = false; previous.disabled = next.disabled = true; return; }
         const lastPage = Math.max(0, Math.ceil(result.total / size) - 1);
         if (state.page > lastPage) { state.page = lastPage; search(); return; }
         remoteRows = result.items; remoteTotal = result.total;
@@ -221,19 +234,20 @@
   }
 
   function bindFind(list, options) {
+    const ui = (key, fallback, values) => translate(options.scope || list, key, fallback, values);
     const state = searchState(list);
     managedLists.get(list)?.dispose?.(); searchableLists.get(list)?.bar.remove();
     let revision = 0, matches = [];
-    const controls = searchControls(list.dataset.vuiSearchLabel || "Find", value => { state.query = value; state.matchIndex = 0; search(true); });
+    const controls = searchControls(list.dataset.vuiSearchLabel || ui("find", "Find"), value => { state.query = value; state.matchIndex = 0; search(true); }, options.scope || list);
     controls.input.dataset.vuiSearchInput = list.dataset.vuiSearch;
     const count = document.createElement("span"), next = document.createElement("button");
-    count.setAttribute("role", "status"); next.type = "button"; next.textContent = "Next match"; next.dataset.vuiNextMatch = "";
+    count.setAttribute("role", "status"); next.type = "button"; next.textContent = ui("nextMatch", "Next match"); next.dataset.vuiNextMatch = "";
     controls.bar.append(count, next);
     function paint(jump) {
       const query = state.query.trim().toLowerCase();
       controls.input.value = state.query; controls.clear.hidden = !state.query;
       const index = (state.matchIndex || 0) % Math.max(1, matches.length);
-      count.textContent = query ? (matches.length ? `${index + 1} / ${matches.length} matches` : "No matches") : "";
+      count.textContent = query ? (matches.length ? ui("matchesCount", "{index} / {count} matches", { index: index + 1, count: matches.length }) : ui("noMatches", "No matches")) : "";
       next.hidden = !query || !matches.length;
       options.matches(new Set(matches.map(options.id)));
       if (jump && matches.length) options.locate(matches[index]);
@@ -270,16 +284,17 @@
 
   const textFinds = new WeakSet();
   function enhanceTextFind(field) {
+    const ui = (key, fallback, values) => translate(field, key, fallback, values);
     if (textFinds.has(field)) return;
     textFinds.add(field);
     let matches = [], index = 0;
-    const controls = searchControls("Find tag rule", () => { index = 0; update(); });
+    const controls = searchControls(ui("findTagRule", "Find tag rule"), () => { index = 0; update(); }, field);
     controls.bar.dataset.infoKey = "text-find:" + field.id;
-    controls.bar.dataset.infoCopy = "Find a saved tag rule without changing the text. Next match moves to the matching line.";
+    controls.bar.dataset.infoCopy = ui("findTagRuleInfo", "Find a saved tag rule without changing the text. Next match moves to the matching line.");
     const next = document.createElement("button");
     next.type = "button";
     next.className = "vui-search-clear";
-    next.textContent = "Next match";
+    next.textContent = ui("nextMatch", "Next match");
     const status = document.createElement("span");
     status.className = "vui-search-empty";
     status.setAttribute("role", "status");
@@ -295,7 +310,7 @@
       index %= Math.max(1, matches.length);
       next.hidden = !matches.length;
       status.hidden = !query;
-      status.textContent = matches.length ? `${index + 1} / ${matches.length} matches` : "No matches";
+      status.textContent = matches.length ? ui("matchesCount", "{index} / {count} matches", { index: index + 1, count: matches.length }) : ui("noMatches", "No matches");
       if (matches.length) {
         field.setSelectionRange(matches[index].start, matches[index].end);
         field.scrollTop = field.value.slice(0, matches[index].start).split("\n").length * (parseFloat(global.getComputedStyle(field).lineHeight) || 18) - field.clientHeight / 2;
@@ -436,8 +451,9 @@
   }
 
   function renderMenu(select) {
+    const ui = (key, fallback, values) => translate(select, key, fallback, values);
     if (!menu.querySelector(".vui-menu-options")) {
-      const controls = searchControls("Search options", () => { renderMenu(select === openFor ? select : openFor); });
+      const controls = searchControls(ui("searchOptions", "Search options"), () => { renderMenu(select === openFor ? select : openFor); }, select);
       menu.appendChild(controls.bar);
       const options = document.createElement("div");
       options.className = "vui-menu-options";
@@ -467,7 +483,7 @@
         item.addEventListener("click", event => { event.stopPropagation(); choose(select, index); });
         fragment.append(item); return fragment;
       } });
-    if (!rows.length) { const empty = document.createElement("div"); empty.className = "vui-menu-group"; empty.textContent = "No matches"; options.appendChild(empty); }
+    if (!rows.length) { const empty = document.createElement("div"); empty.className = "vui-menu-group"; empty.textContent = ui("noMatches", "No matches"); options.appendChild(empty); }
   }
 
   function placeMenu(button) {

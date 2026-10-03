@@ -3,7 +3,7 @@ async () => {
   const wait = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   const names = Array.from({ length: 500 }, (_, i) => `Topic ${String(i).padStart(3, '0')}`);
   tagNameCache.set('youtube', { at: Date.now(), names });
-  const group = createDefaultGroup('youtube'); group.id = 'tag-chooser-test'; group.platformTagMode = 'include';
+  const group = createDefaultGroup('youtube'); group.id = 'tag-chooser-test'; group.platformTagMode = 'include'; group.sourceMode = 'nobody';
   await chrome.storage.local.set({ blockedGroups: [toStoredGroup(foldEntryIntoLines(group))] });
   const end = Date.now() + 5000;
   while (!state.groups.some(item => item.id === group.id)) {
@@ -20,7 +20,7 @@ async () => {
   check(!!chooser, 'tag trigger opens its chooser');
   const list = chooser.querySelector('.tag-chooser-list');
   check(Math.abs(downstream.getBoundingClientRect().top - y) < 1, 'opening 500 tags leaves downstream fields in place');
-  check(list.children.length === 500 && list.scrollHeight > list.clientHeight && getComputedStyle(list).overflowY === 'auto', 'all tags remain reachable inside a bounded menu');
+  check(list.children.length <= 40 && list.scrollHeight > list.clientHeight && getComputedStyle(list).overflowY === 'auto', 'tags use bounded pages inside a bounded menu');
   const box = chooser.getBoundingClientRect();
   check(box.left >= 7 && box.right <= innerWidth - 7 && box.top >= 7 && box.bottom <= innerHeight - 7, 'tag chooser fits viewport');
   list.scrollTop = list.scrollHeight; check(list.scrollTop > 0, 'last tag can be reached by scrolling'); await wait();
@@ -36,6 +36,10 @@ async () => {
   check(document.activeElement === list.firstChild, 'arrow key focuses matching tag');
   list.firstChild.click(); await wait();
   check(textarea.value.includes('Topic 499') && list.firstChild.disabled && document.querySelector('.tag-chooser'), 'choosing a tag updates normal drafts and keeps chooser available');
+  check(document.querySelector('#platformTagListBlock .entry-chip-list').textContent.includes('Topic 499'), 'chosen tag immediately appears as an individual entry');
+  await flushAutosave();
+  const saved = (await chrome.storage.local.get('blockedGroups')).blockedGroups.find(item => item.id === group.id);
+  check(CBGroupScopes.flatFromScopes(saved).platformTags.some(tag => tag.name === 'Topic 499'), 'chosen tag persists through normal autosave');
   renderTagSuggestions(container, textarea, names); await wait();
   check(search.value === '499' && document.activeElement === search, 'renderer updates preserve chooser query and focus');
   search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

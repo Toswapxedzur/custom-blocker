@@ -1,5 +1,5 @@
 /* A video that resolves but carries no tags renders a "Untagged" pill; a lookup that
- * fails renders nothing (and never a misleading "Untagged"). */
+ * fails renders Untagged, while late pushes and root reuse remain safe. */
 "use strict";
 
 const fs = require("node:fs");
@@ -9,6 +9,11 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 const closedShadows = new WeakMap();
 let context;
+const runtimeListeners = [];
+const delayedTimers = [];
+let virtualTime = Date.now();
+class TestDate extends Date { static now() { return virtualTime; } }
+let heldJob = null;
 let batchOutcome = "empty"; // "empty" -> tags:[]; "fail" -> ok:false everywhere
 
 class FakeElement {
@@ -98,7 +103,9 @@ document.documentElement = new FakeElement("html", document);
 const chrome = {
   runtime: {
     lastError: null,
+    onMessage: { addListener(callback) { runtimeListeners.push(callback); } },
     sendMessage(message, callback) {
+      if (batchOutcome === "hold" && message.type === "vault-classifier-video-tags-batch") { heldJob = { message, callback }; return; }
       let response;
       if (batchOutcome === "empty" && message.type === "vault-classifier-video-tags-batch") {
         // The video was classified; the app simply produced no tags for it.
@@ -127,7 +134,7 @@ const chrome = {
 };
 
 context = vm.createContext({
-  chrome, console, document, setTimeout, clearTimeout, Date, TextEncoder, URL,
+  chrome, console, document, setTimeout: (fn, delay) => delay > 1000 ? (delayedTimers.push(fn), -delayedTimers.length) : setTimeout(fn, delay), clearTimeout, Date: TestDate, TextEncoder, URL,
   MutationObserver: FakeMutationObserver
 });
 context.window = context;
@@ -156,7 +163,7 @@ setTimeout(() => {
   const noneNames = chipNamesFor(noneRoot);
   const rendersNone = JSON.stringify(noneNames) === JSON.stringify(["Untagged"]);
 
-  // Phase 2: a failed lookup renders nothing — never a misleading "Untagged".
+  // Phase 2: a failed lookup renders Untagged and remains retryable.
   const failRoot = new FakeElement("article", document);
   const failAnchor = failRoot.appendChild(new FakeElement("a", document));
   batchOutcome = "fail";
@@ -164,7 +171,7 @@ setTimeout(() => {
 
   setTimeout(() => {
     // Only the anchor remains; no pill host was appended.
-    const failBlank = failRoot.children.length === 1;
+    const failBlank = JSON.stringify(chipNamesFor(failRoot)) === JSON.stringify(["Untagged"]) && context.vaultTagsSettledForCard(failRoot);
 
     // Phase 3: a video the app is still classifying (pending) shows exactly one
     // temporary "Tagging" placeholder chip.
@@ -178,8 +185,8 @@ setTimeout(() => {
       const rendersTagging = JSON.stringify(pendingNames) === JSON.stringify(["Tagging"]);
 
       if (rendersNone && failBlank && rendersTagging) {
-        console.log("PASS tagless video -> Untagged; failed lookup -> blank; pending video -> Tagging placeholder");
-        console.log("__CB_TEST_RESULT__: OK");
+        console.log("PASS tagless video -> Untagged; failed lookup -> Untagged; pending video -> Tagging placeholder");
+        void raceChecks();
         return;
       }
       console.error("FAIL none/tagging pill", { noneNames, rendersNone, failChildren: failRoot.children.length, pendingNames, rendersTagging });
@@ -188,3 +195,47 @@ setTimeout(() => {
     }, 40);
   }, 40);
 }, 40);
+
+async function raceChecks() {
+  const wait = () => new Promise(resolve => setTimeout(resolve, 20));
+  const check = (ok, label) => { if (!ok) throw new Error(label); };
+  try {
+    const root = new FakeElement("article", document);
+    batchOutcome = "hold";
+    context.VaultClassifierTagUI.observe({ platform: "reddit", entryID: "reddit:post:race1", title: "", root });
+    check(JSON.stringify(chipNamesFor(root)) === '["Tagging"]', "recognition renders immediately without title");
+    await wait(); check(!heldJob, "classification waits for title evidence");
+    context.VaultClassifierTagUI.observe({ platform: "reddit", entryID: "reddit:post:race1", title: "Hydrated title", root });
+    await wait(); check(heldJob, "hydrated title starts classification");
+    const old = heldJob;
+    const pushed = { type: "vault-classifier-video-tags-updated", platform: "reddit", items: [{ entryID: "reddit:post:race1", tags: [{ id: "science", name: "Science", lightColorHex: "#E5E7EB", darkColorHex: "#3F3F46" }] }] };
+    runtimeListeners.forEach(listener => listener(pushed, {}));
+    old.callback({ ok: true, platformID: "reddit", items: [{ entryID: "reddit:post:race1", pending: true, tags: [] }] });
+    await wait(); check(JSON.stringify(chipNamesFor(root)) === '["Science"]', "late pending reply cannot overwrite pushed tags");
+    heldJob = null;
+    context.VaultClassifierTagUI.observe({ platform: "reddit", entryID: "reddit:post:race1", title: "Hydrated title", root });
+    await wait(); check(JSON.stringify(chipNamesFor(root)) === '["Science"]' && !heldJob, "hydration keeps settled tags without another lookup");
+    context.VaultClassifierTagUI.observe({ platform: "reddit", entryID: "reddit:post:race2", title: "Another post", root });
+    await wait(); const second = heldJob;
+    check(JSON.stringify(chipNamesFor(root)) === '["Tagging"]', "recycled root starts new identity");
+    context.VaultClassifierTagUI.observe({ platform: "reddit", entryID: "reddit:post:race3", title: "Third post", root });
+    await wait();
+    second.callback({ ok: true, platformID: "reddit", items: [{ entryID: "reddit:post:race2", tags: [{ id: "old", name: "Old post", lightColorHex: "#E5E7EB", darkColorHex: "#3F3F46" }] }] });
+    await wait(); check(JSON.stringify(chipNamesFor(root)) === '["Tagging"]', "old root response cannot affect recycled post");
+    context.VaultClassifierTagUI.clearPlatform("reddit");
+    batchOutcome = "pending";
+    context.VaultClassifierTagUI.clearPlatform("youtube");
+    const timeoutRoot = new FakeElement("article", document);
+    context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: "youtube:video:timeout", title: "Never finishes", root: timeoutRoot });
+    await wait();
+    for (let attempt = 0; attempt < 22; attempt++) {
+      virtualTime += 3000;
+      const timers = delayedTimers.splice(0); timers.forEach(fn => fn());
+      await wait();
+    }
+    check(JSON.stringify(chipNamesFor(timeoutRoot)) === '["Untagged"]', "bounded pending timeout outputs Untagged");
+    context.VaultClassifierTagUI.clearPlatform("youtube");
+    console.log("PASS immediate recognition, evidence readiness, push ordering, stable hydration and recycled Reddit roots");
+    console.log("__CB_TEST_RESULT__: OK");
+  } catch (error) { console.error(error); process.exitCode = 1; console.log("__CB_TEST_RESULT__: FAIL"); }
+}

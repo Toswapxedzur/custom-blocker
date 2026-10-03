@@ -2,7 +2,7 @@
 "use strict";
 
 /*
- * Verify that every statically named UI translation key used by the three
+ * Verify that every statically named UI translation key used by the four
  * editors exists in that product's English catalog and in every supported
  * locale catalog. This intentionally audits code and markup, never docs.
  */
@@ -15,27 +15,50 @@ const locales = ["ar", "bn", "de", "es", "fr", "hi", "id", "it", "ja", "ko", "nl
 const products = [
   { id: "vaultExtension", name: "Vault extension", catalog: "customBlocker/translation/en.json" },
   { id: "macVault", name: "Mac Vault", catalog: "macosBlocker/Sources/MacBlockerWebUI/WebAssets/translation/en.json" },
-  { id: "windowsVault", name: "Windows Vault", catalog: "windowsBlocker/src/WindowsBlocker/WebAssets/translation/en.json" }
+  { id: "windowsVault", name: "Windows Vault", catalog: "windowsBlocker/src/WindowsBlocker/WebAssets/translation/en.json" },
+  { id: "safariVault", name: "Safari Vault", catalog: "safariBlocker/extension/translation/en.json" }
 ];
 const productSources = {
   vaultExtension: [
     "customBlocker/popup.html",
     "customBlocker/popup.js",
-    "customBlocker/platform-profiles.js"
+    "customBlocker/platform-profiles.js",
+    "customBlocker/vault-classifier-tag-ui.js",
+    "customBlocker/content.js",
+    "customBlocker/vault-ui.js",
+    "customBlocker/vault-info.js"
   ],
   macVault: [
     "macosBlocker/Sources/MacBlockerWebUI/WebAssets/popup.html",
-    "macosBlocker/Sources/MacBlockerWebUI/WebAssets/popup.js"
+    "macosBlocker/Sources/MacBlockerWebUI/WebAssets/popup.js",
+    "macosBlocker/classifier/Sources/VaultClassifierApp/WebAssets/app.js",
+    "macosBlocker/classifier/Sources/VaultClassifierApp/WebAssets/notice-language.js",
+    "macosBlocker/Sources/MacBlockerMacControl/TimerOverlayPanel.swift",
+    "macosBlocker/Sources/MacBlockerWebUI/WebAssets/activity.js",
+    "macosBlocker/Sources/MacBlockerWebUI/BlockerWebView.swift",
+    "macosBlocker/Sources/MacBlockerAppFeature/BlockerAppDelegate.swift",
+    "macosBlocker/Sources/MacBlockerAppFeature/QuickAddPanel.swift",
+    "macosBlocker/Sources/MacBlockerPanel/MacBlockerPanelApp.swift",
+    "macosBlocker/classifier/Sources/VaultClassifierApp/DictionaryContributionPrompt.swift"
   ],
   windowsVault: [
     "windowsBlocker/src/WindowsBlocker/WebAssets/popup.html",
-    "windowsBlocker/src/WindowsBlocker/WebAssets/popup.js"
-  ]
+    "windowsBlocker/src/WindowsBlocker/WebAssets/popup.js",
+    "windowsBlocker/src/WindowsBlocker/WebAssets/classifier/app.js",
+    "windowsBlocker/src/WindowsBlocker/WebAssets/classifier/notice-language.js",
+    "windowsBlocker/src/WindowsBlocker/WebAssets/activity.js",
+    "windowsBlocker/src/WindowsBlocker/MainWindow.xaml.cs",
+    "windowsBlocker/src/WindowsBlocker/McpConnectionsWindow.cs",
+    "windowsBlocker/src/WindowsBlocker/QuickAddWindow.cs",
+    "windowsBlocker/src/WindowsBlocker/Rules/LocalFolderGrant.cs",
+    "windowsBlocker/src/WindowsBlocker/PanelOverlayWindow.xaml.cs"
+  ],
+  safariVault: ["safariBlocker/extension/popup.html", "safariBlocker/extension/popup.js", "safariBlocker/extension/content.js", "safariBlocker/extension/vault-classifier-tag-ui.js", "safariBlocker/Sources/SafariApp.swift", "safariBlocker/Sources/SafariFileBroker.swift"]
 };
 
 const keyPatterns = [
-  /\bt\(\s*["']([A-Za-z0-9_.-]+)["']/g,
-  /\b(?:label|placeholder|help|copy|title)Key\s*:\s*["']([A-Za-z0-9_.-]+)["']/g,
+  /\b(?:t|ui|cbUi|at|sx|tx|text|Text|translate)\(\s*["']([A-Za-z0-9_.-]+)["']/g,
+  /\b(?:translation|label|placeholder|help|copy|title)Key\s*:\s*["']([A-Za-z0-9_.-]+)["']/g,
   /\bdata-i18n(?:-[A-Za-z-]+)?\s*=\s*["']([A-Za-z0-9_.-]+)["']/g
 ];
 
@@ -44,7 +67,15 @@ function collectKeys(file) {
   const keys = new Set();
   for (const pattern of keyPatterns) {
     pattern.lastIndex = 0;
-    for (const match of source.matchAll(pattern)) keys.add(match[1]);
+    for (const match of source.matchAll(pattern)) {
+      let key = match[1];
+      if (key.endsWith(".")) continue; // Dynamic prefixes are covered by full-catalog parity.
+      const call = match[0].split("(")[0].trim();
+      if ((file.endsWith("/app.js") && ["t", "tx"].includes(call)) || file.endsWith("/notice-language.js")) key = "classifier." + key;
+      else if (file.endsWith("/activity.js") && call === "at") key = "activity." + key;
+      else if (file.endsWith("/vault-ui.js") && call === "ui") key = "ui." + key;
+      keys.add(key);
+    }
   }
   return keys;
 }
@@ -56,7 +87,7 @@ function literalUiOutput(file) {
   for (const match of source.matchAll(pattern)) {
     // Symbols and counters are not language. Any English words written directly
     // to a user-visible output surface must instead be read with t("key").
-    const value = match[2].replace(/\\u[0-9a-fA-F]{4}/g, "");
+    const value = match[2].replace(/\\u[0-9a-fA-F]{4}/g, "").replace(/\$\{[^}]*\}/g, "");
     if (/[A-Za-z]/.test(value) && !/\bt\(/.test(value)) {
       const line = source.slice(0, match.index).split("\n").length;
       output.push(`${file}:${line}`);
@@ -74,7 +105,7 @@ function literalUiAttribute(file) {
   ];
   for (const pattern of patterns) {
     for (const match of source.matchAll(pattern)) {
-      const value = match[2].replace(/\\u[0-9a-fA-F]{4}/g, "");
+      const value = match[2].replace(/\\u[0-9a-fA-F]{4}/g, "").replace(/\$\{[^}]*\}/g, "");
       if (/[A-Za-z]/.test(value) && !/\bt\(/.test(value)) {
         const line = source.slice(0, match.index).split("\n").length;
         output.push(`${file}:${line}`);
@@ -121,8 +152,9 @@ for (const product of products) {
   }
 
   const missingEnglish = [...used].filter((key) => !Object.hasOwn(english, key)).sort();
-  const literalOutput = productSources[product.id].flatMap(literalUiOutput);
-  const literalAttribute = productSources[product.id].flatMap(literalUiAttribute);
+  const literalSources = productSources[product.id].filter(file => /(?:popup|platform-profiles|content)\.(?:js|html)$/.test(file));
+  const literalOutput = literalSources.flatMap(literalUiOutput);
+  const literalAttribute = literalSources.flatMap(literalUiAttribute);
   const staticHtmlOutput = productSources[product.id].flatMap(staticHtmlTextWithoutKey);
   if (missingEnglish.length) fail(`${product.name}: missing English keys: ${missingEnglish.join(", ")}`);
   if (literalOutput.length) fail(`${product.name}: hard-coded user output must use t(key): ${literalOutput.join(", ")}`);
@@ -140,9 +172,24 @@ for (const product of products) {
     if (missing.length || extra.length) {
       fail(`${product.name}: ${locale} catalog differs from English keys (missing ${missing.length}, extra ${extra.length}).`);
     }
+    for (const [key, source] of Object.entries(english)) {
+      if (typeof localized[key] !== "string") continue;
+      const placeholders = value => [...new Set(value.match(/\{[A-Za-z0-9_]+\}/g) || [])].sort().join("|");
+      if (placeholders(source) !== placeholders(localized[key])) fail(`${product.name}: ${locale}/${key} changes interpolation placeholders.`);
+      const literalSample = /^(?:platform\.placeholder\.|discord\.targetsPlaceholder$|custom\.(?:rulesPlaceholder|defaultRule)$|sites\.placeholder$|(?:classifier\.)?language\.name\.)/.test(key)
+        || source.trim().startsWith('{"');
+      const prose = source.replace(/`[^`]*`|https?:\/\/\S+|\{[^}]*\}/g, " ");
+      if (!literalSample && localized[key] === source && (prose.match(/\b[A-Za-z]{2,}\b/g) || []).length >= 4) {
+        fail(`${product.name}: ${locale}/${key} still contains the English prose.`);
+      }
+      // Platform names must remain recognizable, rather than becoming ordinary words.
+      if (/^groupType\./.test(key) && ["YouTube", "TikTok", "Facebook", "Instagram", "Twitch", "Reddit", "Discord", "Twitter / X", "Bilibili"].includes(source) && !localized[key].includes(source)) {
+        fail(`${product.name}: ${locale}/${key} changes the platform name ${source}.`);
+      }
+    }
   }
   usedKeyCount += used.size;
-  console.log(`${product.name}: ${used.size} static UI keys and ${locales.length} complete locale catalogs are covered.`);
+  if (!process.exitCode) console.log(`${product.name}: ${used.size} static UI keys and ${locales.length} complete locale catalogs are covered.`);
 }
 
 if (!process.exitCode) {

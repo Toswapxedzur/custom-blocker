@@ -98,7 +98,7 @@ async function op(operation, body) {
   const initial = await op("settings-get", {});
   check("settings-get exposes Vault groups but no retired classifier controls", initial?.body && Array.isArray(initial.body.groups) && !Object.hasOwn(initial.body,"classifierSettings") && !initial.body.operations.includes("settings-set-classifier") && initial.body.operations.includes("settings-set-group"), initial);
 
-  const created = await op("settings-create-group", { groupType: "twitter", patch: { name: "X tags", platformTagMode: "include", platformTags: [{ name: "Gaming", confidence: 3 }, { name: "Sports" }], platformTagCoverUntilTagged: true } });
+  const created = await op("settings-create-group", { groupType: "twitter", patch: { name: "X tags", sourceMode: "nobody", platformTagMode: "include", platformTags: [{ name: "Gaming", confidence: 3 }, { name: "Sports" }], platformTagCoverUntilTagged: true } });
   const g = created?.body?.group;
   check("create-group builds a sanitized X group from the popup's defaults + patch", g && flatOf(g) && Array.isArray(g.scopes) && g.groupType === "twitter" && g.name === "X tags" && g.enabled === true && flatOf(g).platformTagMode === "include" && flatOf(g).platformTags?.length === 2 && flatOf(g).platformTags[0].confidence === 3 && flatOf(g).platformTagCoverUntilTagged === true && flatOf(g).platformTagBlockPage === true, created);
   const stored = storage.get("blockedGroups") || [];

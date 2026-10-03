@@ -11,11 +11,9 @@ One source tree, several stores. The browsers differ ONLY in packaging:
             page that hosts the sandbox iframe in-page (offscreen.firefox.html,
             shipped as offscreen.html). Uses manifest.firefox.json and the
             browser-compat.js namespace bridge.
-  safari  — Thin client. Default + platform groups run in the extension;
-            custom-rule logic is redirected to the macosBlocker app over
-            native messaging. Uses manifest.safari.json, omits the in-browser
-            eval sandbox, and pins the native transport via a generated
-            sandbox-transport.js.
+  safari  — Full browser client. Custom rules run in the separate Safari
+            Vault native app extension; Classifier/Activity use the authenticated
+            desktop hub. Explicit package environment keeps development isolated.
 
 Why an allowlist (not a denylist):
   Stores reject packages containing dev artefacts, dotfiles, reserved-prefix
@@ -36,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import runpy
 import shutil
 import sys
 import zipfile
@@ -51,6 +50,8 @@ COMMON_TOP_LEVEL_FILES = [
     "background.js",
     "bridge-protocol.js",
     "content.js",
+    "content-messages.js",
+    "vault-content-i18n.js",
     "cover-frame.js",
     "platform-profiles.js",
     "group-scopes.js",
@@ -80,16 +81,15 @@ CHROMIUM_SERVICE_WORKER_FILES = [
 ]
 
 # The in-browser eval sandbox. Present on Chromium + Firefox; omitted on
-# Safari, where custom rules run natively in the macosBlocker app.
+# Safari, where custom rules run in its separate native app extension.
 SANDBOX_FILES = [
     "event-sandbox.html",
     "event-sandbox.js",
     "offscreen.js",
 ]
 
-# The opt-in Vault Classifier adapter is currently Chromium-only. Keep it out
-# of Firefox and Safari packages until their native transport contracts exist,
-# but include every manifest-declared Chrome/Edge content script.
+# The authenticated Classifier/Activity browser adapters. Safari uses the same
+# collectors and contracts as Chromium, with its own native proof bootstrap.
 VAULT_CLASSIFIER_FILES = [
     "vault-classifier-contract.js",
     "vault-classifier-tag-ui.js",
@@ -248,7 +248,22 @@ def validate_service_worker_imports(target: str, archive_paths: set[str]) -> Non
         )
 
 
-def build_target(target: str) -> Path:
+def safari_popup_source(source: str) -> str:
+    """Safari all-site grants cover web origins, not Chrome's file-inclusive wildcard.
+
+    Keep the shared editor canonical; specialize only the two browser permission
+    calls when generating its Safari copy. Fail if those call sites change so a
+    renamed helper cannot silently reintroduce a false limited-access warning.
+    """
+    for method in ("contains", "request"):
+        original = f'chrome.permissions.{method}({{ origins: ["<all_urls>"] }})'
+        if source.count(original) != 1:
+            raise RuntimeError(f"Safari popup requires exactly one {method} site-access call")
+        source = source.replace(original, f'chrome.permissions.{method}({{ origins: ["http://*/*", "https://*/*"] }})')
+    return source
+
+
+def build_target(target: str, environment: str = "production") -> Path:
     """Build one target. Returns the path to the written zip.
 
     Files are written into the zip under their final (in-package) names, so a
@@ -265,11 +280,17 @@ def build_target(target: str) -> Path:
     entries.append((REPO_ROOT / manifest_name, "manifest.json", None))
 
     for rel in COMMON_TOP_LEVEL_FILES:
-        entries.append((REPO_ROOT / rel, rel, None))
+        source = REPO_ROOT / rel
+        if target == "safari" and rel == "popup.js":
+            entries.append((None, rel, safari_popup_source(source.read_text(encoding="utf-8"))))
+        else:
+            entries.append((source, rel, None))
 
     if target in ("chrome", "edge"):
         for rel in CHROMIUM_SERVICE_WORKER_FILES:
             entries.append((REPO_ROOT / rel, rel, None))
+
+    if target in ("chrome", "edge", "safari"):
         for rel in VAULT_CLASSIFIER_FILES:
             entries.append((REPO_ROOT / rel, rel, None))
 
@@ -282,6 +303,20 @@ def build_target(target: str) -> Path:
         else:
             entries.append((REPO_ROOT / "offscreen.html", "offscreen.html", None))
     else:
+        if environment not in ("production", "development"):
+            raise ValueError("unknown Safari environment")
+        development = environment == "development"
+        config = {
+            "environment": environment,
+            "address": "ws://127.0.0.1:18787" if development else "ws://127.0.0.1:8787",
+            "nativeHost": "com.adamancia.vault.safari" + (".development" if development else "") + ".extension",
+        }
+        entries.append((None, "safari-runtime-config.js",
+                        "/* generated Safari native identity; never infer it from an opaque runtime ID */\n"
+                        "self.CB_SAFARI_RUNTIME_CONFIG = Object.freeze(" + json.dumps(config, sort_keys=True) + ");\n"
+                        "self.CB_NATIVE_HOST_ID = self.CB_SAFARI_RUNTIME_CONFIG.nativeHost;\n"))
+        entries.append((REPO_ROOT / "safari-lifecycle.js", "safari-lifecycle.js", None))
+        entries.append((REPO_ROOT / "safari-native-lifecycle.js", "safari-native-lifecycle.js", None))
         # Safari: pin the native sandbox transport. background.js reads
         # self.CB_SANDBOX_TRANSPORT before deciding where to run custom rules.
         entries.append((
@@ -356,14 +391,17 @@ def main() -> None:
         default=ALL_TARGETS,
         help="Which target(s) to build (default: all).",
     )
+    parser.add_argument("--environment", choices=["production", "development"], default="production",
+                        help="Native Safari environment (other browser identities are unchanged).")
     args = parser.parse_args()
+    runpy.run_path(str(REPO_ROOT / "scripts" / "build-content-messages.py"))
 
     if DIST_DIR.exists():
         shutil.rmtree(DIST_DIR)
     DIST_DIR.mkdir(parents=True)
 
     for target in args.target:
-        build_target(target)
+        build_target(target, args.environment)
 
 
 if __name__ == "__main__":

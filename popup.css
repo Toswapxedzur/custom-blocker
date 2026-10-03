@@ -209,7 +209,7 @@ button,
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 10px;
+  padding-inline-end: 10px;
   align-items: flex-start;
 }
 
@@ -231,7 +231,7 @@ button,
   padding: 10px 9px;
   cursor: pointer;
   color: #1f2937;
-  text-align: left;
+  text-align: start;
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
   transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
   /* Suppress the browser's native text-selection drag so a mousedown on
@@ -789,7 +789,7 @@ textarea:focus {
 }
 
 .surface-hide-hint {
-  margin-left: 4px;
+  margin-inline-start: 4px;
   font-weight: 500;
   font-size: 11px;
   color: #64748b;
@@ -942,7 +942,7 @@ textarea:disabled {
 .status-stack {
   position: fixed;
   top: 12px;
-  right: 12px;
+  inset-inline-end: 12px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -959,7 +959,7 @@ textarea:disabled {
   background: var(--navy-700);
   color: #ffffff;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.24);
-  text-align: left;
+  text-align: start;
   opacity: 0;
   transform: translateY(-6px) scale(0.98);
   transition: opacity 260ms ease, transform 260ms ease;
@@ -1117,14 +1117,14 @@ textarea:disabled {
 
 .manual-content {
   overflow: auto;
-  padding-right: 8px;
+  padding-inline-end: 8px;
   color: #1f2937;
 }
 
 .run-status {
   font-size: 12px;
   color: #475569;
-  margin-left: 8px;
+  margin-inline-start: 8px;
   align-self: center;
 }
 
@@ -1157,7 +1157,7 @@ textarea:disabled {
 
 .manual-content ul,
 .manual-content ol {
-  padding-left: 20px;
+  padding-inline-start: 20px;
 }
 
 .manual-content li {
@@ -1186,7 +1186,7 @@ textarea:disabled {
 }
 
 .manual-content table.manual-table thead th {
-  text-align: left;
+  text-align: start;
   background: #f1f5f9;
   border-bottom: 2px solid #cbd5e1;
   padding: 8px 10px;
@@ -1209,7 +1209,7 @@ textarea:disabled {
 }
 
 .manual-content blockquote {
-  border-left: 4px solid #cbd5e1;
+  border-inline-start: 4px solid #cbd5e1;
   background: #f8fafc;
   padding: 8px 12px;
   margin: 12px 0;
@@ -1217,7 +1217,7 @@ textarea:disabled {
 }
 
 .manual-content blockquote.mt-banner {
-  border-left-color: var(--gold-200);
+  border-inline-start-color: var(--gold-200);
   background: var(--gold-50);
   color: var(--gold-text);
   font-style: italic;
@@ -1261,7 +1261,7 @@ code {
 }
 
 .log-feed-count {
-  margin-left: 8px;
+  margin-inline-start: 8px;
   font-size: 11px;
   font-weight: 500;
   color: #475569;
@@ -1407,7 +1407,7 @@ code {
 .site-chip-remove {
   position: absolute;
   top: -6px;
-  right: -6px;
+  inset-inline-end: -6px;
   display: none;
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
 }
@@ -1463,7 +1463,7 @@ code {
 
 /* Available tags open in a compact chooser instead of growing the form. */
 .tag-suggestions { margin-top: 6px; }
-.tag-suggestion-trigger { max-width: 100%; text-align: left; }
+.tag-suggestion-trigger { max-width: 100%; text-align: start; }
 .tag-chooser.vui-menu { display: flex; flex-direction: column; gap: 8px; padding: 8px; overflow: hidden; max-width: none; }
 .tag-chooser > input { flex-shrink: 0; width: 100%; margin: 0; }
 .tag-chooser-list { padding: 0; max-height: 250px; }
@@ -1553,7 +1553,7 @@ body.is-native-desktop .browser-only {
 .app-chip-remove {
   position: absolute;
   top: -6px;
-  right: -6px;
+  inset-inline-end: -6px;
   display: none;
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
 }
@@ -1606,7 +1606,7 @@ body.is-native-desktop .browser-only {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-right: 4px;
+  padding-inline-end: 4px;
 }
 
 .app-picker-row {
@@ -1614,7 +1614,7 @@ body.is-native-desktop .browser-only {
   align-items: center;
   gap: 12px;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 8px 10px;
   border: none;
   border-radius: 10px;
@@ -1770,7 +1770,7 @@ textarea {
 }
 
 .manual-content blockquote {
-  border-left: none;
+  border-inline-start: none;
   border-radius: 8px;
   background: #f1f5f9;
 }
@@ -1937,4 +1937,20 @@ input.editor-name:hover {
     max-height: 34vh;
     overflow: auto;
   }
+}
+
+/* Keep literal JavaScript and API examples readable in RTL interfaces. */
+.code-editor, .manual-content pre, .manual-content code {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
+}
+
+/* Technical tokens keep their literal reading order under an RTL interface. */
+input[type="url"], input[type="email"], input[type="password"],
+#platformAuthors, #discordTargets, #scheduleWindows, #freezePin,
+.cb-overlay-pin, .cb-overlay-pin-input {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: start;
 }

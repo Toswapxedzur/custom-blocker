@@ -360,6 +360,14 @@
       if (!collectionEnabled) return;
       const evidence = makeCollectedEntry({ ...raw, platform, baseURL: global.location.href });
       if (!evidence) {
+        // An identified card can wait for its remaining evidence with one
+        // placeholder. Classification is deferred by TagUI until title readiness.
+        if (taggingEnabled && raw?.presentationRoot && PILL_PLATFORMS.has(platform)
+          && typeof raw.entryID === "string" && raw.entryID.startsWith(platform + ":")) {
+          TagUI?.observe?.({ platform, entryID: raw.entryID, creatorID: raw.sourceID,
+            title: compactText(raw.title, 500), root: raw.presentationRoot,
+            anchor: raw.presentationAnchor || null, kind: raw.surface === "page" ? "page" : "card" });
+        }
         reportSourceIconDebug("source-missing");
         return;
       }

@@ -92,14 +92,36 @@
     return line.platform ? line.platform : "site";
   }
 
-  function normalizeEntryKey(key) {
-    if (key === "apps") return "apps";
-    if (!key || key === "custom" || key === "site") return "site";
-    return global.normalizeGroupType ? global.normalizeGroupType(key) : String(key);
+  // Entry identity is independent of its platform. Existing single entries
+  // retain their platform key; additional entries use platform:<stable id>.
+  function entryPlatform(key) {
+    const base = String(key || "site").split(":")[0];
+    if (base === "apps") return "apps";
+    return global.normalizeGroupType ? global.normalizeGroupType(base) : base;
   }
-
-  function lineBelongsTo(line, platform) {
-    return linePlatformKey(line) === normalizeEntryKey(platform);
+  function normalizeEntryKey(key) {
+    const base = entryPlatform(key);
+    const text = String(key || base);
+    return text.startsWith(base + ":") && /^[a-z0-9-]+:[a-zA-Z0-9_-]{1,80}$/.test(text) ? text : base;
+  }
+  function lineEntryKey(line) {
+    const platform = linePlatformKey(line);
+    const key = normalizeEntryKey(line?.entryID || platform);
+    return entryPlatform(key) === platform ? key : platform;
+  }
+  function lineBelongsTo(line, entry) {
+    return lineEntryKey(line) === normalizeEntryKey(entry);
+  }
+  function newEntryKey(platform) {
+    return entryPlatform(platform) + ":" + global.crypto.randomUUID();
+  }
+  // Reconcile the retired parallel creator/tag UI once. Its independent OR
+  // branches become separate entries, retaining their actions and predicates.
+  function migrateEntryLines(lines) {
+    const mixed = new Set(lines.filter(line => !line.entryID &&
+      (line.surface === "items" || line.surface === "pages") && !line.tagFilter).map(linePlatformKey));
+    return lines.map(line => !line.entryID && line.tagFilter && mixed.has(linePlatformKey(line))
+      ? { ...line, entryID: linePlatformKey(line) + ":tags" } : line);
   }
 
   // Desktop applications: {id: bundle id, name}. Deduplicated by id.
@@ -121,7 +143,7 @@
   function groupPlatforms(group) {
     const out = [];
     for (const line of Array.isArray(group?.scopes) ? group.scopes : []) {
-      const key = linePlatformKey(line);
+      const key = lineEntryKey(line);
       if (!out.includes(key)) out.push(key);
     }
     return out;
@@ -130,7 +152,7 @@
   // Give every line a unique id within the group (surface + running number).
   function renumberLines(lines) {
     const counters = {};
-    return lines.map((line) => {
+    return migrateEntryLines(lines).map((line) => {
       counters[line.surface] = (counters[line.surface] || 0) + 1;
       return orderLine({ ...line, id: `${line.surface}-${counters[line.surface]}` });
     });
@@ -138,7 +160,7 @@
 
   // One key order for every line, whichever path built it, so a re-sanitized
   // store is byte-identical (storage change detection relies on that).
-  const LINE_KEY_ORDER = ["id", "surface", "platform", "action", "sites", "sitesExcept", "apps", "appsExcept", "form", "sourceMode", "sources", "discordMode", "discordTargets", "tagFilter", "shelf"];
+  const LINE_KEY_ORDER = ["id", "entryID", "surface", "platform", "action", "sites", "sitesExcept", "apps", "appsExcept", "form", "sourceMode", "sources", "discordMode", "discordTargets", "tagFilter", "shelf"];
   function orderLine(line) {
     const out = {};
     for (const key of LINE_KEY_ORDER) if (Object.prototype.hasOwnProperty.call(line, key)) out[key] = line[key];
@@ -227,15 +249,20 @@
     for (const shelf of Array.isArray(flat?.surfaceHides) ? flat.surfaceHides : []) {
       push({ surface: "shelf", platform: type, shelf, action: "hide" });
     }
-    return lines;
+    return migrateEntryLines(lines).map(orderLine);
   }
 
   // Scope lines → the flat form fields of ONE platform (the editor's model for
   // its active platform view; `platform` defaults to the group type). Only the
   // lines of that platform are read; a site list is the "site" view.
   function flatFromScopes(group, platform) {
-    const type = normalizeEntryKey(platform ?? group?.groupType);
-    const lines = (Array.isArray(group?.scopes) ? group.scopes : []).filter((line) => lineBelongsTo(line, type));
+    let entry = normalizeEntryKey(platform ?? group?.groupType);
+    const all = Array.isArray(group?.scopes) ? group.scopes : [];
+    if (platform == null && !all.some(line => lineBelongsTo(line, entry))) {
+      entry = lineEntryKey(all.find(line => linePlatformKey(line) === entryPlatform(entry)));
+    }
+    const type = entryPlatform(entry);
+    const lines = all.filter((line) => lineBelongsTo(line, entry));
     const kind = platformKind(type);
     const flat = {
       sites: [], allowlist: false, apps: [], appsAllowlist: false, blockHomePage: false, platformVideoMode: "all",
@@ -299,7 +326,8 @@
     const kept = isCustom
       ? []
       : (Array.isArray(scopes) ? scopes : []).filter((line) => !lineBelongsTo(line, key));
-    return renumberLines([...kept, ...scopeLinesFromFlat(flat, isCustom ? "custom" : key)]);
+    const added = scopeLinesFromFlat(flat, isCustom ? "custom" : entryPlatform(key));
+    return renumberLines([...kept, ...added.map(line => key.includes(":") ? { ...line, entryID: key } : line)]);
   }
 
   // Validate scope lines that arrive already shaped (a stored group, a
@@ -372,11 +400,13 @@
           }
         }
       }
+      const entry = normalizeEntryKey(raw.entryID);
+      if (raw.entryID && entryPlatform(entry) === linePlatformKey(line)) line.entryID = entry;
       counters[surface] = (counters[surface] || 0) + 1;
       line.id = typeof raw.id === "string" && raw.id ? raw.id : `${surface}-${counters[surface]}`;
       out.push(orderLine(line));
     }
-    return out;
+    return migrateEntryLines(out).map(orderLine);
   }
 
   // The group type is the platform the editor shows first: the group's own
@@ -387,7 +417,7 @@
     const fallback = global.normalizeGroupType ? global.normalizeGroupType(fallbackType) : String(fallbackType || "site");
     if (fallback === "custom") return "custom";
     const list = Array.isArray(lines) ? lines : [];
-    if (list.some((line) => lineBelongsTo(line, fallback))) return fallback;
+    if (list.some((line) => linePlatformKey(line) === fallback)) return fallback;
     const platformLine = list.find((line) => line.platform);
     if (platformLine) return platformLine.platform;
     return list.some((line) => line.surface === "site") ? "site" : fallback;
@@ -579,7 +609,7 @@
       .map((input, index) => {
         const hasLines = hasScopeLines(input);
         const flatPatched = hasFlatScopeFields(input);
-        const group = hasLines ? { ...flatFromScopes(input), ...input } : input;
+        const group = hasLines ? { ...flatFromScopes(input, input.entryID), ...input } : input;
         const useStoredLines = hasLines && !flatPatched;
         const baseGroup = createDefaultGroup(normalizeGroupType(group?.groupType));
         const hasStoredDays = Array.isArray(group?.activeDays);
@@ -715,11 +745,12 @@
           : [];
         let scopes = useStoredLines
           ? storedLines
-          : mergeFlatIntoScopes(storedLines, normalized, normalizedGroupType);
+          : mergeFlatIntoScopes(storedLines, normalized, input.entryID || normalizedGroupType);
         // A website list patched onto a platform group edits its Websites entry
         // (owner 2026-09-24): the flat `sites`/`allowlist` describe that entry.
         if (!useStoredLines && platformKind(normalizedGroupType) !== "site" && normalizedGroupType !== "custom"
-            && (Object.prototype.hasOwnProperty.call(input, "sites") || Object.prototype.hasOwnProperty.call(input, "allowlist"))) {
+            && (Object.prototype.hasOwnProperty.call(input, "sites") || Object.prototype.hasOwnProperty.call(input, "allowlist"))
+            && (normalized.sites.length || normalized.allowlist || storedLines.some(line => line.surface === "site"))) {
           scopes = mergeFlatIntoScopes(scopes, normalized, "site");
         }
         return {
@@ -738,7 +769,7 @@
     return line && line.surface === "apps" ? "desktop" : "browser";
   }
   function entryOwner(key) {
-    return key === "apps" ? "desktop" : "browser";
+    return entryPlatform(key) === "apps" ? "desktop" : "browser";
   }
   function programOwner(program) {
     return program === "macapp" ? "desktop" : "browser";
@@ -794,11 +825,24 @@
     for (const field of [...TOOL_FIXED_FIELDS, ...A.LOCK_FIELDS]) delete edit[field];
     const type = edit.groupType ?? stored?.groupType ?? "site";
     if ((type === "custom") !== (stored?.groupType === "custom")) return { error: "invalid-groupType" };
+    if (edit.platformTagMode === "include" || edit.platformTagMode === "exclude") {
+      if (edit.sourceMode && edit.sourceMode !== "all" && edit.sourceMode !== "nobody") return { error: "choose-source-or-tag" };
+      edit.sourceMode = "nobody";
+    } else if (Object.hasOwn(edit, "sourceMode") || Object.hasOwn(edit, "sources")) {
+      edit.platformTagMode = "all";
+    }
     const problem = A.validateGroupPatch(edit, type);
     if (problem) return { error: problem };
     // Compared with the stored group as the editor stores it (an old store's
     // flat fields read as lines).
     const [current] = sanitizeGroups([stored]);
+    if (hasFlatScopeFields(edit)) {
+      const candidates = groupPlatforms(current).filter(key => entryPlatform(key) === normalizeEntryKey(type));
+      if (!edit.entryID && candidates.length > 1) return { error: "ambiguous-entry: specify entryID or scopes" };
+      if (edit.entryID && (!candidates.includes(edit.entryID) || entryPlatform(edit.entryID) !== normalizeEntryKey(type))) {
+        return { error: "invalid-entryID" };
+      }
+    }
     // Lines sent without the other program's keep those as stored.
     if (Array.isArray(edit.scopes) && !edit.scopes.some((line) => lineOwner(line) !== owner)) {
       edit.scopes = withOwnLines(current, edit, owner);
@@ -837,7 +881,7 @@
     SCOPE_SURFACES, SCOPE_ACTIONS, FLAT_SCOPE_FIELDS, SYNC_SCALAR_FIELDS,
     scopeLegalActions, hasFlatScopeFields, hasScopeLines, withoutFlatScopeFields,
     scopeLinesFromFlat, flatFromScopes, mergeFlatIntoScopes, sanitizeScopeLines, deriveGroupType, platformKind,
-    linePlatformKey, lineBelongsTo, normalizeEntryKey, groupPlatforms, normalizeAppList,
+    linePlatformKey, lineEntryKey, lineBelongsTo, normalizeEntryKey, entryPlatform, newEntryKey, groupPlatforms, normalizeAppList,
     normalizeTagList, parseTagListText, tagListToText,
     DEFAULT_CUSTOM_RULE, normalizeSiteInput, normalizeTagFilterMode, clampTagConfidence, scopeNormalizers,
     createDefaultGroup, sanitizeGroups,

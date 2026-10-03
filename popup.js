@@ -103,7 +103,7 @@ const cbDialog = (function () {
         if (opts.kind === "prompt") {
           inputRow.dataset.infoKey = "dialog-value";
           inputRow.dataset.infoLabel = opts.title || "Value";
-          inputRow.dataset.infoCopy = opts.message || "Enter the value requested by this dialog, then confirm to apply it.";
+          inputRow.dataset.infoCopy = opts.message || t("info.prompt");
         }
         inputRow.appendChild(input); card.appendChild(inputRow);
       }
@@ -483,6 +483,8 @@ async function ensureLanguageMessages(languageCode) {
   return loadPromise;
 }
 
+window.VaultLoadMessages = ensureLanguageMessages;
+
 function t(key, vars = {}) {
   const selected = state.translationMessages[state.language] ?? {};
   const fallback = state.translationMessages[getDefaultLanguageCode()] ?? {};
@@ -491,6 +493,11 @@ function t(key, vars = {}) {
     (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
     template
   );
+}
+
+// Other catalogs use their localized time units without an English plural suffix.
+function timeUnitSuffix(amount) {
+  return state.language === "en" && amount !== 1 ? "s" : "";
 }
 
 function loadLanguage() {
@@ -543,7 +550,17 @@ async function loadManualContent() {
     }
     manualContent.innerHTML = html;
     document.getElementById("manualDialogTitle").textContent = t(kind === "code" ? "manual.codeTitle" : "manual.title");
-    const heading = Array.from(manualContent.querySelectorAll("h2, h3")).find((node) => node.textContent === section);
+    const headings = Array.from(manualContent.querySelectorAll("h2, h3"));
+    let heading = headings.find((node) => node.textContent === section);
+    if (!heading && section) {
+      // Scene links use stable English section names. Localized headings keep
+      // the source guide's heading order, so translated titles can still scroll.
+      const source = await fetchManualMarkdown("en", kind);
+      if (revision !== state.manualLoadRevision || !state.isManualOpen) return;
+      const names = [...source.matchAll(/^#{2,3}\s+(.+)$/gm)].map(match => match[1].trim());
+      const index = names.indexOf(section);
+      if (index >= 0) heading = headings[index];
+    }
     if (heading) heading.scrollIntoView({ block: "start" });
     else manualContent.scrollTop = 0;
   } catch (error) {
@@ -592,7 +609,8 @@ manualContent.addEventListener("click", (event) => {
   const link = event.target.closest("a");
   if (!link) return;
   const href = link.getAttribute("href");
-  if (href === "../code-manual/en.md" || href === "../manual/en.md") {
+  const companion = href?.match(/^\.\.\/(code-manual|manual)\/([a-z]{2})\.md$/);
+  if (companion && Object.hasOwn(getAvailableLanguages(), companion[2])) {
     event.preventDefault();
     openManual(href.startsWith("../code-") ? "code" : "user");
   }
@@ -614,7 +632,7 @@ function openLocalFolderDb() {
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error("Could not open local folder storage."));
+    request.onerror = () => reject(request.error || new Error(t("settings.localFolderStorageOpenError")));
   });
 }
 
@@ -624,11 +642,11 @@ async function localFolderDbGet(key) {
     const tx = db.transaction(LOCAL_FOLDER_STORE, "readonly");
     const request = tx.objectStore(LOCAL_FOLDER_STORE).get(key);
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error("Could not read local folder storage."));
+    request.onerror = () => reject(request.error || new Error(t("settings.localFolderStorageReadError")));
     tx.oncomplete = () => db.close();
     tx.onerror = () => {
       try { db.close(); } catch (_) {}
-      reject(tx.error || new Error("Could not read local folder storage."));
+      reject(tx.error || new Error(t("settings.localFolderStorageReadError")));
     };
   });
 }
@@ -644,7 +662,7 @@ async function localFolderDbSet(key, value) {
     };
     tx.onerror = () => {
       try { db.close(); } catch (_) {}
-      reject(tx.error || new Error("Could not write local folder storage."));
+      reject(tx.error || new Error(t("settings.localFolderStorageWriteError")));
     };
   });
 }
@@ -660,7 +678,7 @@ async function localFolderDbDelete(key) {
     };
     tx.onerror = () => {
       try { db.close(); } catch (_) {}
-      reject(tx.error || new Error("Could not delete local folder storage."));
+      reject(tx.error || new Error(t("settings.localFolderStorageDeleteError")));
     };
   });
 }
@@ -688,12 +706,32 @@ window.__cbLocalFolderStatus = function (payload) {
     : t("settings.localFolderStatusNone");
 };
 
+async function safariLocalFolderRequest(type) {
+  const host = window.CBLocalHubEnvironment?.current?.nativeHost || "com.adamancia.vault.safari";
+  const response = await chrome.runtime.sendNativeMessage(host, { type });
+  if (!response || !response.ok) throw new Error(response?.error || "local-folder-not-available");
+  window.__cbLocalFolderStatus(response);
+}
+
+function localFolderErrorText(error) {
+  const message = String(error?.message ?? error);
+  if (LOCAL_PROGRAM_ID === "safari" && /^[a-z0-9]+(?:-[a-z0-9]+)+$/.test(message)) {
+    return t("settings.localFolderNativeError") + " (" + message + ")";
+  }
+  return message;
+}
+
 async function renderLocalFolderStatus() {
   if (!localFolderStatus) return;
   // Desktop: the folder grant is native (the web view has no directory picker);
   // ask the host for the current grant and let __cbLocalFolderStatus render it.
   if (IS_NATIVE_DESKTOP) {
     postToNativeShell({ kind: "local-folder-status" });
+    return;
+  }
+  if (LOCAL_PROGRAM_ID === "safari") {
+    try { await safariLocalFolderRequest("local-folder-status"); }
+    catch (error) { localFolderStatus.textContent = localFolderErrorText(error); }
     return;
   }
   if (!("showDirectoryPicker" in window)) {
@@ -729,12 +767,13 @@ async function renderLocalFolderStatus() {
     }
   } catch (error) {
     localFolderHandle = null;
-    localFolderStatus.textContent = String(error?.message ?? error);
+    localFolderStatus.textContent = localFolderErrorText(error);
     if (localFolderRevokeButton) localFolderRevokeButton.disabled = true;
   }
 }
 
 async function chooseLocalFolder() {
+  if (LOCAL_PROGRAM_ID === "safari") return safariLocalFolderRequest("local-folder-choose");
   if (!("showDirectoryPicker" in window)) {
     if (localFolderStatus) localFolderStatus.textContent = t("settings.localFolderUnsupported");
     return;
@@ -774,12 +813,13 @@ async function chooseLocalFolder() {
     if (localFolderStatus) {
       localFolderStatus.textContent = error?.name === "AbortError"
         ? t("settings.localFolderStatusNone")
-        : String(error?.message ?? error);
+        : localFolderErrorText(error);
     }
   }
 }
 
 async function revokeLocalFolder() {
+  if (LOCAL_PROGRAM_ID === "safari") return safariLocalFolderRequest("local-folder-revoke");
   await localFolderDbDelete(LOCAL_FOLDER_ROOT_KEY);
   await localFolderDbDelete(LOCAL_FOLDER_META_KEY);
   localFolderHandle = null;
@@ -790,14 +830,14 @@ async function revokeLocalFolder() {
 function applyConnectionStatus(raw) {
   const incoming = raw && typeof raw === "object" ? raw : {};
   const wasOnline = bridgeIsOnline();
-  const wasAway = macVaultAway();
+  const wasAway = desktopVaultAway();
   state.connectionStatus = {
     received: true,
     state: typeof incoming.state === "string" ? incoming.state : "off",
     hubProgram: window.CBBridgeProtocol.hubProgramFromStatus(incoming)
   };
-  // Linked groups turn enforce-only (or editable again) with Mac Vault.
-  if (wasAway !== macVaultAway()) render();
+  // Linked groups turn enforce-only (or editable again) with the desktop Vault.
+  if (wasAway !== desktopVaultAway()) render();
   if (!wasOnline && bridgeIsOnline()) requestClusters();
 }
 
@@ -937,7 +977,7 @@ function renderLinkSection(group, editable) {
   if (!groupLinkSection) return;
   const cluster = groupConnectionCluster(group);
   // The Mac editor runs inside the hub itself: always reachable there.
-  const hubOnline = IS_NATIVE_DESKTOP || (bridgeIsOnline() && !macVaultAway());
+  const hubOnline = IS_NATIVE_DESKTOP || (bridgeIsOnline() && !desktopVaultAway());
   if (cluster) {
     const others = (cluster.members || []).filter((m) => m && m.program !== LOCAL_PROGRAM_ID);
     groupLinkStatus.textContent = t("link.linkedWith", {
@@ -975,7 +1015,7 @@ async function sendLinkRequest(message) {
     const response = await chrome.runtime.sendMessage(message);
     if (response && response.ok === false) showLinkRefusal(response.error);
   } catch (_) {
-    showLinkRefusal("macapp-unavailable");
+    showLinkRefusal("desktop-unavailable");
   }
 }
 
@@ -1021,7 +1061,7 @@ function openSettings() {
   settingsModal.classList.remove("hidden");
   focusVaultModal(settingsModal, settingsCloseButton, closeSettings);
   renderLocalFolderStatus().catch((error) => {
-    if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
+    if (localFolderStatus) localFolderStatus.textContent = localFolderErrorText(error);
   });
 }
 
@@ -1080,6 +1120,9 @@ function resetSettingsToDefaults() {
 
 function applyStaticTranslations() {
   document.documentElement.lang = state.language;
+  document.documentElement.dir = state.language === "ar" ? "rtl" : "ltr";
+  window.VaultTranslate = t;
+  chrome.storage?.local?.set?.({ vaultUiLanguage: state.language })?.catch?.(() => {});
   document.title = t("app.title");
 
   for (const element of document.querySelectorAll("[data-i18n]")) {
@@ -1102,6 +1145,14 @@ function applyStaticTranslations() {
     element.dataset.hint = t(element.dataset.i18nTitle);
   }
 
+  for (const element of document.querySelectorAll("[data-i18n-info]")) {
+    element.dataset.infoCopy = t(element.dataset.i18nInfo);
+  }
+  for (const element of document.querySelectorAll("[data-i18n-info-label]")) {
+    element.dataset.infoLabel = t(element.dataset.i18nInfoLabel);
+  }
+  window.VaultInfo?.refresh(document);
+  window.dispatchEvent(new CustomEvent("vault-language-changed"));
   languageSelect.setAttribute("aria-label", t("language.label"));
   groupList.setAttribute("aria-label", t("groups.listAria"));
   layoutResizer.setAttribute("aria-label", t("layout.resizeAria"));
@@ -1650,7 +1701,7 @@ function setupChipField(field, options) {
 
   const commitAdd = () => {
     const parts = addInput.value
-      .split(/[\n,]+/)
+      .split(options?.splitCommas === false ? /\n+/ : /[\n,]+/)
       .map((part) => part.trim())
       .filter(Boolean);
     addInput.value = "";
@@ -1660,7 +1711,7 @@ function setupChipField(field, options) {
   };
 
   addInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === ",") {
+    if (event.key === "Enter" || (event.key === "," && options?.splitCommas !== false)) {
       event.preventDefault();
       commitAdd();
     } else if (event.key === "Backspace" && addInput.value === "") {
@@ -1686,6 +1737,22 @@ function setupChipField(field, options) {
       const label = document.createElement("span");
       label.className = "entry-chip-label";
       label.textContent = entry;
+      if (editable && options?.editableEntries) {
+        label.tabIndex = 0;
+        label.contentEditable = "true";
+        label.setAttribute("role", "textbox");
+        label.setAttribute("aria-label", t("tagFilter.tags"));
+        const commit = () => {
+          const value = label.textContent.trim();
+          setChipFieldEntries(field, getChipFieldEntries(field).map(item => item === entry ? value : item));
+          renderChips();
+        };
+        label.addEventListener("blur", commit);
+        label.addEventListener("keydown", event => {
+          if (event.key === "Enter") { event.preventDefault(); label.blur(); }
+          if (event.key === "Escape") { event.preventDefault(); label.textContent = entry; label.blur(); }
+        });
+      }
       chip.appendChild(label);
 
       if (editable) {
@@ -1718,6 +1785,10 @@ function refreshChipField(field) {
 }
 
 function setupPlatformChipInputs() {
+  setupChipField(platformTagsField, {
+    normalize: value => CBGroupScopes.parseTagListText(value).length === 1 ? value : null,
+    splitCommas: false, editableEntries: true
+  });
   setupChipField(platformAuthorsField, {
     normalize: (value) => normalizeSourceInput(value, chipsGroupType)
   });
@@ -1973,14 +2044,14 @@ function applyPlatformRulesHeader(groupType) {
 function rebuildAuthorModeOptions(type) {
   const isTwitter = type === "twitter";
   const noun = type === "reddit" ? t("platform.nounSubreddits") : isTwitter ? t("platform.nounAccounts") : t("platform.nounAuthors");
-  const modes = ["all", "include", "exclude", "nobody"];
+  const modes = ["all", "include", "exclude", ...(isTagFilterCompatible(type) ? ["tags-include", "tags-exclude"] : [])];
 
   const previous = platformAuthorModeField.value;
   platformAuthorModeField.innerHTML = "";
   for (const mode of modes) {
     const option = document.createElement("option");
     option.value = mode;
-    option.textContent = t(`platform.authorMode.${mode}`, { noun });
+    option.textContent = mode.startsWith("tags-") ? t(`tagFilter.mode${mode === "tags-include" ? "Include" : "Exclude"}`) : t(`platform.authorMode.${mode}`, { noun });
     platformAuthorModeField.appendChild(option);
   }
   if (modes.includes(previous)) platformAuthorModeField.value = previous;
@@ -2009,11 +2080,10 @@ function applyPlatformVideoUi(groupType) {
   platformVideoModeLongOption.textContent = t("platform.videoModeLong", { content: longLabel });
   platformVideoModePostOption.textContent = t("platform.videoModePost", { content: postLabel });
 
-  platformAuthorModeLabel.textContent = isReddit
-    ? t("reddit.mode")
-    : isTwitter ? t("platform.accountMode") : t("platform.authorMode");
+  platformAuthorModeLabel.textContent = t("scopes.applyTo");
   rebuildAuthorModeOptions(type);
-  platformAuthorModeHelp.textContent = isReddit
+  platformAuthorModeHelp.textContent = !platformCapabilities(type).feed && type !== "discord"
+    ? t("platform.pagesOnlyHelp") : isReddit
     ? t("platform.sourceModeHelp.reddit")
     : isTwitter ? t("platform.accountModeHelp") : t("platform.authorModeHelp");
 
@@ -2101,8 +2171,7 @@ function renderSurfaceHides(group, draft, editable) {
     const text = document.createElement("span");
     text.textContent = t(entry.labelKey);
     text.dataset.infoKey = "surface-hide:" + entry.id;
-    text.dataset.infoCopy = "Hide " + t(entry.labelKey).toLowerCase() +
-      (surfaceHideEntryScope(entry) === "entry" ? " on pages matching this group’s creator filter." : " on this platform’s supported pages.");
+    text.dataset.infoCopy = t(surfaceHideEntryScope(entry) === "entry" ? "info.hideEntry" : "info.hidePlatform", { control: t(entry.labelKey) });
 
     // Entry-scoped hides (e.g. YouTube comments) only apply on pages matching
     // the group's author scope — flag that inline so it isn't mistaken for a
@@ -2574,8 +2643,8 @@ const { normalizeSiteInput, normalizeTagFilterMode, clampTagConfidence } = CBGro
 // otherwise the stored type.
 function defaultEntryView(stored) {
   if (stored.groupType === "custom") return "custom";
-  if (!IS_NATIVE_DESKTOP) return stored.groupType;
   const entries = CBGroupScopes.groupPlatforms(stored);
+  if (!IS_NATIVE_DESKTOP) return entries.find(key => CBGroupScopes.entryPlatform(key) === stored.groupType) || entries[0] || stored.groupType;
   return entries.includes("apps") || entries.length === 0 ? "apps" : entries[0];
 }
 
@@ -2871,31 +2940,31 @@ function isGroupEditable(group, now = Date.now()) {
   return !getFreezeStatus(group, now).isFrozen && !isEnforceOnly(group);
 }
 
-// Owner 2026-09-26: Mac Vault holds a linked group's real state. While it is
+// The desktop Vault holds a linked group's real state. While it is
 // away this browser only ENFORCES a linked group (from its copy of the links,
 // kept by the worker): nothing about the group can change — settings, entries,
-// freeze, snooze, delete — until Mac Vault is back.
-function macVaultAway() {
+// freeze, snooze, delete — until the desktop Vault is back.
+function desktopVaultAway() {
   if (IS_NATIVE_DESKTOP) return false;
   const s = state.connectionStatus || {};
   // Unknown until the worker's first status push: not "away" yet.
   if (!s.received) return false;
-  return !(s.state === "connected" && s.hubProgram === "macapp");
+  return !(s.state === "connected" && (s.hubProgram === "macapp" || s.hubProgram === "windowsapp"));
 }
 
 // True (and says why) when the group is enforce-only right now.
 // The one refusal for a change the group can't take right now, with its
-// reason: Mac Vault is away (enforce-only) or the group is frozen.
+// reason: the desktop Vault is away (enforce-only) or the group is frozen.
 function refuseUnlessEditable(group) {
   if (!group) return true;
-  if (refuseWhileMacVaultAway(group)) return true;
+  if (refuseWhileDesktopVaultAway(group)) return true;
   if (isGroupEditable(group)) return false;
   setStatus(t("status.frozenCannotChange"), true);
   render();
   return true;
 }
 
-function refuseWhileMacVaultAway(group) {
+function refuseWhileDesktopVaultAway(group) {
   if (!isEnforceOnly(group)) return false;
   setStatus(t("link.enforceOnly"), true);
   render();
@@ -2903,7 +2972,7 @@ function refuseWhileMacVaultAway(group) {
 }
 
 function isEnforceOnly(group) {
-  if (!group || !macVaultAway()) return false;
+  if (!group || !desktopVaultAway()) return false;
   const links = Array.isArray(state.linkCopy) ? state.linkCopy : [];
   return links.some((cluster) => window.CBBridgeProtocol.clusterForGroup([cluster], group, LOCAL_PROGRAM_ID) === cluster);
 }
@@ -3155,10 +3224,10 @@ function getGroupMetaText(group, draft, now = Date.now()) {
     const active = activeEntryKey(group);
     const covers = [];
     for (const key of CBGroupScopes.groupPlatforms(group)) {
-      if (key === "site") {
-        const sites = draft && active === "site"
+      if (CBGroupScopes.entryPlatform(key) === "site") {
+        const sites = draft && active === key
           ? parseSiteTextareaValue(draft.sitesText).validSites
-          : lines.find((line) => line.surface === "site")?.sites || [];
+          : lines.find((line) => line.surface === "site" && CBGroupScopes.lineBelongsTo(line, key))?.sites || [];
         if (sites.length) covers.push(summarizeNames(sites));
       } else if (key === "apps") {
         const apps = draft && active === "apps"
@@ -3388,7 +3457,7 @@ function updateUsageSummary(group, draft, now = Date.now()) {
   const rolling = displayGroup.rollingLimit === true;
   const vars = {
     hours: formatHours(displayGroup.resetIntervalHours),
-    suffix: displayGroup.resetIntervalHours === 1 ? "" : "s"
+    suffix: timeUnitSuffix(displayGroup.resetIntervalHours)
   };
   const remainingMs = Math.max(
     displayGroup.allowedMinutes * MS_PER_MINUTE + CBGroupActions.snoozeExtraMs(state.groupSnoozes[group.id], now) - usageState.usedMs,
@@ -3651,8 +3720,8 @@ function renderEditorFields(now) {
   const isCustomGroup = group.groupType === "custom";
   const isPlatformProfileGroup = isPlatformProfileGroupType(group.groupType);
   const entryKey = activeEntryKey(group);
-  const isSiteView = entryKey === "site";
-  const isAppsView = entryKey === "apps";
+  const isSiteView = CBGroupScopes.entryPlatform(entryKey) === "site";
+  const isAppsView = CBGroupScopes.entryPlatform(entryKey) === "apps";
   // The entry in view is edited only by the program that owns it (scope line).
   const entryEditable = editable && ownsEntry(entryKey);
 
@@ -3701,6 +3770,7 @@ function renderEditorFields(now) {
   const tagCompatible = isTagFilterCompatible(group.groupType);
   const tagMode = normalizeTagFilterMode(draft?.platformTagMode ?? group.platformTagMode);
   platformTagModeField.value = tagMode;
+  if (tagCompatible && tagMode !== "all") platformAuthorModeField.value = `tags-${tagMode}`;
   platformTagsField.value = draft?.platformTagsText ?? CBGroupScopes.tagListToText(group.platformTags);
   platformTagDefaultConfidenceField.value = String(
     clampTagConfidence(draft?.platformTagDefaultConfidence ?? group.platformTagDefaultConfidence, 4)
@@ -3716,7 +3786,7 @@ function renderEditorFields(now) {
   if (platformTagCoverUntilTaggedField) {
     platformTagCoverUntilTaggedField.checked = (draft?.platformTagCoverUntilTagged ?? group.platformTagCoverUntilTagged) === true;
   }
-  if (platformTagFields) platformTagFields.classList.toggle("hidden", !tagCompatible);
+  if (platformTagFields) platformTagFields.classList.toggle("hidden", !tagCompatible || tagMode === "all");
   if (platformTagListBlock) platformTagListBlock.classList.toggle("hidden", tagMode === "all");
   refreshTagSuggestions(
     document.getElementById("platformTagSuggestions"), platformTagsField,
@@ -3794,7 +3864,7 @@ function renderEditorFields(now) {
   }
   blockingRulesField.disabled = !editable || !isCustomGroup;
   const currentAuthorMode = normalizeSourceMode(platformAuthorModeField.value);
-  const authorModeUsesList = sourceModeUsesList(currentAuthorMode); // include/exclude
+  const authorModeUsesList = !platformAuthorModeField.value.startsWith("tags-") && sourceModeUsesList(currentAuthorMode); // include/exclude
   // Show the author list only for include/exclude.
   platformAuthorsBlock.classList.toggle("hidden", !usesAuthorAxis || !authorModeUsesList);
   platformAuthorsField.disabled = !entryEditable || !usesAuthorAxis || !authorModeUsesList;
@@ -3812,6 +3882,7 @@ function renderEditorFields(now) {
   renderBlockedSites();
   refreshChipField(platformAuthorsField);
   refreshChipField(discordTargetsField);
+  refreshChipField(platformTagsField);
   deleteGroupButton.disabled = !editable;
   renderLinkSection(group, editable);
   exportGroupButton.disabled = false;
@@ -3950,9 +4021,9 @@ function stashCurrentDraft() {
     appsAllowlist: appsAllowlistField ? appsAllowlistField.checked : false,
     blockingRulesText: blockingRulesField.value,
     platformVideoMode: platformVideoModeField.value,
-    sourceMode: platformAuthorModeField.value,
+    sourceMode: platformAuthorModeField.value.startsWith("tags-") ? "nobody" : platformAuthorModeField.value,
     sourcesText: platformAuthorsField.value,
-    platformTagMode: platformTagModeField.value,
+    platformTagMode: platformAuthorModeField.value.startsWith("tags-") ? platformAuthorModeField.value.slice(5) : "all",
     platformTagsText: platformTagsField.value,
     platformTagDefaultConfidence: platformTagDefaultConfidenceField.value,
     platformTagBlockUntagged: platformTagBlockUntaggedField.checked,
@@ -4104,7 +4175,7 @@ async function persistGroups(ids, { reorder = false, message = "" } = {}) {
 // A snooze entry the user started or ended here; the service worker / Mac
 // Vault count its time and share it with linked devices.
 async function persistSnooze(groupId, entry, message = "") {
-  if (refuseWhileMacVaultAway(state.groups.find((item) => item.id === groupId))) return;
+  if (refuseWhileDesktopVaultAway(state.groups.find((item) => item.id === groupId))) return;
   const stored = (await chrome.storage.local.get({ [GROUP_SNOOZES_KEY]: {} }))[GROUP_SNOOZES_KEY];
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: { ...(stored && typeof stored === "object" ? stored : {}), [groupId]: entry } });
   if (message) setStatus(message);
@@ -4182,6 +4253,7 @@ function groupPlatformKeys(group) {
 }
 
 function platformKeyLabel(key) {
+  key = CBGroupScopes.entryPlatform(key);
   if (key === "site") return t("scopes.websites");
   if (key === "apps") return t("scopes.apps");
   return getGroupTypeLabel(key);
@@ -4193,7 +4265,7 @@ function viewGroupOnPlatform(stored, key) {
   const entry = CBGroupScopes.normalizeEntryKey(key);
   return {
     ...stored,
-    groupType: entry === "site" || entry === "apps" ? "site" : entry,
+    groupType: ["site", "apps"].includes(CBGroupScopes.entryPlatform(entry)) ? "site" : CBGroupScopes.entryPlatform(entry),
     storedGroupType: stored.groupType,
     entryView: entry,
     ...CBGroupScopes.flatFromScopes(stored, entry)
@@ -4228,8 +4300,8 @@ async function setGroupPlatformView(key) {
     return;
   }
   let next = viewGroupOnPlatform(stored, entry);
-  if (!known && entry !== "site" && entry !== "apps") {
-    const defaults = createDefaultGroup(entry);
+  if (!known) {
+    const defaults = createDefaultGroup(CBGroupScopes.entryPlatform(entry));
     for (const field of CBGroupScopes.FLAT_SCOPE_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(defaults, field)) next[field] = defaults[field];
     }
@@ -4257,7 +4329,7 @@ async function removeGroupPlatform(platform) {
     return;
   }
   const scopes = stored.scopes.filter((line) => !CBGroupScopes.lineBelongsTo(line, platform));
-  const remaining = [...new Set(scopes.map((line) => CBGroupScopes.linePlatformKey(line)))];
+  const remaining = CBGroupScopes.groupPlatforms({ scopes });
   if (remaining.length === 0) {
     render();
     return;
@@ -4287,7 +4359,8 @@ function renderGroupScopes(group, editable) {
     chip.tabIndex = 0;
     chip.setAttribute("aria-pressed", key === active ? "true" : "false");
     const label = document.createElement("span");
-    label.textContent = platformKeyLabel(key);
+    const siblings = keys.filter(item => CBGroupScopes.entryPlatform(item) === CBGroupScopes.entryPlatform(key));
+    label.textContent = platformKeyLabel(key) + (siblings.length > 1 ? ` ${siblings.indexOf(key) + 1}` : "");
     chip.appendChild(label);
     const open = () => {
       if (key === active) return;
@@ -4332,7 +4405,7 @@ function renderGroupScopes(group, editable) {
   placeholder.selected = true;
   groupScopesAdd.appendChild(placeholder);
   for (const key of ["site", "apps", ...PLATFORM_GROUP_TYPES]) {
-    if (keys.includes(key) || !ownsEntry(key)) continue;
+    if ((key === "apps" && keys.includes(key)) || !ownsEntry(key)) continue;
     const option = document.createElement("option");
     option.value = key;
     option.textContent = platformKeyLabel(key);
@@ -4378,7 +4451,7 @@ function deleteAllStillCovered(passedPinHashes, now = Date.now()) {
 async function deleteAllGroups() {
   await flushAutosave();
   const away = state.groups.find(isEnforceOnly);
-  if (away && refuseWhileMacVaultAway(away)) return;
+  if (away && refuseWhileDesktopVaultAway(away)) return;
 
   const plan = CBGroupActions.deleteAllPlan(state.groups, Date.now());
   if (plan.error) {
@@ -4404,7 +4477,7 @@ async function deleteAllGroups() {
 async function clearAllGroups() {
   // The last step's own check: a linked group turned enforce-only meanwhile.
   const away = state.groups.find(isEnforceOnly);
-  if (away && refuseWhileMacVaultAway(away)) return;
+  if (away && refuseWhileDesktopVaultAway(away)) return;
   const ids = state.groups.map((group) => group.id);
   state.groups = [];
   state.drafts = {};
@@ -4425,7 +4498,7 @@ async function deleteSelectedGroup() {
     return;
   }
 
-  if (refuseWhileMacVaultAway(group)) return;
+  if (refuseWhileDesktopVaultAway(group)) return;
   if (!isGroupEditable(group)) {
     setStatus(t("status.frozenCannotDelete"), true);
     render();
@@ -4611,7 +4684,7 @@ function buildUpdatedGroupFromDraft(group, draft) {
 
   // The website list belongs to the Websites entry, the app list to Apps.
   const entryKey = activeEntryKey(group);
-  const usesSiteList = entryKey === "site";
+  const usesSiteList = CBGroupScopes.entryPlatform(entryKey) === "site";
 
   if (usesSiteList && siteResults.invalidSites.length > 0) {
     fail(new Error(t("status.invalidSites", { list: siteResults.invalidSites.join(", ") })));
@@ -4755,7 +4828,7 @@ function scheduleAutosave() {
 function clearSelectedSites() {
   const group = getSelectedGroup();
 
-  if (!group || activeEntryKey(group) !== "site" || refuseUnlessEditable(group)) return;
+  if (!group || CBGroupScopes.entryPlatform(activeEntryKey(group)) !== "site" || refuseUnlessEditable(group)) return;
 
   blockedSitesField.value = "";
   stashCurrentDraft();
@@ -4793,7 +4866,7 @@ async function reorderGroups(draggedGroupId, insertIndex) {
 // hours are the wait gate; a PIN is set in the guardian settings (gear).
 async function applyFreeze() {
   const group = getSelectedGroup();
-  if (!group || refuseWhileMacVaultAway(group)) return;
+  if (!group || refuseWhileDesktopVaultAway(group)) return;
   await flushAutosave();
   const current = getSelectedGroup();
   const now = Date.now();
@@ -4820,7 +4893,7 @@ async function applyFreeze() {
 // the confirmation — always (owner 2026-09-26).
 function openUnfreezeFlow() {
   const group = getSelectedGroup();
-  if (!group || refuseWhileMacVaultAway(group)) return;
+  if (!group || refuseWhileDesktopVaultAway(group)) return;
   const plan = CBGroupActions.unlockPlan(group, Date.now());
   if (plan.error) {
     if (plan.waitUntilMs) setStatus(t("status.strictLocked"), true);
@@ -4860,7 +4933,7 @@ function openUnfreezeFlow() {
 async function persistGroupFields(groupId, fields, statusMsg) {
   // A long flow (a 10 × 5 s confirmation, an open PIN panel) checks again at
   // the end: Mac Vault may have gone away meanwhile.
-  if (refuseWhileMacVaultAway(state.groups.find((item) => item.id === groupId))) return;
+  if (refuseWhileDesktopVaultAway(state.groups.find((item) => item.id === groupId))) return;
   state.groups = state.groups.map((item) =>
     item.id === groupId ? { ...item, ...fields } : item
   );
@@ -4956,7 +5029,7 @@ function openPinEntry({ title, description, onSubmit, onCancel }) {
 
 // Guardian settings overlay: set / verify / clear the group's password.
 function openParentalSettings(group) {
-  if (refuseWhileMacVaultAway(group)) return;
+  if (refuseWhileDesktopVaultAway(group)) return;
   const pinId = "settings-pin";
   const vals = {};
   let handle = null;
@@ -5190,7 +5263,7 @@ async function handleUnfreezeConfirm() {
 async function startSnooze() {
   let group = getSelectedGroup();
 
-  if (!group || refuseWhileMacVaultAway(group)) {
+  if (!group || refuseWhileDesktopVaultAway(group)) {
     return;
   }
 
@@ -5299,7 +5372,7 @@ async function applySnoozeStart(group) {
     snoozeEntry.startsAtMs > now
       ? t("status.snoozeScheduled", { name: group.name, delay: formatDurationMs(snoozeEntry.startsAtMs - now) })
       : t(snoozeEntry.kind === "budget" ? "status.snoozedBudget" : "status.snoozed",
-        { name: group.name, minutes, suffix: minutes === 1 ? "" : "s" })
+        { name: group.name, minutes, suffix: timeUnitSuffix(minutes) })
   );
   render();
   showSnoozeNotice(group, snoozeEntry, totalBeforeMs);
@@ -5307,7 +5380,7 @@ async function applySnoozeStart(group) {
 
 async function endSnooze() {
   const group = getSelectedGroup();
-  if (!group || refuseWhileMacVaultAway(group)) return;
+  if (!group || refuseWhileDesktopVaultAway(group)) return;
   // Ending keeps an ENDED entry (stamped now) so the end reaches linked
   // devices as the newest change (group-actions.js).
   const result = CBGroupActions.endSnoozeEntry(state.groupSnoozes[group.id], Date.now());
@@ -5348,7 +5421,7 @@ function startResizingPanels(event) {
 
   const handleMove = (moveEvent) => {
     const layoutRect = layout.getBoundingClientRect();
-    applyPanelWidth(moveEvent.clientX - layoutRect.left);
+    applyPanelWidth(document.documentElement.dir === "rtl" ? layoutRect.right - moveEvent.clientX : moveEvent.clientX - layoutRect.left);
   };
 
   const handleUp = () => {
@@ -5747,7 +5820,7 @@ function placeTagChooser() {
 function updateTagChooser() {
   const chooser = activeTagChooser;
   if (!chooser) return;
-  if (chooser.groupID !== getSelectedGroup()?.id) return closeTagChooser();
+  if (chooser.groupID !== getSelectedGroup()?.id || chooser.entryID !== activeEntryKey(getSelectedGroup())) return closeTagChooser();
   const { textarea, names } = tagSuggestionState.get(chooser.container);
   const query = chooser.search.value.trim().toLowerCase(), used = usedTagNames(textarea);
   const scroll = chooser.list.scrollTop;
@@ -5757,11 +5830,13 @@ function updateTagChooser() {
     item.type = "button";
     item.className = "vui-menu-item" + (used.has(name.toLowerCase()) ? " is-selected" : "");
     item.textContent = name;
-    item.disabled = used.has(name.toLowerCase());
+    item.disabled = textarea.disabled || used.has(name.toLowerCase());
     item.addEventListener("click", () => {
+      if (textarea.disabled || chooser.groupID !== getSelectedGroup()?.id || chooser.entryID !== activeEntryKey(getSelectedGroup())) return closeTagChooser();
       const current = textarea.value.replace(/\s+$/, "");
       textarea.value = current ? `${current}\n${name}` : name;
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      refreshChipField(textarea);
       updateTagChooser();
       chooser.search.focus({ preventScroll: true });
     });
@@ -5785,12 +5860,12 @@ function openTagChooser(container, button) {
   list.setAttribute("aria-label", t("tagFilter.available"));
   const searchRow = document.createElement("div");
   searchRow.className = "vui-info-field";
-  searchRow.dataset.infoKey = "tag-search"; searchRow.dataset.infoLabel = "Search tags";
-  searchRow.dataset.infoCopy = "Find a tag by name, then select it to add it to this group.";
+  searchRow.dataset.infoKey = "tag-search"; searchRow.dataset.infoLabel = t("contentTag.search");
+  searchRow.dataset.infoCopy = t("info.tagSearch");
   searchRow.appendChild(search); menu.append(searchRow, list);
   document.body.appendChild(menu);
   VaultUI.showMenuLayer(menu);
-  activeTagChooser = { container, button, menu, search, list, groupID: getSelectedGroup()?.id };
+  activeTagChooser = { container, button, menu, search, list, groupID: getSelectedGroup()?.id, entryID: activeEntryKey(getSelectedGroup()) };
   button.setAttribute("aria-expanded", "true");
   search.addEventListener("input", updateTagChooser);
   menu.addEventListener("keydown", event => {
@@ -5901,7 +5976,8 @@ if (groupScopesAdd) {
   groupScopesAdd.addEventListener("change", () => {
     const key = groupScopesAdd.value;
     if (!key) return;
-    setGroupPlatformView(key).catch((error) => {
+    const entry = key === "apps" ? key : CBGroupScopes.newEntryKey(key);
+    setGroupPlatformView(entry).catch((error) => {
       console.error("Failed to add the platform to the group.", error);
       setStatus(t("status.errorSaveGroup"), true);
       render();
@@ -5910,6 +5986,7 @@ if (groupScopesAdd) {
 }
 
 platformAuthorModeField.addEventListener("change", () => {
+  platformTagModeField.value = platformAuthorModeField.value.startsWith("tags-") ? platformAuthorModeField.value.slice(5) : "all";
   if (platformAuthorModeField.value === "exclude") {
     setStatus(t("status.allowlistWarning"));
   }
@@ -6077,7 +6154,7 @@ if (localFolderChooseButton) {
       return;
     }
     chooseLocalFolder().catch((error) => {
-      if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
+      if (localFolderStatus) localFolderStatus.textContent = localFolderErrorText(error);
     });
   });
 }
@@ -6089,7 +6166,7 @@ if (localFolderRevokeButton) {
       return;
     }
     revokeLocalFolder().catch((error) => {
-      if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
+      if (localFolderStatus) localFolderStatus.textContent = localFolderErrorText(error);
     });
   });
 }
@@ -6169,9 +6246,9 @@ endSnoozeButton.addEventListener("click", () => {
 layoutResizer.addEventListener("mousedown", startResizingPanels);
 layoutResizer.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft") {
-    applyPanelWidth(state.panelWidth - 20);
+    applyPanelWidth(state.panelWidth + (document.documentElement.dir === "rtl" ? 20 : -20));
   } else if (event.key === "ArrowRight") {
-    applyPanelWidth(state.panelWidth + 20);
+    applyPanelWidth(state.panelWidth + (document.documentElement.dir === "rtl" ? -20 : 20));
   }
 });
 
@@ -6511,4 +6588,4 @@ initializePopupApp().catch((error) => {
   setStatus(t("status.errorLoadGroups"), true);
 });
 
-window.VaultInfo?.watch(document, { enabled: () => state.language === "en" });
+window.VaultInfo?.watch(document, { enabled: () => true });
