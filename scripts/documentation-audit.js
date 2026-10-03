@@ -29,7 +29,7 @@ for (const [name, root] of products) {
     const english = fs.readFileSync(englishPath, "utf8");
     if (kind === "manual" && fenceBlocks(english).length) fail(`${name}: user guide must keep code tutorials in the separate code guide.`);
     const expected = ["en", ...locales].map(locale => `${locale}.md`).sort();
-    const found = fs.readdirSync(directory).filter(file => file.endsWith(".md")).sort();
+    const found = fs.readdirSync(directory).filter(file => file.endsWith(".md") && file !== "package-info.md").sort();
     if (JSON.stringify(found) !== JSON.stringify(expected)) fail(`${name}: ${kind} must contain exactly ${expected.length} locale guides.`);
     for (const locale of locales) {
       const file = localizedDocumentPath(englishPath, locale);
