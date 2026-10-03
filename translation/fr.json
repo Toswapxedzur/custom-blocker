@@ -241,7 +241,7 @@
   "snooze.minutesPlaceholder": "30",
   "snooze.activationDelay": "Délai d'activation (minutes)",
   "snooze.activationDelayPlaceholder": "0",
-  "snooze.cooldown": "Temps de recharge après répétition (minutes)",
+  "snooze.cooldown": "Délai après la pause (minutes)",
   "snooze.cooldownPlaceholder": "0",
   "snooze.confirmations": "Confirmations requises",
   "snooze.confirmationsPlaceholder": "0",
