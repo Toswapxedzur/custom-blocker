@@ -77,6 +77,8 @@ Klik **+ tag** di samping tag item untuk membuka pemilih koreksi. Cari tag Klasi
 
 **Tampilkan + tambah cepat** menambahkan tombol kecil ke halaman yang didukung. Pilih grup tujuan dalam daftar; pilihan diingat saat Vault dibuka lagi. Gunakan tombol halaman untuk menambahkan halaman itu ke daftar situs. Pada daftar izin, ini mengizinkan halaman. Grup beku tidak menerima penambahan cepat.
 
+Kamus resmi serta impor/ekspor kamus pribadi diatur di aplikasi desktop melalui **Pengaturan → pengklasifikasi → Kamus resmi**. Layanan kamus dapat dihubungi jika kreator tidak ada di cache atau kontribusi opsional diaktifkan; riset web memiliki persetujuan dan pengaturan penyedia terpisah. Lihat panduan desktop dan pengungkapan.
+
 Koneksi Klasifikasi melaporkan layanan Vault desktop lokal. Atur grup Klasifikasi, unduhan model, Pengetahuan, persetujuan riset, dan penyedia API di aplikasi desktop yang terhubung.
 
 Jika tag tidak muncul, periksa apakah aplikasi Vault desktop terbuka, koneksi tersambung, pemberian tag aktif, grup Klasifikasi terkait dilanjutkan, dan feed platformnya direkam. Periksa status unduhan model di aplikasi desktop. Jika pemblokiran tidak berlaku, periksa status aktif grup, target, jadwal, jatah, dan penundaan.

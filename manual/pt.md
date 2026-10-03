@@ -77,6 +77,8 @@ Clique em **+ tag** ao lado das tags de um item para abrir o seletor de correç�
 
 **Mostrar o botão de adição rápida +** adiciona um pequeno botão às páginas compatíveis. Selecione um grupo de destino na lista; a escolha será lembrada quando o Vault for reaberto. Use o botão da página para adicioná-la à lista de sites. Em uma lista de permissões, isso permite a página. Grupos congelados não aceitam adições rápidas.
 
+Os dicionários oficiais e a importação/exportação do dicionário pessoal são configurados no aplicativo desktop em **Configurações → Classificador → Dicionários oficiais**. O serviço pode ser contatado quando um criador não está no cache ou contribuições opcionais estão ativadas; a pesquisa na Web tem consentimento e configurações de provedor separados. Consulte o manual desktop e as divulgações.
+
 A conexão com Classifier mostra o serviço local do Vault para desktop. Configure grupos Classifier, downloads de modelos, Knowledge, consentimento para pesquisa e provedores de API no aplicativo conectado para desktop.
 
 Se faltarem tags, verifique se o aplicativo Vault para desktop está aberto, a conexão foi estabelecida, a marcação está ativada, o grupo Classifier pertinente foi retomado e o feed da plataforma está sendo registrado. Confira o estado do download do modelo no aplicativo para desktop. Se o bloqueio não funcionar, confira se o grupo está ativo e verifique os alvos, o cronograma, o tempo permitido e o estado do adiamento.

@@ -19,7 +19,7 @@
   "settings.colBehavior": "行为",
   "settings.colConnections": "数据与文件",
   "settings.quitRetryMinutes": "每隔（分钟）再次请求关闭被屏蔽的应用",
-  "settings.quitRetryMinutesHelp": "系统会像按下 ⌘Q 一样，正常请求被屏蔽的应用（或被自定义规则关闭的应用）退出。如果应用仍保持打开（例如为了保留未保存的工作），系统会让它继续打开。大于 0 时，只要应用仍打开，就会按此间隔再次请求退出。",
+  "settings.quitRetryMinutesHelp": "Vault 会请求被屏蔽的应用正常退出，让应用有机会提示保存尚未保存的工作。设置正数间隔即可重复发送请求；设为 0 时只发送首次请求。",
   "settings.reset": "恢复默认值",
   "settings.saved": "设置已保存。",
   "settings.invalidValue": "此值不允许使用；保留上次保存的值。",

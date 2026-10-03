@@ -19,7 +19,7 @@
   "settings.colBehavior": "Gedrag",
   "settings.colConnections": "Gegevens en bestanden",
   "settings.quitRetryMinutes": "Ponownie proś zablokowaną aplikację o zamknięcie co (minuty)",
-  "settings.quitRetryMinutesHelp": "Een geblokkeerde app (of een app die door een aangepaste regel wordt gesloten) krijgt het verzoek om normaal af te sluiten, zoals met ⌘Q. Blijft de app open, bijvoorbeeld om niet-opgeslagen werk te behouden, dan blijft die open. Boven 0 wordt dit verzoek zo vaak herhaald zolang de app open blijft.",
+  "settings.quitRetryMinutesHelp": "Vault vraagt geblokkeerde apps om normaal af te sluiten, zodat ze kunnen vragen om niet-opgeslagen werk te bewaren. Stel een positief interval in om het verzoek te herhalen; bij 0 wordt alleen het eerste verzoek verzonden.",
   "settings.reset": "Herstel naar Standaarden",
   "settings.saved": "Instellingen opgeslagen",
   "settings.invalidValue": "Deze waarde is niet toegestaan; de laatst opgeslagen waarde blijft behouden.",

@@ -77,6 +77,8 @@ Düzeltme seçicisini açmak için öğenin etiketlerinin yanındaki **+ tag** d
 
 **Hızlı ekleme + düğmesini göster** desteklenen sayfalara küçük bir düğme ekler. Listeden hedef grubu seçin; Vault yeniden açıldığında seçiminiz hatırlanır. Sayfayı web sitesi listesine eklemek için sayfadaki düğmeyi kullanın. İzin listesinde bu, sayfaya izin verir. Dondurulmuş gruplar hızlı ekleme kabul etmez.
 
+Resmî sözlükler ve kişisel sözlüğü içe/dışa aktarma masaüstü uygulamasında **Ayarlar → Sınıflandırıcı → Resmî sözlükler** bölümünden yapılandırılır. Önbellekte olmayan içerik üreticileri veya isteğe bağlı katkılar sözlük hizmetiyle iletişim kurulmasına yol açabilir; web araştırmasının ayrı izni ve sağlayıcı ayarları vardır. Masaüstü kılavuzuna ve bilgilendirmelere bakın.
+
 Classifier bağlantısı yerel masaüstü Vault hizmetini bildirir. Classifier gruplarını, model indirmelerini, Knowledge'ı, araştırma onayını ve API sağlayıcılarını bağlı masaüstü uygulamasında yapılandırın.
 
 Etiketler yoksa masaüstü Vault uygulamasının açık olduğunu, bağlantının kurulduğunu, etiketlemenin etkin olduğunu, ilgili Classifier grubunun sürdürüldüğünü ve platform akışının kaydedildiğini denetleyin. Masaüstü uygulamasındaki model indirme durumuna bakın. Engelleme uygulanmıyorsa grubun etkinliğini, hedefleri, zamanlamayı, izin verilen süreyi ve erteleme durumunu kontrol edin.

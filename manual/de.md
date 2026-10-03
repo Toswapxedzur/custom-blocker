@@ -77,6 +77,8 @@ Klicken Sie neben den Tags eines Elements auf **+ Tag**, um die Korrekturauswahl
 
 **Schnellhinzufügen + anzeigen** fügt unterstützten Seiten eine kleine Schaltfläche hinzu. Wählen Sie in der Liste eine Gruppe als Ziel; Ihre Auswahl bleibt beim erneuten Öffnen von Vault erhalten. Verwenden Sie die Seitenschaltfläche, um diese Seite zur Websiteliste hinzuzufügen. Bei einer Freigabeliste wird die Seite damit erlaubt. Eingefrorene Gruppen akzeptieren keine Schnellhinzufügungen.
 
+Offizielle Wörterbücher sowie der Import/Export persönlicher Wörterbücher werden in der Desktop-App unter **Einstellungen → Klassifizierung → Offizielle Wörterbücher** eingerichtet. Bei Cache-Fehltreffern oder aktivierten optionalen Creator-Beiträgen kann der Wörterbuchdienst kontaktiert werden; Web-Recherche hat eigene Einwilligungs- und Anbietereinstellungen. Siehe Desktop-Handbuch und Offenlegungen.
+
 Die Klassifizierungsverbindung meldet den lokalen Vault-Desktop-Dienst. Konfigurieren Sie Klassifizierungsgruppen, Modelldownloads, Wissen, Rechercheeinwilligung und API-Anbieter in der verbundenen Desktop-App.
 
 Fehlen Tags, prüfen Sie, ob die Vault-Desktop-App geöffnet und verbunden ist, die Tag-Zuweisung aktiviert ist, die betreffende Klassifizierungsgruppe fortgesetzt wurde und ihr Plattformfeed aufgezeichnet wird. Prüfen Sie den Modelldownloadstatus in der Desktop-App. Greift die Blockierung nicht, prüfen Sie Aktivierung, Ziele, Zeitplan, Kontingent und Aufschiebestatus der Gruppe.

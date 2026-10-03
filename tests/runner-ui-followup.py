@@ -122,7 +122,7 @@ def run(context,worker):
     expect(results['tagging_color']=='rgb(30, 58, 138)','Tagging uses a colored dark fill for a light browser')
     expect(results['tagging_dark_browser']=={'fill':'rgb(219, 234, 254)','border':'dashed'},'Mounted Tagging pill flips to a light fill for a dark browser and keeps its dashed indicator')
     expect('Could not save tag correction' in results['failed_correction']['text'],'Correction failure is visible')
-    expect(results['correction_retry']=={'tag':'None','status':''},'Retry saves the failed correction')
+    expect(results['correction_retry']=={'tag':'Untagged','status':''},'Retry saves the failed correction')
     expect(results['rule_html_styles']['background']=='rgba(15, 23, 42, 0.96)' and 'Arial' in results['rule_html_styles']['font'],'Rule HTML cannot override fixed panel theme')
     expect(results['rule_controls']['nativeSelectHidden'] and results['rule_controls']['checkboxAppearance']=='none' and 'Arial' in results['rule_controls']['pinFont'],'Rule controls use drawn controls and Arial PIN')
     expect(results['rule_select_choice']=='Two','Drawn rule select preserves choice behavior')

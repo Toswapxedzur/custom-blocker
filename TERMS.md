@@ -1,55 +1,23 @@
-# Terms & Usage — Custom Web Blocker
+# Terms & Usage — Vault browser extension
 
-_Last updated: 2026-06-27_
+_Last updated: 2026-10-04_
 
-These terms cover how you may use **Custom Web Blocker** — the browser
-extension, the macOS / iOS apps, and the website. By installing or using any
-part of the project you agree to what's below. The short version: it's free,
-it's open source, use it freely, and it comes with no warranty.
+These terms cover the Vault browser extension in supported Chromium browsers and Safari Vault. Mac Vault, Windows Vault and the website publish their own terms. The project is free and open source; it is provided as-is without warranty.
 
-## The product is free
+## Use and data
 
-- Every feature is free to use. There is no purchase, subscription, or paid
-  tier — now or later.
-- The only way the project would ever take money is a voluntary, optional
-  donation. Nothing is gated behind one.
+Use Vault for lawful focus and productivity on devices you own or are authorized to manage. You are responsible for the rules you create and the permissions you grant. Do not use it to monitor or interfere with another person's device without permission.
 
-## Your data
+Blocking settings and ordinary enforcement stay local. Connected desktop tagging, Activity, optional research, official dictionaries, creator contributions and AI-client data flows are explained in the privacy policies and disclosures. Vault has no account or cross-device cloud sync. Review those disclosures before enabling network features or connecting an AI client.
 
-- By default nothing about your browsing leaves your device.
-- We will never share your data with third parties or generate revenue from
-  it. See the Privacy policy for the full detail.
-- Optional Vault Classifier collection stays on your device and only runs when
-  you explicitly enable it.
+## Free and open source
 
-## Accounts
+There is no purchase, subscription or paid feature tier. Optional donations do not unlock features. Source code is public under the repository's license.
 
-- An account is **optional**. Every download and every blocking feature works
-  fully without signing in.
-- An account only adds optional cross-device sync and a display name.
-- You are responsible for keeping your password safe. You may change your
-  display name or **permanently delete your account** at any time from the
-  account panel; deletion removes your account, sessions, and pending codes.
+## Limitations
 
-## Acceptable use
+Blocking and tagging may fail because of website or operating-system changes, missing permissions, browser behavior, app updates, bugs or configuration. Do not rely on Vault as the only control for safety-critical or emergency situations. To the maximum extent permitted by law, the author is not liable for damages arising from use.
 
-- Use the software for lawful, personal focus and productivity.
-- Don't use it to harm others, circumvent security you don't own, or violate
-  the terms of the sites and platforms you visit.
-- The blocking rules run locally in your own browser/device under your
-  control; you are responsible for the rules you create.
+## Changes and contact
 
-## Open source & license
-
-- The full source is public so you can verify every claim here yourself.
-- It is provided **as is**, without warranty of any kind. To the maximum
-  extent permitted by law, the author is not liable for any damages arising
-  from its use.
-
-## Changes
-
-- These terms may be updated as the project evolves. Material changes will be
-  reflected here with a new "last updated" date.
-
-> This is a personal, open-source project by a high-school student — not a
-> company. These terms are written in plain language and in good faith.
+Current terms may change with the software. Keep released source versions and their documents available so users can inspect the terms for their release. Questions can be sent through the public repository or contact channel on the Vault website.

@@ -19,7 +19,7 @@
   "settings.colBehavior": "Perilaku",
   "settings.colConnections": "Data & file",
   "settings.quitRetryMinutes": "Minta aplikasi yang diblokir keluar kembali setiap (menit)",
-  "settings.quitRetryMinutesHelp": "Aplikasi yang diblokir (atau ditutup oleh aturan khusus) diminta keluar secara normal, seperti dengan ⌘Q. Jika tetap terbuka, misalnya untuk mempertahankan pekerjaan yang belum disimpan, aplikasi dibiarkan terbuka. Jika nilainya di atas 0, permintaan diulang pada interval ini selama aplikasi masih terbuka.",
+  "settings.quitRetryMinutesHelp": "Vault meminta aplikasi yang diblokir untuk keluar secara normal agar aplikasi tetap dapat menampilkan permintaan untuk menyimpan pekerjaan yang belum disimpan. Tetapkan interval positif untuk mengulangi permintaan; 0 hanya mengirim permintaan awal.",
   "settings.reset": "Atur ulang ke default",
   "settings.saved": "Pengaturan disimpan.",
   "settings.invalidValue": "Nilai ini tidak diizinkan; nilai tersimpan terakhir tetap digunakan.",

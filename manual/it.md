@@ -77,6 +77,8 @@ Fai clic su **+ tag** accanto ai tag di un elemento per aprire il selettore di c
 
 **Mostra il pulsante di aggiunta rapida +** aggiunge un piccolo pulsante alle pagine supportate. Seleziona un gruppo di destinazione nell'elenco; la scelta viene ricordata alla riapertura di Vault. Usa il pulsante nella pagina per aggiungerla all'elenco dei siti. Con una lista consentita, l'azione consente la pagina. I gruppi congelati non accettano aggiunte rapide.
 
+I dizionari ufficiali e l’importazione/esportazione del dizionario personale si configurano nell’app desktop in **Impostazioni → Classificatore → Dizionari ufficiali**. Il servizio dei dizionari può essere contattato se un creator manca nella cache o sono attivi i contributi facoltativi; la ricerca sul Web ha consenso e impostazioni del provider separati. Consulta il manuale desktop e le informative.
+
 La connessione a Classifier indica lo stato del servizio Vault desktop locale. Configura gruppi Classifier, download dei modelli, Knowledge, consenso alla ricerca e provider API nell'app desktop collegata.
 
 Se mancano tag, verifica che l'app Vault desktop sia aperta, la connessione attiva, l'applicazione di tag abilitata, il gruppo Classifier pertinente ripreso e il feed della piattaforma registrato. Controlla lo stato del download del modello nell'app desktop. Se il blocco non si applica, verifica che il gruppo sia attivo e controlla obiettivi, programma, tempo consentito e stato del posticipo.

@@ -77,6 +77,8 @@ Kliknij **+ tag** obok tagów elementu, aby otworzyć wybór poprawek. Wyszukaj 
 
 **Pokaż przycisk szybkiego dodawania +** dodaje mały przycisk do obsługiwanych stron. Wybierz grupę docelową na liście; wybór zostanie zapamiętany po ponownym otwarciu Vault. Użyj przycisku strony, aby dodać ją do listy witryn. Na liście dozwolonych ta czynność zezwala na stronę. Zamrożone grupy nie przyjmują szybkich dodatków.
 
+Oficjalne słowniki oraz import/eksport słownika osobistego konfiguruje się w aplikacji desktopowej w **Ustawienia → Klasyfikator → Oficjalne słowniki**. Przy braku twórcy w pamięci podręcznej lub włączonych opcjonalnych przekazaniach może zostać użyta usługa słowników; badania w sieci mają osobną zgodę i ustawienia dostawcy. Zobacz instrukcję desktopową i ujawnienia.
+
 Połączenie Classifier pokazuje lokalną usługę Vault na komputerze. Skonfiguruj grupy Classifier, pobieranie modeli, Knowledge, zgodę na badania i dostawców API w połączonej aplikacji komputerowej.
 
 Jeśli brakuje tagów, sprawdź, czy aplikacja Vault jest otwarta, połączenie działa, tagowanie jest włączone, odpowiednia grupa Classifier została wznowiona, a jej kanał platformy jest rejestrowany. Sprawdź stan pobierania modelu w aplikacji komputerowej. Jeśli blokowanie nie działa, sprawdź aktywność grupy, cele, harmonogram, dozwolony czas i stan odroczenia.

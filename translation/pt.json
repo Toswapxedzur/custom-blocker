@@ -19,7 +19,7 @@
   "settings.colBehavior": "Comportamento",
   "settings.colConnections": "Dados e arquivos",
   "settings.quitRetryMinutes": "Pedir que um app bloqueado feche novamente a cada (minutos)",
-  "settings.quitRetryMinutesHelp": "Um app bloqueado (ou fechado por uma regra personalizada) recebe um pedido normal para encerrar, como ao pressionar ⌘Q. Se continuar aberto, por exemplo para preservar trabalho não salvo, ele permanece aberto. Acima de 0, o pedido é repetido nesse intervalo enquanto o app continuar aberto.",
+  "settings.quitRetryMinutesHelp": "O Vault pede que os aplicativos bloqueados sejam encerrados normalmente, para que possam solicitar o salvamento do trabalho não salvo. Defina um intervalo positivo para repetir a solicitação; com 0, somente a solicitação inicial é enviada.",
   "settings.reset": "Restaurar valores predefinidos",
   "settings.saved": "Configurações guardadas.",
   "settings.invalidValue": "Esse valor não é permitido; o último valor salvo será mantido.",
