@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import runpy
 import shutil
 import sys
 import zipfile
@@ -49,6 +50,8 @@ COMMON_TOP_LEVEL_FILES = [
     "background.js",
     "bridge-protocol.js",
     "content.js",
+    "content-messages.js",
+    "vault-content-i18n.js",
     "cover-frame.js",
     "platform-profiles.js",
     "group-scopes.js",
@@ -391,6 +394,7 @@ def main() -> None:
     parser.add_argument("--environment", choices=["production", "development"], default="production",
                         help="Native Safari environment (other browser identities are unchanged).")
     args = parser.parse_args()
+    runpy.run_path(str(REPO_ROOT / "scripts" / "build-content-messages.py"))
 
     if DIST_DIR.exists():
         shutil.rmtree(DIST_DIR)

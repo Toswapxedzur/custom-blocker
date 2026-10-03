@@ -49,6 +49,8 @@
       "js": [
         "browser-compat.js",
         "platform-profiles.js",
+        "content-messages.js",
+        "vault-content-i18n.js",
         "content.js",
         "vault-classifier-contract.js",
         "vault-classifier-tag-ui.js",

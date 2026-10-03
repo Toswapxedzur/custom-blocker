@@ -1,4 +1,4 @@
-/* Static English explanations. Sources remain in the DOM for translations and
+/* Localized field explanations. Sources remain in the DOM for translations and
  * dynamic copy updates; operational notices are never selected implicitly. */
 (function (global) {
   "use strict";
@@ -115,7 +115,8 @@
       oldButtons.delete(button);
       const labelNode = anchor.cloneNode(true);
       labelNode.querySelectorAll('.vui-info-button,.vui-info-source').forEach(node => node.remove());
-      const label = `Info: ${sources.find(source => source.dataset.infoLabel)?.dataset.infoLabel || anchor.dataset.infoLabel || labelNode.textContent.trim().slice(0, 120) || 'About this setting'}`;
+      const subject = sources.find(source => source.dataset.infoLabel)?.dataset.infoLabel || anchor.dataset.infoLabel || labelNode.textContent.trim().slice(0, 120) || (global.VaultTranslate?.("info.setting") || "About this setting");
+      const label = global.VaultTranslate?.("info.accessibleLabel", { label: subject }) || `Info: ${subject}`;
       if (button.getAttribute('aria-label') !== label) button.setAttribute('aria-label', label);
       const entry = { button, texts, key, scope, label }; button.infoEntry = entry; entries.push(entry);
     });
@@ -140,7 +141,7 @@
   }
   function watch(scope, options = {}) {
     if (scopes.has(scope)) return refresh(scope);
-    const config = { selector: options.selector || '[data-info]', enabled: options.enabled || (() => doc.documentElement.lang === 'en') };
+    const config = { selector: options.selector || '[data-info]', enabled: options.enabled || (() => true) };
     scopes.set(scope, config);
     let queued = false;
     const observer = new MutationObserver(records => {

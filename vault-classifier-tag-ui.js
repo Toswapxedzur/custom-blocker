@@ -11,6 +11,7 @@
   if (global.VaultClassifierTagUI) return;
 
   const C = global.VaultClassifierExtensionContract;
+  const ui = (key, fallback, values) => global.VaultContentI18n?.t(key, fallback, values) ?? fallback;
   const CACHE_TTL_MS = 15_000;
   // Provisional ("Tagging") results re-check soon so the pill upgrades quickly
   // once background classification finishes, rather than waiting a full TTL.
@@ -482,14 +483,14 @@
     state.status.replaceChildren();
     state.status.dataset.failed = String(Boolean(state.failedCorrection));
     const document = state.status.ownerDocument || global.document;
-    if (state.correctionPending) state.status.textContent = "Saving…";
+    if (state.correctionPending) state.status.textContent = ui("contentTag.saving", "Saving…");
     else if (state.failedCorrection) {
       const message = document.createElement("span");
-      message.textContent = "Could not save tag correction. ";
+      message.textContent = ui("contentTag.saveFailed", "Could not save tag correction.") + " ";
       const retry = document.createElement("button");
       retry.type = "button";
       retry.className = "retry";
-      retry.textContent = "Retry";
+      retry.textContent = ui("contentTag.retry", "Retry");
       retry.addEventListener("click", (event) => {
         event.preventDefault(); event.stopPropagation();
         editTags(state, state.failedCorrection);
@@ -530,17 +531,17 @@
     const head = document.createElement("div");
     head.className = "panel-head";
     const title = document.createElement("span");
-    title.textContent = "Add tag";
+    title.textContent = ui("contentTag.add", "Add tag");
     const close = document.createElement("button");
     close.className = "panel-close";
     close.type = "button";
     close.textContent = "×";
-    close.setAttribute("aria-label", "Close");
+    close.setAttribute("aria-label", ui("contentTag.close", "Close"));
     head.append(title, close);
     const search = document.createElement("input");
     search.className = "panel-search";
     search.type = "text";
-    search.placeholder = "Search tags";
+    search.placeholder = ui("contentTag.search", "Search tags");
     const list = document.createElement("div");
     list.className = "panel-list";
     panel.append(head, search, list);
@@ -557,7 +558,7 @@
     const previous = document.createElement("button"), next = document.createElement("button"), count = document.createElement("span");
     previous.type = next.type = "button"; previous.className = next.className = "panel-close";
     previous.textContent = "‹"; next.textContent = "›";
-    previous.setAttribute("aria-label", "Previous tags"); next.setAttribute("aria-label", "Next tags"); count.setAttribute("role", "status");
+    previous.setAttribute("aria-label", ui("contentTag.previous", "Previous tags")); next.setAttribute("aria-label", ui("contentTag.next", "Next tags")); count.setAttribute("role", "status");
     pager.append(previous, count, next); panel.append(pager);
     function paintChoices(reset = false) {
       if (reset) page = 0;
@@ -565,12 +566,12 @@
       page = Math.max(0, Math.min(page, Math.ceil(matches.length / 40) - 1));
       list.replaceChildren();
       previous.disabled = !page; next.disabled = (page + 1) * 40 >= matches.length;
-      count.textContent = matches.length ? `${page * 40 + 1}–${Math.min((page + 1) * 40, matches.length)} / ${matches.length}` : "No matches";
+      count.textContent = matches.length ? `${page * 40 + 1}–${Math.min((page + 1) * 40, matches.length)} / ${matches.length}` : ui("contentTag.noMatches", "No matches");
       pager.hidden = matches.length <= 40;
     if (!matches.length) {
       const empty = document.createElement("div");
       empty.className = "panel-empty";
-      empty.textContent = taxonomy ? "No more tags" : "No tags available";
+      empty.textContent = taxonomy ? ui("contentTag.noMore", "No more tags") : ui("contentTag.unavailable", "No tags available");
       list.append(empty);
     } else {
       for (const tag of matches.slice(page * 40, (page + 1) * 40)) {
@@ -763,6 +764,8 @@
     const focusedTag = state.rail.getRootNode?.().activeElement?.closest?.(".chip-wrap")?.querySelector(".chip-del")?.dataset.tagId;
     state.rail.replaceChildren?.();
     state.currentTags = tags;
+    state.currentPredicted = predicted;
+    state.host.dir = global.VaultContentI18n?.language === "ar" ? "rtl" : "ltr";
     const document = state.root.ownerDocument || global.document;
     const isTagging = tags.length === 1 && tags[0].id === "vault:tagging";
     for (const tag of tags) {
@@ -771,21 +774,21 @@
       const chip = document.createElement("span");
       chip.className = tag.id === "vault:tagging" ? "chip tagging" : (predicted ? "chip predicted" : "chip");
       chip.dir = "auto";
-      chip.textContent = tag.name;
+      chip.textContent = tag.id === "vault:none" ? ui("contentTag.untagged", "Untagged") : tag.id === "vault:tagging" ? ui("contentTag.tagging", "Tagging") : tag.name;
       chip.style.setProperty("--vault-tag-color-light", tag.lightColorHex);
       chip.style.setProperty("--vault-tag-color-dark", tag.darkColorHex);
       wrap.appendChild(chip);
       // Real tags carry a hover delete affordance; the None/Tagging placeholders do not.
       if (!SYNTHETIC_IDS.has(tag.id)) {
         wrap.tabIndex = 0;
-        wrap.setAttribute("aria-label", tag.name + ". Press Delete to remove");
+        wrap.setAttribute("aria-label", ui("contentTag.removeInstruction", tag.name + ". Press Delete to remove", { tag: tag.name }));
         wrap.setAttribute("aria-keyshortcuts", "Delete Backspace");
         const del = document.createElement("button");
         del.className = "chip-del";
         del.type = "button";
         del.textContent = "×";
         del.dataset.tagId = tag.id;
-        del.setAttribute("aria-label", "Remove tag");
+        del.setAttribute("aria-label", ui("contentTag.remove", "Remove tag"));
         wrap.appendChild(del);
         if (tag.id === focusedTag) global.setTimeout(() => { if (wrap.isConnected) wrap.focus(); }, 0);
       }
@@ -797,8 +800,8 @@
       const add = document.createElement("button");
       add.className = "add-btn";
       add.type = "button";
-      add.textContent = "+ tag";
-      add.setAttribute("aria-label", "Add tag");
+      add.textContent = ui("contentTag.addButton", "+ tag");
+      add.setAttribute("aria-label", ui("contentTag.add", "Add tag"));
       state.rail.appendChild(add);
     }
     updateCorrectionStatus(state);
@@ -959,6 +962,14 @@
     const path = event.composedPath?.() || [];
     for (const state of mountedStates) if (!path.includes(state.host)) closeTagPanel(state, false);
   }, true);
+
+  global.VaultContentI18n?.onChange(() => {
+    for (const state of mountedStates) {
+      state.signature = "";
+      render(state, state.currentTags, state.currentPredicted);
+      if (state.panel?.classList.contains("open")) openAddPanel(state, state.panel);
+    }
+  });
 
   global.VaultClassifierTagUI = Object.freeze({ observe, clearPlatform });
 })(typeof globalThis !== "undefined" ? globalThis : this);
