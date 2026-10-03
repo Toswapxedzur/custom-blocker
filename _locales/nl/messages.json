@@ -1,10 +1,10 @@
 {
   "appName": {
-    "message": "Adamancia Vault — Websiteblokkering en focustimer",
+    "message": "Adamancia Vault",
     "description": "Extension name shown in Chrome and the Web Store."
   },
   "appDescription": {
-    "message": "Blokkeer websites direct, met gebruikstijdlimieten of aangepaste regels die op gebeurtenissen reageren. Richt je op wat belangrijk is.",
+    "message": "Blokkeer websites met native blokkering, gebruikslimieten of aangepaste gebeurtenisregels. Blijf gefocust.",
     "description": "Short description shown on the Chrome Web Store listing."
   }
 }
