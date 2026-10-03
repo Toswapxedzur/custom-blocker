@@ -627,7 +627,7 @@ function openLocalFolderDb() {
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error("Could not open local folder storage."));
+    request.onerror = () => reject(request.error || new Error(t("settings.localFolderStorageOpenError")));
   });
 }
 
@@ -637,11 +637,11 @@ async function localFolderDbGet(key) {
     const tx = db.transaction(LOCAL_FOLDER_STORE, "readonly");
     const request = tx.objectStore(LOCAL_FOLDER_STORE).get(key);
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error || new Error("Could not read local folder storage."));
+    request.onerror = () => reject(request.error || new Error(t("settings.localFolderStorageReadError")));
     tx.oncomplete = () => db.close();
     tx.onerror = () => {
       try { db.close(); } catch (_) {}
-      reject(tx.error || new Error("Could not read local folder storage."));
+      reject(tx.error || new Error(t("settings.localFolderStorageReadError")));
     };
   });
 }
@@ -657,7 +657,7 @@ async function localFolderDbSet(key, value) {
     };
     tx.onerror = () => {
       try { db.close(); } catch (_) {}
-      reject(tx.error || new Error("Could not write local folder storage."));
+      reject(tx.error || new Error(t("settings.localFolderStorageWriteError")));
     };
   });
 }
@@ -673,7 +673,7 @@ async function localFolderDbDelete(key) {
     };
     tx.onerror = () => {
       try { db.close(); } catch (_) {}
-      reject(tx.error || new Error("Could not delete local folder storage."));
+      reject(tx.error || new Error(t("settings.localFolderStorageDeleteError")));
     };
   });
 }
@@ -708,6 +708,14 @@ async function safariLocalFolderRequest(type) {
   window.__cbLocalFolderStatus(response);
 }
 
+function localFolderErrorText(error) {
+  const message = String(error?.message ?? error);
+  if (LOCAL_PROGRAM_ID === "safari" && /^[a-z0-9]+(?:-[a-z0-9]+)+$/.test(message)) {
+    return t("settings.localFolderNativeError") + " (" + message + ")";
+  }
+  return message;
+}
+
 async function renderLocalFolderStatus() {
   if (!localFolderStatus) return;
   // Desktop: the folder grant is native (the web view has no directory picker);
@@ -718,7 +726,7 @@ async function renderLocalFolderStatus() {
   }
   if (LOCAL_PROGRAM_ID === "safari") {
     try { await safariLocalFolderRequest("local-folder-status"); }
-    catch (error) { localFolderStatus.textContent = String(error?.message || error); }
+    catch (error) { localFolderStatus.textContent = localFolderErrorText(error); }
     return;
   }
   if (!("showDirectoryPicker" in window)) {
@@ -754,7 +762,7 @@ async function renderLocalFolderStatus() {
     }
   } catch (error) {
     localFolderHandle = null;
-    localFolderStatus.textContent = String(error?.message ?? error);
+    localFolderStatus.textContent = localFolderErrorText(error);
     if (localFolderRevokeButton) localFolderRevokeButton.disabled = true;
   }
 }
@@ -800,7 +808,7 @@ async function chooseLocalFolder() {
     if (localFolderStatus) {
       localFolderStatus.textContent = error?.name === "AbortError"
         ? t("settings.localFolderStatusNone")
-        : String(error?.message ?? error);
+        : localFolderErrorText(error);
     }
   }
 }
@@ -1048,7 +1056,7 @@ function openSettings() {
   settingsModal.classList.remove("hidden");
   focusVaultModal(settingsModal, settingsCloseButton, closeSettings);
   renderLocalFolderStatus().catch((error) => {
-    if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
+    if (localFolderStatus) localFolderStatus.textContent = localFolderErrorText(error);
   });
 }
 
@@ -6141,7 +6149,7 @@ if (localFolderChooseButton) {
       return;
     }
     chooseLocalFolder().catch((error) => {
-      if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
+      if (localFolderStatus) localFolderStatus.textContent = localFolderErrorText(error);
     });
   });
 }
@@ -6153,7 +6161,7 @@ if (localFolderRevokeButton) {
       return;
     }
     revokeLocalFolder().catch((error) => {
-      if (localFolderStatus) localFolderStatus.textContent = String(error?.message ?? error);
+      if (localFolderStatus) localFolderStatus.textContent = localFolderErrorText(error);
     });
   });
 }
