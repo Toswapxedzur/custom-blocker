@@ -2806,7 +2806,7 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     const pinLen = Math.max(3, Math.min(12, Math.floor(Number(control.length)) || 6));
     const masked = control.masked !== false;
     const pinWrap = document.createElement("div");
-    pinWrap.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;";
+    pinWrap.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;direction:ltr;unicode-bidi:isolate;";
     const hidden = document.createElement("input");
     hidden.type = "text";
     hidden.inputMode = "numeric";
