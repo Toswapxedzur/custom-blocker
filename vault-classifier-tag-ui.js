@@ -42,10 +42,10 @@
   })]);
 
   // Maps a resolved lookup to what should render. A definitive answer with no
-  // tags becomes the "None" pill; a failed/unresolved lookup (null) renders
-  // nothing and is retried once the cache entry expires.
+  // tags or a failed lookup becomes Untagged. Failures keep a short retry TTL
+  // internally, and a later successful response or push replaces the pill.
   function displayTags(tags) {
-    if (!Array.isArray(tags)) return null;
+    if (!Array.isArray(tags)) return NONE_TAGS;
     return tags.length ? tags : NONE_TAGS;
   }
   const stateByRoot = new WeakMap();
@@ -143,7 +143,8 @@
   // the player in place. A provisional ("Tagging…") state never blocks. Safe
   // no-op if content.js isn't present in this world.
   function notifyTagsChanged(state, result) {
-    if (!state || !state.root) return;
+    if (!state || !state.root || stateByRoot.get(state.root) !== state
+      || state.epoch !== (platformEpochs.get(state.platform) || 0)) return;
     if (state.kind === "page") {
       const evaluate = global.cbEvaluateTagPage;
       if (typeof evaluate !== "function") return;
@@ -239,15 +240,23 @@
     const cached = sourceCache.get(key);
     if (cached?.pending) return cached.pending;
     if (cached && cached.expiresAt > Date.now()) {
-      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true });
+      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true, failed: cached.failed === true });
     }
 
     const epoch = platformEpochs.get(platform) || 0;
+    const record = { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending: null };
     const pending = new Promise((resolve) => {
       pendingBatch.push({ platform, entryID, creatorID, title, key, resolve });
       scheduleDrain();
     }).then((result) => {
       if (epoch !== (platformEpochs.get(platform) || 0)) return null;
+      // A push/correction or newer request owns this entry now. An older
+      // request must never overwrite its cache or flash a provisional pill.
+      const latest = sourceCache.get(key);
+      if (latest && latest !== record) return latest.pending || {
+        tags: latest.tags, predicted: latest.predicted === true,
+        provisional: latest.provisional === true, failed: latest.failed === true
+      };
       // The app is still classifying this video: show the "Tagging" placeholder
       // and re-check soon so the real tags replace it quickly. Never dim/hide
       // while provisional — a card is only ever acted on by a resolved verdict.
@@ -258,11 +267,12 @@
       }
       const display = displayTags(result && result.tags);
       const predicted = Boolean(result && result.predicted);
-      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
+      sourceCache.set(key, { tags: display, predicted, provisional: false, failed: !result, expiresAt: Date.now() + (result ? CACHE_TTL_MS : PENDING_TTL_MS), pending: null });
       prune();
-      return { tags: display, predicted, provisional: false };
+      return { tags: display, predicted, provisional: false, failed: !result };
     });
-    sourceCache.set(key, { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending });
+    record.pending = pending;
+    sourceCache.set(key, record);
     return pending;
   }
 
@@ -797,28 +807,43 @@
   // A provisional ("Tagging") pill upgrades by re-requesting once its short
   // cache entry expires. Mutations normally re-trigger observe, but a quiet
   // page never mutates — so drive a bounded re-check from a timer instead.
+  function settleState(state, result) {
+    if (stateByRoot.get(state.root) !== state || state.root.isConnected === false
+      || state.epoch !== (platformEpochs.get(state.platform) || 0)) return;
+    // Rechecks can return pending after a known answer. Hold the answer until
+    // another settled answer exists; Reddit hydration must not flash Tagging.
+    const holding = shownTags(state) && (result?.provisional || result?.failed);
+    if (!holding) render(state, result?.tags || NONE_TAGS, Boolean(result?.predicted));
+    notifyTagsChanged(state, holding ? { provisional: false } : result || { failed: true });
+    if (result?.provisional || result?.failed) scheduleProvisionalRecheck(state);
+  }
   function scheduleProvisionalRecheck(state) {
-    if (state.recheckTimer || state.recheckAttempts >= MAX_PENDING_RECHECKS) return;
+    if (state.recheckTimer) return;
+    if (state.recheckAttempts >= MAX_PENDING_RECHECKS) {
+      if (!shownTags(state)) {
+        sourceCache.set(state.key, { tags: NONE_TAGS, predicted: false, provisional: false,
+          failed: true, expiresAt: Date.now() + PENDING_TTL_MS, pending: null });
+        render(state, NONE_TAGS);
+        notifyTagsChanged(state, { failed: true, provisional: false });
+      }
+      return;
+    }
     state.recheckAttempts += 1;
     state.recheckTimer = setTimeout(() => {
       state.recheckTimer = null;
       if (stateByRoot.get(state.root) !== state
         || state.epoch !== (platformEpochs.get(state.platform) || 0)
-        || state.root.isConnected === false) {
-        return;
-      }
-      request(state.platform, state.entryID, state.creatorID, state.title).then((result) => {
-        render(state, result && result.tags, Boolean(result && result.predicted));
-        notifyTagsChanged(state, result);
-        if (result && result.provisional) scheduleProvisionalRecheck(state);
-      });
+        || state.root.isConnected === false) return;
+      if (!state.title) return scheduleProvisionalRecheck(state);
+      request(state.platform, state.entryID, state.creatorID, state.title).then(result => settleState(state, result));
     }, PENDING_TTL_MS + 200);
   }
 
   function observe({ platform, entryID, creatorID, title, root, anchor = null, kind = "card" } = {}) {
     const key = boundedIdentity(platform, entryID);
-    if (!key || !boundedIdentity(platform, creatorID) || typeof title !== "string" || !title
-      || !root || root.isConnected === false) return;
+    if (!key || !root || root.isConnected === false) return;
+    creatorID = boundedIdentity(platform, creatorID) ? creatorID : `${platform}:collab:${entryID.slice(platform.length + 1)}`;
+    title = typeof title === "string" ? title.trim() : "";
     startReattachObserver();
     let state = stateByRoot.get(root);
     if (!state || state.key !== key) {
@@ -844,19 +869,21 @@
       if (anchor) state.anchor = anchor;
       if (kind === "page") state.kind = "page";
       // A card may hydrate its title/creator after first paint.
-      if (title) state.title = title;
+      if (title && title !== state.title) { state.title = title; state.recheckAttempts = 0; }
       if (creatorID) state.creatorID = creatorID;
     }
     state.epoch = platformEpochs.get(platform) || 0;
     devLog("observe", { platform, entry: entryID, creator: creatorID });
+    const cached = sourceCache.get(key);
+    render(state, state.currentTags || (cached?.tags?.length ? cached.tags : TAGGING_TAGS), cached?.predicted === true);
+    notifyTagsChanged(state, { provisional: !shownTags(state) });
+    if (!state.title) return scheduleProvisionalRecheck(state);
     request(platform, entryID, state.creatorID, state.title).then((result) => {
       devLog("result", {
         entry: entryID,
         state: result ? (result.provisional ? "tagging" : ((result.tags && result.tags.length) ? "tags" : "none")) : "null"
       });
-      render(state, result && result.tags, Boolean(result && result.predicted));
-      notifyTagsChanged(state, result);
-      if (result && result.provisional) scheduleProvisionalRecheck(state);
+      settleState(state, result);
     });
   }
 
@@ -866,7 +893,7 @@
   // already contract-validated by the bridge before fan-out.
   function applyPushedTags(platform, items) {
     for (const item of items) {
-      if (!item || typeof item.entryID !== "string") continue;
+      if (!item || typeof item.entryID !== "string" || !Array.isArray(item.tags)) continue;
       const key = boundedIdentity(platform, item.entryID);
       const display = displayTags(item && item.tags);
       if (!key || !display) continue;

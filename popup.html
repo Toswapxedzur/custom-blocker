@@ -185,7 +185,7 @@
                 <p id="platformVideoModeHelp" class="field-help" data-info></p>
               </div>
 
-              <label id="platformAuthorModeLabel" class="label" for="platformAuthorMode" data-info-key="platformAuthorModeLabel" data-info-copy="Choose how the listed content sources are matched. The selected mode determines whether the list is blocked or exempted."></label>
+              <label id="platformAuthorModeLabel" class="label" for="platformAuthorMode" data-info-key="platformAuthorModeLabel" data-info-copy="Choose all content, certain creators, all except certain creators, certain tags, or all except certain tags. Each website entry uses one filter."></label>
               <select id="platformAuthorMode"></select>
               <p id="platformAuthorModeHelp" class="field-help" data-info></p>
 
@@ -214,12 +214,7 @@
                  carry classifier tags (youtube, bilibili, reddit, …). Sibling
                  of the per-platform field groups so it shows for all of them. -->
             <div id="platformTagFields" class="platform-tag-fields hidden">
-              <label class="label" for="platformTagMode" data-i18n="tagFilter.mode" data-info-key="tagFilter.mode" data-info-copy="Choose whether matching tags are blocked or exempted. Tags come from the Classifier.">Content tag filter</label>
-              <select id="platformTagMode">
-                <option value="all" data-i18n="tagFilter.modeAll">Apply to all content</option>
-                <option value="include" data-i18n="tagFilter.modeInclude">Block certain tags</option>
-                <option value="exclude" data-i18n="tagFilter.modeExclude">Block all except certain tags</option>
-              </select>
+              <input id="platformTagMode" type="hidden" value="all" />
               <p class="field-help" data-i18n="tagFilter.help" data-info="tagFilter.help">
                 Filter content using its Classifier tags. One rule per line: "Gaming" matches that tag; "Gaming @3" sets a minimum confidence; "Gaming + Drama" requires both; "!Tutorial" makes an exception.
               </p>
