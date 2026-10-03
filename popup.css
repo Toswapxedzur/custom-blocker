@@ -1945,3 +1945,11 @@ input.editor-name:hover {
   text-align: left;
   unicode-bidi: isolate;
 }
+
+/* Technical tokens keep their literal reading order under an RTL interface. */
+input[type="url"], input[type="email"], input[type="password"],
+#platformAuthors, #discordTargets, #scheduleWindows, #freezePin {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: start;
+}
