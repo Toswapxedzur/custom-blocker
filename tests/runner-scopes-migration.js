@@ -10,7 +10,7 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 
 // Load the whole worker under an inert chrome stub (same as the settings-ops
-// and equivalence runners) so sanitizeGroups runs with every helper it needs.
+// and union runners) so sanitizeGroups runs with every helper it needs.
 function makeContext() {
   const storage = new Map();
   const inert = () => new Proxy(function () {}, { get: (_t, p) => (p === "addListener" || p === "removeListener" || p === "hasListener") ? () => {} : inert(), apply: () => Promise.resolve(undefined) });
