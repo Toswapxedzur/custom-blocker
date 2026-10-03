@@ -422,7 +422,8 @@
   }
 
   function mountMenu(select) {
-    const owner = typeof menu.showPopover === 'function' ? select.closest('[role="dialog"]') : null;
+    // Nested settings scopes still belong to their enclosing app dialog.
+    const owner = typeof menu.showPopover === 'function' ? select.closest('[role="dialog"]') || select.getRootNode().host?.closest('[role="dialog"]') : null;
     (owner || document.body).appendChild(menu);
     showMenuLayer(menu);
   }
@@ -650,26 +651,40 @@
     dialogStack.push(card);
     const root = card.getRootNode();
     const opener = options.returnFocus || root.activeElement;
+    const deepContains = node => {
+      while (node) {
+        if (card.contains(node)) return true;
+        node = node.getRootNode()?.host;
+      }
+      return false;
+    };
     const controls = () => {
       const selector = 'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])';
-      const items = Array.from(card.querySelectorAll(selector));
+      const collect = parent => Array.from(parent.children || []).flatMap(node =>
+        [...(node.matches(selector) ? [node] : []), ...collect(node), ...(node.shadowRoot ? collect(node.shadowRoot) : [])]);
+      const items = collect(card);
       // The non-Popover fallback is portalled to body to escape clipping.
-      if (menu && !card.contains(menu) && card.contains(dropdowns.get(openFor)?.button)) items.push(...menu.querySelectorAll(selector));
+      if (menu && !card.contains(menu) && deepContains(dropdowns.get(openFor)?.button)) items.push(...menu.querySelectorAll(selector));
       return items.filter((node) => !node.disabled && node.getClientRects().length);
     };
     function onKey(event) {
       if (dialogStack[dialogStack.length - 1] !== card || !card.isConnected || !card.getClientRects().length) return;
       if (event.key === "Escape" && menu) {
         event.preventDefault(); event.stopImmediatePropagation(); closeMenu(true);
+      } else if (event.key === "Escape" && controls().some(node => node.closest?.(".research-model-picker[open]"))) {
+        // A component's own listener handles this submenu, then the app dialog.
+        return;
       } else if (event.key === "Escape" && options.onEscape) {
         event.preventDefault(); event.stopPropagation(); options.onEscape();
       } else if (event.key === "Tab") {
-        const items = controls(), active = menu?.contains(document.activeElement) ? document.activeElement : root.activeElement;
+        const items = controls();
+        let active = root.activeElement;
+        while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
         if (!items.length) { event.preventDefault(); card.focus(); return; }
         const index = items.indexOf(active);
-        if (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === items.length - 1)) {
-          event.preventDefault(); items[event.shiftKey ? items.length - 1 : 0].focus();
-        }
+        event.preventDefault();
+        items[index < 0 ? (event.shiftKey ? items.length - 1 : 0)
+          : (index + (event.shiftKey ? -1 : 1) + items.length) % items.length].focus();
       }
     }
     card.tabIndex = -1;
