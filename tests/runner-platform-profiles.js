@@ -140,6 +140,16 @@ assert("X include group matches a profile handle", matchesProfileGroup({
   groupType: "twitter", blockHomePage: false, sourceMode: "include", sources: ["focus_account"]
 }, twitter));
 
+log.section("Capability audit: the picker must describe implemented adapters");
+for (const platform of ["kick", "kuaishou"]) {
+  const capabilities = platformCapabilities(platform);
+  assert(platform + " has page enforcement but no feed or tag adapter", capabilities.pages && !capabilities.feed && !capabilities.tags);
+}
+for (const platform of TAGGING_PLATFORMS) {
+  assert(platform + " tagging has a feed adapter", platformCapabilities(platform).feed);
+}
+assert("Safari tagging shares Chromium's platforms", taggingAvailableFor("safari") && !taggingAvailableFor("firefox"));
+
 log.section("P4: public feed adapters share author matching without video forms");
 const feedAdapters = [
   ["bluesky", "bsky.app", "/profile/focus.test", "focus.test"],

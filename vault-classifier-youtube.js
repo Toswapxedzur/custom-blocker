@@ -363,37 +363,6 @@
     return source.id ? source : (pageChannelSource() || source);
   }
 
-  // Collaboration cards expose NO creator link — YouTube renders the collaborators
-  // as unlinked text in the content-metadata component's first row ("A and B",
-  // "A, B and C"). There is no @handle or channel/UC id anywhere in the card, so
-  // a multi-creator byline is the signal that this card is creator-less *by
-  // nature* (unlike a normal card that is merely waiting for its link to hydrate).
-  function collabCreatorNames(card) {
-    let text = "";
-    const metadata = card.querySelector?.("yt-content-metadata-view-model");
-    if (metadata) {
-      const row = metadata.querySelector?.(".ytContentMetadataViewModelMetadataRow");
-      text = row ? compactText(row.textContent, 200) : "";
-    }
-    if (!text) {
-      text = compactText(selectorText(card, ["#channel-name #text", "ytd-channel-name #text", "#byline"], 200) || "", 200);
-    }
-    // Only a multi-creator byline qualifies — never a stats ("… views • … ago")
-    // or single-creator row, which name matching should not touch.
-    if (!text || /\bviews?\b|\bwatching\b|\bago\b/i.test(text) || !/\sand\s|[,·]/i.test(text)) return [];
-    return text
-      .split(/\s*[,·]\s*|\s+and\s+/i)
-      .map((name) => compactText(name, 120))
-      .filter(Boolean)
-      .slice(0, 4);
-  }
-
-  // A Shorts card is creator-less by nature (the shelf omits the channel), so it
-  // should be pilled per-video immediately rather than waited on for an author.
-  function isShortsCard(card) {
-    return Boolean(card.matches?.("ytd-reel-item-renderer, ytm-shorts-lockup-view-model"));
-  }
-
   function feedEvidence(card) {
     if (isAdvertisement(card)) return null;
     const title = selectorText(card, TITLE_SELECTORS, 500);
@@ -592,59 +561,17 @@
     // renderer that slipped through) must never draw a second pill next to the
     // one the outer card already owns.
     if (!isOutermostCard(card)) return;
-    // Render the tag pill whenever a creator can be inferred, independent of
-    // whether the card is a fully collectable content entry — so every card
-    // type (feed, search, watch-next, shorts, lockups, and channel-page grids)
-    // shows tags. Anchor after the title, then the creator link, then the card.
+    // Recognition owns the placeholder; title hydration owns classification.
+    // A verified video never waits for an author link (collaborations, Shorts,
+    // and partial cards all use a per-video priorless identity until it exists).
     const source = resolveCardSource(card);
-    if (source.id) {
-      const titleElement = selectorElement(card, TITLE_SELECTORS);
-      const videoID = findVideoID(card);
-      // Use selectorText (not the first element's textContent): YouTube's
-      // #video-title is often an empty wrapper, with the real text under a later
-      // selector — exactly what feedEvidence relies on to collect a title.
-      const title = selectorText(card, TITLE_SELECTORS, 500);
-      // Per-video pill: keyed by the video's entryID + title; the creator rides
-      // along only as the derived weak prior.
-      if (videoID && title && taggingEnabled) {
-        TagUI?.observe?.({
-          platform: PLATFORM,
-          entryID: `${PLATFORM}:video:${videoID}`,
-          creatorID: source.id,
-          title,
-          root: card,
-          anchor: titleElement || source.link || null
-        });
-      }
-    } else {
-      // No linked creator: collaboration cards AND creator-less cards such as
-      // Shorts-shelf items (they show no channel). Key the pill by the video
-      // itself so the title is classified even with no creator — the tagger
-      // needs no creator or platform hint (owner 2026-09-19: "we can tag
-      // anything"). Previously a Short with no byline names got no pill and was
-      // never tagged; now any card with a video id + title is taggable.
-      // Pill a creator-less card only when it is creator-less BY NATURE — a
-      // multi-author collaboration byline, or a Shorts card — never a normal card
-      // that is merely waiting for its author link to hydrate (that keeps its
-      // pill until the real creator is known). The `:collab:` scheme means "no
-      // linked author, keyed per video"; it now covers Shorts too, so a whole
-      // content type that was never tagged now is (owner 2026-09-19).
-      const videoID = (collabCreatorNames(card).length || isShortsCard(card)) ? findVideoID(card) : null;
-      if (videoID) {
-        const titleElement = selectorElement(card, TITLE_SELECTORS);
-        const title = selectorText(card, TITLE_SELECTORS, 500);
-        if (title && taggingEnabled) {
-          TagUI?.observe?.({
-            platform: PLATFORM,
-            entryID: `${PLATFORM}:video:${videoID}`,
-            creatorID: `${PLATFORM}:collab:${videoID}`,
-            title,
-            root: card,
-            anchor: titleElement || null
-          });
-        }
-      }
-    }
+    const videoID = findVideoID(card);
+    if (videoID && taggingEnabled) TagUI?.observe?.({
+      platform: PLATFORM, entryID: `${PLATFORM}:video:${videoID}`,
+      creatorID: source.id || `${PLATFORM}:collab:${videoID}`,
+      title: selectorText(card, TITLE_SELECTORS, 500), root: card,
+      anchor: selectorElement(card, TITLE_SELECTORS) || source.link || null
+    });
     const entry = feedEvidence(card);
     if (entry) void collectEntry(entry);
   }

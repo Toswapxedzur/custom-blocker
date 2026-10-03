@@ -123,7 +123,7 @@
   "platform.rulesCopy": "Choose the content this group targets. Its blocking behavior applies only to matching content.",
   "scopes.label": "Applies to",
   "scopes.websites": "Websites",
-  "scopes.add": "Add…",
+  "scopes.add": "Add a website…",
   "scopes.browserOwnedHint": "Websites and platforms are set in the browser extension; the desktop Vault controls apps.",
   "scopes.removeAria": "Remove {name} from this group",
   "scopes.apps": "Apps",
@@ -300,9 +300,9 @@
   "chip.removeAria": "Remove {name}",
   "tagFilter.mode": "Content tag filter",
   "tagFilter.modeAll": "Apply to all content",
-  "tagFilter.modeInclude": "Block certain tags",
-  "tagFilter.modeExclude": "Block all except certain tags",
-  "tagFilter.help": "Filter content using its Classifier tags. One rule per line: \"Gaming\" matches that tag; \"Gaming @3\" sets a minimum confidence; \"Gaming + Drama\" requires both; \"!Tutorial\" makes an exception.",
+  "tagFilter.modeInclude": "Apply to certain tags",
+  "tagFilter.modeExclude": "Apply to all except certain tags",
+  "tagFilter.help": "Choose Classifier tags, or add individual rules: Gaming @3 sets a minimum confidence; Gaming + Drama requires both; !Tutorial makes an exception.",
   "tagFilter.tags": "Tags",
   "tagFilter.tagsPlaceholder": "Gaming\nDrama @3",
   "tagFilter.defaultConfidence": "Default minimum confidence",
@@ -443,5 +443,7 @@
   "custom.docsCopied": "Code docs copied.",
   "custom.copyFailed": "Could not copy to the clipboard.",
   "manual.codeTitle": "Code manual",
-  "link.refused.desktop-unavailable": "Open the desktop Vault to change linked groups."
+  "link.refused.desktop-unavailable": "Open the desktop Vault to change linked groups.",
+  "scopes.applyTo": "Apply to",
+  "platform.pagesOnlyHelp": "Creator filters apply to creator profile pages on this website. Filtering individual feed cards is not supported."
 }

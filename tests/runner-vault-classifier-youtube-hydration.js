@@ -122,7 +122,7 @@ setTimeout(() => {
   }
 
   setTimeout(() => {
-    const noPillWhileAuthorUnknown = !observedFor(hydratingCard);
+    const noPillWhileAuthorUnknown = Boolean(observedFor(hydratingCard)?.creatorID.startsWith("youtube:collab:"));
 
     // Stage 3: the creator link hydrates and the card mutates in place. The pill
     // appears now — keyed to the author becoming known, not to scrolling.
@@ -131,15 +131,14 @@ setTimeout(() => {
     FakeMutationObserver.emit([{ type: "childList", target: hydratingCard, addedNodes: [] }]);
 
     setTimeout(() => {
-      const pillAfterAuthorKnown = Boolean(observedFor(hydratingCard)
-        && observedFor(hydratingCard).creatorID === "youtube:handle:@arrived");
+      const pillAfterAuthorKnown = tagPresentations.some(value => value.root === hydratingCard && value.creatorID === "youtube:handle:@arrived");
       const noFullRescan = documentScans === scansAfterSweep;
 
       const passes = knownProcessedOnDiscovery && noPillWhileAuthorUnknown
         && pillAfterAuthorKnown && noFullRescan && errors.length === 0;
 
       if (passes) {
-        console.log("PASS injects a card's pill once its author is known, not on scroll, without a full rescan");
+        console.log("PASS recognizes a card before author hydration and enriches it without rescanning");
         console.log("__CB_TEST_RESULT__: OK");
         return;
       }

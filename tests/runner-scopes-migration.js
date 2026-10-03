@@ -92,7 +92,8 @@ for (const [k, g] of Object.entries(migrated)) {
 }
 // Round trip: flat(lines) is exactly what the form model expects.
 const rt = flat(migrated.ytTagsNoPage);
-check("flat view round-trips the source axis and the tag filter", rt.sourceMode === "exclude" && rt.sources[0] === "x" && rt.platformTagMode === "exclude" && rt.platformTagBlockPage === false && rt.platformTagEffect === "dim", rt);
+const migratedTagsView = vm.runInContext("CBGroupScopes", context).flatFromScopes(migrated.ytTagsNoPage, "youtube:tags");
+check("retired parallel filters round-trip as separate entries", rt.sourceMode === "exclude" && rt.sources[0] === "x" && rt.platformTagMode === "all" && migratedTagsView.platformTagMode === "exclude" && migratedTagsView.platformTagBlockPage === false && migratedTagsView.platformTagEffect === "dim", { rt, migratedTagsView });
 check("flat view of a nobody group reads nobody", flat(migrated.ytTags).sourceMode === "nobody", flat(migrated.ytTags));
 // A flat patch over a stored group wins over the lines underneath.
 const patched = sanitize([{ ...migrated.ytAuthors, sourceMode: "all" }])[0];

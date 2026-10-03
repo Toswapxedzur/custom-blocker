@@ -50,8 +50,8 @@ const PLATFORM_GROUP_TYPES = [
 // NOT use the video-form axis, so it is handled on its own track.
 // Tagging exists only where cards carry classifier tags: YouTube and the pill
 // platforms (vault-classifier-collector-core.js PILL_PLATFORMS), and only in
-// builds that load the classifier scripts — Chromium browsers and the desktop
-// app, not Safari or Firefox. Tag filters and "cover until tagged" act only
+// builds that load the classifier scripts — Chromium browsers, Safari and
+// the desktop app; Firefox does not load the tag pipeline. Tag filters and "cover until tagged" act only
 // there (owner 2026-09-26); elsewhere they would never match, or would cover
 // content forever.
 // Where a content block acts on a tagging platform (adding a platform is
@@ -91,6 +91,13 @@ const CONTENT_BLOCK_PROFILES = Object.freeze({
   }
 });
 const TAGGING_PLATFORMS = Object.freeze(Object.keys(CONTENT_BLOCK_PROFILES));
+// Capabilities describe actual adapters, not merely a recognized hostname.
+// Kick/Kuaishou currently enforce profiles/pages but have no feed-card adapter.
+function platformCapabilities(platform) {
+  const profile = PLATFORM_PROFILES[String(platform || "")];
+  return { pages: Boolean(profile), feed: Boolean(profile?.feed?.anchorSelectors?.length),
+    tags: TAGGING_PLATFORMS.includes(String(platform || "")) };
+}
 function isTaggingPlatform(platform) {
   return TAGGING_PLATFORMS.includes(String(platform || ""));
 }
