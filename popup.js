@@ -580,7 +580,7 @@ function focusVaultModal(modal, initialFocus, onEscape) {
   const returnFocus = () => {
     if (opener?.isConnected) return opener;
     if (opener?.id) return openerRoot?.getElementById(opener.id);
-    if (opener?.dataset?.action === "openManual") return openerRoot?.querySelector('[data-action="openManual"]');
+    if (["openManual", "openUtilityPanel"].includes(opener?.dataset?.action)) return openerRoot?.querySelector(`[data-action="${opener.dataset.action}"]`);
     return null;
   };
   modalFocusReleases.set(modal, VaultUI.focusDialog(modal.querySelector(".modal-card"), { initialFocus, onEscape, returnFocus }));
