@@ -1,119 +1,52 @@
 #!/usr/bin/env node
 "use strict";
 
-/* Verify source documents and every generated localized document copy. */
-
+// Audit the user/code guides shipped inside apps. Website and engineering
+// documents are outside the owner's release translation scope.
 const fs = require("node:fs");
 const path = require("node:path");
-
 const workspace = path.resolve(__dirname, "..", "..");
 const locales = ["ar", "bn", "de", "es", "fr", "hi", "id", "it", "ja", "ko", "nl", "pa", "pl", "pt", "ru", "th", "tr", "vi", "zh"];
-// `docs/` holds internal engineering documentation (not user-facing manuals), so
-// it is exempt from localization — mirroring how other products use their docs/.
-// `classifier/` is the Vault Classifier component inside Mac Vault: its markdown is
-// engineering design documentation (it was never audited as its own repository).
-const skippedDirectories = new Set([".build", ".claude", ".git", "DerivedData", "bin", "build", "classifier", "dist", "docs", "i18n-docs", "node_modules", "obj", "release", "tests"]);
-
-function walkMarkdown(directory, files = []) {
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (!skippedDirectories.has(entry.name)) walkMarkdown(path.join(directory, entry.name), files);
-      continue;
-    }
-    // package-info.md is the agent-facing folder description (programme-wide
-    // convention), internal like docs/, so it is not localized either.
-    if (entry.isFile() && entry.name === "package-info.md") continue;
-    if (entry.isFile() && entry.name.endsWith(".md") && (path.basename(directory) !== "manual" || entry.name === "en.md")) {
-      files.push(path.join(directory, entry.name));
-    }
-  }
-  return files;
-}
-
+const products = [
+  ["Vault extension", "customBlocker"],
+  ["Mac Vault", "macosBlocker/Sources/MacBlockerWebUI/WebAssets"],
+  ["Windows Vault", "windowsBlocker/src/WindowsBlocker/WebAssets"],
+  ["Safari Vault", "safariBlocker/extension"]
+];
+const fenceBlocks = text => [...text.matchAll(/^```[^\n]*\n[\s\S]*?^```\s*$/gm)].map(match => match[0]);
+const inlineCode = text => [...text.replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, "").matchAll(/`([^`\n]+)`/g)].map(match => match[1]);
+function fail(message) { console.error(message); process.exitCode = 1; }
 function sourceDocuments() {
-  const files = ["customBlocker", "macosBlocker", "windowsBlocker"]
-    .flatMap((root) => walkMarkdown(path.join(workspace, root)));
-  const changelog = path.join(workspace, "CHANGELOG.md");
-  if (fs.existsSync(changelog)) files.push(changelog);
-  return files.sort((a, b) => a.localeCompare(b));
+  return products.flatMap(([, root]) => ["manual", "code-manual"].map(kind => path.join(workspace, root, kind, "en.md")));
 }
-
-function localizedDocumentPath(source, locale) {
-  const relative = path.relative(workspace, source);
-  if (path.basename(source) === "en.md" && path.basename(path.dirname(source)) === "manual") {
-    return path.join(path.dirname(source), `${locale}.md`);
-  }
-  if (relative === "CHANGELOG.md") return path.join(workspace, "i18n-docs", locale, relative);
-  const [product, ...rest] = relative.split(path.sep);
-  return path.join(workspace, product, "i18n-docs", locale, ...rest);
-}
-
-function fail(message) {
-  console.error(message);
-  process.exitCode = 1;
-}
-
-const manuals = [
-  ["Vault extension", "customBlocker/manual"],
-  ["Mac Vault", "macosBlocker/Sources/MacBlockerWebUI/WebAssets/manual"],
-  ["Windows Vault", "windowsBlocker/src/WindowsBlocker/WebAssets/manual"]
-];
-
-for (const [product, relative] of manuals) {
-  const directory = path.join(workspace, relative);
-  const found = fs.readdirSync(directory).filter((name) => name.endsWith(".md")).sort();
-  const expected = ["en", ...locales].map((locale) => `${locale}.md`).sort();
-  if (JSON.stringify(found) !== JSON.stringify(expected)) {
-    fail(`${product}: manuals must contain exactly ${expected.length} locale files.`);
-  } else {
-    console.log(`${product}: ${expected.length} manuals are present.`);
-  }
-}
-
-const sources = sourceDocuments();
-let localizedCount = 0;
-for (const source of sources) {
-  for (const locale of locales) {
-    const translated = localizedDocumentPath(source, locale);
-    if (!fs.existsSync(translated) || !fs.readFileSync(translated, "utf8").trim()) {
-      fail(`Missing localized document: ${path.relative(workspace, translated)}`);
-    } else {
-      localizedCount += 1;
+function localizedDocumentPath(source, locale) { return path.join(path.dirname(source), `${locale}.md`); }
+let count = 0;
+for (const [name, root] of products) {
+  for (const kind of ["manual", "code-manual"]) {
+    const directory = path.join(workspace, root, kind);
+    const englishPath = path.join(directory, "en.md");
+    if (!fs.existsSync(englishPath)) { fail(`${name}: missing English ${kind}.`); continue; }
+    const english = fs.readFileSync(englishPath, "utf8");
+    if (kind === "manual" && fenceBlocks(english).length) fail(`${name}: user guide must keep code tutorials in the separate code guide.`);
+    const expected = ["en", ...locales].map(locale => `${locale}.md`).sort();
+    const found = fs.readdirSync(directory).filter(file => file.endsWith(".md")).sort();
+    if (JSON.stringify(found) !== JSON.stringify(expected)) fail(`${name}: ${kind} must contain exactly ${expected.length} locale guides.`);
+    for (const locale of locales) {
+      const file = localizedDocumentPath(englishPath, locale);
+      if (!fs.existsSync(file)) { fail(`${name}: missing ${locale} ${kind}.`); continue; }
+      const translated = fs.readFileSync(file, "utf8");
+      if (!translated.trim() || translated === english) fail(`${name}: ${locale} ${kind} is empty or still English.`);
+      if (JSON.stringify(fenceBlocks(translated)) !== JSON.stringify(fenceBlocks(english))) fail(`${name}: ${locale} ${kind} changes literal code blocks.`);
+      if (JSON.stringify(inlineCode(translated)) !== JSON.stringify(inlineCode(english))) fail(`${name}: ${locale} ${kind} changes inline API/code identifiers.`);
+      const headings = text => [...text.matchAll(/^(#{1,6})\s+/gm)].map(match => match[1]);
+      if (JSON.stringify(headings(translated)) !== JSON.stringify(headings(english))) fail(`${name}: ${locale} ${kind} changes the section structure used by scene help links.`);
+      const other = kind === "manual" ? "code-manual" : "manual";
+      if (!translated.includes(`../${other}/${locale}.md`)) fail(`${name}: ${locale} ${kind} must link to its localized companion guide.`);
+      count++;
     }
   }
 }
-console.log(`${sources.length} English source documents have ${localizedCount} localized copies.`);
-
-const rawPath = path.join(workspace, "customBlocker", "translation", "unified-raw.en.json");
-if (fs.existsSync(rawPath)) fail("The obsolete unified raw translation handoff must not be present.");
-
-const websiteManualMirrors = [
-  ["extension", path.join(workspace, "customBlocker", "manual"), path.join(workspace, "blockerWebsite", "vendor", "ext", "manual")],
-  ["desktop app", path.join(workspace, "macosBlocker", "Sources", "MacBlockerWebUI", "WebAssets", "manual"), path.join(workspace, "blockerWebsite", "vendor", "app", "manual")]
-];
-
-for (const [product, sourceDirectory, websiteDirectory] of websiteManualMirrors) {
-  for (const locale of ["en", ...locales]) {
-    const source = path.join(sourceDirectory, `${locale}.md`);
-    const websiteCopy = path.join(websiteDirectory, `${locale}.md`);
-    if (!fs.existsSync(websiteCopy)) {
-      fail(`The website's vendored ${product} ${locale} manual is missing.`);
-    } else if (fs.readFileSync(source, "utf8") !== fs.readFileSync(websiteCopy, "utf8")) {
-      fail(`The website's vendored ${product} ${locale} manual must match its canonical source.`);
-    }
-  }
-  console.log(`Website ${product} manuals match their canonical sources.`);
-}
-
-const macManual = path.join(workspace, "macosBlocker", "Sources", "MacBlockerWebUI", "WebAssets", "manual", "en.md");
-const windowsManual = path.join(workspace, "windowsBlocker", "src", "WindowsBlocker", "WebAssets", "manual", "en.md");
-const withoutPlatformBridge = (markdown) =>
-  markdown.replace(/^## 9\.[\s\S]*?(?=^## 10\.)/m, "## 9. Platform bridge\n\n");
-if (
-  withoutPlatformBridge(fs.readFileSync(macManual, "utf8")) !==
-  withoutPlatformBridge(fs.readFileSync(windowsManual, "utf8"))
-) {
-  fail("Mac and Windows desktop app manuals may differ only in their platform-specific bridge section.");
-}
-
+const obsolete = path.join(workspace, "customBlocker/translation/unified-raw.en.json");
+if (fs.existsSync(obsolete)) fail("The obsolete unified raw translation handoff must not be present.");
+if (!process.exitCode) console.log(`Documentation audit passed: ${count} localized in-app guides; website excluded.`);
 module.exports = { locales, localizedDocumentPath, sourceDocuments };

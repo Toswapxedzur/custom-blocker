@@ -483,6 +483,8 @@ async function ensureLanguageMessages(languageCode) {
   return loadPromise;
 }
 
+window.VaultLoadMessages = ensureLanguageMessages;
+
 function t(key, vars = {}) {
   const selected = state.translationMessages[state.language] ?? {};
   const fallback = state.translationMessages[getDefaultLanguageCode()] ?? {};
@@ -543,7 +545,17 @@ async function loadManualContent() {
     }
     manualContent.innerHTML = html;
     document.getElementById("manualDialogTitle").textContent = t(kind === "code" ? "manual.codeTitle" : "manual.title");
-    const heading = Array.from(manualContent.querySelectorAll("h2, h3")).find((node) => node.textContent === section);
+    const headings = Array.from(manualContent.querySelectorAll("h2, h3"));
+    let heading = headings.find((node) => node.textContent === section);
+    if (!heading && section) {
+      // Scene links use stable English section names. Localized headings keep
+      // the source guide's heading order, so translated titles can still scroll.
+      const source = await fetchManualMarkdown("en", kind);
+      if (revision !== state.manualLoadRevision || !state.isManualOpen) return;
+      const names = [...source.matchAll(/^#{2,3}\s+(.+)$/gm)].map(match => match[1].trim());
+      const index = names.indexOf(section);
+      if (index >= 0) heading = headings[index];
+    }
     if (heading) heading.scrollIntoView({ block: "start" });
     else manualContent.scrollTop = 0;
   } catch (error) {
@@ -592,7 +604,8 @@ manualContent.addEventListener("click", (event) => {
   const link = event.target.closest("a");
   if (!link) return;
   const href = link.getAttribute("href");
-  if (href === "../code-manual/en.md" || href === "../manual/en.md") {
+  const companion = href?.match(/^\.\.\/(code-manual|manual)\/([a-z]{2})\.md$/);
+  if (companion && Object.hasOwn(getAvailableLanguages(), companion[2])) {
     event.preventDefault();
     openManual(href.startsWith("../code-") ? "code" : "user");
   }
@@ -1126,6 +1139,7 @@ function applyStaticTranslations() {
     element.dataset.infoLabel = t(element.dataset.i18nInfoLabel);
   }
   window.VaultInfo?.refresh(document);
+  window.dispatchEvent(new CustomEvent("vault-language-changed"));
   languageSelect.setAttribute("aria-label", t("language.label"));
   groupList.setAttribute("aria-label", t("groups.listAria"));
   layoutResizer.setAttribute("aria-label", t("layout.resizeAria"));
@@ -5833,7 +5847,7 @@ function openTagChooser(container, button) {
   list.setAttribute("aria-label", t("tagFilter.available"));
   const searchRow = document.createElement("div");
   searchRow.className = "vui-info-field";
-  searchRow.dataset.infoKey = "tag-search"; searchRow.dataset.infoLabel = "Search tags";
+  searchRow.dataset.infoKey = "tag-search"; searchRow.dataset.infoLabel = t("contentTag.search");
   searchRow.dataset.infoCopy = t("info.tagSearch");
   searchRow.appendChild(search); menu.append(searchRow, list);
   document.body.appendChild(menu);

@@ -40,6 +40,8 @@
     if (open?.button === entry.button) return close();
     close();
     const card = doc.createElement("div");
+    card.dir = entry.button.closest("[dir]")?.dir || doc.documentElement.dir;
+    card.lang = entry.button.closest("[lang]")?.lang || doc.documentElement.lang;
     card.className = "vui-info-popover"; card.id = `vault-info-${++sequence}`;
     card.setAttribute("role", "note"); card.setAttribute("aria-label", entry.label);
     card.setAttribute("popover", "manual");
@@ -99,7 +101,7 @@
     const entries = [];
     grouped.forEach((sources, anchor) => {
       const texts = [...new Set(sources.map(copy))];
-      const key = sources.map(source => [source.closest('[data-form-id]')?.dataset.formId || '', source.dataset.infoKey || source.dataset.info || source.dataset.i18n || source.id || copy(source)].join(':')).join('|');
+      const key = sources.map(source => [source.closest('[data-form-id]')?.dataset.formId || '', source.dataset.infoKey || source.dataset.i18nInfo || source.dataset.info || source.dataset.i18n || source.id || copy(source)].join(':')).join('|');
       let button = Array.from(anchor.children).find(node => node.classList.contains('vui-info-button'));
       if (!button) {
         button = doc.createElement('button'); button.type = 'button';
@@ -115,8 +117,8 @@
       oldButtons.delete(button);
       const labelNode = anchor.cloneNode(true);
       labelNode.querySelectorAll('.vui-info-button,.vui-info-source').forEach(node => node.remove());
-      const subject = sources.find(source => source.dataset.infoLabel)?.dataset.infoLabel || anchor.dataset.infoLabel || labelNode.textContent.trim().slice(0, 120) || (global.VaultTranslate?.("info.setting") || "About this setting");
-      const label = global.VaultTranslate?.("info.accessibleLabel", { label: subject }) || `Info: ${subject}`;
+      const subject = sources.find(source => source.dataset.infoLabel)?.dataset.infoLabel || anchor.dataset.infoLabel || labelNode.textContent.trim().slice(0, 120) || ((config.translate || global.VaultTranslate)?.("info.setting") || "About this setting");
+      const label = (config.translate || global.VaultTranslate)?.("info.accessibleLabel", { label: subject }) || `Info: ${subject}`;
       if (button.getAttribute('aria-label') !== label) button.setAttribute('aria-label', label);
       const entry = { button, texts, key, scope, label }; button.infoEntry = entry; entries.push(entry);
     });
@@ -130,6 +132,9 @@
         entry.button.setAttribute('aria-controls', open.card.id);
         entry.button.setAttribute('aria-describedby', open.card.id);
       }
+      open.card.setAttribute('aria-label', entry.label);
+      open.card.dir = entry.button.closest('[dir]')?.dir || doc.documentElement.dir || 'ltr';
+      open.card.lang = entry.button.closest('[lang]')?.lang || doc.documentElement.lang || 'en';
       if (open.texts.join('\n') !== entry.texts.join('\n')) { open.texts = entry.texts; content(entry); }
       // A snapshot can replace the dialog that contained the open card.
       if (!open.card.isConnected) {
@@ -141,7 +146,7 @@
   }
   function watch(scope, options = {}) {
     if (scopes.has(scope)) return refresh(scope);
-    const config = { selector: options.selector || '[data-info]', enabled: options.enabled || (() => true) };
+    const config = { selector: options.selector || '[data-info]', enabled: options.enabled || (() => true), translate: options.translate };
     scopes.set(scope, config);
     let queued = false;
     const observer = new MutationObserver(records => {
