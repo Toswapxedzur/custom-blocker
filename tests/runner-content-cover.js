@@ -88,7 +88,7 @@ const code = [
   "function isExtensionContextValid() { return true; }",
   "function shutdownContentScript() {}",
   "let refreshCalls = 0; function refreshSession() { refreshCalls += 1; }",
-  extractFunction("safeSendMessage"),
+  extractFunction("cbUi"), extractFunction("safeSendMessage"),
   extractLine("const CB_COVER_ID"), extractLine("const CB_SNOOZE_CONFIRM_INTERVAL_MS"),
   extractConst("cbCover"),
   ...["formatOverlayDurationMs", "cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbStopCoverTimers", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "cbSetRuleCover", "cbSyncCover"].map(extractFunction), extractLine("const CB_RULE_EXIT")
