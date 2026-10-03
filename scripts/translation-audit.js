@@ -32,6 +32,8 @@ const productSources = {
     "macosBlocker/Sources/MacBlockerWebUI/WebAssets/popup.html",
     "macosBlocker/Sources/MacBlockerWebUI/WebAssets/popup.js",
     "macosBlocker/classifier/Sources/VaultClassifierApp/WebAssets/app.js",
+    "macosBlocker/classifier/Sources/VaultClassifierApp/WebAssets/notice-language.js",
+    "macosBlocker/Sources/MacBlockerMacControl/TimerOverlayPanel.swift",
     "macosBlocker/Sources/MacBlockerWebUI/WebAssets/activity.js",
     "macosBlocker/Sources/MacBlockerWebUI/BlockerWebView.swift",
     "macosBlocker/Sources/MacBlockerAppFeature/BlockerAppDelegate.swift",
@@ -42,6 +44,7 @@ const productSources = {
     "windowsBlocker/src/WindowsBlocker/WebAssets/popup.html",
     "windowsBlocker/src/WindowsBlocker/WebAssets/popup.js",
     "windowsBlocker/src/WindowsBlocker/WebAssets/classifier/app.js",
+    "windowsBlocker/src/WindowsBlocker/WebAssets/classifier/notice-language.js",
     "windowsBlocker/src/WindowsBlocker/WebAssets/activity.js",
     "windowsBlocker/src/WindowsBlocker/MainWindow.xaml.cs",
     "windowsBlocker/src/WindowsBlocker/McpConnectionsWindow.cs",
@@ -52,7 +55,7 @@ const productSources = {
 
 const keyPatterns = [
   /\b(?:t|ui|cbUi|at|sx|tx|text|Text)\(\s*["']([A-Za-z0-9_.-]+)["']/g,
-  /\b(?:label|placeholder|help|copy|title)Key\s*:\s*["']([A-Za-z0-9_.-]+)["']/g,
+  /\b(?:translation|label|placeholder|help|copy|title)Key\s*:\s*["']([A-Za-z0-9_.-]+)["']/g,
   /\bdata-i18n(?:-[A-Za-z-]+)?\s*=\s*["']([A-Za-z0-9_.-]+)["']/g
 ];
 
@@ -65,7 +68,7 @@ function collectKeys(file) {
       let key = match[1];
       if (key.endsWith(".")) continue; // Dynamic prefixes are covered by full-catalog parity.
       const call = match[0].split("(")[0].trim();
-      if (file.endsWith("/app.js") && ["t", "tx"].includes(call)) key = "classifier." + key;
+      if ((file.endsWith("/app.js") && ["t", "tx"].includes(call)) || file.endsWith("/notice-language.js")) key = "classifier." + key;
       else if (file.endsWith("/activity.js") && call === "at") key = "activity." + key;
       else if (file.endsWith("/vault-ui.js") && call === "ui") key = "ui." + key;
       keys.add(key);
