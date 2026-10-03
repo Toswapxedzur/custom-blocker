@@ -1,10 +1,10 @@
 {
   "appName": {
-    "message": "Adamancia Vault — Website Blocker & Focus Timer",
+    "message": "Adamancia Vault — Pemblokir Situs dan Timer Fokus",
     "description": "Extension name shown in Chrome and the Web Store."
   },
   "appDescription": {
-    "message": "Blokir situs dengan pemblokiran native, batas waktu, atau aturan kustom berbasis event. Tetap fokus.",
+    "message": "Blokir situs web secara langsung, dengan batas waktu penggunaan, atau aturan khusus berbasis peristiwa. Fokus pada hal yang penting.",
     "description": "Short description shown on the Chrome Web Store listing."
   }
 }
