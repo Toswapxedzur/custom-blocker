@@ -77,6 +77,8 @@ Nhấp **+ thẻ** bên cạnh thẻ của mục để mở bộ chọn chỉnh 
 
 **Hiện nút thêm nhanh +** thêm nút nhỏ vào các trang được hỗ trợ. Chọn nhóm đích trong danh sách; lựa chọn được ghi nhớ khi mở lại Vault. Dùng nút trên trang để thêm trang đó vào danh sách trang web. Với danh sách cho phép, thao tác này cho phép trang. Nhóm đã khóa không nhận mục thêm nhanh.
 
+Cấu hình từ điển chính thức và nhập/xuất từ điển cá nhân trong ứng dụng máy tính tại **Cài đặt → Bộ phân loại → Từ điển chính thức**. Dịch vụ từ điển có thể được liên hệ khi thiếu nhà sáng tạo trong bộ nhớ đệm hoặc bật đóng góp tùy chọn; nghiên cứu web có sự đồng ý và cài đặt nhà cung cấp riêng. Xem hướng dẫn máy tính và thông báo.
+
 Kết nối bộ phân loại báo trạng thái dịch vụ Vault trên máy tính cục bộ. Cấu hình nhóm phân loại, tải mô hình, Knowledge, đồng ý nghiên cứu và nhà cung cấp API trong ứng dụng máy tính đã kết nối.
 
 Nếu thiếu thẻ, kiểm tra ứng dụng Vault trên máy tính đang mở, kết nối đã thiết lập, việc gắn thẻ đã bật, nhóm phân loại liên quan đã hoạt động trở lại và nguồn cấp nền tảng đã được ghi nhận. Kiểm tra trạng thái tải mô hình trong ứng dụng máy tính. Nếu việc chặn không có hiệu lực, kiểm tra trạng thái bật của nhóm, mục tiêu, lịch, thời lượng cho phép và trạng thái hoãn.

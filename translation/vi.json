@@ -19,7 +19,7 @@
   "settings.colBehavior": "Hành vi",
   "settings.colConnections": "Dữ liệu và tệp",
   "settings.quitRetryMinutes": "Yêu cầu ứng dụng bị chặn thoát lại mỗi (phút)",
-  "settings.quitRetryMinutesHelp": "Ứng dụng bị chặn (hoặc ứng dụng bị quy tắc tùy chỉnh đóng) sẽ được yêu cầu thoát bình thường, như khi nhấn ⌘Q. Nếu ứng dụng vẫn mở, chẳng hạn để giữ công việc chưa lưu, hệ thống sẽ để ứng dụng tiếp tục mở. Nếu giá trị lớn hơn 0, yêu cầu sẽ được lặp lại theo khoảng thời gian này khi ứng dụng còn mở.",
+  "settings.quitRetryMinutesHelp": "Vault yêu cầu các ứng dụng bị chặn thoát theo cách thông thường để chúng có thể nhắc lưu công việc chưa lưu. Đặt khoảng thời gian dương để gửi lại yêu cầu; giá trị 0 chỉ gửi yêu cầu ban đầu.",
   "settings.reset": "Đặt lại về mặc định",
   "settings.saved": "Đã lưu cài đặt.",
   "settings.invalidValue": "Giá trị này không được phép; giữ lại giá trị đã lưu gần nhất.",

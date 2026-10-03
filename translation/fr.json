@@ -19,7 +19,7 @@
   "settings.colBehavior": "Comportement",
   "settings.colConnections": "Données et fichiers",
   "settings.quitRetryMinutes": "Redemander à une application bloquée de quitter toutes les (minutes)",
-  "settings.quitRetryMinutesHelp": "Une application bloquée (ou fermée par une règle personnalisée) est invitée à quitter normalement, comme avec ⌘Q ; si elle reste ouverte, par exemple pour conserver un travail non enregistré, elle le reste. Au-dessus de 0, la demande est répétée à cette fréquence tant qu’elle est ouverte.",
+  "settings.quitRetryMinutesHelp": "Vault demande aux apps bloquées de se fermer normalement, afin qu’elles puissent proposer d’enregistrer le travail non sauvegardé. Définissez un intervalle positif pour répéter la demande ; avec 0, seule la demande initiale est envoyée.",
   "settings.reset": "Réinitialiser aux valeurs par défaut",
   "settings.saved": "Paramètres enregistrés.",
   "settings.invalidValue": "Cette valeur n’est pas autorisée ; la dernière valeur enregistrée est conservée.",

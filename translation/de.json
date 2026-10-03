@@ -19,7 +19,7 @@
   "settings.colBehavior": "Verhalten",
   "settings.colConnections": "Daten und Dateien",
   "settings.quitRetryMinutes": "Gesperrte App erneut zum Beenden auffordern alle (Minuten)",
-  "settings.quitRetryMinutesHelp": "Eine blockierte App (oder eine von einer benutzerdefinierten Regel geschlossene App) wird normal wie mit ⌘Q zum Beenden aufgefordert. Bleibt sie etwa wegen ungespeicherter Arbeit geöffnet, bleibt sie offen. Bei einem Wert über 0 wird die Aufforderung in diesem Abstand wiederholt, solange die App geöffnet ist.",
+  "settings.quitRetryMinutesHelp": "Vault fordert blockierte Apps zum normalen Beenden auf, damit Abfragen zum Speichern ungesicherter Arbeit möglich bleiben. Lege ein positives Intervall fest, um die Aufforderung zu wiederholen; bei 0 wird nur die erste Aufforderung gesendet.",
   "settings.reset": "Auf Standardeinstellungen zurücksetzen",
   "settings.saved": "Einstellungen gespeichert.",
   "settings.invalidValue": "Dieser Wert ist nicht zulässig; der zuletzt gespeicherte Wert bleibt erhalten.",

@@ -19,7 +19,7 @@
   "settings.colBehavior": "行動",
   "settings.colConnections": "データとファイル",
   "settings.quitRetryMinutes": "ブロックしたアプリに終了を再要求する間隔（分）",
-  "settings.quitRetryMinutesHelp": "ブロックしたアプリ（またはカスタムルールで終了させたアプリ）に、⌘Qのように通常の終了を要求します。未保存の作業を残すためなどにアプリが開いたままの場合は、そのままにします。0より大きい場合、アプリが開いている間はこの間隔で終了を再要求します。",
+  "settings.quitRetryMinutesHelp": "Vault はブロック対象のアプリに通常の終了を要求し、未保存の作業を保存するかどうかの確認を表示できるようにします。正の間隔を設定すると要求を繰り返します。0 の場合は最初の要求のみ送信します。",
   "settings.reset": "デフォルトにリセットする",
   "settings.saved": "設定が保存されました。",
   "settings.invalidValue": "この値は使用できません。最後に保存した値を保持します。",

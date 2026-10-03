@@ -77,6 +77,8 @@ Pulse **+ etiqueta** junto a las etiquetas de un elemento para abrir el selector
 
 **Mostrar el + de adición rápida** añade un pequeño botón a las páginas compatibles. Seleccione un grupo en la lista como destino; su elección se recuerda al reabrir Vault. Use el botón de la página para añadirla a su lista de sitios web. En una lista de permitidos, esto permite la página. Los grupos congelados no aceptan adiciones rápidas.
 
+Los diccionarios oficiales y la importación/exportación del diccionario personal se configuran en la aplicación de escritorio, en **Ajustes → Clasificador → Diccionarios oficiales**. Si falta un creador en la caché o se activan las contribuciones opcionales, puede contactarse el servicio de diccionarios; la investigación web tiene consentimiento y ajustes de proveedor independientes. Consulta el manual de escritorio y las divulgaciones.
+
 La conexión con el Clasificador informa sobre el servicio Vault local de escritorio. Configure los grupos del Clasificador, las descargas de modelos, Conocimiento, el consentimiento de investigación y los proveedores de API en la aplicación de escritorio conectada.
 
 Si faltan etiquetas, compruebe que la aplicación Vault de escritorio esté abierta, la conexión establecida, el etiquetado activado, el grupo del Clasificador correspondiente reanudado y su fuente de plataforma registrada. Compruebe el estado de la descarga del modelo en la aplicación de escritorio. Si no se aplica el bloqueo, compruebe la activación, los objetivos, el horario, el tiempo permitido y el estado de posposición del grupo.

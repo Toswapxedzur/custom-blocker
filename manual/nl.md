@@ -77,6 +77,8 @@ Klik op **+ tag** naast de tags van een item om de correctiekiezer te openen. Zo
 
 **Knop voor snel toevoegen + tonen** voegt een kleine knop toe aan ondersteunde pagina's. Selecteer in de lijst een doelgroep; de keuze wordt onthouden wanneer Vault opnieuw wordt geopend. Gebruik de paginaknop om de pagina aan de websitelijst toe te voegen. In een toestemmingslijst staat dit de pagina toe. Bevroren groepen accepteren geen snelle toevoegingen.
 
+Officiële woordenboeken en het importeren/exporteren van persoonlijke woordenboeken stel je in de desktopapp in via **Instellingen → Classificatie → Officiële woordenboeken**. Als een creator niet in de cache staat of optionele bijdragen aanstaan, kan de woordenboekservice worden benaderd; webonderzoek heeft aparte toestemming en providerinstellingen. Raadpleeg de desktophandleiding en toelichtingen.
+
 De Classifier-verbinding toont de lokale Vault-desktopservice. Configureer Classifier-groepen, modeldownloads, Knowledge, onderzoekstoestemming en API-providers in de verbonden desktopapp.
 
 Als tags ontbreken, controleer dan of de Vault-desktopapp open is, de verbinding werkt, tagging is ingeschakeld, de relevante Classifier-groep is hervat en de platformfeed wordt geregistreerd. Controleer de downloadstatus van het model in de desktopapp. Als blokkeren niet werkt, controleer dan of de groep is ingeschakeld en bekijk doelen, schema, toegestane tijd en uitstelstatus.

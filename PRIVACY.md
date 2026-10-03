@@ -1,182 +1,53 @@
-# Privacy Policy — Custom Web Blocker
+# Privacy Policy — Vault browser extension
 
-_Last updated: 2026-08-04_
+_Last updated: 2026-10-04_
 
-This page explains exactly what data the **Custom Web Blocker** browser
-extension collects, where it goes, and why each browser permission is
-requested. The short version is: your rules and personal browsing data are not
-saved by us. Optional Vault Classifier collection and classification stay under
-your control and use the authenticated local bridge. A separate optional local
-AI (MCP) integration is likewise off by default and exposes data only to an
-assistant that you connect and approve yourself.
+This policy describes Vault in supported Chromium browsers and Safari Vault. Blocking configuration and ordinary rule enforcement stay on your device. Tagging and Activity use a connected Mac Vault or Windows Vault app; those apps' research and dictionary features can make network requests described below and in their own policies.
 
-## Summary
+## Local storage and collection
 
-- **Your configuration stays in your browser.** Block groups, schedules,
-  custom rules, logs, timers, and preferences are persisted only through
-  Chrome's local extension storage (`chrome.storage.local`).
-- **Vault Classifier is local-only.** If you explicitly enable the optional
-  Vault Classifier integration, visible YouTube card/page evidence (such as a
-  title, visible description, displayed tags, and public creator/video IDs) is
-  routed only through the authenticated local Vault bridge to Vault Classifier on your
-  Mac. It is not sent to our website, a model provider, YouTube's Data API, or
-  any other server.
-- **Collection is a separate opt-in.** Vault Classifier asks the extension for
-  rendered, non-ad YouTube metadata only after you turn on YouTube collection
-  in its Classification data workspace. When it is off, the extension sends no
-  title or creator metadata for collection. When it is on, retained local
-  fields can include a visible title, creator name/identifier, video type,
-  duration, visible subscriber/view/published text, and canonical URL.
-- **Optional local AI (MCP) integration.** If you turn it on and connect your
-  own AI assistant, that assistant can — at your explicit direction — read
-  selected data (your configuration, activity, time usage, active/open-tab URLs,
-  visible page content on sites you have configured, and any Classifier
-  evidence) through a local Vault server on your device. It is off by default,
-  every connection is approved by you, and passwords and API keys are never
-  readable through it. See "Optional local AI (MCP) integration" below.
-- **There is no analytics, advertising profile, telemetry, or crash reporter.**
-- **No tracking** of browsing activity beyond what is strictly necessary
-  to apply the blocking rules you yourself configured.
+The extension stores blocking groups, targets, schedules, allowance usage, snooze/freeze state, custom rules, bounded rule logs and preferences in local extension storage. Safari's containing app also keeps native rule state and user-selected folder grants locally. Linked Vault programs exchange supported settings and usage through an authenticated device-local bridge; this is not cloud sync.
 
-## What is stored locally
+The connected desktop app controls recording in **Activity → Recording**, global tagging in **Settings → Classifier**, and each Classifier group's pause state. Recording a supported platform feed can collect visible public content metadata: source identifiers and names, canonical URLs, titles, descriptions, content types, duration and displayed public counts. Enabled app/website recording and retention are controlled in Activity. Pausing tagging does not itself stop recording. The extension has no separate collection or tagging switch.
 
-The extension stores the following in your browser's local extension
-storage so it can do its job across sessions:
+Collected evidence and corrections are sent over the authenticated local connection to the desktop app. The app retains its local cache and Activity records according to your configured limits. The extension does not send that evidence directly to a model provider or Vault's website.
 
-- The block groups you create: their names, rule types, lists of
-  blocked sites, schedules, snooze settings, freeze state, and any
-  custom-rule JavaScript you write.
-- Per-group runtime state needed to enforce limits (e.g. how many
-  minutes of a delayed-allowance budget remain today, when a snooze
-  ends, when a strict-freeze period ends).
-- Your own preferences set in **Settings** (tick rate, autosave
-  debounce, default fallback URL, debug-mode
-  toggle, chosen UI language).
-- Activity log entries shown in the in-app **Log** panel, which you can
-  clear from the UI.
-- When you explicitly enable Vault Classifier, its local app keeps a
-  user-bounded local cache of the visible evidence, local scores, decisions,
-  and corrections needed to classify and explain entries. This cache remains
-  on your Mac and is not part of normal extension-to-server traffic.
+## Desktop app network features
 
-Your configuration, runtime state, and activity log stay on your device and
-are not saved by our service. Depending on the browser build and features you
-enable, they may be processed by the extension, its device-local Safari
-companion, or an explicitly linked local Vault bridge.
+Local model inference runs on the desktop device. Requested model downloads contact the model hosting source. Consented web research contacts your configured provider with sanitized public subjects; provider connection tests and model-list requests also contact that provider. API keys are stored locally and authenticate provider requests.
 
-## What is NOT collected or transmitted
+Official dictionary checks, downloads and creator cache misses contact Vault's dictionary service. A creator cache miss sends the public, platform-scoped source ID. Full-download creator lookup is local. Personal descriptions take priority over official definitions.
 
-These describe how the extension behaves on its own. The single exception is the
-optional local AI (MCP) integration you can enable and connect yourself, which is
-described in the next section.
+**Help improve the creator dictionary** is on by default, disclosed before the first contribution, and can be disabled in **Settings → Classifier**. Enabled contributions send sampled missing public creator IDs and public follower/subscriber counts, not titles, browsing history, personal definitions, API keys or persistent device/user identifiers. Disabling cancels pending contributions and stops future ones, without recalling requests already received. Read the desktop policy and disclosure for limits and retention.
 
-- Browsing history is not recorded, summarised, or transmitted by the extension
-  itself; it is used only to apply the rules you configured.
-- Page content is not exfiltrated, screenshotted, or logged by the extension
-  itself.
-- Vault Classifier evidence is not transmitted off-device by the extension. It is
-  processed by the paired local bridge and app only when you explicitly enable
-  that integration.
-- Form input and passwords are never read by the extension; passwords and API
-  keys are never readable through the local AI (MCP) integration either.
-- No extension identifier, account identifier, device identifier, or rule
-  configuration is transmitted for normal rule enforcement.
+## AI connections (MCP)
 
-## Optional local AI (MCP) integration
+Mac Vault and Windows Vault start authenticated local MCP endpoints and automatically configure supported AI clients detected on the device. Manage these clients in the desktop app's AI connections window. The extension serves supported browser requests through its authenticated local connection; Safari uses its native containing app connection.
 
-The extension can optionally answer requests from a local **Vault MCP server**
-running inside the Vault desktop apps on your own device, so you can connect your
-own AI assistant (an "MCP client") and have it read or act on your Vault setup
-for you. This integration is **off by default** and changes nothing unless you
-deliberately turn it on.
+Connected clients can read configuration, usage, Activity, supported page evidence and Classifier data, and perform supported actions subject to Vault's normal policy and freeze gates. There is no separate approval prompt for every tool call. PINs and provider API keys cannot be read back through MCP. Data received by an AI client follows that client's privacy policy and may be sent to a remote provider. Vault's local bridge is not itself a cloud transport.
 
-- **You initiate it.** Nothing is exposed until you enable the integration and
-  connect an MCP client, and each client connection is approved by you. Turning
-  it off immediately revokes access.
-- **The server is local.** Data the extension provides is handed over the same
-  authenticated on-device bridge to a Vault MCP server on your Mac — not to our
-  website or any Vault server. The extension itself does not send your data to a
-  third party.
-- **Your assistant then decides.** Once a connected MCP client receives data at
-  your request, what happens to it is governed by **that client** and its own
-  privacy terms. If the assistant you chose is backed by a remote service, your
-  data may be transmitted by that assistant under your direction — the same as
-  when you paste information into any AI tool. Choose a client you trust.
-- **What can be exposed.** At your direction, a connected assistant may read your
-  block groups, schedules, custom rules, activity log, time-usage counters, the
-  active or open tab URLs, visible page content on sites you have configured, and
-  any Vault Classifier evidence and decisions. Actions that change state (editing
-  groups, starting a snooze, running a saved rule, triggering classification) are
-  confirmed individually.
-- **Secrets stay secret.** Passwords (such as a parental-control password) and
-  provider API keys are **write-only** through this integration: they can be set
-  but can never be read back by any assistant.
-- **Chromium only.** Like the Classifier bridge, this integration exists only on
-  Chromium browsers with the device-local host; Firefox and Safari do not expose
-  it.
+## Permissions
 
-## Why each permission is requested
-
-| Permission | What it is used for |
+| Permission | Purpose |
 | --- | --- |
-| `storage` | Save and load your block groups, settings, and runtime state in your browser only. |
-| `favicon` | Show browser-cached site icons beside rules in Chromium. This does not send browsing history or make a request to our service. |
-| `nativeMessaging` | In Chromium, request a device-local Native Messaging proof for the authenticated Vault Classifier bridge; in Safari, forward custom-rule sandbox requests to the device-local containing app. It is not a cloud transport. |
-| `alarms` | Wake the background service worker on schedule to refresh time-based limits and update rule state when a snooze, freeze, or schedule window ends. |
-| `offscreen` | Run sandboxed custom-rule JavaScript in an offscreen document so it cannot escape the extension or touch your pages directly. |
-| `tabs` | Open the editor as a full tab when you click the toolbar icon, look up the active tab's URL to evaluate group rules, and reload tabs after a rule change you made in the editor. |
-| `webNavigation` | Detect SPA URL changes (push-state navigation) so per-platform feed-hiders and event-driven rules can react to in-page navigation, not just full page loads. |
-| `<all_urls>` host access | Apply your blocking rules and per-platform feed hiders on whichever sites you choose to block. The extension reads/modifies pages only on URLs you have actively configured a rule for, and only to enforce that rule; the optional Vault Classifier adapter is restricted to YouTube. |
+| `storage` | Persist extension configuration, preferences and runtime state locally. |
+| `favicon` | Display browser-cached website icons in Chromium. |
+| `nativeMessaging` | Authenticate Chromium's device-local connection; route Safari's native rules, folder operations and desktop bridge. |
+| `alarms` | Refresh schedules, allowance state, snoozes and freezes. |
+| `offscreen` | Host Chromium's isolated custom-rule runtime. |
+| `tabs` | Open the editor and inspect supported tab identities for configured policy and tools. |
+| `webNavigation` | Recognize in-page navigation and refresh policy/collectors. |
+| Website access | Apply configured policy and collect enabled supported-platform evidence. Safari requests HTTP/HTTPS access. |
+| `unlimitedStorage` in Safari | Avoid local WebKit storage quota failures; it adds no website or filesystem access. |
 
-## Custom rules
+## Custom rules and selected folders
 
-If you write custom JavaScript rules, that code:
+Rules run in an isolated runtime through Vault's supported API, with execution and output limits. They do not receive unrestricted page or network access. Browser rules can affect configured pages through supported actions; native rules run in Safari's containing app. File operations are restricted to folders you explicitly select and authorize. Rule source and state stay local unless you export them or provide them to an AI client.
 
-- Runs in a sandboxed offscreen document; it cannot directly reach the
-  network, your pages, or other extensions.
-- Communicates with content scripts only through a fixed message bridge
-  defined by the extension's helper API.
-- Is automatically quarantined (disabled with a log entry) if it
-  exceeds the built-in CPU, log, post-message, or DOM-mutation caps.
+## What Vault does not collect
 
-Your custom rules are stored locally with the rest of your settings
-and are never transmitted off the device.
+Vault has no account, cross-device cloud sync, advertising profile, analytics tracker or crash reporter. Ordinary enforcement does not upload browsing history or your configuration. Content collectors do not read form inputs or passwords. Enabled Activity recording, research, dictionary requests and AI-client processing are the specific data flows described above; hosting/network providers process their associated requests.
 
-## Website statistics
+## Website and contact
 
-This section is about the **website**. The website
-publishes a small **Statistics** panel, and to populate it the server keeps a
-few aggregate counts:
-
-- **Download counts** — how many times each product's download button was
-  clicked (macOS, Windows, browser extension, Safari).
-- **Accounts** — how many accounts exist.
-- **Q&A activity** — the total number of forum posts and comments.
-
-Once an hour the server records the current value of each aggregate count.
-These snapshots contain no per-visitor event, clickstream, or session history.
-
-- **Fully anonymous / de-identified.** These are plain running totals. They
-  are **not** linked to your name, account, email, IP address, device, or any
-  other identifier — there is no way to attribute a count back to a person.
-- **Never commercial.** This data exists only to show the public Statistics
-  panel. It is **never sold, shared with third parties, used for advertising,
-  or used for any other commercial purpose.**
-
-## Children
-
-The extension is a general-purpose productivity tool. It is not
-directed at children, does not knowingly collect data from anyone, and
-displays no advertising.
-
-## Changes to this policy
-
-If the data practices ever change in a future version, this file will
-be updated and the change will be summarised in the version notes for
-that release.
-
-## Contact
-
-Questions, concerns, or bug reports: please open an issue on the
-extension's source repository, or use the support email listed on the
-Chrome Web Store listing.
+The website has its own privacy policy. Its demos use fictional data and do not connect to your installed Vault configuration. For privacy questions, use the public source repository or the contact channel on the Vault website.

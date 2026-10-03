@@ -19,7 +19,7 @@
   "settings.colBehavior": "Davranış",
   "settings.colConnections": "Veriler ve dosyalar",
   "settings.quitRetryMinutes": "Yasaklanan uygulamanın kapatılmasını şu aralıkla yeniden iste (dakika)",
-  "settings.quitRetryMinutesHelp": "Engellenen bir uygulamadan (veya özel bir kuralın kapattığı uygulamadan) ⌘Q gibi normal biçimde çıkması istenir. Kaydedilmemiş çalışmayı korumak için açık kalırsa açık bırakılır. Değer 0’dan büyükse uygulama açık kaldığı sürece bu aralıkta yeniden çıkması istenir.",
+  "settings.quitRetryMinutesHelp": "Vault, engellenen uygulamalardan normal şekilde çıkmalarını ister; böylece kaydedilmemiş çalışmalarını kaydetmeleri için uyarı gösterebilirler. İsteği yinelemek için pozitif bir aralık belirleyin; 0 yalnızca ilk isteği gönderir.",
   "settings.reset": "Varsayılanlara sıfırla",
   "settings.saved": "Ayarlar kaydedildi.",
   "settings.invalidValue": "Bu değere izin verilmiyor; son kaydedilen değer korunuyor.",

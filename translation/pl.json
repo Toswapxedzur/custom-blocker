@@ -19,7 +19,7 @@
   "settings.colBehavior": "Zachowanie",
   "settings.colConnections": "Dane i pliki",
   "settings.quitRetryMinutes": "Ponownie proś zablokowaną aplikację o zamknięcie co (minuty)",
-  "settings.quitRetryMinutesHelp": "Zablokowana aplikacja (lub zamknięta przez regułę niestandardową) otrzymuje zwykłe żądanie zamknięcia, takie jak ⌘Q. Jeśli pozostaje otwarta, na przykład z powodu niezapisanej pracy, nadal będzie otwarta. Gdy wartość przekracza 0, żądanie jest ponawiane w tym odstępie, dopóki aplikacja jest otwarta.",
+  "settings.quitRetryMinutesHelp": "Vault prosi zablokowane aplikacje o zwykłe zamknięcie, aby mogły wyświetlić prośbę o zapisanie niezapisanej pracy. Ustaw dodatni odstęp, aby ponawiać prośbę; wartość 0 oznacza tylko pierwszą prośbę.",
   "settings.reset": "Przywróć domyślne",
   "settings.saved": "Ustawienia zapisane.",
   "settings.invalidValue": "Ta wartość jest niedozwolona; pozostaje ostatnia zapisana wartość.",

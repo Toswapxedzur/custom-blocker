@@ -77,6 +77,8 @@ Cliquez sur **+ étiquette** près des étiquettes d’un élément pour ouvrir 
 
 **Afficher le + d’ajout rapide** ajoute un petit bouton aux pages prises en charge. Sélectionnez un groupe dans la liste comme destination ; votre sélection est mémorisée lorsque Vault est rouvert. Utilisez le bouton de la page pour l’ajouter à sa liste de sites web. Dans une liste d’autorisation, cela autorise la page. Les groupes verrouillés n’acceptent pas les ajouts rapides.
 
+Les dictionnaires officiels et l’import/export du dictionnaire personnel se configurent dans l’application de bureau sous **Paramètres → Classificateur → Dictionnaires officiels**. Le service de dictionnaires peut être contacté si le créateur manque dans le cache ou si les contributions facultatives sont activées ; la recherche sur le Web a un consentement et des réglages de fournisseur distincts. Consultez le manuel de bureau et les déclarations.
+
 La connexion au Classificateur indique le service Vault local de bureau. Configurez les groupes du Classificateur, les téléchargements de modèles, les Connaissances, le consentement à la recherche et les fournisseurs d’API dans l’application de bureau connectée.
 
 Si les étiquettes manquent, vérifiez que l’application Vault de bureau est ouverte, que la connexion est établie, que l’étiquetage est activé, que le groupe du Classificateur concerné est repris et que son flux de plateforme est enregistré. Vérifiez le téléchargement du modèle dans l’application de bureau. Si le blocage ne s’applique pas, vérifiez l’activation, les cibles, les horaires, le temps autorisé et l’état de pause du groupe.

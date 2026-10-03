@@ -77,6 +77,8 @@ Click **+ tag** beside an item's tags to open the correction chooser. Search the
 
 **Show the quick-add +** adds a small button to supported pages. Select a group in the list as the destination; your selection is remembered when Vault reopens. Use the page button to add that page to its website list. On an allowlist this allows the page. Frozen groups do not accept quick additions.
 
+Official dictionaries and personal dictionary import/export are configured in the desktop app’s **Settings → Classifier → Dictionaries**. Creator cache misses and optional creator contributions can contact the dictionary service; web research uses separate consent and provider settings. Read the desktop user manual and disclosures for these controls.
+
 The Classifier connection reports the local desktop Vault service. Configure Classifier groups, model downloads, Knowledge, research consent, and API providers in the connected desktop app.
 
 If tagging is missing, check that the desktop Vault app is open, the connection is established, tagging is enabled, the relevant Classifier group is resumed, and its platform feed is recorded. Check model download status in the desktop app. If blocking does not apply, check the group's enabled state, targets, schedule, allowance, and snooze status.

@@ -19,7 +19,7 @@
   "settings.colBehavior": "Behavior",
   "settings.colConnections": "Data & files",
   "settings.quitRetryMinutes": "Ask a blocked app to quit again every (minutes)",
-  "settings.quitRetryMinutesHelp": "A blocked app (or one a custom rule closes) is asked to quit normally, like ⌘Q; if it stays open, for example to keep unsaved work, it is left open. Above 0, it is asked again this often while it stays open.",
+  "settings.quitRetryMinutesHelp": "Vault asks blocked apps to quit normally, preserving their unsaved-work prompts. Set a positive interval to repeat the request; 0 makes only the initial request.",
   "settings.reset": "Reset to defaults",
   "settings.saved": "Settings saved.",
   "settings.invalidValue": "That value isn't allowed; the last saved value stays.",
