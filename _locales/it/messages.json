@@ -1,10 +1,10 @@
 {
   "appName": {
-    "message": "Adamancia Vault — Blocco siti e timer di concentrazione",
+    "message": "Adamancia Vault",
     "description": "Extension name shown in Chrome and the Web Store."
   },
   "appDescription": {
-    "message": "Blocca i siti direttamente, con limiti al tempo di utilizzo o regole personalizzate basate su eventi. Concentrati su ciò che conta.",
+    "message": "Blocca siti con blocco nativo, limiti di utilizzo o regole personalizzate basate su eventi. Resta concentrato.",
     "description": "Short description shown on the Chrome Web Store listing."
   }
 }
