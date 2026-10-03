@@ -95,7 +95,7 @@ const TAGGING_PLATFORMS = Object.freeze(Object.keys(CONTENT_BLOCK_PROFILES));
 // Kick/Kuaishou currently enforce profiles/pages but have no feed-card adapter.
 function platformCapabilities(platform) {
   const profile = PLATFORM_PROFILES[String(platform || "")];
-  return { pages: Boolean(profile), feed: Boolean(profile?.feed?.anchorSelectors?.length),
+  return { pages: Boolean(profile), feed: Boolean(profile?.feed),
     tags: TAGGING_PLATFORMS.includes(String(platform || "")) };
 }
 function isTaggingPlatform(platform) {
