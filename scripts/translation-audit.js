@@ -38,7 +38,8 @@ const productSources = {
     "macosBlocker/Sources/MacBlockerWebUI/BlockerWebView.swift",
     "macosBlocker/Sources/MacBlockerAppFeature/BlockerAppDelegate.swift",
     "macosBlocker/Sources/MacBlockerAppFeature/QuickAddPanel.swift",
-    "macosBlocker/Sources/MacBlockerPanel/MacBlockerPanelApp.swift"
+    "macosBlocker/Sources/MacBlockerPanel/MacBlockerPanelApp.swift",
+    "macosBlocker/classifier/Sources/VaultClassifierApp/DictionaryContributionPrompt.swift"
   ],
   windowsVault: [
     "windowsBlocker/src/WindowsBlocker/WebAssets/popup.html",
@@ -48,13 +49,15 @@ const productSources = {
     "windowsBlocker/src/WindowsBlocker/WebAssets/activity.js",
     "windowsBlocker/src/WindowsBlocker/MainWindow.xaml.cs",
     "windowsBlocker/src/WindowsBlocker/McpConnectionsWindow.cs",
-    "windowsBlocker/src/WindowsBlocker/QuickAddWindow.cs"
+    "windowsBlocker/src/WindowsBlocker/QuickAddWindow.cs",
+    "windowsBlocker/src/WindowsBlocker/Rules/LocalFolderGrant.cs",
+    "windowsBlocker/src/WindowsBlocker/PanelOverlayWindow.xaml.cs"
   ],
   safariVault: ["safariBlocker/extension/popup.html", "safariBlocker/extension/popup.js", "safariBlocker/extension/content.js", "safariBlocker/extension/vault-classifier-tag-ui.js", "safariBlocker/Sources/SafariApp.swift", "safariBlocker/Sources/SafariFileBroker.swift"]
 };
 
 const keyPatterns = [
-  /\b(?:t|ui|cbUi|at|sx|tx|text|Text)\(\s*["']([A-Za-z0-9_.-]+)["']/g,
+  /\b(?:t|ui|cbUi|at|sx|tx|text|Text|translate)\(\s*["']([A-Za-z0-9_.-]+)["']/g,
   /\b(?:translation|label|placeholder|help|copy|title)Key\s*:\s*["']([A-Za-z0-9_.-]+)["']/g,
   /\bdata-i18n(?:-[A-Za-z-]+)?\s*=\s*["']([A-Za-z0-9_.-]+)["']/g
 ];
@@ -173,6 +176,12 @@ for (const product of products) {
       if (typeof localized[key] !== "string") continue;
       const placeholders = value => [...new Set(value.match(/\{[A-Za-z0-9_]+\}/g) || [])].sort().join("|");
       if (placeholders(source) !== placeholders(localized[key])) fail(`${product.name}: ${locale}/${key} changes interpolation placeholders.`);
+      const literalSample = /^(?:platform\.placeholder\.|discord\.targetsPlaceholder$|custom\.(?:rulesPlaceholder|defaultRule)$|sites\.placeholder$|(?:classifier\.)?language\.name\.)/.test(key)
+        || source.trim().startsWith('{"');
+      const prose = source.replace(/`[^`]*`|https?:\/\/\S+|\{[^}]*\}/g, " ");
+      if (!literalSample && localized[key] === source && (prose.match(/\b[A-Za-z]{2,}\b/g) || []).length >= 4) {
+        fail(`${product.name}: ${locale}/${key} still contains the English prose.`);
+      }
       // Platform names must remain recognizable, rather than becoming ordinary words.
       if (/^groupType\./.test(key) && ["YouTube", "TikTok", "Facebook", "Instagram", "Twitch", "Reddit", "Discord", "Twitter / X", "Bilibili"].includes(source) && !localized[key].includes(source)) {
         fail(`${product.name}: ${locale}/${key} changes the platform name ${source}.`);
