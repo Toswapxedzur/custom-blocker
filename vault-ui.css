@@ -288,7 +288,7 @@ select.vui-native {
   color: #1f2937;
   font-size: 12px;
   font-weight: 400;
-  text-align: left;
+  text-align: start;
 }
 
 .vui-select-label {
@@ -350,7 +350,7 @@ select.vui-native {
   color: #1f2937;
   font-size: 12px;
   font-weight: 400;
-  text-align: left;
+  text-align: start;
   white-space: normal;
 }
 

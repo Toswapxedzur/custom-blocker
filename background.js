@@ -324,15 +324,16 @@ function cbLineView(group, line, overrides) {
 
 // The group's source axis (its untagged items/pages line), for the helpers
 // that gate on "does this group's author scope cover the current page".
-function cbGroupSourceLine(group, platform) {
+function cbGroupSourceLine(group, platform, entry) {
   return (Array.isArray(group?.scopes) ? group.scopes : []).find(
     (line) => (line.surface === "items" || line.surface === "pages") && !line.tagFilter
       && (!platform || line.platform === platform)
+      && (!entry || CBGroupScopes.lineBelongsTo(line, entry))
   ) || null;
 }
 
-function cbGroupSourceAxisView(group, platform) {
-  const line = cbGroupSourceLine(group, platform);
+function cbGroupSourceAxisView(group, platform, entry) {
+  const line = cbGroupSourceLine(group, platform, entry);
   return line
     ? cbLineView(group, line)
     : cbLineView(group, null, { groupType: platform || group.groupType, sourceMode: "nobody", discordMode: "include", discordTargets: [] });
@@ -514,7 +515,7 @@ function applyRuntimeNormalizations(
     // A linked group's period belongs to the hub (the Mac side): it resets
     // there and this endpoint adopts the reset total (applySharedToStorage).
     // With no hub reachable the group is on its own and resets here.
-    if (cbConnection.routeIsReady("macapp") && cbGroupInLink(group)) continue;
+    if (cbConnection.desktopRouteIsReady() && cbGroupInLink(group)) continue;
     const periodStart = cbPeriodStartMs(nextResetAt[group.id], group, now);
     if (periodStart === nextResetAt[group.id]) continue;
     nextTimers[group.id] = 0;
@@ -610,6 +611,7 @@ function pushTagFilterEntry(filters, group, line, enforce) {
   if (tagMode === "include" && !hasBlockingEntry && !tagFilter.blockUntagged) return;
   const pagesLine = (Array.isArray(group.scopes) ? group.scopes : []).find(
     (candidate) => candidate.surface === "pages" && candidate.platform === line.platform
+      && CBGroupScopes.lineEntryKey(candidate) === CBGroupScopes.lineEntryKey(line)
       && candidate.tagFilter && cbSameTagFilter(candidate.tagFilter, tagFilter)
   );
   filters.push({
@@ -703,10 +705,12 @@ function buildSurfaceHideSelectors(pageContext, groups, usageTimersMs, groupSnoo
     // A group may carry shelf lines for several platforms; only this host's apply.
     const byPlatform = new Map();
     for (const line of shelves) {
-      if (!byPlatform.has(line.platform)) byPlatform.set(line.platform, []);
-      byPlatform.get(line.platform).push(line.shelf);
+      const entry = CBGroupScopes.lineEntryKey(line);
+      if (!byPlatform.has(entry)) byPlatform.set(entry, []);
+      byPlatform.get(entry).push(line.shelf);
     }
-    for (const [platform, ids] of byPlatform) {
+    for (const [entry, ids] of byPlatform) {
+      const platform = CBGroupScopes.entryPlatform(entry);
       // App-scoped hides (site chrome / content types) apply whenever the group
       // is active on the host.
       for (const sel of getSurfaceHideSelectors(platform, ids, "app")) {
@@ -717,7 +721,7 @@ function buildSurfaceHideSelectors(pageContext, groups, usageTimersMs, groupSnoo
       // so only emit them when the current page matches the group's source
       // scope on this platform.
       const entrySelectors = getSurfaceHideSelectors(platform, ids, "entry");
-      if (entrySelectors.length > 0 && platformGroupAuthorAxisMatchesPage(cbGroupSourceAxisView(group, platform), pageContext)) {
+      if (entrySelectors.length > 0 && platformGroupAuthorAxisMatchesPage(cbGroupSourceAxisView(group, platform, entry), pageContext)) {
         for (const sel of entrySelectors) selectors.add(sel);
       }
     }
@@ -994,7 +998,7 @@ async function applyElapsedTime(pageContextInput, elapsedMs, exposedGroupIdsInpu
 
   // Linked groups while the hub is away: this browser runs them and keeps the
   // time apart for the hand-over (cbHandOverOfflineUsage).
-  const hubAway = !cbConnection.routeIsReady("macapp");
+  const hubAway = !cbConnection.desktopRouteIsReady();
   const offlineDeltas = {};
   for (const group of accrualGroups) {
     const currentValue = nextTimers[group.id] ?? 0;
@@ -1420,7 +1424,7 @@ const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 //   "inpage"    — Firefox: no chrome.offscreen, but the background is a real
 //                 page, so we host offscreen.html as a hidden in-page iframe.
 //   "native"    — Safari: the extension is a thin client; custom-rule logic
-//                 is redirected to the macosBlocker app over native
+//                 runs in Safari Vault's native extension over native
 //                 messaging (browser.runtime.sendNativeMessage). Default and
 //                 platform groups still run entirely in the extension.
 //
@@ -1608,7 +1612,7 @@ async function cbStartSnooze(groupId, now = Date.now()) {
   const { groups, groupSnoozes, usageResetAtMs } = await getState();
   const group = groups.find((item) => item.id === groupId);
   if (!group) throw new Error("group-not-found");
-  if (cbEnforceOnly(group)) throw new Error("mac-vault-away");
+  if (cbEnforceOnly(group)) throw new Error("desktop-vault-away");
   const plan = CBGroupActions.snoozePlan(group, groupSnoozes[group.id], now);
   if (plan.error) throw new Error(plan.error);
   const entry = CBGroupActions.snoozeEntry(group, now, usageResetAtMs[group.id]);
@@ -1952,13 +1956,20 @@ async function createOffscreenDocumentOnce() {
 }
 
 // Safari client transport: forward an event-sandbox request to the
-// macosBlocker app's SafariWebExtensionHandler, which runs the rule in
+// separate Safari containing app's native handler, which runs the rule in
 // JavaScriptCore and returns the same { ok, result } shape the in-browser
 // sandbox produces. Any DOM/redirect intents in the reply are applied by
 // the caller exactly as for the offscreen path.
 async function sendToEventSandboxNative(payload) {
   try {
-    const message = { type: "event-sandbox-request", payload };
+    // The native journal survives Safari background restarts. Prune deleted
+    // groups before restoring it, using browser storage as the authority.
+    const stored = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] });
+    const groups = stored[BLOCKED_GROUPS_KEY];
+    const groupIds = [...new Set((Array.isArray(groups) ? groups : [])
+      .filter((group) => group?.groupType === "custom" && typeof group.id === "string" && group.id.length > 0)
+      .map((group) => group.id))];
+    const message = { type: "event-sandbox-request", payload: { ...payload, groupIds } };
     let response;
     if (chrome.runtime && typeof chrome.runtime.sendNativeMessage === "function") {
       // Safari accepts a single-arg form (routes to the container app); other
@@ -2098,7 +2109,7 @@ async function loadCustomGroupSource(group, { run = false } = {}) {
     result = result ? { ok: true, handlers: 0, error: null } : null;
   } else {
     const stored = ((await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {})[group.id] || {};
-    result = await sendToEventSandbox({ kind: "load-source", groupId: group.id, source, state: stored });
+    result = await sendToEventSandbox({ kind: "load-source", groupId: group.id, source, state: stored, run });
     if (result) {
       for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType: "run" });
       if (!result.ok && result.error) cbDebugError("[Vault rule]", group.id, "run", result.error);
@@ -2144,17 +2155,23 @@ async function dispatchRule(type, data, { targetGroupId = null } = {}) {
 // state and panels, and the actions (per tab to its page, or by the worker).
 async function applyRuleResult(result, eventType) {
   if (!result) return;
-  for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType });
-  for (const entry of result.diagnostics || []) cbDebugError("[Vault rule]", entry.groupId, eventType, ...(entry.args || []));
-  if (result.quarantine && result.quarantine.groupId) {
+  // A group can be deleted or disabled while an asynchronous dispatch runs.
+  // Stale native/offscreen replies cannot recreate its state or act on tabs.
+  const snapshot = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [], [CB_RULE_STATE_KEY]: {} });
+  const groups = Array.isArray(snapshot[BLOCKED_GROUPS_KEY]) ? snapshot[BLOCKED_GROUPS_KEY] : [];
+  const current = new Map(groups.filter((group) => group?.groupType === "custom").map((group) => [group.id, group]));
+  for (const entry of result.logs || []) if (current.has(entry.groupId)) pushLogFeedEntry({ ...entry, eventType });
+  for (const entry of result.diagnostics || []) if (current.has(entry.groupId)) cbDebugError("[Vault rule]", entry.groupId, eventType, ...(entry.args || []));
+  if (result.quarantine && current.has(result.quarantine.groupId)) {
     quarantineGroup(result.quarantine.groupId, result.quarantine.reason || "deadline-overrun").catch(() => {});
   }
-  const states = result.states && typeof result.states === "object" ? result.states : {};
+  const states = Object.fromEntries(Object.entries(result.states && typeof result.states === "object" ? result.states : {})
+    .filter(([groupId]) => current.has(groupId)));
   if (Object.keys(states).length > 0) {
-    const stored = (await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {};
+    const stored = snapshot[CB_RULE_STATE_KEY] || {};
     await chrome.storage.local.set({ [CB_RULE_STATE_KEY]: { ...stored, ...states } });
   }
-  for (const [groupId, panels] of Object.entries(result.panels || {})) cbSetRulePanels(groupId, panels);
+  for (const [groupId, panels] of Object.entries(result.panels || {})) if (current.has(groupId)) cbSetRulePanels(groupId, panels);
   const pages = new Map(); // tabId | "*" -> { items, dom, queries, cover }
   const sheetTabs = new Set(); // tabs (or "*") whose sheets changed
   const page = (tabId) => {
@@ -2163,6 +2180,7 @@ async function applyRuleResult(result, eventType) {
   };
   for (const action of result.actions || []) {
     const { groupId, kind, tabId } = action || {};
+    if (!current.get(groupId)?.enabled) continue;
     try {
       if (kind === "item") page(tabId).items.push({ groupId, ref: action.ref, verdict: action.verdict });
       else if (kind === "cover") page(tabId).cover = { groupId, on: action.on, message: action.message };
@@ -2316,18 +2334,13 @@ function hostnameOf(url) {
 
 async function sendToLocalFileBroker(request) {
   if (sandboxTransportMode() === "native") {
-    // The local-folder broker uses the File System Access API, which only
-    // exists in the browser. In Safari client mode there is no offscreen
-    // document to host it, so the feature is unavailable.
-    return {
-      ok: false,
-      eventName: "error",
-      action: request?.action || "",
-      path: request?.path || "",
-      directoryPath: request?.directoryPath || "",
-      requestId: request?.requestId || "",
-      error: "local-folder-not-available"
-    };
+    try {
+      const response = await chrome.runtime.sendNativeMessage(NATIVE_HOST_APPLICATION_ID, { type: "local-file-request", request });
+      if (response && response.ok && response.result) return response.result;
+      return { ok: false, requestId: request?.requestId || "", error: response?.error || "local-file-broker-unavailable" };
+    } catch (error) {
+      return { ok: false, requestId: request?.requestId || "", error: String(error?.message || error || "local-file-error") };
+    }
   }
   await ensureOffscreenDocument();
   try {
@@ -2548,7 +2561,21 @@ for (const event of ["onHistoryStateUpdated", "onReferenceFragmentUpdated"]) {
 // The rules' "tick", every second (offscreen.js drives it): the open tabs.
 // Safari has no offscreen document to ping every second: its background
 // page ticks the rules itself while it runs.
-if (sandboxTransportMode() === "native") setInterval(() => { emitRuleTick().catch(() => {}); }, 1000);
+let cbSafariLastTickMs = 0;
+let cbSafariTickRunning = false;
+function cbSafariLifetimeTick() {
+  if (sandboxTransportMode() !== "native") return;
+  const now = Date.now();
+  if (cbSafariTickRunning || now - cbSafariLastTickMs < 950) return;
+  cbSafariLastTickMs = now;
+  cbSafariTickRunning = true;
+  // A Safari content heartbeat wakes its nonpersistent background page.
+  // Re-establish the normal authenticated route; never start another socket.
+  if (typeof cbConnection !== "undefined" && cbConnection.desired && !cbConnection.ws && !cbConnection.reconnectTimer) cbConnection.connect();
+  emitRuleTick().catch(() => {}).finally(() => { cbSafariTickRunning = false; });
+}
+self.CBSafariLifetimeTick = cbSafariLifetimeTick;
+if (sandboxTransportMode() === "native") setInterval(cbSafariLifetimeTick, 1000);
 
 async function emitRuleTick() {
   if (!cbRulesHandle("tick")) return;
@@ -2607,6 +2634,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "clear-log-feed") {
     logFeeds.delete(message.groupId);
     logFeedBursts.delete(message.groupId);
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (message.type === "safari-lifecycle-tick" && sandboxTransportMode() === "native") {
+    cbSafariLifetimeTick();
     sendResponse({ ok: true });
     return false;
   }
@@ -2819,7 +2852,7 @@ async function cbRenameDuplicates(groups) {
 
 async function cbAnnounceStoredGroups(groups) {
   const list = Array.isArray(groups) ? groups : (await getState()).groups;
-  if (!cbConnection.routeIsReady("macapp")) return;
+  if (!cbConnection.desktopRouteIsReady()) return;
   cbConnection.sendWS({
     kind: "groups-announce",
     program: cbDetectProgramId(),
@@ -2901,7 +2934,7 @@ function cbShareStoredGroups(value) {
     if (cbGroupInLink(group)) {
       // Seen only once sent: a change made while Mac Vault is away is shared
       // when it is back (cbShareOnReconnect).
-      if (!cbConnection.routeIsReady("macapp")) continue;
+      if (!cbConnection.desktopRouteIsReady()) continue;
       cbSendDefinition(group, Date.now());
     }
     cbDefinitionSeen.set(group.id, key);
@@ -2917,7 +2950,7 @@ async function cbShareOnReconnect() {
 
 // A snooze started or ended here reaches the link as the newest change.
 function cbShareStoredSnoozes(value) {
-  if (!cbConnection.routeIsReady("macapp")) return;
+  if (!cbConnection.desktopRouteIsReady()) return;
   const snoozes = value && typeof value === "object" ? value : {};
   const program = cbDetectProgramId();
   for (const cluster of Array.isArray(cbConnection.clusters) ? cbConnection.clusters : []) {
@@ -3094,7 +3127,7 @@ async function cbHandOverOfflineUsage(groupsByCluster) {
 // here — nothing about it may change (the editor, the cover's Snooze and the
 // quick-add "+" all refuse) until Mac Vault, which holds its state, is back.
 function cbEnforceOnly(group) {
-  return Boolean(group) && !cbConnection.routeIsReady("macapp") && cbGroupInLink(group);
+  return Boolean(group) && !cbConnection.desktopRouteIsReady() && cbGroupInLink(group);
 }
 
 // Reports this endpoint's usage *increment* to the hub for any clustered Default
@@ -3105,7 +3138,7 @@ function cbEnforceOnly(group) {
 // the sole browser-side reporter and the delta can't be counted twice.
 function cbReportClusterUsage(groups, timers, resets, bucketDeltas = {}, buckets = {}) {
   try {
-    if (!cbConnection.routeIsReady("macapp")) return;
+    if (!cbConnection.desktopRouteIsReady()) return;
     const program = cbDetectProgramId();
     for (const g of groups) {
       if (!cbGroupInLink(g)) continue;
@@ -3181,15 +3214,15 @@ const cbConnection = {
   startupReady: null,
 
   setStatus(patch) {
-    const macRouteWasReady = this.routeIsReady("macapp");
+    const desktopRouteWasReady = this.desktopRouteIsReady();
     this.status = { ...this.status, ...patch };
-    const macRouteIsReady = this.routeIsReady("macapp");
-    if (!macRouteIsReady && this.clusters.length > 0) {
+    const desktopRouteIsReady = this.desktopRouteIsReady();
+    if (!desktopRouteIsReady && this.clusters.length > 0) {
       this.clusters = [];
       this.broadcastClusters();
-    } else if (!macRouteWasReady && macRouteIsReady) {
+    } else if (!desktopRouteWasReady && desktopRouteIsReady) {
       // Announce the stored groups after every (re)connect, and share what
-      // changed while Mac Vault was away.
+      // changed while the desktop Vault was away.
       cbAnnounceStoredGroups().catch(() => {});
       cbShareOnReconnect().catch(() => {});
     }
@@ -3208,6 +3241,20 @@ const cbConnection = {
     return Array.isArray(status.peers) && status.peers.some(
       (peer) => peer && peer.program === target && peer.connected !== false
     );
+  },
+
+  // Choose the authenticated desktop host. Classifier-only presence is not
+  // enough to edit linked groups or record Activity.
+  desktopProgram(status = this.status) {
+    if (status && (status.hubProgram === "macapp" || status.hubProgram === "windowsapp")) return status.hubProgram;
+    for (const program of ["macapp", "windowsapp"]) {
+      if (this.targetIsPresent(program, status)) return program;
+    }
+    return typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent || "") ? "windowsapp" : "macapp";
+  },
+
+  desktopRouteIsReady() {
+    return this.routeIsReady(this.desktopProgram());
   },
 
   routeIsReady(target) {
@@ -3235,7 +3282,7 @@ const cbConnection = {
   broadcast() {
     try {
       chrome.runtime
-        .sendMessage({ type: "connection-status-push", status: this.statusForTarget("macapp") })
+        .sendMessage({ type: "connection-status-push", status: this.statusForTarget(this.desktopProgram()) })
         .catch(() => {});
     } catch (_) {}
   },
@@ -3635,7 +3682,7 @@ const cbConnection = {
         try { chrome.runtime.sendMessage({ type: "link-refused", reason: String(msg.reason || ""), groupId: String(msg.groupId || "") }).catch(() => {}); } catch (_) {}
         break;
       case "clusters":
-        if (!this.routeIsReady("macapp")) break;
+        if (!this.desktopRouteIsReady()) break;
         this.clusters = Array.isArray(msg.clusters) ? msg.clusters : [];
         if (msg.rosters && typeof msg.rosters === "object") this.rosters = msg.rosters;
         cbSaveClusterCopy(this.clusters);
@@ -3643,7 +3690,7 @@ const cbConnection = {
         this.applySharedToStorage().then(() => cbContributeJoins()).catch(() => {});
         break;
       case "cluster-updated": {
-        if (!this.routeIsReady("macapp")) break;
+        if (!this.desktopRouteIsReady()) break;
         const next = Array.isArray(this.clusters) ? this.clusters.slice() : [];
         const idx = next.findIndex((c) => c && c.id === msg.cluster?.id);
         const members = Array.isArray(msg.cluster?.members) ? msg.cluster.members : [];
@@ -3676,7 +3723,7 @@ const cbConnection = {
       case "browser-request":
         // Mac Vault's MCP server driving the extension's settings (1:1 parity
         // with the popup). Only an authenticated hub host reaches this branch.
-        if (!this.routeIsReady("macapp")) break;
+        if (!this.desktopRouteIsReady()) break;
         void cbHandleBrowserRequest(this, msg);
         break;
       default:
@@ -4091,10 +4138,10 @@ const cbClassifierHub = {
     } catch (_) {}
   },
 
-  // Activity records go to Mac Vault itself; every other operation to the
+  // Activity records go to the desktop Vault; every other operation to the
   // Classifier (both behind the one hub socket).
   targetFor(operation) {
-    return String(operation).startsWith("activity-") ? "macapp" : "classifier";
+    return String(operation).startsWith("activity-") ? cbConnection.desktopProgram() : "classifier";
   },
 
   isReady(connection, target = "classifier") {
@@ -4312,7 +4359,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== "string") return false;
   switch (message.type) {
     case "connection-status":
-      sendResponse({ ok: true, status: cbConnection.statusForTarget("macapp") });
+      sendResponse({ ok: true, status: cbConnection.statusForTarget(cbConnection.desktopProgram()) });
       return false;
     case "clusters-status":
       sendResponse({ ok: true, clusters: cbConnection.clusters, rosters: cbConnection.rosters || {} });
@@ -4321,7 +4368,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // the user, never by names).
     case "group-link":
     case "group-unlink":
-      if (!cbConnection.routeIsReady("macapp")) { sendResponse({ ok: false, error: "macapp-unavailable" }); return false; }
+      if (!cbConnection.desktopRouteIsReady()) { sendResponse({ ok: false, error: "desktop-unavailable" }); return false; }
       cbConnection.sendWS(message.type === "group-link"
         ? { kind: "group-link", groupId: String(message.groupId || ""), targetProgram: String(message.targetProgram || ""), targetGroupId: String(message.targetGroupId || "") }
         : { kind: "group-unlink", groupId: String(message.groupId || "") });

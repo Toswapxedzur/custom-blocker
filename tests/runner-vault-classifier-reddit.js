@@ -123,6 +123,8 @@ const requestedArticle = redditPost({
   matches: ["article:has(shreddit-post)"],
   descendants: [requested]
 });
+// Match the real DOM ancestry used by the bounded collector's nested-card walk.
+requested.parentElement = requestedArticle;
 
 const document = {
   documentElement: {},

@@ -41,7 +41,7 @@ async () => {
   document.body.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true})); await delay();
   check(!document.querySelector('.vui-info-popover'), 'Outside click dismisses Info');
   await setLanguage('zh'); await delay();
-  check(!document.querySelector('.vui-info-button') && getComputedStyle(source).display !== 'none', 'Other languages keep their original inline help');
+  check(buttonFor('settings.quickAddHelp')?.getClientRects().length && getComputedStyle(source).display === 'none', 'Chinese retains field Info instead of dropping explanations');
   await setLanguage('en'); await delay();
   button = buttonFor('settings.quickAddHelp');
   check(button?.getClientRects().length, 'Switching back to English restores Info');

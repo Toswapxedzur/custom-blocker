@@ -1,6 +1,6 @@
 # Vault browser extension user manual
 
-Vault controls websites and supported platform content in the browser profile where it is installed. Open its editor from the extension's toolbar button. Mac Vault provides local tagging and Activity when connected; the extension enforces browser targets.
+Vault controls websites and supported platform content in the browser profile where it is installed. Open its editor from the extension's toolbar button. Mac Vault or Windows Vault provides local tagging and Activity when connected; the extension enforces browser targets.
 
 ## Blocking groups
 
@@ -37,9 +37,9 @@ While frozen, the wait can be extended and a PIN can be added if none exists. Th
 
 ### Linked groups
 
-Use **Link** to connect explicitly selected groups in other Vault programs. Linked groups share their name, supported policy settings, usage, and freeze conditions. Each program retains its own targets and enforces the actions it supports. Unlinking keeps each group and its settings.
+Use **Link** to connect explicitly selected groups in other Vault programs. Linked groups share their name, supported policy settings, targets, usage, and freeze conditions. Each program edits and enforces the target types it supports; other target entries remain available to linked programs. Unlinking keeps each group and its settings.
 
-If a linked member is offline, editing can be unavailable. Open Mac Vault and the linked browser to reconnect. A local saved policy can continue to apply while a member is offline.
+If a linked member is offline, editing can be unavailable. Open the desktop Vault app and the linked browser to reconnect. A local saved policy can continue to apply while a member is offline.
 
 ## Getting help
 
@@ -51,15 +51,19 @@ Custom rules have their own [Code manual](../code-manual/en.md). It explains the
 
 Add domains or full URLs, one per entry. A domain includes its subdomains. A path limits matching to that path and its descendants. **Block everything except these sites** turns the list into an allowlist.
 
+You can add the same website more than once. Each entry has its own filter and page controls; for example, one YouTube entry can block Shorts while another blocks a creator. Matching entries combine within the group and share its schedule, allowance, and snooze.
+
 A target can cover a matching page or pause first and offer Continue after a countdown. A blocking target takes precedence over a pausing target in the same group. **When blocked: redirect address or message** accepts a web address or cover message; leave it blank to cover the page in place. A pause never redirects.
 
 Platform targets use **Creators** for video platforms, **Accounts** for Twitter / X, **Communities** for Reddit, and server/channel IDs for Discord. Controls apply where Vault can identify the source and content type. Content controls hide supported page elements, such as ads or video cards. Browser permissions and website changes can affect these controls.
 
 ### Content tag filters
 
-The Classifier connection and tag correction are currently available in supported Chromium browsers, such as Chrome and Edge.
+The Classifier connection and tag correction are available in supported Chromium browsers, such as Chrome and Edge, and in Safari Vault on macOS.
 
-Connect Mac Vault and configure its Classifier to obtain tags. A blocking group's tag filter chooses what to cover or hide. It does not start or pause tagging; use Mac Vault's Classifier settings or the individual Classifier group's pause control.
+Connect Mac Vault or Windows Vault and configure its Classifier to obtain tags. A blocking group's tag filter chooses what to cover or hide. It does not start or pause tagging; use the desktop app's Classifier settings or the individual Classifier group's pause control.
+
+Each website entry has one **Apply to** filter: all content, selected creators, all except selected creators, selected tags, or all except selected tags. Add another entry for the same website when you need a different filter.
 
 Choose certain tags, or everything except certain tags. A rule can combine tags (**Gaming + Drama**), require confidence (**Gaming @3**), or make an exception (**!Tutorial**). **Cover content** keeps tag correction available. **Hide content** removes the matching item.
 
@@ -67,12 +71,12 @@ Choose certain tags, or everything except certain tags. A rule can combine tags 
 
 ### Correcting tags
 
-Click an item's tag to open the correction chooser. Choose a suggested tag or enter a tag name and its confidence. Click a selected tag's remove control, or select it and press Delete once, to remove it. Corrections are sent to Mac Vault and used in future tagging. A failed lookup does not create an Untagged tag.
+Click **+ tag** beside an item's tags to open the correction chooser. Search the Classifier's existing tags and choose a tag to add it. Click a selected tag's remove control, or select it and press Delete once, to remove it. Corrections are sent to the connected desktop app and used in future tagging. An unavailable lookup displays **Untagged** and can be retried automatically; this display does not create a tag in your Classifier.
 
 ## Settings and connection
 
 **Show the quick-add +** adds a small button to supported pages. Select a group in the list as the destination; your selection is remembered when Vault reopens. Use the page button to add that page to its website list. On an allowlist this allows the page. Frozen groups do not accept quick additions.
 
-The Classifier connection reports the local Mac Vault service. Configure Classifier groups, model downloads, Knowledge, research consent, and API providers in Mac Vault, not in this extension.
+The Classifier connection reports the local desktop Vault service. Configure Classifier groups, model downloads, Knowledge, research consent, and API providers in the connected desktop app.
 
-If tagging is missing, check that Mac Vault is open, the connection is established, tagging is enabled, the relevant Classifier group is resumed, and its platform feed is recorded. Check model download status in Mac Vault. If blocking does not apply, check the group's enabled state, targets, schedule, allowance, and snooze status.
+If tagging is missing, check that the desktop Vault app is open, the connection is established, tagging is enabled, the relevant Classifier group is resumed, and its platform feed is recorded. Check model download status in the desktop app. If blocking does not apply, check the group's enabled state, targets, schedule, allowance, and snooze status.

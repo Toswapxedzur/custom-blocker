@@ -11,6 +11,7 @@
   if (global.VaultClassifierTagUI) return;
 
   const C = global.VaultClassifierExtensionContract;
+  const ui = (key, fallback, values) => global.VaultContentI18n?.t(key, fallback, values) ?? fallback;
   const CACHE_TTL_MS = 15_000;
   // Provisional ("Tagging") results re-check soon so the pill upgrades quickly
   // once background classification finishes, rather than waiting a full TTL.
@@ -42,10 +43,10 @@
   })]);
 
   // Maps a resolved lookup to what should render. A definitive answer with no
-  // tags becomes the "None" pill; a failed/unresolved lookup (null) renders
-  // nothing and is retried once the cache entry expires.
+  // tags or a failed lookup becomes Untagged. Failures keep a short retry TTL
+  // internally, and a later successful response or push replaces the pill.
   function displayTags(tags) {
-    if (!Array.isArray(tags)) return null;
+    if (!Array.isArray(tags)) return NONE_TAGS;
     return tags.length ? tags : NONE_TAGS;
   }
   const stateByRoot = new WeakMap();
@@ -143,7 +144,8 @@
   // the player in place. A provisional ("Tagging…") state never blocks. Safe
   // no-op if content.js isn't present in this world.
   function notifyTagsChanged(state, result) {
-    if (!state || !state.root) return;
+    if (!state || !state.root || stateByRoot.get(state.root) !== state
+      || state.epoch !== (platformEpochs.get(state.platform) || 0)) return;
     if (state.kind === "page") {
       const evaluate = global.cbEvaluateTagPage;
       if (typeof evaluate !== "function") return;
@@ -239,15 +241,23 @@
     const cached = sourceCache.get(key);
     if (cached?.pending) return cached.pending;
     if (cached && cached.expiresAt > Date.now()) {
-      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true });
+      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true, failed: cached.failed === true });
     }
 
     const epoch = platformEpochs.get(platform) || 0;
+    const record = { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending: null };
     const pending = new Promise((resolve) => {
       pendingBatch.push({ platform, entryID, creatorID, title, key, resolve });
       scheduleDrain();
     }).then((result) => {
       if (epoch !== (platformEpochs.get(platform) || 0)) return null;
+      // A push/correction or newer request owns this entry now. An older
+      // request must never overwrite its cache or flash a provisional pill.
+      const latest = sourceCache.get(key);
+      if (latest && latest !== record) return latest.pending || {
+        tags: latest.tags, predicted: latest.predicted === true,
+        provisional: latest.provisional === true, failed: latest.failed === true
+      };
       // The app is still classifying this video: show the "Tagging" placeholder
       // and re-check soon so the real tags replace it quickly. Never dim/hide
       // while provisional — a card is only ever acted on by a resolved verdict.
@@ -258,11 +268,12 @@
       }
       const display = displayTags(result && result.tags);
       const predicted = Boolean(result && result.predicted);
-      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
+      sourceCache.set(key, { tags: display, predicted, provisional: false, failed: !result, expiresAt: Date.now() + (result ? CACHE_TTL_MS : PENDING_TTL_MS), pending: null });
       prune();
-      return { tags: display, predicted, provisional: false };
+      return { tags: display, predicted, provisional: false, failed: !result };
     });
-    sourceCache.set(key, { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending });
+    record.pending = pending;
+    sourceCache.set(key, record);
     return pending;
   }
 
@@ -472,14 +483,14 @@
     state.status.replaceChildren();
     state.status.dataset.failed = String(Boolean(state.failedCorrection));
     const document = state.status.ownerDocument || global.document;
-    if (state.correctionPending) state.status.textContent = "Saving…";
+    if (state.correctionPending) state.status.textContent = ui("contentTag.saving", "Saving…");
     else if (state.failedCorrection) {
       const message = document.createElement("span");
-      message.textContent = "Could not save tag correction. ";
+      message.textContent = ui("contentTag.saveFailed", "Could not save tag correction.") + " ";
       const retry = document.createElement("button");
       retry.type = "button";
       retry.className = "retry";
-      retry.textContent = "Retry";
+      retry.textContent = ui("contentTag.retry", "Retry");
       retry.addEventListener("click", (event) => {
         event.preventDefault(); event.stopPropagation();
         editTags(state, state.failedCorrection);
@@ -520,17 +531,17 @@
     const head = document.createElement("div");
     head.className = "panel-head";
     const title = document.createElement("span");
-    title.textContent = "Add tag";
+    title.textContent = ui("contentTag.add", "Add tag");
     const close = document.createElement("button");
     close.className = "panel-close";
     close.type = "button";
     close.textContent = "×";
-    close.setAttribute("aria-label", "Close");
+    close.setAttribute("aria-label", ui("contentTag.close", "Close"));
     head.append(title, close);
     const search = document.createElement("input");
     search.className = "panel-search";
     search.type = "text";
-    search.placeholder = "Search tags";
+    search.placeholder = ui("contentTag.search", "Search tags");
     const list = document.createElement("div");
     list.className = "panel-list";
     panel.append(head, search, list);
@@ -547,7 +558,7 @@
     const previous = document.createElement("button"), next = document.createElement("button"), count = document.createElement("span");
     previous.type = next.type = "button"; previous.className = next.className = "panel-close";
     previous.textContent = "‹"; next.textContent = "›";
-    previous.setAttribute("aria-label", "Previous tags"); next.setAttribute("aria-label", "Next tags"); count.setAttribute("role", "status");
+    previous.setAttribute("aria-label", ui("contentTag.previous", "Previous tags")); next.setAttribute("aria-label", ui("contentTag.next", "Next tags")); count.setAttribute("role", "status");
     pager.append(previous, count, next); panel.append(pager);
     function paintChoices(reset = false) {
       if (reset) page = 0;
@@ -555,12 +566,12 @@
       page = Math.max(0, Math.min(page, Math.ceil(matches.length / 40) - 1));
       list.replaceChildren();
       previous.disabled = !page; next.disabled = (page + 1) * 40 >= matches.length;
-      count.textContent = matches.length ? `${page * 40 + 1}–${Math.min((page + 1) * 40, matches.length)} / ${matches.length}` : "No matches";
+      count.textContent = matches.length ? `${page * 40 + 1}–${Math.min((page + 1) * 40, matches.length)} / ${matches.length}` : ui("contentTag.noMatches", "No matches");
       pager.hidden = matches.length <= 40;
     if (!matches.length) {
       const empty = document.createElement("div");
       empty.className = "panel-empty";
-      empty.textContent = taxonomy ? "No more tags" : "No tags available";
+      empty.textContent = taxonomy ? ui("contentTag.noMore", "No more tags") : ui("contentTag.unavailable", "No tags available");
       list.append(empty);
     } else {
       for (const tag of matches.slice(page * 40, (page + 1) * 40)) {
@@ -753,6 +764,8 @@
     const focusedTag = state.rail.getRootNode?.().activeElement?.closest?.(".chip-wrap")?.querySelector(".chip-del")?.dataset.tagId;
     state.rail.replaceChildren?.();
     state.currentTags = tags;
+    state.currentPredicted = predicted;
+    state.host.dir = global.VaultContentI18n?.language === "ar" ? "rtl" : "ltr";
     const document = state.root.ownerDocument || global.document;
     const isTagging = tags.length === 1 && tags[0].id === "vault:tagging";
     for (const tag of tags) {
@@ -761,21 +774,21 @@
       const chip = document.createElement("span");
       chip.className = tag.id === "vault:tagging" ? "chip tagging" : (predicted ? "chip predicted" : "chip");
       chip.dir = "auto";
-      chip.textContent = tag.name;
+      chip.textContent = tag.id === "vault:none" ? ui("contentTag.untagged", "Untagged") : tag.id === "vault:tagging" ? ui("contentTag.tagging", "Tagging") : tag.name;
       chip.style.setProperty("--vault-tag-color-light", tag.lightColorHex);
       chip.style.setProperty("--vault-tag-color-dark", tag.darkColorHex);
       wrap.appendChild(chip);
       // Real tags carry a hover delete affordance; the None/Tagging placeholders do not.
       if (!SYNTHETIC_IDS.has(tag.id)) {
         wrap.tabIndex = 0;
-        wrap.setAttribute("aria-label", tag.name + ". Press Delete to remove");
+        wrap.setAttribute("aria-label", ui("contentTag.removeInstruction", tag.name + ". Press Delete to remove", { tag: tag.name }));
         wrap.setAttribute("aria-keyshortcuts", "Delete Backspace");
         const del = document.createElement("button");
         del.className = "chip-del";
         del.type = "button";
         del.textContent = "×";
         del.dataset.tagId = tag.id;
-        del.setAttribute("aria-label", "Remove tag");
+        del.setAttribute("aria-label", ui("contentTag.remove", "Remove tag"));
         wrap.appendChild(del);
         if (tag.id === focusedTag) global.setTimeout(() => { if (wrap.isConnected) wrap.focus(); }, 0);
       }
@@ -787,8 +800,8 @@
       const add = document.createElement("button");
       add.className = "add-btn";
       add.type = "button";
-      add.textContent = "+ tag";
-      add.setAttribute("aria-label", "Add tag");
+      add.textContent = ui("contentTag.addButton", "+ tag");
+      add.setAttribute("aria-label", ui("contentTag.add", "Add tag"));
       state.rail.appendChild(add);
     }
     updateCorrectionStatus(state);
@@ -797,28 +810,43 @@
   // A provisional ("Tagging") pill upgrades by re-requesting once its short
   // cache entry expires. Mutations normally re-trigger observe, but a quiet
   // page never mutates — so drive a bounded re-check from a timer instead.
+  function settleState(state, result) {
+    if (stateByRoot.get(state.root) !== state || state.root.isConnected === false
+      || state.epoch !== (platformEpochs.get(state.platform) || 0)) return;
+    // Rechecks can return pending after a known answer. Hold the answer until
+    // another settled answer exists; Reddit hydration must not flash Tagging.
+    const holding = shownTags(state) && (result?.provisional || result?.failed);
+    if (!holding) render(state, result?.tags || NONE_TAGS, Boolean(result?.predicted));
+    notifyTagsChanged(state, holding ? { provisional: false } : result || { failed: true });
+    if (result?.provisional || result?.failed) scheduleProvisionalRecheck(state);
+  }
   function scheduleProvisionalRecheck(state) {
-    if (state.recheckTimer || state.recheckAttempts >= MAX_PENDING_RECHECKS) return;
+    if (state.recheckTimer) return;
+    if (state.recheckAttempts >= MAX_PENDING_RECHECKS) {
+      if (!shownTags(state)) {
+        sourceCache.set(state.key, { tags: NONE_TAGS, predicted: false, provisional: false,
+          failed: true, expiresAt: Date.now() + PENDING_TTL_MS, pending: null });
+        render(state, NONE_TAGS);
+        notifyTagsChanged(state, { failed: true, provisional: false });
+      }
+      return;
+    }
     state.recheckAttempts += 1;
     state.recheckTimer = setTimeout(() => {
       state.recheckTimer = null;
       if (stateByRoot.get(state.root) !== state
         || state.epoch !== (platformEpochs.get(state.platform) || 0)
-        || state.root.isConnected === false) {
-        return;
-      }
-      request(state.platform, state.entryID, state.creatorID, state.title).then((result) => {
-        render(state, result && result.tags, Boolean(result && result.predicted));
-        notifyTagsChanged(state, result);
-        if (result && result.provisional) scheduleProvisionalRecheck(state);
-      });
+        || state.root.isConnected === false) return;
+      if (!state.title) return scheduleProvisionalRecheck(state);
+      request(state.platform, state.entryID, state.creatorID, state.title).then(result => settleState(state, result));
     }, PENDING_TTL_MS + 200);
   }
 
   function observe({ platform, entryID, creatorID, title, root, anchor = null, kind = "card" } = {}) {
     const key = boundedIdentity(platform, entryID);
-    if (!key || !boundedIdentity(platform, creatorID) || typeof title !== "string" || !title
-      || !root || root.isConnected === false) return;
+    if (!key || !root || root.isConnected === false) return;
+    creatorID = boundedIdentity(platform, creatorID) ? creatorID : `${platform}:collab:${entryID.slice(platform.length + 1)}`;
+    title = typeof title === "string" ? title.trim() : "";
     startReattachObserver();
     let state = stateByRoot.get(root);
     if (!state || state.key !== key) {
@@ -844,19 +872,21 @@
       if (anchor) state.anchor = anchor;
       if (kind === "page") state.kind = "page";
       // A card may hydrate its title/creator after first paint.
-      if (title) state.title = title;
+      if (title && title !== state.title) { state.title = title; state.recheckAttempts = 0; }
       if (creatorID) state.creatorID = creatorID;
     }
     state.epoch = platformEpochs.get(platform) || 0;
     devLog("observe", { platform, entry: entryID, creator: creatorID });
+    const cached = sourceCache.get(key);
+    render(state, state.currentTags || (cached?.tags?.length ? cached.tags : TAGGING_TAGS), cached?.predicted === true);
+    notifyTagsChanged(state, { provisional: !shownTags(state) });
+    if (!state.title) return scheduleProvisionalRecheck(state);
     request(platform, entryID, state.creatorID, state.title).then((result) => {
       devLog("result", {
         entry: entryID,
         state: result ? (result.provisional ? "tagging" : ((result.tags && result.tags.length) ? "tags" : "none")) : "null"
       });
-      render(state, result && result.tags, Boolean(result && result.predicted));
-      notifyTagsChanged(state, result);
-      if (result && result.provisional) scheduleProvisionalRecheck(state);
+      settleState(state, result);
     });
   }
 
@@ -866,7 +896,7 @@
   // already contract-validated by the bridge before fan-out.
   function applyPushedTags(platform, items) {
     for (const item of items) {
-      if (!item || typeof item.entryID !== "string") continue;
+      if (!item || typeof item.entryID !== "string" || !Array.isArray(item.tags)) continue;
       const key = boundedIdentity(platform, item.entryID);
       const display = displayTags(item && item.tags);
       if (!key || !display) continue;
@@ -932,6 +962,14 @@
     const path = event.composedPath?.() || [];
     for (const state of mountedStates) if (!path.includes(state.host)) closeTagPanel(state, false);
   }, true);
+
+  global.VaultContentI18n?.onChange(() => {
+    for (const state of mountedStates) {
+      state.signature = "";
+      render(state, state.currentTags, state.currentPredicted);
+      if (state.panel?.classList.contains("open")) openAddPanel(state, state.panel);
+    }
+  });
 
   global.VaultClassifierTagUI = Object.freeze({ observe, clearPlatform });
 })(typeof globalThis !== "undefined" ? globalThis : this);

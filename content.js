@@ -1,3 +1,4 @@
+function cbUi(key, fallback, values) { return globalThis.VaultContentI18n?.t(key, fallback, values) ?? fallback; }
 // Debug-mode-gated console helpers, mirrored from background.js. Off
 // by default so an idle page is silent in DevTools. Toggle via
 // Settings → Debug mode.
@@ -1563,6 +1564,7 @@ function cbRenderCover() {
   const exit = cbCover.exit;
   const dialog = cbCover.dialog;
   if (!exit || !dialog) return;
+  dialog.dir = globalThis.VaultContentI18n?.language === "ar" ? "rtl" : "ltr";
   const shell = dialog.querySelector(".cb-shell");
   if (!shell) return;
   shell.textContent = "";
@@ -1573,15 +1575,15 @@ function cbRenderCover() {
   const isPause = exit.action === "pause";
   const title = exit.message
     ? exit.message
-    : isPause ? "Take a moment" : exit.groupName ? "Blocked by " + exit.groupName : "Blocked";
+    : isPause ? cbUi("contentPage.pauseTitle", "Take a moment") : exit.groupName ? cbUi("contentPage.blockedBy", "Blocked by " + exit.groupName, { group: exit.groupName }) : cbUi("contentPage.blocked", "Blocked");
   shell.appendChild(cbCoverElement("h1", "cb-title", title));
-  if (exit.message && exit.groupName) shell.appendChild(cbCoverElement("p", "cb-sub", (isPause ? "Paused by " : "Blocked by ") + exit.groupName));
+  if (exit.message && exit.groupName) shell.appendChild(cbCoverElement("p", "cb-sub", cbUi(isPause ? "contentPage.pausedBy" : "contentPage.blockedBy", (isPause ? "Paused by " : "Blocked by ") + exit.groupName, { group: exit.groupName })));
 
   if (isPause) {
     if (cbCover.countdownLeft > 0) {
       shell.appendChild(cbCoverElement("p", "cb-countdown", formatOverlayDurationMs(cbCover.countdownLeft * 1000)));
     }
-    const go = cbCoverElement("button", "cb-continue", cbCover.countdownLeft > 0 ? "Continue in " + formatOverlayDurationMs(cbCover.countdownLeft * 1000) : "Continue");
+    const go = cbCoverElement("button", "cb-continue", cbCover.countdownLeft > 0 ? cbUi("contentPage.continueIn", "Continue in " + formatOverlayDurationMs(cbCover.countdownLeft * 1000), { time: formatOverlayDurationMs(cbCover.countdownLeft * 1000) }) : cbUi("contentPage.continue", "Continue"));
     go.disabled = cbCover.countdownLeft > 0;
     go.addEventListener("click", () => {
       go.disabled = true;
@@ -1593,17 +1595,17 @@ function cbRenderCover() {
 
   if (exit.allowSnooze) {
     const panel = cbCoverElement("div", "cb-snooze-panel");
-    panel.appendChild(cbCoverElement("h3", "", "Snooze"));
+    panel.appendChild(cbCoverElement("h3", "", cbUi("contentPage.snooze", "Snooze")));
     const phase = exit.snoozePhase || "none";
-    const button = cbCoverElement("button", "cb-snooze-button", "Start Snooze");
+    const button = cbCoverElement("button", "cb-snooze-button", cbUi("contentPage.startSnooze", "Start Snooze"));
     let status = cbCover.statusText;
-    if (phase === "pending") { button.disabled = true; status = status || "A snooze is scheduled and will start shortly."; }
-    else if (phase === "cooldown") { button.disabled = true; status = status || "Snooze is cooling down. Try again when the cooldown ends."; }
+    if (phase === "pending") { button.disabled = true; status = status || cbUi("contentPage.pendingSnooze", "A snooze is scheduled and will start shortly."); }
+    else if (phase === "cooldown") { button.disabled = true; status = status || cbUi("contentPage.cooldownSnooze", "Snooze is cooling down. Try again when the cooldown ends."); }
     else if (cbCover.confirmationsLeft > 0) {
       const waitMs = cbCover.nextConfirmAt - Date.now();
       button.textContent = waitMs > 0
-        ? "Confirm (" + cbCover.confirmationsLeft + " left, " + formatOverlayDurationMs(waitMs) + ")"
-        : "Confirm (" + cbCover.confirmationsLeft + " left)";
+        ? cbUi("contentPage.confirmWait", "Confirm (" + cbCover.confirmationsLeft + " left, " + formatOverlayDurationMs(waitMs) + ")", { count: cbCover.confirmationsLeft, time: formatOverlayDurationMs(waitMs) })
+        : cbUi("contentPage.confirm", "Confirm (" + cbCover.confirmationsLeft + " left)", { count: cbCover.confirmationsLeft });
       button.disabled = waitMs > 0;
     }
     button.addEventListener("click", () => cbCoverSnoozePress());
@@ -1624,7 +1626,7 @@ function cbCoverSnoozePress() {
   if (cbCover.confirmationsLeft === 0 && needed > 0 && cbCover.nextConfirmAt === 0) {
     cbCover.confirmationsLeft = needed;
     cbCover.nextConfirmAt = Date.now() + CB_SNOOZE_CONFIRM_INTERVAL_MS;
-    cbCover.statusText = "This snooze needs " + needed + " confirmation step(s), " + formatOverlayDurationMs(CB_SNOOZE_CONFIRM_INTERVAL_MS) + " apart.";
+    cbCover.statusText = cbUi("contentPage.confirmSteps", "This snooze needs " + needed + " confirmation step(s), " + formatOverlayDurationMs(CB_SNOOZE_CONFIRM_INTERVAL_MS) + " apart.", { count: needed, time: formatOverlayDurationMs(CB_SNOOZE_CONFIRM_INTERVAL_MS) });
     if (cbCover.confirmId === null) cbCover.confirmId = window.setInterval(() => cbRenderCover(), 250);
     cbRenderCover();
     return;
@@ -1637,16 +1639,16 @@ function cbCoverSnoozePress() {
   }
   if (cbCover.confirmId !== null) { window.clearInterval(cbCover.confirmId); cbCover.confirmId = null; }
   cbCover.nextConfirmAt = 0;
-  cbCover.statusText = "Starting…";
+  cbCover.statusText = cbUi("contentPage.starting", "Starting…");
   cbRenderCover();
   safeSendMessage({ type: "start-snooze", groupId: exit.groupId }, (response) => {
     if (!response || !response.ok) {
-      cbCover.statusText = response && response.error ? "Snooze not started: " + response.error : "Snooze not started.";
+      cbCover.statusText = response && response.error ? cbUi("contentPage.snoozeError", "Snooze not started: " + response.error, { error: response.error }) : cbUi("contentPage.snoozeFailed", "Snooze not started.");
       cbRenderCover();
       return;
     }
     const startsIn = Number(response.snooze && response.snooze.startsAtMs) - Date.now();
-    cbCover.statusText = startsIn > 1000 ? "Snooze starts in " + formatOverlayDurationMs(startsIn) + "." : "";
+    cbCover.statusText = startsIn > 1000 ? cbUi("contentPage.snoozeStarts", "Snooze starts in " + formatOverlayDurationMs(startsIn) + ".", { time: formatOverlayDurationMs(startsIn) }) : "";
     refreshSession();
   });
 }
@@ -1682,7 +1684,7 @@ function cbMountQuickAdd(target) {
     });
     cbQuickAddButton = button;
   }
-  cbQuickAddButton.title = "Add this site to " + target.groupName;
+  cbQuickAddButton.title = cbUi("contentPage.quickAdd", "Add this site to " + target.groupName, { group: target.groupName });
   if (!cbQuickAddButton.isConnected) document.documentElement.appendChild(cbQuickAddButton);
 }
 
@@ -2230,13 +2232,13 @@ function __cb_drawPanelSelect(panelEl, control, input) {
   const search = document.createElement("input");
   search.type = "text";
   search.inputMode = "search";
-  search.placeholder = "Search options";
-  search.setAttribute("aria-label", "Search options");
+  search.placeholder = cbUi("contentPage.searchOptions", "Search options");
+  search.setAttribute("aria-label", cbUi("contentPage.searchOptions", "Search options"));
   search.style.cssText = "min-width:0;width:100%;border:0;border-radius:8px;padding:6px 9px;background:white;color:#1f2937;font:inherit;";
   const clear = document.createElement("button");
   clear.type = "button";
   clear.textContent = "×";
-  clear.setAttribute("aria-label", "Clear search");
+  clear.setAttribute("aria-label", cbUi("contentPage.clearSearch", "Clear search"));
   clear.style.cssText = "border:0;border-radius:8px;background:#e2e8f0;color:#1f2937;";
   searchRow.append(search, clear);
   const options = document.createElement("div");
@@ -2274,7 +2276,7 @@ function __cb_drawPanelSelect(panelEl, control, input) {
       options.appendChild(item);
       count++;
     }
-    if (!count) { const empty = document.createElement("span"); empty.textContent = "No matches"; empty.style.cssText = "padding:6px 9px;color:#64748b;"; options.appendChild(empty); }
+    if (!count) { const empty = document.createElement("span"); empty.textContent = cbUi("contentPage.noMatches", "No matches"); empty.style.cssText = "padding:6px 9px;color:#64748b;"; options.appendChild(empty); }
   }
   search.addEventListener("input", sync);
   clear.addEventListener("click", () => { search.value = ""; sync(); search.focus(); });
@@ -2368,7 +2370,7 @@ function __cb_patchPanelControl(panelEl, control, theme) {
     return true;
   }
   if (type === "button") {
-    input.textContent = __cb_safePanelText(control.label || "Button", 120);
+    input.textContent = __cb_safePanelText(control.label || cbUi("contentPage.button", "Button"), 120);
     return true;
   }
 
@@ -2804,7 +2806,7 @@ function __cb_appendPanelControl(panelEl, body, control, theme) {
     const pinLen = Math.max(3, Math.min(12, Math.floor(Number(control.length)) || 6));
     const masked = control.masked !== false;
     const pinWrap = document.createElement("div");
-    pinWrap.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;";
+    pinWrap.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;direction:ltr;unicode-bidi:isolate;";
     const hidden = document.createElement("input");
     hidden.type = "text";
     hidden.inputMode = "numeric";
@@ -3577,3 +3579,5 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
     }
   });
 }
+
+globalThis.VaultContentI18n?.onChange(() => { cbRenderCover();  });
