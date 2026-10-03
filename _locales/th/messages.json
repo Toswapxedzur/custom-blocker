@@ -1,10 +1,10 @@
 {
   "appName": {
-    "message": "Adamancia Vault — ตัวบล็อกเว็บไซต์และตัวจับเวลาโฟกัส",
+    "message": "Adamancia Vault",
     "description": "Extension name shown in Chrome and the Web Store."
   },
   "appDescription": {
-    "message": "บล็อกเว็บไซต์ได้ทันที ด้วยการจำกัดเวลาใช้งาน หรือด้วยกฎที่กำหนดเองตามเหตุการณ์ จดจ่อกับสิ่งที่สำคัญ",
+    "message": "บล็อกเว็บไซต์ด้วยการบล็อกเนทีฟ, จำกัดเวลาใช้งาน หรือกฎกำหนดเองตามเหตุการณ์ มีสมาธิกับสิ่งที่สำคัญ",
     "description": "Short description shown on the Chrome Web Store listing."
   }
 }

@@ -1,10 +1,10 @@
 {
   "appName": {
-    "message": "Adamancia Vault — वेबसाइट ब्लॉकर और फ़ोकस टाइमर",
+    "message": "Adamancia Vault",
     "description": "Extension name shown in Chrome and the Web Store."
   },
   "appDescription": {
-    "message": "सीधे ब्लॉक करके, उपयोग की समय-सीमा तय करके या इवेंट-आधारित कस्टम नियमों से वेबसाइटें ब्लॉक करें। ज़रूरी कामों पर ध्यान दें।",
+    "message": "नेटिव ब्लॉकिंग, समय सीमा, या इवेंट-आधारित कस्टम नियमों से वेबसाइटें ब्लॉक करें। जो ज़रूरी है उस पर ध्यान दें।",
     "description": "Short description shown on the Chrome Web Store listing."
   }
 }

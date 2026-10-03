@@ -1,10 +1,10 @@
 {
   "appName": {
-    "message": "Adamancia Vault — 웹사이트 차단 및 집중 타이머",
+    "message": "Adamancia Vault",
     "description": "Extension name shown in Chrome and the Web Store."
   },
   "appDescription": {
-    "message": "웹사이트를 바로 차단하거나 사용 시간 제한 또는 이벤트 기반 사용자 지정 규칙으로 제어하세요. 중요한 일에 집중하세요.",
+    "message": "네이티브 차단, 사용 시간 제한, 이벤트 기반 맞춤 규칙으로 웹사이트를 차단하세요. 중요한 일에 집중하세요.",
     "description": "Short description shown on the Chrome Web Store listing."
   }
 }

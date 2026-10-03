@@ -1,10 +1,10 @@
 {
   "appName": {
-    "message": "Adamancia Vault — ওয়েবসাইট ব্লকার ও মনোযোগের টাইমার",
+    "message": "Adamancia Vault",
     "description": "Extension name shown in Chrome and the Web Store."
   },
   "appDescription": {
-    "message": "সরাসরি ব্লক করা, ব্যবহারের সময়সীমা বা ইভেন্টভিত্তিক কাস্টম নিয়ম দিয়ে ওয়েবসাইট ব্লক করুন। গুরুত্বপূর্ণ কাজে মনোযোগ দিন।",
+    "message": "নেটিভ ব্লকিং, সময়সীমা বা ইভেন্ট-ভিত্তিক কাস্টম নিয়ম দিয়ে ওয়েবসাইট ব্লক করুন। যা গুরুত্বপূর্ণ তাতে মনোযোগ দিন।",
     "description": "Short description shown on the Chrome Web Store listing."
   }
 }
