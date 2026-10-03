@@ -20,6 +20,20 @@ async () => {
     check(stored.vaultUiLanguage === locale, locale + ': page-label preference is published');
     check(JSON.stringify(state.groups) === saved, locale + ': names and persisted policy remain unchanged');
     check(getComputedStyle(document.getElementById('blockingRules')).direction === 'ltr', locale + ': JavaScript stays left to right');
+    check(document.documentElement.scrollWidth <= innerWidth, locale + ': editor fits the viewport');
+    openSettings(); await settle();
+    const settingsCard = settingsModal.querySelector('.settings-modal-card');
+    const fits = node => { const box = node.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth && node.scrollWidth <= node.clientWidth + 1; };
+    check(fits(settingsCard), locale + ': Settings fits without horizontal overflow');
+    closeSettings();
+    const pinPanel = openPinEntry({title: t('freeze.pin.unfreezeTitle'), description: t('freeze.pin.unfreezePrompt'), onSubmit: async () => false});
+    await settle();
+    const pinCard = document.querySelector('.cb-overlay-card'), boxes = [...pinCard.querySelectorAll('.cb-overlay-pin-box')];
+    check(fits(pinCard) && pinCard.textContent.includes(t('freeze.pin.unfreezePrompt')), locale + ': translated PIN panel fits');
+    check(getComputedStyle(pinCard.querySelector('.cb-overlay-pin')).direction === 'ltr' && boxes[0].getBoundingClientRect().left < boxes.at(-1).getBoundingClientRect().left, locale + ': PIN digits keep left-to-right reading order');
+    const pinInput = pinCard.querySelector('.cb-overlay-pin-input'); pinInput.value = '123'; pinInput.dispatchEvent(new Event('input', {bubbles:true}));
+    check(pinInput.value === '123' && JSON.stringify(state.groups) === saved, locale + ': PIN display leaves digits and policy unchanged');
+    pinPanel.close();
     for (const kind of ['user', 'code']) {
       await fetchManualMarkdown(locale, kind);
       check(Boolean(state.manualCache[`${kind}:${locale}`]), locale + ': ' + kind + ' guide is bundled without English fallback');

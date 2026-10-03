@@ -1948,7 +1948,8 @@ input.editor-name:hover {
 
 /* Technical tokens keep their literal reading order under an RTL interface. */
 input[type="url"], input[type="email"], input[type="password"],
-#platformAuthors, #discordTargets, #scheduleWindows, #freezePin {
+#platformAuthors, #discordTargets, #scheduleWindows, #freezePin,
+.cb-overlay-pin, .cb-overlay-pin-input {
   direction: ltr;
   unicode-bidi: isolate;
   text-align: start;
