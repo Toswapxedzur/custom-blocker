@@ -26,6 +26,7 @@ run_suite() {
 }
 
 failed=0
+node tests/runner-content-language.js || failed=1
 node tests/runner-rule-log-isolation.js || failed=1
 node tests/runner-rule-stale-results.js || failed=1
 node tests/runner-safari-native-lifecycle.js || failed=1
