@@ -156,6 +156,15 @@ function targetStates() {
   );
 
   connection.clusters = [{ id: "cluster" }];
+  connection.setStatus({ state: "connected", hubProgram: "windowsapp", peers: [{ program: "classifier", connected: true }] });
+  assert(
+    "Windows owns linked groups on the same authenticated route as Classifier",
+    connection.desktopProgram() === "windowsapp" && connection.desktopRouteIsReady() &&
+      connection.routeIsReady("classifier") && !connection.routeIsReady("macapp") &&
+      pushes.at(-1)?.status.hubProgram === "windowsapp" && pushes.at(-1)?.status.state === "connected",
+    { status: connection.status, push: pushes.at(-1) }
+  );
+
   connection.setStatus({ state: "connected", hubProgram: "classifier", peers: [] });
   assert(
     "losing the Mac route clears runtime cluster state without stopping classifier transport",

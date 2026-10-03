@@ -12,13 +12,14 @@ extension loaded via `--load-extension`, headless (new headless) by default.
 This is the **only wired way to see the MV3 service-worker context**: the Claude Browser
 pane can't load extensions, and Claude-in-Chrome is page-scoped (page console only).
 
-## Prerequisites (already present on this Mac)
-- Python Playwright + Chromium 1148 in `~/Library/Caches/ms-playwright/`.
-- Interpreter that has playwright: `/Library/Frameworks/Python.framework/Versions/3.13/bin/python3`
+## Prerequisites
+All testing runs on mini1, using an isolated extension copy. Its verified
+interpreter is `~/agentic-tooling-test-env/bin/python` (Playwright + Chromium).
+Do not launch test browsers on the owner's laptop.
 
 ## Run (agent path)
 ```bash
-/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 .claude/skills/run-customblocker/driver.py --hold 6
+ssh mini 'cd ~/vault-ext && ~/agentic-tooling-test-env/bin/python .claude/skills/run-customblocker/driver.py --hold 6'
 ```
 Prints the SW URL + extension id, then **`evaluate-in-SW OK`** (manifest name/version/id) —
 that line is the definitive "extension loaded + SW reachable" proof — then streams any
@@ -27,11 +28,18 @@ failed to load — check `manifest.json` / import errors).
 
 Run code inside the service worker (Promises are awaited):
 ```bash
-/Library/Frameworks/Python.framework/Versions/3.13/bin/python3 .claude/skills/run-customblocker/driver.py --hold 3 --eval "() => chrome.storage.local.get(null)"
+~/agentic-tooling-test-env/bin/python .claude/skills/run-customblocker/driver.py --hold 3 --eval "() => chrome.storage.local.get(null)"
 ```
 Options: `--headed` (visible Chromium — fallback if the SW never appears headless);
 `--hold N`; env `PROFILE=<dir>` (reuse a profile to test `chrome.storage` persistence);
 env `EXT_DIR=<dir>` (load a different unpacked extension, e.g. `casinoMalwareExtension`).
+
+For an isolated Windows guest browser launched by a separate fixture, reuse
+this driver on mini1 with `--connect-cdp http://127.0.0.1:<forwarded-port>`.
+Pass `--extension-id` to select Vault when the browser also has built-in workers.
+It attaches to the existing default context, closes only pages it created,
+and leaves the remote browser/profile shutdown to its fixture launcher.
+The ordinary launch path remains unchanged. Do not attach to a personal profile.
 
 ## Gotchas (verified 2026-09-10)
 - **A healthy SW is quiet.** `background.js` gates its logging behind `cbDebugMode`
@@ -42,7 +50,7 @@ env `EXT_DIR=<dir>` (load a different unpacked extension, e.g. `casinoMalwareExt
   `[CustomBlocker] importScripts(<file>) failed` per module → appear as `[SW console.error]`.
 - Early startup logs can race the console listener — another reason evaluate-in-SW is the proof.
 - Fresh temp profile each run ⇒ `chrome.storage.local` starts `{}`. Set `PROFILE=` to persist.
-- Unpacked-extension id (`fjichnkbaoilbfbjcjkggllmbicmeegk`) derives from the folder path — stable while the path is.
+- The development extension id (`fjichnkbaoilbfbjcjkggllmbicmeegk`) derives from the public development manifest key supplied only to the isolated test copy. Production uses its own key and identity.
 - `manifest.json` has `"name": "__MSG_appName__"`, but `chrome.runtime.getManifest().name`
   returns the localized "Adamancia Vault — Website Blocker & Focus Timer".
 - Headless works with `channel="chromium"` (new headless); no window pops.
