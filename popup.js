@@ -1664,7 +1664,7 @@ function setupChipField(field, options) {
 
   const commitAdd = () => {
     const parts = addInput.value
-      .split(/[\n,]+/)
+      .split(options?.splitCommas === false ? /\n+/ : /[\n,]+/)
       .map((part) => part.trim())
       .filter(Boolean);
     addInput.value = "";
@@ -1674,7 +1674,7 @@ function setupChipField(field, options) {
   };
 
   addInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === ",") {
+    if (event.key === "Enter" || (event.key === "," && options?.splitCommas !== false)) {
       event.preventDefault();
       commitAdd();
     } else if (event.key === "Backspace" && addInput.value === "") {
@@ -1700,6 +1700,22 @@ function setupChipField(field, options) {
       const label = document.createElement("span");
       label.className = "entry-chip-label";
       label.textContent = entry;
+      if (editable && options?.editableEntries) {
+        label.tabIndex = 0;
+        label.contentEditable = "true";
+        label.setAttribute("role", "textbox");
+        label.setAttribute("aria-label", t("tagFilter.tags"));
+        const commit = () => {
+          const value = label.textContent.trim();
+          setChipFieldEntries(field, getChipFieldEntries(field).map(item => item === entry ? value : item));
+          renderChips();
+        };
+        label.addEventListener("blur", commit);
+        label.addEventListener("keydown", event => {
+          if (event.key === "Enter") { event.preventDefault(); label.blur(); }
+          if (event.key === "Escape") { event.preventDefault(); label.textContent = entry; label.blur(); }
+        });
+      }
       chip.appendChild(label);
 
       if (editable) {
@@ -1732,6 +1748,10 @@ function refreshChipField(field) {
 }
 
 function setupPlatformChipInputs() {
+  setupChipField(platformTagsField, {
+    normalize: value => CBGroupScopes.parseTagListText(value).length === 1 ? value : null,
+    splitCommas: false, editableEntries: true
+  });
   setupChipField(platformAuthorsField, {
     normalize: (value) => normalizeSourceInput(value, chipsGroupType)
   });
@@ -1987,14 +2007,14 @@ function applyPlatformRulesHeader(groupType) {
 function rebuildAuthorModeOptions(type) {
   const isTwitter = type === "twitter";
   const noun = type === "reddit" ? t("platform.nounSubreddits") : isTwitter ? t("platform.nounAccounts") : t("platform.nounAuthors");
-  const modes = ["all", "include", "exclude", "nobody"];
+  const modes = ["all", "include", "exclude", ...(isTagFilterCompatible(type) ? ["tags-include", "tags-exclude"] : [])];
 
   const previous = platformAuthorModeField.value;
   platformAuthorModeField.innerHTML = "";
   for (const mode of modes) {
     const option = document.createElement("option");
     option.value = mode;
-    option.textContent = t(`platform.authorMode.${mode}`, { noun });
+    option.textContent = mode.startsWith("tags-") ? t(`tagFilter.mode${mode === "tags-include" ? "Include" : "Exclude"}`) : t(`platform.authorMode.${mode}`, { noun });
     platformAuthorModeField.appendChild(option);
   }
   if (modes.includes(previous)) platformAuthorModeField.value = previous;
@@ -2023,11 +2043,10 @@ function applyPlatformVideoUi(groupType) {
   platformVideoModeLongOption.textContent = t("platform.videoModeLong", { content: longLabel });
   platformVideoModePostOption.textContent = t("platform.videoModePost", { content: postLabel });
 
-  platformAuthorModeLabel.textContent = isReddit
-    ? t("reddit.mode")
-    : isTwitter ? t("platform.accountMode") : t("platform.authorMode");
+  platformAuthorModeLabel.textContent = t("scopes.applyTo");
   rebuildAuthorModeOptions(type);
-  platformAuthorModeHelp.textContent = isReddit
+  platformAuthorModeHelp.textContent = !platformCapabilities(type).feed && type !== "discord"
+    ? t("platform.pagesOnlyHelp") : isReddit
     ? t("platform.sourceModeHelp.reddit")
     : isTwitter ? t("platform.accountModeHelp") : t("platform.authorModeHelp");
 
@@ -2588,8 +2607,8 @@ const { normalizeSiteInput, normalizeTagFilterMode, clampTagConfidence } = CBGro
 // otherwise the stored type.
 function defaultEntryView(stored) {
   if (stored.groupType === "custom") return "custom";
-  if (!IS_NATIVE_DESKTOP) return stored.groupType;
   const entries = CBGroupScopes.groupPlatforms(stored);
+  if (!IS_NATIVE_DESKTOP) return entries.find(key => CBGroupScopes.entryPlatform(key) === stored.groupType) || entries[0] || stored.groupType;
   return entries.includes("apps") || entries.length === 0 ? "apps" : entries[0];
 }
 
@@ -3169,10 +3188,10 @@ function getGroupMetaText(group, draft, now = Date.now()) {
     const active = activeEntryKey(group);
     const covers = [];
     for (const key of CBGroupScopes.groupPlatforms(group)) {
-      if (key === "site") {
-        const sites = draft && active === "site"
+      if (CBGroupScopes.entryPlatform(key) === "site") {
+        const sites = draft && active === key
           ? parseSiteTextareaValue(draft.sitesText).validSites
-          : lines.find((line) => line.surface === "site")?.sites || [];
+          : lines.find((line) => line.surface === "site" && CBGroupScopes.lineBelongsTo(line, key))?.sites || [];
         if (sites.length) covers.push(summarizeNames(sites));
       } else if (key === "apps") {
         const apps = draft && active === "apps"
@@ -3665,8 +3684,8 @@ function renderEditorFields(now) {
   const isCustomGroup = group.groupType === "custom";
   const isPlatformProfileGroup = isPlatformProfileGroupType(group.groupType);
   const entryKey = activeEntryKey(group);
-  const isSiteView = entryKey === "site";
-  const isAppsView = entryKey === "apps";
+  const isSiteView = CBGroupScopes.entryPlatform(entryKey) === "site";
+  const isAppsView = CBGroupScopes.entryPlatform(entryKey) === "apps";
   // The entry in view is edited only by the program that owns it (scope line).
   const entryEditable = editable && ownsEntry(entryKey);
 
@@ -3715,6 +3734,7 @@ function renderEditorFields(now) {
   const tagCompatible = isTagFilterCompatible(group.groupType);
   const tagMode = normalizeTagFilterMode(draft?.platformTagMode ?? group.platformTagMode);
   platformTagModeField.value = tagMode;
+  if (tagCompatible && tagMode !== "all") platformAuthorModeField.value = `tags-${tagMode}`;
   platformTagsField.value = draft?.platformTagsText ?? CBGroupScopes.tagListToText(group.platformTags);
   platformTagDefaultConfidenceField.value = String(
     clampTagConfidence(draft?.platformTagDefaultConfidence ?? group.platformTagDefaultConfidence, 4)
@@ -3730,7 +3750,7 @@ function renderEditorFields(now) {
   if (platformTagCoverUntilTaggedField) {
     platformTagCoverUntilTaggedField.checked = (draft?.platformTagCoverUntilTagged ?? group.platformTagCoverUntilTagged) === true;
   }
-  if (platformTagFields) platformTagFields.classList.toggle("hidden", !tagCompatible);
+  if (platformTagFields) platformTagFields.classList.toggle("hidden", !tagCompatible || tagMode === "all");
   if (platformTagListBlock) platformTagListBlock.classList.toggle("hidden", tagMode === "all");
   refreshTagSuggestions(
     document.getElementById("platformTagSuggestions"), platformTagsField,
@@ -3808,7 +3828,7 @@ function renderEditorFields(now) {
   }
   blockingRulesField.disabled = !editable || !isCustomGroup;
   const currentAuthorMode = normalizeSourceMode(platformAuthorModeField.value);
-  const authorModeUsesList = sourceModeUsesList(currentAuthorMode); // include/exclude
+  const authorModeUsesList = !platformAuthorModeField.value.startsWith("tags-") && sourceModeUsesList(currentAuthorMode); // include/exclude
   // Show the author list only for include/exclude.
   platformAuthorsBlock.classList.toggle("hidden", !usesAuthorAxis || !authorModeUsesList);
   platformAuthorsField.disabled = !entryEditable || !usesAuthorAxis || !authorModeUsesList;
@@ -3826,6 +3846,7 @@ function renderEditorFields(now) {
   renderBlockedSites();
   refreshChipField(platformAuthorsField);
   refreshChipField(discordTargetsField);
+  refreshChipField(platformTagsField);
   deleteGroupButton.disabled = !editable;
   renderLinkSection(group, editable);
   exportGroupButton.disabled = false;
@@ -3964,9 +3985,9 @@ function stashCurrentDraft() {
     appsAllowlist: appsAllowlistField ? appsAllowlistField.checked : false,
     blockingRulesText: blockingRulesField.value,
     platformVideoMode: platformVideoModeField.value,
-    sourceMode: platformAuthorModeField.value,
+    sourceMode: platformAuthorModeField.value.startsWith("tags-") ? "nobody" : platformAuthorModeField.value,
     sourcesText: platformAuthorsField.value,
-    platformTagMode: platformTagModeField.value,
+    platformTagMode: platformAuthorModeField.value.startsWith("tags-") ? platformAuthorModeField.value.slice(5) : "all",
     platformTagsText: platformTagsField.value,
     platformTagDefaultConfidence: platformTagDefaultConfidenceField.value,
     platformTagBlockUntagged: platformTagBlockUntaggedField.checked,
@@ -4196,6 +4217,7 @@ function groupPlatformKeys(group) {
 }
 
 function platformKeyLabel(key) {
+  key = CBGroupScopes.entryPlatform(key);
   if (key === "site") return t("scopes.websites");
   if (key === "apps") return t("scopes.apps");
   return getGroupTypeLabel(key);
@@ -4207,7 +4229,7 @@ function viewGroupOnPlatform(stored, key) {
   const entry = CBGroupScopes.normalizeEntryKey(key);
   return {
     ...stored,
-    groupType: entry === "site" || entry === "apps" ? "site" : entry,
+    groupType: ["site", "apps"].includes(CBGroupScopes.entryPlatform(entry)) ? "site" : CBGroupScopes.entryPlatform(entry),
     storedGroupType: stored.groupType,
     entryView: entry,
     ...CBGroupScopes.flatFromScopes(stored, entry)
@@ -4242,8 +4264,8 @@ async function setGroupPlatformView(key) {
     return;
   }
   let next = viewGroupOnPlatform(stored, entry);
-  if (!known && entry !== "site" && entry !== "apps") {
-    const defaults = createDefaultGroup(entry);
+  if (!known) {
+    const defaults = createDefaultGroup(CBGroupScopes.entryPlatform(entry));
     for (const field of CBGroupScopes.FLAT_SCOPE_FIELDS) {
       if (Object.prototype.hasOwnProperty.call(defaults, field)) next[field] = defaults[field];
     }
@@ -4271,7 +4293,7 @@ async function removeGroupPlatform(platform) {
     return;
   }
   const scopes = stored.scopes.filter((line) => !CBGroupScopes.lineBelongsTo(line, platform));
-  const remaining = [...new Set(scopes.map((line) => CBGroupScopes.linePlatformKey(line)))];
+  const remaining = CBGroupScopes.groupPlatforms({ scopes });
   if (remaining.length === 0) {
     render();
     return;
@@ -4301,7 +4323,8 @@ function renderGroupScopes(group, editable) {
     chip.tabIndex = 0;
     chip.setAttribute("aria-pressed", key === active ? "true" : "false");
     const label = document.createElement("span");
-    label.textContent = platformKeyLabel(key);
+    const siblings = keys.filter(item => CBGroupScopes.entryPlatform(item) === CBGroupScopes.entryPlatform(key));
+    label.textContent = platformKeyLabel(key) + (siblings.length > 1 ? ` ${siblings.indexOf(key) + 1}` : "");
     chip.appendChild(label);
     const open = () => {
       if (key === active) return;
@@ -4346,7 +4369,7 @@ function renderGroupScopes(group, editable) {
   placeholder.selected = true;
   groupScopesAdd.appendChild(placeholder);
   for (const key of ["site", "apps", ...PLATFORM_GROUP_TYPES]) {
-    if (keys.includes(key) || !ownsEntry(key)) continue;
+    if ((key === "apps" && keys.includes(key)) || !ownsEntry(key)) continue;
     const option = document.createElement("option");
     option.value = key;
     option.textContent = platformKeyLabel(key);
@@ -4625,7 +4648,7 @@ function buildUpdatedGroupFromDraft(group, draft) {
 
   // The website list belongs to the Websites entry, the app list to Apps.
   const entryKey = activeEntryKey(group);
-  const usesSiteList = entryKey === "site";
+  const usesSiteList = CBGroupScopes.entryPlatform(entryKey) === "site";
 
   if (usesSiteList && siteResults.invalidSites.length > 0) {
     fail(new Error(t("status.invalidSites", { list: siteResults.invalidSites.join(", ") })));
@@ -4769,7 +4792,7 @@ function scheduleAutosave() {
 function clearSelectedSites() {
   const group = getSelectedGroup();
 
-  if (!group || activeEntryKey(group) !== "site" || refuseUnlessEditable(group)) return;
+  if (!group || CBGroupScopes.entryPlatform(activeEntryKey(group)) !== "site" || refuseUnlessEditable(group)) return;
 
   blockedSitesField.value = "";
   stashCurrentDraft();
@@ -5761,7 +5784,7 @@ function placeTagChooser() {
 function updateTagChooser() {
   const chooser = activeTagChooser;
   if (!chooser) return;
-  if (chooser.groupID !== getSelectedGroup()?.id) return closeTagChooser();
+  if (chooser.groupID !== getSelectedGroup()?.id || chooser.entryID !== activeEntryKey(getSelectedGroup())) return closeTagChooser();
   const { textarea, names } = tagSuggestionState.get(chooser.container);
   const query = chooser.search.value.trim().toLowerCase(), used = usedTagNames(textarea);
   const scroll = chooser.list.scrollTop;
@@ -5771,11 +5794,13 @@ function updateTagChooser() {
     item.type = "button";
     item.className = "vui-menu-item" + (used.has(name.toLowerCase()) ? " is-selected" : "");
     item.textContent = name;
-    item.disabled = used.has(name.toLowerCase());
+    item.disabled = textarea.disabled || used.has(name.toLowerCase());
     item.addEventListener("click", () => {
+      if (textarea.disabled || chooser.groupID !== getSelectedGroup()?.id || chooser.entryID !== activeEntryKey(getSelectedGroup())) return closeTagChooser();
       const current = textarea.value.replace(/\s+$/, "");
       textarea.value = current ? `${current}\n${name}` : name;
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      refreshChipField(textarea);
       updateTagChooser();
       chooser.search.focus({ preventScroll: true });
     });
@@ -5804,7 +5829,7 @@ function openTagChooser(container, button) {
   searchRow.appendChild(search); menu.append(searchRow, list);
   document.body.appendChild(menu);
   VaultUI.showMenuLayer(menu);
-  activeTagChooser = { container, button, menu, search, list, groupID: getSelectedGroup()?.id };
+  activeTagChooser = { container, button, menu, search, list, groupID: getSelectedGroup()?.id, entryID: activeEntryKey(getSelectedGroup()) };
   button.setAttribute("aria-expanded", "true");
   search.addEventListener("input", updateTagChooser);
   menu.addEventListener("keydown", event => {
@@ -5915,7 +5940,8 @@ if (groupScopesAdd) {
   groupScopesAdd.addEventListener("change", () => {
     const key = groupScopesAdd.value;
     if (!key) return;
-    setGroupPlatformView(key).catch((error) => {
+    const entry = key === "apps" ? key : CBGroupScopes.newEntryKey(key);
+    setGroupPlatformView(entry).catch((error) => {
       console.error("Failed to add the platform to the group.", error);
       setStatus(t("status.errorSaveGroup"), true);
       render();
@@ -5924,6 +5950,7 @@ if (groupScopesAdd) {
 }
 
 platformAuthorModeField.addEventListener("change", () => {
+  platformTagModeField.value = platformAuthorModeField.value.startsWith("tags-") ? platformAuthorModeField.value.slice(5) : "all";
   if (platformAuthorModeField.value === "exclude") {
     setStatus(t("status.allowlistWarning"));
   }

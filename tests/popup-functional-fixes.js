@@ -1,0 +1,38 @@
+async () => {
+  const check = (ok, label) => { if (!ok) throw new Error(label); };
+  const settle = async () => { await new Promise(resolve => setTimeout(resolve, 50)); await flushAutosave(); };
+  const initial = CBGroupScopes.sanitizeGroups([{ ...CBGroupScopes.createDefaultGroup('youtube'), name: 'Functional regression', enabled: true, platformVideoMode: 'short' }])[0];
+  await chrome.storage.local.set({ blockedGroups: [initial] });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  state.groups = [groupView(initial)]; state.selectedGroupId = initial.id; state.drafts = {}; render();
+  check(document.querySelector('#platformTagMode').type === 'hidden', 'one visible Apply to menu');
+  const apply = document.querySelector('#platformAuthorMode');
+  check([...apply.options].some(o => o.value === 'tags-include') && ![...apply.options].some(o => o.value === 'nobody'), 'creator/tag alternatives');
+  const add = document.querySelector('#groupScopesAdd'); add.value = 'youtube'; add.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 200));
+  const entry = activeEntryKey(getSelectedGroup());
+  check(entry !== 'youtube' && CBGroupScopes.groupPlatforms(getSelectedGroup()).length === 2, 'duplicate website added: ' + JSON.stringify({entry,scopes:getSelectedGroup()?.scopes}));
+  apply.value = 'include'; apply.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const authorInput = document.querySelector('#platformAuthorsBlock .entry-chip-input');
+  check(authorInput, 'author add input missing: ' + document.querySelector('#platformAuthors').nextElementSibling.outerHTML);
+  authorInput.value = '@mrbeast'; authorInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await settle();
+  let stored = toStoredGroup(getSelectedGroup());
+  check(CBGroupScopes.flatFromScopes(stored, 'youtube').platformVideoMode === 'short', 'first entry preserved');
+  check(CBGroupScopes.flatFromScopes(stored, entry).sources.includes('mrbeast'), 'creator added to selected duplicate: ' + JSON.stringify({ entry, active:activeEntryKey(getSelectedGroup()), flat:CBGroupScopes.flatFromScopes(stored, entry), draft:state.drafts, input:authorInput.value, authors:platformAuthorsField.value }));
+  apply.value = 'tags-include'; apply.dispatchEvent(new Event('change', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const tagInput = document.querySelector('#platformTagListBlock .entry-chip-input');
+  tagInput.value = 'Gaming @3'; tagInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await settle();
+  stored = toStoredGroup(getSelectedGroup());
+  const flat = CBGroupScopes.flatFromScopes(stored, entry);
+  check(flat.sourceMode === 'nobody' && flat.platformTagMode === 'include' && flat.platformTags[0]?.confidence === 3, 'tag entry saves exclusive filter with confidence');
+  check(document.querySelector('#platformTags').classList.contains('hidden') && document.querySelector('#platformTagListBlock .entry-chip-list').textContent.includes('Gaming @3'), 'tag displayed as individual entry');
+  await setGroupPlatformView('youtube'); await setGroupPlatformView(entry);
+  check(CBGroupScopes.flatFromScopes(toStoredGroup(getSelectedGroup()), entry).platformTags[0]?.name === 'Gaming', 'tag survives entry switch');
+  await removeGroupPlatform(entry);
+  check(CBGroupScopes.groupPlatforms(getSelectedGroup()).join() === 'youtube' && CBGroupScopes.flatFromScopes(toStoredGroup(getSelectedGroup()), 'youtube').platformVideoMode === 'short', 'only selected duplicate removed');
+  return { checks: 10, result: 'PASS' };
+}

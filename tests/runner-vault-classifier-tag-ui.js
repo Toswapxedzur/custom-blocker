@@ -211,12 +211,11 @@ setTimeout(() => {
   // Page routing: exactly one page-seam call, for the watch root, carrying the
   // entry id (so content.js can prove the entry IS the current page) and
   // settled:true; the two feed cards each asked for a feed-filter re-apply.
-  const pageVerdictRouted = pageEvaluations.length === 1
-    && pageEvaluations[0].root === pageRoot
-    && pageEvaluations[0].meta && pageEvaluations[0].meta.entryID === PAGE_ENTRY_ID
-    && pageEvaluations[0].meta.platform === "youtube"
-    && pageEvaluations[0].meta.settled === true
-    && reapplyCalls.length === 2;
+  const pageVerdictRouted = pageEvaluations.length === 2
+    && pageEvaluations.every(call => call.root === pageRoot && call.meta?.entryID === PAGE_ENTRY_ID && call.meta.platform === "youtube")
+    && pageEvaluations[0].meta.settled === false
+    && pageEvaluations[1].meta.settled === true
+    && reapplyCalls.length === 4;
   const renderedEveryEntry = JSON.stringify(firstNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(secondNames) === JSON.stringify(["Games", "Technology"])
     && JSON.stringify(firstLightColors) === JSON.stringify(["#9EC5E8", "#E3B4E7"])
