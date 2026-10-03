@@ -8,6 +8,7 @@ async () => {
   check(document.querySelector('#platformTagMode').type === 'hidden', 'one visible Apply to menu');
   const apply = document.querySelector('#platformAuthorMode');
   check([...apply.options].some(o => o.value === 'tags-include') && ![...apply.options].some(o => o.value === 'nobody'), 'creator/tag alternatives');
+  check(document.querySelector('#platformAuthorModeHelp').textContent !== t('platform.pagesOnlyHelp'), 'YouTube feed support is correctly described');
   const add = document.querySelector('#groupScopesAdd'); add.value = 'youtube'; add.dispatchEvent(new Event('change', { bubbles: true }));
   await new Promise(resolve => setTimeout(resolve, 200));
   const entry = activeEntryKey(getSelectedGroup());
