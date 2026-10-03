@@ -495,6 +495,11 @@ function t(key, vars = {}) {
   );
 }
 
+// Other catalogs use their localized time units without an English plural suffix.
+function timeUnitSuffix(amount) {
+  return state.language === "en" && amount !== 1 ? "s" : "";
+}
+
 function loadLanguage() {
   const defaultLanguage = getDefaultLanguageCode();
   try {
@@ -3452,7 +3457,7 @@ function updateUsageSummary(group, draft, now = Date.now()) {
   const rolling = displayGroup.rollingLimit === true;
   const vars = {
     hours: formatHours(displayGroup.resetIntervalHours),
-    suffix: displayGroup.resetIntervalHours === 1 ? "" : "s"
+    suffix: timeUnitSuffix(displayGroup.resetIntervalHours)
   };
   const remainingMs = Math.max(
     displayGroup.allowedMinutes * MS_PER_MINUTE + CBGroupActions.snoozeExtraMs(state.groupSnoozes[group.id], now) - usageState.usedMs,
@@ -5367,7 +5372,7 @@ async function applySnoozeStart(group) {
     snoozeEntry.startsAtMs > now
       ? t("status.snoozeScheduled", { name: group.name, delay: formatDurationMs(snoozeEntry.startsAtMs - now) })
       : t(snoozeEntry.kind === "budget" ? "status.snoozedBudget" : "status.snoozed",
-        { name: group.name, minutes, suffix: minutes === 1 ? "" : "s" })
+        { name: group.name, minutes, suffix: timeUnitSuffix(minutes) })
   );
   render();
   showSnoozeNotice(group, snoozeEntry, totalBeforeMs);

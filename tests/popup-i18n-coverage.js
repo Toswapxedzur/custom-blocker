@@ -13,6 +13,7 @@ async () => {
     await setLanguage(locale); await settle();
     check(document.documentElement.lang === locale && languageSelect.value === locale, locale + ': language selection is applied');
     check(document.documentElement.dir === (locale === 'ar' ? 'rtl' : 'ltr'), locale + ': interface direction is correct');
+    check(timeUnitSuffix(1) === '' && timeUnitSuffix(2) === (locale === 'en' ? 's' : ''), locale + ': time units avoid English plural suffixes in translated text');
     check(document.getElementById('settingsButton').textContent === t('settings.button'), locale + ': visible controls use the selected catalog');
     check(document.querySelector('[data-info-key="groupName"]').dataset.infoCopy === t('info.groupName'), locale + ': field explanations use selected catalog');
     const stored = await chrome.storage.local.get('vaultUiLanguage');
