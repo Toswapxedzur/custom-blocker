@@ -1,11 +1,18 @@
 {
   "manifest_version": 3,
   "name": "__MSG_appName__",
-  "version": "2.4.0",
+  "version": "3.1.0",
   "description": "__MSG_appDescription__",
   "default_locale": "en",
-  "permissions": ["storage", "alarms", "tabs", "webNavigation"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "custom-web-blocker@customblocker.app",
@@ -19,17 +26,37 @@
     "128": "icons/adamancia-vault-lock-v3-128.png"
   },
   "background": {
-    "scripts": ["browser-compat.js", "bridge-protocol.js", "platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "background.js"]
+    "scripts": [
+      "browser-compat.js",
+      "bridge-protocol.js",
+      "platform-profiles.js",
+      "group-scopes.js",
+      "parental-pin.js",
+      "group-actions.js",
+      "background.js"
+    ]
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["browser-compat.js", "platform-profiles.js", "content-messages.js", "vault-content-i18n.js", "content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "browser-compat.js",
+        "platform-profiles.js",
+        "content-messages.js",
+        "vault-content-i18n.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["cover-frame.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "cover-frame.js"
+      ],
       "all_frames": true,
       "run_at": "document_idle"
     }
@@ -72,7 +99,9 @@
         "icons/adamancia-vault-lock-v3-48.png",
         "icons/adamancia-vault-lock-v3-128.png"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }

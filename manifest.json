@@ -1,13 +1,23 @@
 {
   "manifest_version": 3,
   "name": "__MSG_appName__",
-  "version": "2.4.0",
+  "version": "3.1.0",
   "description": "__MSG_appDescription__",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA29qBv+wO00m35laY3ECt2FwI1mmM/FCyUDUmqJTpvNoRb64pUK+BpJmoVRyE2840Fb2Dlt1sqO6qOzQjW9wKyJgZG1t8bgNKxgXBQrQ3RBPRkb//d0SOzoDacWLDZLt+1M5XBUhCyK4WjnK1JcNM63odZbamN4foBHobIpMxABQcT3gFsSxs4Vngl7bduIkbsBlUeeCKYTMLT8hH//OG3L0U+jCQgib2ANCIJRUmBViuJmcRMcUDTJUxj6BBFh1Ve5w42RH2haGFX/2J/9Sa1AhBWAj2mZ+xkzkG/bClhuqathp6MmUDhjqBZOVxVeIYpoGjJ+4SQOPb6LRUGlC7NwIDAQAB",
   "default_locale": "en",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "alarms", "offscreen", "tabs", "webNavigation", "favicon", "nativeMessaging"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "storage",
+    "alarms",
+    "offscreen",
+    "tabs",
+    "webNavigation",
+    "favicon",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "icons": {
     "16": "icons/adamancia-vault-lock-v3-16.png",
     "32": "icons/adamancia-vault-lock-v3-32.png",
@@ -19,19 +29,45 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["platform-profiles.js", "content-messages.js", "vault-content-i18n.js", "content.js", "vault-classifier-contract.js", "vault-classifier-tag-ui.js", "vault-classifier-collector-core.js", "vault-classifier-facebook.js", "vault-classifier-instagram.js", "vault-classifier-twitch.js", "vault-classifier-reddit.js", "vault-classifier-discord.js", "vault-classifier-twitter.js", "vault-classifier-bilibili.js",
-        "vault-activity-content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "platform-profiles.js",
+        "content-messages.js",
+        "vault-content-i18n.js",
+        "content.js",
+        "vault-classifier-contract.js",
+        "vault-classifier-tag-ui.js",
+        "vault-classifier-collector-core.js",
+        "vault-classifier-facebook.js",
+        "vault-classifier-instagram.js",
+        "vault-classifier-twitch.js",
+        "vault-classifier-reddit.js",
+        "vault-classifier-discord.js",
+        "vault-classifier-twitter.js",
+        "vault-classifier-bilibili.js",
+        "vault-activity-content.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["*://youtube.com/*", "*://*.youtube.com/*"],
-      "js": ["vault-classifier-youtube.js"],
+      "matches": [
+        "*://youtube.com/*",
+        "*://*.youtube.com/*"
+      ],
+      "js": [
+        "vault-classifier-youtube.js"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["cover-frame.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "cover-frame.js"
+      ],
       "all_frames": true,
       "run_at": "document_idle"
     }
@@ -45,7 +81,9 @@
     }
   },
   "sandbox": {
-    "pages": ["event-sandbox.html"]
+    "pages": [
+      "event-sandbox.html"
+    ]
   },
   "web_accessible_resources": [
     {
@@ -60,7 +98,9 @@
         "icons/adamancia-vault-lock-v3-48.png",
         "icons/adamancia-vault-lock-v3-128.png"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }
