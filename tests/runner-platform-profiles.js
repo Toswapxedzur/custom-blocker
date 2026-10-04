@@ -149,6 +149,7 @@ for (const platform of TAGGING_PLATFORMS) {
   assert(platform + " tagging has a feed adapter", platformCapabilities(platform).feed);
 }
 assert("Safari tagging shares Chromium's platforms", taggingAvailableFor("safari") && !taggingAvailableFor("firefox"));
+assert("unknown browser tagging fails closed", !taggingAvailableFor("browser"));
 
 log.section("P4: public feed adapters share author matching without video forms");
 const feedAdapters = [

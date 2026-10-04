@@ -53,7 +53,7 @@ Match = { tag: string, text: string, href: string, src: string,
 - `visible` accessible, non-hidden page থেকে আসে; `elapsedMs` তাদের শেষ heartbeat থেকে সময়, cover থাকলে শূন্য। এটি মোট ব্যবহার বা playback time নয়।
 - `items` নতুন/পরিবর্তিত supported feed item জানায় এবং Run/re-enable-এর পরে আবার পাঠায়। `ref` page-এর card চিহ্নিত করে, স্থায়ী content ID নয়; `ref === "page"` মানে page নিজেই। title/URL/author ফাঁকা হতে পারে। `authors`-এ platform-specific source ID থাকে।
 - Platform ID: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`। Page-এর supported markup-এর ওপর item পাওয়া নির্ভর করে।
-- Tag-এর জন্য connected desktop Classifier ও tagging-enabled build/platform দরকার (Chromium ও Safari: YouTube, Reddit, Bilibili, X/`twitter`)। Confidence 1–5। `tagsSettled === false` মানে pending/unavailable, untagged নয়; settled `tags: []` মানে untagged। Firefox build-এ এই tagging integration নেই।
+- Tag-এর জন্য connected desktop Classifier ও tagging-enabled build/platform দরকার (Chromium ও Safari: YouTube, Reddit, Bilibili, X/`twitter`)। Confidence 1–5। `tagsSettled === false` মানে pending/unavailable, untagged নয়; settled `tags: []` মানে untagged।
 - `snooze` মানে group-এর Snooze button চাপা হয়েছে। এটি নিজে কোনো pause প্রয়োগ করে না।
 - Query/file reply অনুরোধকারী group-এ যায়। `requestId` মিলিয়ে `error`/`ok` দেখুন এবং tick দিয়ে deadline দিন: page বন্ধ, engine reload বা group disable হলে reply হারাতে পারে। Run-এর পরে request ID আবার হতে পারে; pending request স্থায়ী কাজ নয়।
 
