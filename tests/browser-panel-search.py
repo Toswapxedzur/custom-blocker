@@ -30,12 +30,18 @@ def run(context, worker):
       updateOverlay(timerRows,true);window.timerNode=document.getElementById('custom-web-blocker-timer').firstChild;
       updateOverlay(timerRows.map(row=>({...row,displayMs:59000})),true);
     }""")
-    assert page.evaluate("() => document.getElementById('custom-web-blocker-timer').children.length===300 && timerNode===document.getElementById('custom-web-blocker-timer').firstChild && timerNode.textContent==='Group 0: 00:00:59'")
+    assert page.evaluate("""() => {const el=document.getElementById('custom-web-blocker-timer'), r=el.getBoundingClientRect();return el.children.length<100 && timerNode===el.firstChild && timerNode.textContent==='Group 0: 00:00:59' && r.bottom<=innerHeight-12 && r.right<=innerWidth-12;}""")
+    first = page.evaluate("document.getElementById('custom-web-blocker-timer').firstChild.textContent")
+    page.wait_for_function("document.getElementById('custom-web-blocker-timer').firstChild.textContent !== 'Group 0: 00:00:59'", timeout=6500)
     page.evaluate("() => updateOverlay(timerRows.map(({overlayStyle,...row})=>row),true)")
-    assert page.evaluate("() => document.getElementById('custom-web-blocker-timer').firstChild.nodeType===3 && document.getElementById('custom-web-blocker-timer').textContent.split('\\n').length===300 && document.getElementById('custom-web-blocker-timer').style.pointerEvents==='none'")
+    assert page.evaluate("() => document.getElementById('custom-web-blocker-timer').firstChild.style.fontWeight==='' && document.getElementById('custom-web-blocker-timer').style.pointerEvents==='none'")
+    page.set_viewport_size({'width':360,'height':240})
+    page.evaluate("() => updateOverlay(timerRows.map(row=>({...row,name:'W'.repeat(500),overlayStyle:{fontSize:'24px',padding:'12px'}})),true)")
+    assert page.evaluate("""() => {const el=document.getElementById('custom-web-blocker-timer'),r=el.getBoundingClientRect(), t=el.firstChild.lastChild.getBoundingClientRect();return el.children.length>0 && el.children.length<10 && r.right<=innerWidth-12 && r.bottom<=innerHeight-12 && t.width>0 && t.right<=r.right && el.firstChild.lastChild.textContent==='00:01:00';}""")
     page.evaluate("() => updateOverlay([],false)")
     assert page.evaluate("() => !document.getElementById('custom-web-blocker-timer')")
-    print('PASS 300 styled timers reuse their rows, reset plain styling and retain click-through behavior')
+    page.set_viewport_size({'width':1100,'height':820})
+    print('PASS timers reuse visible rows, rotate every five seconds, bound styled pages and reserve countdown width')
     page.evaluate("""async () => {
       window.manyPanels=Array.from({length:256},(_,i)=>({...RuleCore.sanitizePanel({id:'panel-'+i,title:'Panel '+i,controls:[{id:'text',type:'text',text:'Text '+i}]}),groupId:'group-'+i}));
       let yielded=false;setTimeout(()=>{yielded=true},0);await __cb_applyPanelSnapshots(manyPanels,[]);window.panelScanYielded=yielded;

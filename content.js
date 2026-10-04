@@ -80,12 +80,20 @@ function mountOverlay() {
   container.style.fontVariantNumeric = "tabular-nums";
   container.style.fontSize = "13px";
   container.style.lineHeight = "1.35";
-  container.style.whiteSpace = "pre";
+  container.style.whiteSpace = "nowrap";
+  container.style.width = "max-content";
+  container.style.maxWidth = "calc(100vw - 24px)";
+  container.style.maxHeight = "calc(100vh - 24px)";
+  container.style.boxSizing = "border-box";
+  container.style.overflow = "hidden";
   container.style.boxShadow = "0 10px 30px rgba(15, 23, 42, 0.28)";
   container.style.pointerEvents = "none";
-  container.textContent = "00:00";
+
   document.documentElement.appendChild(container);
-  return { container };
+  const state = { container, rows: new Map(), items: [], start: 0, next: 0, rotation: null };
+  state.resize = () => renderOverlayPage(state);
+  window.addEventListener("resize", state.resize);
+  return state;
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -128,10 +136,7 @@ function shutdownContentScript() {
     window.clearTimeout(refreshDebounceTimeoutId);
     refreshDebounceTimeoutId = null;
   }
-  if (overlay?.container?.parentNode) {
-    overlay.container.parentNode.removeChild(overlay.container);
-  }
-  overlay = null;
+  removeOverlay();
   // The extension was updated or reloaded under this page: a blocked page
   // stays covered until the new extension reloads it and decides again.
   try { cbStopCoverTimers(); } catch {}
@@ -180,7 +185,11 @@ function ensureOverlay() {
 }
 
 function removeOverlay() {
-  if (overlay?.container?.isConnected) overlay.container.remove();
+  if (overlay) {
+    if (overlay.rotation !== null) window.clearInterval(overlay.rotation);
+    window.removeEventListener("resize", overlay.resize);
+    overlay.container.remove();
+  }
   overlay = null;
 }
 
@@ -1331,33 +1340,59 @@ function updateOverlay(items, showTimer) {
     removeOverlay();
     return;
   }
-  const nextOverlay = ensureOverlay();
-  const anyStyled = visibleItems.some((item) => item.overlayStyle && typeof item.overlayStyle === "object");
-  if (!anyStyled) {
-    const text = visibleItems.map(item => `${item.name}: ${formatOverlayDurationMs(item.displayMs ?? item.remainingMs ?? item.currentMs ?? 0)}`).join("\n");
-    if (nextOverlay.rows || nextOverlay.container.textContent !== text) nextOverlay.container.textContent = text;
-    nextOverlay.rows = null;
-    return;
-  }
-  if (!nextOverlay.rows) { nextOverlay.container.replaceChildren(); nextOverlay.rows = new Map(); }
-  const wanted = new Set(); let before = nextOverlay.container.firstChild;
-  visibleItems.forEach((item, index) => {
-    const key = String(item.id || item.groupId || index); wanted.add(key);
-    let line = nextOverlay.rows.get(key);
-    if (!line) { line = document.createElement("div"); nextOverlay.rows.set(key, line); }
-    const style = item.overlayStyle, styleKey = JSON.stringify(style || {});
-    const value = item.displayMs ?? item.remainingMs ?? item.currentMs ?? 0;
-    const text = `${style?.icon ? style.icon + " " : ""}${item.name}: ${formatOverlayDurationMs(value)}`;
-    if (line.__styleKey !== styleKey) {
-      line.style.cssText = "content-visibility:auto;contain-intrinsic-size:auto 18px";
-      applyOverlayLineStyle(line, style); line.__styleKey = styleKey;
-    }
-    if (line.textContent !== text) line.textContent = text;
-    if (line !== before) nextOverlay.container.insertBefore(line, before);
-    before = line.nextSibling;
-  });
-  for (const [key, line] of nextOverlay.rows) if (!wanted.has(key)) { line.remove(); nextOverlay.rows.delete(key); }
+  const state = ensureOverlay();
+  state.items = visibleItems;
+  if (state.start >= visibleItems.length) state.start = 0;
+  renderOverlayPage(state);
+}
 
+// Only the current page has DOM rows. Styled rows are measured against the
+// viewport, so custom padding/font sizes cannot make later groups unreachable.
+function renderOverlayPage(state) {
+  const height = Math.max(18, window.innerHeight - 40);
+  const capacity = Math.max(1, Math.floor(height / 18));
+  const wanted = new Set();
+  let before = state.container.firstChild;
+  let end = state.start;
+  for (; end < Math.min(state.items.length, state.start + capacity); end++) {
+    const item = state.items[end];
+    const key = String(item.id || item.groupId || end);
+    let line = state.rows.get(key);
+    if (!line) {
+      line = document.createElement("div");
+      const name = document.createElement("span"), duration = document.createElement("span");
+      name.style.cssText = "min-width:0;overflow:hidden;text-overflow:ellipsis;flex:1 1 auto";
+      duration.style.cssText = "flex:0 0 auto;white-space:nowrap";
+      line.append(name, duration); state.rows.set(key, line);
+    }
+    const style = item.overlayStyle, styleKey = JSON.stringify(style || {});
+    if (line.__styleKey !== styleKey) {
+      line.style.cssText = "display:flex;min-height:18px;align-items:center;overflow:hidden;box-sizing:border-box";
+      applyOverlayLineStyle(line, style);
+      line.style.maxHeight = height + "px";
+      line.__styleKey = styleKey;
+    }
+    const name = `${style?.icon ? style.icon + " " : ""}${item.name}: `;
+    const duration = formatOverlayDurationMs(item.displayMs ?? item.remainingMs ?? item.currentMs ?? 0);
+    if (line.firstChild.textContent !== name) line.firstChild.textContent = name;
+    if (line.lastChild.textContent !== duration) line.lastChild.textContent = duration;
+    if (line !== before) state.container.insertBefore(line, before);
+    // Remove the old page before measuring a new row's bottom.
+    before = line.nextSibling;
+    if (line.getBoundingClientRect().bottom > window.innerHeight - 12 && end > state.start) {
+      line.remove(); state.rows.delete(key); break;
+    }
+    wanted.add(key);
+  }
+  for (const [key, line] of state.rows) if (!wanted.has(key)) { line.remove(); state.rows.delete(key); }
+  state.next = end < state.items.length ? end : 0;
+  if (wanted.size < state.items.length) {
+    if (state.rotation === null) state.rotation = window.setInterval(() => {
+      state.start = state.next; renderOverlayPage(state);
+    }, 5000);
+  } else if (state.rotation !== null) {
+    window.clearInterval(state.rotation); state.rotation = null;
+  }
 }
 
 function applyOverlayLineStyle(el, style) {
@@ -1377,9 +1412,6 @@ function applyOverlayLineStyle(el, style) {
     if (typeof v === "string" && v) {
       try { el.style[map[key]] = v; } catch {}
     }
-  }
-  if (typeof style.icon === "string" && style.icon) {
-    el.textContent = `${style.icon} ${el.textContent}`;
   }
 }
 

@@ -71,3 +71,5 @@
   installed icons remain unchanged during this base-review stage.
 
 - Functional filter regressions: `tests/popup-functional-fixes.js` and `tests/popup-tag-chooser.js` run through the canonical mini1 driver. Repeated Applied Website entries have stable `entryID` values and independent filters; tool flat patches require that ID when ambiguous. `runner-scopes-union.js` covers migration and shared-budget enforcement. `runner-vault-classifier-tag-ui-none.js` covers immediate recognition, Untagged failures, stale pushes and recycled Reddit roots.
+
+- Timer HUDs mount one viewport-sized page, rotate automatically every five seconds, reserve countdown width, and remain fully click-through. Custom row styles are measured when choosing the page.
