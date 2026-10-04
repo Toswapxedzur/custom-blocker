@@ -53,7 +53,7 @@ Match = { tag: string, text: string, href: string, src: string,
 - `visible` 来自可访问且未隐藏的页面；`elapsedMs` 是自上次心跳以来的时间，被覆盖时为零。它不是累计使用时长或播放时长。
 - `items` 报告新增或发生变化的受支持内容，并在运行或重新启用后再次发送。`ref` 标识该页面上的卡片，不是持久内容 ID；`ref === "page"` 表示页面本身。标题、URL 和作者可能为空。`authors` 包含特定平台的内容来源标识符。
 - 平台 ID：`youtube`、`tiktok`、`facebook`、`instagram`、`twitch`、`reddit`、`discord`、`twitter`、`bluesky`、`threads`、`substack`、`bilibili`、`rumble`、`pinterest`、`kick`、`tumblr`、`peertube`、`pixelfed`、`kuaishou`。内容是否可用取决于页面的受支持结构。
-- 标签需要连接桌面分类器，并使用启用了打标的版本和平台（Chromium 和 Safari：YouTube、Reddit、Bilibili、X/`twitter`）。置信度为 1–5。`tagsSettled === false` 表示等待中或不可用，不是未标记；已完成的 `tags: []` 表示未标记。Firefox 版本不提供此打标集成。
+- 标签需要连接桌面分类器，并使用启用了打标的版本和平台（Chromium 和 Safari：YouTube、Reddit、Bilibili、X/`twitter`）。置信度为 1–5。`tagsSettled === false` 表示等待中或不可用，不是未标记；已完成的 `tags: []` 表示未标记。
 - `snooze` 表示用户按下了该组的暂缓按钮，本身不会实施暂停。
 - 查询和文件回复发送给请求它们的组。使用 `requestId` 关联回复，检查 `error`/`ok`，并通过 tick 设置截止时间：页面关闭、引擎重新加载或组停用时，回复可能丢失。运行后请求 ID 可能重复；待处理请求不属于持久任务。
 

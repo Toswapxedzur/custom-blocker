@@ -12,11 +12,8 @@ let nextRequestId = 1;
 let sandboxReady = false;
 const queuedToSandbox = [];
 
-// Chromium does not offer the manifest-level theme_icons mapping that Firefox
-// uses. This document has access to matchMedia, so it reports the active
-// system colour scheme to the Chromium service worker at startup and on every
-// change. The worker owns chrome.action.setIcon and ignores this message on
-// Firefox/Safari, where their native action handling remains in charge.
+// This Chromium document reports color-scheme changes to the service worker,
+// which owns chrome.action.setIcon. Safari owns its native action icon.
 function reportActionIconColorScheme() {
   if (typeof window.matchMedia !== "function") return;
   try {
