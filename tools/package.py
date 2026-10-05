@@ -2,8 +2,8 @@
 
 One source tree, several stores. The browsers differ ONLY in packaging:
 
-  chrome  — Chromium MV3 (service worker + chrome.offscreen). The canonical
-            manifest.json ships as-is. Also the artifact for Edge/Brave/Opera/
+  chrome  — Chromium MV3 (service worker + chrome.offscreen). The development
+            manifest key is omitted for Store uploads. Also the artifact for Edge/Brave/Opera/
             Vivaldi/Arc, which all consume the Chrome package.
   edge    — Identical artifact to chrome, emitted under an edge-named zip for a
             separate Microsoft Partner Center submission.
@@ -276,8 +276,15 @@ def build_target(target: str, environment: str = "production") -> Path:
     # (source_path_or_None, arcname, optional_literal_text)
     entries: list[tuple[Path | None, str, str | None]] = []
 
-    # Manifest -> manifest.json
-    entries.append((REPO_ROOT / manifest_name, "manifest.json", None))
+    # Store items own their signing identity. The source key pins the local
+    # development ID, but may belong to a different item and reject an update.
+    # Keep it in the source manifest; omit it only from Chromium upload ZIPs.
+    if target in ("chrome", "edge"):
+        manifest = json.loads((REPO_ROOT / manifest_name).read_text(encoding="utf-8"))
+        manifest.pop("key", None)
+        entries.append((None, "manifest.json", json.dumps(manifest, indent=2) + "\n"))
+    else:
+        entries.append((REPO_ROOT / manifest_name, "manifest.json", None))
 
     for rel in COMMON_TOP_LEVEL_FILES:
         source = REPO_ROOT / rel
