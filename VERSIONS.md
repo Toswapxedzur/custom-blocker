@@ -2,7 +2,12 @@
 
 The owner approved this capability split on 2026-10-04. Existing tags and packaged downloads remain unchanged. All new records are **alpha, source-only**. A source record does not certify store submission, signing or native release acceptance.
 
-Current source version: **3.1.1**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+Current source version: **3.1.2**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+
+## 3.1.2 — 2026-10-07 — Bilibili creator metadata
+
+- Collect the dedicated creator name from home cards, excluding publication-age text.
+- Keep the verified creator identity and fallback for other card/page layouts.
 
 ## 3.1.1 — 2026-10-07 — Website recording resume
 
