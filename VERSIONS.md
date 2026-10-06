@@ -2,7 +2,12 @@
 
 The owner approved this capability split on 2026-10-04. Existing tags and packaged downloads remain unchanged. All new records are **alpha, source-only**. A source record does not certify store submission, signing or native release acceptance.
 
-Current source version: **3.1.4**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+Current source version: **3.1.5**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+
+## 3.1.5 — 2026-10-07 — Native Mac rule-log export
+
+- The shared editor uses the Mac host’s bounded plain-text export when available. Browser extensions retain their normal Blob download.
+- Chrome Store remains the separately published 3.1.0 build.
 
 ## 3.1.4 — 2026-10-07 — Safari folder picker presentation
 

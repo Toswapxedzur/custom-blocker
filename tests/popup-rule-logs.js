@@ -36,6 +36,12 @@ async () => {
   URL.createObjectURL=createURL; HTMLAnchorElement.prototype.click=click;
   const text=await download.text();
   check(text.includes('A only') && !text.includes('B only'),'Download contains only the selected rule');
+  let nativeExport;
+  window.__cbSaveRuleLog = async (filename, text) => {nativeExport={filename,text};return {ok:true};};
+  document.getElementById('logFeedDownload').click(); await delay(25);
+  check(nativeExport.filename.startsWith('blocker-logs-') && nativeExport.filename.endsWith('.txt'),'native download uses a plain-text rule log filename');
+  check(nativeExport.text===text,'native export preserves the same selected-rule bytes as the browser download');
+  delete window.__cbSaveRuleLog;
   // Live output after a snapshot, then stale in-flight snapshots and Clear.
   const original=chrome.runtime.sendMessage;
   let release;

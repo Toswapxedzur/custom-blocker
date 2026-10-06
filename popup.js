@@ -6436,11 +6436,19 @@ if (logFeedDownload) {
       });
     }
     if (entries.length === 0) { entries.push("(no log entries)"); }
-    const blob = new Blob([entries.join("\n")], { type: "text/plain" });
+    const filename = "blocker-logs-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".txt";
+    const text = entries.join("\n");
+    if (typeof window.__cbSaveRuleLog === "function") {
+      window.__cbSaveRuleLog(filename, text).then(reply => {
+        if (!reply?.ok) setStatus(reply?.error || t("custom.copyFailed"), true);
+      });
+      return;
+    }
+    const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "blocker-logs-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".txt";
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   });
