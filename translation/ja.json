@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "インストール済み",
   "classifier.dictionary.termSummary": "用語 · {count} 件 · {version}",
   "classifier.dictionary.creatorSummary": "クリエイター · {summary} · {version}",
-  "classifier.dictionary.configure": "辞書を設定"
+  "classifier.dictionary.configure": "辞書を設定",
+  "safari.app.quit": "Safari Vaultを終了"
 }

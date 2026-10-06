@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "ติดตั้งแล้ว",
   "classifier.dictionary.termSummary": "คำศัพท์ · {count} รายการ · {version}",
   "classifier.dictionary.creatorSummary": "ครีเอเตอร์ · {summary} · {version}",
-  "classifier.dictionary.configure": "กำหนดค่าพจนานุกรม"
+  "classifier.dictionary.configure": "กำหนดค่าพจนานุกรม",
+  "safari.app.quit": "ออกจาก Safari Vault"
 }

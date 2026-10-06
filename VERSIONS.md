@@ -2,7 +2,12 @@
 
 The owner approved this capability split on 2026-10-04. Existing tags and packaged downloads remain unchanged. All new records are **alpha, source-only**. A source record does not certify store submission, signing or native release acceptance.
 
-Current source version: **3.1.2**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+Current source version: **3.1.3**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+
+## 3.1.3 — 2026-10-07 — Safari containing-app Quit command
+
+- Supply the native Quit Safari Vault label in all 20 interface languages.
+- Safari publication follows its separate native source; Chrome Store remains 3.1.0.
 
 ## 3.1.2 — 2026-10-07 — Bilibili creator metadata
 

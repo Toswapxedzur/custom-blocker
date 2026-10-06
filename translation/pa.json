@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "ਇੰਸਟਾਲ ਕੀਤਾ",
   "classifier.dictionary.termSummary": "ਸ਼ਬਦ · {count} ਐਂਟਰੀਆਂ · {version}",
   "classifier.dictionary.creatorSummary": "ਕ੍ਰੀਏਟਰ · {summary} · {version}",
-  "classifier.dictionary.configure": "ਸ਼ਬਦਕੋਸ਼ ਕੌਂਫਿਗਰ ਕਰੋ"
+  "classifier.dictionary.configure": "ਸ਼ਬਦਕੋਸ਼ ਕੌਂਫਿਗਰ ਕਰੋ",
+  "safari.app.quit": "Safari Vault ਬੰਦ ਕਰੋ"
 }

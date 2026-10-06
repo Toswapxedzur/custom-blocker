@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "Đã cài đặt",
   "classifier.dictionary.termSummary": "Thuật ngữ · {count} mục · {version}",
   "classifier.dictionary.creatorSummary": "Nhà sáng tạo · {summary} · {version}",
-  "classifier.dictionary.configure": "Cấu hình từ điển"
+  "classifier.dictionary.configure": "Cấu hình từ điển",
+  "safari.app.quit": "Thoát Safari Vault"
 }

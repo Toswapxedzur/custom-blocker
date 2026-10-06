@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "ইনস্টল করা হয়েছে",
   "classifier.dictionary.termSummary": "পরিভাষা · {count}টি এন্ট্রি · {version}",
   "classifier.dictionary.creatorSummary": "নির্মাতা · {summary} · {version}",
-  "classifier.dictionary.configure": "অভিধান কনফিগার করুন"
+  "classifier.dictionary.configure": "অভিধান কনফিগার করুন",
+  "safari.app.quit": "Safari Vault থেকে প্রস্থান"
 }

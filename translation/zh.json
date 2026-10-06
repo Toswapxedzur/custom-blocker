@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "已安装",
   "classifier.dictionary.termSummary": "词条 · {count} 条 · {version}",
   "classifier.dictionary.creatorSummary": "创作者 · {summary} · {version}",
-  "classifier.dictionary.configure": "配置词典"
+  "classifier.dictionary.configure": "配置词典",
+  "safari.app.quit": "退出 Safari Vault"
 }
