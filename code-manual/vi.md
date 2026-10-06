@@ -53,7 +53,7 @@ Match = { tag: string, text: string, href: string, src: string,
 - `visible` lấy từ các trang truy cập được, không bị ẩn; `elapsedMs` là thời gian từ heartbeat gần nhất của chúng và bằng 0 khi trang bị phủ. Đây không phải mức sử dụng tích lũy hay thời gian phát.
 - `items` báo các mục feed được hỗ trợ mới/thay đổi và gửi lại sau Run/bật lại. `ref` xác định thẻ trên trang đó, không phải content ID lâu dài; `ref === "page"` nghĩa là chính trang. Titles/URLs/authors có thể trống. `authors` chứa source identifiers đặc thù nền tảng.
 - Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. Việc có items tùy markup được hỗ trợ trên trang.
-- Tags cần desktop Classifier được kết nối và build/platform hỗ trợ gắn thẻ (Chromium và Safari: YouTube, Reddit, Bilibili, X/`twitter`). Confidence từ 1–5. `tagsSettled === false` là đang chờ/không khả dụng, không phải chưa gắn thẻ; `tags: []` khi đã settled nghĩa là chưa gắn thẻ. Firefox builds không có tích hợp gắn thẻ này.
+- Tags cần desktop Classifier được kết nối và build/platform hỗ trợ gắn thẻ (Chromium và Safari: YouTube, Reddit, Bilibili, X/`twitter`). Confidence từ 1–5. `tagsSettled === false` là đang chờ/không khả dụng, không phải chưa gắn thẻ; `tags: []` khi đã settled nghĩa là chưa gắn thẻ.
 - `snooze` nghĩa là đã nhấn nút Snooze của nhóm. Nó không tự tạm dừng gì.
 - Query/file replies gửi về nhóm yêu cầu. Đối chiếu `requestId`, kiểm tra `error`/`ok` và đặt deadline bằng ticks: replies có thể mất khi trang đóng, engine tải lại hoặc nhóm bị tắt. Request IDs có thể lặp sau Run; requests đang chờ không phải công việc bền vững.
 

@@ -53,7 +53,7 @@ Match = { tag: string, text: string, href: string, src: string,
 - `visible` ਪਹੁੰਚਯੋਗ, ਨਾ-ਲੁਕੇ pages ਤੋਂ ਆਉਂਦਾ ਹੈ; `elapsedMs` ਆਖ਼ਰੀ heartbeat ਤੋਂ ਸਮਾਂ ਹੈ, ਢੱਕੇ ਹੋਣ 'ਤੇ zero। ਇਹ ਇਕੱਠੀ ਵਰਤੋਂ ਜਾਂ playback ਸਮਾਂ ਨਹੀਂ।
 - `items` ਨਵੀਆਂ/ਬਦਲੀਆਂ ਸਮਰਥਿਤ feed items ਦੱਸਦਾ ਅਤੇ Run/re-enable ਮਗਰੋਂ ਮੁੜ ਭੇਜਦਾ ਹੈ। `ref` ਉਸ page ਦਾ card ਦੱਸਦਾ ਹੈ, ਸਥਾਈ content ID ਨਹੀਂ; `ref === "page"` page ਨੂੰ ਆਪ ਦਰਸਾਉਂਦਾ ਹੈ। Titles/URLs/authors ਖਾਲੀ ਹੋ ਸਕਦੇ ਹਨ। `authors` ਵਿੱਚ platform-specific source IDs ਹੁੰਦੇ ਹਨ।
 - Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`। Item availability page ਦੇ supported markup 'ਤੇ ਨਿਰਭਰ ਹੈ।
-- Tags ਲਈ connected desktop ਵਰਗੀਕਰਤਾ ਅਤੇ tagging-enabled build/platform ਚਾਹੀਦੀ ਹੈ (Chromium ਅਤੇ Safari: YouTube, Reddit, Bilibili, X/`twitter`)। ਭਰੋਸਾ 1–5 ਹੈ। `tagsSettled === false` pending/unavailable ਹੈ, ਬਿਨਾਂ ਟੈਗ ਨਹੀਂ; settled `tags: []` ਬਿਨਾਂ ਟੈਗ ਹੈ। Firefox builds ਇਹ tagging integration ਨਹੀਂ ਦਿੰਦੇ।
+- Tags ਲਈ connected desktop ਵਰਗੀਕਰਤਾ ਅਤੇ tagging-enabled build/platform ਚਾਹੀਦੀ ਹੈ (Chromium ਅਤੇ Safari: YouTube, Reddit, Bilibili, X/`twitter`)। ਭਰੋਸਾ 1–5 ਹੈ। `tagsSettled === false` pending/unavailable ਹੈ, ਬਿਨਾਂ ਟੈਗ ਨਹੀਂ; settled `tags: []` ਬਿਨਾਂ ਟੈਗ ਹੈ।
 - `snooze` ਦਾ ਮਤਲਬ ਸਮੂਹ ਦਾ Snooze ਬਟਨ ਦਬਾਇਆ ਗਿਆ। ਇਹ ਆਪਣੇ ਆਪ pause ਲਾਗੂ ਨਹੀਂ ਕਰਦਾ।
 - Query/file replies ਬੇਨਤੀ ਕਰਨ ਵਾਲੇ ਸਮੂਹ ਨੂੰ ਜਾਂਦੇ ਹਨ। `requestId` ਮਿਲਾਓ, `error`/`ok` ਵੇਖੋ ਅਤੇ ticks ਨਾਲ deadline ਸੈੱਟ ਕਰੋ: page ਬੰਦ ਹੋਣ, engine reload ਜਾਂ group disable ਨਾਲ reply ਗੁੰਮ ਹੋ ਸਕਦਾ ਹੈ। Run ਮਗਰੋਂ IDs ਦੁਹਰ ਸਕਦੇ ਹਨ; pending requests ਸਥਾਈ ਕੰਮ ਨਹੀਂ।
 

@@ -25,6 +25,8 @@ log.section("P1: fixed local hub protocol");
 assertEqual("protocol version is v4", bridge.PROTOCOL_VERSION, 4);
 assert("Safari may connect using its native proof bootstrap", bridge.isRemoteProgram("safari"));
 assert("Chromium browsers may connect", bridge.isRemoteProgram("chrome") && bridge.isRemoteProgram("edge"));
+assertEqual("Opera uses the Chromium native-host identity", bridge.browserProgramId("Chrome/153.0.0.0 Safari/537.36 OPR/123.0.0.0"), "chrome");
+assertEqual("unknown engines cannot adopt a supported identity", bridge.browserProgramId("Firefox/145.0"), "browser");
 assert("other browsers cannot claim an unauthenticated local identity", !bridge.isRemoteProgram("firefox"));
 assert("desktop identities may not impersonate a remote peer", !bridge.isRemoteProgram("windowsapp"));
 assert("Mac Vault is a recognised local hub", bridge.isHubProgram("macapp"));

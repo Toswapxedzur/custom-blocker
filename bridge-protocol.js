@@ -35,8 +35,7 @@
   function browserProgramId(userAgent) {
     var ua = String(userAgent || "");
     if (/\bEdg\//.test(ua)) return "edge";
-    if (/\bFirefox\//.test(ua)) return "firefox";
-    if (/\bOPR\//.test(ua) || /\bOpera\//.test(ua)) return "opera";
+    if (/\bOPR\//.test(ua) || /\bOpera\//.test(ua)) return "chrome";
     if (/\bChrome\//.test(ua)) return "chrome";
     if (/\bSafari\//.test(ua)) return "safari";
     return "browser";

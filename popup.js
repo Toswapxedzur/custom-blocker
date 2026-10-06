@@ -194,7 +194,7 @@ function isNativeHost() {
 }
 
 // Stable identifier for this endpoint's "program", shown in the per-group
-// connection panel's program picker (macapp / chrome / edge / firefox / ...).
+// connection panel's program picker (macapp / chrome / edge / safari).
 function detectProgramId() {
   if (isNativeHost()) return window.CBBridgeProtocol.nativeProgramId(window.__CB_DESKTOP_PROGRAM_ID);
   let ua = "";
@@ -952,7 +952,7 @@ const groupLinkButton = document.getElementById("groupLinkButton");
 const groupUnlinkButton = document.getElementById("groupUnlinkButton");
 
 function programLabel(program) {
-  const labels = { macapp: "Mac Vault", windowsapp: "Windows Vault", chrome: "Chrome", edge: "Edge", firefox: "Firefox", opera: "Opera", safari: "Safari" };
+  const labels = { macapp: "Mac Vault", windowsapp: "Windows Vault", chrome: "Chrome", edge: "Edge", safari: "Safari" };
   return labels[program] || program;
 }
 
