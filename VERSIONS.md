@@ -2,7 +2,13 @@
 
 The owner approved this capability split on 2026-10-04. Existing tags and packaged downloads remain unchanged. All new records are **alpha, source-only**. A source record does not certify store submission, signing or native release acceptance.
 
-Current source version: **3.1.0**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+Current source version: **3.1.1**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+
+## 3.1.1 — 2026-10-07 — Website recording resume
+
+- Re-enabling website recording starts the already-active tab when the browser is focused.
+- A settings refresh or background tab event cannot start recording an unfocused browser window.
+- Safari publication is tracked separately; the existing Chrome Store listing remains 3.1.0 until a Store submission is verified.
 
 ## 3.1.0 — 2026-10-04 — Budget snooze and shared Settings
 

@@ -74,5 +74,7 @@
 
 - Timer HUDs mount one viewport-sized page, rotate automatically every five seconds, reserve countdown width, and remain fully click-through. Custom row styles are measured when choosing the page.
 
-- `VERSIONS.md`: owner-approved 2026-10-04 capability split; current source version **3.1.0 alpha**. Historical tags/packages remain immutable.
+- `VERSIONS.md`: owner-approved 2026-10-04 capability split; current source version **3.1.1 alpha**. Historical tags/packages remain immutable.
+
+- Website recording lifecycle regression: `tests/runner-activity-resume.js` exercises the actual feeder with an isolated browser/hub fixture, covering active-tab resume, disabled-time exclusion and focus. Release customer checks run on owner-selected mini2.
 - Release scope (owner 2026-10-04): Vault extension supports Chromium-family browsers only. Safari Vault remains a separate native product built from the shared source. Firefox packaging and its in-page rule sandbox are retired.
