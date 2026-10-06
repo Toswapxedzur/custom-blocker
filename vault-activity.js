@@ -148,6 +148,7 @@ const cbActivity = {
         const webWasOn = this.enabled["web-visit"];
         this.enabled = next;
         if (webWasOn && !next["web-visit"]) await this.closeSession("web-visit-disabled");
+        if (!webWasOn && next["web-visit"]) await this.resolveActive("web-visit-enabled");
       }
     } catch (_) {
       // Hub not ready; keep the last known flags (default off) and try later.
@@ -160,6 +161,12 @@ const cbActivity = {
     try {
       const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
       tab = tabs && tabs[0];
+      // lastFocusedWindow can still be the browser while another app is in
+      // front. A settings refresh must not start a background visit.
+      if (tab && chrome.windows && chrome.windows.get) {
+        const window = await chrome.windows.get(tab.windowId);
+        if (!window.focused) { await this.closeSession("window-unfocused"); return; }
+      }
     } catch (_) { return; }
     // A covered page is not a visit, like its budget: the time counts nowhere.
     const covered = tab && typeof cbCoveredTabs !== "undefined" && cbCoveredTabs.has(tab.id);
