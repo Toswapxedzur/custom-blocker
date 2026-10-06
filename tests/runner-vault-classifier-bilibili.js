@@ -29,12 +29,12 @@ function element({ tagName = "DIV", href = "", text = "", attrs = {}, matches = 
   };
 }
 
-function videoCard({ videoID, title, spaceID, className = "bili-video-card" }) {
+function videoCard({ videoID, title, spaceID, publicationAge = "", className = "bili-video-card" }) {
   const entry = element({ tagName: "A", href: `https://www.bilibili.com/video/${videoID}/`, text: title, attrs: { title } });
   const titleElement = element({ tagName: "H3", text: title });
   const icon = element({ tagName: "IMG", attrs: { src: `https://i0.hdslb.com/bfs/face/${spaceID || "x"}.jpg` } });
   const source = spaceID
-    ? element({ tagName: "A", href: `https://space.bilibili.com/${spaceID}`, text: `uploader ${spaceID}`, queryAll: { img: [icon] } })
+    ? element({ tagName: "A", href: `https://space.bilibili.com/${spaceID}`, text: `uploader ${spaceID}${publicationAge}`, queryAll: { img: [icon], ".bili-video-card__info--author": publicationAge ? [element({text:`uploader ${spaceID}`})] : [] } })
     : null;
   return element({
     attrs: { class: className },
@@ -51,7 +51,7 @@ function videoCard({ videoID, title, spaceID, className = "bili-video-card" }) {
 }
 
 // A home/search card with an uploader link → collected + pilled under the uploader.
-const withUploader = videoCard({ videoID: "BV16zhJ6KEht", title: "那些卖不出去的猫，都去了哪里？", spaceID: "12345" });
+const withUploader = videoCard({ videoID: "BV16zhJ6KEht", title: "那些卖不出去的猫，都去了哪里？", spaceID: "12345", publicationAge: " · 8小时前" });
 // A search card whose uploader is plain text (no space link) → pill-only, keyed per video.
 const noUploader = videoCard({ videoID: "BV1abcdefgh1", title: "苦力怕来了！但是我们有……", spaceID: null });
 // The watch page's "up next" card (.video-page-card-small) → collected like a feed card.
@@ -129,6 +129,8 @@ setTimeout(() => {
   const page = byID("bilibili:video:BV16zhJ6KEht", "page");
   const checks = {
     "feed card collected under its uploader": Boolean(feed && feed.entry.sourceID === "bilibili:creator:space:12345"),
+    "creator name excludes the home card publication age": Boolean(feed && feed.entry.evidence.metadata.sourceName === "uploader 12345"),
+    "related cards retain creator-name fallback": Boolean(relatedFeed && relatedFeed.entry.evidence.metadata.sourceName === "uploader 777"),
     "feed card pilled on its own root, keyed by the video": observations.some((v) => v.root === withUploader && v.entryID === "bilibili:video:BV16zhJ6KEht" && v.creatorID === "bilibili:creator:space:12345" && v.kind === "card"),
     "uploader-less card is NOT collected (no verifiable source)": !collections.some((m) => m.entry?.entryID === "bilibili:video:BV1abcdefgh1"),
     "uploader-less card still gets a per-video pill": observations.some((v) => v.root === noUploader && v.entryID === "bilibili:video:BV1abcdefgh1" && v.creatorID === "bilibili:collab:video:BV1abcdefgh1" && v.title === "苦力怕来了！但是我们有……"),

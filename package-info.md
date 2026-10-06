@@ -78,3 +78,5 @@
 
 - Website recording lifecycle regression: `tests/runner-activity-resume.js` exercises the actual feeder with an isolated browser/hub fixture, covering active-tab resume, disabled-time exclusion and focus. Release customer checks run on owner-selected mini2.
 - Release scope (owner 2026-10-04): Vault extension supports Chromium-family browsers only. Safari Vault remains a separate native product built from the shared source. Firefox packaging and its in-page rule sandbox are retired.
+
+- Public customer-audit patch 3.1.2: Bilibili collector uses the dedicated author span verified through mini2 Chrome DOM inspection, excluding publication age from saved creator names. `tests/runner-vault-classifier-bilibili.js` covers that live structure and the related-card fallback.
