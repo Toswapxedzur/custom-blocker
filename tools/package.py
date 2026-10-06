@@ -2,15 +2,11 @@
 
 One source tree, several stores. The browsers differ ONLY in packaging:
 
-  chrome  — Chromium MV3 (service worker + chrome.offscreen). The development
-            manifest key is omitted for Store uploads. Also the artifact for Edge/Brave/Opera/
+  chrome  — Chromium MV3 (service worker + chrome.offscreen). The canonical
+            Store uploads omit the unpacked development key. Also the artifact for Edge/Brave/Opera/
             Vivaldi/Arc, which all consume the Chrome package.
   edge    — Identical artifact to chrome, emitted under an edge-named zip for a
             separate Microsoft Partner Center submission.
-  firefox — Gecko MV3. No chrome.offscreen, so the background is a DOM-bearing
-            page that hosts the sandbox iframe in-page (offscreen.firefox.html,
-            shipped as offscreen.html). Uses manifest.firefox.json and the
-            browser-compat.js namespace bridge.
   safari  — Full browser client. Custom rules run in the separate Safari
             Vault native app extension; Classifier/Activity use the authenticated
             desktop hub. Explicit package environment keeps development isolated.
@@ -26,7 +22,7 @@ Output:
 Run:
   python3 tools/package.py                 # builds every target
   python3 tools/package.py --target edge   # builds one target
-  python3 tools/package.py --target chrome edge firefox safari
+  python3 tools/package.py --target chrome edge safari
 """
 
 from __future__ import annotations
@@ -80,7 +76,7 @@ CHROMIUM_SERVICE_WORKER_FILES = [
     "service-worker.js",
 ]
 
-# The in-browser eval sandbox. Present on Chromium + Firefox; omitted on
+# The in-browser eval sandbox. Present on Chromium; omitted on
 # Safari, where custom rules run in its separate native app extension.
 SANDBOX_FILES = [
     "event-sandbox.html",
@@ -129,7 +125,7 @@ EXCLUDE_NAMES = {
 }
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 
-ALL_TARGETS = ["chrome", "edge", "firefox", "safari"]
+ALL_TARGETS = ["chrome", "edge", "safari"]
 
 
 def is_excluded(path: Path) -> bool:
@@ -150,8 +146,6 @@ def read_version(manifest_name: str) -> str:
 def manifest_for(target: str) -> str:
     if target in ("chrome", "edge"):
         return "manifest.json"
-    if target == "firefox":
-        return "manifest.firefox.json"
     if target == "safari":
         return "manifest.safari.json"
     raise ValueError(f"unknown target: {target}")
@@ -231,7 +225,7 @@ def validate_service_worker_imports(target: str, archive_paths: set[str]) -> Non
     Manifest validation cannot see classic-worker ``importScripts`` calls. The
     Vault Classifier bridge is one such dependency; omitting it makes a fresh
     Chrome/Edge service worker fail before it can receive extension messages.
-    Only Chromium runs this branch: Firefox and Safari preload their background
+    Only Chromium runs this branch: Safari preloads its background
     dependencies through their manifest-specific script lists.
     """
     if target not in ("chrome", "edge"):
@@ -266,9 +260,7 @@ def safari_popup_source(source: str) -> str:
 def build_target(target: str, environment: str = "production") -> Path:
     """Build one target. Returns the path to the written zip.
 
-    Files are written into the zip under their final (in-package) names, so a
-    source like manifest.firefox.json lands as manifest.json, and
-    offscreen.firefox.html lands as offscreen.html.
+    Files are written under their final names; the Safari manifest becomes manifest.json.
     """
     manifest_name = manifest_for(target)
     version = read_version(manifest_name)
@@ -276,15 +268,15 @@ def build_target(target: str, environment: str = "production") -> Path:
     # (source_path_or_None, arcname, optional_literal_text)
     entries: list[tuple[Path | None, str, str | None]] = []
 
-    # Store items own their signing identity. The source key pins the local
-    # development ID, but may belong to a different item and reject an update.
-    # Keep it in the source manifest; omit it only from Chromium upload ZIPs.
-    if target in ("chrome", "edge"):
-        manifest = json.loads((REPO_ROOT / manifest_name).read_text(encoding="utf-8"))
+    # Manifest -> manifest.json
+    if environment not in ("production", "development"):
+        raise ValueError("unknown package environment")
+    manifest = json.loads((REPO_ROOT / manifest_name).read_text(encoding="utf-8"))
+    if target in ("chrome", "edge") and environment == "production":
+        # The Store owns the existing published identity. An unpacked test key
+        # must never replace it; development packages keep their isolated ID.
         manifest.pop("key", None)
-        entries.append((None, "manifest.json", json.dumps(manifest, indent=2) + "\n"))
-    else:
-        entries.append((REPO_ROOT / manifest_name, "manifest.json", None))
+    entries.append((None, "manifest.json", json.dumps(manifest, indent=2) + "\n"))
 
     for rel in COMMON_TOP_LEVEL_FILES:
         source = REPO_ROOT / rel
@@ -304,11 +296,7 @@ def build_target(target: str, environment: str = "production") -> Path:
     if target != "safari":
         for rel in SANDBOX_FILES:
             entries.append((REPO_ROOT / rel, rel, None))
-        # The offscreen host page differs per engine.
-        if target == "firefox":
-            entries.append((REPO_ROOT / "offscreen.firefox.html", "offscreen.html", None))
-        else:
-            entries.append((REPO_ROOT / "offscreen.html", "offscreen.html", None))
+        entries.append((REPO_ROOT / "offscreen.html", "offscreen.html", None))
     else:
         if environment not in ("production", "development"):
             raise ValueError("unknown Safari environment")
@@ -399,7 +387,7 @@ def main() -> None:
         help="Which target(s) to build (default: all).",
     )
     parser.add_argument("--environment", choices=["production", "development"], default="production",
-                        help="Native Safari environment (other browser identities are unchanged).")
+                        help="Production Store/native package or isolated development identity.")
     args = parser.parse_args()
     runpy.run_path(str(REPO_ROOT / "scripts" / "build-content-messages.py"))
 

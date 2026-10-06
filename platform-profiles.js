@@ -51,7 +51,7 @@ const PLATFORM_GROUP_TYPES = [
 // Tagging exists only where cards carry classifier tags: YouTube and the pill
 // platforms (vault-classifier-collector-core.js PILL_PLATFORMS), and only in
 // builds that load the classifier scripts — Chromium browsers, Safari and
-// the desktop app; Firefox does not load the tag pipeline. Tag filters and "cover until tagged" act only
+// the desktop app. Tag filters and "cover until tagged" act only
 // there (owner 2026-09-26); elsewhere they would never match, or would cover
 // content forever.
 // Where a content block acts on a tagging platform (adding a platform is
@@ -102,7 +102,7 @@ function isTaggingPlatform(platform) {
   return TAGGING_PLATFORMS.includes(String(platform || ""));
 }
 function taggingAvailableFor(programId) {
-  return programId !== "firefox";
+  return ["chrome", "edge", "safari", "macapp", "windowsapp"].includes(programId);
 }
 
 const PLATFORM_VIDEO_GROUP_TYPES = ["youtube", "tiktok", "facebook", "instagram", "twitch"];

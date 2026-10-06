@@ -53,7 +53,7 @@ Match = { tag: string, text: string, href: string, src: string,
 - `visible`은 접근 가능하고 숨겨지지 않은 페이지에서 옵니다. `elapsedMs`는 마지막 heartbeat 이후 시간이며 덮여 있으면 0입니다. 누적 사용량이나 재생 시간이 아닙니다.
 - `items`는 새로 생기거나 바뀐 지원 피드 항목을 보고하며 Run/re-enable 뒤 재전송합니다. `ref`는 해당 페이지의 카드를 식별하며 영구 콘텐츠 ID가 아닙니다. `ref === "page"`는 페이지 자체를 뜻합니다. 제목/URL/작성자는 비어 있을 수 있습니다. `authors`에는 플랫폼별 원본 ID가 있습니다.
 - 플랫폼 ID: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. 항목 사용 가능 여부는 페이지의 지원 마크업에 달려 있습니다.
-- 태그에는 연결된 데스크톱 분류기와 태그 지정 지원 빌드/플랫폼이 필요합니다(Chromium 및 Safari: YouTube, Reddit, Bilibili, X/`twitter`). 신뢰도는 1–5입니다. `tagsSettled === false`는 대기/사용 불가이지 태그 없음이 아닙니다. 확정된 `tags: []`는 태그가 없다는 뜻입니다. Firefox 빌드는 이 통합을 제공하지 않습니다.
+- 태그에는 연결된 데스크톱 분류기와 태그 지정 지원 빌드/플랫폼이 필요합니다(Chromium 및 Safari: YouTube, Reddit, Bilibili, X/`twitter`). 신뢰도는 1–5입니다. `tagsSettled === false`는 대기/사용 불가이지 태그 없음이 아닙니다. 확정된 `tags: []`는 태그가 없다는 뜻입니다.
 - `snooze`는 그룹의 Snooze 버튼을 눌렀다는 뜻입니다. 이것만으로 일시 중지되지는 않습니다.
 - query/file 응답은 요청 그룹으로 돌아갑니다. `requestId`를 맞추고 `error`/`ok`를 확인하며 tick으로 기한을 정하세요. 페이지 종료, 엔진 재로드, 그룹 비활성화 때 응답이 사라질 수 있습니다. Run 후 요청 ID가 반복될 수 있습니다. 대기 중인 요청은 영구 작업이 아닙니다.
 

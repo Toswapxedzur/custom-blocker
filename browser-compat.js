@@ -7,7 +7,7 @@
  *   - Chromium (Chrome/Edge/Brave/Opera/…): `chrome.*` already supports both
  *     promises and callbacks, and the `browser` global does not exist. This
  *     file is a no-op there.
- *   - Firefox / Safari: there are two namespaces — `chrome.*` is callback
+ *   - Safari: there are two namespaces — `chrome.*` is callback
  *     based and `browser.*` is promise based, and NEITHER natively supports
  *     both styles. We expose a single `chrome` that does, by proxying the
  *     promise-based `browser` and adapting the listed async leaf methods so

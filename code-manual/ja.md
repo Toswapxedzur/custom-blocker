@@ -53,7 +53,7 @@ Match = { tag: string, text: string, href: string, src: string,
 - `visible`はアクセス可能で非表示でないページから取得します。`elapsedMs`は最後のheartbeatからの時間で、覆われている間はゼロです。累積利用時間や再生時間ではありません。
 - `items`は新規/変更された対応フィード項目を示し、Run/再有効化後に再送します。`ref`はそのページ上のカードを示し、永続コンテンツIDではありません。`ref === "page"`はページ自体を示します。タイトル/URL/作者は空の場合があります。`authors`にはプラットフォーム固有のソースIDが入ります。
 - プラットフォームID: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`。項目を取得できるかはページの対応マークアップによります。
-- タグには接続済みデスクトップ分類器とタグ付け対応ビルド/プラットフォームが必要です（Chromium/Safari: YouTube、Reddit、Bilibili、X/`twitter`）。信頼度は1～5です。`tagsSettled === false`は保留/利用不可で、タグなしではありません。確定済みの `tags: []` はタグなしです。Firefoxビルドはこの統合に対応しません。
+- タグには接続済みデスクトップ分類器とタグ付け対応ビルド/プラットフォームが必要です（Chromium/Safari: YouTube、Reddit、Bilibili、X/`twitter`）。信頼度は1～5です。`tagsSettled === false`は保留/利用不可で、タグなしではありません。確定済みの `tags: []` はタグなしです。
 - `snooze`はグループのSnoozeボタンが押されたことを示します。それだけで一時停止にはなりません。
 - クエリー/ファイル応答は要求元グループに届きます。`requestId`を照合し、`error`/`ok`を確認し、tickを使って期限を設けます。ページ終了、エンジン再読み込み、グループ無効化で応答が失われる場合があります。Run後にIDが再利用されることがあり、保留中の要求は永続タスクではありません。
 

@@ -14,11 +14,8 @@
  *     content script flushes back after running rules.
  */
 
-// On Chromium the background context is a classic service worker, so we
-// pull in the shared files with importScripts(). On Firefox/Safari the
-// background is a DOM-bearing page (it hosts the sandbox iframe in the
-// absence of chrome.offscreen), where importScripts() does not exist; there
-// manifest.background.scripts lists them ahead of background.js.
+// Chromium uses a classic service worker. Safari preloads these shared
+// dependencies through its manifest background script list.
 if (typeof importScripts === "function") {
   try {
     if (typeof CBBridgeProtocol === "undefined") importScripts("bridge-protocol.js");
@@ -138,10 +135,8 @@ const ACTION_ICON_INVERSE_DARK_PATHS = Object.freeze({
 });
 let actionIconColorScheme = null;
 
-// Firefox has declarative action.theme_icons in its manifest. Chromium does
-// not, so its service worker applies the appropriate generated PNGs when the
-// long-lived offscreen document reports the system colour scheme. Firefox and
-// Safari have a DOM-bearing background page, while Chromium MV3 uses a worker.
+// The Chromium offscreen document reports the color scheme so its worker
+// can apply the generated action icons. Safari owns its native action icon.
 function supportsDynamicActionIcon() {
   return typeof document === "undefined" && Boolean(chrome?.action?.setIcon);
 }
@@ -1421,15 +1416,12 @@ const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 //
 //   "offscreen" — Chromium (Chrome/Edge/Brave/Opera/…): a chrome.offscreen
 //                 document hosts event-sandbox.html. (default)
-//   "inpage"    — Firefox: no chrome.offscreen, but the background is a real
-//                 page, so we host offscreen.html as a hidden in-page iframe.
 //   "native"    — Safari: the extension is a thin client; custom-rule logic
 //                 runs in Safari Vault's native extension over native
 //                 messaging (browser.runtime.sendNativeMessage). Default and
 //                 platform groups still run entirely in the extension.
 //
-// package.py writes sandbox-transport.js for the firefox/safari targets to
-// pin this; otherwise we auto-detect (offscreen when available, else inpage).
+// Safari packages explicitly select native transport; Chromium uses offscreen.
 const SANDBOX_TRANSPORT_OVERRIDE =
   (typeof self !== "undefined" && typeof self.CB_SANDBOX_TRANSPORT === "string")
     ? self.CB_SANDBOX_TRANSPORT
@@ -1444,12 +1436,6 @@ const NATIVE_HOST_APPLICATION_ID =
 
 function sandboxTransportMode() {
   if (SANDBOX_TRANSPORT_OVERRIDE === "native") return "native";
-  if (SANDBOX_TRANSPORT_OVERRIDE === "inpage") return "inpage";
-  if (SANDBOX_TRANSPORT_OVERRIDE === "offscreen") return "offscreen";
-  if (chrome.offscreen && typeof chrome.offscreen.createDocument === "function") {
-    return "offscreen";
-  }
-  if (typeof document !== "undefined") return "inpage";
   return "offscreen";
 }
 
@@ -1840,61 +1826,6 @@ function clearOffscreenFailure() {
   }
 }
 
-// Firefox in-page host: id of the hidden iframe we inject into the
-// background page to stand in for the (missing) offscreen document.
-const INPAGE_SANDBOX_HOST_ID = "cb-inpage-sandbox-host";
-let inPageHostReadyPromise = null;
-
-// Hosts offscreen.html as a hidden iframe inside the background PAGE. This
-// is the Firefox equivalent of chrome.offscreen.createDocument: offscreen.js
-// runs unchanged inside that iframe (a separate extension context, so its
-// chrome.runtime.sendMessage round-trips with this background page exactly
-// as it does with a real offscreen document on Chromium).
-function ensureInPageSandboxHost() {
-  if (typeof document === "undefined") {
-    reportOffscreenFailure("no-document", "in-page sandbox host needs a DOM");
-    return Promise.resolve(false);
-  }
-  if (document.getElementById(INPAGE_SANDBOX_HOST_ID)) {
-    clearOffscreenFailure();
-    return Promise.resolve(true);
-  }
-  if (inPageHostReadyPromise) return inPageHostReadyPromise;
-  inPageHostReadyPromise = new Promise((resolve) => {
-    const mount = () => {
-      try {
-        if (document.getElementById(INPAGE_SANDBOX_HOST_ID)) {
-          clearOffscreenFailure();
-          resolve(true);
-          return;
-        }
-        const frame = document.createElement("iframe");
-        frame.id = INPAGE_SANDBOX_HOST_ID;
-        frame.setAttribute("aria-hidden", "true");
-        frame.style.cssText = "display:none;width:0;height:0;border:0;";
-        frame.src = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH);
-        (document.body || document.documentElement).appendChild(frame);
-        clearOffscreenFailure();
-        resolve(true);
-      } catch (error) {
-        reportOffscreenFailure(
-          "inpage-mount-failed",
-          String(error && error.message ? error.message : error)
-        );
-        resolve(false);
-      }
-    };
-    if (document.body || document.readyState === "complete") {
-      mount();
-    } else {
-      document.addEventListener("DOMContentLoaded", mount, { once: true });
-    }
-  }).finally(() => {
-    inPageHostReadyPromise = null;
-  });
-  return inPageHostReadyPromise;
-}
-
 async function ensureOffscreenDocument() {
   const mode = sandboxTransportMode();
   if (mode === "native") {
@@ -1902,9 +1833,6 @@ async function ensureOffscreenDocument() {
     // is no local host document to create.
     clearOffscreenFailure();
     return true;
-  }
-  if (mode === "inpage") {
-    return await ensureInPageSandboxHost();
   }
   if (!chrome.offscreen || typeof chrome.offscreen.createDocument !== "function") {
     reportOffscreenFailure(
