@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "इंस्टॉल किया गया",
   "classifier.dictionary.termSummary": "शब्द · {count} प्रविष्टियाँ · {version}",
   "classifier.dictionary.creatorSummary": "क्रिएटर · {summary} · {version}",
-  "classifier.dictionary.configure": "शब्दकोश कॉन्फ़िगर करें"
+  "classifier.dictionary.configure": "शब्दकोश कॉन्फ़िगर करें",
+  "safari.app.quit": "Safari Vault बंद करें"
 }

@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "Geïnstalleerd",
   "classifier.dictionary.termSummary": "Termen · {count} vermeldingen · {version}",
   "classifier.dictionary.creatorSummary": "Creators · {summary} · {version}",
-  "classifier.dictionary.configure": "Woordenboeken configureren"
+  "classifier.dictionary.configure": "Woordenboeken configureren",
+  "safari.app.quit": "Stop Safari Vault"
 }

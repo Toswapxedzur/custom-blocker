@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "Установлено",
   "classifier.dictionary.termSummary": "Термины · записей: {count} · {version}",
   "classifier.dictionary.creatorSummary": "Авторы · {summary} · {version}",
-  "classifier.dictionary.configure": "Настроить словари"
+  "classifier.dictionary.configure": "Настроить словари",
+  "safari.app.quit": "Завершить Safari Vault"
 }

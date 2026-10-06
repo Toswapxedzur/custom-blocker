@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "Installé",
   "classifier.dictionary.termSummary": "Termes · {count} entrées · {version}",
   "classifier.dictionary.creatorSummary": "Créateurs · {summary} · {version}",
-  "classifier.dictionary.configure": "Configurer les dictionnaires"
+  "classifier.dictionary.configure": "Configurer les dictionnaires",
+  "safari.app.quit": "Quitter Safari Vault"
 }

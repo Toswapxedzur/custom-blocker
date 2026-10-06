@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "Yüklendi",
   "classifier.dictionary.termSummary": "Terimler · {count} kayıt · {version}",
   "classifier.dictionary.creatorSummary": "İçerik üreticileri · {summary} · {version}",
-  "classifier.dictionary.configure": "Sözlükleri yapılandır"
+  "classifier.dictionary.configure": "Sözlükleri yapılandır",
+  "safari.app.quit": "Safari Vault’tan Çık"
 }

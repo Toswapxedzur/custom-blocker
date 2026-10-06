@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "Terpasang",
   "classifier.dictionary.termSummary": "Istilah · {count} entri · {version}",
   "classifier.dictionary.creatorSummary": "Kreator · {summary} · {version}",
-  "classifier.dictionary.configure": "Konfigurasikan kamus"
+  "classifier.dictionary.configure": "Konfigurasikan kamus",
+  "safari.app.quit": "Keluar dari Safari Vault"
 }

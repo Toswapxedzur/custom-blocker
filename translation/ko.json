@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "설치됨",
   "classifier.dictionary.termSummary": "용어 · {count}개 항목 · {version}",
   "classifier.dictionary.creatorSummary": "크리에이터 · {summary} · {version}",
-  "classifier.dictionary.configure": "사전 구성"
+  "classifier.dictionary.configure": "사전 구성",
+  "safari.app.quit": "Safari Vault 종료"
 }

@@ -1278,5 +1278,6 @@
   "classifier.dictionary.installed": "مثبّت",
   "classifier.dictionary.termSummary": "مصطلحات · {count} إدخال · {version}",
   "classifier.dictionary.creatorSummary": "منشئون · {summary} · {version}",
-  "classifier.dictionary.configure": "إعداد القواميس"
+  "classifier.dictionary.configure": "إعداد القواميس",
+  "safari.app.quit": "إنهاء Safari Vault"
 }
