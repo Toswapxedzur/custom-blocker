@@ -295,7 +295,11 @@
       // Usage retains previously spent extra until the budget resets. A new
       // grant adds room above that usage, rather than repeating the old ceiling.
       // extraMs remains the offset from the base allowance used by every host.
-      const used = Number.isFinite(Number(usedMs)) ? Math.max(0, Number(usedMs)) : 0;
+      const anchor = Number(resetAtMs) > 0 ? Number(resetAtMs) : now;
+      const resetsBeforeActivation = group.rollingLimit
+        ? group.resetAtMidnight && cbStartOfDayMs(startsAtMs) !== cbStartOfDayMs(now)
+        : cbPeriodStartMs(anchor, group, startsAtMs) !== cbPeriodStartMs(anchor, group, now);
+      const used = !resetsBeforeActivation && Number.isFinite(Number(usedMs)) ? Math.max(0, Number(usedMs)) : 0;
       return {
         kind: "budget",
         extraMs: Math.max(0, used - getAllowedMs(group)) + grantMs,
