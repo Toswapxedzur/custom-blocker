@@ -79,6 +79,7 @@ const CB_SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
 // away) and the time it counts for linked groups meanwhile.
 const CB_CLUSTER_COPY_KEY = "cbClusterCopy";
 const CB_OFFLINE_USAGE_KEY = "cbOfflineUsage";
+const CB_OFFLINE_TRANSFERS_KEY = "cbOfflineUsageTransfers";
 let cbClusterCopy = [];
 // Loaded once per worker; getState and the sharing wait for it, so right after
 // a wake a linked group is never taken for an unlinked one.
@@ -2745,7 +2746,10 @@ function cbPublicGroup(group) {
 // groups): an edit that changes how a budget runs restarts it
 // (CBGroupActions.budgetRestarts), and a deleted group leaves no per-group
 // entry behind — whoever changed the list (the editor, a tool, a link).
-async function cbApplyStoredGroupChange(oldValue, newValue) {
+function cbApplyStoredGroupChange(oldValue, newValue) {
+  return cbWithOfflineUsage(() => cbApplyStoredGroupChangeLocked(oldValue, newValue));
+}
+async function cbApplyStoredGroupChangeLocked(oldValue, newValue) {
   const before = new Map((Array.isArray(oldValue) ? oldValue : []).filter((g) => g && g.id).map((g) => [g.id, g]));
   const after = (Array.isArray(newValue) ? newValue : []).filter((g) => g && g.id);
   const present = new Set(after.map((g) => g.id));
@@ -2766,6 +2770,11 @@ async function cbApplyStoredGroupChange(oldValue, newValue) {
     for (const key of keys.slice(0, -1)) if (stored[key] && id in stored[key]) delete edit(key)[id];
     if (stored[CB_QUICK_ADD_GROUP_KEY] === id) writes[CB_QUICK_ADD_GROUP_KEY] = "";
   }
+  const transferStore = await chrome.storage.local.get({ [CB_OFFLINE_TRANSFERS_KEY]: {} });
+  const transfers = { ...(transferStore[CB_OFFLINE_TRANSFERS_KEY] || {}) };
+  const removed = new Set([...gone, ...restart]);
+  for (const [id, transfer] of Object.entries(transfers)) if (removed.has(transfer.groupId)) delete transfers[id];
+  writes[CB_OFFLINE_TRANSFERS_KEY] = transfers;
   if (Object.keys(writes).length) await chrome.storage.local.set(writes);
   await cbRenameDuplicates(after);
 }
@@ -2790,7 +2799,10 @@ async function cbAnnounceStoredGroups(groups) {
 
 // An imported group starts fresh (owner 2026-09-27): its usage, snooze,
 // snooze total and offline time go; a new budget period starts now.
-async function cbResetGroupRuntime(groupId) {
+function cbResetGroupRuntime(groupId) {
+  return cbWithOfflineUsage(() => cbResetGroupRuntimeLocked(groupId));
+}
+async function cbResetGroupRuntimeLocked(groupId) {
   if (!groupId) return;
   const keys = [USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY, GROUP_SNOOZES_KEY, GROUP_SNOOZE_TOTALS_KEY, CB_OFFLINE_USAGE_KEY];
   const stored = await chrome.storage.local.get(keys);
@@ -2801,6 +2813,10 @@ async function cbResetGroupRuntime(groupId) {
     writes[key] = map;
   }
   writes[USAGE_RESET_AT_KEY][groupId] = Date.now();
+  const transferStore = await chrome.storage.local.get({ [CB_OFFLINE_TRANSFERS_KEY]: {} });
+  const transfers = { ...(transferStore[CB_OFFLINE_TRANSFERS_KEY] || {}) };
+  for (const [id, transfer] of Object.entries(transfers)) if (transfer.groupId === groupId) delete transfers[id];
+  writes[CB_OFFLINE_TRANSFERS_KEY] = transfers;
   await chrome.storage.local.set(writes);
 }
 
@@ -2835,7 +2851,7 @@ const cbSharingReady = (async () => {
 function cbSendDefinition(group, ts) {
   const scalars = {};
   for (const field of CB_SYNC_SCALAR_FIELDS) scalars[field] = group[field];
-  cbConnection.sendWS({
+  return cbConnection.sendWS({
     kind: "group-sync",
     program: cbDetectProgramId(),
     groupId: group.id,
@@ -2863,7 +2879,7 @@ function cbShareStoredGroups(value) {
       // Seen only once sent: a change made while Mac Vault is away is shared
       // when it is back (cbShareOnReconnect).
       if (!cbConnection.desktopRouteIsReady()) continue;
-      cbSendDefinition(group, Date.now());
+      if (!cbSendDefinition(group, Date.now())) continue;
     }
     cbDefinitionSeen.set(group.id, key);
   }
@@ -2905,8 +2921,7 @@ async function cbContributeJoins() {
   for (const cluster of joining) {
     const group = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
     if (!group) continue;
-    cbJoinsSent.add(cluster.id);
-    cbSendDefinition(group, 0);
+    if (cbSendDefinition(group, 0)) cbJoinsSent.add(cluster.id);
   }
 }
 
@@ -3009,7 +3024,17 @@ function cbGroupInLink(group) {
 
 // Time counted for linked groups while the hub was away, per group:
 // { anchorMs, ms, buckets }. `anchorMs` is the budget period it belongs to.
-async function cbRecordOfflineUsage(deltas, anchors) {
+let cbOfflineUsageTail = Promise.resolve();
+function cbWithOfflineUsage(operation) {
+  const next = cbOfflineUsageTail.catch(() => {}).then(operation);
+  cbOfflineUsageTail = next;
+  return next;
+}
+
+function cbRecordOfflineUsage(deltas, anchors) {
+  return cbWithOfflineUsage(() => cbRecordOfflineUsageLocked(deltas, anchors));
+}
+async function cbRecordOfflineUsageLocked(deltas, anchors) {
   if (Object.keys(deltas).length === 0) return;
   const stored = { ...((await chrome.storage.local.get({ [CB_OFFLINE_USAGE_KEY]: {} }))[CB_OFFLINE_USAGE_KEY] || {}) };
   for (const [groupId, delta] of Object.entries(deltas)) {
@@ -3025,29 +3050,52 @@ async function cbRecordOfflineUsage(deltas, anchors) {
 // Hands the offline time of linked groups to the hub (it adds it when the
 // period still matches) and returns it by group, so the local counters can
 // show shared + handed-over time at once.
-async function cbHandOverOfflineUsage(groupsByCluster) {
-  const stored = (await chrome.storage.local.get({ [CB_OFFLINE_USAGE_KEY]: {} }))[CB_OFFLINE_USAGE_KEY] || {};
+function cbHandOverOfflineUsage(groupsByCluster) {
+  return cbWithOfflineUsage(() => cbHandOverOfflineUsageLocked(groupsByCluster));
+}
+async function cbHandOverOfflineUsageLocked(groupsByCluster) {
+  const state = await chrome.storage.local.get({ [CB_OFFLINE_USAGE_KEY]: {}, [CB_OFFLINE_TRANSFERS_KEY]: {} });
+  const stored = state[CB_OFFLINE_USAGE_KEY] || {};
+  const transfers = { ...(state[CB_OFFLINE_TRANSFERS_KEY] || {}) };
   const program = cbDetectProgramId();
   const handed = {};
   const remaining = { ...stored };
-  for (const { group } of groupsByCluster) {
+  for (const { group, cluster } of groupsByCluster) {
+    const receipts = cluster?.shared?.usageTransferReceipts || {};
+    for (const [id, transfer] of Object.entries(transfers)) {
+      if (transfer.groupId === group.id && Object.prototype.hasOwnProperty.call(receipts, `${program}:${id}`)) delete transfers[id];
+    }
     const entry = stored[group.id];
     if (!entry) continue;
+    // Keep pending usage untouched when connected to a hub without receipts.
+    if (cbConnection.usageTransferReceipts !== true) { handed[group.id] = entry; continue; }
     delete remaining[group.id];
     if (!(entry.ms > 0) && Object.keys(entry.buckets || {}).length === 0) continue;
-    cbConnection.sendWS({
+    const id = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}-${Math.random()}`;
+    transfers[id] = { ...entry, groupId: group.id };
+  }
+  // Reserve immutable batches durably before attempting any socket send.
+  await chrome.storage.local.set({ [CB_OFFLINE_USAGE_KEY]: remaining, [CB_OFFLINE_TRANSFERS_KEY]: transfers });
+  for (const { group, cluster } of groupsByCluster) {
+    for (const [id, entry] of Object.entries(transfers)) {
+      if (entry.groupId !== group.id) continue;
+      if (cbConnection.usageTransferReceipts === true) cbConnection.sendWS({
       kind: "group-sync",
       program,
       groupId: group.id,
+      usageTransferId: id,
       usageResetAtMs: 0,
       ...(group.rollingLimit
         ? { usageBuckets: entry.buckets }
         : { usageDeltaMs: entry.ms, usageDeltaAnchorMs: entry.anchorMs }),
       ts: Date.now()
     });
-    handed[group.id] = entry;
+      const total = handed[group.id] || { anchorMs: Number(cluster?.shared?.usageResetAtMs) || entry.anchorMs, ms: 0, buckets: {} };
+      if (total.anchorMs === entry.anchorMs) total.ms += Number(entry.ms) || 0;
+      for (const [minute, ms] of Object.entries(entry.buckets || {})) total.buckets[minute] = (Number(total.buckets[minute]) || 0) + (Number(ms) || 0);
+      handed[group.id] = total;
+    }
   }
-  await chrome.storage.local.set({ [CB_OFFLINE_USAGE_KEY]: remaining });
   return handed;
 }
 
@@ -3226,9 +3274,17 @@ const cbConnection = {
   // Applies the hub-authoritative shared definition (policy settings and every
   // entry's lines), usage and snooze to local groups, so a linked group
   // enforces changes made elsewhere even when the popup is closed.
-  async applySharedToStorage() {
+  applySharedToStorage() {
+    const clusters = this.clusters;
+    const next = (this.sharedApplyTail || Promise.resolve()).catch(() => {})
+      .then(() => this.applySharedSnapshotToStorage(clusters));
+    this.sharedApplyTail = next;
+    return next;
+  },
+
+  async applySharedSnapshotToStorage(clusters) {
     const program = cbDetectProgramId();
-    const relevant = (Array.isArray(this.clusters) ? this.clusters : []).filter(
+    const relevant = (Array.isArray(clusters) ? clusters : []).filter(
       (cluster) =>
         cluster &&
         cluster.shared &&
@@ -3579,6 +3635,8 @@ const cbConnection = {
           this.connectTimer = null;
         }
         this.handshakeComplete = true;
+        this.usageTransferReceipts = msg.usageTransferReceipts === true;
+        cbJoinsSent.clear();
         this.burstStartMs = 0;
         this.setStatus({
           state: "connected",
