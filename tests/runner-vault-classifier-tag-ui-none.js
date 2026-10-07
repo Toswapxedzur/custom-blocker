@@ -29,7 +29,19 @@ class FakeElement {
     this.dir = "";
     this.dataset = {};
     this.attributes = {};
+    this.listeners = {};
+    this.rect = { left: 10, right: 80, top: 10, bottom: 30 };
   }
+  addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); }
+  fire(type, event) { for (const listener of this.listeners[type] || []) listener(event); }
+  getBoundingClientRect() { return this.rect; }
+  getRootNode() { let node = this; while (node.parentNode) node = node.parentNode; return node; }
+  closest(selector) {
+    const names = selector.split(",").map(s => s.trim().slice(1));
+    for (let node = this; node; node = node.parentNode) if (names.some(name => node.className.split(/\s+/).includes(name))) return node;
+    return null;
+  }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   setAttribute(name, value) { this.attributes[name] = value; }
   getAttribute(name) { return this.attributes[name]; }
   append(...children) { for (const child of children) this.appendChild(child); }
@@ -56,6 +68,7 @@ class FakeElement {
   attachShadow({ mode }) {
     const shadow = new FakeElement("shadow-root", this.ownerDocument);
     shadow.mode = mode;
+    shadow.host = this;
     closedShadows.set(this, shadow);
     return shadow;
   }
@@ -97,7 +110,12 @@ class FakeMutationObserver {
   disconnect() {}
 }
 
-const document = { createElement(tagName) { return new FakeElement(tagName, document); } };
+const document = {
+  listeners: {},
+  addEventListener(type, listener) { (this.listeners[type] ||= []).push(listener); },
+  fire(type, event) { for (const listener of this.listeners[type] || []) listener(event); },
+  createElement(tagName) { return new FakeElement(tagName, document); }
+};
 document.documentElement = new FakeElement("html", document);
 
 const chrome = {
@@ -212,6 +230,33 @@ async function raceChecks() {
     runtimeListeners.forEach(listener => listener(pushed, {}));
     old.callback({ ok: true, platformID: "reddit", items: [{ entryID: "reddit:post:race1", pending: true, tags: [] }] });
     await wait(); check(JSON.stringify(chipNamesFor(root)) === '["Science"]', "late pending reply cannot overwrite pushed tags");
+    const shadow = closedShadows.get(root.children.find(child => closedShadows.has(child)));
+    const wrap = shadow.querySelector(".chip-wrap"), chip = shadow.querySelector(".chip"), del = shadow.querySelector(".chip-del");
+    del.rect = { left: 74, right: 88, top: 4, bottom: 18 };
+    const hovered = element => element.className.split(/\s+/).includes("pointer-hover");
+    for (let index = 0; index < 100; index++) {
+      const event = { target: chip, clientX: 20 + index % 50, clientY: 20 };
+      shadow.fire("pointermove", event); shadow.fire("pointerout", event);
+      check(hovered(wrap), "continuous in-pill movement and false leave retain the delete affordance");
+    }
+    shadow.fire("pointerout", { target: chip, clientX: 85, clientY: 8 });
+    check(hovered(wrap), "moving onto the protruding delete button retains its visibility");
+    shadow.fire("pointerout", { target: chip, clientX: 100, clientY: 40 });
+    check(!hovered(wrap), "an actual leave clears the pill highlight");
+    const add = shadow.querySelector(".add-btn");
+    shadow.fire("pointerover", { target: add, clientX: 20, clientY: 20 });
+    shadow.fire("pointerout", { target: add, clientX: 40, clientY: 20 });
+    check(hovered(add), "Plus Tag is stable across a false leave");
+    const row = new FakeElement("button", document); row.className = "panel-item"; shadow.append(row);
+    shadow.fire("pointermove", { target: row, clientX: 20, clientY: 20 });
+    shadow.fire("pointerout", { target: row, clientX: 40, clientY: 20 });
+    check(hovered(row) && !hovered(add), "chooser rows share stable highlighting and clear the previous control");
+    shadow.fire("pointerout", { target: row, clientX: 100, clientY: 40 });
+    check(!hovered(row), "leaving the chooser row clears highlighting");
+    shadow.fire("pointerover", { target: row, clientX: 20, clientY: 20 });
+    document.fire("pointermove", { target: root, clientX: 150, clientY: 80 });
+    check(!hovered(row), "movement outside the private shadow clears highlighting even without a boundary event");
+    console.log("PASS 100 continuous in-pill moves, false leaves, delete-button hit area, Plus Tag and chooser rows");
     heldJob = null;
     context.VaultClassifierTagUI.observe({ platform: "reddit", entryID: "reddit:post:race1", title: "Hydrated title", root });
     await wait(); check(JSON.stringify(chipNamesFor(root)) === '["Science"]' && !heldJob, "hydration keeps settled tags without another lookup");

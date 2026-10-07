@@ -162,6 +162,31 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   await run("deleteSelectedGroup()");
   check("delete writes the list without it", !byId("c1") && JSON.stringify(byId("a1")) === before, stored());
 
+  // Execute the actual editor snooze flow with a held final dialog. Reading
+  // the summary must consume neither the activation delay nor the duration.
+  context.testNow = Date.now();
+  run(`Date.now = () => globalThis.testNow;
+    cbDialog.confirm = () => new Promise(resolve => { globalThis.answerNotice = resolve; });
+    Object.assign(state.groups[0], { allowSnooze: true, snoozeKind: "time", snoozeMinutes: 5, snoozeActivationDelayMinutes: 2, snoozeCooldownMinutes: 0, snoozeConfirmations: 0 });
+    state.groupSnoozes = {};`);
+  let snooze = run("applySnoozeStart(state.groups[0])");
+  check("the final notice opens before any snooze is stored", !run("state.groupSnoozes.a1") && !storage.get("groupSnoozes")?.a1);
+  context.testNow += 90_000;
+  run("answerNotice(true)"); await snooze;
+  const entry = storage.get("groupSnoozes")?.a1;
+  check("activation delay starts at final confirmation", entry?.startsAtMs === context.testNow + 120_000, entry);
+  check("the complete snooze duration remains after confirmation", entry?.untilMs - entry?.startsAtMs === 300_000, entry);
+  run("state.groupSnoozes = {}"); storage.delete("groupSnoozes");
+  snooze = run("applySnoozeStart(state.groups[0])"); run("answerNotice(false)"); await snooze;
+  check("Cancel stores no snooze", !storage.get("groupSnoozes")?.a1);
+  snooze = run("applySnoozeStart(state.groups[0])");
+  run("state.groups[0].snoozeMinutes = 10; answerNotice(true)"); await snooze;
+  check("changed settings invalidate the displayed confirmation", !storage.get("groupSnoozes")?.a1);
+  snooze = run("applySnoozeStart(state.groups[0])");
+  run(`state.groupSnoozes.a1 = { startsAtMs: Date.now(), untilMs: Date.now()+300000, cooldownUntilMs: Date.now()+300000 }; answerNotice(true)`);
+  await snooze;
+  check("a linked snooze arriving during the notice is not replaced", !storage.get("groupSnoozes")?.a1 && run("state.groupSnoozes.a1.untilMs") === context.testNow + 300_000);
+
   console.log(`POPUP WRITES TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
   if (fail) process.exitCode = 1;
