@@ -70,6 +70,10 @@ const group = (extra = {}) => ({
   check("budget kind + rolling + midnight: the room lapses at midnight", rollMid.untilMs === at(22, 0), rollMid.untilMs);
   const delayed = call("snoozeEntry(g, n, a)", { g: group({ snoozeActivationDelayMinutes: 5 }), n: at(21, 11), a: at(21, 10) });
   check("activation delay: the extra room starts later", delayed.startsAtMs === at(21, 11, 5) && delayed.untilMs === at(21, 12));
+  const afterReset = call("snoozeEntry(g, n, a, u)", { g: group({ snoozeMinutes: 5, snoozeActivationDelayMinutes: 5 }), n: at(21, 11, 58), a: at(21, 10), u: 20 * MIN });
+  check("activation after a fixed reset does not carry previously spent extra into the new period", afterReset.extraMs === 5 * MIN && afterReset.untilMs === at(21, 14), afterReset);
+  const afterMidnight = call("snoozeEntry(g, n, a, u)", { g: group({ rollingLimit: true, resetAtMidnight: true, snoozeMinutes: 5, snoozeActivationDelayMinutes: 5 }), n: at(21, 23, 58), a: 0, u: 20 * MIN });
+  check("activation after rolling midnight reset starts with the requested extra only", afterMidnight.extraMs === 5 * MIN, afterMidnight);
 }
 
 // What a running snooze does
