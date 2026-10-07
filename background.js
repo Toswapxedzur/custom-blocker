@@ -1595,13 +1595,13 @@ async function cbFireSnoozePress(groupId) {
 // entry, re-syncs blocking and shares it with linked members (newest start
 // wins there, exactly like a snooze started in the popup).
 async function cbStartSnooze(groupId, now = Date.now()) {
-  const { groups, groupSnoozes, usageResetAtMs } = await getState();
+  const { groups, groupSnoozes, usageResetAtMs, usageTimersMs } = await getState();
   const group = groups.find((item) => item.id === groupId);
   if (!group) throw new Error("group-not-found");
   if (cbEnforceOnly(group)) throw new Error("desktop-vault-away");
   const plan = CBGroupActions.snoozePlan(group, groupSnoozes[group.id], now);
   if (plan.error) throw new Error(plan.error);
-  const entry = CBGroupActions.snoozeEntry(group, now, usageResetAtMs[group.id]);
+  const entry = CBGroupActions.snoozeEntry(group, now, usageResetAtMs[group.id], usageTimersMs[group.id]);
   const next = { ...groupSnoozes, [group.id]: entry };
   await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: next });
   return entry;

@@ -135,6 +135,33 @@ const group = (extra = {}) => ({
   check("tidy: …and the budget still resets", out.usageTimersMs.g === 0 && out.usageResetAtMs.g === at(21, 12));
 }
 
+// A repeated grant must add usable room above already consumed extra usage.
+// This is the customer failure: the second grant used to settle immediately.
+for (const rollingLimit of [false, true]) {
+  const g = group({ rollingLimit, snoozeMinutes: 5, snoozeCooldownMinutes: 0.5 });
+  const n = at(21, 11, 10);
+  const a = at(21, 10);
+  const first = call("snoozeEntry(g, n, a, u)", { g, n, a, u: 15 * MIN });
+  const ended = call("settleBudgetSnooze(e, g, u, n)", { e: first, g, u: 20 * MIN, n: n + 5 * MIN });
+  const nextAt = ended.cooldownUntilMs + 1;
+  const next = call("snoozeEntry(g, n, a, u)", { g, n: nextAt, a, u: 20 * MIN });
+  const label = rollingLimit ? "rolling repeated grant" : "fixed repeated grant";
+  check(label + ": ceiling grows to 25 minutes", call("effectiveAllowedMs(g, e, n)", { g, e: next, n: nextAt }) === 25 * MIN);
+  check(label + ": does not immediately settle", call("settleBudgetSnooze(e, g, u, n)", { g, e: next, u: 20 * MIN, n: nextAt }) === null);
+  check(label + ": still allows the last second", call("settleBudgetSnooze(e, g, u, n)", { g, e: next, u: 25 * MIN - 1000, n: nextAt + 4 * MIN }) === null);
+  const secondEnded = call("settleBudgetSnooze(e, g, u, n)", { g, e: next, u: 25 * MIN, n: nextAt + 5 * MIN });
+  check(label + ": cooldown begins only when the new five minutes are consumed", secondEnded && secondEnded.cooldownUntilMs - secondEnded.untilMs === 30000);
+  check(label + ": notice retains the five-minute grant", next.grantMs === 5 * MIN);
+  check(label + ": stored entry retains grant metadata", call("sanitizeSnoozeEntry(e)", { e: next }).grantMs === 5 * MIN);
+  const thirdAt = nextAt + 6 * MIN;
+  const third = call("snoozeEntry(g, n, a, u)", { g, n: thirdAt, a, u: 25 * MIN });
+  check(label + ": third grant gives another five minutes", call("effectiveAllowedMs(g, e, n)", { g, e: third, n: thirdAt }) === 30 * MIN);
+  const fresh = call("snoozeEntry(g, n, a, u)", { g, n: at(21, 12, 1), a: at(21, 12), u: 0 });
+  check(label + ": new-period usage does not retain old spent extra", fresh.extraMs === 5 * MIN);
+  const aged = call("snoozeEntry(g, n, a, u)", { g, n, a, u: 18 * MIN });
+  check(label + ": current usage, not lifetime snooze totals, sets the new ceiling", call("effectiveAllowedMs(g, e, n)", { g, e: aged, n }) === 23 * MIN);
+}
+
 console.log(`SNOOZE BUDGET TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
 if (fail) process.exitCode = 1;

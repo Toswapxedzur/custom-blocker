@@ -3582,7 +3582,7 @@ function updateSnoozeUI(group, now = Date.now()) {
     snoozeSummary.textContent = budgetSnooze
       ? t("snooze.summary.pendingBudget", {
         delay: formatDurationMs(snooze.startsAtMs - now),
-        time: formatDurationMs(snooze.extraMs)
+        time: formatDurationMs(snooze.grantMs ?? snooze.extraMs)
       })
       : t("snooze.summary.pending", {
         delay: formatDurationMs(snooze.startsAtMs - now),
@@ -3593,7 +3593,7 @@ function updateSnoozeUI(group, now = Date.now()) {
   } else if (snoozePhase === "active") {
     snoozeSummary.textContent = budgetSnooze
       ? t("snooze.summary.activeBudget", {
-        time: formatDurationMs(snooze.extraMs),
+        time: formatDurationMs(snooze.grantMs ?? snooze.extraMs),
         until: formatDurationMs(snooze.untilMs - now)
       })
       : t("snooze.summary.active", {
@@ -5141,7 +5141,7 @@ function showSnoozeNotice(group, snoozeEntry, totalBeforeMs) {
     t(snoozeEntry.kind === "budget" ? "snooze.noticePopupBudget" : "snooze.noticePopup", {
       name: group.name,
       total: formatDurationMs(totalBeforeMs),
-      upcoming: formatDurationMs(snoozeEntry.kind === "budget" ? snoozeEntry.extraMs : snoozeEntry.untilMs - snoozeEntry.startsAtMs),
+      upcoming: formatDurationMs(snoozeEntry.kind === "budget" ? (snoozeEntry.grantMs ?? snoozeEntry.extraMs) : snoozeEntry.untilMs - snoozeEntry.startsAtMs),
       delay: formatDurationMs(activationDelayMs)
     }),
     { title: t("snooze.title"), confirmText: t("modal.confirm") }
@@ -5363,7 +5363,7 @@ async function applySnoozeStart(group) {
     return;
   }
   const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
-  const snoozeEntry = CBGroupActions.snoozeEntry(group, now, state.usageResetAtMs[group.id]);
+  const snoozeEntry = CBGroupActions.snoozeEntry(group, now, state.usageResetAtMs[group.id], state.usageTimersMs[group.id]);
   state.groupSnoozes[group.id] = snoozeEntry;
   const minutes = Number(group.snoozeMinutes) || 0;
   await persistSnooze(

@@ -242,6 +242,7 @@
       confirmationCount: Number.isFinite(confirmations) && confirmations >= 0 ? confirmations : 0,
       activeMsApplied: Boolean(raw?.activeMsApplied),
       ...(raw?.kind === "budget" && Number(raw?.extraMs) > 0 ? { kind: "budget", extraMs: Number(raw.extraMs) } : {}),
+      ...(raw?.kind === "budget" && Number.isFinite(Number(raw?.grantMs)) && Number(raw.grantMs) > 0 && Number(raw.grantMs) <= Number(raw.extraMs) ? { grantMs: Number(raw.grantMs) } : {}),
       ...(changedAtMs ? { changedAtMs } : {})
     };
   }
@@ -280,7 +281,7 @@
 
   // The new entry, from the group's stored settings (never unsaved form input).
   // `resetAtMs` (the group's budget anchor) only matters for a budget snooze.
-  function snoozeEntry(group, now, resetAtMs) {
+  function snoozeEntry(group, now, resetAtMs, usedMs = 0) {
     const startsAtMs = now + (Number(group.snoozeActivationDelayMinutes) || 0) * MINUTE_MS;
     const cooldownMs = (Number(group.snoozeCooldownMinutes) || 0) * MINUTE_MS;
     const common = {
@@ -290,9 +291,15 @@
     };
     if (isBudgetSnoozeGroup(group)) {
       const untilMs = budgetSnoozeExpiryMs(group, startsAtMs, resetAtMs);
+      const grantMs = Math.max(0, Number(group.snoozeMinutes) || 0) * MINUTE_MS;
+      // Usage retains previously spent extra until the budget resets. A new
+      // grant adds room above that usage, rather than repeating the old ceiling.
+      // extraMs remains the offset from the base allowance used by every host.
+      const used = Number.isFinite(Number(usedMs)) ? Math.max(0, Number(usedMs)) : 0;
       return {
         kind: "budget",
-        extraMs: (Number(group.snoozeMinutes) || 0) * MINUTE_MS,
+        extraMs: Math.max(0, used - getAllowedMs(group)) + grantMs,
+        grantMs,
         startsAtMs, untilMs, cooldownUntilMs: untilMs + cooldownMs, ...common
       };
     }
