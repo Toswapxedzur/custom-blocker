@@ -5135,16 +5135,15 @@ function closeUnfreezeFlow() {
   }
 }
 
-function showSnoozeNotice(group, snoozeEntry, totalBeforeMs) {
-  const activationDelayMs = Math.max(0, snoozeEntry.startsAtMs - Date.now());
-  cbDialog.alert(
-    t(snoozeEntry.kind === "budget" ? "snooze.noticePopupBudget" : "snooze.noticePopup", {
+function showSnoozeNotice(group, totalBeforeMs) {
+  return cbDialog.confirm(
+    t(group.mode === "after-minutes" && group.snoozeKind === "budget" ? "snooze.noticePopupBudget" : "snooze.noticePopup", {
       name: group.name,
       total: formatDurationMs(totalBeforeMs),
-      upcoming: formatDurationMs(snoozeEntry.kind === "budget" ? (snoozeEntry.grantMs ?? snoozeEntry.extraMs) : snoozeEntry.untilMs - snoozeEntry.startsAtMs),
-      delay: formatDurationMs(activationDelayMs)
+      upcoming: formatDurationMs((Number(group.snoozeMinutes) || 0) * 60_000),
+      delay: formatDurationMs((Number(group.snoozeActivationDelayMinutes) || 0) * 60_000)
     }),
-    { title: t("snooze.title"), confirmText: t("modal.confirm") }
+    { title: t("snooze.title"), confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
   );
 }
 
@@ -5355,27 +5354,38 @@ function showSnoozeInProgress(entry, phase) {
 // Starts the snooze after its confirmation. The plan is taken again here: a
 // snooze started meanwhile (the cover, a linked device) is not replaced.
 async function applySnoozeStart(group) {
-  const now = Date.now();
-  const current = state.groupSnoozes[group.id];
-  if (CBGroupActions.snoozePlan(group, current, now).error) {
-    showSnoozeInProgress(current, getSnoozePhase(current, now));
+  if (state.snoozeNoticeOpen) return;
+  state.snoozeNoticeOpen = true;
+  try {
+    const fields = ["allowSnooze", "snoozeKind", "snoozeMinutes", "snoozeActivationDelayMinutes", "snoozeCooldownMinutes", "snoozeConfirmations", "mode"];
+    const settings = fields.map(key => group[key]);
+    const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
+    if (!(await showSnoozeNotice(group, totalBeforeMs))) return;
+    const fresh = state.groups.find(item => item.id === group.id);
+    // Confirmation covers the displayed settings. A deleted group or changed
+    // duration/gates must be requested again, rather than silently accepted.
+    if (!fresh || fields.some((key, index) => fresh[key] !== settings[index]) || refuseWhileDesktopVaultAway(fresh)) return;
+    group = fresh;
+    const now = Date.now();
+    const current = state.groupSnoozes[group.id];
+    if (CBGroupActions.snoozePlan(group, current, now).error) {
+      showSnoozeInProgress(current, getSnoozePhase(current, now));
+      render();
+      return;
+    }
+    const snoozeEntry = CBGroupActions.snoozeEntry(group, now, state.usageResetAtMs[group.id], state.usageTimersMs[group.id]);
+    state.groupSnoozes[group.id] = snoozeEntry;
+    const minutes = Number(group.snoozeMinutes) || 0;
+    await persistSnooze(
+      group.id,
+      snoozeEntry,
+      snoozeEntry.startsAtMs > now
+        ? t("status.snoozeScheduled", { name: group.name, delay: formatDurationMs(snoozeEntry.startsAtMs - now) })
+        : t(snoozeEntry.kind === "budget" ? "status.snoozedBudget" : "status.snoozed",
+          { name: group.name, minutes, suffix: timeUnitSuffix(minutes) })
+    );
     render();
-    return;
-  }
-  const totalBeforeMs = Math.max(0, Number(state.groupSnoozeTotalsMs[group.id]) || 0);
-  const snoozeEntry = CBGroupActions.snoozeEntry(group, now, state.usageResetAtMs[group.id], state.usageTimersMs[group.id]);
-  state.groupSnoozes[group.id] = snoozeEntry;
-  const minutes = Number(group.snoozeMinutes) || 0;
-  await persistSnooze(
-    group.id,
-    snoozeEntry,
-    snoozeEntry.startsAtMs > now
-      ? t("status.snoozeScheduled", { name: group.name, delay: formatDurationMs(snoozeEntry.startsAtMs - now) })
-      : t(snoozeEntry.kind === "budget" ? "status.snoozedBudget" : "status.snoozed",
-        { name: group.name, minutes, suffix: timeUnitSuffix(minutes) })
-  );
-  render();
-  showSnoozeNotice(group, snoozeEntry, totalBeforeMs);
+  } finally { state.snoozeNoticeOpen = false; }
 }
 
 async function endSnooze() {

@@ -54,6 +54,32 @@
   const platformEpochs = new Map();
   const hostState = new WeakMap();
   let reattachObserver = null;
+  let hoveredControl = null;
+
+  function setHoveredControl(control) {
+    if (control === hoveredControl) return;
+    hoveredControl?.classList.toggle("pointer-hover", false);
+    hoveredControl = control;
+    hoveredControl?.classList.toggle("pointer-hover", true);
+  }
+
+  function pointerInside(control, event) {
+    if (!control?.isConnected || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return false;
+    const inside = (element) => {
+      const rect = element?.getBoundingClientRect?.();
+      return rect && event.clientX >= rect.left && event.clientX <= rect.right
+        && event.clientY >= rect.top && event.clientY <= rect.bottom;
+    };
+    // The delete button protrudes beyond the pill. It belongs to the same hit
+    // area, so moving onto it must not hide it before the click arrives.
+    return inside(control) || inside(control.querySelector?.(".chip-del"));
+  }
+
+  function updatePointerHover(event) {
+    const control = event.target?.closest?.(".chip-wrap,.add-btn,.panel-item");
+    if (control && pointerInside(control, event)) setHoveredControl(control);
+    else if (!pointerInside(hoveredControl, event)) setHoveredControl(null);
+  }
 
   // Dev-only unified logging: forward pill-pipeline events to the native log.
   // Auto-on when the connected app is in its development env (`vaultDevMode`,
@@ -128,6 +154,7 @@
 
   function removeState(state) {
     if (!state) return;
+    if (state.host && hoveredControl?.getRootNode?.().host === state.host) setHoveredControl(null);
     if (state.recheckTimer) {
       clearTimeout(state.recheckTimer);
       state.recheckTimer = null;
@@ -628,9 +655,9 @@
       // Live correction: a delete affordance on hover, an add button, and a small panel.
       ".chip-wrap{position:relative;display:inline-flex;align-items:center}",
       ".chip-del{position:absolute;top:-6px;right:-6px;width:14px;height:14px;padding:0;display:none;align-items:center;justify-content:center;border:0;border-radius:999px;background:#991b1b;color:#fee2e2;font:700 10px/1 Arial,Helvetica,sans-serif;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.35)}",
-      ".chip-wrap:hover .chip-del,.chip-wrap:focus-within .chip-del{display:inline-flex}",
+      ".chip-wrap.pointer-hover .chip-del,.chip-wrap:focus-within .chip-del{display:inline-flex}",
       ".add-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-height:18px;padding:1px 8px;border:0;border-radius:999px;background:#1e3a8a;color:#eef2ff;font:600 11px/16px Arial,Helvetica,sans-serif;cursor:pointer;opacity:.7}",
-      ".add-btn:hover{opacity:1}",
+      ".add-btn.pointer-hover{opacity:1}",
       // CSS updates already-mounted pills when the browser preference changes.
       "@media (prefers-color-scheme:dark){.chip,.chip.predicted,.chip.tagging{background:var(--vault-tag-color-light);color:#000}.chip.predicted,.chip.tagging{color:var(--vault-tag-color-dark);border-color:var(--vault-tag-color-dark)}.add-btn{background:#eef2ff;color:#1e3a8a}.chip-del{background:#fee2e2;color:#991b1b}}",
       ".panel{position:absolute;top:calc(100% + 4px);left:0;z-index:2147483647;width:190px;max-height:230px;display:none;flex-direction:column;background:#fff;color:#1f2937;border:0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.22);overflow:hidden;font:500 12px/1.3 Arial,Helvetica,sans-serif}",
@@ -640,7 +667,7 @@
       ".panel-search{margin:0 9px 6px;padding:5px 8px;border:0;border-radius:7px;background:#f1f5f9;color:#1f2937;font:inherit;outline:none}",
       ".panel-list{overflow-y:auto;max-height:158px;padding:0 5px 6px}",
       ".panel-item{display:flex;align-items:center;gap:7px;width:100%;padding:5px 7px;border:0;border-radius:6px;background:transparent;cursor:pointer;font:inherit;text-align:left;color:#111}",
-      ".panel-item:hover{background:rgba(0,0,0,.06)}",
+      ".panel-item.pointer-hover{background:rgba(0,0,0,.06)}",
       ".panel-dot{flex:0 0 auto;width:9px;height:9px;border-radius:999px}",
       ".panel-empty{padding:8px 10px;color:#888}",
       ".correction-status:empty{display:none}",
@@ -662,6 +689,13 @@
     // One delegated listener drives every correction affordance; the rail is
     // re-populated on each render but the shadow root (and this listener) persist.
     if (typeof shadow.addEventListener === "function") {
+    // Pointer geometry owns the visual state. Spurious boundary events during
+    // continuous in-pill motion cannot toggle CSS :hover on every frame.
+    shadow.addEventListener("pointerover", updatePointerHover);
+    shadow.addEventListener("pointermove", updatePointerHover);
+    shadow.addEventListener("pointerout", (event) => {
+      if (!pointerInside(hoveredControl, event)) setHoveredControl(null);
+    });
     shadow.addEventListener("click", (event) => {
       const state = hostState.get(host);
       if (!state) return;
@@ -949,6 +983,10 @@
   }
 
   // One set of page listeners, shared by every private tag host.
+  global.document?.addEventListener?.("pointermove", (event) => {
+    if (hoveredControl && !pointerInside(hoveredControl, event)) setHoveredControl(null);
+  }, true);
+  global.addEventListener?.("blur", () => setHoveredControl(null));
   global.document?.addEventListener?.("pointerdown", (event) => {
     const path = event.composedPath?.() || [];
     for (const state of mountedStates) {
