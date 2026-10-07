@@ -82,3 +82,8 @@
 - Public customer-audit patch 3.1.2: Bilibili collector uses the dedicated author span verified through mini2 Chrome DOM inspection, excluding publication age from saved creator names. `tests/runner-vault-classifier-bilibili.js` covers that live structure and the related-card fallback.
 
 - `popup-rule-logs.js` also checks that the optional Mac export uses exactly the same selected-rule text as browser downloads. Current source version is 3.1.5; Store publication remains 3.1.0.
+
+- Local storage: `storage-schema.js` owns format 3, writer product/app version,
+  bounded compatible-alpha imports and write barriers across worker/editor APIs.
+  `docs/STORAGE-SCHEMAS.md` documents retention; `tests/runner-storage-schema.js`
+  checks expiry, retries, callbacks and unsupported-destination preservation.

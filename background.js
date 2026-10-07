@@ -17,6 +17,7 @@
 // Chromium uses a classic service worker. Safari preloads these shared
 // dependencies through its manifest background script list.
 if (typeof importScripts === "function") {
+  importScripts("browser-compat.js", "storage-schema.js");
   try {
     if (typeof CBBridgeProtocol === "undefined") importScripts("bridge-protocol.js");
   } catch (error) {
@@ -1093,7 +1094,7 @@ async function openExtensionPage() {
 // version. Each migration step is idempotent so re-running it (after a
 // failed install, or after an unpacked → packed transition) is safe.
 const CB_SCHEMA_VERSION_KEY = "schemaVersion";
-const CB_CURRENT_SCHEMA_VERSION = 2;
+const CB_CURRENT_SCHEMA_VERSION = 3;
 
 // In a dev build of this extension the ID is derived from the install
 // path. When a user transitions from unpacked → Web Store install (or
@@ -1162,8 +1163,9 @@ async function runChromeExtensionUrlSanitization() {
 async function runInstallMigrations(details) {
   const reason = details && typeof details.reason === "string" ? details.reason : "";
   try {
-    const stored = await chrome.storage.local.get(CB_SCHEMA_VERSION_KEY);
-    const previousSchema = Number(stored[CB_SCHEMA_VERSION_KEY]) || 0;
+    // The guarded API migrates on ordinary startup as well as installation.
+    // It rejects unsupported schemas before URL rewriting or any other write.
+    await chrome.storage.local.get(CB_SCHEMA_VERSION_KEY);
 
     // 1) Sanitise stored chrome-extension://<old-id>/ URLs. Safe to run on
     //    every install/update reason because rewriteExtensionUrlsInString
@@ -1179,14 +1181,7 @@ async function runInstallMigrations(details) {
       }
     }
 
-    // 2) Future migrations key off previousSchema and bump the version
-    //    only when their write step succeeds. Placeholder for now: just
-    //    record the current schema so later migrations have a baseline.
-    if (previousSchema !== CB_CURRENT_SCHEMA_VERSION) {
-      await chrome.storage.local.set({
-        [CB_SCHEMA_VERSION_KEY]: CB_CURRENT_SCHEMA_VERSION
-      });
-    }
+
   } catch (error) {
     console.warn("[CustomBlocker] install migration failed", error);
   }
