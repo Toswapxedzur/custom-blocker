@@ -2,6 +2,8 @@
 
 Vault controls websites and supported platform content in the browser profile where it is installed. Open its editor from the extension's toolbar button. Mac Vault or Windows Vault provides local tagging and Activity when connected; the extension enforces browser targets.
 
+After installing the extension, refresh webpages that were already open so Vault can run on them. Newly opened pages activate automatically.
+
 ## Blocking groups
 
 A **blocking group** applies a blocking policy. A **Classifier group** assigns tags to content; it does not block anything by itself.
