@@ -55,6 +55,7 @@ COMMON_TOP_LEVEL_FILES = [
     "group-actions.js",
     "rule-core.js",
     "browser-compat.js",
+    "storage-schema.js",
     "popup.html",
     "popup.js",
     "popup.css",

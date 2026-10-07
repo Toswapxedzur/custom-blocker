@@ -24,6 +24,7 @@
   "background": {
     "scripts": [
       "browser-compat.js",
+      "storage-schema.js",
       "safari-runtime-config.js",
       "sandbox-transport.js",
       "bridge-protocol.js",

@@ -6603,7 +6603,7 @@ async function initializePopupApp() {
 
 initializePopupApp().catch((error) => {
   console.error("Failed to initialize popup.", error);
-  setStatus(t("status.errorLoadGroups"), true);
+  setStatus(error?.message || t("status.errorLoadGroups"), true);
 });
 
 window.VaultInfo?.watch(document, { enabled: () => true });
