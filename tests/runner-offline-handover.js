@@ -69,7 +69,7 @@ const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
   check("nothing is sent while the hub is away", context.__sent.length === 0, context.__sent);
 
   // The hub is back with the shared total it had (5 min, same period).
-  run(`cbConnection.routeIsReady = (t) => t === "macapp";`);
+  run(`cbConnection.routeIsReady = (t) => t === "macapp"; cbConnection.usageTransferReceipts = true;`);
   context.__clusters = [{ ...cluster, shared: { scalars: {}, usageMs: 300000, usageResetAtMs: anchor } }];
   run(`cbConnection.clusters = __clusters;`);
   await run(`cbConnection.applySharedToStorage()`);
@@ -77,12 +77,52 @@ const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
   check("on return the offline time is handed over as an increment for its period", handed && handed.usageDeltaMs === 2000 && handed.usageDeltaAnchorMs === anchor, context.__sent);
   check("…the local counter shows shared + handed-over time, not the hub's older total", ((await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {}).L === 302000);
   check("…and it is handed over once", Object.keys((await context.chrome.storage.local.get("cbOfflineUsage")).cbOfflineUsage || {}).length === 0);
+  let outbox = (await context.chrome.storage.local.get("cbOfflineUsageTransfers")).cbOfflineUsageTransfers || {};
+  check("socket submission retains the immutable batch until hub receipt", Object.keys(outbox).length === 1 && outbox[handed?.usageTransferId]?.ms === 2000, outbox);
+  await Promise.all([run(`cbConnection.applySharedToStorage()`), run(`cbConnection.applySharedToStorage()`)]);
+  const retries = context.__sent.filter(f => f.usageTransferId);
+  check("overlapping snapshots retry the same transfer id rather than create duplicate usage", new Set(retries.map(f => f.usageTransferId)).size === 1, retries);
+  context.__clusters = [{ ...cluster, shared: { scalars: {}, usageMs: 302000, usageResetAtMs: anchor, usageTransferReceipts: { ["chrome:" + handed.usageTransferId]: clock } } }];
+  run(`cbConnection.clusters = __clusters;`);
+  await run(`cbConnection.applySharedToStorage()`);
+  check("hub receipt removes the batch", Object.keys((await context.chrome.storage.local.get("cbOfflineUsageTransfers")).cbOfflineUsageTransfers || {}).length === 0);
+  check("receipt-bearing shared usage does not double-count our accepted batch", ((await context.chrome.storage.local.get("usageTimersMs")).usageTimersMs || {}).L === 302000);
+
+  // A failed send is retried from durable storage without dropping its usage.
+  await run(`cbRecordOfflineUsage({L:{ms:1000,buckets:{}}},{L:${anchor}})`);
+  run(`cbConnection.sendWS = () => false;`);
+  await run(`cbHandOverOfflineUsage([{group:__clusters[0] && {id:"L"},cluster:__clusters[0]}])`);
+  outbox = (await context.chrome.storage.local.get("cbOfflineUsageTransfers")).cbOfflineUsageTransfers || {};
+  check("failed send retains pending usage in the durable outbox", Object.values(outbox).some(entry => entry.ms === 1000));
+  run(`cbConnection.sendWS = (frame) => { __sent.push(frame); return true; };`);
 
   // Online: the browser's own accrual reaches the hub as an increment.
   context.__sent.length = 0;
   clock += 1000; await run(`applyElapsedTime("example.com", 1000, [])`);
   const live = context.__sent.find((f) => f.kind === "group-sync" && f.program === "chrome" && f.groupId === "L" && f.usageDeltaMs > 0 && f.usageDeltaAnchorMs === undefined);
   check("while the hub is connected, time counted here is reported to it", live && live.usageDeltaMs === 1000, context.__sent);
+
+  // Hold the older storage read, enqueue a newer snapshot and then release it.
+  // The newer operation must wait and remain the final stored policy/usage.
+  const originalGet = context.chrome.storage.local.get;
+  let release, held = false;
+  context.chrome.storage.local.get = async (keys, cb) => {
+    const value = await originalGet(keys, cb);
+    if (!held && keys && Object.hasOwn(keys, "blockedGroups")) {
+      held = true; await new Promise(resolve => { release = resolve; });
+    }
+    return value;
+  };
+  context.__clusters = [{ ...cluster, shared: { scalars: {allowedMinutes: 10}, usageMs: 310000, usageResetAtMs: anchor } }];
+  run(`cbConnection.clusters = __clusters;`);
+  const older = run(`cbConnection.applySharedToStorage()`);
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  context.__clusters = [{ ...cluster, shared: { scalars: {allowedMinutes: 20}, usageMs: 320000, usageResetAtMs: anchor } }];
+  run(`cbConnection.clusters = __clusters;`);
+  const newer = run(`cbConnection.applySharedToStorage()`);
+  release(); await Promise.all([older, newer]);
+  const final = await originalGet({ blockedGroups: [], usageTimersMs: {} });
+  check("newest queued snapshot remains final after a delayed older read", final.blockedGroups[0].allowedMinutes === 20 && final.usageTimersMs.L >= 320000, final);
 
   console.log(`OFFLINE HANDOVER TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
