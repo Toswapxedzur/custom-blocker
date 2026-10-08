@@ -1,6 +1,6 @@
 'use strict';
 const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
-function rig(initial, version = '3.1.5') {
+function rig(initial, version = '3.1.5', url = 'chrome-extension://fixture/') {
   let state = structuredClone(initial), writes = 0, fail = false;
   const local = {
     async get(keys) { if (keys == null) return structuredClone(state); if (typeof keys === 'string') keys = [keys]; if (Array.isArray(keys)) return Object.fromEntries(keys.filter(k => k in state).map(k => [k, structuredClone(state[k])])); return Object.fromEntries(Object.entries(keys).map(([k, v]) => [k, structuredClone(k in state ? state[k] : v)])); },
@@ -8,7 +8,7 @@ function rig(initial, version = '3.1.5') {
     async remove(keys) { for (const k of [].concat(keys)) delete state[k]; },
     async clear() { state = {}; }
   };
-  const context = vm.createContext({ chrome: { storage: { local }, runtime: { getManifest: () => ({ version }), lastError: null } }, console, structuredClone });
+  const context = vm.createContext({ chrome: { storage: { local }, runtime: { getManifest: () => ({ version }), getURL: () => url, lastError: null } }, browser: {}, console, structuredClone });
   vm.runInContext(fs.readFileSync('storage-schema.js', 'utf8'), context);
   return { context, api: context.chrome.storage.local, data: () => structuredClone(state), writes: () => writes, fail: () => { fail = true; } };
 }
@@ -21,6 +21,10 @@ function rig(initial, version = '3.1.5') {
   for (const k of ['blockedGroups', 'usageTimersMs', 'cbOfflineTransfers']) assert.deepEqual(r.data()[k], alpha[k]);
   const first = r.data(); await r.api.get(null); assert.deepEqual(r.data(), first); assert.equal(r.writes(), 1);
   await r.api.set({ extra: true }); assert.equal(r.data().extra, true);
+  const safari = rig({}, '3.1.5', 'safari-web-extension://fixture/');
+  await safari.api.get(null); assert.equal(safari.data().storageMetadata.product, 'safari');
+  // Chrome also exposes browser; the URL scheme, not namespace presence, owns identity.
+  assert.equal(r.data().storageMetadata.product, 'browser');
   const policy = r.context.CBStorageSchema;
   const header = (v, app) => ({ schemaVersion: v, storageMetadata: { format: 'vault.web-store', schemaVersion: v, product: 'browser', writtenByAppVersion: app } });
   policy.validate(header(2, '1.0.0'), { product: 'browser', appVersion: '2.0.0' });
