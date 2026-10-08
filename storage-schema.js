@@ -5,7 +5,8 @@
   const SCHEMA = 3, FORMAT = 'vault.web-store';
   function product() {
     const id = g.__CB_DESKTOP_PROGRAM_ID;
-    return id === 'windowsapp' ? 'windows' : id === 'macapp' ? 'mac' : typeof g.browser !== 'undefined' ? 'safari' : 'browser';
+    const url = typeof g.chrome?.runtime?.getURL === 'function' ? g.chrome.runtime.getURL('') : '';
+    return id === 'windowsapp' ? 'windows' : id === 'macapp' ? 'mac' : /^safari-web-extension:\/\//.test(url) ? 'safari' : 'browser';
   }
   function major(version) { return /^\d+(?:\.\d+)*$/.test(version || '') ? Number(version.split('.')[0]) : -1; }
   function identity() { return { product: product(), appVersion: g.chrome.runtime.getManifest().version }; }
