@@ -5,21 +5,26 @@ const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
 function makeContext(program = "chrome") {
   const storage = new Map();
+  const listeners = [], changes = [];
+  let ctx;
+  const copy = value => JSON.parse(JSON.stringify(value, (_key, item) => ctx?.__sortStorageObjects && item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item));
   const inert = () => new Proxy(function () {}, { get: (_t, p) => (p === "addListener" || p === "removeListener" || p === "hasListener") ? () => {} : inert(), apply: () => Promise.resolve(undefined) });
   const chrome = new Proxy({
     storage: {
       local: {
         get: (keys, cb) => { const out = {}; if (keys && typeof keys === "object" && !Array.isArray(keys)) for (const [k, d] of Object.entries(keys)) out[k] = storage.has(k) ? storage.get(k) : d; else if (typeof keys === "string") out[keys] = storage.get(keys); const copy = JSON.parse(JSON.stringify(out)); if (cb) cb(copy); return Promise.resolve(copy); },
-        set: (obj, cb) => { for (const [k, v] of Object.entries(obj)) storage.set(k, JSON.parse(JSON.stringify(v))); if (cb) cb(); return Promise.resolve(); },
+        set: (obj, cb) => { const event = {}; for (const [k, v] of Object.entries(obj)) { const next = copy(v), oldValue = storage.get(k); if (JSON.stringify(oldValue) !== JSON.stringify(next)) event[k] = {oldValue, newValue:next}; storage.set(k, next); } if (event.blockedGroups) changes.push(event); if (cb) cb(); return Promise.resolve(); },
         remove: () => Promise.resolve(), getBytesInUse: () => Promise.resolve(0)
       },
       session: { get: () => Promise.resolve({}), set: () => Promise.resolve(), remove: () => Promise.resolve() },
-      onChanged: { addListener() {}, removeListener() {}, hasListener: () => false }
+      onChanged: { addListener(fn) { listeners.push(fn); }, removeListener() {}, hasListener: () => false }
     },
     alarms: { clear: () => Promise.resolve(), create: () => Promise.resolve(), onAlarm: { addListener() {} } },
     runtime: new Proxy({ id: "t", getManifest: () => ({ version: "0" }), getURL: (p) => `chrome-extension://t/${p}`, lastError: null }, { get: (t, p) => (p in t ? t[p] : inert()) })
   }, { get: (t, p) => (p in t ? t[p] : inert()) });
-  const ctx = vm.createContext({
+  ctx = vm.createContext({
+    __storageListeners: listeners, __storageChanges: changes,
     chrome, console: { log() {}, warn() {}, error() {}, debug() {}, info() {} },
     setTimeout, clearTimeout, setInterval: () => 0, clearInterval() {},
     TextEncoder, TextDecoder, URL, URLSearchParams, crypto: globalThis.crypto, fetch: () => Promise.reject(new Error("offline")),
@@ -70,7 +75,8 @@ async function frame(env, c, kind = "cluster-updated") {
   await env.run("cbConnection.sharedApplyTail");
 }
 const state = env => env.ctx.chrome.storage.local.get({blockedGroups:[],usageTimersMs:{},usageBucketsMs:{}});
-(async () => {
+module.exports = {setup, frame, cluster, state};
+if (require.main === module) (async () => {
   // Both legal first-message orders retain the initiator before its receipt.
   for (const reconnect of [false,true]) {
     const env = await setup();
