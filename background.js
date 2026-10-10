@@ -2023,39 +2023,93 @@ function cbSetRulePanels(groupId, panels) {
 
 // Loads a group's rule with its stored memory; `run` (the Run button) also
 // replaces the rule's panels.
-async function loadCustomGroupSource(group, { run = false } = {}) {
+const cbCustomLoadQueues = new Map();
+const cbRuleGenerations = new Map();
+async function loadCustomGroupSource(group, options = {}) {
   if (!group || group.groupType !== "custom") return null;
+  const before = cbCustomLoadQueues.get(group.id) || Promise.resolve();
+  const task = before.catch(() => {}).then(() => cbLoadCustomGroupSource(group, options));
+  cbCustomLoadQueues.set(group.id, task);
+  try { return await task; }
+  finally { if (cbCustomLoadQueues.get(group.id) === task) cbCustomLoadQueues.delete(group.id); }
+}
+async function cbLoadCustomGroupSource(group, { run = false } = {}) {
   const source = typeof group.activeEventSource === "string" ? group.activeEventSource : "";
   const pageNeeds = cbRulePageNeeds();
-  let result;
-  if (!source.trim()) {
-    result = await unloadCustomGroupHandlers(group.id);
-    result = result ? { ok: true, handlers: 0, error: null } : null;
-  } else {
-    const stored = ((await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY] || {})[group.id] || {};
-    result = await sendToEventSandbox({ kind: "load-source", groupId: group.id, source, state: stored, run });
-    if (result) {
-      for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType: "run" });
-      if (!result.ok && result.error) cbDebugError("[Vault rule]", group.id, "run", result.error);
-      if (result.quarantine) quarantineGroup(group.id, result.quarantine.reason || "load-source-timeout").catch(() => {});
-      // A rule that didn't load leaves the one before it running.
-      if (result.ok) {
-        cbRuleTypes.set(group.id, new Set(Array.isArray(result.types) ? result.types : []));
-        // Run starts the panels over; a reload of the same rule (a restarted
-        // worker) keeps the ones on screen until the rule changes them.
-        if (run || !cbRulePanels.has(group.id)) cbSetRulePanels(group.id, Array.isArray(result.panels) ? result.panels : []);
-        if (cbRuleTypes.get(group.id).has("items")) cbRuleItemsEpoch += 1;
-      }
-    }
+  const defaults = { [BLOCKED_GROUPS_KEY]: [], [CB_RULE_STATE_KEY]: {} };
+  const before = await chrome.storage.local.get(defaults);
+  const original = (before[BLOCKED_GROUPS_KEY] || []).find(current => current?.id === group.id && current.groupType === "custom");
+  if (!original) return { ok: false, error: "group-not-found" };
+  const stored = (before[CB_RULE_STATE_KEY] || {})[group.id] || {};
+  let result = await sendToEventSandbox({ kind: "prepare-source", groupId: group.id, source, state: stored, run });
+  if (!result) return null;
+  for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType: "run" });
+  if (!result.ok) {
+    if (result.error) cbDebugError("[Vault rule]", group.id, "run", result.error);
+    if (result.quarantine) quarantineGroup(group.id, result.quarantine.reason || "load-source-timeout").catch(() => {});
+    return result;
   }
-  // Pages collect feed items / count visible time only while a rule wants them.
+  const prepared = result;
+  let saved = null;
+  let snapshot = null;
+  let browserSaved = false;
+  const priorReconcile = lastReconcileSnapshot.get(group.id);
+  try {
+    snapshot = await chrome.storage.local.get(defaults);
+    const groups = Array.isArray(snapshot[BLOCKED_GROUPS_KEY]) ? snapshot[BLOCKED_GROUPS_KEY] : [];
+    const index = groups.findIndex(current => current?.id === group.id && current.groupType === "custom");
+    const current = groups[index];
+    if (!current || current.activeEventSource !== original.activeEventSource ||
+        JSON.stringify((snapshot[CB_RULE_STATE_KEY] || {})[group.id] || {}) !== JSON.stringify(stored)) throw new Error("Rule changed while loading; retry Run.");
+    saved = {};
+    if (Object.hasOwn(prepared.states || {}, group.id)) saved[CB_RULE_STATE_KEY] = { ...(snapshot[CB_RULE_STATE_KEY] || {}), [group.id]: prepared.states[group.id] };
+    if (run) {
+      groups[index] = { ...current, enabled: true, blockingRulesText: source, activeEventSource: source, lastAbortReason: null };
+      saved[BLOCKED_GROUPS_KEY] = groups;
+      lastReconcileSnapshot.set(group.id, { enabled: true, activeEventSource: source });
+    }
+    if (Object.keys(saved).length) { await chrome.storage.local.set(saved); browserSaved = true; }
+    result = await sendToEventSandbox({ kind: "commit-source", groupId: group.id, token: prepared.token });
+    if (!result?.ok) throw new Error(result?.error || "Prepared rule could not be committed.");
+  } catch (error) {
+    await sendToEventSandbox({ kind: "discard-source", groupId: group.id, token: prepared.token }).catch(() => {});
+    // A native journal failure after the browser write restores only values
+    // still belonging to this candidate, preserving intervening user edits.
+    if (browserSaved && saved && snapshot) {
+      const latest = await chrome.storage.local.get(defaults);
+      const rollback = {};
+      if (saved[CB_RULE_STATE_KEY] && JSON.stringify((latest[CB_RULE_STATE_KEY] || {})[group.id]) === JSON.stringify(saved[CB_RULE_STATE_KEY][group.id])) {
+        const states = { ...(latest[CB_RULE_STATE_KEY] || {}) };
+        if (Object.hasOwn(snapshot[CB_RULE_STATE_KEY] || {}, group.id)) states[group.id] = snapshot[CB_RULE_STATE_KEY][group.id];
+        else delete states[group.id];
+        rollback[CB_RULE_STATE_KEY] = states;
+      }
+      if (saved[BLOCKED_GROUPS_KEY]) {
+        const groups = latest[BLOCKED_GROUPS_KEY] || [];
+        const index = groups.findIndex(current => current?.id === group.id);
+        if (index >= 0 && groups[index].activeEventSource === source) {
+          groups[index] = { ...groups[index], enabled: original.enabled, blockingRulesText: original.blockingRulesText, activeEventSource: original.activeEventSource, lastAbortReason: original.lastAbortReason };
+          rollback[BLOCKED_GROUPS_KEY] = groups;
+        }
+      }
+      if (Object.keys(rollback).length) await chrome.storage.local.set(rollback);
+    }
+    if (priorReconcile) lastReconcileSnapshot.set(group.id, priorReconcile);
+    else lastReconcileSnapshot.delete(group.id);
+    return { ok: false, handlers: 0, error: String(error?.message || error), logs: [] };
+  }
+  if (!source.trim()) await unloadCustomGroupHandlers(group.id);
+  cbRuleGenerations.set(group.id, (cbRuleGenerations.get(group.id) || 0) + 1);
+  cbRuleTypes.set(group.id, new Set(Array.isArray(result.types) ? result.types : []));
+  if (run || !cbRulePanels.has(group.id)) cbSetRulePanels(group.id, Array.isArray(result.panels) ? result.panels : []);
+  if (cbRuleTypes.get(group.id).has("items")) cbRuleItemsEpoch += 1;
   if (cbRulePageNeeds() !== pageNeeds) broadcastSessionRefresh().catch(() => {});
-  // A disabled group's rule is loaded, but suppressed.
-  if (result?.ok && cbRuleTypes.has(group.id)) await cbSuppressRule(group.id, !group.enabled);
+  await cbSuppressRule(group.id, !group.enabled);
   return result;
 }
 
 async function unloadCustomGroupHandlers(groupId) {
+  cbRuleGenerations.set(groupId, (cbRuleGenerations.get(groupId) || 0) + 1);
   cbRuleTypes.delete(groupId);
   cbRuleSuppressed.delete(groupId);
   cbSetRulePanels(groupId, null);
@@ -2070,20 +2124,22 @@ async function unloadCustomGroupHandlers(groupId) {
 async function dispatchRule(type, data, { targetGroupId = null } = {}) {
   await ensureStartupGate();
   if (targetGroupId ? !cbRuleTypes.has(targetGroupId) : !cbRulesHandle(type)) return null;
+  await Promise.allSettled([...cbCustomLoadQueues.values()]);
+  const generations = new Map(cbRuleGenerations);
   const result = await sendToEventSandbox({ kind: "dispatch-event", descriptor: { type, now: Date.now(), data, targetGroupId } });
-  await applyRuleResult(result, type);
+  await applyRuleResult(result, type, generations);
   return result;
 }
 
 // What a dispatch asked for: logs, a runaway group's quarantine, changed
 // state and panels, and the actions (per tab to its page, or by the worker).
-async function applyRuleResult(result, eventType) {
+async function applyRuleResult(result, eventType, generations = null) {
   if (!result) return;
   // A group can be deleted or disabled while an asynchronous dispatch runs.
   // Stale native/offscreen replies cannot recreate its state or act on tabs.
   const snapshot = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [], [CB_RULE_STATE_KEY]: {} });
   const groups = Array.isArray(snapshot[BLOCKED_GROUPS_KEY]) ? snapshot[BLOCKED_GROUPS_KEY] : [];
-  const current = new Map(groups.filter((group) => group?.groupType === "custom").map((group) => [group.id, group]));
+  const current = new Map(groups.filter((group) => group?.groupType === "custom" && (!generations || generations.get(group.id) === cbRuleGenerations.get(group.id))).map((group) => [group.id, group]));
   for (const entry of result.logs || []) if (current.has(entry.groupId)) pushLogFeedEntry({ ...entry, eventType });
   for (const entry of result.diagnostics || []) if (current.has(entry.groupId)) cbDebugError("[Vault rule]", entry.groupId, eventType, ...(entry.args || []));
   if (result.quarantine && current.has(result.quarantine.groupId)) {
@@ -2528,13 +2584,6 @@ async function cbRunCustomGroup(groupId, source) {
   const fields = { enabled: true, blockingRulesText: source, activeEventSource: source, lastAbortReason: null };
   const loadResult = await loadCustomGroupSource({ ...group, ...fields }, { run: true });
   if (!loadResult || !loadResult.ok) return loadResult || { ok: false, error: "sandbox-timeout" };
-  // The load took a while: write onto what is stored now.
-  const { groups, index } = await find();
-  if (index < 0) throw new Error("group-not-found");
-  groups[index] = { ...groups[index], ...fields };
-  // Loaded here, so the write's own reconcile finds it already loaded.
-  lastReconcileSnapshot.set(groupId, { enabled: true, activeEventSource: source });
-  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
   return loadResult;
 }
 

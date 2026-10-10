@@ -88,14 +88,14 @@ assert("emits are capped", rec.emits.length === R.LIMITS.emitsPerDispatch);
 
 log.section("C7: state");
 r = rule(`(on, v) => { on("tick", () => { v.state.n = (v.state.n || 0) + 1; }); }`, { state: { n: 5 } });
-assert("an unchanged state is not reported", r.takeState() === undefined);
+assert("an unchanged state is not reported", r.takeState().value === undefined);
 r.dispatch({ type: "tick", now: 1, data: {} });
-assert("a changed state is reported once", r.takeState().n === 6 && r.takeState() === undefined);
+assert("a changed state is reported once", r.takeState().value.n === 6 && r.takeState().value === undefined);
 r = rule(`(on, v) => { on("tick", () => { v.state = { big: "x".repeat(70000) }; }); }`);
 r.dispatch({ type: "tick", now: 1, data: {} });
 assert("an oversized state is refused", /at most/.test((r.takeState() || {}).error || ""));
 r = rule(`(on, v) => { v.state = 5; on("tick", () => {}); }`);
-assert("a non-object state becomes {}", JSON.stringify(r.takeState() ?? {}) === "{}");
+assert("a non-object state becomes {}", JSON.stringify(r.takeState().value ?? {}) === "{}");
 
 log.section("C8: panels");
 r = rule(`(on, v) => {
@@ -122,7 +122,7 @@ assert("panel HTML preserves content formatting", styledHtml.includes("<strong>T
 log.section("C9: files");
 r = rule(`(on, v) => { on("tick", () => { v.state.id = v.file("read", "notes.txt"); }); }`);
 rec = r.dispatch({ type: "tick", now: 1, data: {} });
-assert("v.file queues a request with its id", rec.actions.length === 1 && rec.actions[0].kind === "file" && rec.actions[0].op === "read" && rec.actions[0].requestId === r.takeState().id);
+assert("v.file queues a request with its id", rec.actions.length === 1 && rec.actions[0].kind === "file" && rec.actions[0].op === "read" && rec.actions[0].requestId === r.takeState().value.id);
 
 log.section("C10: the frozen action set");
 r = rule(`(on, v) => { on("tick", () => { v.extra = 1; v.log(typeof v.extra, typeof v.getPlatformHelper); }); }`);

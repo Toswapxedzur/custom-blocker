@@ -31,6 +31,7 @@ node tests/runner-first-link.js || failed=1
 node tests/runner-content-language.js || failed=1
 node tests/runner-rule-log-isolation.js || failed=1
 node tests/runner-rule-stale-results.js || failed=1
+node tests/runner-rule-initial-state.js || failed=1
 node tests/runner-safari-native-lifecycle.js || failed=1
 node tests/runner-safari-packaging.js || failed=1
 run_suite "rule-core" tests/runner.js || failed=1

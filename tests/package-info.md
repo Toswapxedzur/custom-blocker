@@ -6,3 +6,5 @@
 - `runner-first-link.js` exercises original definition/usage capture, consecutive
   and interrupted snapshots, receipts, retries/restart, rolling buckets, second
   browsers, empty scope contributions and serialized slow storage adoption.
+
+- `runner-rule-initial-state.js` checks initialization-only custom-rule memory, repeated Run/restart persistence, registration validation, and stale group deletion.
