@@ -43,6 +43,16 @@ const cap=engine.prepareLoad('cap','(on,v)=>{}',{});
 for(let n=0;n<64;n++)engine.prepareLoad('cap'+n,'(on,v)=>{}',{});
 assert.equal(engine.commitLoad(cap.token).ok,false);
 console.log('PASS user error fields, delayed/discarded candidates, throwing precommit, supersession and candidate bound');
+for(const [character,under,over] of [['中',21841,21842],['😀',16381,16382]]) {
+  const source=n=>`(on,v)=>{v.state.text=${JSON.stringify(character)}.repeat(${n});}`;
+  assert.equal(engine.load('unicode',source(under),{}).ok,true);
+  const failed=engine.load('unicode',source(over),{});assert.equal(failed.ok,false);assert.match(failed.error,/65536 bytes/);
+}
+const asyncRejected=engine.load('good','(on,v)=>{v.state.count=100;}',{},()=>Promise.resolve());
+assert.equal(asyncRejected.ok,false);assert.match(asyncRejected.error,/synchronous/);
+const superseded=engine.load('good','(on,v)=>{v.state.count=100;}',{},()=>{engine.prepareLoad('good','(on,v)=>{}',{});});
+assert.equal(superseded.ok,false);assert.equal(engine.dispatch({type:'tick',targetGroupId:'good'}).states.good.count,11);
+console.log('PASS UTF-8 Chinese/emoji byte boundaries, asynchronous callback refusal and callback supersession preserve runtime');
 
 async function browserFixture() {
   const store = {blockedGroups:[{id:'rule',groupType:'custom',enabled:true}],cbRuleState:{other:{keep:9}}};
