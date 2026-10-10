@@ -2843,7 +2843,7 @@ const cbSharingReady = (async () => {
   } catch (_) {}
 })();
 
-function cbSendDefinition(group, ts) {
+function cbSendDefinition(group, ts, usageSeed = {}) {
   const scalars = {};
   for (const field of CB_SYNC_SCALAR_FIELDS) scalars[field] = group[field];
   return cbConnection.sendWS({
@@ -2852,6 +2852,7 @@ function cbSendDefinition(group, ts) {
     groupId: group.id,
     ts,
     scalars,
+    ...usageSeed,
     // Only this browser's own lines (the Apps lines are Mac Vault's), even none.
     scopes: (Array.isArray(group.scopes) ? group.scopes : []).filter((line) => CBGroupScopes.lineOwner(line) === "browser"),
     ...CBGroupActions.lockContribution(group)
@@ -2903,20 +2904,43 @@ function cbShareStoredSnoozes(value) {
 // A group that just joined a link sends its definition once, at ts 0: its
 // lines are unioned into the link's and its settings never beat a newer edit.
 const cbJoinsSent = new Set();
-async function cbContributeJoins() {
+async function cbContributeJoins(clusters = cbConnection.clusters) {
   const program = cbDetectProgramId();
-  const joining = (Array.isArray(cbConnection.clusters) ? cbConnection.clusters : []).filter((cluster) => {
+  const joining = (Array.isArray(clusters) ? clusters : []).filter((cluster) => {
     const member = (cluster?.members || []).find((m) => m && m.program === program);
     if (member?.contributed !== false) { cbJoinsSent.delete(cluster?.id); return false; }
     return !cbJoinsSent.has(cluster.id);
   });
   if (joining.length === 0) return;
-  const stored = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
-  const groups = Array.isArray(stored) ? stored : [];
+  const state = await chrome.storage.local.get({
+    [BLOCKED_GROUPS_KEY]: [], [USAGE_TIMERS_KEY]: {},
+    [USAGE_RESET_AT_KEY]: {}, [USAGE_BUCKETS_KEY]: {}, [CB_OFFLINE_USAGE_KEY]: {}
+  });
+  const groups = Array.isArray(state[BLOCKED_GROUPS_KEY]) ? state[BLOCKED_GROUPS_KEY] : [];
   for (const cluster of joining) {
     const group = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
     if (!group) continue;
-    if (cbSendDefinition(group, 0)) cbJoinsSent.add(cluster.id);
+    // Capture the original counter in the same first contribution as the
+    // definition. Adopting a partial shared total first would erase this seed.
+    const resetAtMs = Number(state[USAGE_RESET_AT_KEY]?.[group.id]) || 0;
+    const currentMs = Math.max(0, Number(state[USAGE_TIMERS_KEY]?.[group.id]) || 0);
+    const offline = state[CB_OFFLINE_USAGE_KEY]?.[group.id];
+    // A reconnect may still be awaiting its first contribution. Its offline
+    // accrual is handed over separately with receipts; it is not seed history.
+    const buckets = { ...(state[USAGE_BUCKETS_KEY]?.[group.id] || {}) };
+    for (const [minute, ms] of Object.entries(offline?.buckets || {})) {
+      if (minute in buckets) buckets[minute] = Math.max(0, (Number(buckets[minute]) || 0) - (Number(ms) || 0));
+    }
+    const usageSeed = {
+      usageResetAtMs: resetAtMs,
+      ...(group.rollingLimit
+        ? { usageBucketsSeed: buckets }
+        : { usageMs: Math.max(0, currentMs - (offline?.anchorMs === resetAtMs ? Number(offline.ms) || 0 : 0)) })
+    };
+    if (cbSendDefinition(group, 0, usageSeed)) {
+      cbJoinsSent.add(cluster.id);
+      cbRebaseClusterUsage(group.id, group.rollingLimit ? 0 : currentMs);
+    }
   }
 }
 
@@ -3113,6 +3137,11 @@ function cbReportClusterUsage(groups, timers, resets, bucketDeltas = {}, buckets
     const program = cbDetectProgramId();
     for (const g of groups) {
       if (!cbGroupInLink(g)) continue;
+      const joining = (cbConnection.clusters || []).find(cluster =>
+        (cluster?.members || []).some(member => member?.program === program && member.groupId === g.id && member.contributed === false));
+      // Do not report a delta before the original seed is captured. The first
+      // contribution establishes our baseline; all later accrual is additional.
+      if (joining && !cbJoinsSent.has(joining.id)) continue;
       if (g.rollingLimit) {
         // Rolling limit: share WHEN time was used (per-minute increments), not a
         // total. The first report seeds our history; the hub keeps it only until
@@ -3278,6 +3307,9 @@ const cbConnection = {
   },
 
   async applySharedSnapshotToStorage(clusters) {
+    // Serialized with adoption: contribute from the untouched local state even
+    // when the first frame on reconnect already contains a partial definition.
+    await cbContributeJoins(clusters);
     const program = cbDetectProgramId();
     const relevant = (Array.isArray(clusters) ? clusters : []).filter(
       (cluster) =>
@@ -3287,6 +3319,8 @@ const cbConnection = {
         cluster.members.some((m) => m && m.program === program)
     );
     if (relevant.length === 0) return;
+    const canAdoptDefinition = cluster => !cluster.members.some(
+      member => member?.program === program && member.contributed === false);
     let stored;
     try {
       stored = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] });
@@ -3296,6 +3330,7 @@ const cbConnection = {
     const groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
     let changed = false;
     for (const cluster of relevant) {
+      if (!canAdoptDefinition(cluster)) continue;
       const localGroup = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
       const idx = localGroup ? groups.findIndex((g) => g && g.id === localGroup.id) : -1;
       if (idx < 0) continue;
@@ -3357,9 +3392,10 @@ const cbConnection = {
       let usageChanged = false;
       const linkedGroups = relevant
         .map((cluster) => ({ cluster, group: self.CBBridgeProtocol.groupForCluster(groups, cluster, program) }))
-        .filter((entry) => entry.group && entry.group.id);
+        .filter((entry) => canAdoptDefinition(entry.cluster) && entry.group && entry.group.id);
       const handed = await cbHandOverOfflineUsage(linkedGroups);
       for (const cluster of relevant) {
+        if (!canAdoptDefinition(cluster)) continue;
         const shared = cluster.shared;
         if (!shared) continue;
         const grp = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
@@ -3668,7 +3704,7 @@ const cbConnection = {
         if (msg.rosters && typeof msg.rosters === "object") this.rosters = msg.rosters;
         cbSaveClusterCopy(this.clusters);
         this.broadcastClusters();
-        this.applySharedToStorage().then(() => cbContributeJoins()).catch(() => {});
+        this.applySharedToStorage().catch(() => {});
         break;
       case "cluster-updated": {
         if (!this.desktopRouteIsReady()) break;
@@ -3685,7 +3721,7 @@ const cbConnection = {
         this.clusters = next;
         cbSaveClusterCopy(this.clusters);
         this.broadcastClusters();
-        this.applySharedToStorage().then(() => cbContributeJoins()).catch(() => {});
+        this.applySharedToStorage().catch(() => {});
         break;
       }
       case "pong":
