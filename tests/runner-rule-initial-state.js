@@ -60,23 +60,32 @@ async function browserFixture() {
   let beforeReply = () => {};
   let failWrite = false;
   let failCommit = false;
+  let heldWrite = null;
+  let heldEntered = () => {};
+  let duringCommit = () => {};
+  let suppressed = null;
   const env = vm.createContext({console,Map,Set,Object,
     BLOCKED_GROUPS_KEY:'blockedGroups',CB_RULE_STATE_KEY:'cbRuleState',
-    chrome:{storage:{local:{get:async defaults=>clone(Object.fromEntries(Object.keys(defaults).map(key=>[key,store[key] ?? defaults[key]]))),set:async patch=>{if(failWrite){failWrite=false;throw new Error("disk-full");}Object.assign(store,clone(patch));}}}},
+    chrome:{storage:{local:{get:async defaults=>clone(Object.fromEntries(Object.keys(defaults).map(key=>[key,store[key] ?? defaults[key]]))),set:async patch=>{if(failWrite){failWrite=false;throw new Error("disk-full");}const stable=clone(patch);if(heldWrite){heldEntered();await heldWrite;}Object.assign(store,stable);}}}},
     cbRuleTypes:new Map(),cbRulePanels:new Map(),cbRuleItemsEpoch:1,lastReconcileSnapshot:new Map(),
+    CBGroupActions:{isLocked:group=>Boolean(group.lockedAtMs)},cbEnforceOnly:()=>false,
+    ensureStartupGate:async()=>{},cbRulesHandle:()=>true,cbRuleSheets:new Map(),
     cbRulePageNeeds:()=>'',cbSetRulePanels(){},pushLogFeedEntry(){},cbDebugError(){},
-    quarantineGroup:async()=>{},cbSuppressRule:async()=>{},broadcastSessionRefresh:async()=>{},
+    quarantineGroup:async()=>{},cbSuppressRule:async(id,on)=>{suppressed=on;},broadcastSessionRefresh:async()=>{},
     unloadCustomGroupHandlers:async()=>{sandbox.unload('rule');return {ok:true};},
     sendToEventSandbox:async request=>{
+      if(request.kind==='dispatch-event')return sandbox.dispatch(request.descriptor);
       if(request.kind==='prepare-source'){const reply=sandbox.prepareLoad(request.groupId,request.source,request.state);beforeReply();return reply;}
-      if(request.kind==='commit-source')return failCommit ? {ok:false,error:'journal-full'} : sandbox.commitLoad(request.token);
+      if(request.kind==='commit-source'){duringCommit();return failCommit ? {ok:false,error:'journal-full'} : sandbox.commitLoad(request.token);}
       if(request.kind==='discard-source')return sandbox.discardLoad(request.token);
       throw new Error(request.kind);
     }
   });
-  const start=background.indexOf('const cbCustomLoadQueues');
+  const start=background.indexOf('let cbRuleMutationQueue');
   const end=background.indexOf('async function unloadCustomGroupHandlers',start);
   vm.runInContext(background.slice(start,end),env);
+  const dispatchStart=background.indexOf('async function dispatchRule');
+  vm.runInContext(background.slice(dispatchStart,background.indexOf('// A rule\'s file request',dispatchStart)),env);
   const run=source=>env.loadCustomGroupSource({id:'rule',groupType:'custom',enabled:true,activeEventSource:source},{run:true});
   await run(counter);assert.equal(store.cbRuleState.rule.count,1);
   await run(counter);assert.equal(store.cbRuleState.rule.count,2);
@@ -95,12 +104,34 @@ async function browserFixture() {
   failWrite=true;
   let failed=await run(counter);assert.equal(failed.ok,false);assert.deepEqual(store.cbRuleState,before);
   assert.equal(sandbox.dispatch({type:'tick'}).states.rule.count,5);
-  failCommit=true;
+  failCommit=true;duringCommit=()=>{store.blockedGroups[0].enabled=false;};
   failed=await run(counter);assert.equal(failed.ok,false);assert.deepEqual(store.cbRuleState,before);
-  assert.equal(sandbox.dispatch({type:'tick'}).states.rule.count,6);failCommit=false;
+  assert.equal(sandbox.dispatch({type:'tick'}).states.rule.count,6);assert.equal(store.blockedGroups[0].enabled,false);failCommit=false;duringCommit=()=>{};store.blockedGroups[0].enabled=true;
   console.log('PASS failed browser storage or native journal commit preserves prior exact runtime and saved memory/source');
   await Promise.all([run(counter),run(counter)]);assert.equal(store.cbRuleState.rule.count,5);
   console.log('PASS concurrent Runs serialize initialization and persist source with memory atomically');
+  const groupBefore=clone(store.blockedGroups);
+  beforeReply=()=>{store.blockedGroups[0].enabled=false;};
+  failed=await run(counter);assert.equal(failed.ok,false);assert.equal(store.blockedGroups[0].enabled,false);assert.equal(store.cbRuleState.rule.count,5);
+  store.blockedGroups=clone(groupBefore);beforeReply=()=>{store.blockedGroups[0].lockedAtMs=123;};
+  failed=await run(counter);assert.equal(failed.ok,false);assert.equal(store.blockedGroups[0].lockedAtMs,123);assert.equal(store.cbRuleState.rule.count,5);
+  store.blockedGroups=clone(groupBefore);
+  console.log('PASS concurrent disable and lock while preparing supersede Run without changing memory');
+  // Hold an older event's persistence transaction. Registration must wait for
+  // its full write, then initialize from the updated memory, never vice versa.
+  await run('(on,v)=>{on("tick",()=>{v.state.count++;});}');
+  let release;heldWrite=new Promise(resolve=>{release=resolve;});
+  const entered=new Promise(resolve=>{heldEntered=resolve;});
+  const oldWrite=env.dispatchRule('tick',null);
+  await entered;
+  beforeReply=()=>{};const newer=run(counter);
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(store.cbRuleState.rule.count,5);
+  heldWrite=null;release();await oldWrite;await newer;assert.equal(store.cbRuleState.rule.count,7);
+  console.log('PASS held older event write completes before newer initialization reads and commits memory');
+  duringCommit=()=>{store.blockedGroups[0].enabled=false;};
+  await run(counter);assert.equal(store.cbRuleState.rule.count,8);assert.equal(store.blockedGroups[0].enabled,false);assert.equal(suppressed,true);
+  duringCommit=()=>{};
+  console.log('PASS later disable during successful or failed commit wins over Run and rollback');
   beforeReply=()=>{store.blockedGroups=[];delete store.cbRuleState.rule;};
   await run(counter);assert.equal(store.cbRuleState.rule,undefined);
   console.log('PASS delayed initialization reply cannot recreate a deleted group’s saved memory');

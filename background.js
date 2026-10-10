@@ -2023,12 +2023,18 @@ function cbSetRulePanels(groupId, panels) {
 
 // Loads a group's rule with its stored memory; `run` (the Run button) also
 // replaces the rule's panels.
+let cbRuleMutationQueue = Promise.resolve();
+function cbSerializeRuleMutation(operation) {
+  const task = cbRuleMutationQueue.catch(() => {}).then(operation);
+  cbRuleMutationQueue = task;
+  return task;
+}
 const cbCustomLoadQueues = new Map();
 const cbRuleGenerations = new Map();
 async function loadCustomGroupSource(group, options = {}) {
   if (!group || group.groupType !== "custom") return null;
   const before = cbCustomLoadQueues.get(group.id) || Promise.resolve();
-  const task = before.catch(() => {}).then(() => cbLoadCustomGroupSource(group, options));
+  const task = before.catch(() => {}).then(() => cbSerializeRuleMutation(() => cbLoadCustomGroupSource(group, options)));
   cbCustomLoadQueues.set(group.id, task);
   try { return await task; }
   finally { if (cbCustomLoadQueues.get(group.id) === task) cbCustomLoadQueues.delete(group.id); }
@@ -2059,7 +2065,8 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
     const groups = Array.isArray(snapshot[BLOCKED_GROUPS_KEY]) ? snapshot[BLOCKED_GROUPS_KEY] : [];
     const index = groups.findIndex(current => current?.id === group.id && current.groupType === "custom");
     const current = groups[index];
-    if (!current || current.activeEventSource !== original.activeEventSource ||
+    if (!current || current.activeEventSource !== original.activeEventSource || current.enabled !== original.enabled ||
+        (run && (CBGroupActions.isLocked(current) || cbEnforceOnly(current))) ||
         JSON.stringify((snapshot[CB_RULE_STATE_KEY] || {})[group.id] || {}) !== JSON.stringify(stored)) throw new Error("Rule changed while loading; retry Run.");
     saved = {};
     if (Object.hasOwn(prepared.states || {}, group.id)) saved[CB_RULE_STATE_KEY] = { ...(snapshot[CB_RULE_STATE_KEY] || {}), [group.id]: prepared.states[group.id] };
@@ -2078,7 +2085,7 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
     if (browserSaved && saved && snapshot) {
       const latest = await chrome.storage.local.get(defaults);
       const rollback = {};
-      if (saved[CB_RULE_STATE_KEY] && JSON.stringify((latest[CB_RULE_STATE_KEY] || {})[group.id]) === JSON.stringify(saved[CB_RULE_STATE_KEY][group.id])) {
+      if ((latest[BLOCKED_GROUPS_KEY] || []).some(current => current?.id === group.id && current.groupType === "custom") && saved[CB_RULE_STATE_KEY] && JSON.stringify((latest[CB_RULE_STATE_KEY] || {})[group.id]) === JSON.stringify(saved[CB_RULE_STATE_KEY][group.id])) {
         const states = { ...(latest[CB_RULE_STATE_KEY] || {}) };
         if (Object.hasOwn(snapshot[CB_RULE_STATE_KEY] || {}, group.id)) states[group.id] = snapshot[CB_RULE_STATE_KEY][group.id];
         else delete states[group.id];
@@ -2087,8 +2094,15 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
       if (saved[BLOCKED_GROUPS_KEY]) {
         const groups = latest[BLOCKED_GROUPS_KEY] || [];
         const index = groups.findIndex(current => current?.id === group.id);
-        if (index >= 0 && groups[index].activeEventSource === source) {
-          groups[index] = { ...groups[index], enabled: original.enabled, blockingRulesText: original.blockingRulesText, activeEventSource: original.activeEventSource, lastAbortReason: original.lastAbortReason };
+        if (index >= 0 && groups[index].groupType === "custom") {
+          const previous = { ...groups[index] };
+          for (const [key, value] of Object.entries({ enabled: true, blockingRulesText: source, activeEventSource: source, lastAbortReason: null })) {
+            if (previous[key] === value) {
+              if (Object.hasOwn(original, key)) previous[key] = original[key];
+              else delete previous[key];
+            }
+          }
+          groups[index] = previous;
           rollback[BLOCKED_GROUPS_KEY] = groups;
         }
       }
@@ -2104,7 +2118,13 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
   if (run || !cbRulePanels.has(group.id)) cbSetRulePanels(group.id, Array.isArray(result.panels) ? result.panels : []);
   if (cbRuleTypes.get(group.id).has("items")) cbRuleItemsEpoch += 1;
   if (cbRulePageNeeds() !== pageNeeds) broadcastSessionRefresh().catch(() => {});
-  await cbSuppressRule(group.id, !group.enabled);
+  const latestGroups = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY] || [];
+  const latestGroup = latestGroups.find(current => current?.id === group.id && current.groupType === "custom");
+  if (!latestGroup) {
+    await unloadCustomGroupHandlers(group.id);
+    return { ok: false, error: "group-not-found" };
+  }
+  await cbSuppressRule(group.id, !latestGroup.enabled);
   return result;
 }
 
@@ -2124,11 +2144,12 @@ async function unloadCustomGroupHandlers(groupId) {
 async function dispatchRule(type, data, { targetGroupId = null } = {}) {
   await ensureStartupGate();
   if (targetGroupId ? !cbRuleTypes.has(targetGroupId) : !cbRulesHandle(type)) return null;
-  await Promise.allSettled([...cbCustomLoadQueues.values()]);
-  const generations = new Map(cbRuleGenerations);
-  const result = await sendToEventSandbox({ kind: "dispatch-event", descriptor: { type, now: Date.now(), data, targetGroupId } });
-  await applyRuleResult(result, type, generations);
-  return result;
+  return cbSerializeRuleMutation(async () => {
+    const generations = new Map(cbRuleGenerations);
+    const result = await sendToEventSandbox({ kind: "dispatch-event", descriptor: { type, now: Date.now(), data, targetGroupId } });
+    await applyRuleResult(result, type, generations);
+    return result;
+  });
 }
 
 // What a dispatch asked for: logs, a runaway group's quarantine, changed
