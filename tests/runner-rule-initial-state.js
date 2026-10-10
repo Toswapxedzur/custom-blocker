@@ -53,6 +53,16 @@ assert.equal(asyncRejected.ok,false);assert.match(asyncRejected.error,/synchrono
 const superseded=engine.load('good','(on,v)=>{v.state.count=100;}',{},()=>{engine.prepareLoad('good','(on,v)=>{}',{});});
 assert.equal(superseded.ok,false);assert.equal(engine.dispatch({type:'tick',targetGroupId:'good'}).states.good.count,11);
 console.log('PASS UTF-8 Chinese/emoji byte boundaries, asynchronous callback refusal and callback supersession preserve runtime');
+const oldIncarnation=context.RuleCore.createEngine();
+const oldPrepared=oldIncarnation.prepareLoad('same','(on,v)=>{on("tick",()=>v.log("old"));}',{});
+const freshContext=vm.createContext({console});vm.runInContext(core,freshContext);
+const freshEngine=freshContext.RuleCore.createEngine();
+const freshPrepared=freshEngine.prepareLoad('same','(on,v)=>{on("tick",()=>v.log("fresh"));}',{});
+assert.notEqual(oldPrepared.token,freshPrepared.token);
+assert.equal(freshEngine.commitLoad(oldPrepared.token).ok,false);freshEngine.discardLoad(oldPrepared.token);
+assert.equal(freshEngine.commitLoad(freshPrepared.token).ok,true);
+assert.equal(freshEngine.dispatch({type:'tick'}).logs[0].args[0],'fresh');
+console.log('PASS old-engine commit/discard tokens cannot affect a fresh sandbox candidate');
 
 async function browserFixture() {
   const store = {blockedGroups:[{id:'rule',groupType:'custom',enabled:true}],cbRuleState:{other:{keep:9}}};
