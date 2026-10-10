@@ -2065,7 +2065,7 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
     const groups = Array.isArray(snapshot[BLOCKED_GROUPS_KEY]) ? snapshot[BLOCKED_GROUPS_KEY] : [];
     const index = groups.findIndex(current => current?.id === group.id && current.groupType === "custom");
     const current = groups[index];
-    if (!current || current.activeEventSource !== original.activeEventSource || current.enabled !== original.enabled ||
+    if (!current || current.activeEventSource !== original.activeEventSource || current.blockingRulesText !== original.blockingRulesText || current.enabled !== original.enabled ||
         (run && (CBGroupActions.isLocked(current) || cbEnforceOnly(current))) ||
         JSON.stringify((snapshot[CB_RULE_STATE_KEY] || {})[group.id] || {}) !== JSON.stringify(stored)) throw new Error("Rule changed while loading; retry Run.");
     saved = {};
