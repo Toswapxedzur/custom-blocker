@@ -209,7 +209,9 @@
   const OVERRUN_WINDOW_MS = 60000;
   const EMIT_DEPTH = 16;
 
+  let engineSequence = 0;
   function createEngine(engineActions, { beacon = () => {} } = {}) {
+    const incarnation = Date.now().toString(36) + ":" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + ":" + (++engineSequence);
     const rules = new Map(); // groupId -> rule
     const overruns = new Map(); // groupId -> [time]
     // A disabled group's rule stays loaded but hears nothing (owner
@@ -257,7 +259,7 @@
       }
       discardGroup(groupId);
       while (candidates.size >= 64) candidates.delete(candidates.keys().next().value);
-      const token = String(++nextToken);
+      const token = incarnation + ":" + (++nextToken);
       candidates.set(token, { groupId, rule, result });
       return { ...result, token };
     }
