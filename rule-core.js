@@ -192,8 +192,8 @@
       // Over the size limit it is not kept, and the rule is told.
       takeState() {
         const json = safeJSON(stateObj);
+        if (typeof json !== "string" || utf8Bytes(json) > LIMITS.stateBytes) return { ok: false, error: "v.state must be JSON and at most " + LIMITS.stateBytes + " bytes" };
         if (json === stateJSON) return { ok: true, value: undefined };
-        if (typeof json !== "string" || json.length > LIMITS.stateBytes) return { ok: false, error: "v.state must be JSON and at most " + LIMITS.stateBytes + " bytes" };
         stateJSON = json;
         return { ok: true, value: JSON.parse(json) };
       }
@@ -265,7 +265,10 @@
       const candidate = candidates.get(token);
       if (!candidate) return { ok: false, error: "Prepared rule is no longer available.", logs: [] };
       try {
-        if (typeof beforeCommit === "function") beforeCommit(candidate.result.states);
+        if (typeof beforeCommit === "function") {
+          const saved = beforeCommit(candidate.result.states);
+          if (saved && typeof saved.then === "function") throw new Error("Rule beforeCommit must be synchronous.");
+        }
       } catch (error) {
         candidates.delete(token);
         return { ok: false, handlers: 0, types: [], error: String(error && error.message ? error.message : error), logs: candidate.result.logs };
@@ -344,6 +347,14 @@
   // ── Values ───────────────────────────────────────────────────────────────
   function isPlainObject(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+  function utf8Bytes(text) {
+    let bytes = 0;
+    for (const character of text) {
+      const code = character.codePointAt(0);
+      bytes += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+    }
+    return bytes;
   }
   function safeJSON(value) {
     try { return JSON.stringify(value); } catch (_) { return null; }
