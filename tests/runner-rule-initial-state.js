@@ -93,6 +93,7 @@ async function browserFixture() {
   sandbox=context.RuleCore.createEngine();
   await run(counter);assert.equal(store.cbRuleState.rule.count,3);
   console.log('PASS browser persists initialization with no handlers, consecutive Runs and a fresh sandbox restart, preserving other groups');
+  beforeReply=()=>{};
   await run('(on,v)=>{on("tick",()=>{v.state.count++;});}');
   const before=clone(store.cbRuleState);
   for(const source of ['(on,v)=>{v.state.big="x".repeat(70000);}', '(on,v)=>{v.state.self=v.state;}', '(on,v)=>{throw new Error("no");}', 'syntax (']) {
@@ -119,6 +120,7 @@ async function browserFixture() {
   console.log('PASS concurrent disable and lock while preparing supersede Run without changing memory');
   // Hold an older event's persistence transaction. Registration must wait for
   // its full write, then initialize from the updated memory, never vice versa.
+  beforeReply=()=>{};
   await run('(on,v)=>{on("tick",()=>{v.state.count++;});}');
   let release;heldWrite=new Promise(resolve=>{release=resolve;});
   const entered=new Promise(resolve=>{heldEntered=resolve;});
@@ -136,4 +138,5 @@ async function browserFixture() {
   await run(counter);assert.equal(store.cbRuleState.rule,undefined);
   console.log('PASS delayed initialization reply cannot recreate a deleted group’s saved memory');
 }
-browserFixture().then(()=>console.log('__CB_TEST_RESULT__: OK')).catch(error=>{console.error(error);process.exitCode=1;});
+const watchdog=setTimeout(()=>{console.error('FAIL initialization test did not finish its awaited transactions');process.exit(1);},5000);
+browserFixture().then(()=>{clearTimeout(watchdog);console.log('__CB_TEST_RESULT__: OK');}).catch(error=>{clearTimeout(watchdog);console.error(error);process.exitCode=1;});
