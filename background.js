@@ -2893,10 +2893,18 @@ async function cbResetGroupRuntimeLocked(groupId) {
 const cbDefinitionSeen = new Map();
 let cbRosterSeen = "";
 
+// Chrome storage may return object properties in a different order than the
+// hub sent them. Property order is not an edit; array order and values are.
+function cbDefinitionJSON(value) {
+  return JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]]))
+    : item);
+}
+
 function cbDefinitionKey(group) {
   const scalars = {};
   for (const field of CB_SYNC_SCALAR_FIELDS) scalars[field] = group[field] ?? null;
-  return JSON.stringify({ scalars, scopes: Array.isArray(group.scopes) ? group.scopes : [], lock: CBGroupActions.lockUnit(group) });
+  return cbDefinitionJSON({ scalars, scopes: Array.isArray(group.scopes) ? group.scopes : [], lock: CBGroupActions.lockUnit(group) });
 }
 
 function cbRosterKey(groups) {
@@ -3426,7 +3434,7 @@ const cbConnection = {
       // The link's lines (sent once a member contributed; an empty list is an
       // emptied one).
       const scopes = cluster.shared.scopes;
-      if (Array.isArray(scopes) && JSON.stringify(groups[idx].scopes) !== JSON.stringify(scopes)) {
+      if (Array.isArray(scopes) && cbDefinitionJSON(groups[idx].scopes) !== cbDefinitionJSON(scopes)) {
         groups[idx] = { ...groups[idx], scopes };
         changed = true;
       }

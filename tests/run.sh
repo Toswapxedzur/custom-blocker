@@ -28,6 +28,7 @@ run_suite() {
 failed=0
 node tests/runner-storage-schema.js || failed=1
 node tests/runner-first-link.js || failed=1
+node tests/runner-definition-storage-order.js || failed=1
 node tests/runner-content-language.js || failed=1
 node tests/runner-rule-log-isolation.js || failed=1
 node tests/runner-rule-stale-results.js || failed=1
