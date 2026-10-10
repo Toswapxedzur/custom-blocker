@@ -191,6 +191,21 @@ const state = env => env.ctx.chrome.storage.local.get({blockedGroups:[],usageTim
         const context = {url:`https://${hostname}/`,hostname,pathname:"/"};
         assert(browser.run(`cbPageLead(normalizePageContext(${JSON.stringify(context)}),__evalGroups,{L:1200000},{},Date.now())?.id`) === "L", `${program}: adopted site ${hostname} enforces from shared budget`);
       }
+      // An incompatible third Website definition is a separate hub-assigned
+      // entry, not a concatenated allowlist or a browser-side cluster merge.
+      const independent = JSON.parse(JSON.stringify(complete));
+      independent.shared.scopes.push({id:"site-linked",entryID:"site:linked_0123456789abcdef01234567",surface:"site",platform:null,action:"pause",sites:["example.com","safe.example"],sitesExcept:true});
+      await frame(browser, independent);
+      await frame(browser, independent, "clusters");
+      const withAlias = (await state(browser)).blockedGroups[0];
+      assert(withAlias.scopes.filter(l=>l.surface==="site").length === 2 && withAlias.scopes.find(l=>l.entryID)?.sitesExcept === true, `${program}: repeated snapshot preserves independent Website identities/predicates`);
+      browser.ctx.__evalGroups = [withAlias];
+      assert(browser.run('cbPageLead(normalizePageContext({url:"https://other.example/",hostname:"other.example",pathname:"/"}),__evalGroups,{L:1200000},{},Date.now())?.id') === "L", `${program}: separately adopted except scope remains enforcing`);
+      const removedAlias = JSON.parse(JSON.stringify(independent));
+      removedAlias.shared.scopes = removedAlias.shared.scopes.filter(l=>!l.entryID);
+      await frame(browser, removedAlias);
+      await frame(browser, removedAlias, "clusters");
+      assert((await state(browser)).blockedGroups[0].scopes.filter(l=>l.surface==="site").length === 1, `${program}: explicit independent entry deletion survives reconnect without echo`);
       // Subsequent deliberate entry edits are replacements, not perpetual
       // unions: a removed target must not come back from local history.
       const edited = JSON.parse(JSON.stringify(complete));

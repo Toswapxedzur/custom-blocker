@@ -156,6 +156,33 @@ check("retired parallel filters migrate to independent entries", S.groupPlatform
 check("migration preserves all old matching lines and actions", oldParallel.scopes.length === 4 && oldParallel.scopes[2].action === "dim" && oldParallel.scopes[3].action === "block");
 check("migrated entry identities are idempotent", JSON.stringify(sanitize([oldParallel])[0]) === JSON.stringify(oldParallel));
 
+// Hub-assigned independent Website entries keep their own exception/action.
+const websiteAlias = "site:linked_0123456789abcdef01234567";
+const independent = sanitize([{ ...group, scopes: [
+  { surface: "apps", action: "block", apps: [{ id: "com.example.Disposable" }] },
+  ...group.scopes.filter(line => line.surface !== "site"),
+  { surface: "site", action: "block", sites: ["example.com"], sitesExcept: false },
+  { surface: "site", entryID: websiteAlias, action: "pause", sites: ["example.com", "safe.example"], sitesExcept: true }
+] }])[0];
+check("independent Websites retain stable identity and predicates", S.groupPlatforms(independent).includes(websiteAlias) && S.flatFromScopes(independent, websiteAlias).allowlist && S.flatFromScopes(independent, websiteAlias).pageAction === "pause");
+check("restarting/sanitizing preserves independent Website entries", JSON.stringify(sanitize([JSON.parse(JSON.stringify(independent))])[0]) === JSON.stringify(independent));
+context.__groups = [independent];
+check("exception in one Website entry does not cancel another entry", session("https://example.com/", "/", { u1: 1200000 }).exit.action === "cover");
+check("independent except entry keeps pause action", session("https://other.example/", "/", { u1: 1200000 }).exit.action === "pause");
+check("page excluded from both independent entries remains allowed", !session("https://safe.example/", "/", { u1: 1200000 }).shouldExitPage);
+check("independent entries accrue the shared group only once", session("https://example.com/", "/").items.filter(item => item.id === "u1").length === 1);
+const ambiguousWeb = S.applyToolEdit(independent, { sites: ["wrong.example"] }, "browser");
+check("Website-only tool patch refuses ambiguity on platform group", ambiguousWeb.error?.startsWith("ambiguous-entry"));
+const exactWeb = S.applyToolEdit(independent, { entryID: websiteAlias, sites: ["safe.example/docs"], pageAction: "block" }, "browser");
+check("Website tool patch targets explicit alias without overwriting base/platform/Apps", !exactWeb.error && S.flatFromScopes(exactWeb.group, websiteAlias).sites.join() === "safe.example/docs" && S.flatFromScopes(exactWeb.group, websiteAlias).allowlist && S.flatFromScopes(exactWeb.group, "site").sites.join() === "example.com" && JSON.stringify(exactWeb.group.scopes.filter(line => line.surface !== "site")) === JSON.stringify(independent.scopes.filter(line => line.surface !== "site")), exactWeb);
+const soleAlias = sanitize([{ ...independent, scopes: independent.scopes.filter(line => line.surface !== "site" || line.entryID === websiteAlias) }])[0];
+const implicitWeb = S.applyToolEdit(soleAlias, { sites: ["updated.example"] }, "browser");
+check("sole aliased Website entry is resolved instead of adding base Website", !implicitWeb.error && S.groupPlatforms(implicitWeb.group).filter(key => S.entryPlatform(key) === "site").join() === websiteAlias && S.flatFromScopes(implicitWeb.group, websiteAlias).sites.join() === "updated.example");
+const combinedWeb = S.applyToolEdit(soleAlias, { sources: ["@other"], sourceMode: "include", sites: ["combined.example"] }, "browser");
+check("combined platform and sole Website patch keeps existing Website alias", !combinedWeb.error && S.flatFromScopes(combinedWeb.group, websiteAlias).sites.join() === "combined.example");
+const deletedWeb = sanitize([{ ...independent, scopes: independent.scopes.filter(line => !S.lineBelongsTo(line, websiteAlias)) }])[0];
+check("explicit entry removal keeps original Website and peer Apps", !S.groupPlatforms(deletedWeb).includes(websiteAlias) && S.flatFromScopes(deletedWeb, "site").sites.join() === "example.com" && S.flatFromScopes(deletedWeb, "apps").apps.length === 1);
+
 console.log(`SCOPES UNION TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
 if (fail) process.exitCode = 1;
