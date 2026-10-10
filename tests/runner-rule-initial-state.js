@@ -127,7 +127,10 @@ async function browserFixture() {
   store.blockedGroups=clone(groupBefore);beforeReply=()=>{store.blockedGroups[0].lockedAtMs=123;};
   failed=await run(counter);assert.equal(failed.ok,false);assert.equal(store.blockedGroups[0].lockedAtMs,123);assert.equal(store.cbRuleState.rule.count,5);
   store.blockedGroups=clone(groupBefore);
-  console.log('PASS concurrent disable and lock while preparing supersede Run without changing memory');
+  beforeReply=()=>{store.blockedGroups[0].blockingRulesText='newer draft';};
+  failed=await run(counter);assert.equal(failed.ok,false);assert.equal(store.blockedGroups[0].blockingRulesText,'newer draft');assert.equal(store.cbRuleState.rule.count,5);
+  store.blockedGroups=clone(groupBefore);
+  console.log('PASS concurrent disable, lock and newer draft while preparing supersede Run without changing memory');
   // Hold an older event's persistence transaction. Registration must wait for
   // its full write, then initialize from the updated memory, never vice versa.
   beforeReply=()=>{};
