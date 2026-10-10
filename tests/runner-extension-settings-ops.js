@@ -293,9 +293,10 @@ async function op(operation, body) {
   // Run a custom rule: the editor's Run (owner 2026-09-27: the AI tools get it too).
   const loads = [];
   context.sendToEventSandbox = async (payload) => {
-    if (payload.kind !== "load-source") return { ok: true };
+    if (payload.kind === "commit-source") return { ok: true, handlers: 1, types: ["tab"], logs: [], panels: [], states: {} };
+    if (payload.kind !== "prepare-source") return { ok: true };
     loads.push(payload);
-    return /on\(/.test(payload.source) ? { ok: true, handlers: 1, types: ["tab"], logs: [], panels: [] } : { ok: false, handlers: 0, types: [], error: "Compile failed: nope", logs: [] };
+    return /on\(/.test(payload.source) ? { ok: true, token: "fixture", handlers: 1, types: ["tab"], logs: [], panels: [], states: {} } : { ok: false, handlers: 0, types: [], error: "Compile failed: nope", logs: [] };
   };
   const rule = (await op("settings-create-group", { groupType: "custom", patch: { name: "Rule", activeDays: days } })).body.group.id;
   const good = `(on, v) => { on("tab", () => {}); }`;

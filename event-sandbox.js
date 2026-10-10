@@ -7,7 +7,7 @@
  *
  * Messages from the offscreen relay: { source: "custom-blocker-offscreen", id, payload }
  *   payload.kind:
- *     "load-source"    { groupId, source, state }  → { ok, handlers, types, error, logs, panels, quarantine }
+ *     "load-source"    { groupId, source, state }  → { ok, handlers, types, error, logs, panels, states, quarantine }
  *                      (a rule that fails to load leaves the group's old one)
  *     "unload-group"   { groupId }                 → { ok }
  *     "suppress-group" { groupId, on }             → { ok }   (a disabled group's rule hears nothing)
@@ -75,6 +75,12 @@ window.addEventListener("message", (msg) => {
   const id = data.id;
   const payload = data.payload || {};
   switch (payload.kind) {
+    case "prepare-source":
+      return reply(msg.source, id, engine.prepareLoad(String(payload.groupId), payload.source, payload.state));
+    case "commit-source":
+      return reply(msg.source, id, engine.commitLoad(payload.token));
+    case "discard-source":
+      return reply(msg.source, id, engine.discardLoad(payload.token));
     case "load-source":
       return reply(msg.source, id, engine.load(String(payload.groupId), payload.source, payload.state));
     case "unload-group":
