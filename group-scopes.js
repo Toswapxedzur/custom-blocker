@@ -748,10 +748,12 @@
           : mergeFlatIntoScopes(storedLines, normalized, input.entryID || normalizedGroupType);
         // A website list patched onto a platform group edits its Websites entry
         // (owner 2026-09-24): the flat `sites`/`allowlist` describe that entry.
-        if (!useStoredLines && platformKind(normalizedGroupType) !== "site" && normalizedGroupType !== "custom"
+        if (!useStoredLines && entryPlatform(input.entryID || normalizedGroupType) !== "site"
+            && platformKind(normalizedGroupType) !== "site" && normalizedGroupType !== "custom"
             && (Object.prototype.hasOwnProperty.call(input, "sites") || Object.prototype.hasOwnProperty.call(input, "allowlist"))
             && (normalized.sites.length || normalized.allowlist || storedLines.some(line => line.surface === "site"))) {
-          scopes = mergeFlatIntoScopes(scopes, normalized, "site");
+          const website = groupPlatforms({ scopes: storedLines }).find(key => entryPlatform(key) === "site") || "site";
+          scopes = mergeFlatIntoScopes(scopes, normalized, website);
         }
         return {
           ...withoutFlatScopeFields(normalized),
@@ -837,10 +839,25 @@
     // flat fields read as lines).
     const [current] = sanitizeGroups([stored]);
     if (hasFlatScopeFields(edit)) {
-      const candidates = groupPlatforms(current).filter(key => entryPlatform(key) === normalizeEntryKey(type));
+      const fields = FLAT_SCOPE_FIELDS.filter(field => Object.hasOwn(edit, field));
+      // A website-only tool patch targets Websites even when the group also
+      // contains a platform. Resolve the exact entry before flattening; the
+      // stored groupType is a view hint, not an entry identity.
+      const websiteFieldsOnly = fields.every(field => ["sites", "allowlist", "pageAction"].includes(field));
+      const websiteOnly = websiteFieldsOnly && (Object.hasOwn(edit, "sites") || Object.hasOwn(edit, "allowlist"));
+      const target = edit.entryID ? entryPlatform(edit.entryID) : websiteOnly && type !== "custom" ? "site" : normalizeEntryKey(type);
+      if (target !== normalizeEntryKey(type) && !(target === "site" && websiteFieldsOnly)) return { error: "invalid-entryID" };
+      const candidates = groupPlatforms(current).filter(key => entryPlatform(key) === target);
       if (!edit.entryID && candidates.length > 1) return { error: "ambiguous-entry: specify entryID or scopes" };
-      if (edit.entryID && (!candidates.includes(edit.entryID) || entryPlatform(edit.entryID) !== normalizeEntryKey(type))) {
+      if (edit.entryID && (!candidates.includes(edit.entryID) || normalizeEntryKey(edit.entryID) !== edit.entryID)) {
         return { error: "invalid-entryID" };
+      }
+      edit.entryID = edit.entryID || candidates[0] || target;
+      // Preserve combined platform + Websites patches, refusing to guess
+      // which independent Website entry the secondary flat fields describe.
+      if (target !== "site" && target !== "custom" && (Object.hasOwn(edit, "sites") || Object.hasOwn(edit, "allowlist"))) {
+        const websites = groupPlatforms(current).filter(key => entryPlatform(key) === "site");
+        if (websites.length > 1) return { error: "ambiguous-entry: specify entryID or scopes" };
       }
     }
     // Lines sent without the other program's keep those as stored.

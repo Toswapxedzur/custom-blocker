@@ -136,6 +136,14 @@ async function op(operation, body) {
   check("a scopes patch is sanitized line by line (illegal action corrected, ids assigned)", sg && sg.scopes.length === 3 && sg.scopes[0].surface === "items" && sg.scopes[0].form === "short" && sg.scopes[0].sources.length === 2 && sg.scopes[2].action === "hide" && sg.scopes.every((line) => typeof line.id === "string" && line.id), sg && sg.scopes);
   check("the flat view of a scoped group reads back the lines", sg && flatOf(sg).sourceMode === "include" && flatOf(sg).platformVideoMode === "short" && flatOf(sg).blockHomePage === true && JSON.stringify(flatOf(sg).surfaceHides) === JSON.stringify(["shorts-button"]), sg && flatOf(sg));
 
+  const websiteAliases = await op("settings-set-group", {id:la.id,patch:{scopes:[...sg.scopes,
+    {surface:"site",action:"block",sites:["example.com"]},
+    {surface:"site",entryID:"site:linked_0123456789abcdef01234567",action:"pause",sites:["safe.example"],sitesExcept:true}]}});
+  const ambiguousSite = await op("settings-set-group", {id:la.id,patch:{sites:["wrong.example"]}});
+  check("settings API refuses ambiguous independent Website patch", ambiguousSite?.error?.startsWith("ambiguous-entry"), ambiguousSite);
+  const aliasSite = await op("settings-set-group", {id:la.id,patch:{entryID:"site:linked_0123456789abcdef01234567",sites:["safe.example/docs"]}});
+  check("settings API persists only explicitly selected Website alias", aliasSite?.body?.group?.scopes.filter(l=>l.surface==="site").length === 2 && aliasSite.body.group.scopes.find(l=>l.entryID)?.sites.join() === "safe.example/docs" && aliasSite.body.group.scopes.find(l=>l.surface==="site"&&!l.entryID)?.sites.join() === "example.com", aliasSite);
+
   const missing = await op("settings-set-group", { id: "nope", patch: { enabled: true } });
   check("patching an unknown group fails", missing?.error === "group-not-found", missing);
 
@@ -312,6 +320,27 @@ async function op(operation, body) {
   await op("settings-lock-group", { id: rule });
   const frozenRun = await op("settings-run-custom-rule", { id: rule, source: good });
   check("a frozen group's rule is not run", frozenRun?.error === "group-locked", frozenRun);
+
+  // Delete through the actual settings API + storage listener. Keep a live
+  // peer rule as the control; deleted callbacks must not recreate memory.
+  const doomed = (await op("settings-create-group", {groupType:"custom",patch:{name:"Delete lifecycle"}})).body.group.id;
+  await op("settings-run-custom-rule", {id:doomed,source:good});
+  storage.set("cbRuleState", {[rule]:{minutes:12},[doomed]:{saved:true}});
+  context.__doomed = doomed;
+  vm.runInContext(`cbRulePanels.set(__doomed,[{id:"panel"}]); cbRuleSheets.set(__doomed,new Map([["sheet",{css:"body{color:red}"}]])); pushLogFeedEntry({groupId:__doomed,source:"v.log",args:["before delete"]});`,context);
+  const unloads = [], lifts = [];
+  const sandboxBeforeDelete = context.sendToEventSandbox;
+  context.sendToEventSandbox = async payload => { if(payload.kind === "unload-group") unloads.push(payload.groupId); return sandboxBeforeDelete(payload); };
+  const pagesBeforeDelete = context.cbSendToWebPages;
+  context.cbSendToWebPages = async message => { lifts.push(message); };
+  const deletion = await op("settings-delete-group", {id:doomed});
+  await vm.runInContext("cbOfflineUsageTail",context);
+  check("delete-group prunes custom memory and keeps live peer memory", deletion?.body?.deleted === doomed && !Object.hasOwn(storage.get("cbRuleState"),doomed) && storage.get("cbRuleState")[rule].minutes === 12);
+  check("delete-group unloads handlers, standing effects, panels and log feed", unloads.includes(doomed) && lifts.some(m=>m.type === "rule-lift" && m.groupId === doomed) && vm.runInContext(`!cbRuleTypes.has(__doomed) && !cbRulePanels.has(__doomed) && !cbRuleSheets.has(__doomed) && !logFeeds.has(__doomed) && !logFeedBursts.has(__doomed)`,context));
+  const beforeLate = lifts.length;
+  await context.applyRuleResult({states:{[doomed]:{revived:true}},logs:[{groupId:doomed,source:"v.log",args:["late"]}],panels:{[doomed]:[{}]},actions:[{groupId:doomed,kind:"cover",on:true}]},"tick");
+  check("deleted-rule late callback cannot revive memory/effects/logs", !Object.hasOwn(storage.get("cbRuleState"),doomed) && lifts.length === beforeLate && vm.runInContext(`!cbRulePanels.has(__doomed) && !logFeeds.has(__doomed)`,context));
+  context.cbSendToWebPages = pagesBeforeDelete;
 
   const unknown = await op("settings-explode", {});
   check("an unsupported operation is answered, not dropped", unknown?.error === "unsupported-operation", unknown);
