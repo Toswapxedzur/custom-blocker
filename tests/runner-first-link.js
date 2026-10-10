@@ -147,6 +147,58 @@ const state = env => env.ctx.chrome.storage.local.get({blockedGroups:[],usageTim
     assert(env.ctx.__sent[0]?.program === program && env.ctx.__sent[0].usageMs === 300000 && env.ctx.__sent[0].scalars.allowedMinutes === 20,`${program}: joining existing link contributes own original`);
     assert((await state(env)).blockedGroups[0].scopes.some(l=>l.surface==="site"),`${program}: incomplete union cannot erase own Website`);
   }
+  // The actual three-peer failure had distinct lists, not merely two Website
+  // surfaces. The browser sends the third member's untouched original; the
+  // desktop hub owns first-join aggregation. This fixture pins the wire and
+  // adoption/enforcement contract without pretending to execute that hub.
+  for (const program of ["edge", "safari"]) {
+    const first = await setup("chrome");
+    const pair = cluster("chrome", true);
+    pair.shared.scalars = {name:"Pair origin",allowedMinutes:20,enabled:true,mode:"after-minutes"};
+    pair.shared.usageMs = 300000;
+    pair.shared.scopes.push(...first.groups[0].scopes);
+    await frame(first, pair);
+    const joining = await setup(program);
+    const original = joining.run('sanitizeGroups([{id:"L",name:"Third original",groupType:"site",sites:["example.org"],enabled:true,mode:"after-minutes",allowedMinutes:30}])');
+    await joining.ctx.chrome.storage.local.set({blockedGroups:original,usageTimersMs:{L:480000}});
+    const partial = JSON.parse(JSON.stringify(pair));
+    partial.members.push({program,groupId:"L",contributed:false});
+    await frame(first, partial);
+    joining.run("cbConnection.sendWS=()=>false");
+    await frame(joining, partial);
+    const saved = await joining.ctx.chrome.storage.local.get({blockedGroups:[],usageTimersMs:{},usageResetAtMs:{},usageBucketsMs:{}});
+    assert(saved.blockedGroups[0].scopes.find(l=>l.surface==="site").sites.join() === "example.org" && saved.usageTimersMs.L === 480000, `${program}: disconnected third member retains distinct original site and usage`);
+    const resumed = await setup(program);
+    await resumed.ctx.chrome.storage.local.set(saved);
+    await frame(resumed, partial, "clusters");
+    const contribution = resumed.ctx.__sent.find(f=>f.scalars);
+    assert(contribution?.usageMs === 480000 && contribution.scalars.allowedMinutes === 30, `${program}: resumed third member sends original seed and settings`);
+    assert(contribution.scopes.length === 1 && contribution.scopes[0].sites.join() === "example.org" && contribution.scopes[0].sitesExcept === false && contribution.scopes[0].action === "block", `${program}: third contribution sends its exact own site predicate, excluding peer Apps and sites`);
+    assert((await state(first)).blockedGroups[0].scopes.find(l=>l.surface==="site").sites.join() === "example.com", `${program}: existing Chrome member retains its site while third contribution is incomplete`);
+    const complete = JSON.parse(JSON.stringify(partial));
+    complete.members.forEach(m=>m.contributed=true);
+    complete.shared.usageMs = 480000;
+    complete.shared.scopes.find(l=>l.surface==="site").sites = ["example.com", "example.org"];
+    for (const browser of [first, resumed]) {
+      await frame(browser, complete);
+      await frame(browser, complete, "clusters");
+      const adopted = await state(browser);
+      const group = adopted.blockedGroups[0];
+      assert(group.scopes.find(l=>l.surface==="site").sites.join() === "example.com,example.org" && group.scopes.some(l=>l.surface==="apps"), `${program}: complete three-peer union retains both distinct sites and Apps`);
+      assert(group.name === "Pair origin" && group.allowedMinutes === 20 && adopted.usageTimersMs.L === 480000, `${program}: complete three-peer union adopts initiating settings and shared seed`);
+      browser.ctx.__evalGroups = adopted.blockedGroups;
+      for (const hostname of ["example.com", "example.org"]) {
+        const context = {url:`https://${hostname}/`,hostname,pathname:"/"};
+        assert(browser.run(`cbPageLead(normalizePageContext(${JSON.stringify(context)}),__evalGroups,{L:1200000},{},Date.now())?.id`) === "L", `${program}: adopted site ${hostname} enforces from shared budget`);
+      }
+      // Subsequent deliberate entry edits are replacements, not perpetual
+      // unions: a removed target must not come back from local history.
+      const edited = JSON.parse(JSON.stringify(complete));
+      edited.shared.scopes.find(l=>l.surface==="site").sites = ["example.org"];
+      await frame(browser, edited);
+      assert((await state(browser)).blockedGroups[0].scopes.find(l=>l.surface==="site").sites.join() === "example.org", `${program}: acknowledged Website edit replaces rather than re-unions removed site`);
+    }
+  }
   // An explicitly empty owned list is meaningful, rather than absent.
   const empty = await setup();
   const emptyGroups = empty.groups.map(g=>({...g,scopes:[]}));
