@@ -76,6 +76,8 @@ async function browserFixture() {
   let suppressed = null;
   const env = vm.createContext({console,Map,Set,Object,
     BLOCKED_GROUPS_KEY:'blockedGroups',CB_RULE_STATE_KEY:'cbRuleState',
+    cbWithDefinitionMutation:operation=>operation(), cbPublishDefinitionCommit(){},
+    cbWriteDefinitionStoreLocked:patch=>env.chrome.storage.local.set(patch),
     chrome:{storage:{local:{get:async defaults=>clone(Object.fromEntries(Object.keys(defaults).map(key=>[key,store[key] ?? defaults[key]]))),set:async patch=>{if(failWrite){failWrite=false;throw new Error("disk-full");}const stable=clone(patch);if(heldWrite){heldEntered();await heldWrite;}Object.assign(store,stable);}}}},
     cbRuleTypes:new Map(),cbRulePanels:new Map(),cbRuleItemsEpoch:1,lastReconcileSnapshot:new Map(),
     CBGroupActions:{isLocked:group=>Boolean(group.lockedAtMs)},cbEnforceOnly:()=>false,
@@ -91,17 +93,19 @@ async function browserFixture() {
       throw new Error(request.kind);
     }
   });
+  for (const file of ['platform-profiles.js','group-actions.js','group-scopes.js']) vm.runInContext(fs.readFileSync(path.join(root,file),'utf8'),env,{filename:file});
   const start=background.indexOf('let cbRuleMutationQueue');
   const end=background.indexOf('async function unloadCustomGroupHandlers',start);
   vm.runInContext(background.slice(start,end),env);
   const dispatchStart=background.indexOf('async function dispatchRule');
   vm.runInContext(background.slice(dispatchStart,background.indexOf('// A rule\'s file request',dispatchStart)),env);
   const run=source=>env.loadCustomGroupSource({id:'rule',groupType:'custom',enabled:true,activeEventSource:source},{run:true});
-  await run(counter);assert.equal(store.cbRuleState.rule.count,1);
-  await run(counter);assert.equal(store.cbRuleState.rule.count,2);
+  const expectRun=async source=>{const reply=await run(source);assert.equal(reply.ok,true,reply.error || 'registration must succeed before reading state');return reply;};
+  await expectRun(counter);assert.equal(store.cbRuleState.rule.count,1);
+  await expectRun(counter);assert.equal(store.cbRuleState.rule.count,2);
   assert.equal(store.cbRuleState.other.keep,9);
   sandbox=context.RuleCore.createEngine();
-  await run(counter);assert.equal(store.cbRuleState.rule.count,3);
+  await expectRun(counter);assert.equal(store.cbRuleState.rule.count,3);
   console.log('PASS browser persists initialization with no handlers, consecutive Runs and a fresh sandbox restart, preserving other groups');
   beforeReply=()=>{};
   await run('(on,v)=>{on("tick",()=>{v.state.count++;});}');

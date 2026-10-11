@@ -11,13 +11,22 @@ const __listeners = [];
 function makeContext() {
   const storage = new Map();
   const changeListeners = [];
+  let groupSetCount = 0;
   const inert = () => new Proxy(function () {}, { get: (_t, p) => (p === "addListener" || p === "removeListener" || p === "hasListener") ? () => {} : inert(), apply: () => Promise.resolve(undefined) });
   const chrome = new Proxy({
     storage: {
       local: {
-        get: (keys, cb) => { const out = {}; if (keys && typeof keys === "object" && !Array.isArray(keys)) for (const [k, d] of Object.entries(keys)) out[k] = storage.has(k) ? storage.get(k) : d; else if (typeof keys === "string") out[keys] = storage.get(keys); if (cb) cb(out); return Promise.resolve(out); },
+        get: (keys, cb) => {
+          const out = {};
+          const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+          if (keys == null) for (const [key,value] of storage) out[key] = copy(value);
+          else if (Array.isArray(keys) || typeof keys === "string") for (const key of [].concat(keys)) {if (storage.has(key)) out[key] = copy(storage.get(key));}
+          else for (const [key,fallback] of Object.entries(keys)) out[key] = copy(storage.has(key) ? storage.get(key) : fallback);
+          if (cb) cb(out);
+          return Promise.resolve(out);
+        },
         // Like chrome.storage: every write reaches the onChanged listeners.
-        set: (obj, cb) => { const changes = {}; for (const [k, v] of Object.entries(obj)) { const next = JSON.parse(JSON.stringify(v)); changes[k] = { oldValue: storage.get(k), newValue: next }; storage.set(k, next); } Promise.resolve().then(() => { for (const fn of changeListeners) fn(changes, "local"); }); if (cb) cb(); return Promise.resolve(); },
+        set: (obj, cb) => { if (Object.hasOwn(obj,"blockedGroups")) groupSetCount++; const changes = {}; for (const [k, v] of Object.entries(obj)) { const next = JSON.parse(JSON.stringify(v)); changes[k] = { oldValue: storage.get(k), newValue: next }; storage.set(k, next); } Promise.resolve().then(() => { for (const fn of changeListeners) fn(changes, "local"); }); if (cb) cb(); return Promise.resolve(); },
         remove: () => Promise.resolve(), getBytesInUse: () => Promise.resolve(0)
       },
       session: { get: () => Promise.resolve({}), set: () => Promise.resolve(), remove: () => Promise.resolve() },
@@ -37,6 +46,7 @@ function makeContext() {
     atob: (s) => Buffer.from(s, "base64").toString("binary"), btoa: (s) => Buffer.from(s, "binary").toString("base64")
   });
   ctx.self = ctx; ctx.globalThis = ctx; ctx.window = ctx;
+  ctx.__changeListeners = changeListeners; ctx.__groupSetCount = () => groupSetCount;
   return ctx;
 }
 const context = makeContext();
@@ -51,10 +61,11 @@ const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
 
 (async () => {
   const groups = run(`sanitizeGroups(${JSON.stringify([
-    { id: "L", name: "Linked", groupType: "site", sites: ["example.com"], enabled: true, mode: "instant", activeDays: days, timeWindowsText: "", snoozeConfirmations: 0 },
+    { id: "L", name: "Linked", lockVersion: 2, lockSyncedVersion: 2, groupType: "site", sites: ["example.com"], enabled: true, mode: "instant", activeDays: days, timeWindowsText: "", snoozeConfirmations: 0 },
     { id: "U", name: "Alone", groupType: "site", sites: ["other.org"], enabled: true, mode: "instant", activeDays: days, timeWindowsText: "", snoozeConfirmations: 0 }
   ])})`);
   await context.chrome.storage.local.set({ blockedGroups: groups, globalSettings: { quickAddEnabled: true }, quickAddGroupId: "L" });
+  await run("cbSharingReady");
   context.__cluster = { id: "c1", groupName: "Linked", members: [{ program: "chrome", groupName: "Linked", groupId: "L" }, { program: "macapp", groupName: "Linked", groupId: "m1" }] };
   context.__sent = [];
   run(`cbSaveClusterCopy([__cluster]); cbConnection.clusters = []; cbConnection.routeIsReady = () => false; cbConnection.sendWS = (f) => { __sent.push(f); return true; };`);
@@ -72,13 +83,37 @@ const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"
   run(`cbConnection.routeIsReady = (t) => t === "macapp";`);
   check("with Mac Vault back the group can change again", run(`cbEnforceOnly(${JSON.stringify(groups[0])})`) === false);
   context.__sent.length = 0;
-  // The editor only stores its change; the worker shares it with the link.
+  // Historical notifications refresh current state; they are never editor
+  // intent. Even a different old/new lock snapshot cannot publish itself.
   const stored = (await context.chrome.storage.local.get({ blockedGroups: [] })).blockedGroups;
-  const locked = stored.map((g) => (g.id === "L" ? { ...g, lockedAtMs: 5, lockWaitHours: 0, lockVersion: 3, lockSyncedVersion: 2 } : g));
-  await context.chrome.storage.local.set({ blockedGroups: locked });
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  const previous = stored.find(group => group.id === "L");
+  const locked = context.CBGroupActions.lockWithGates(previous, {waitHours:0}, 5).group;
+  const detached = await context.chrome.storage.local.get("blockedGroups");
+  detached.blockedGroups[0].name = "read copy only";
+  const callbackCopy = await new Promise(resolve => context.chrome.storage.local.get(["blockedGroups","missing"],resolve));
+  check("Chrome storage reads return detached values and array callbacks omit missing keys", callbackCopy.blockedGroups[0].name === previous.name && !Object.hasOwn(callbackCopy,"missing"));
+  const defaults = await context.chrome.storage.local.get({missing:{keep:true}});
+  const all = await context.chrome.storage.local.get(null);
+  check("Chrome storage default-object and null reads preserve their API contract", defaults.missing.keep === true && Array.isArray(all.blockedGroups));
+  const historical = {blockedGroups:{oldValue:stored,newValue:stored.map(group => group.id === "L" ? locked : group)}};
+  for (const listener of context.__changeListeners) listener(historical,"local");
+  await new Promise(resolve => setTimeout(resolve, 30));
+  check("a historical storage notification cannot publish positive lock intent", !context.__sent.some(frame => frame.kind === "group-sync" && frame.ts > 0), context.__sent);
+  context.__sent.length = 0;
+  const beforeEditorWrites = context.__groupSetCount();
+  const change = context.CBGroupScopes.editorChange(previous, locked, "browser");
+  const reply = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Actual editor lock request received no reply")), 1000);
+    const done = value => {clearTimeout(timer);resolve(value);};
+    for (const listener of __listeners) {
+      if (listener({type:"editor-definition-edit",intent:"lock-fields",changes:[change]}, {id:"t",url:"chrome-extension://t/popup.html"}, done) === true) return;
+    }
+    clearTimeout(timer);reject(new Error("Actual editor lock listener absent"));
+  });
+  check("the actual editor lock request succeeds", reply?.ok === true, reply);
+  check("the actual editor IPC commits one definition write", context.__groupSetCount() === beforeEditorWrites + 1, context.__groupSetCount() - beforeEditorWrites);
   const frame = context.__sent.find((f) => f.kind === "group-sync" && f.groupId === "L");
-  check("an editor's stored lock change reaches the hub with its lock and base version", frame && frame.lock && frame.lock.lockVersion === 3 && frame.lockBase === 2, context.__sent);
+  check("an editor's queued lock change reaches the hub with its lock and base version", frame && frame.lock && frame.lock.lockVersion === 3 && frame.lockBase === 2, context.__sent);
 
   // Links are made by the user (owner 2026-09-27): the editor's buttons go to the hub.
   context.__sent.length = 0;

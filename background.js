@@ -110,6 +110,91 @@ function cbDebugError(...args) { if (cbDebugMode) { try { console.error(...args)
 })();
 
 const BLOCKED_GROUPS_KEY = "blockedGroups";
+// All supported definition writers, including browser editor requests, serialize
+// their complete read/merge/commit here. Notifications are refresh signals only.
+let cbDefinitionTail = Promise.resolve();
+let cbDefinitionOperation = null;
+let cbDefinitionInitializing = true;
+let cbCommittedDefinitionGroups = [];
+let cbDefinitionStartupResolve, cbDefinitionStartupReject;
+const cbDefinitionStartupReady = new Promise((resolve, reject) => {
+  cbDefinitionStartupResolve = resolve; cbDefinitionStartupReject = reject;
+});
+cbDefinitionStartupReady.catch(() => {});
+
+function cbWithDefinitionMutation(operation) {
+  const task = cbDefinitionTail.catch(() => {}).then(async () => {
+    await cbDefinitionStartupReady;
+    await cbSharingReady;
+    const token = {};
+    cbDefinitionOperation = token;
+    try { return await operation(); }
+    finally { if (cbDefinitionOperation === token) cbDefinitionOperation = null; }
+  });
+  cbDefinitionTail = task;
+  return task;
+}
+
+async function cbWriteDefinitionStoreLocked(writes, { sharedIds = null, publish = true } = {}) {
+  if (!Object.hasOwn(writes, BLOCKED_GROUPS_KEY)) return chrome.storage.local.set(writes);
+  if (cbDefinitionInitializing) return chrome.storage.local.set(writes);
+  if (!cbDefinitionOperation) throw new Error("Definition write requires the worker queue.");
+  const oldValue = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+  const newValue = writes[BLOCKED_GROUPS_KEY];
+  if (cbDefinitionJSON(oldValue) === cbDefinitionJSON(newValue)) {
+    const remaining = { ...writes }; delete remaining[BLOCKED_GROUPS_KEY];
+    if (Object.keys(remaining).length) await chrome.storage.local.set(remaining);
+    return;
+  }
+  // Definition and its budget/deletion cleanup commit as one storage write.
+  // A cleanup write failure must not leave a saved group with orphaned state,
+  // or publish an edit whose associated persistence did not succeed.
+  await cbWithOfflineUsage(async () => {
+    const cleanup = await cbApplyStoredGroupChangeLocked(oldValue, newValue, { persist: false });
+    await chrome.storage.local.set({ ...cleanup, ...writes });
+  });
+  cbCommittedDefinitionGroups = structuredClone(Array.isArray(newValue) ? newValue : []);
+  if (publish) cbPublishDefinitionCommit(newValue, sharedIds);
+  cbRefreshDefinitionStorage().catch(error => console.error("Failed to reconcile committed definitions.", error));
+}
+
+function cbPublishDefinitionCommit(groups, sharedIds = null) {
+  if (!sharedIds) return cbShareStoredGroups(groups);
+  for (const group of groups) if (sharedIds.has(group?.id)) cbDefinitionSeen.set(group.id, cbDefinitionKey(group));
+  cbAnnounceStoredGroups(groups).catch(() => {});
+}
+
+let cbDefinitionRefreshGeneration = 0;
+let cbDefinitionRefreshTask = null;
+let cbDefinitionRefreshHandled = 0;
+function cbRefreshDefinitionStorage() {
+  cbDefinitionRefreshGeneration++;
+  if (cbDefinitionRefreshTask) return cbDefinitionRefreshTask;
+  cbDefinitionRefreshTask = (async () => {
+    let handled;
+    do {
+      handled = cbDefinitionRefreshGeneration;
+      const groups = await cbWithDefinitionMutation(async () => {
+        const current = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+        const groups = Array.isArray(current) ? current : [];
+        const before = cbCommittedDefinitionGroups;
+        cbCommittedDefinitionGroups = structuredClone(groups);
+        await cbWithOfflineUsage(() => cbApplyStoredGroupChangeLocked(before, groups));
+        await cbRenameDuplicatesLocked(groups);
+        return (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+      });
+      const retained = new Set((groups || []).map(group => group?.id));
+      for (const id of logFeeds.keys()) if (!retained.has(id)) { logFeeds.delete(id); logFeedBursts.delete(id); }
+      await reconcileCustomGroupHandlers({ newValue: groups });
+      await cbAnnounceStoredGroups(groups);
+      cbDefinitionRefreshHandled = handled;
+    } while (handled !== cbDefinitionRefreshGeneration);
+  })().catch(error => { cbDefinitionRefreshHandled = cbDefinitionRefreshGeneration; throw error; }).finally(() => {
+    cbDefinitionRefreshTask = null;
+    if (cbDefinitionRefreshHandled !== cbDefinitionRefreshGeneration) cbRefreshDefinitionStorage().catch(() => {});
+  });
+  return cbDefinitionRefreshTask;
+}
 const USAGE_TIMERS_KEY = "usageTimersMs";
 const USAGE_RESET_AT_KEY = "usageResetAtMs";
 // Rolling-limit usage per group: {groupId: {"<minuteStartMs>": ms}}.
@@ -423,10 +508,11 @@ async function cbMigrateGlobalFallbackUrl(groups, globalSettings) {
   const { defaultFallbackUrl, ...rest } = globalSettings;
   const writes = { [CB_GLOBAL_SETTINGS_KEY]: rest };
   if (touched) writes[BLOCKED_GROUPS_KEY] = groups;
-  try { await chrome.storage.local.set(writes); } catch (_) {}
+  await cbWriteDefinitionStoreLocked(writes);
 }
 
 async function loadStoredState() {
+  await cbDefinitionStartupReady;
   const now = Date.now();
   const result = await chrome.storage.local.get({
     [BLOCKED_GROUPS_KEY]: [],
@@ -439,7 +525,6 @@ async function loadStoredState() {
   });
 
   const groups = sanitizeGroups(result[BLOCKED_GROUPS_KEY]);
-  await cbMigrateGlobalFallbackUrl(groups, result[CB_GLOBAL_SETTINGS_KEY]);
 
   return {
     groups,
@@ -1120,7 +1205,10 @@ function rewriteExtensionUrlsInString(text, livePrefix) {
   );
 }
 
-async function runChromeExtensionUrlSanitization() {
+function runChromeExtensionUrlSanitization() {
+  return cbWithDefinitionMutation(() => runChromeExtensionUrlSanitizationLocked());
+}
+async function runChromeExtensionUrlSanitizationLocked() {
   let livePrefix = "";
   try {
     livePrefix = chrome.runtime.getURL("");
@@ -1156,7 +1244,7 @@ async function runChromeExtensionUrlSanitization() {
   });
 
   if (touched === 0) return { changed: false, groupsTouched: 0 };
-  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+  await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: next });
   return { changed: true, groupsTouched: touched };
 }
 
@@ -1470,7 +1558,10 @@ async function cbQuickAddState() {
   return { enabled: true, groupId: group.id, groupName: group.name };
 }
 
-async function cbQuickAdd(url) {
+function cbQuickAdd(url) {
+  return cbWithDefinitionMutation(() => cbQuickAddLocked(url));
+}
+async function cbQuickAddLocked(url) {
   const target = await cbQuickAddState();
   if (!target.enabled) throw new Error("quick-add-off");
   const entry = cbQuickAddEntry(url);
@@ -1493,7 +1584,7 @@ async function cbQuickAdd(url) {
   line.sites = sites;
   const [next] = sanitizeGroups([{ ...group, scopes }]);
   const nextGroups = groups.map((item, at) => (at === index ? next : item));
-  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: nextGroups });
+  await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: nextGroups });
   return { entry, added, groupName: next.name };
 }
 
@@ -1786,7 +1877,10 @@ self.CBRecordVaultClassifierTransportDiagnostic = recordVaultClassifierTransport
 // `blockingRulesText`); only `enabled` flips. Recovering is one click in
 // the popup. The reconciler picks up the flag through normal storage
 // onChanged flow and unloads the group.
-async function quarantineGroup(groupId, reason) {
+function quarantineGroup(groupId, reason) {
+  return cbWithDefinitionMutation(() => quarantineGroupLocked(groupId, reason));
+}
+async function quarantineGroupLocked(groupId, reason) {
   if (!groupId) return false;
   try {
     const stored = await chrome.storage.local.get(BLOCKED_GROUPS_KEY);
@@ -1799,7 +1893,7 @@ async function quarantineGroup(groupId, reason) {
       enabled: false,
       lastAbortReason: String(reason || "unknown")
     };
-    await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
+    await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: groups });
     return true;
   } catch (error) {
     console.warn("[CustomBlocker] quarantineGroup failed", error);
@@ -2060,58 +2154,63 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
   let snapshot = null;
   let browserSaved = false;
   const priorReconcile = lastReconcileSnapshot.get(group.id);
-  try {
-    snapshot = await chrome.storage.local.get(defaults);
-    const groups = Array.isArray(snapshot[BLOCKED_GROUPS_KEY]) ? snapshot[BLOCKED_GROUPS_KEY] : [];
-    const index = groups.findIndex(current => current?.id === group.id && current.groupType === "custom");
-    const current = groups[index];
-    if (!current || current.activeEventSource !== original.activeEventSource || current.blockingRulesText !== original.blockingRulesText || current.enabled !== original.enabled ||
-        (run && (CBGroupActions.isLocked(current) || cbEnforceOnly(current))) ||
-        JSON.stringify((snapshot[CB_RULE_STATE_KEY] || {})[group.id] || {}) !== JSON.stringify(stored)) throw new Error("Rule changed while loading; retry Run.");
-    saved = {};
-    if (Object.hasOwn(prepared.states || {}, group.id)) saved[CB_RULE_STATE_KEY] = { ...(snapshot[CB_RULE_STATE_KEY] || {}), [group.id]: prepared.states[group.id] };
-    if (run) {
-      groups[index] = { ...current, enabled: true, blockingRulesText: source, activeEventSource: source, lastAbortReason: null };
-      saved[BLOCKED_GROUPS_KEY] = groups;
-      lastReconcileSnapshot.set(group.id, { enabled: true, activeEventSource: source });
-    }
-    if (Object.keys(saved).length) { await chrome.storage.local.set(saved); browserSaved = true; }
-    result = await sendToEventSandbox({ kind: "commit-source", groupId: group.id, token: prepared.token });
-    if (!result?.ok) throw new Error(result?.error || "Prepared rule could not be committed.");
-  } catch (error) {
-    await sendToEventSandbox({ kind: "discard-source", groupId: group.id, token: prepared.token }).catch(() => {});
-    // A native journal failure after the browser write restores only values
-    // still belonging to this candidate, preserving intervening user edits.
-    if (browserSaved && saved && snapshot) {
-      const latest = await chrome.storage.local.get(defaults);
-      const rollback = {};
-      if ((latest[BLOCKED_GROUPS_KEY] || []).some(current => current?.id === group.id && current.groupType === "custom") && saved[CB_RULE_STATE_KEY] && JSON.stringify((latest[CB_RULE_STATE_KEY] || {})[group.id]) === JSON.stringify(saved[CB_RULE_STATE_KEY][group.id])) {
-        const states = { ...(latest[CB_RULE_STATE_KEY] || {}) };
-        if (Object.hasOwn(snapshot[CB_RULE_STATE_KEY] || {}, group.id)) states[group.id] = snapshot[CB_RULE_STATE_KEY][group.id];
-        else delete states[group.id];
-        rollback[CB_RULE_STATE_KEY] = states;
+  const committed = await cbWithDefinitionMutation(async () => {
+    try {
+      snapshot = await chrome.storage.local.get(defaults);
+      const groups = Array.isArray(snapshot[BLOCKED_GROUPS_KEY]) ? snapshot[BLOCKED_GROUPS_KEY] : [];
+      const index = groups.findIndex(current => current?.id === group.id && current.groupType === "custom");
+      const current = CBGroupScopes.editorEffectiveGroup(groups[index]);
+      if (!current || current.activeEventSource !== original.activeEventSource || current.blockingRulesText !== original.blockingRulesText || current.enabled !== original.enabled ||
+          (run && (CBGroupActions.isLocked(current) || cbEnforceOnly(current))) ||
+          JSON.stringify((snapshot[CB_RULE_STATE_KEY] || {})[group.id] || {}) !== JSON.stringify(stored)) throw new Error("Rule changed while loading; retry Run.");
+      saved = {};
+      if (Object.hasOwn(prepared.states || {}, group.id)) saved[CB_RULE_STATE_KEY] = { ...(snapshot[CB_RULE_STATE_KEY] || {}), [group.id]: prepared.states[group.id] };
+      if (run) {
+        groups[index] = { ...current, enabled: true, blockingRulesText: source, activeEventSource: source, lastAbortReason: null };
+        saved[BLOCKED_GROUPS_KEY] = groups;
+        lastReconcileSnapshot.set(group.id, { enabled: true, activeEventSource: source });
       }
-      if (saved[BLOCKED_GROUPS_KEY]) {
-        const groups = latest[BLOCKED_GROUPS_KEY] || [];
-        const index = groups.findIndex(current => current?.id === group.id);
-        if (index >= 0 && groups[index].groupType === "custom") {
-          const previous = { ...groups[index] };
-          for (const [key, value] of Object.entries({ enabled: true, blockingRulesText: source, activeEventSource: source, lastAbortReason: null })) {
-            if (previous[key] === value) {
-              if (Object.hasOwn(original, key)) previous[key] = original[key];
-              else delete previous[key];
-            }
-          }
-          groups[index] = previous;
-          rollback[BLOCKED_GROUPS_KEY] = groups;
+      if (Object.keys(saved).length) { await cbWriteDefinitionStoreLocked(saved, { publish: false }); browserSaved = true; }
+      result = await sendToEventSandbox({ kind: "commit-source", groupId: group.id, token: prepared.token });
+      if (!result?.ok) throw new Error(result?.error || "Prepared rule could not be committed.");
+      if (saved[BLOCKED_GROUPS_KEY]) cbPublishDefinitionCommit(saved[BLOCKED_GROUPS_KEY]);
+    } catch (error) {
+      await sendToEventSandbox({ kind: "discard-source", groupId: group.id, token: prepared.token }).catch(() => {});
+      // A native journal failure after the browser write restores only values
+      // still belonging to this candidate, preserving intervening user edits.
+      if (browserSaved && saved && snapshot) {
+        const latest = await chrome.storage.local.get(defaults);
+        const rollback = {};
+        if ((latest[BLOCKED_GROUPS_KEY] || []).some(current => current?.id === group.id && current.groupType === "custom") && saved[CB_RULE_STATE_KEY] && JSON.stringify((latest[CB_RULE_STATE_KEY] || {})[group.id]) === JSON.stringify(saved[CB_RULE_STATE_KEY][group.id])) {
+          const states = { ...(latest[CB_RULE_STATE_KEY] || {}) };
+          if (Object.hasOwn(snapshot[CB_RULE_STATE_KEY] || {}, group.id)) states[group.id] = snapshot[CB_RULE_STATE_KEY][group.id];
+          else delete states[group.id];
+          rollback[CB_RULE_STATE_KEY] = states;
         }
+        if (saved[BLOCKED_GROUPS_KEY]) {
+          const groups = latest[BLOCKED_GROUPS_KEY] || [];
+          const index = groups.findIndex(current => current?.id === group.id);
+          if (index >= 0 && groups[index].groupType === "custom") {
+            const previous = { ...groups[index] };
+            for (const [key, value] of Object.entries({ enabled: true, blockingRulesText: source, activeEventSource: source, lastAbortReason: null })) {
+              if (previous[key] === value) {
+                if (Object.hasOwn(original, key)) previous[key] = original[key];
+                else delete previous[key];
+              }
+            }
+            groups[index] = previous;
+            rollback[BLOCKED_GROUPS_KEY] = groups;
+          }
+        }
+        if (Object.keys(rollback).length) await cbWriteDefinitionStoreLocked(rollback, { publish: false });
       }
-      if (Object.keys(rollback).length) await chrome.storage.local.set(rollback);
+      if (priorReconcile) lastReconcileSnapshot.set(group.id, priorReconcile);
+      else lastReconcileSnapshot.delete(group.id);
+      return { ok: false, handlers: 0, error: String(error?.message || error), logs: [] };
     }
-    if (priorReconcile) lastReconcileSnapshot.set(group.id, priorReconcile);
-    else lastReconcileSnapshot.delete(group.id);
-    return { ok: false, handlers: 0, error: String(error?.message || error), logs: [] };
-  }
+    return null;
+  });
+  if (committed) return committed;
   if (!source.trim()) await unloadCustomGroupHandlers(group.id);
   cbRuleGenerations.set(group.id, (cbRuleGenerations.get(group.id) || 0) + 1);
   cbRuleTypes.set(group.id, new Set(Array.isArray(result.types) ? result.types : []));
@@ -2154,7 +2253,10 @@ async function dispatchRule(type, data, { targetGroupId = null } = {}) {
 
 // What a dispatch asked for: logs, a runaway group's quarantine, changed
 // state and panels, and the actions (per tab to its page, or by the worker).
-async function applyRuleResult(result, eventType, generations = null) {
+function applyRuleResult(result, eventType, generations = null) {
+  return cbWithDefinitionMutation(() => applyRuleResultLocked(result, eventType, generations));
+}
+async function applyRuleResultLocked(result, eventType, generations = null) {
   if (!result) return;
   // A group can be deleted or disabled while an asynchronous dispatch runs.
   // Stale native/offscreen replies cannot recreate its state or act on tabs.
@@ -2267,6 +2369,10 @@ async function reconcileCustomGroupHandlers(change) {
 }
 
 async function loadAllCustomGroupsAtStartup() {
+  // URL/schema repair must finish before compiling a saved custom source.
+  // Otherwise the startup load can capture the pre-migration source and then
+  // fail its final freshness guard against the newly migrated saved group.
+  await cbDefinitionStartupReady;
   // Recover per-tab URL history and queued apply messages from
   // chrome.storage.session BEFORE the first dispatch fans out. Every
   // dispatch already awaits ensureStartupGate(), so completing the
@@ -2599,7 +2705,7 @@ async function cbRunCustomGroup(groupId, source) {
     return { groups: list, index: list.findIndex((g) => g && g.id === groupId) };
   };
   const before = await find();
-  const group = before.groups[before.index];
+  const group = CBGroupScopes.editorEffectiveGroup(before.groups[before.index]);
   if (!group || group.groupType !== "custom") throw new Error("group-not-found");
   if (CBGroupActions.isLocked(group) || cbEnforceOnly(group)) throw new Error("group-locked");
   const fields = { enabled: true, blockingRulesText: source, activeEventSource: source, lastAbortReason: null };
@@ -2812,15 +2918,15 @@ function cbPublicGroup(group) {
 // (CBGroupActions.budgetRestarts), and a deleted group leaves no per-group
 // entry behind — whoever changed the list (the editor, a tool, a link).
 function cbApplyStoredGroupChange(oldValue, newValue) {
-  return cbWithOfflineUsage(() => cbApplyStoredGroupChangeLocked(oldValue, newValue));
+  return cbWithOfflineUsage(() => cbApplyStoredGroupChangeLocked(oldValue, newValue)).then(() => cbRenameDuplicates());
 }
-async function cbApplyStoredGroupChangeLocked(oldValue, newValue) {
+async function cbApplyStoredGroupChangeLocked(oldValue, newValue, { persist = true } = {}) {
   const before = new Map((Array.isArray(oldValue) ? oldValue : []).filter((g) => g && g.id).map((g) => [g.id, g]));
   const after = (Array.isArray(newValue) ? newValue : []).filter((g) => g && g.id);
   const present = new Set(after.map((g) => g.id));
   const restart = after.filter((g) => before.has(g.id) && CBGroupActions.budgetRestarts(before.get(g.id), g)).map((g) => g.id);
   const gone = [...before.keys()].filter((id) => !present.has(id));
-  if (restart.length === 0 && gone.length === 0) return cbRenameDuplicates(after);
+  if (restart.length === 0 && gone.length === 0) return {};
   const keys = [USAGE_TIMERS_KEY, USAGE_RESET_AT_KEY, USAGE_BUCKETS_KEY, GROUP_SNOOZES_KEY, GROUP_SNOOZE_TOTALS_KEY, CBParentalPin.ATTEMPTS_KEY, CB_OFFLINE_USAGE_KEY, CB_RULE_STATE_KEY, CB_QUICK_ADD_GROUP_KEY];
   const stored = await chrome.storage.local.get(keys);
   const writes = {};
@@ -2840,16 +2946,19 @@ async function cbApplyStoredGroupChangeLocked(oldValue, newValue) {
   const removed = new Set([...gone, ...restart]);
   for (const [id, transfer] of Object.entries(transfers)) if (removed.has(transfer.groupId)) delete transfers[id];
   writes[CB_OFFLINE_TRANSFERS_KEY] = transfers;
-  if (Object.keys(writes).length) await chrome.storage.local.set(writes);
-  await cbRenameDuplicates(after);
+  if (persist && Object.keys(writes).length) await chrome.storage.local.set(writes);
+  return writes;
 }
 
 // Duplicate names are renamed silently; a linked group keeps its name. (After
 // the restarts and cleanup above: the rename's own change event then carries
 // no policy change.)
-async function cbRenameDuplicates(groups) {
+function cbRenameDuplicates() {
+  return cbWithDefinitionMutation(async () => cbRenameDuplicatesLocked((await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY]));
+}
+async function cbRenameDuplicatesLocked(groups) {
   const renamed = CBGroupActions.dedupeNames(groups, [...cbLinkedGroupIds(cbClusterCopy)]);
-  if (renamed) await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: renamed });
+  if (renamed) await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: renamed });
 }
 
 async function cbAnnounceStoredGroups(groups) {
@@ -2886,20 +2995,16 @@ async function cbResetGroupRuntimeLocked(groupId) {
 }
 
 // ── Sharing linked groups (the worker owns it; owner 2026-09-26) ───────────
-// A linked group's definition or snooze is shared when its STORED copy
-// changes, whoever wrote it — the editor, a tool, the quick-add "+" — as Mac
-// Vault does each tick. What the link sends is adopted into storage
-// (applySharedToStorage), which records it here first, so it is not echoed.
+// The worker serializes definition writes from the editor, tools and quick-add.
+// Successful local commits publish intent; successful shared adoptions mark it
+// seen. Storage notifications refresh current runtime state only. Snoozes keep
+// their existing timestamped sharing contract.
 const cbDefinitionSeen = new Map();
 let cbRosterSeen = "";
 
 // Chrome storage may return object properties in a different order than the
 // hub sent them. Property order is not an edit; array order and values are.
-function cbDefinitionJSON(value) {
-  return JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
-    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]]))
-    : item);
-}
+function cbDefinitionJSON(value) { return CBGroupScopes.definitionJSON(value); }
 
 function cbDefinitionKey(group) {
   const scalars = {};
@@ -2912,6 +3017,7 @@ function cbRosterKey(groups) {
 }
 
 const cbSharingReady = (async () => {
+  await cbDefinitionStartupReady;
   await cbClusterCopyReady;
   try {
     const stored = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
@@ -2960,7 +3066,10 @@ function cbShareStoredGroups(value) {
   for (const id of [...cbDefinitionSeen.keys()]) if (!present.has(id)) cbDefinitionSeen.delete(id);
 }
 
-async function cbShareOnReconnect() {
+function cbShareOnReconnect() {
+  return cbWithDefinitionMutation(cbShareOnReconnectLocked);
+}
+async function cbShareOnReconnectLocked() {
   await cbSharingReady;
   const stored = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
   cbShareStoredGroups(stored);
@@ -3022,8 +3131,8 @@ async function cbContributeJoins(clusters = cbConnection.clusters) {
   }
 }
 
-// Every stored change, whoever wrote it (the editor, a tool, the worker
-// itself), is acted on here — the one storage listener.
+// Notifications reconcile current runtime state; definition intent comes only
+// from successful queued local commits, never an event's historical newValue.
 if (chrome.storage && chrome.storage.onChanged) {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
@@ -3040,13 +3149,7 @@ if (chrome.storage && chrome.storage.onChanged) {
       });
     }
     if (groupsChange) {
-      const retained = new Set((groupsChange.newValue || []).map((group) => group.id));
-      for (const id of logFeeds.keys()) if (!retained.has(id)) { logFeeds.delete(id); logFeedBursts.delete(id); }
-      reconcileCustomGroupHandlers(groupsChange).catch((error) => {
-        console.error("Failed to reconcile custom-group handlers.", error);
-      });
-      cbSharingReady.then(() => cbShareStoredGroups(groupsChange.newValue)).catch(() => {});
-      cbApplyStoredGroupChange(groupsChange.oldValue, groupsChange.newValue).catch(() => {});
+      cbRefreshDefinitionStorage().catch(error => console.error("Failed to refresh current group definitions.", error));
     }
     if (snoozesChange) cbShareStoredSnoozes(snoozesChange.newValue);
     if (groupsChange || settingsChange) {
@@ -3100,7 +3203,10 @@ function cbLinkedGroupIds(clusters) {
 // A group that left a link (Unlink, or its link dissolved) keeps the shared
 // settings and only its own program's lines: a browser drops the Apps lines
 // (owner 2026-09-27).
-async function cbKeepOwnLines(ids) {
+function cbKeepOwnLines(ids) {
+  return cbWithDefinitionMutation(() => cbKeepOwnLinesLocked(ids));
+}
+async function cbKeepOwnLinesLocked(ids) {
   const stored = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
   const groups = Array.isArray(stored) ? stored : [];
   let changed = false;
@@ -3111,7 +3217,7 @@ async function cbKeepOwnLines(ids) {
     changed = true;
     return { ...group, scopes: own };
   });
-  if (changed) await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+  if (changed) await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: next });
 }
 
 // Linked (per the copy), whether or not the hub is reachable right now.
@@ -3384,7 +3490,7 @@ const cbConnection = {
     return next;
   },
 
-  async applySharedSnapshotToStorage(clusters) {
+  async adoptSharedDefinitionLocked(clusters) {
     // Serialized with adoption: contribute from the untouched local state even
     // when the first frame on reconnect already contains a partial definition.
     await cbContributeJoins(clusters);
@@ -3407,11 +3513,13 @@ const cbConnection = {
     }
     const groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
     let changed = false;
+    const adoptedIds = new Set();
     for (const cluster of relevant) {
       if (!canAdoptDefinition(cluster)) continue;
       const localGroup = self.CBBridgeProtocol.groupForCluster(groups, cluster, program);
       const idx = localGroup ? groups.findIndex((g) => g && g.id === localGroup.id) : -1;
       if (idx < 0) continue;
+      adoptedIds.add(groups[idx].id);
       // The whole shared definition — policy settings AND every entry's lines —
       // is adopted here, so a linked group enforces an edit made on another
       // device even while this browser's editor is closed.
@@ -3439,13 +3547,21 @@ const cbConnection = {
         changed = true;
       }
     }
-    if (changed) {
-      // What the link has is in sync by definition: record it before writing.
-      for (const group of groups) if (group && group.id) cbDefinitionSeen.set(group.id, cbDefinitionKey(group));
-      try {
-        await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: groups });
-      } catch (_) {}
-    }
+    if (changed) await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: groups }, { sharedIds: adoptedIds });
+    else cbPublishDefinitionCommit(groups, adoptedIds);
+    return { groups, program, relevant, canAdoptDefinition };
+  },
+
+  applySharedSnapshotToStorage(clusters) {
+    return cbWithDefinitionMutation(() => this.applySharedSnapshotToStorageLocked(clusters));
+  },
+
+  async applySharedSnapshotToStorageLocked(clusters) {
+    let definition;
+    try { definition = await this.adoptSharedDefinitionLocked(clusters); }
+    catch (_) { return; }
+    if (!definition) return;
+    const { groups, program, relevant, canAdoptDefinition } = definition;
 
     // Apply the hub's shared live usage counter to the local timer store so the
     // joint budget enforces even while the popup is closed (Default groups).
@@ -3915,7 +4031,7 @@ async function cbCheckPinForTool(group, pin) {
 async function cbWriteGroup(groups, index, group) {
   const next = groups.slice();
   next[index] = group;
-  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+  await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: next });
   return group;
 }
 
@@ -4074,11 +4190,17 @@ async function cbDeleteAllForTool(input) {
     return undefined;
   });
   if (!step.done) return { deleted: false, confirmationsLeft: step.left, confirmAfterSeconds: plan.intervalMs / 1000, next: CB_CONFIRM_NEXT };
-  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: [] });
+  await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: [] });
   return { deleted: groups.length };
 }
 
-async function cbBrowserRequestBody(operation, body) {
+const CB_DEFINITION_TOOL_OPERATIONS = new Set(["settings-create-group", "settings-set-group", "settings-delete-group", "settings-lock-group", "settings-unlock-group", "settings-set-lock-gates", "settings-delete-all", "settings-move-group"]);
+function cbBrowserRequestBody(operation, body) {
+  return CB_DEFINITION_TOOL_OPERATIONS.has(operation)
+    ? cbWithDefinitionMutation(() => cbBrowserRequestBodyLocked(operation, body))
+    : cbBrowserRequestBodyLocked(operation, body);
+}
+async function cbBrowserRequestBodyLocked(operation, body) {
   const input = body && typeof body === "object" && !Array.isArray(body) ? body : {};
   switch (operation) {
     case "settings-get": {
@@ -4101,7 +4223,7 @@ async function cbBrowserRequestBody(operation, body) {
       // numbered name, never locked, only a browser's lines.
       const result = CBGroupScopes.createToolGroup(groups, groupType, patch, "browser");
       if (result.error) throw new Error(result.error);
-      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: [...groups, result.group] });
+      await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: [...groups, result.group] });
       return { group: cbPublicGroup(result.group) };
     }
     case "settings-set-group": {
@@ -4117,7 +4239,7 @@ async function cbBrowserRequestBody(operation, body) {
       if (CBGroupActions.nameTaken(groups, result.group.name, id)) throw new Error("duplicate-name");
       const next = groups.slice();
       next[index] = result.group;
-      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+      await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: next });
       return { group: cbPublicGroup(result.group) };
     }
     case "settings-delete-group": {
@@ -4127,7 +4249,7 @@ async function cbBrowserRequestBody(operation, body) {
       if (!group) throw new Error("group-not-found");
       if (CBGroupActions.isLocked(group)) throw new Error("group-locked");
       const next = groups.filter((candidate) => candidate.id !== id);
-      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+      await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: next });
       return { deleted: id };
     }
     case "settings-lock-group":
@@ -4164,7 +4286,7 @@ async function cbBrowserRequestBody(operation, body) {
       const next = groups.slice();
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
-      await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: next });
+      await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: next });
       return { order: next.map((group) => group.id) };
     }
     case "settings-set-global": {
@@ -4450,9 +4572,64 @@ async function cbMeasureBridge({ op = "bridge-info", count = 20, gapMs = 50, bod
 }
 self.CBVaultMeasureBridge = cbMeasureBridge;
 
+async function cbApplyEditorRequest(input) {
+  return cbWithDefinitionMutation(async () => {
+    let groups = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+    groups = Array.isArray(groups) ? groups : [];
+    if (input.intent === "delete-all") {
+      if ((input.changes || []).some(change => !change.delete)) throw new Error("invalid-delete-all");
+      const plan = CBGroupActions.deleteAllPlan(groups.map(CBGroupScopes.editorEffectiveGroup), Date.now());
+      if (plan.error || !plan.pinHashes.every(hash => (input.coveredPinHashes || []).includes(hash))) throw new Error("group-delete-gates-changed");
+    }
+    for (const change of input.changes || []) {
+      const index = groups.findIndex(group => group?.id === change.id);
+      const current = CBGroupScopes.editorEffectiveGroup(groups[index]);
+      if (change.create) {
+        if (current) throw new Error("group-changed; retry edit");
+        const created = sanitizeGroups([change.create])[0];
+        if (!created || created.id !== change.id || (created.scopes || []).some(line => CBGroupScopes.lineOwner(line) !== "browser")) throw new Error("invalid-group-create");
+        groups.push(created); continue;
+      }
+      if (!current) { if (change.delete) continue; throw new Error("group-not-found"); }
+      if (cbEnforceOnly(current)) throw new Error("desktop-unavailable");
+      if (cbDefinitionJSON(CBGroupActions.lockUnit(current)) !== cbDefinitionJSON(change.lock)) throw new Error("group-lock-changed; retry edit");
+      if (input.intent === "lock-fields") {
+        if (change.delete || change.lines?.length || [...Object.keys(change.fields?.set || {}), ...(change.fields?.remove || [])].some(key => !CBGroupActions.LOCK_FIELDS.includes(key))) throw new Error("invalid-lock-edit");
+        const candidate = CBGroupScopes.applyEditorChange(current, change, "browser");
+        if (CBGroupActions.isLocked(current)) {
+          if (!CBGroupActions.isLocked(candidate)) {
+            if (CBGroupActions.unlockPlan(current, Date.now()).error) throw new Error("group-unlock-wait");
+          } else if (candidate.lockedAtMs !== current.lockedAtMs || Number(candidate.lockWaitHours) < Number(current.lockWaitHours) || (CBGroupActions.hasPin(current) && !CBGroupActions.hasPin(candidate))) throw new Error("lock-not-stricter");
+        }
+        groups[index] = candidate;
+      } else {
+        if (CBGroupActions.isLocked(current) && input.intent !== "delete-all") throw new Error("group-locked");
+        if (change.delete) groups.splice(index, 1);
+        else groups[index] = CBGroupScopes.applyEditorChange(current, change, "browser");
+      }
+    }
+    if (Array.isArray(input.order)) {
+      const moved = groups.find(group => group.id === input.movedId);
+      if (!moved || cbEnforceOnly(moved) || CBGroupActions.isLocked(CBGroupScopes.editorEffectiveGroup(moved))) throw new Error("group-not-editable");
+      const order = new Map(input.order.map((id, index) => [id, index]));
+      groups = groups.map((group, index) => ({ group, rank: order.has(group.id) ? order.get(group.id) : input.order.length + index }))
+        .sort((a, b) => a.rank - b.rank).map(item => item.group);
+    }
+    await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: groups });
+    await cbRenameDuplicatesLocked(groups);
+    return { ok: true, groups: (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY] };
+  });
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== "string") return false;
   switch (message.type) {
+    case "editor-definition-edit":
+      if (String(sender?.url || "").split(/[?#]/)[0] !== chrome.runtime.getURL("popup.html") || (sender?.id && sender.id !== chrome.runtime.id)) {
+        sendResponse({ ok: false, error: "editor-only" }); return false;
+      }
+      cbApplyEditorRequest(message).then(sendResponse).catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
+      return true;
     case "connection-status":
       sendResponse({ ok: true, status: cbConnection.statusForTarget(cbConnection.desktopProgram()) });
       return false;
@@ -4473,6 +4650,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
   }
 });
+
+// Reconcile supported storage before accepting any editor/tool/shared writer.
+(async () => {
+  try {
+    const root = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [], [CB_GLOBAL_SETTINGS_KEY]: null });
+    await cbMigrateGlobalFallbackUrl(sanitizeGroups(root[BLOCKED_GROUPS_KEY]), root[CB_GLOBAL_SETTINGS_KEY]);
+    await runChromeExtensionUrlSanitizationLocked();
+    cbCommittedDefinitionGroups = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+    cbDefinitionInitializing = false;
+    cbDefinitionStartupResolve();
+  } catch (error) {
+    cbDefinitionInitializing = false;
+    cbDefinitionStartupReject(error);
+    console.warn("[Vault] definition storage initialization failed", error);
+  }
+})();
 
 // Every service-worker lifetime participates in the authenticated local hub.
 cbConnection.startAutomatically();

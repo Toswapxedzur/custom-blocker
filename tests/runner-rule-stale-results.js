@@ -13,7 +13,8 @@ const context = vm.createContext({console, Map, Set, Object,
   pushLogFeedEntry:entry=>logs.push(entry),cbDebugError(){},quarantineGroup:async()=>{throw new Error('stale quarantine');},cbSetRulePanels:(id,p)=>panels.push(id),cbRunRuleFile:async()=>{},cbRuleSheets:new Map(),cbSendToWebPages:async()=>{},trySendApply:async()=>true,enqueueApply(){},cbSaveRuleSheets(){},cbPushRuleSheets:async()=>{}
 });
 vm.runInContext(source.slice(source.indexOf('async function sendToEventSandboxNative'),source.indexOf('async function sendToEventSandbox(payload)')),context);
-vm.runInContext(source.slice(source.indexOf('async function applyRuleResult'),source.indexOf('// A rule\'s file request')),context);
+context.cbWithDefinitionMutation = operation => operation();
+vm.runInContext(source.slice(source.indexOf('function applyRuleResult'),source.indexOf('// A rule\'s file request')),context);
 (async()=>{
   await context.sendToEventSandboxNative({kind:'dispatch-event',groupIds:['deleted']});
   assert.deepEqual(Array.from(nativeMessage.payload.groupIds),['live','disabled']);
