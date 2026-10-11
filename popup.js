@@ -4148,7 +4148,6 @@ async function loadStoredState() {
 let editorPersistTail = Promise.resolve();
 const editorPendingTasks = new Set();
 function persistGroups(ids, options = {}) {
-  if (IS_NATIVE_DESKTOP) return persistGroupsNative(ids, options);
   // Every producer supplies the pre-edit UI copy. Diff the actual action, not
   // the whole stale editor list or an unacknowledged store notification.
   const baseline = new Map((options.before || []).map(group => [group.id, toStoredGroup(group)]));
@@ -4171,33 +4170,6 @@ function persistGroups(ids, options = {}) {
   editorPendingTasks.add(task);
   editorPersistTail = Promise.allSettled([...editorPendingTasks]);
   return task;
-}
-
-async function persistGroupsNative(ids, { reorder = false, movedId = null, message = "" } = {}) {
-  let list = state.storedGroups.filter((group) => group && group.id);
-  for (const id of ids) {
-    const at = list.findIndex((group) => group.id === id);
-    const index = state.groups.findIndex((group) => group.id === id);
-    if (index < 0) {
-      if (at >= 0) list.splice(at, 1);
-      continue;
-    }
-    const next = toStoredGroup(state.groups[index]);
-    // The other program's lines are never written from here: they stay as stored.
-    if (at >= 0) next.scopes = CBGroupScopes.withOwnLines(list[at], next, LOCAL_OWNER);
-    if (at >= 0) list[at] = next;
-    else list.splice(Math.min(index, list.length), 0, next);
-  }
-  if (reorder) {
-    const order = new Map(state.groups.map((group, index) => [group.id, index]));
-    list = list
-      .map((group, index) => ({ group, key: order.has(group.id) ? order.get(group.id) : state.groups.length + index }))
-      .sort((a, b) => a.key - b.key)
-      .map((entry) => entry.group);
-  }
-  state.storedGroups = list;
-  await chrome.storage.local.set({ [BLOCKED_GROUPS_KEY]: list });
-  if (message) setStatus(message);
 }
 
 // A snooze entry the user started or ended here; the service worker / Mac

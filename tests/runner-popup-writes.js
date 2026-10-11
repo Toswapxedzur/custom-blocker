@@ -11,6 +11,8 @@ const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const storage = new Map();
+const nativeEditor = process.argv.includes("--native");
+let popupGroupWrites = 0;
 const inertFn = () => new Proxy(function () {}, { get: (_t, p) => (p === "then" ? undefined : inertFn()), apply: () => undefined });
 function makeElement(id) {
   const listeners = [];
@@ -39,17 +41,17 @@ const documentStub = {
   addEventListener() {}, removeEventListener() {}, dispatchEvent: () => true, execCommand: () => false, hasFocus: () => false
 };
 const chrome = new Proxy({
-  __cbShim: false,
+  __cbShim: nativeEditor,
   storage: {
     local: {
       get: (keys, cb) => { const out = {}; if (keys && typeof keys === "object" && !Array.isArray(keys)) for (const [k, d] of Object.entries(keys)) out[k] = storage.has(k) ? storage.get(k) : d; else for (const k of [].concat(keys || [])) if (storage.has(k)) out[k] = storage.get(k); if (cb) cb(out); return Promise.resolve(out); },
-      set: (obj, cb) => { for (const [k, v] of Object.entries(obj)) storage.set(k, JSON.parse(JSON.stringify(v))); if (cb) cb(); return Promise.resolve(); },
+      set: (obj, cb) => { if (Object.hasOwn(obj, "blockedGroups")) popupGroupWrites++; for (const [k, v] of Object.entries(obj)) storage.set(k, JSON.parse(JSON.stringify(v))); if (cb) cb(); return Promise.resolve(); },
       remove: () => Promise.resolve()
     },
     session: { get: () => Promise.resolve({}), set: () => Promise.resolve() },
     onChanged: { addListener() {}, removeListener() {} }
   },
-  runtime: new Proxy({ id: "t", getManifest: () => ({ version: "0" }), getURL: (p) => `chrome-extension://t/${p}`, lastError: null, sendMessage: (m, cb) => { if (typeof cb === "function") cb({ ok: true }); return Promise.resolve({ ok: true }); } }, { get: (t, p) => (p in t ? t[p] : inertFn()) }),
+  runtime: new Proxy({ id: "t", getManifest: () => ({ version: nativeEditor ? "2.2.7" : "0" }), getURL: (p) => `chrome-extension://t/${p}`, lastError: null, sendMessage: (m, cb) => { if (typeof cb === "function") cb({ ok: true }); return Promise.resolve({ ok: true }); } }, { get: (t, p) => (p in t ? t[p] : inertFn()) }),
   i18n: { getMessage: () => "", getUILanguage: () => "en" }
 }, { get: (t, p) => (p in t ? t[p] : inertFn()) });
 
@@ -69,6 +71,7 @@ const context = vm.createContext({
   CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } }, Event: class { constructor(type) { this.type = type; } },
   KeyboardEvent: class {}, HTMLElement: class {}, Node: class {}, Blob: class {}, FileReader: class {}, Image: class {}, performance: { now: () => 0 }
 });
+context.__CB_DESKTOP_PROGRAM_ID = nativeEditor ? "macapp" : undefined;
 context.window = context; context.self = context; context.globalThis = context;
 context.addEventListener = () => {}; context.removeEventListener = () => {}; context.dispatchEvent = () => true;
 
@@ -86,7 +89,12 @@ const SEED = [
     activeDays: ["monday"], timeWindowsText: "",
     scopes: [{ id: "site-1", surface: "site", platform: null, action: "block", sites: ["rule.example.com"], sitesExcept: false }] }
 ];
+if (nativeEditor) SEED[0].scopes.push({ id: "apps-1", surface: "apps", action: "block", apps: [{ id: "old.app" }], appsExcept: false });
 storage.set("blockedGroups", JSON.parse(JSON.stringify(SEED)));
+if (nativeEditor) {
+  storage.set("schemaVersion",3);
+  storage.set("storageMetadata",{format:"vault.web-store",schemaVersion:3,product:"mac",writtenByAppVersion:"2.2.7"});
+}
 
 // Same script order as popup.html.
 const html = fs.readFileSync(path.join(root, "popup.html"), "utf8");
@@ -99,11 +107,18 @@ for (const file of scripts) {
 // Route actual popup intent through an independently evaluated worker sharing
 // this test store. No direct-write substitute: this covers the production IPC
 // shape, worker latest-state merge and popup acknowledgement refresh together.
-const worker = require("./runner-first-link.js").boot("chrome", storage);
+const worker = nativeEditor ? null : require("./runner-first-link.js").boot("chrome", storage);
 const requests = [];
 chrome.runtime.sendMessage = async message => {
   if (message?.type !== "editor-definition-edit") return {ok:true};
   requests.push(JSON.parse(JSON.stringify(message)));
+  if (nativeEditor) {
+    // Native transaction model: the canonical helper runs against fresh data,
+    // and a reply mirrors committed definitions without an editor storage.set.
+    const answer = context.CBGroupScopes.applyEditorRequest(JSON.parse(JSON.stringify(storage.get("blockedGroups"))), message, "desktop", {nowMs:Date.now()});
+    storage.set("blockedGroups", JSON.parse(JSON.stringify(answer.groups)));
+    return {ok:true, groups:answer.groups};
+  }
   return new Promise((resolve, reject) => {
     for (const listener of worker.__messageListeners) {
       try {
@@ -121,8 +136,50 @@ const stored = () => storage.get("blockedGroups");
 const byId = (id) => stored().find((g) => g.id === id);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+async function runNativeEditorControls() {
+  check("native fixture uses desktop ownership", run("IS_NATIVE_DESKTOP && LOCAL_OWNER === 'desktop'"));
+  await run("loadGroups()");
+  const before = run('structuredClone(state.groups.find(g=>g.id==="a1"))');
+  const latest = JSON.parse(JSON.stringify(stored()));
+  latest[0].name="New shared name"; latest[0].allowedMinutes=24;
+  latest[0].scopes.push({id:"site-2",surface:"site",entryID:"site:linked_0123456789abcdef01234567",action:"pause",sites:["safe.example"],sitesExcept:true});
+  storage.set("blockedGroups",latest);
+  context.__before=before;
+  run('state.groups[0].scopes=CBGroupScopes.mergeFlatIntoScopes(state.groups[0].scopes,{apps:[{id:"new.app"}],appsAllowlist:false},"apps")');
+  await run('persistGroups(["a1"],{before:[__before]})');
+  check("native Apps edit preserves newer shared name and allowance",byId("a1").name==="New shared name" && byId("a1").allowedMinutes===24);
+  check("native Apps edit preserves both read-only Website entries",byId("a1").scopes.filter(l=>l.surface==="site").length===2);
+  check("native request has only the Apps intent",requests[0].changes[0].lines.length===1 && Object.keys(requests[0].changes[0].fields.set).length===0);
+  check("native producer never saves full blockedGroups",popupGroupWrites===0);
+  check("successful reply refreshes native popup from authoritative mirror",run('state.groups[0].allowedMinutes===24 && state.groups[0].name==="New shared name"'));
+  const realSend=chrome.runtime.sendMessage;
+  let releaseAck;
+  const held=new Promise(resolve=>{releaseAck=resolve;});
+  let hold=true;
+  chrome.runtime.sendMessage=async message=>{const reply=await realSend(message);if(hold){hold=false;await held;}return reply;};
+  context.__before=run('structuredClone(state.groups[0])');
+  run('state.groups[0].name="First pending"');
+  const first=run('persistGroups(["a1"],{before:[__before]})');
+  context.__before=run('structuredClone(state.groups[0])');
+  run('state.groups[0].allowedMinutes=31');
+  const second=run('persistGroups(["a1"],{before:[__before]})');
+  check("native final intent submits before prior acknowledgement/teardown",requests.at(-1).changes[0].fields.set.allowedMinutes===31 && requests.length===3);
+  releaseAck();await Promise.all([first,second]);await run('editorPersistTail');
+  check("native sequential intent preserves both committed fields",byId('a1').name==='First pending' && byId('a1').allowedMinutes===31);
+  chrome.runtime.sendMessage=async()=>({ok:false,error:'disk-full'});
+  context.__before=run('structuredClone(state.groups[0])');run('state.groups[0].name="Unsaved candidate"');
+  await require('node:assert/strict').rejects(run('persistGroups(["a1"],{before:[__before]})'),/disk-full/);
+  check("native refusal refreshes saved view without phantom storage commit",run('state.groups[0].name==="First pending" && editorPendingTasks.size===0') && popupGroupWrites===0);
+  chrome.runtime.sendMessage=realSend;
+  check("native runtime maps remain separate",!requests.some(r=>r.usageTimersMs||r.groupSnoozes||r.groupSnoozeTotalsMs));
+  console.log(`NATIVE POPUP INTENT TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
+  console.log(fail ? "__CB_TEST_RESULT__: FAIL" : "__CB_TEST_RESULT__: OK");
+  if(fail)process.exitCode=1;
+}
+
 (async () => {
   check("the popup boots", fatal === null, fatal);
+  if (nativeEditor) { await runNativeEditorControls(); return; }
   check("the fixture exercises the browser IPC branch",run("IS_NATIVE_DESKTOP")===false);
   await run("loadGroups()");
   check("the editor loaded the store", run("state.groups.length") === 2, run("state.groups.length"));
