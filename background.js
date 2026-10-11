@@ -4576,45 +4576,9 @@ async function cbApplyEditorRequest(input) {
   return cbWithDefinitionMutation(async () => {
     let groups = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
     groups = Array.isArray(groups) ? groups : [];
-    if (input.intent === "delete-all") {
-      if ((input.changes || []).some(change => !change.delete)) throw new Error("invalid-delete-all");
-      const plan = CBGroupActions.deleteAllPlan(groups.map(CBGroupScopes.editorEffectiveGroup), Date.now());
-      if (plan.error || !plan.pinHashes.every(hash => (input.coveredPinHashes || []).includes(hash))) throw new Error("group-delete-gates-changed");
-    }
-    for (const change of input.changes || []) {
-      const index = groups.findIndex(group => group?.id === change.id);
-      const current = CBGroupScopes.editorEffectiveGroup(groups[index]);
-      if (change.create) {
-        if (current) throw new Error("group-changed; retry edit");
-        const created = sanitizeGroups([change.create])[0];
-        if (!created || created.id !== change.id || (created.scopes || []).some(line => CBGroupScopes.lineOwner(line) !== "browser")) throw new Error("invalid-group-create");
-        groups.push(created); continue;
-      }
-      if (!current) { if (change.delete) continue; throw new Error("group-not-found"); }
-      if (cbEnforceOnly(current)) throw new Error("desktop-unavailable");
-      if (cbDefinitionJSON(CBGroupActions.lockUnit(current)) !== cbDefinitionJSON(change.lock)) throw new Error("group-lock-changed; retry edit");
-      if (input.intent === "lock-fields") {
-        if (change.delete || change.lines?.length || [...Object.keys(change.fields?.set || {}), ...(change.fields?.remove || [])].some(key => !CBGroupActions.LOCK_FIELDS.includes(key))) throw new Error("invalid-lock-edit");
-        const candidate = CBGroupScopes.applyEditorChange(current, change, "browser");
-        if (CBGroupActions.isLocked(current)) {
-          if (!CBGroupActions.isLocked(candidate)) {
-            if (CBGroupActions.unlockPlan(current, Date.now()).error) throw new Error("group-unlock-wait");
-          } else if (candidate.lockedAtMs !== current.lockedAtMs || Number(candidate.lockWaitHours) < Number(current.lockWaitHours) || (CBGroupActions.hasPin(current) && !CBGroupActions.hasPin(candidate))) throw new Error("lock-not-stricter");
-        }
-        groups[index] = candidate;
-      } else {
-        if (CBGroupActions.isLocked(current) && input.intent !== "delete-all") throw new Error("group-locked");
-        if (change.delete) groups.splice(index, 1);
-        else groups[index] = CBGroupScopes.applyEditorChange(current, change, "browser");
-      }
-    }
-    if (Array.isArray(input.order)) {
-      const moved = groups.find(group => group.id === input.movedId);
-      if (!moved || cbEnforceOnly(moved) || CBGroupActions.isLocked(CBGroupScopes.editorEffectiveGroup(moved))) throw new Error("group-not-editable");
-      const order = new Map(input.order.map((id, index) => [id, index]));
-      groups = groups.map((group, index) => ({ group, rank: order.has(group.id) ? order.get(group.id) : input.order.length + index }))
-        .sort((a, b) => a.rank - b.rank).map(item => item.group);
-    }
+    groups = CBGroupScopes.applyEditorRequest(groups, input, "browser", {
+      nowMs: Date.now(), readOnlyGroupIds: groups.filter(cbEnforceOnly).map(group => group.id)
+    }).groups;
     await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: groups });
     await cbRenameDuplicatesLocked(groups);
     return { ok: true, groups: (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY] };

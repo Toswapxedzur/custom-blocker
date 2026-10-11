@@ -36,6 +36,18 @@ node tests/runner-rule-stale-results.js || failed=1
 node tests/runner-rule-initial-state.js || failed=1
 node tests/runner-safari-native-lifecycle.js || failed=1
 node tests/runner-safari-packaging.js || failed=1
+node_out=$(node tests/runner-editor-intent.js 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'shared-editor-intent' FAILED" >&2
+  failed=1
+fi
+node_out=$(node tests/runner-popup-writes.js --native 2>&1) || failed=1
+echo "$node_out"
+if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
+  echo "[run.sh] suite 'native-popup-intent' FAILED" >&2
+  failed=1
+fi
 run_suite "rule-core" tests/runner.js || failed=1
 run_suite "platform-profiles" tests/runner-platform-profiles.js || failed=1
 node_out=$(node tests/runner-manifest.js 2>&1) || failed=1

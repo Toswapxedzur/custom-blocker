@@ -980,8 +980,60 @@
     return sanitizeGroups([next])[0];
   }
 
+  // Pure admission for both the worker and native editors. The backend supplies
+  // ownership/read-only context from its fresh authoritative transaction; those
+  // permissions are never taken from the editor request. Refusals leave the
+  // caller's group list intact, including earlier changes in the same request.
+  function applyEditorRequest(currentGroups, input, owner, context = {}) {
+    if (owner !== "browser" && owner !== "desktop") throw new Error("invalid-editor-owner");
+    const A = global.CBGroupActions;
+    const nowMs = context.nowMs ?? Date.now();
+    const readOnly = new Set(context.readOnlyGroupIds || []);
+    let groups = Array.isArray(currentGroups) ? currentGroups.slice() : [];
+    if (input.intent === "delete-all") {
+      if ((input.changes || []).some(change => !change.delete)) throw new Error("invalid-delete-all");
+      const plan = A.deleteAllPlan(groups.map(editorEffectiveGroup), nowMs);
+      if (plan.error || !plan.pinHashes.every(hash => (input.coveredPinHashes || []).includes(hash))) throw new Error("group-delete-gates-changed");
+    }
+    for (const change of input.changes || []) {
+      const index = groups.findIndex(group => group?.id === change.id);
+      const current = editorEffectiveGroup(groups[index]);
+      if (change.create) {
+        if (current) throw new Error("group-changed; retry edit");
+        const created = sanitizeGroups([change.create])[0];
+        if (!created || created.id !== change.id || (created.scopes || []).some(line => lineOwner(line) !== owner)) throw new Error("invalid-group-create");
+        groups.push(created); continue;
+      }
+      if (!current) { if (change.delete) continue; throw new Error("group-not-found"); }
+      if (readOnly.has(current.id)) throw new Error("desktop-unavailable");
+      if (definitionJSON(A.lockUnit(current)) !== definitionJSON(change.lock)) throw new Error("group-lock-changed; retry edit");
+      if (input.intent === "lock-fields") {
+        if (change.delete || change.lines?.length || [...Object.keys(change.fields?.set || {}), ...(change.fields?.remove || [])].some(key => !A.LOCK_FIELDS.includes(key))) throw new Error("invalid-lock-edit");
+        const candidate = applyEditorChange(current, change, owner);
+        if (A.isLocked(current)) {
+          if (!A.isLocked(candidate)) {
+            if (A.unlockPlan(current, nowMs).error) throw new Error("group-unlock-wait");
+          } else if (candidate.lockedAtMs !== current.lockedAtMs || Number(candidate.lockWaitHours) < Number(current.lockWaitHours) || (A.hasPin(current) && !A.hasPin(candidate))) throw new Error("lock-not-stricter");
+        }
+        groups[index] = candidate;
+      } else {
+        if (A.isLocked(current) && input.intent !== "delete-all") throw new Error("group-locked");
+        if (change.delete) groups.splice(index, 1);
+        else groups[index] = applyEditorChange(current, change, owner);
+      }
+    }
+    if (Array.isArray(input.order)) {
+      const moved = groups.find(group => group.id === input.movedId);
+      if (!moved || readOnly.has(moved.id) || A.isLocked(editorEffectiveGroup(moved))) throw new Error("group-not-editable");
+      const order = new Map(input.order.map((id, index) => [id, index]));
+      groups = groups.map((group, index) => ({ group, rank: order.has(group.id) ? order.get(group.id) : input.order.length + index }))
+        .sort((a, b) => a.rank - b.rank).map(item => item.group);
+    }
+    return { groups };
+  }
+
   const api = Object.freeze({
-    definitionJSON, editorEffectiveGroup, editorChange, applyEditorChange,
+    definitionJSON, editorEffectiveGroup, editorChange, applyEditorChange, applyEditorRequest,
     SCOPE_SURFACES, SCOPE_ACTIONS, FLAT_SCOPE_FIELDS, SYNC_SCALAR_FIELDS,
     scopeLegalActions, hasFlatScopeFields, hasScopeLines, withoutFlatScopeFields,
     scopeLinesFromFlat, flatFromScopes, mergeFlatIntoScopes, sanitizeScopeLines, deriveGroupType, platformKind,
