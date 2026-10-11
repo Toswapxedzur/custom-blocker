@@ -3,17 +3,24 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const root = path.resolve(__dirname, "..");
-function makeContext(program = "chrome") {
-  const storage = new Map();
-  const listeners = [], changes = [];
+function makeContext(program = "chrome", storage = new Map()) {
+  const listeners = [], changes = [], messages = [];
   let ctx;
   const copy = value => JSON.parse(JSON.stringify(value, (_key, item) => ctx?.__sortStorageObjects && item && typeof item === "object" && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item));
   const inert = () => new Proxy(function () {}, { get: (_t, p) => (p === "addListener" || p === "removeListener" || p === "hasListener") ? () => {} : inert(), apply: () => Promise.resolve(undefined) });
   const chrome = new Proxy({
+    __cbShim: false,
     storage: {
       local: {
-        get: (keys, cb) => { const out = {}; if (keys && typeof keys === "object" && !Array.isArray(keys)) for (const [k, d] of Object.entries(keys)) out[k] = storage.has(k) ? storage.get(k) : d; else if (typeof keys === "string") out[keys] = storage.get(keys); const copy = JSON.parse(JSON.stringify(out)); if (cb) cb(copy); return Promise.resolve(copy); },
+        get: (keys, cb) => {
+          const out = {};
+          if (keys == null) for (const [key, value] of storage) out[key] = value;
+          else if (Array.isArray(keys)) for (const key of keys) { if (storage.has(key)) out[key] = storage.get(key); }
+          else if (typeof keys === "object") for (const [key, fallback] of Object.entries(keys)) out[key] = storage.has(key) ? storage.get(key) : fallback;
+          else if (typeof keys === "string" && storage.has(keys)) out[keys] = storage.get(keys);
+          const copy = JSON.parse(JSON.stringify(out)); if (cb) cb(copy); return Promise.resolve(copy);
+        },
         set: (obj, cb) => { const event = {}; for (const [k, v] of Object.entries(obj)) { const next = copy(v), oldValue = storage.get(k); if (JSON.stringify(oldValue) !== JSON.stringify(next)) event[k] = {oldValue, newValue:next}; storage.set(k, next); } if (event.blockedGroups) changes.push(event); if (cb) cb(); return Promise.resolve(); },
         remove: () => Promise.resolve(), getBytesInUse: () => Promise.resolve(0)
       },
@@ -21,10 +28,10 @@ function makeContext(program = "chrome") {
       onChanged: { addListener(fn) { listeners.push(fn); }, removeListener() {}, hasListener: () => false }
     },
     alarms: { clear: () => Promise.resolve(), create: () => Promise.resolve(), onAlarm: { addListener() {} } },
-    runtime: new Proxy({ id: "t", getManifest: () => ({ version: "0" }), getURL: (p) => `chrome-extension://t/${p}`, lastError: null }, { get: (t, p) => (p in t ? t[p] : inert()) })
+    runtime: new Proxy({ id: "t", onMessage: { addListener: fn => messages.push(fn) }, getManifest: () => ({ version: "0" }), getURL: (p) => `chrome-extension://t/${p}`, lastError: null }, { get: (t, p) => (p in t ? t[p] : inert()) })
   }, { get: (t, p) => (p in t ? t[p] : inert()) });
   ctx = vm.createContext({
-    __storageListeners: listeners, __storageChanges: changes,
+    __storageListeners: listeners, __storageChanges: changes, __messageListeners: messages,
     chrome, console: { log() {}, warn() {}, error() {}, debug() {}, info() {} },
     setTimeout, clearTimeout, setInterval: () => 0, clearInterval() {},
     TextEncoder, TextDecoder, URL, URLSearchParams, crypto: globalThis.crypto, fetch: () => Promise.reject(new Error("offline")),
@@ -37,8 +44,8 @@ function makeContext(program = "chrome") {
   ctx.self = ctx; ctx.globalThis = ctx; ctx.window = ctx;
   return ctx;
 }
-function boot(program = "chrome") {
-const context = makeContext(program);
+function boot(program = "chrome", storage) {
+const context = makeContext(program, storage);
 for (const file of ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
   const p = path.join(root, file); if (!fs.existsSync(p)) continue;
   vm.runInContext(fs.readFileSync(p, "utf8"), context, { filename: file });
@@ -75,7 +82,7 @@ async function frame(env, c, kind = "cluster-updated") {
   await env.run("cbConnection.sharedApplyTail");
 }
 const state = env => env.ctx.chrome.storage.local.get({blockedGroups:[],usageTimersMs:{},usageBucketsMs:{}});
-module.exports = {setup, frame, cluster, state};
+module.exports = {setup, frame, cluster, state, boot};
 if (require.main === module) (async () => {
   // Both legal first-message orders retain the initiator before its receipt.
   for (const reconnect of [false,true]) {

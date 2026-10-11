@@ -894,7 +894,94 @@
     "fallbackUrl", "pauseSeconds"
   ]);
 
+  // Object property insertion order is not an edit. Array order remains meaningful.
+  function definitionJSON(value) {
+    return JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+  }
+  function changedFields(before, after, excluded = []) {
+    const set = {}, remove = [];
+    for (const key of new Set([...Object.keys(before || {}), ...Object.keys(after || {})])) {
+      if (excluded.includes(key) || definitionJSON(before?.[key]) === definitionJSON(after?.[key])) continue;
+      if (Object.hasOwn(after || {}, key)) set[key] = after[key]; else remove.push(key);
+    }
+    return { set, remove };
+  }
+  function applyChangedFields(current, patch) {
+    const next = { ...current, ...(patch?.set || {}) };
+    for (const key of patch?.remove || []) delete next[key];
+    return next;
+  }
+  // The browser editor sends intent relative to its last loaded copy, never a
+  // replacement of all groups or all Website entries. Independently arriving
+  // peer entries/fields survive an unrelated local edit.
+  function editorLineMap(lines) {
+    const groups = new Map();
+    for (const line of lines) {
+      // Hub unions renumber line.id per surface. Entry identity and shelf name
+      // survive that operation. Repeated identical identities are ambiguous:
+      // native union preserves the incoming list, which can be reordered.
+      const key = definitionJSON([lineEntryKey(line), line.surface, line.shelf ?? null]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(line);
+    }
+    return groups;
+  }
+  function editorLinesKey(lines) {
+    return definitionJSON((lines || []).map(({ id: _id, ...line }) => line));
+  }
+  // Match the editor's existing lock interpretation for compatible stored
+  // groups, including omitted fields. Admission must use the same effective
+  // lock as the UI without rewriting other groups merely to fill defaults.
+  function editorEffectiveGroup(group) {
+    return group && typeof group === "object" ? { ...group, ...global.CBGroupActions.normalizeLock(group) } : group;
+  }
+  function editorChange(before, after, owner) {
+    if (!before) return { id: after.id, create: after };
+    const change = { id: before.id, lock: global.CBGroupActions.lockUnit(editorEffectiveGroup(before)) };
+    if (!after) return { ...change, delete: true };
+    change.fields = changedFields(before, after, ["id", "scopes"]);
+    const oldLines = (before.scopes || []).filter(line => lineOwner(line) === owner);
+    const newLines = (after.scopes || []).filter(line => lineOwner(line) === owner);
+    const old = editorLineMap(oldLines);
+    const next = editorLineMap(newLines);
+    change.lines = [];
+    for (const key of new Set([...old.keys(), ...next.keys()])) {
+      const oldLines = old.get(key) || [], nextLines = next.get(key) || [];
+      if (editorLinesKey(oldLines) === editorLinesKey(nextLines)) continue;
+      if (oldLines.length > 1 || nextLines.length > 1) throw new Error("ambiguous-scope-edit; refresh the entry");
+      change.lines.push(!nextLines.length ? { key, delete: true } : !oldLines.length
+        ? { key, create: nextLines[0] } : { key, fields: changedFields(oldLines[0], nextLines[0], ["id"]) });
+    }
+    return change;
+  }
+  function applyEditorChange(current, change, owner) {
+    let next = applyChangedFields(current, change.fields);
+    const lines = [...(current.scopes || [])];
+    const targets = editorLineMap(lines);
+    for (const edit of change.lines || []) {
+      const matches = targets.get(edit.key) || [];
+      if (matches.length > 1) throw new Error("ambiguous-scope-edit; refresh the entry");
+      const at = matches.length ? lines.indexOf(matches[0]) : -1;
+      if (at >= 0 && lineOwner(lines[at]) !== owner) throw new Error("scope-owner-mismatch");
+      if (edit.delete) { if (at >= 0) lines.splice(at, 1); continue; }
+      if (edit.create) {
+        if (lineOwner(edit.create) !== owner) throw new Error("scope-owner-mismatch");
+        if (at >= 0) throw new Error("scope-changed; retry edit");
+        lines.push(edit.create);
+      } else {
+        if (at < 0) throw new Error("scope-changed; retry edit");
+        const line = applyChangedFields(lines[at], edit.fields);
+        if (lineOwner(line) !== owner) throw new Error("scope-owner-mismatch");
+        lines[at] = line;
+      }
+    }
+    next.scopes = change.lines?.length ? renumberLines(lines) : lines;
+    return sanitizeGroups([next])[0];
+  }
+
   const api = Object.freeze({
+    definitionJSON, editorEffectiveGroup, editorChange, applyEditorChange,
     SCOPE_SURFACES, SCOPE_ACTIONS, FLAT_SCOPE_FIELDS, SYNC_SCALAR_FIELDS,
     scopeLegalActions, hasFlatScopeFields, hasScopeLines, withoutFlatScopeFields,
     scopeLinesFromFlat, flatFromScopes, mergeFlatIntoScopes, sanitizeScopeLines, deriveGroupType, platformKind,

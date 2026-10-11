@@ -33,13 +33,15 @@ const positiveDefinitions = env => env.ctx.__sent.filter(value => value.kind ===
     const reverse = value => Array.isArray(value) ? value.map(reverse) : value && typeof value === "object"
       ? Object.fromEntries(Object.entries(value).reverse().map(([key,item]) => [key,reverse(item)])) : value;
     check(env.run("cbDefinitionKey")(reverse(stored[0])) === originalKey, `${program}: nested property permutations preserve the definition key`);
+    const beforeScalar = structuredClone(stored[0]);
     stored[0].allowedMinutes = 7;
-    await env.ctx.chrome.storage.local.set({blockedGroups:stored});
+    await env.run("cbApplyEditorRequest")({changes:[env.run("CBGroupScopes.editorChange")(beforeScalar,stored[0],"browser")]});
     await deliver(env);
     check(positiveDefinitions(env).at(-1)?.scalars.allowedMinutes === 7, `${program}: real owner scalar edit still sends`);
     env.ctx.__sent.length = 0;
+    const beforeDelete = structuredClone(stored[0]);
     stored[0].scopes = stored[0].scopes.filter(line => !line.entryID);
-    await env.ctx.chrome.storage.local.set({blockedGroups:stored});
+    await env.run("cbApplyEditorRequest")({changes:[env.run("CBGroupScopes.editorChange")(beforeDelete,stored[0],"browser")]});
     await deliver(env);
     check(positiveDefinitions(env).length === 1 && !positiveDefinitions(env)[0].scopes.some(line => line.entryID), `${program}: explicit independent Website deletion still sends`);
     const reordered = structuredClone(stored[0]);
@@ -48,7 +50,7 @@ const positiveDefinitions = env => env.ctx.__sent.filter(value => value.kind ===
     const retyped = structuredClone(stored[0]); retyped.allowedMinutes = "7";
     check(env.run("cbDefinitionKey")(retyped) !== env.run("cbDefinitionKey")(stored[0]), `${program}: scalar types remain significant`);
     env.ctx.__sent.length = 0;
-    await env.ctx.chrome.storage.local.set({blockedGroups:[]});
+    await env.run("cbApplyEditorRequest")({changes:[env.run("CBGroupScopes.editorChange")(stored[0],null,"browser")]});
     await deliver(env);
     check(env.ctx.__sent.some(value => value.kind === "groups-announce" && value.groups.length === 0), `${program}: owner group deletion still announces removal`);
   }

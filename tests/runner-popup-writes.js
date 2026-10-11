@@ -39,6 +39,7 @@ const documentStub = {
   addEventListener() {}, removeEventListener() {}, dispatchEvent: () => true, execCommand: () => false, hasFocus: () => false
 };
 const chrome = new Proxy({
+  __cbShim: false,
   storage: {
     local: {
       get: (keys, cb) => { const out = {}; if (keys && typeof keys === "object" && !Array.isArray(keys)) for (const [k, d] of Object.entries(keys)) out[k] = storage.has(k) ? storage.get(k) : d; else for (const k of [].concat(keys || [])) if (storage.has(k)) out[k] = storage.get(k); if (cb) cb(out); return Promise.resolve(out); },
@@ -95,6 +96,24 @@ for (const file of scripts) {
   try { vm.runInContext(fs.readFileSync(path.join(root, file), "utf8"), context, { filename: file }); }
   catch (e) { fatal = `${file}: ${e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : e}`; break; }
 }
+// Route actual popup intent through an independently evaluated worker sharing
+// this test store. No direct-write substitute: this covers the production IPC
+// shape, worker latest-state merge and popup acknowledgement refresh together.
+const worker = require("./runner-first-link.js").boot("chrome", storage);
+const requests = [];
+chrome.runtime.sendMessage = async message => {
+  if (message?.type !== "editor-definition-edit") return {ok:true};
+  requests.push(JSON.parse(JSON.stringify(message)));
+  return new Promise((resolve, reject) => {
+    for (const listener of worker.__messageListeners) {
+      try {
+        const held = listener(message, {id:'t', url:'chrome-extension://t/popup.html'}, reply=>{if(reply?.ok===false)console.log('EDITOR REPLY ERROR '+String(reply.error));resolve(reply);});
+        if (held === true) return;
+      } catch (error) { reject(error); return; }
+    }
+    reject(new Error('Editor IPC listener did not accept the popup request.'));
+  });
+};
 let pass = 0; let fail = 0;
 const check = (label, ok, detail) => { if (ok) { pass += 1; console.log(`PASS ${label}`); } else { fail += 1; console.log(`FAIL ${label} — ${JSON.stringify(detail)}`); } };
 const run = (code) => vm.runInContext(code, context);
@@ -104,6 +123,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 (async () => {
   check("the popup boots", fatal === null, fatal);
+  check("the fixture exercises the browser IPC branch",run("IS_NATIVE_DESKTOP")===false);
   await run("loadGroups()");
   check("the editor loaded the store", run("state.groups.length") === 2, run("state.groups.length"));
   check("opening the editor writes nothing", same(stored(), SEED), stored());
@@ -120,7 +140,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   check("the edited field is saved", byId("a1").allowedMinutes === 20 && byId("a1").mode === "after-minutes", byId("a1"));
   check("its lines are untouched (no empty lines, no reordering)", JSON.stringify(byId("a1").scopes) === seededLines, byId("a1").scopes);
   check("the other group is untouched", JSON.stringify(byId("c1")) === seededC1, byId("c1"));
-  check("no runtime state is written", !storage.has("usageTimersMs") && !storage.has("groupSnoozes") && !storage.has("groupSnoozeTotalsMs"), [...storage.keys()]);
+  check("editor IPC contains only definition intent, never runtime state", requests.length === 1 && !requests[0].usageTimersMs && !requests[0].groupSnoozes && !requests[0].groupSnoozeTotalsMs, requests);
   check("the draft is gone once saved", run("!state.drafts.a1"));
 
   // Viewing another entry keeps the stored type.
@@ -155,6 +175,94 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   run(`state.drafts.a1 = { name: "Focus time" };`);
   await run("commitNameEdit()");
   check("the finished name is", byId("a1").name === "Focus time", byId("a1").name);
+
+  // Two asynchronous storage reads finish in reverse order. The earlier
+  // request has captured an obsolete copy, so it must not roll back the UI.
+  // storage-schema captures raw methods. Decorate the final API the popup
+  // actually uses, after its serialized read completes: delayed reply delivery
+  // must not hold the registry queue or alter the worker's separate API.
+  const popupChrome = context.chrome;
+  const popupLocal = popupChrome.storage.local;
+  const realGet = popupLocal.get.bind(popupLocal);
+  let readReplyHook = null;
+  const delayedLocal = new Proxy(popupLocal, { get(target, key) {
+    if (key === "get") return async (...args) => {
+      const result = await realGet(...args);
+      return readReplyHook ? readReplyHook(args[0], result) : result;
+    };
+    return Reflect.get(target, key);
+  } });
+  const delayedStorage = new Proxy(popupChrome.storage, { get(target, key) { return key === "local" ? delayedLocal : Reflect.get(target, key); } });
+  context.chrome = new Proxy(popupChrome, { get(target, key) { return key === "storage" ? delayedStorage : Reflect.get(target, key); } });
+  const enteredWithin = async promise => { let timer; try { return await Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Held popup read was not observed")), 1000); })]); } finally { clearTimeout(timer); } };
+  await run("editorPersistTail");
+  check("held-read controls begin after prior editor intents settle", run("editorPendingTasks.size") === 0);
+  let releaseRead, enterRead;
+  const readEntered = new Promise(resolve => {enterRead=resolve;});
+  const readHeld = new Promise(resolve => {releaseRead=resolve;});
+  let holdRead=true;
+  readReplyHook=async (keys, value) => {
+    const result=JSON.parse(JSON.stringify(value));
+    if(holdRead && keys && Object.hasOwn(keys,"blockedGroups")){holdRead=false;enterRead();await readHeld;}
+    return result;
+  };
+  const oldRead=run("refreshPopupDefinitionStorage()");await enteredWithin(readEntered);
+  check("final guarded API held an actual blockedGroups reply", !holdRead);
+  const currentGroups=JSON.parse(JSON.stringify(stored()));currentGroups.find(group=>group.id==="a1").name="Latest read";
+  storage.set("blockedGroups",currentGroups);
+  await run("refreshPopupDefinitionStorage()");releaseRead();await oldRead;
+  check("older popup storage read cannot overwrite the latest group state",run('state.groups.find(group=>group.id==="a1").name')==="Latest read");
+  readReplyHook=null;
+
+  // An old read begun before a submitted edit cannot replace its local view.
+  let releaseOldRead, enterOldRead, releaseAck, enterAck;
+  const oldReadEntered=new Promise(resolve=>{enterOldRead=resolve;});
+  const oldReadHeld=new Promise(resolve=>{releaseOldRead=resolve;});
+  const ackEntered=new Promise(resolve=>{enterAck=resolve;});
+  const ackHeld=new Promise(resolve=>{releaseAck=resolve;});
+  let heldRead=true;
+  readReplyHook=async (keys,value)=>{
+    const result=JSON.parse(JSON.stringify(value));
+    if(heldRead && keys && Object.hasOwn(keys,'blockedGroups')) {heldRead=false;enterOldRead();await oldReadHeld;}
+    return result;
+  };
+  const readBeforeAction=run('refreshPopupDefinitionStorage()');await enteredWithin(oldReadEntered);
+  check('second held control observed an actual blockedGroups reply', !heldRead);
+  const messageBeforeAction=chrome.runtime.sendMessage;
+  chrome.runtime.sendMessage=async message=>{const result=await messageBeforeAction(message);if(message.type==='editor-definition-edit'){enterAck();await ackHeld;}return result;};
+  run('updateGroupEnabled("a1",false)');await ackEntered;
+  releaseOldRead();await readBeforeAction;
+  await run('refreshPopupDefinitionStorage({blockedGroups:{newValue:[]},usageTimersMs:{newValue:{a1:123}}})');
+  check('held old read and group notification cannot overwrite submitted local intent while runtime pushes still apply',run('state.groups.find(g=>g.id==="a1").enabled')===false && run('state.usageTimersMs.a1')===123);
+  releaseAck();await run('editorPersistTail');
+  check('final acknowledgement refreshes current committed groups',run('state.groups.find(g=>g.id==="a1").enabled')===false);
+  readReplyHook=null;chrome.runtime.sendMessage=messageBeforeAction;
+  chrome.runtime.sendMessage=async message=>message.type==='editor-definition-edit'?{ok:false,error:'disk-full'}:messageBeforeAction(message);
+  run('updateGroupEnabled("a1",true)');await run('editorPersistTail');
+  check('failed final editor intent restores current saved group view and clears pending refresh guard',run('state.groups.find(g=>g.id==="a1").enabled')===false && run('editorPendingTasks.size')===0);
+  chrome.runtime.sendMessage=messageBeforeAction;
+
+  // A create and edit are submitted while the create acknowledgement is held.
+  const realMessage=chrome.runtime.sendMessage;
+  let releaseCreate, enterCreate;
+  const createEntered=new Promise(resolve=>{enterCreate=resolve;});
+  const createHeld=new Promise(resolve=>{releaseCreate=resolve;});
+  let holdCreate=true;
+  chrome.runtime.sendMessage=async message=>{
+    const result=await realMessage(message);
+    if(holdCreate && message?.type==="editor-definition-edit"){holdCreate=false;enterCreate();await createHeld;}
+    return result;
+  };
+  const creating=run('addGroup("site")');await createEntered;
+  const createdId=run("state.selectedGroupId");
+  run(`updateGroupEnabled(${JSON.stringify(createdId)},false)`);
+  check("second intent is submitted while first acknowledgement is still held", requests.at(-1).changes.some(change=>change.id===createdId && !change.create && change.fields.set.enabled===false));
+  run(`state.drafts[${JSON.stringify(createdId)}]={allowedMinutes:"37"};flushAutosaveOnExit()`);
+  check("closing popup submits its final draft before the earlier acknowledgement",requests.at(-1).changes.some(change=>change.id===createdId && change.fields.set.allowedMinutes===37));
+  releaseCreate();await creating;await run("editorPersistTail");
+  check("pending create, edit and close flush survive as one create plus field updates",byId(createdId)?.enabled===false && byId(createdId)?.allowedMinutes===37 && requests.filter(request=>request.changes.some(change=>change.id===createdId && change.create)).length===1,requests.slice(-3));
+  chrome.runtime.sendMessage=realMessage;
+  run(`state.selectedGroupId=${JSON.stringify(createdId)}`);await run("deleteSelectedGroup()");
 
   // A deleted group leaves the list; the others stay as stored.
   const before = JSON.stringify(byId("a1"));
