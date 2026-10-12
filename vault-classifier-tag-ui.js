@@ -573,7 +573,9 @@
     list.className = "panel-list";
     panel.append(head, search, list);
     placeTagPanel(state);
-    try { search.focus(); } catch (_) {}
+    // Focusing inside a title's scroll container must not trigger the
+    // outside-host scroll listener and immediately dismiss this panel.
+    try { search.focus({ preventScroll: true }); } catch (_) {}
 
     const taxonomy = await fetchTaxonomy(state.platform);
     if (!panel.classList.contains("open")) return;
