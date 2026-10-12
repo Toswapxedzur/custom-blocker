@@ -73,7 +73,10 @@ class FakeElement {
     return shadow;
   }
   get classList() {
-      return { toggle: (name, enabled) => {
+      return {
+        contains: name => this.className.split(/\s+/).includes(name),
+        remove: name => { this.className = this.className.split(/\s+/).filter(value => value !== name).join(" "); },
+        toggle: (name, enabled) => {
         const names = new Set(this.className.split(/\s+/).filter(Boolean));
         if (enabled) names.add(name); else names.delete(name);
         this.className = [...names].join(" ");

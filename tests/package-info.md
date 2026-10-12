@@ -41,3 +41,45 @@ Use an isolated owned context; close it and remove its profile after the callbac
 The earlier full-clipped typing failure remains a separate negative. Passing the
 opening-only fixture does not certify typing or row visibility in a clipped title.
 The current actual YouTube replay must check search typing and row hit geometry.
+
+- `browser-tag-panel-placement.js` is the real DOM placement/lifecycle context
+  callback: full clipped input/row hits, visible dismissal behavior, transformed
+  or filtered card/body/html ancestors, real paging/dismiss buttons, edge clamp/flip, removed subtree/remount
+  ownership, and retired asynchronous taxonomy. A caller supplies the same
+  pinned `targetHitGeometry` used by the actual replay and exact selected-owner
+  control lookup. The document-root portal escapes body transforms, filters and
+  paint containment; the old body portal's measured anchor offset is a separate
+  regression. Capability-absent HTML paint containment remains an explicit
+  clipping limitation, not usable input acceptance. The bounded Mini2 supervisor owns normal context/profile
+  cleanup; source review and actual execution are separate.
+
+- `runner-tag-host-registration.js` exercises the actual private WeakSet and
+  captured-navigation helper: a live correction host is exempt, then removal
+  revokes that exemption without reviving a retired host when a new one mounts.
+
+The placement callback uses the same established bounded Node supervisor. Its
+validated Mini2 alt1 invocation is:
+
+```sh
+VAULT_PLACEMENT_FIXTURE_ALLOCATED=headless-dom /usr/bin/python3 /Users/john.zhu.alt1/Desktop/agentic/precise-native-live-40f8728-20261011/tag-panel-placement-rootportal-bound-20261012T133206Z/run-probe.py
+```
+
+Run inside the owned UID 503 Aqua session. The supervisor binds installed Chrome
+154.0.8037.99, all source/helper files, a disposable profile, a 60-second total
+limit, and normal context/profile cleanup. Its existing Node caller supplies:
+
+```js
+const run = require(extensionDir + "/tests/browser-tag-panel-placement.js");
+const observations = await run(ownedPlaywrightContext, extensionDir, {
+  targetHitGeometry,
+  selectedOwnedPanelControl
+});
+```
+
+The validated campaign checks six hit-coordinate controls, two input UA-shadow
+controls, genuine old clipped/fixed-only failures, the old body portal's measured
+anchor offset, 19 candidate placement/ownership/paging/lifecycle scenes, and the
+six focus controls. The capability-absent HTML paint-containment case is a
+measured clipping limitation, not usable input acceptance. This is headless
+Chrome DOM verification; headed YouTube behavior and native Safari/WebKit
+acceptance remain separate and pending. No second driver or runtime is required.

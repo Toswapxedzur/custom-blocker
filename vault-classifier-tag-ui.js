@@ -55,6 +55,7 @@
   const hostState = new WeakMap();
   let reattachObserver = null;
   let hoveredControl = null;
+  let panelOwnerSerial = 0;
 
   function setHoveredControl(control) {
     if (control === hoveredControl) return;
@@ -118,22 +119,23 @@
     const target = global.document && global.document.documentElement;
     if (!target) return;
     reattachObserver = new global.MutationObserver((records) => {
-      for (const record of records) {
-        const removed = record.removedNodes;
-        if (!removed || !removed.length) continue;
-        for (const node of removed) {
-          const state = hostState.get(node);
-          if (!state
-            || state.host !== node
-            || !state.root || state.root.isConnected === false
-            || state.epoch !== (platformEpochs.get(state.platform) || 0)) {
-            continue;
-          }
+      if (!records.some(record => record.removedNodes?.length)) return;
+      for (const state of [...mountedStates]) {
+        if (state.root?.isConnected === false || state.epoch !== (platformEpochs.get(state.platform) || 0)) {
+          removeState(state);
+          state.host = null; state.rail = null; state.panel = null;
+          continue;
+        }
+        if (!state.host?.isConnected) {
+          if (hoveredControl?.getRootNode?.().host === state.host) setHoveredControl(null);
+          closeTagPanel(state, false);
+          try { global.cbUnregisterPillHost?.(state.host); } catch (_) {}
+          hostState.delete(state.host);
           const cached = sourceCache.get(state.key);
-          if (!cached || !Array.isArray(cached.tags) || cached.tags.length === 0) continue;
-          state.host = null;
-          state.rail = null;
-          render(state, cached.tags, cached.predicted === true);
+          state.host = null; state.rail = null; state.panel = null;
+          if (cached?.tags?.length) render(state, cached.tags, cached.predicted === true);
+        } else if (state.panelHost && !state.panelHost.isConnected) {
+          closeTagPanel(state, false);
         }
       }
     });
@@ -159,7 +161,10 @@
       clearTimeout(state.recheckTimer);
       state.recheckTimer = null;
     }
+    closeTagPanel(state, false);
     forgetContentBlock(state);
+    try { global.cbUnregisterPillHost?.(state.host); } catch (_) {}
+    if (state.host) hostState.delete(state.host);
     try { state.host?.remove?.(); } catch (_) {}
     mountedStates.delete(state);
   }
@@ -409,7 +414,9 @@
         });
       } catch (_) { resolve(null); }
     }).then((value) => {
-      taxonomyCache.set(platform, { value, expiresAt: Date.now() + 60_000, pending: null });
+      if (taxonomyCache.get(platform)?.pending === pending) {
+        taxonomyCache.set(platform, { value, expiresAt: Date.now() + 60_000, pending: null });
+      }
       return value;
     });
     taxonomyCache.set(platform, { value: cached?.value || null, expiresAt: 0, pending });
@@ -528,16 +535,63 @@
     state.panel?.querySelectorAll(".panel-item").forEach((button) => { button.disabled = state.correctionPending === true; });
   }
 
+  function currentHostState(host) {
+    const state = hostState.get(host);
+    return state && (host === state.host || host === state.panelHost)
+      && host.isConnected && state.host?.isConnected && state.root?.isConnected !== false
+      && stateByRoot.get(state.root) === state
+      && state.epoch === (platformEpochs.get(state.platform) || 0) ? state : null;
+  }
+
   function closeTagPanel(state, restoreFocus = true) {
-    if (!state.panel?.classList.contains("open")) return;
-    state.panel.classList.remove("open");
-    if (restoreFocus) state.rail?.querySelector(".add-btn")?.focus();
+    if (!state) return;
+    state.panelGeneration = (state.panelGeneration || 0) + 1;
+    const wasOpen = state.panel?.classList.contains("open");
+    state.panel?.classList.remove("open");
+    try { if (state.panel?.matches?.(":popover-open")) state.panel.hidePopover(); } catch (_) {}
+    if (state.panelHost) {
+      if (hoveredControl?.getRootNode?.().host === state.panelHost) setHoveredControl(null);
+      hostState.delete(state.panelHost);
+      try { global.cbUnregisterPillHost?.(state.panelHost); } catch (_) {}
+      state.panelHost.remove();
+      state.panelHost = null;
+    }
+    if (wasOpen && restoreFocus) {
+      try { state.rail?.querySelector(".add-btn")?.focus({ preventScroll: true }); } catch (_) {}
+    }
+  }
+
+  function ensurePanelPortal(state) {
+    if (state.panelHost?.isConnected) return true;
+    const document = state.panel.ownerDocument || global.document;
+    const portalParent = document?.documentElement;
+    if (!portalParent?.appendChild) return false;
+    const host = document.createElement("span");
+    host.style.cssText = "all:initial;position:fixed;left:0;top:0;width:0;height:0;contain:style;overflow:visible;pointer-events:none;z-index:2147483647;";
+    const shadow = host.attachShadow?.({ mode: "closed" });
+    if (!shadow) return false;
+    const style = document.createElement("style"); style.textContent = state.styleText;
+    shadow.append(style, state.panel);
+    try { global.cbRegisterPillHost?.(host); } catch (_) {}
+    hostState.set(host, state); state.panelHost = host;
+    installCorrectionHandlers(shadow, host, state.panel);
+    host.dir = state.host.dir;
+    // Keep the fixed fallback outside BODY containing blocks and clipping.
+    // HTML containing blocks remain a limit when native Popover is absent.
+    portalParent.appendChild(host);
+    // Manual Popover is nonmodal and uses our existing dismissal listeners.
+    // It escapes even transformed/filtered body ancestors when available.
+    if (typeof state.panel.showPopover === "function") {
+      state.panel.setAttribute("popover", "manual");
+      try { state.panel.showPopover(); } catch (_) { closeTagPanel(state, false); return false; }
+    }
+    return true;
   }
 
   function placeTagPanel(state) {
     const panel = state.panel;
     if (!panel?.classList.contains("open")) return;
-    const host = state.host.getBoundingClientRect();
+    if (!currentHostState(state.host) || !state.panelHost?.isConnected) { closeTagPanel(state, false); return; }
     const anchor = state.rail.querySelector(".add-btn").getBoundingClientRect();
     panel.style.maxWidth = Math.max(0, global.innerWidth - 16) + "px";
     panel.style.maxHeight = Math.max(0, global.innerHeight - 16) + "px";
@@ -545,22 +599,26 @@
     const left = Math.max(8, Math.min(anchor.left, global.innerWidth - box.width - 8));
     const below = global.innerHeight - anchor.bottom - 12;
     const top = below >= box.height ? anchor.bottom + 4 : Math.max(8, anchor.top - box.height - 4);
-    panel.style.left = (left - host.left) + "px";
-    panel.style.top = (Math.min(top, global.innerHeight - box.height - 8) - host.top) + "px";
+    panel.style.left = left + "px";
+    panel.style.top = Math.min(top, global.innerHeight - box.height - 8) + "px";
   }
 
   // Builds the small add-a-tag panel: a search box + the addable tags (all
   // predictable tags not already applied), each of which corrects on click.
   async function openAddPanel(state, panel) {
     const document = panel.ownerDocument || global.document;
+    const generation = state.panelGeneration = (state.panelGeneration || 0) + 1;
     panel.classList.add("open");
+    if (!ensurePanelPortal(state)) { closeTagPanel(state, false); return; }
+    state.panelHost.dir = state.host.dir;
     panel.replaceChildren();
+    panel.__paintChoices = null;
     const head = document.createElement("div");
     head.className = "panel-head";
     const title = document.createElement("span");
     title.textContent = ui("contentTag.add", "Add tag");
     const close = document.createElement("button");
-    close.className = "panel-close";
+    close.className = "panel-close panel-dismiss";
     close.type = "button";
     close.textContent = "×";
     close.setAttribute("aria-label", ui("contentTag.close", "Close"));
@@ -578,18 +636,21 @@
     try { search.focus({ preventScroll: true }); } catch (_) {}
 
     const taxonomy = await fetchTaxonomy(state.platform);
-    if (!panel.classList.contains("open")) return;
+    if (!panel.classList.contains("open") || state.panelGeneration !== generation
+      || state.panel !== panel || !currentHostState(state.host) || !state.panelHost?.isConnected) return;
     const applied = new Set(realTagIDs(state));
     const items = taxonomy ? [...taxonomy.tagByID.values()].filter((tag) => !applied.has(tag.id)) : [];
     items.sort((a, b) => a.name.localeCompare(b.name));
     let page = 0;
     const pager = document.createElement("div"); pager.className = "panel-head";
     const previous = document.createElement("button"), next = document.createElement("button"), count = document.createElement("span");
-    previous.type = next.type = "button"; previous.className = next.className = "panel-close";
+    previous.type = next.type = "button"; previous.className = "panel-close panel-previous"; next.className = "panel-close panel-next";
     previous.textContent = "‹"; next.textContent = "›";
     previous.setAttribute("aria-label", ui("contentTag.previous", "Previous tags")); next.setAttribute("aria-label", ui("contentTag.next", "Next tags")); count.setAttribute("role", "status");
     pager.append(previous, count, next); panel.append(pager);
     function paintChoices(reset = false) {
+      if (state.panelGeneration !== generation || !panel.classList.contains("open")
+        || state.panel !== panel || !currentHostState(state.host)) return;
       if (reset) page = 0;
       const query = search.value.trim().toLowerCase(), matches = items.filter(tag => tag.name.toLowerCase().includes(query));
       page = Math.max(0, Math.min(page, Math.ceil(matches.length / 40) - 1));
@@ -622,12 +683,76 @@
         list.append(item);
       }
     }
+      placeTagPanel(state);
     }
     panel.__paintChoices = paintChoices;
     previous.onclick = () => { page--; paintChoices(); }; next.onclick = () => { page++; paintChoices(); };
     paintChoices();
     placeTagPanel(state);
     updateCorrectionStatus(state);
+  }
+
+  function installCorrectionHandlers(shadow, host, panel) {
+    // One delegated listener drives every correction affordance; the rail is
+    // re-populated on each render but the shadow root (and this listener) persist.
+    if (typeof shadow.addEventListener === "function") {
+    // Pointer geometry owns the visual state. Spurious boundary events during
+    // continuous in-pill motion cannot toggle CSS :hover on every frame.
+    shadow.addEventListener("pointerover", updatePointerHover);
+    shadow.addEventListener("pointermove", updatePointerHover);
+    shadow.addEventListener("pointerout", (event) => {
+      if (!pointerInside(hoveredControl, event)) setHoveredControl(null);
+    });
+    shadow.addEventListener("click", (event) => {
+      const state = currentHostState(host);
+      if (!state) return;
+      const target = event.target;
+      if (typeof target?.closest !== "function") return;
+      const del = target.closest(".chip-del");
+      if (del) { event.preventDefault(); event.stopPropagation(); removeTag(state, del); return; }
+      if (target.closest(".add-btn")) { event.preventDefault(); event.stopPropagation(); openAddPanel(state, panel); return; }
+      // The pill host is injected inside the card's own link; any click within
+      // the panel (search box, list, backdrop) must be swallowed so it never
+      // navigates the underlying video. Focus/typing still work (they fire on
+      // mousedown/keydown, which this does not touch).
+      if (target.closest(".panel")) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (target.closest(".panel-dismiss")) { closeTagPanel(state); return; }
+        const item = target.closest(".panel-item");
+        if (item) {
+          item.remove();
+          editTags(state, { addTag: {
+            id: item.dataset.tagId,
+            name: item.dataset.label,
+            lightColorHex: item.dataset.light,
+            darkColorHex: item.dataset.dark
+          } });
+        }
+      }
+    });
+    shadow.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        const state = currentHostState(host);
+        if (state?.panel?.classList.contains("open")) { event.preventDefault(); event.stopPropagation(); closeTagPanel(state); }
+        return;
+      }
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      const chip = event.target?.closest?.(".chip-wrap");
+      const del = chip?.querySelector(".chip-del");
+      const state = currentHostState(host);
+      if (!del || !state || event.repeat) return;
+      event.preventDefault(); event.stopPropagation();
+      removeTag(state, del);
+    });
+    shadow.addEventListener("input", (event) => {
+      const search = event.target?.closest?.(".panel-search");
+      if (!search) return;
+      const state = currentHostState(host);
+      if (state?.panel === panel && panel.classList.contains("open")) panel.__paintChoices?.(true);
+    });
+    }
+
   }
 
   function makeHost(root, anchor) {
@@ -644,8 +769,8 @@
 
     const style = document.createElement("style");
     style.textContent = [
-      // layout+style containment (not paint) so the hover delete affordance and
-      // the add panel can overflow the host without being clipped.
+      // Preserve rail containment; the hover delete affordance can overflow.
+      // The chooser owns a separate closed-shadow portal.
       ":host{all:initial;display:inline-block;max-width:100%;color-scheme:light;contain:layout style}",
       ".rail{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;max-width:100%;vertical-align:middle}",
       ".chip{box-sizing:border-box;display:inline-flex;align-items:center;max-width:220px;min-height:18px;padding:1px 7px;border:0;border-radius:999px;background:var(--vault-tag-color-dark);color:#fff;font:600 11px/16px Arial,Helvetica,sans-serif;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 2px rgba(0,0,0,.18)}",
@@ -662,8 +787,9 @@
       ".add-btn.pointer-hover{opacity:1}",
       // CSS updates already-mounted pills when the browser preference changes.
       "@media (prefers-color-scheme:dark){.chip,.chip.predicted,.chip.tagging{background:var(--vault-tag-color-light);color:#000}.chip.predicted,.chip.tagging{color:var(--vault-tag-color-dark);border-color:var(--vault-tag-color-dark)}.add-btn{background:#eef2ff;color:#1e3a8a}.chip-del{background:#fee2e2;color:#991b1b}}",
-      ".panel{position:absolute;top:calc(100% + 4px);left:0;z-index:2147483647;width:190px;max-height:230px;display:none;flex-direction:column;background:#fff;color:#1f2937;border:0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.22);overflow:hidden;font:500 12px/1.3 Arial,Helvetica,sans-serif}",
+      ".panel{position:fixed;inset:auto;top:0;left:0;margin:0;padding:0;pointer-events:auto;z-index:2147483647;width:190px;max-height:230px;display:none;flex-direction:column;background:#fff;color:#1f2937;border:0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.22);overflow:hidden;font:500 12px/1.3 Arial,Helvetica,sans-serif}",
       ".panel.open{display:flex}",
+      ".panel::backdrop{background:transparent;pointer-events:none}",
       ".panel-head{display:flex;align-items:center;justify-content:space-between;padding:7px 9px 4px;font-weight:700}",
       ".panel-close{border:0;background:transparent;cursor:pointer;font-size:14px;line-height:1;color:#666;padding:0 2px}",
       ".panel-search{margin:0 9px 6px;padding:5px 8px;border:0;border-radius:7px;background:#f1f5f9;color:#1f2937;font:inherit;outline:none}",
@@ -677,75 +803,20 @@
       '.correction-status[data-failed="true"]{color:#991b1b}',
       ".retry{border:0;border-radius:999px;padding:2px 6px;background:#eef2ff;color:#1e3a8a;font:inherit;cursor:pointer}",
     ].join("");
-    // The host anchors the absolutely-positioned panel.
+    // Keep the rail layout independent; chooser placement uses viewport coordinates.
     host.style.position = "relative";
     const rail = document.createElement("span");
     rail.className = "rail";
     const panel = document.createElement("div");
     panel.className = "panel";
+    const ownerToken = global.crypto?.randomUUID?.() || "tag-panel-" + (++panelOwnerSerial);
+    panel.dataset.owner = ownerToken;
     const status = document.createElement("span");
     status.className = "correction-status";
     status.setAttribute("role", "status");
     shadow.append(style, rail, panel, status);
 
-    // One delegated listener drives every correction affordance; the rail is
-    // re-populated on each render but the shadow root (and this listener) persist.
-    if (typeof shadow.addEventListener === "function") {
-    // Pointer geometry owns the visual state. Spurious boundary events during
-    // continuous in-pill motion cannot toggle CSS :hover on every frame.
-    shadow.addEventListener("pointerover", updatePointerHover);
-    shadow.addEventListener("pointermove", updatePointerHover);
-    shadow.addEventListener("pointerout", (event) => {
-      if (!pointerInside(hoveredControl, event)) setHoveredControl(null);
-    });
-    shadow.addEventListener("click", (event) => {
-      const state = hostState.get(host);
-      if (!state) return;
-      const target = event.target;
-      if (typeof target?.closest !== "function") return;
-      const del = target.closest(".chip-del");
-      if (del) { event.preventDefault(); event.stopPropagation(); removeTag(state, del); return; }
-      if (target.closest(".add-btn")) { event.preventDefault(); event.stopPropagation(); openAddPanel(state, panel); return; }
-      // The pill host is injected inside the card's own link; any click within
-      // the panel (search box, list, backdrop) must be swallowed so it never
-      // navigates the underlying video. Focus/typing still work (they fire on
-      // mousedown/keydown, which this does not touch).
-      if (target.closest(".panel")) {
-        event.preventDefault();
-        event.stopPropagation();
-        if (target.closest(".panel-close")) { closeTagPanel(state); return; }
-        const item = target.closest(".panel-item");
-        if (item) {
-          item.remove();
-          editTags(state, { addTag: {
-            id: item.dataset.tagId,
-            name: item.dataset.label,
-            lightColorHex: item.dataset.light,
-            darkColorHex: item.dataset.dark
-          } });
-        }
-      }
-    });
-    shadow.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        const state = hostState.get(host);
-        if (state?.panel?.classList.contains("open")) { event.preventDefault(); event.stopPropagation(); closeTagPanel(state); }
-        return;
-      }
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
-      const chip = event.target?.closest?.(".chip-wrap");
-      const del = chip?.querySelector(".chip-del");
-      const state = hostState.get(host);
-      if (!del || !state || event.repeat) return;
-      event.preventDefault(); event.stopPropagation();
-      removeTag(state, del);
-    });
-    shadow.addEventListener("input", (event) => {
-      const search = event.target?.closest?.(".panel-search");
-      if (!search) return;
-      panel.__paintChoices?.(true);
-    });
-    }
+    installCorrectionHandlers(shadow, host, panel);
 
     try {
       if (anchor?.parentNode && root.contains?.(anchor) && typeof anchor.insertAdjacentElement === "function") {
@@ -756,7 +827,7 @@
     } catch (_) {
       return null;
     }
-    return { host, rail, panel, status };
+    return { host, rail, panel, status, ownerToken, styleText: style.textContent };
   }
 
   function removeTag(state, button) {
@@ -784,6 +855,8 @@
       state.rail = mount.rail;
       state.panel = mount.panel;
       state.status = mount.status;
+      state.ownerToken = mount.ownerToken;
+      state.styleText = mount.styleText;
       // A freshly mounted host has an empty rail. Clear the cached signature so
       // the chips are (re)populated below; otherwise, when the host is remounted
       // after the page detached it, the unchanged signature would skip the fill
@@ -835,6 +908,7 @@
     if (!isTagging) {
       const add = document.createElement("button");
       add.className = "add-btn";
+      add.dataset.owner = state.ownerToken;
       add.type = "button";
       add.textContent = ui("contentTag.addButton", "+ tag");
       add.setAttribute("aria-label", ui("contentTag.add", "Add tag"));
@@ -992,7 +1066,7 @@
   global.document?.addEventListener?.("pointerdown", (event) => {
     const path = event.composedPath?.() || [];
     for (const state of mountedStates) {
-      if (!path.includes(state.host)) closeTagPanel(state, false);
+      if (!path.includes(state.host) && !path.includes(state.panelHost)) closeTagPanel(state, false);
     }
   }, true);
   global.addEventListener?.("resize", () => {
@@ -1000,7 +1074,7 @@
   });
   global.document?.addEventListener?.("scroll", (event) => {
     const path = event.composedPath?.() || [];
-    for (const state of mountedStates) if (!path.includes(state.host)) closeTagPanel(state, false);
+    for (const state of mountedStates) if (!path.includes(state.host) && !path.includes(state.panelHost)) closeTagPanel(state, false);
   }, true);
 
   global.VaultContentI18n?.onChange(() => {
