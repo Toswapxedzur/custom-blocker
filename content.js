@@ -606,7 +606,10 @@ function cbFindMediaAll(card) {
 // (not a DOM marker — the host must stay unfingerprintable) so the interceptor
 // can let the correction pill's clicks through.
 const cbPillHosts = new WeakSet();
-if (typeof window !== "undefined") window.cbRegisterPillHost = (el) => { if (el) cbPillHosts.add(el); };
+if (typeof window !== "undefined") {
+  window.cbRegisterPillHost = (el) => { if (el) cbPillHosts.add(el); };
+  window.cbUnregisterPillHost = (el) => { if (el) cbPillHosts.delete(el); };
+}
 function cbIsInPillHost(el) {
   for (let p = el; p; p = p.parentElement) if (cbPillHosts.has(p)) return true;
   return false;

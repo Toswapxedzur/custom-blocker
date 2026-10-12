@@ -53,7 +53,7 @@ async function runFixture(context, sourceRoot, openingOnly) {
       document.addEventListener('scroll',event=>panel.__focusFixture.scrolls.push({trusted:event.isTrusted,target:event.target.tagName,includesHost:event.composedPath().includes(host),open:panel.classList.contains('open')}),true);
     }` });
     async function state() {
-      const response = await session.send("Runtime.callFunctionOn", { objectId: panel, returnByValue: true, functionDeclaration: `function(){const root=this.getRootNode(),r=this.getBoundingClientRect();return {open:this.classList.contains('open'),display:getComputedStyle(this).display,rootMode:root.mode,activeClass:root.activeElement?.className||null,rows:this.querySelectorAll('.panel-item').length,ancestorScrollTop:document.querySelector('h3').scrollTop,rect:{x:r.x,y:r.y,width:r.width,height:r.height},...this.__focusFixture};}` });
+      const response = await session.send("Runtime.callFunctionOn", { objectId: panel, arguments: [{ objectId: plus }], returnByValue: true, functionDeclaration: `function(plus){const root=this.getRootNode(),r=this.getBoundingClientRect();return {railActiveClass:plus.getRootNode().activeElement?.className||null,open:this.classList.contains('open'),display:getComputedStyle(this).display,rootMode:root.mode,activeClass:root.activeElement?.className||null,rows:this.querySelectorAll('.panel-item').length,ancestorScrollTop:document.querySelector('h3').scrollTop,rect:{x:r.x,y:r.y,width:r.width,height:r.height},...this.__focusFixture};}` });
       return response.result.value;
     }
     async function open() {
@@ -76,7 +76,7 @@ async function runFixture(context, sourceRoot, openingOnly) {
     assert.equal((await state()).open, true); assert.equal((await state()).rows, 1);
     checks.push("Typing into the focused search keeps the chooser open");
     await page.keyboard.press("Escape");
-    assert.equal((await state()).open, false); assert.match((await state()).activeClass, /add-btn/);
+    assert.equal((await state()).open, false); assert.match((await state()).railActiveClass, /add-btn/);
     checks.push("Escape still dismisses and returns focus to Add Tag");
     assert.equal((await open()).open, true);
     await page.mouse.click(1100, 800); assert.equal((await state()).open, false);
