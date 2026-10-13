@@ -7,9 +7,9 @@
 // posted here. Records buffer in chrome.storage (so they survive the MV3 worker
 // sleeping) and flush to the native app over the hub `activity-record` op; each
 // record carries a uuid so a replay after reconnect is idempotent. Recording is
-// gated on the per-category enabled flags fetched from the native settings via
-// `activity-settings` — a disabled category is never captured, and the native
-// store is the backstop.
+// gated on fresh supported native settings snapshots, including an initial
+// `activity-settings` GET. Disconnect pauses capture; authorization and observed
+// end metadata let the native store save eligible pre-OFF intervals only.
 //
 // This file is loaded into the service worker with importScripts(); its pure
 // helpers are also exported for the node test runner.
@@ -105,9 +105,24 @@ function cbActivityNativeSnapshot(body) {
   return { epoch: body.epoch.toLowerCase(), revision: body.revision, changedAtMs: body.changedAtMs, flags };
 }
 
+// Persisted buffers can outlive the worker's in-memory grant cache. Native
+// authority still validates their old revisions; malformed bytes cannot send.
+function cbActivityBrowserRecordShape(record) {
+  const auth = record?.authorization;
+  return !!record && typeof record.id === "string" && !!record.id && record.id.length <= 128
+    && ["web-visit", "content-watched"].includes(record.category)
+    && typeof record.key === "string" && !!record.key
+    && typeof auth?.epoch === "string" && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(auth.epoch)
+    && Number.isSafeInteger(auth.revision) && auth.revision >= 0
+    && Number.isFinite(record.startedAtMs) && record.startedAtMs >= 0
+    && Number.isFinite(record.observedEndedAtMs) && record.observedEndedAtMs > record.startedAtMs
+    && Number.isFinite(record.seconds) && record.seconds > 0
+    && Math.abs(record.observedEndedAtMs - record.startedAtMs - record.seconds * 1000) <= 1;
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer, cbActivitySettingsFlags, cbActivityNativeSnapshot,
+    cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer, cbActivitySettingsFlags, cbActivityNativeSnapshot, cbActivityBrowserRecordShape,
     cbActivityIconAccepted, cbActivityIconsToSend, CB_ACTIVITY_MAX_ICON_BYTES,
   };
 }
@@ -138,6 +153,15 @@ const cbActivity = {
   settingsEpoch: null,
   settingsRevision: -1,
   settingsChangedAtMs: null,
+  capturePaused: true,
+  contentToken: crypto.randomUUID(),
+  captureAuthorization: null,
+  bufferEpoch: null,
+  knownGrants: new Map(),
+  sessionTail: Promise.resolve(),
+  bufferTail: Promise.resolve(),
+  flushInFlight: null,
+  visitEpisode: null,
   // Domains whose icon reached Mac Vault during this worker's life (no need to
   // read it again on every visit).
   sentIconDomains: new Set(),
@@ -170,6 +194,7 @@ const cbActivity = {
   },
 
   async refreshSettings() {
+    if (typeof cbConnection === "undefined" || cbConnection.activitySettingsNotifications !== true) return;
     const generation = this.settingsGeneration;
     const requestEpoch = ++this.settingsRequestEpoch;
     const connectionGeneration = this.settingsConnectionGeneration;
@@ -179,17 +204,14 @@ const cbActivity = {
       // response. These counters are memory-only, not stored schema revisions.
       if (generation !== this.settingsGeneration || requestEpoch !== this.settingsRequestEpoch
         || connectionGeneration !== this.settingsConnectionGeneration) return;
-      if (typeof cbConnection !== "undefined" && cbConnection.activitySettingsNotifications === true) {
-        await this.applyNativeSettingsSnapshot(reply, connectionGeneration);
-      } else {
-        await this.applySettingsSnapshot(reply && reply.settings);
-      }
+      await this.applyNativeSettingsSnapshot(reply, connectionGeneration);
     } catch (_) {
       // Hub not ready; keep the last known flags (default off).
     }
   },
 
   beginSettingsConnection(generation) {
+    this.pauseCapture(Date.now(), "native-disconnect");
     this.settingsConnectionGeneration = generation;
     this.settingsGeneration += 1;
     this.settingsRequestEpoch += 1;
@@ -199,79 +221,153 @@ const cbActivity = {
   },
 
   async applyNativeSettingsSnapshot(body, connectionGeneration) {
+    if (connectionGeneration !== this.settingsConnectionGeneration) return false;
     const snapshot = cbActivityNativeSnapshot(body);
-    if (!snapshot || connectionGeneration !== this.settingsConnectionGeneration) return false;
-    if (this.settingsEpoch !== null && this.settingsEpoch !== snapshot.epoch) return false;
+    if (!snapshot || (this.settingsEpoch !== null && this.settingsEpoch !== snapshot.epoch)) {
+      this.pauseCapture(Date.now(), "invalid-native-settings");
+      return false;
+    }
     if (snapshot.revision < this.settingsRevision) return false;
     if (snapshot.revision === this.settingsRevision) {
-      return snapshot.changedAtMs === this.settingsChangedAtMs
-        && Object.keys(snapshot.flags).every(key => snapshot.flags[key] === this.enabled[key]);
+      const previous = this.knownGrants.get(snapshot.revision);
+      if (snapshot.changedAtMs !== this.settingsChangedAtMs
+        || !previous || !Object.keys(snapshot.flags).every(key => snapshot.flags[key] === previous.flags[key])) {
+        this.pauseCapture(Date.now(), "conflicting-native-settings");
+        return false;
+      }
+      if (!this.capturePaused) return true;
     }
+    const observedAtMs = Date.now(), wasPaused = this.capturePaused;
+    const webContinues = !wasPaused && this.enabled["web-visit"] && snapshot.flags["web-visit"]
+      && this.bufferEpoch === snapshot.epoch;
+    if (this.bufferEpoch !== null && this.bufferEpoch !== snapshot.epoch) this.knownGrants.clear();
+    this.bufferEpoch = snapshot.epoch;
+    for (const grant of this.knownGrants.values()) {
+      for (const key of ["web-visit", "content-watched"]) {
+        if (!snapshot.flags[key] && grant.flags[key] && grant.cutoffs[key] === null) grant.cutoffs[key] = snapshot.changedAtMs;
+      }
+    }
+    this.knownGrants.set(snapshot.revision, { ...snapshot, cutoffs: { "web-visit": null, "content-watched": null } });
+    while (this.knownGrants.size > 256) this.knownGrants.delete(this.knownGrants.keys().next().value);
     this.settingsEpoch = snapshot.epoch;
     this.settingsRevision = snapshot.revision;
     this.settingsChangedAtMs = snapshot.changedAtMs;
-    const applied = this.applySettingsSnapshot(body.settings);
+    this.captureAuthorization = { epoch: snapshot.epoch, revision: snapshot.revision, changedAtMs: snapshot.changedAtMs };
+    this.capturePaused = false;
+    this.settingsGeneration += 1;
+    this.enabled = snapshot.flags;
     const generation = this.settingsGeneration;
-    await applied;
+    // Notify pages immediately; storage and favicon work must not delay OFF.
+    this.broadcastSettings(snapshot, snapshot.changedAtMs);
+    await this._sessionOperation(async () => {
+      if (generation !== this.settingsGeneration) return;
+      const session = await this.loadSession();
+      const cutoff = Math.min(observedAtMs, snapshot.changedAtMs);
+      await this._closeSessionUnlocked(snapshot.flags["web-visit"] ? "native-settings-cutoff" : "native-settings-off", cutoff, observedAtMs);
+      if (webContinues && session && generation === this.settingsGeneration && !this.capturePaused) {
+        // This is the tail of the same already-observed focused episode, not
+        // time synthesized across a disabled/disconnected gap.
+        await chrome.storage.local.set({ [CB_ACTIVITY_SESSION_KEY]: { ...session,
+          startMs: Math.max(session.startMs, snapshot.changedAtMs),
+          authorization: { epoch: snapshot.epoch, revision: snapshot.revision } } });
+      }
+    });
+    await this._bufferOperation(async () => {
+      if (generation !== this.settingsGeneration || snapshot.epoch !== this.bufferEpoch) return;
+      const stored = await chrome.storage.local.get(CB_ACTIVITY_BUFFER_KEY);
+      const records = Array.isArray(stored[CB_ACTIVITY_BUFFER_KEY]) ? stored[CB_ACTIVITY_BUFFER_KEY] : [];
+      const retained = records.filter(record => record?.authorization?.epoch?.toLowerCase() === snapshot.epoch);
+      if (retained.length !== records.length) await chrome.storage.local.set({ [CB_ACTIVITY_BUFFER_KEY]: retained });
+    });
+    if (generation === this.settingsGeneration && !this.capturePaused) await this.resolveActive("native-settings-enabled");
     if (generation === this.settingsGeneration && connectionGeneration === this.settingsConnectionGeneration) {
-      this.broadcastSettings(snapshot);
+      void this.flush();
     }
     return true;
   },
 
-  broadcastSettings(snapshot) {
-    // Use ordinary page messaging, never the custom-rule delivery/ACK queue.
+  contentSettings(cutoffMs = Date.now()) {
+    return { token: this.contentToken, generation: this.settingsGeneration, paused: this.capturePaused,
+      flags: { ...this.enabled }, authority: this.captureAuthorization, cutoffMs };
+  },
+
+  broadcastSettings(_snapshot, cutoffMs = Date.now()) {
     if (!chrome.tabs || typeof chrome.tabs.query !== "function") return;
-    const generation = this.settingsConnectionGeneration;
+    const config = this.contentSettings(cutoffMs), generation = this.settingsGeneration;
     chrome.tabs.query({}, tabs => {
-      if (chrome.runtime.lastError || generation !== this.settingsConnectionGeneration
-        || this.settingsEpoch !== snapshot.epoch || this.settingsRevision !== snapshot.revision) return;
+      if (chrome.runtime.lastError || generation !== this.settingsGeneration) return;
       for (const tab of tabs || []) {
         if (!Number.isInteger(tab?.id) || !/^https?:/i.test(tab.url || tab.pendingUrl || "")) continue;
-        try {
-          chrome.tabs.sendMessage(tab.id, { kind: "vault-activity-settings-updated", ...snapshot }, () => { void chrome.runtime.lastError; });
-        } catch (_) { /* an absent content receiver is not an Activity command */ }
+        try { chrome.tabs.sendMessage(tab.id, { kind: "vault-activity-settings-updated", config }, () => { void chrome.runtime.lastError; }); }
+        catch (_) { /* a page without the supported receiver has no watch accumulator */ }
       }
     });
   },
 
-  async applySettingsSnapshot(settings) {
-    const next = cbActivitySettingsFlags(settings);
-    if (!next) return false;
-    const webWasOn = this.enabled["web-visit"];
+  pauseCapture(cutoffMs, reason) {
+    this.capturePaused = true;
+    this.enabled = { "web-visit": false, "content-watched": false };
     this.settingsGeneration += 1;
-    this.enabled = next;
-    // Apply category transitions through the existing session lifecycle.
-    if (webWasOn && !next["web-visit"]) await this.closeSession("web-visit-disabled");
-    if (!webWasOn && next["web-visit"]) await this.resolveActive("web-visit-enabled");
-    return true;
+    this.broadcastSettings(null, cutoffMs);
+    void this.closeSession(reason, cutoffMs).catch(error => console.error("[CustomBlocker] Activity pause close failed", error));
   },
 
+  _sessionOperation(operation) {
+    const next = this.sessionTail.catch(() => {}).then(operation);
+    this.sessionTail = next;
+    return next;
+  },
+
+  _bufferOperation(operation) {
+    const next = this.bufferTail.catch(() => {}).then(operation);
+    this.bufferTail = next;
+    return next;
+  },
+
+  authorizedRecord(record) {
+    if (!cbActivityBrowserRecordShape(record)) return null;
+    const auth = record.authorization;
+    if (auth.epoch.toLowerCase() !== this.bufferEpoch) return null;
+    const grant = this.knownGrants.get(auth.revision), category = record.category;
+    if (!grant?.flags[category] || record.startedAtMs < grant.changedAtMs - 1) return null;
+    const start = Math.max(record.startedAtMs, grant.changedAtMs);
+    const end = Math.min(record.observedEndedAtMs, grant.cutoffs[category] ?? Infinity, Date.now());
+    if (!(end > start)) return null;
+    return { ...record, startedAtMs: start, observedEndedAtMs: end, seconds: (end - start) / 1000,
+      authorization: { epoch: this.bufferEpoch, revision: auth.revision } };
+  },
+
+
   async resolveActive(_reason) {
-    const generation = this.settingsGeneration;
-    if (!this.enabled["web-visit"]) { await this.closeSession("disabled"); return; }
-    let tab;
-    try {
-      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      tab = tabs && tabs[0];
-      // lastFocusedWindow can still be the browser while another app is in
-      // front. A settings refresh must not start a background visit.
-      if (tab && chrome.windows && chrome.windows.get) {
-        const window = await chrome.windows.get(tab.windowId);
-        if (!window.focused) { await this.closeSession("window-unfocused"); return; }
+    return this._sessionOperation(async () => {
+      const generation = this.settingsGeneration;
+      if (!this.enabled["web-visit"]) { await this._closeSessionUnlocked("disabled"); return; }
+      let tab;
+      try {
+        const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        tab = tabs && tabs[0];
+        // lastFocusedWindow can still be the browser while another app is in
+        // front. A settings refresh must not start a background visit.
+        if (tab && chrome.windows && chrome.windows.get) {
+          const window = await chrome.windows.get(tab.windowId);
+          if (!window.focused) { await this._closeSessionUnlocked("window-unfocused"); return; }
+        }
+      } catch (_) { return; }
+      // A covered page is not a visit, like its budget: the time counts nowhere.
+      const covered = tab && typeof cbCoveredTabs !== "undefined" && cbCoveredTabs.has(tab.id);
+      const domain = tab && !covered ? cbActivityDomainOf(tab.url) : null;
+      const session = await this.loadSession();
+      if (session && session.domain === domain && session.tabId === (tab && tab.id)
+        && session.authorization?.epoch === this.captureAuthorization?.epoch
+        && session.authorization?.revision === this.captureAuthorization?.revision) return;
+      await this._closeSessionUnlocked("switch");
+      if (domain && tab && this.enabled["web-visit"] && generation === this.settingsGeneration) {
+        if (!this.visitEpisode || this.visitEpisode.domain !== domain || this.visitEpisode.tabId !== tab.id) this.visitEpisode = { domain, tabId: tab.id, eligible: false };
+        await chrome.storage.local.set({
+          [CB_ACTIVITY_SESSION_KEY]: { domain, tabId: tab.id, startMs: Math.max(Date.now(), this.captureAuthorization.changedAtMs), favicon: tab.favIconUrl || null, authorization: { epoch: this.captureAuthorization.epoch, revision: this.captureAuthorization.revision } },
+        });
       }
-    } catch (_) { return; }
-    // A covered page is not a visit, like its budget: the time counts nowhere.
-    const covered = tab && typeof cbCoveredTabs !== "undefined" && cbCoveredTabs.has(tab.id);
-    const domain = tab && !covered ? cbActivityDomainOf(tab.url) : null;
-    const session = await this.loadSession();
-    if (session && session.domain === domain && session.tabId === (tab && tab.id)) return;
-    await this.closeSession("switch");
-    if (domain && tab && this.enabled["web-visit"] && generation === this.settingsGeneration) {
-      await chrome.storage.local.set({
-        [CB_ACTIVITY_SESSION_KEY]: { domain, tabId: tab.id, startMs: Date.now(), favicon: tab.favIconUrl || null },
-      });
-    }
+    });
   },
 
   async noteFavicon(tab) {
@@ -330,8 +426,10 @@ const cbActivity = {
   },
 
   async onTabGone(tabId) {
-    const session = await this.loadSession();
-    if (session && session.tabId === tabId) await this.closeSession("tab-removed");
+    return this._sessionOperation(async () => {
+      const session = await this.loadSession();
+      if (session && session.tabId === tabId) await this._closeSessionUnlocked("tab-removed");
+    });
   },
 
   async loadSession() {
@@ -341,16 +439,24 @@ const cbActivity = {
     } catch (_) { return null; }
   },
 
-  async closeSession(_reason) {
+  closeSession(reason, cutoffMs = Date.now(), observedEndMs = Date.now()) {
+    return this._sessionOperation(() => this._closeSessionUnlocked(reason, cutoffMs, observedEndMs));
+  },
+
+  async _closeSessionUnlocked(reason, cutoffMs = Date.now(), observedEndMs = cutoffMs) {
     const session = await this.loadSession();
     if (!session) return;
     await chrome.storage.local.remove(CB_ACTIVITY_SESSION_KEY);
-    if (!this.enabled["web-visit"]) return;
-    const record = cbActivityMakeVisit(session, Date.now(), {
-      minMs: CB_ACTIVITY_MIN_VISIT_MS,
-      makeId: () => crypto.randomUUID(),
+    const raw = cbActivityMakeVisit(session, Math.min(observedEndMs, Date.now()), {
+      minMs: this.visitEpisode?.domain === session.domain && this.visitEpisode?.tabId === session.tabId && this.visitEpisode.eligible ? 0 : CB_ACTIVITY_MIN_VISIT_MS, makeId: () => crypto.randomUUID(),
     });
-    if (record) {
+    if (raw) this.visitEpisode = { domain: session.domain, tabId: session.tabId, eligible: true };
+    if (reason !== "native-settings-cutoff" || !this.enabled["web-visit"]) this.visitEpisode = null;
+    const record = raw && this.authorizedRecord({ ...raw, observedEndedAtMs: raw.startedAtMs + raw.seconds * 1000, authorization: session.authorization });
+    if (record && record.observedEndedAtMs > cutoffMs) {
+      record.observedEndedAtMs = cutoffMs; record.seconds = (cutoffMs - record.startedAtMs) / 1000;
+    }
+    if (record && record.seconds > 0) {
       await this.captureIcon(session.domain, session.favicon || await this.currentFavicon(session));
       await this.enqueue(record);
     }
@@ -359,70 +465,88 @@ const cbActivity = {
   // Called by vault-activity-content.js for a watched video on a supported
   // platform. Gated on the content-watched flag; the native store is the backstop.
   async recordWatched(record) {
-    if (!this.enabled["content-watched"]) return;
-    if (!record || typeof record !== "object") return;
-    const seconds = Number(record.seconds);
-    if (!(seconds > 0) || typeof record.key !== "string" || !record.key) return;
-    await this.enqueue({
-      id: crypto.randomUUID(),
-      category: "content-watched",
-      startedAtMs: Number(record.startedAtMs) || Date.now(),
-      seconds,
-      key: record.key,
-      label: typeof record.label === "string" ? record.label : record.key,
-      platform: typeof record.platform === "string" ? record.platform : undefined,
-      creator: typeof record.creator === "string" ? record.creator : undefined,
-    });
+    if (!record || typeof record.id !== "string" || record.id.length > 128 || !record.id
+      || typeof record.key !== "string" || !record.key) return { ok: false, permanent: true };
+    const candidate = { ...record, category: "content-watched" };
+    if (!cbActivityBrowserRecordShape(candidate)) return { ok: false, permanent: true };
+    if (this.bufferEpoch === null) return { ok: false, permanent: false }; // wait for a fresh native snapshot
+    if (candidate.authorization.epoch.toLowerCase() !== this.bufferEpoch) return { ok: false, permanent: true };
+    const grant = this.knownGrants.get(candidate.authorization.revision);
+    // A page can outlive an MV3 restart too. Preserve its immutable prior
+    // interval for native admission, only after a fresh same-epoch snapshot.
+    const authorized = grant ? this.authorizedRecord(candidate)
+      : !this.capturePaused && candidate.authorization.revision <= this.settingsRevision ? candidate : null;
+    if (!authorized) return { ok: false, permanent: !!grant || !this.capturePaused };
+    const buffered = await this.enqueue(authorized);
+    return { ok: buffered, permanent: false };
   },
 
   async enqueue(record) {
     try {
-      const stored = await chrome.storage.local.get(CB_ACTIVITY_BUFFER_KEY);
-      const buffer = cbActivityBoundBuffer((stored[CB_ACTIVITY_BUFFER_KEY] || []).concat([record]), CB_ACTIVITY_BUFFER_CAP);
-      await chrome.storage.local.set({ [CB_ACTIVITY_BUFFER_KEY]: buffer });
-    } catch (_) { return; }
-    this.flush();
+      await this._bufferOperation(async () => {
+        const stored = await chrome.storage.local.get(CB_ACTIVITY_BUFFER_KEY);
+        const current = Array.isArray(stored[CB_ACTIVITY_BUFFER_KEY]) ? stored[CB_ACTIVITY_BUFFER_KEY] : [];
+        const duplicate = current.find(value => value?.id === record.id);
+        if (duplicate) {
+          if (JSON.stringify(duplicate) !== JSON.stringify(record)) throw new Error("Conflicting Activity record ID");
+          return;
+        }
+        await chrome.storage.local.set({ [CB_ACTIVITY_BUFFER_KEY]: cbActivityBoundBuffer(current.concat([record]), CB_ACTIVITY_BUFFER_CAP) });
+      });
+    } catch (_) { return false; }
+    void this.flush();
+    return true;
   },
 
-  async flush() {
-    let buffer;
-    try {
-      const stored = await chrome.storage.local.get(CB_ACTIVITY_BUFFER_KEY);
-      buffer = stored[CB_ACTIVITY_BUFFER_KEY] || [];
-    } catch (_) { return; }
-    if (!buffer.length) return;
-    const batch = buffer.slice(0, CB_ACTIVITY_FLUSH_BATCH);
-    // Pending favicons ride along (local data URIs; the native side keeps one
-    // per domain). They leave storage only once this flush succeeded.
-    const icons = cbActivityIconsToSend(await this.loadPendingIcons(), CB_ACTIVITY_ICONS_PER_FLUSH);
-    try {
-      await cbClassifierHub.request("activity-record", { records: batch, icons });
-    } catch (_) {
-      return; // hub unavailable; keep the buffer and the icons, retry on the next alarm
-    }
-    if (Object.keys(icons).length) {
+  flush() {
+    if (this.flushInFlight) return this.flushInFlight;
+    this.flushInFlight = this._flushAuthorized().finally(() => { this.flushInFlight = null; });
+    return this.flushInFlight;
+  },
+
+  async _flushAuthorized() {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      if (this.capturePaused || typeof cbConnection === "undefined" || cbConnection.activitySettingsNotifications !== true) return;
+      let batch, icons, reply;
       try {
-        const latest = await this.loadPendingIcons();
-        for (const domain of Object.keys(icons)) {
-          delete latest[domain];
-          this.sentIconDomains.add(domain);
+        const stored = await chrome.storage.local.get(CB_ACTIVITY_BUFFER_KEY);
+        const current = Array.isArray(stored[CB_ACTIVITY_BUFFER_KEY]) ? stored[CB_ACTIVITY_BUFFER_KEY] : [];
+        // Alpha buffers without valid authority cannot be replayed as consent.
+        // Keep valid bytes unchanged: the native store owns the final cutoff.
+        const canReplay = record => cbActivityBrowserRecordShape(record) && record.authorization.epoch.toLowerCase() === this.bufferEpoch;
+        const valid = current.filter(canReplay);
+        if (valid.length !== current.length) await this._bufferOperation(async () => {
+          const latest = await chrome.storage.local.get(CB_ACTIVITY_BUFFER_KEY);
+          const rows = Array.isArray(latest[CB_ACTIVITY_BUFFER_KEY]) ? latest[CB_ACTIVITY_BUFFER_KEY] : [];
+          await chrome.storage.local.set({ [CB_ACTIVITY_BUFFER_KEY]: rows.filter(canReplay) });
+        });
+        batch = valid.slice(0, CB_ACTIVITY_FLUSH_BATCH);
+        if (!batch.length) return;
+        icons = cbActivityIconsToSend(await this.loadPendingIcons(), CB_ACTIVITY_ICONS_PER_FLUSH);
+        reply = await cbClassifierHub.request("activity-record", { records: batch, icons });
+      } catch (_) { return; }
+      const ids = new Set(batch.map(record => record.id)), classified = new Set();
+      if (!["acceptedIDs", "rejectedIDs", "pendingIDs"].every(key => Array.isArray(reply?.[key]) && reply[key].length <= batch.length
+        && reply[key].every(id => typeof id === "string" && ids.has(id) && !classified.has(id) && !!classified.add(id)))
+        || classified.size !== ids.size) return;
+      const removable = new Set([...reply.acceptedIDs, ...reply.rejectedIDs]);
+      try {
+        await this._bufferOperation(async () => {
+          const stored = await chrome.storage.local.get(CB_ACTIVITY_BUFFER_KEY);
+          await chrome.storage.local.set({ [CB_ACTIVITY_BUFFER_KEY]: (Array.isArray(stored[CB_ACTIVITY_BUFFER_KEY]) ? stored[CB_ACTIVITY_BUFFER_KEY] : []).filter(record => !removable.has(record?.id)) });
+        });
+        if (Object.keys(icons).length && reply.acceptedIDs.length && Number.isSafeInteger(reply.stored) && reply.stored > 0) {
+          const latest = await this.loadPendingIcons();
+          for (const domain of Object.keys(icons)) { delete latest[domain]; this.sentIconDomains.add(domain); }
+          await chrome.storage.local.set({ [CB_ACTIVITY_ICONS_KEY]: latest });
         }
-        await chrome.storage.local.set({ [CB_ACTIVITY_ICONS_KEY]: latest });
-      } catch (_) { /* best effort */ }
+      } catch (_) { return; }
+      if (reply.pendingIDs.length || !removable.size) return;
     }
-    // Drop exactly the flushed records (identified by id); a concurrent enqueue
-    // is preserved.
-    try {
-      const stored = await chrome.storage.local.get(CB_ACTIVITY_BUFFER_KEY);
-      const flushed = new Set(batch.map((r) => r.id));
-      const remaining = (stored[CB_ACTIVITY_BUFFER_KEY] || []).filter((r) => !flushed.has(r.id));
-      await chrome.storage.local.set({ [CB_ACTIVITY_BUFFER_KEY]: remaining });
-      if (remaining.length) this.flush();
-    } catch (_) { /* best effort */ }
   },
 
   onAlarm(alarm) {
     if (!alarm || alarm.name !== CB_ACTIVITY_FLUSH_ALARM) return;
-    this.refreshSettings().finally(() => this.flush());
+    void this.flush();
   },
 };

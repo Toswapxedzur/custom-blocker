@@ -1344,11 +1344,11 @@ if (typeof cbActivity !== "undefined") {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || typeof message !== "object") return false;
     if (message.kind === "vault-activity-watched") {
-      cbActivity.recordWatched(message.record);
-      return false;
+      cbActivity.recordWatched(message.record).then(sendResponse).catch(() => sendResponse({ ok: false, permanent: false }));
+      return true;
     }
     if (message.kind === "vault-activity-config") {
-      sendResponse({ "content-watched": !!cbActivity.enabled["content-watched"] });
+      sendResponse(cbActivity.contentSettings());
       return false;
     }
     return false;

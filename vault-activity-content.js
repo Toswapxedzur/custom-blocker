@@ -8,9 +8,9 @@
 // pause or navigation it posts a `content-watched` record to the service
 // worker, which buffers and flushes it.
 //
-// It measures only when the content-watched category is enabled (asked once from
-// the worker and cached); the worker gates again on receipt, and the native
-// store is the final backstop.
+// Fresh native snapshots authorize capture; disconnect/unsupported peers pause
+// it. Each contiguous observed interval carries its native epoch/revision, and
+// the native store remains the authoritative cutoff backstop.
 
 (function () {
   "use strict";
@@ -72,18 +72,20 @@
     : null;
   if (!["youtube", "bilibili", "twitch", "reddit", "twitter", "instagram", "facebook", "discord"].includes(PLATFORM)) return;
 
-  var enabled = false;
-  try {
-    chrome.runtime.sendMessage({ kind: "vault-activity-config" }, function (reply) {
-      if (chrome.runtime.lastError) return;
-      enabled = !!(reply && reply["content-watched"]);
-      if (enabled) attach();
-    });
-  } catch (_) { return; }
+  var config = null, enabled = false, current = null, episode = null, attached = false;
+  var updates = 0, retiredTokens = new Set(), pending = new Map();
+  var MIN_WATCH_MS = 3000, PENDING_CAP = 2000;
 
-  // Accrual state for the content being measured.
-  var current = null; // { key, label, platform, startedAtMs, seconds, lastTickMs }
-  var MIN_WATCH_MS = 3000;
+  function normalizeConfig(value) {
+    if (!value || typeof value.token !== "string" || !value.token || value.token.length > 128
+      || !Number.isSafeInteger(value.generation) || value.generation < 0 || typeof value.paused !== "boolean"
+      || !Number.isFinite(value.cutoffMs) || value.cutoffMs < 0 || !value.flags || typeof value.flags["content-watched"] !== "boolean") return null;
+    var a = value.authority;
+    if (!value.paused && (!a || typeof a.epoch !== "string"
+      || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(a.epoch)
+      || !Number.isSafeInteger(a.revision) || a.revision < 0 || !Number.isFinite(a.changedAtMs) || a.changedAtMs < 0)) return null;
+    return value;
+  }
 
   function playingVideo() {
     var videos = document.querySelectorAll("video");
@@ -94,45 +96,105 @@
     return null;
   }
 
+  function appendObserved(start, end) {
+    if (!(end > start) || !current) return;
+    var last = current.segments[current.segments.length - 1];
+    if (last && last.end === start) last.end = end;
+    else {
+      current.segments.push({ start: start, end: end, id: crypto.randomUUID() });
+      if (current.segments.length > PENDING_CAP) current.segments.shift();
+    }
+    episode.observedMS += end - start;
+    if (episode.observedMS >= MIN_WATCH_MS) episode.eligible = true;
+  }
+
   function tick() {
+    retryPending();
     if (!enabled) return;
     var content = document.visibilityState === "visible" ? contentFor(PLATFORM, location.href, document.title) : null;
-    var counting = content && (!content.video || playingVideo());
-    var now = Date.now();
-    if (!counting) { flush(); return; }
+    var counting = content && (!content.video || playingVideo()), now = Date.now();
+    if (!counting) { flush(Infinity); episode = null; return; }
     if (!current || current.key !== content.key) {
-      flush();
-      current = { key: content.key, platform: content.platform, label: content.label || location.hostname, startedAtMs: now, seconds: 0, lastTickMs: now };
+      flush(Infinity);
+      if (!episode || episode.key !== content.key) episode = { key: content.key, observedMS: 0, eligible: false };
+      current = { key: content.key, platform: content.platform, label: content.label || location.hostname,
+        lastTickMs: now, segments: [], authorization: { epoch: config.authority.epoch, revision: config.authority.revision } };
     } else {
-      current.seconds += Math.min((now - current.lastTickMs) / 1000, 5);
+      // A suspended timer observes at most the existing five-second cap; the
+      // unobserved gap is not represented as a contiguous watch interval.
+      appendObserved(Math.max(current.lastTickMs, now - 5000, config.authority.changedAtMs), now);
       current.lastTickMs = now;
-      if (content.label) current.label = content.label; // titles settle after navigation
+      if (content.label) current.label = content.label;
     }
   }
 
-  function flush() {
-    if (!current) return;
-    var record = current;
-    current = null;
-    if (!(record.seconds * 1000 >= MIN_WATCH_MS)) return;
+  function sendPending(id, entry) {
+    if (entry.sending) return;
+    entry.sending = true;
     try {
-      chrome.runtime.sendMessage({
-        kind: "vault-activity-watched",
-        record: {
-          startedAtMs: record.startedAtMs,
-          seconds: record.seconds,
-          key: record.key,
-          label: record.label,
-          platform: record.platform,
-        },
+      chrome.runtime.sendMessage({ kind: "vault-activity-watched", record: entry.record }, function (reply) {
+        entry.sending = false;
+        if (chrome.runtime.lastError) return;
+        if (reply?.ok === true || reply?.permanent === true) pending.delete(id);
       });
-    } catch (_) { /* worker asleep or gone; a dropped watch record is acceptable */ }
+    } catch (_) { entry.sending = false; }
+  }
+  function retryPending() { for (var pair of pending) sendPending(pair[0], pair[1]); }
+
+  function flush(cutoffMs, continuation) {
+    if (!current) return;
+    var closed = current;current = null;
+    if (!episode?.eligible) return;
+    for (var segment of closed.segments) {
+      var parts = [{ start: segment.start, end: Math.min(segment.end, cutoffMs), id: segment.id, authorization: closed.authorization }];
+      if (continuation && segment.end > cutoffMs) parts.push({ start: Math.max(segment.start, cutoffMs), end: segment.end,
+        id: crypto.randomUUID(), authorization: { epoch: continuation.epoch, revision: continuation.revision } });
+      for (var part of parts) {
+        if (!(part.end > part.start)) continue;
+        var record = { id: part.id, startedAtMs: part.start, observedEndedAtMs: part.end,
+          seconds: (part.end - part.start) / 1000, key: closed.key, label: closed.label,
+          platform: closed.platform, authorization: part.authorization };
+        if (pending.size >= PENDING_CAP) pending.delete(pending.keys().next().value);
+        var entry = { record: record, sending: false };pending.set(record.id, entry);sendPending(record.id, entry);
+      }
+    }
+  }
+
+  function applyConfig(value) {
+    var next = normalizeConfig(value);
+    if (!next || retiredTokens.has(next.token)) return;
+    if (config?.token === next.token && next.generation <= config.generation) return;
+    if (config && config.token !== next.token) { retiredTokens.add(config.token); if (retiredTokens.size > 16) retiredTokens.delete(retiredTokens.values().next().value); }
+    // Close only already-observed intervals, never accrue time at flush.
+    var cutoff = next.paused ? next.cutoffMs : next.authority.changedAtMs;
+    var continues = enabled && !next.paused && next.flags["content-watched"]
+      && config?.authority?.epoch === next.authority?.epoch;
+    flush(cutoff, continues ? next.authority : null);
+    if (config?.authority?.epoch && next.authority?.epoch !== config.authority.epoch) pending.clear();
+    config = next;updates += 1;
+    enabled = !next.paused && next.flags["content-watched"];
+    if (!enabled) episode = null;
+    if (!attached) attach();
+    if (enabled) tick();
   }
 
   function attach() {
+    if (attached) return;attached = true;
     setInterval(tick, 4000);
-    document.addEventListener("visibilitychange", function () { if (document.visibilityState !== "visible") flush(); });
-    window.addEventListener("pagehide", flush);
-    window.addEventListener("beforeunload", flush);
+    document.addEventListener("visibilitychange", function () { if (document.visibilityState !== "visible") { flush(Infinity); episode = null; } });
+    window.addEventListener("pagehide", function () { flush(Infinity); });
+    window.addEventListener("beforeunload", function () { flush(Infinity); });
   }
+
+  chrome.runtime.onMessage.addListener(function (message, sender) {
+    if (sender?.id !== chrome.runtime.id || sender?.tab || message?.kind !== "vault-activity-settings-updated") return false;
+    applyConfig(message.config);return false;
+  });
+  var requestedAt = updates;
+  try {
+    chrome.runtime.sendMessage({ kind: "vault-activity-config" }, function (reply) {
+      if (chrome.runtime.lastError || requestedAt !== updates) return;
+      applyConfig(reply);
+    });
+  } catch (_) { /* no fresh supported native configuration means no capture */ }
 })();
