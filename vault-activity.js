@@ -94,9 +94,20 @@ function cbActivitySettingsFlags(settings) {
   return flags;
 }
 
+// Metadata belongs to a native store lifetime, not a persisted schema revision.
+function cbActivityNativeSnapshot(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)
+    || typeof body.epoch !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(body.epoch)
+    || !Number.isSafeInteger(body.revision) || body.revision < 0
+    || !Number.isFinite(body.changedAtMs) || body.changedAtMs < 0) return null;
+  const flags = cbActivitySettingsFlags(body.settings);
+  if (!flags) return null;
+  return { epoch: body.epoch.toLowerCase(), revision: body.revision, changedAtMs: body.changedAtMs, flags };
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer, cbActivitySettingsFlags,
+    cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer, cbActivitySettingsFlags, cbActivityNativeSnapshot,
     cbActivityIconAccepted, cbActivityIconsToSend, CB_ACTIVITY_MAX_ICON_BYTES,
   };
 }
@@ -123,6 +134,10 @@ const cbActivity = {
   ready: false,
   settingsGeneration: 0,
   settingsRequestEpoch: 0,
+  settingsConnectionGeneration: 0,
+  settingsEpoch: null,
+  settingsRevision: -1,
+  settingsChangedAtMs: null,
   // Domains whose icon reached Mac Vault during this worker's life (no need to
   // read it again on every visit).
   sentIconDomains: new Set(),
@@ -157,15 +172,67 @@ const cbActivity = {
   async refreshSettings() {
     const generation = this.settingsGeneration;
     const requestEpoch = ++this.settingsRequestEpoch;
+    const connectionGeneration = this.settingsConnectionGeneration;
     try {
       const reply = await cbClassifierHub.request("activity-settings", {});
       // A later accepted snapshot (including a push) or GET invalidates this
       // response. These counters are memory-only, not stored schema revisions.
-      if (generation !== this.settingsGeneration || requestEpoch !== this.settingsRequestEpoch) return;
-      await this.applySettingsSnapshot(reply && reply.settings);
+      if (generation !== this.settingsGeneration || requestEpoch !== this.settingsRequestEpoch
+        || connectionGeneration !== this.settingsConnectionGeneration) return;
+      if (typeof cbConnection !== "undefined" && cbConnection.activitySettingsNotifications === true) {
+        await this.applyNativeSettingsSnapshot(reply, connectionGeneration);
+      } else {
+        await this.applySettingsSnapshot(reply && reply.settings);
+      }
     } catch (_) {
       // Hub not ready; keep the last known flags (default off).
     }
+  },
+
+  beginSettingsConnection(generation) {
+    this.settingsConnectionGeneration = generation;
+    this.settingsGeneration += 1;
+    this.settingsRequestEpoch += 1;
+    this.settingsEpoch = null;
+    this.settingsRevision = -1;
+    this.settingsChangedAtMs = null;
+  },
+
+  async applyNativeSettingsSnapshot(body, connectionGeneration) {
+    const snapshot = cbActivityNativeSnapshot(body);
+    if (!snapshot || connectionGeneration !== this.settingsConnectionGeneration) return false;
+    if (this.settingsEpoch !== null && this.settingsEpoch !== snapshot.epoch) return false;
+    if (snapshot.revision < this.settingsRevision) return false;
+    if (snapshot.revision === this.settingsRevision) {
+      return snapshot.changedAtMs === this.settingsChangedAtMs
+        && Object.keys(snapshot.flags).every(key => snapshot.flags[key] === this.enabled[key]);
+    }
+    this.settingsEpoch = snapshot.epoch;
+    this.settingsRevision = snapshot.revision;
+    this.settingsChangedAtMs = snapshot.changedAtMs;
+    const applied = this.applySettingsSnapshot(body.settings);
+    const generation = this.settingsGeneration;
+    await applied;
+    if (generation === this.settingsGeneration && connectionGeneration === this.settingsConnectionGeneration) {
+      this.broadcastSettings(snapshot);
+    }
+    return true;
+  },
+
+  broadcastSettings(snapshot) {
+    // Use ordinary page messaging, never the custom-rule delivery/ACK queue.
+    if (!chrome.tabs || typeof chrome.tabs.query !== "function") return;
+    const generation = this.settingsConnectionGeneration;
+    chrome.tabs.query({}, tabs => {
+      if (chrome.runtime.lastError || generation !== this.settingsConnectionGeneration
+        || this.settingsEpoch !== snapshot.epoch || this.settingsRevision !== snapshot.revision) return;
+      for (const tab of tabs || []) {
+        if (!Number.isInteger(tab?.id) || !/^https?:/i.test(tab.url || tab.pendingUrl || "")) continue;
+        try {
+          chrome.tabs.sendMessage(tab.id, { kind: "vault-activity-settings-updated", ...snapshot }, () => { void chrome.runtime.lastError; });
+        } catch (_) { /* an absent content receiver is not an Activity command */ }
+      }
+    });
   },
 
   async applySettingsSnapshot(settings) {
@@ -181,6 +248,7 @@ const cbActivity = {
   },
 
   async resolveActive(_reason) {
+    const generation = this.settingsGeneration;
     if (!this.enabled["web-visit"]) { await this.closeSession("disabled"); return; }
     let tab;
     try {
@@ -199,7 +267,7 @@ const cbActivity = {
     const session = await this.loadSession();
     if (session && session.domain === domain && session.tabId === (tab && tab.id)) return;
     await this.closeSession("switch");
-    if (domain && tab) {
+    if (domain && tab && this.enabled["web-visit"] && generation === this.settingsGeneration) {
       await chrome.storage.local.set({
         [CB_ACTIVITY_SESSION_KEY]: { domain, tabId: tab.id, startMs: Date.now(), favicon: tab.favIconUrl || null },
       });
