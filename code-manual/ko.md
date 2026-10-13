@@ -16,7 +16,7 @@
 
 - `on(type, handler)` → boolean. `handler(ev)`를 등록합니다. 여러 핸들러는 등록 순서대로 실행됩니다. false는 인수 오류 또는 핸들러 한도 초과를 뜻합니다. `ev = { type: string, now: number, data }`; `now`는 Unix 밀리초입니다.
 - `v.state`: 이벤트 dispatch 후 저장되는 변경 가능한 JSON 객체입니다. 기존 state를 덮어쓰지 말고 없는 필드를 초기화하세요. 객체가 아닌 값이나 배열을 지정하면 `{}`로 초기화됩니다. 직렬화할 수 없거나 너무 큰 업데이트는 저장되지 않습니다.
-- `v.log(...values)`: 이 그룹 Log를 만드는 유일한 방법입니다. Logs/Clear는 그룹별로 독립적입니다. 로드 오류는 Run 상태에 표시되고 핸들러 진단은 Log에 들어가지 않습니다.
+- `v.log(...values)`: 이 그룹의 Log에 기록합니다. 보고된 페이지 동작 오류도 여기에 표시되며, 해당 동작은 다시 실행되지 않습니다. Logs/Clear는 그룹별로 독립적입니다. 로드 오류는 Run 상태에 표시되고 다른 핸들러 진단은 Log에 들어가지 않습니다.
 - `v.emit(type, data)`: 현재 이벤트 다음에 `data`의 JSON 사본을 새 `now`와 함께을 이 그룹 핸들러에 대기시킵니다. 동기 호출이 아닙니다.
 - `v.panel(id, spec, tabId?)`: 이 그룹의 이름 있는 패널을 바꿉니다. 접근 가능한 모든 웹 페이지에 표시하려면 `tabId`를 생략하고, 정수 탭 ID를 사용할 수도 있습니다. null `spec`은 패널을 제거합니다. Panels를 참조하세요.
 - `v.file(op, path, payload?)` → 요청 ID 문자열. Files를 참조하세요.

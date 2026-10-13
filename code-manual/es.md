@@ -16,7 +16,7 @@ Código fuente: una expresión de función `(on, v) => { ... }`. Solo se admite 
 
 - `on(type, handler)` → booleano. Registra `handler(ev)`; varios manejadores se ejecutan en orden de registro. False significa argumentos inválidos o límite de manejadores alcanzado. `ev = { type: string, now: number, data }`; `now` son milisegundos Unix.
 - `v.state`: objeto JSON mutable, persistido después de distribuir el evento. Inicialice los campos ausentes en lugar de sobrescribir el estado existente. Asignar un valor que no sea objeto o un array lo restablece a `{}`; las actualizaciones no serializables/demasiado grandes no se persisten.
-- `v.log(...values)`: único productor del Registro de este grupo. Los registros/Borrar son independientes por grupo. Los errores de carga aparecen en el estado de ejecución; los diagnósticos de los manejadores no rellenan el Registro.
+- `v.log(...values)`: escribe en el Registro de este grupo. Los errores notificados de acciones de página también aparecen aquí; esas acciones no se repiten. Los registros/Borrar son independientes por grupo. Los errores de carga aparecen en el estado de ejecución; los demás diagnósticos de los manejadores no rellenan el Registro.
 - `v.emit(type, data)`: encola una copia JSON de `data` para los manejadores de este grupo después del evento actual, con un `now` nuevo; no es una llamada síncrona.
 - `v.panel(id, spec, tabId?)`: sustituye el panel con nombre de este grupo; omita `tabId` para todas las páginas web accesibles o use un ID de pestaña entero. Un `spec` null lo elimina. Véase Paneles.
 - `v.file(op, path, payload?)` → cadena con el ID de solicitud. Véase Archivos.

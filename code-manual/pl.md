@@ -16,7 +16,7 @@ Source: jedno wyrażenie funkcji `(on, v) => { ... }`. Obsługiwane są tylko sy
 
 - `on(type, handler)` → boolean. Rejestruje `handler(ev)`; wiele handlers działa w kolejności rejestracji. False oznacza nieprawidłowe argumenty lub osiągnięcie limitu handlers. `ev = { type: string, now: number, data }`; `now` to milisekundy Unix.
 - `v.state`: modyfikowalny obiekt JSON, zapisywany po event dispatch. Inicjalizuj brakujące fields zamiast nadpisywać istniejący state. Przypisanie non-object lub tablicy resetuje go do `{}`; aktualizacje niepodlegające serializacji lub zbyt duże nie są zapisywane.
-- `v.log(...values)`: jedyne źródło wpisów do Log tej grupy. Logs/Clear są niezależne dla grup. Błędy ładowania pojawiają się w statusie Run; diagnostyka handlerów nie trafia do Log.
+- `v.log(...values)`: zapisuje wpisy do Log tej grupy. Zgłoszone błędy działań na stronie także pojawiają się tutaj; te działania nie są powtarzane. Logs/Clear są niezależne dla grup. Błędy ładowania pojawiają się w statusie Run; pozostała diagnostyka handlerów nie trafia do Log.
 - `v.emit(type, data)`: umieszcza kopię JSON `data` w kolejce handlers tej grupy po bieżącym evencie, ze świeżym `now`; to nie jest wywołanie synchroniczne.
 - `v.panel(id, spec, tabId?)`: zastępuje nazwany panel grupy; pomiń `tabId` dla wszystkich dostępnych stron internetowych albo użyj całkowitego tab ID. Null `spec` usuwa panel. Zobacz Panels.
 - `v.file(op, path, payload?)` → string request ID. Zobacz Files.

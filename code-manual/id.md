@@ -16,7 +16,7 @@ Sumber: satu ekspresi fungsi `(on, v) => { ... }`. Hanya JavaScript sinkron dan 
 
 - `on(type, handler)` → boolean. Mendaftarkan `handler(ev)`; beberapa handler berjalan sesuai urutan registrasi. False berarti argumen tidak valid atau batas handler tercapai. `ev = { type: string, now: number, data }`; `now` adalah Unix milliseconds.
 - `v.state`: objek JSON yang dapat diubah dan disimpan setelah dispatch. Inisialisasi field yang hilang alih-alih menimpa state lama. Nilai non-object atau array meresetnya menjadi `{}`; update yang tak dapat diserialisasi/terlalu besar tidak disimpan.
-- `v.log(...values)`: satu-satunya pembuat Log grup ini. Logs/Clear terpisah per grup. Kesalahan pemuatan muncul di status Run; diagnostik handler tidak masuk Log.
+- `v.log(...values)`: menulis ke Log grup ini. Kesalahan tindakan halaman yang dilaporkan juga muncul di sini; tindakan tersebut tidak dijalankan ulang. Logs/Clear terpisah per grup. Kesalahan pemuatan muncul di status Run; diagnostik handler lainnya tidak masuk Log.
 - `v.emit(type, data)`: mengantrekan salinan JSON `data` untuk handler grup ini setelah peristiwa saat ini, dengan `now` baru; bukan pemanggilan sinkron.
 - `v.panel(id, spec, tabId?)`: mengganti panel bernama milik grup; hilangkan `tabId` untuk semua halaman web yang dapat diakses, atau gunakan ID tab integer. `spec` null menghapus panel. Lihat Panel.
 - `v.file(op, path, payload?)` → string ID permintaan. Lihat Files.

@@ -16,7 +16,7 @@
 
 - `on(type, handler)` → boolean। `handler(ev)` নিবন্ধন করে; একাধিক handler নিবন্ধনের ক্রমে চলে। False মানে argument অবৈধ বা handler limit পূর্ণ। `ev = { type: string, now: number, data }`; `now` হলো Unix milliseconds।
 - `v.state`: mutable JSON object, event dispatch শেষে সংরক্ষিত হয়। বিদ্যমান state না মুছে অনুপস্থিত field initialize করুন। Object নয় বা array দিলে `{}` হয়; serialize করা যায় না বা অতিরিক্ত বড় update সংরক্ষিত হয় না।
-- `v.log(...values)`: এই group-এর Log-এর একমাত্র উৎস। Log/Clear প্রতি group আলাদা। Load error Run status-এ দেখা যায়; handler diagnostic Log-এ যোগ হয় না।
+- `v.log(...values)`: এই group-এর Log-এ লেখে। রিপোর্ট করা page-action error-ও এখানে দেখা যায়; সেই action আবার চালানো হয় না। Log/Clear প্রতি group আলাদা। Load error Run status-এ দেখা যায়; অন্য handler diagnostic Log-এ যোগ হয় না।
 - `v.emit(type, data)`: বর্তমান event-এর পরে এই group-এর handler-এ `data`-র JSON copy queue করে, নতুন `now`-সহ; এটি synchronous call নয়।
 - `v.panel(id, spec, tabId?)`: group-এর নামযুক্ত panel প্রতিস্থাপন করে; সব accessible web page-এর জন্য `tabId` বাদ দিন, অথবা integer tab ID দিন। Null `spec` panel সরায়। Panel অংশ দেখুন।
 - `v.file(op, path, payload?)` → request ID string। Files অংশ দেখুন।

@@ -16,7 +16,7 @@ Source : une expression de fonction `(on, v) => { ... }`. Seuls JavaScript synch
 
 - `on(type, handler)` → booléen. Enregistre `handler(ev)` ; plusieurs gestionnaires s’exécutent dans l’ordre d’enregistrement. False signifie des arguments invalides ou une limite de gestionnaires atteinte. `ev = { type: string, now: number, data }` ; `now` est en millisecondes Unix.
 - `v.state` : objet JSON modifiable, persisté après la distribution de l’événement. Initialisez les champs absents au lieu d’écraser l’état existant. Affecter une valeur non objet ou un tableau le réinitialise à `{}` ; les mises à jour non sérialisables/trop grandes ne sont pas persistées.
-- `v.log(...values)` : seul producteur du Journal de ce groupe. Les journaux/Effacer sont indépendants par groupe. Les erreurs de chargement apparaissent dans l’état d’exécution ; les diagnostics des gestionnaires ne remplissent pas le Journal.
+- `v.log(...values)` : écrit dans le Journal de ce groupe. Les erreurs signalées des actions de page apparaissent aussi ici ; ces actions ne sont pas rejouées. Les journaux/Effacer sont indépendants par groupe. Les erreurs de chargement apparaissent dans l’état d’exécution ; les autres diagnostics des gestionnaires ne remplissent pas le Journal.
 - `v.emit(type, data)` : met en file une copie JSON de `data` pour les gestionnaires de ce groupe après l’événement courant, avec un nouveau `now` ; ce n’est pas un appel synchrone.
 - `v.panel(id, spec, tabId?)` : remplace le panneau nommé de ce groupe ; omettez `tabId` pour toutes les pages web accessibles ou utilisez un identifiant d’onglet entier. Un `spec` null le retire. Voir Panneaux.
 - `v.file(op, path, payload?)` → chaîne d’identifiant de requête. Voir Fichiers.
