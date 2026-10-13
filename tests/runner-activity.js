@@ -6,7 +6,7 @@
 const path = require("path");
 const {
   cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer,
-  cbActivityIconAccepted, cbActivityIconsToSend, CB_ACTIVITY_MAX_ICON_BYTES,
+  cbActivityIconAccepted, cbActivityIconsToSend, cbActivityBodyBytes, cbActivityNativeBodyBudget, cbActivityPackBody, CB_ACTIVITY_MAX_BODY_BYTES, CB_ACTIVITY_MAX_ICON_BYTES,
 } = require(path.join(__dirname, "..", "vault-activity.js"));
 
 let pass = 0;
@@ -80,6 +80,33 @@ check("a URL is refused", !cbActivityIconAccepted("https://example.com/favicon.i
 const pending = { "a.com": png(100), "b.com": "data:text/html,x", "c.com": png(100), "d.com": png(100) };
 eq("send picks accepted icons, oldest first, up to the limit", Object.keys(cbActivityIconsToSend(pending, 2)), ["a.com", "c.com"]);
 eq("send with nothing pending", cbActivityIconsToSend(undefined, 20), {});
+
+// Native body cap includes authority, UTF-8 labels, JSON punctuation and icons.
+const authorization = { epoch: "f9e22cb3-6d62-4251-a995-d8cf84e75c79", revision: 7 };
+const authorizedRows = Array.from({ length: 400 }, (_, i) => ({ id: "measured-" + i, category: "content-watched",
+  startedAtMs: 1000, observedEndedAtMs: 5000, seconds: 4, key: "youtube:" + i,
+  label: "实际观察/".repeat(50), authorization }));
+const largeIcons = Object.fromEntries(Array.from({ length: 20 }, (_, i) => ["图标" + i + ".example", png(24000)]));
+let remaining = authorizedRows, packedIDs = [], bodies = [];
+while (remaining.length) {
+  const packed = cbActivityPackBody(remaining, largeIcons);bodies.push(packed);
+  check("dense batch stays within exact UTF-8 body cap", cbActivityBodyBytes(packed.body) < CB_ACTIVITY_MAX_BODY_BYTES);
+  check("dense native serialization budget stays within cap", cbActivityNativeBodyBudget(packed.body) === packed.nativeBudgetBytes && packed.nativeBudgetBytes < CB_ACTIVITY_MAX_BODY_BYTES);
+  check("existing record count cap remains bounded", packed.body.records.length > 0 && packed.body.records.length <= 400);
+  const selected = new Set(packed.body.records.map(record => record.id));packedIDs.push(...selected);
+  remaining = remaining.filter(record => !selected.has(record.id));
+}
+eq("dense packing eventually retains all four hundred authorized records", packedIDs.length, 400);
+check("icons that exceed available body space are omitted, not mutated", Object.keys(bodies[0].body.icons).length < 20 && Object.keys(largeIcons).length === 20);
+const utf8Icon = "data:image/svg+xml," + "汉".repeat(7900);
+check("icon byte cap counts UTF-8 rather than characters", cbActivityIconAccepted(utf8Icon) && !cbActivityIconAccepted("data:image/svg+xml," + "汉".repeat(8000)));
+const unicodePacked = cbActivityPackBody([authorizedRows[0]], { "图标.example": utf8Icon });
+check("non-ASCII icon/domain JSON accounting is exact", unicodePacked.wireBytes === Buffer.byteLength(JSON.stringify(unicodePacked.body), "utf8") && unicodePacked.nativeBudgetBytes === cbActivityNativeBodyBudget(unicodePacked.body));
+const oversized = { ...authorizedRows[0], id: "oversized", label: "汉".repeat(40000) };
+const following = cbActivityPackBody([null, { id: "malformed" }, oversized, authorizedRows[1]], largeIcons);
+eq("one oversized or malformed entry cannot block following valid records", following.body.records.map(record => record.id), [authorizedRows[1].id]);
+eq("oversized record gets explicit client rejection ID", following.rejectedIDs, ["malformed", "oversized"]);
+check("old dense request really exceeded unchanged native cap", cbActivityBodyBytes({ records: authorizedRows, icons: largeIcons }) > CB_ACTIVITY_MAX_BODY_BYTES);
 
 console.log(`ACTIVITY TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 if (fail === 0) console.log("__CB_TEST_RESULT__: OK");

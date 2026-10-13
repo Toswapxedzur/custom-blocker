@@ -12,14 +12,14 @@ let checks = 0;
 function check(label, predicate) { assert(predicate, label); checks++; console.log('PASS ' + label); }
 async function fixture(focused = true, supported = true) {
   let now = 1000, serial = 0, settings = snapshot(0, false, false, now), heldSettings = null, heldActive = null, holdFanout = false, response = null;
-  const storage = {}, sent = [], pushes = [], requests = [], fanouts = [];
+  const storage = {}, sent = [], pushes = [], requests = [], bodies = [], fanouts = [];
   const event = () => ({ addListener() {} });
-  const context = vm.createContext({ console, URL, Date: class extends Date { static now() { return now; } },
+  const context = vm.createContext({ console, URL, TextEncoder, Date: class extends Date { static now() { return now; } },
     crypto: { randomUUID: () => 'visit-' + (++serial) }, cbConnection: { activitySettingsNotifications: supported },
     cbClassifierHub: { async request(op, body) {
       requests.push(op);
       if (op === 'activity-settings') return heldSettings || structuredClone(settings);
-      if (op === 'activity-record') { sent.push(...structuredClone(body.records));
+      if (op === 'activity-record') { bodies.push(structuredClone(body));sent.push(...structuredClone(body.records));
         return response ? response(body) : { stored: 0, acceptedIDs: body.records.map(r => r.id), rejectedIDs: [], pendingIDs: [] }; }
       throw Error(op);
     } },
@@ -37,7 +37,7 @@ async function fixture(focused = true, supported = true) {
   vm.runInContext(source('vault-activity.js'), context);
   const feeder = vm.runInContext('cbActivity', context);
   await feeder.init(); await feeder.sessionTail;
-  return { feeder, storage, sent, pushes, requests, context,
+  return { feeder, storage, sent, pushes, requests, bodies, context,
     now: () => now, at(value) { now = value; }, setFocused(value) { focused = value; },
     supported(value) { context.cbConnection.activitySettingsNotifications = value; },
     holdSettings(value) { heldSettings = value; }, holdActive(value) { heldActive = value; },
@@ -179,6 +179,12 @@ function config(generation, content, changedAtMs, options = {}) {
   buffered.storage.cbActivityBuffer = [null, { id: 'legacy' }, { ...row, id: 'prior-worker', authorization: { epoch, revision: 0 } }];
   await buffered.drain();
   check('same-epoch persisted old revision reaches authoritative native admission; malformed buffer excluded', buffered.sent.at(-1).id === 'prior-worker' && !buffered.storage.cbActivityBuffer.length);
+  buffered.storage.cbActivityBuffer = [{ ...row, id: 'too-big', label: '汉'.repeat(40000) }, { ...row, id: 'fits-after' }];
+  buffered.storage.cbActivityPendingIcons = Object.fromEntries(Array.from({ length: 20 }, (_, i) => ['icon'+i+'.example', 'data:image/png;base64,'+'A'.repeat(24000 - 'data:image/png;base64,'.length)]));
+  await buffered.drain();
+  check('actual flush skips oversized head entry and submits following valid record', buffered.sent.at(-1).id === 'fits-after' && !buffered.storage.cbActivityBuffer.length);
+  check('actual flush retains every unsent icon', Object.keys(buffered.storage.cbActivityPendingIcons).length > 0);
+  check('actual submitted body remains below UTF-8 cap including icons', new TextEncoder().encode(JSON.stringify(buffered.bodies.at(-1))).length < 88000);
   buffered.storage.cbActivityBuffer = [row]; buffered.feeder.beginSettingsConnection(2); buffered.at(10000);
   await buffered.apply(snapshot(0, false, true, 10000, otherEpoch)); await buffered.drain();
   check('fresh new native epoch discards stale-epoch pending bytes', !buffered.storage.cbActivityBuffer.length);
