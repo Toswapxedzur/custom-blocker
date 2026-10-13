@@ -156,6 +156,7 @@ const cbActivity = {
   capturePaused: true,
   contentToken: crypto.randomUUID(),
   captureAuthorization: null,
+  contentCutoff: null,
   bufferEpoch: null,
   knownGrants: new Map(),
   sessionTail: Promise.resolve(),
@@ -240,7 +241,12 @@ const cbActivity = {
     const observedAtMs = Date.now(), wasPaused = this.capturePaused;
     const webContinues = !wasPaused && this.enabled["web-visit"] && snapshot.flags["web-visit"]
       && this.bufferEpoch === snapshot.epoch;
-    if (this.bufferEpoch !== null && this.bufferEpoch !== snapshot.epoch) this.knownGrants.clear();
+    if (this.bufferEpoch !== null && this.bufferEpoch !== snapshot.epoch) {
+      this.knownGrants.clear();this.contentCutoff = null;
+    }
+    if (!snapshot.flags["content-watched"] && (this.enabled["content-watched"] || this.contentCutoff === null)) {
+      this.contentCutoff = { epoch: snapshot.epoch, revision: snapshot.revision, changedAtMs: snapshot.changedAtMs };
+    }
     this.bufferEpoch = snapshot.epoch;
     for (const grant of this.knownGrants.values()) {
       for (const key of ["web-visit", "content-watched"]) {
@@ -288,7 +294,7 @@ const cbActivity = {
 
   contentSettings(cutoffMs = Date.now()) {
     return { token: this.contentToken, generation: this.settingsGeneration, paused: this.capturePaused,
-      flags: { ...this.enabled }, authority: this.captureAuthorization, cutoffMs };
+      flags: { ...this.enabled }, authority: this.captureAuthorization, contentCutoff: this.contentCutoff, cutoffMs };
   },
 
   broadcastSettings(_snapshot, cutoffMs = Date.now()) {
@@ -447,7 +453,12 @@ const cbActivity = {
     const session = await this.loadSession();
     if (!session) return;
     await chrome.storage.local.remove(CB_ACTIVITY_SESSION_KEY);
-    const raw = cbActivityMakeVisit(session, Math.min(observedEndMs, Date.now()), {
+    const grantCutoff = this.knownGrants.get(session.authorization?.revision)?.cutoffs["web-visit"] ?? Infinity;
+    // Disabled time cannot qualify an otherwise subthreshold episode. An ON
+    // revision split may use the whole already-observed continuous ON episode.
+    const eligibleEnd = Math.min(observedEndMs, Date.now(), grantCutoff,
+      reason === "native-settings-off" ? cutoffMs : Infinity);
+    const raw = cbActivityMakeVisit(session, eligibleEnd, {
       minMs: this.visitEpisode?.domain === session.domain && this.visitEpisode?.tabId === session.tabId && this.visitEpisode.eligible ? 0 : CB_ACTIVITY_MIN_VISIT_MS, makeId: () => crypto.randomUUID(),
     });
     if (raw) this.visitEpisode = { domain: session.domain, tabId: session.tabId, eligible: true };
