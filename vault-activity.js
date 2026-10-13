@@ -63,11 +63,11 @@ const CB_ACTIVITY_MAX_ICON_BYTES = 24000;
 function cbActivityIconAccepted(dataURI) {
   return typeof dataURI === "string"
     && dataURI.startsWith("data:image/")
-    && dataURI.length <= CB_ACTIVITY_MAX_ICON_BYTES;
+    && new TextEncoder().encode(dataURI).length <= CB_ACTIVITY_MAX_ICON_BYTES;
 }
 
-// The pending icons a flush carries: at most `limit` (a flush stays far under
-// the hub's 1 MiB message cap), oldest first.
+// Candidate pending icons; the request packer applies the smaller native
+// classifier-body byte cap after selecting records.
 function cbActivityIconsToSend(pending, limit) {
   const out = {};
   const max = typeof limit === "number" && limit > 0 ? limit : 20;
@@ -76,6 +76,42 @@ function cbActivityIconsToSend(pending, limit) {
     if (cbActivityIconAccepted(uri)) out[domain] = uri;
   }
   return out;
+}
+
+// The desktop hub reserializes the body with Foundation's default slash
+// escaping. Count exact UTF-8 JSON bytes and bound numeric spelling differences
+// (Foundation can retain a decimal suffix/exponent zero) without raising its cap.
+const CB_ACTIVITY_MAX_BODY_BYTES = 88000;
+const CB_ACTIVITY_FLUSH_BATCH = 400;
+const CB_ACTIVITY_ICONS_PER_FLUSH = 20;
+function cbActivityBodyBytes(body) { return new TextEncoder().encode(JSON.stringify(body)).length; }
+function cbActivityNativeBodyBudget(value) {
+  const json = JSON.stringify(value).replace(/\//g, "\\/");
+  const numericCount = item => typeof item === "number" ? 1 : item && typeof item === "object"
+    ? Object.values(item).reduce((sum, child) => sum + numericCount(child), 0) : 0;
+  return new TextEncoder().encode(json).length + numericCount(value) * 3;
+}
+function cbActivityPackBody(records, pendingIcons) {
+  const body = { records: [], icons: {} }, rejectedIDs = [];
+  let bytes = cbActivityNativeBodyBudget(body);
+  for (const record of records) {
+    if (!cbActivityBrowserRecordShape(record)) {
+      if (typeof record?.id === "string") rejectedIDs.push(record.id);continue;
+    }
+    let cost;
+    try { cost = cbActivityNativeBodyBudget(record); } catch (_) { rejectedIDs.push(record.id); continue; }
+    if (cost + cbActivityNativeBodyBudget({ records: [], icons: {} }) >= CB_ACTIVITY_MAX_BODY_BYTES) {
+      rejectedIDs.push(record.id);continue;
+    }
+    if (body.records.length >= CB_ACTIVITY_FLUSH_BATCH || bytes + cost + (body.records.length ? 1 : 0) >= CB_ACTIVITY_MAX_BODY_BYTES) continue;
+    bytes += cost + (body.records.length ? 1 : 0);body.records.push(record);
+  }
+  for (const [domain, uri] of Object.entries(cbActivityIconsToSend(pendingIcons, CB_ACTIVITY_ICONS_PER_FLUSH))) {
+    const cost = cbActivityNativeBodyBudget({ [domain]: uri }) - 2 + (Object.keys(body.icons).length ? 1 : 0);
+    if (bytes + cost >= CB_ACTIVITY_MAX_BODY_BYTES) continue;
+    bytes += cost;body.icons[domain] = uri;
+  }
+  return { body, rejectedIDs, wireBytes: cbActivityBodyBytes(body), nativeBudgetBytes: bytes };
 }
 
 // Both normal GET replies and native notifications use the same strict flags.
@@ -123,7 +159,7 @@ function cbActivityBrowserRecordShape(record) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer, cbActivitySettingsFlags, cbActivityNativeSnapshot, cbActivityBrowserRecordShape,
-    cbActivityIconAccepted, cbActivityIconsToSend, CB_ACTIVITY_MAX_ICON_BYTES,
+    cbActivityIconAccepted, cbActivityIconsToSend, cbActivityBodyBytes, cbActivityNativeBodyBudget, cbActivityPackBody, CB_ACTIVITY_MAX_BODY_BYTES, CB_ACTIVITY_MAX_ICON_BYTES,
   };
 }
 
@@ -137,10 +173,8 @@ const CB_ACTIVITY_BUFFER_KEY = "cbActivityBuffer";
 // unreachable; removed only once a flush carrying it succeeded.
 const CB_ACTIVITY_ICONS_KEY = "cbActivityPendingIcons";
 const CB_ACTIVITY_PENDING_ICONS_CAP = 200;
-const CB_ACTIVITY_ICONS_PER_FLUSH = 20;
 const CB_ACTIVITY_FLUSH_ALARM = "cb-activity-flush";
 const CB_ACTIVITY_BUFFER_CAP = 2000;
-const CB_ACTIVITY_FLUSH_BATCH = 400; // under ActivityWire.maxRecordsPerFlush (500)
 const CB_ACTIVITY_MIN_VISIT_MS = 2000;
 
 const cbActivity = {
@@ -531,10 +565,19 @@ const cbActivity = {
           const rows = Array.isArray(latest[CB_ACTIVITY_BUFFER_KEY]) ? latest[CB_ACTIVITY_BUFFER_KEY] : [];
           await chrome.storage.local.set({ [CB_ACTIVITY_BUFFER_KEY]: rows.filter(canReplay) });
         });
-        batch = valid.slice(0, CB_ACTIVITY_FLUSH_BATCH);
+        const packed = cbActivityPackBody(valid, await this.loadPendingIcons());
+        if (packed.rejectedIDs.length) {
+          const rejected = new Set(packed.rejectedIDs);
+          console.warn("[CustomBlocker] Activity records exceed native body budget", packed.rejectedIDs);
+          await this._bufferOperation(async () => {
+            const latest = await chrome.storage.local.get(CB_ACTIVITY_BUFFER_KEY);
+            const rows = Array.isArray(latest[CB_ACTIVITY_BUFFER_KEY]) ? latest[CB_ACTIVITY_BUFFER_KEY] : [];
+            await chrome.storage.local.set({ [CB_ACTIVITY_BUFFER_KEY]: rows.filter(record => !rejected.has(record?.id)) });
+          });
+        }
+        batch = packed.body.records;icons = packed.body.icons;
         if (!batch.length) return;
-        icons = cbActivityIconsToSend(await this.loadPendingIcons(), CB_ACTIVITY_ICONS_PER_FLUSH);
-        reply = await cbClassifierHub.request("activity-record", { records: batch, icons });
+        reply = await cbClassifierHub.request("activity-record", packed.body);
       } catch (_) { return; }
       const ids = new Set(batch.map(record => record.id)), classified = new Set();
       if (!["acceptedIDs", "rejectedIDs", "pendingIDs"].every(key => Array.isArray(reply?.[key]) && reply[key].length <= batch.length
