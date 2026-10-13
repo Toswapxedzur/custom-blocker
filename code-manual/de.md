@@ -16,7 +16,7 @@ Quelle: ein einzelner Funktionsausdruck `(on, v) => { ... }`. Unterstützt werde
 
 - `on(type, handler)` → boolescher Wert. Registriert `handler(ev)`; mehrere Handler laufen in Registrierungsreihenfolge. False bedeutet ungültige Argumente oder erreichtes Handlerlimit. `ev = { type: string, now: number, data }`; `now` sind Unix-Millisekunden.
 - `v.state`: veränderliches JSON-Objekt, das nach der Ereignisverteilung gespeichert wird. Initialisieren Sie fehlende Felder, statt bestehenden Zustand zu überschreiben. Das Zuweisen eines Nicht-Objekts oder Arrays setzt es auf `{}` zurück; nicht serialisierbare/zu große Änderungen werden nicht gespeichert.
-- `v.log(...values)`: einziger Erzeuger des Protokolls dieser Gruppe. Protokolle/Leeren sind pro Gruppe unabhängig. Ladefehler erscheinen im Ausführungsstatus; Handlerdiagnosen füllen das Protokoll nicht.
+- `v.log(...values)`: schreibt in das Log dieser Gruppe. Gemeldete Fehler bei Seitenaktionen erscheinen ebenfalls hier; diese Aktionen werden nicht erneut ausgeführt. Logs/Clear sind pro Gruppe unabhängig. Ladefehler erscheinen im Run-Status; andere Handler-Diagnosen füllen das Log nicht.
 - `v.emit(type, data)`: stellt eine JSON-Kopie von `data` nach dem aktuellen Ereignis für die Handler dieser Gruppe mit einem neuen `now` in die Warteschlange; kein synchroner Aufruf.
 - `v.panel(id, spec, tabId?)`: ersetzt das benannte Panel dieser Gruppe; lassen Sie `tabId` für alle zugänglichen Webseiten weg oder verwenden Sie eine ganzzahlige Tab-ID. Null als `spec` entfernt es. Siehe Panels.
 - `v.file(op, path, payload?)` → Anfrage-ID als Zeichenfolge. Siehe Dateien.

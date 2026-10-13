@@ -16,7 +16,7 @@ Source: één functie-expressie `(on, v) => { ... }`. Alleen synchrone JavaScrip
 
 - `on(type, handler)` → boolean. Registreert `handler(ev)`; meerdere handlers worden uitgevoerd in registratievolgorde. False betekent ongeldige argumenten of dat de handlerlimiet is bereikt. `ev = { type: string, now: number, data }`; `now` is Unix-milliseconden.
 - `v.state`: wijzigbaar JSON-object, opgeslagen na eventdispatch. Initialiseer ontbrekende fields in plaats van bestaande state te overschrijven. Toewijzing van een non-object of array reset naar `{}`; niet-serialiseerbare/te grote wijzigingen worden niet opgeslagen.
-- `v.log(...values)`: de enige producent van de Log van deze groep. Logs/Clear zijn per groep onafhankelijk. Laadfouten staan in Run-status; handlerdiagnostiek komt niet in Log.
+- `v.log(...values)`: schrijft naar de Log van deze groep. Gemelde fouten bij pagina-acties verschijnen hier ook; die acties worden niet opnieuw uitgevoerd. Logs/Clear zijn per groep onafhankelijk. Laadfouten staan in de Run-status; andere handlerdiagnostiek komt niet in Log.
 - `v.emit(type, data)`: zet een JSON-kopie van `data` in de wachtrij voor de handlers van deze groep na het huidige event, met een nieuwe `now`; dit is geen synchrone aanroep.
 - `v.panel(id, spec, tabId?)`: vervangt het benoemde panel van deze groep; laat `tabId` weg voor elke toegankelijke webpagina of gebruik een geheel tab-ID. `spec` null verwijdert het panel. Zie Panels.
 - `v.file(op, path, payload?)` → request-ID-string. Zie Files.

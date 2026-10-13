@@ -16,7 +16,7 @@ Source: tek bir function expression `(on, v) => { ... }`. Yalnızca eşzamanlı 
 
 - `on(type, handler)` → boolean. `handler(ev)` kaydeder; birden çok handlers kayıt sırasıyla çalışır. False, geçersiz arguments veya handler limitinin dolduğu anlamına gelir. `ev = { type: string, now: number, data }`; `now` Unix milisaniyesidir.
 - `v.state`: event dispatch sonrasında kaydedilen değiştirilebilir JSON object. Mevcut state'i ezmek yerine eksik fields değerlerini başlatın. Non-object veya array atanması `{}` değerine sıfırlar; serileştirilemeyen/aşırı büyük güncellemeler kaydedilmez.
-- `v.log(...values)`: bu grubun Log kaydını oluşturan tek kaynak. Logs/Clear her grup için ayrıdır. Yükleme hataları Run durumunda görünür; handler diagnostics Log'a yazılmaz.
+- `v.log(...values)`: bu grubun Log kaydına yazar. Bildirilen sayfa eylemi hataları da burada görünür; bu eylemler yeniden yürütülmez. Logs/Clear her grup için ayrıdır. Yükleme hataları Run durumunda görünür; diğer handler diagnostics Log içine yazılmaz.
 - `v.emit(type, data)`: geçerli event sonrasında bu grubun handlers değerleri için `data` öğesinin JSON kopyasını yeni `now` ile kuyruğa alır; eşzamanlı çağrı değildir.
 - `v.panel(id, spec, tabId?)`: grubun adlandırılmış panelini değiştirir; erişilebilir tüm web sayfaları için `tabId` değerini atlayın veya integer tab ID kullanın. Null `spec` paneli kaldırır. Panels bölümüne bakın.
 - `v.file(op, path, payload?)` → request ID string. Files bölümüne bakın.

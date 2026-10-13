@@ -16,7 +16,7 @@ Source: một biểu thức hàm `(on, v) => { ... }`. Chỉ hỗ trợ JavaScri
 
 - `on(type, handler)` → boolean. Đăng ký `handler(ev)`; nhiều handlers chạy theo thứ tự đăng ký. False nghĩa là arguments không hợp lệ hoặc đạt giới hạn handlers. `ev = { type: string, now: number, data }`; `now` là Unix milliseconds.
 - `v.state`: JSON object có thể thay đổi, được lưu sau event dispatch. Khởi tạo fields còn thiếu thay vì ghi đè state hiện có. Gán non-object hoặc array sẽ reset thành `{}`; cập nhật không serialize được/quá lớn sẽ không lưu.
-- `v.log(...values)`: nguồn duy nhất ghi vào Log của nhóm này. Logs/Clear độc lập theo nhóm. Load errors hiện trong Run status; handler diagnostics không ghi vào Log.
+- `v.log(...values)`: ghi vào Log của nhóm này. Các lỗi thao tác trang được báo cáo cũng xuất hiện ở đây; các thao tác đó không được chạy lại. Logs/Clear độc lập theo nhóm. Load errors hiện trong Run status; các handler diagnostics khác không ghi vào Log.
 - `v.emit(type, data)`: xếp hàng bản sao JSON của `data` cho handlers nhóm này sau event hiện tại, kèm `now` mới; không phải lời gọi đồng bộ.
 - `v.panel(id, spec, tabId?)`: thay panel có tên của nhóm; bỏ `tabId` để áp dụng cho mọi trang web truy cập được, hoặc dùng tab ID dạng số nguyên. `spec` null sẽ xóa panel. Xem Panels.
 - `v.file(op, path, payload?)` → request ID string. Xem Files.

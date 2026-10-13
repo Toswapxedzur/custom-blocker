@@ -16,7 +16,7 @@
 
 - `on(type, handler)` → boolean। `handler(ev)` register ਕਰਦਾ ਹੈ; ਕਈ handlers registration ਦੇ ਕ੍ਰਮ ਵਿੱਚ ਚੱਲਦੇ ਹਨ। False ਦਾ ਮਤਲਬ ਗਲਤ arguments ਜਾਂ handler ਹੱਦ ਪੂਰੀ। `ev = { type: string, now: number, data }`; `now` Unix milliseconds ਹੈ।
 - `v.state`: ਬਦਲਣਯੋਗ JSON object, event dispatch ਮਗਰੋਂ ਸੰਭਾਲਿਆ ਜਾਂਦਾ ਹੈ। ਮੌਜੂਦਾ state ਮਿਟਾਉਣ ਦੀ ਥਾਂ ਗੁੰਮ fields ਸ਼ੁਰੂ ਕਰੋ। Non-object ਜਾਂ array ਦੇਣ ਨਾਲ `{}` ਬਣਦਾ ਹੈ; nonserializable/ਵੱਡੀਆਂ updates ਸੰਭਾਲੀਆਂ ਨਹੀਂ ਜਾਂਦੀਆਂ।
-- `v.log(...values)`: ਇਸ ਸਮੂਹ ਦੇ Log ਦਾ ਇਕੱਲਾ ਸਰੋਤ। Logs/Clear ਹਰ ਸਮੂਹ ਲਈ ਵੱਖਰੇ ਹਨ। Load errors Run status ਵਿੱਚ ਦਿਸਦੇ ਹਨ; handler diagnostics Log ਨਹੀਂ ਭਰਦੇ।
+- `v.log(...values)`: ਇਸ ਸਮੂਹ ਦੇ Log ਵਿੱਚ ਲਿਖਦਾ ਹੈ। ਰਿਪੋਰਟ ਕੀਤੀਆਂ page-action ਗਲਤੀਆਂ ਵੀ ਇੱਥੇ ਦਿਸਦੀਆਂ ਹਨ; ਉਹ actions ਦੁਬਾਰਾ ਨਹੀਂ ਚਲਾਏ ਜਾਂਦੇ। Logs/Clear ਹਰ ਸਮੂਹ ਲਈ ਵੱਖਰੇ ਹਨ। Load errors Run status ਵਿੱਚ ਦਿਸਦੇ ਹਨ; ਹੋਰ handler diagnostics Log ਵਿੱਚ ਨਹੀਂ ਆਉਂਦੇ।
 - `v.emit(type, data)`: ਮੌਜੂਦਾ event ਤੋਂ ਬਾਅਦ, ਇਸ ਸਮੂਹ ਦੇ handlers ਲਈ `data` ਦੀ JSON copy ਨਵੇਂ `now` ਨਾਲ queue ਕਰਦਾ ਹੈ; synchronous call ਨਹੀਂ।
 - `v.panel(id, spec, tabId?)`: ਸਮੂਹ ਦਾ ਨਾਮੀ panel ਬਦਲਦਾ ਹੈ; ਸਾਰੇ ਉਪਲਬਧ web pages ਲਈ `tabId` ਛੱਡੋ ਜਾਂ integer tab ID ਵਰਤੋ। Null `spec` panel ਹਟਾਉਂਦਾ ਹੈ। Panels ਵੇਖੋ।
 - `v.file(op, path, payload?)` → request ID string। Files ਵੇਖੋ।

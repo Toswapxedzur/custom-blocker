@@ -16,7 +16,7 @@
 
 - `on(type, handler)` → boolean। `handler(ev)` register करता है; कई handlers registration order में चलते हैं। False का अर्थ invalid arguments या handler limit पूरा। `ev = { type: string, now: number, data }`; `now` Unix milliseconds है।
 - `v.state`: mutable JSON object, event dispatch के बाद सहेजा जाता है। मौजूदा state को बदलने के बजाय missing fields initialize करें। Non-object या array देने पर `{}` होता है; nonserializable/अत्यधिक बड़ा update सहेजा नहीं जाता।
-- `v.log(...values)`: इस group के Log का एकमात्र स्रोत। Logs/Clear प्रति group अलग हैं। Load errors Run status में दिखते हैं; handler diagnostics Log नहीं भरते।
+- `v.log(...values)`: इस group के Log में लिखता है। रिपोर्ट किए गए page-action errors भी यहाँ दिखते हैं; उन actions को दोबारा नहीं चलाया जाता। Logs/Clear प्रति group अलग हैं। Load errors Run status में दिखते हैं; अन्य handler diagnostics Log में नहीं आते।
 - `v.emit(type, data)`: मौजूदा event के बाद इस group के handlers के लिए `data` की JSON copy queue करता है, नए `now` के साथ; यह synchronous call नहीं है।
 - `v.panel(id, spec, tabId?)`: group का नामित panel बदलता है; सभी उपलब्ध web pages के लिए `tabId` छोड़ें या integer tab ID दें। Null `spec` हटाता है। Panels देखें।
 - `v.file(op, path, payload?)` → request ID string। Files देखें।
