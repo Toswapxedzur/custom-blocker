@@ -78,9 +78,25 @@ function cbActivityIconsToSend(pending, limit) {
   return out;
 }
 
+// Both normal GET replies and native notifications use the same strict flags.
+// A malformed value must never become consent through truthiness coercion.
+function cbActivitySettingsFlags(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return null;
+  const categories = settings.byCategory;
+  if (!categories || typeof categories !== "object" || Array.isArray(categories)) return null;
+  const flags = {};
+  for (const key of ["web-visit", "content-watched"]) {
+    const category = categories[key];
+    if (!category || typeof category !== "object" || Array.isArray(category)
+      || typeof category.enabled !== "boolean") return null;
+    flags[key] = category.enabled;
+  }
+  return flags;
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
-    cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer,
+    cbActivityDomainOf, cbActivityMakeVisit, cbActivityBoundBuffer, cbActivitySettingsFlags,
     cbActivityIconAccepted, cbActivityIconsToSend, CB_ACTIVITY_MAX_ICON_BYTES,
   };
 }
@@ -105,6 +121,8 @@ const cbActivity = {
   // Cached per-category enabled flags from the native settings.
   enabled: { "web-visit": false, "content-watched": false },
   ready: false,
+  settingsGeneration: 0,
+  settingsRequestEpoch: 0,
   // Domains whose icon reached Mac Vault during this worker's life (no need to
   // read it again on every visit).
   sentIconDomains: new Set(),
@@ -137,22 +155,29 @@ const cbActivity = {
   },
 
   async refreshSettings() {
+    const generation = this.settingsGeneration;
+    const requestEpoch = ++this.settingsRequestEpoch;
     try {
       const reply = await cbClassifierHub.request("activity-settings", {});
-      const byCategory = reply && reply.settings && reply.settings.byCategory;
-      if (byCategory) {
-        const next = {
-          "web-visit": !!(byCategory["web-visit"] && byCategory["web-visit"].enabled),
-          "content-watched": !!(byCategory["content-watched"] && byCategory["content-watched"].enabled),
-        };
-        const webWasOn = this.enabled["web-visit"];
-        this.enabled = next;
-        if (webWasOn && !next["web-visit"]) await this.closeSession("web-visit-disabled");
-        if (!webWasOn && next["web-visit"]) await this.resolveActive("web-visit-enabled");
-      }
+      // A later accepted snapshot (including a push) or GET invalidates this
+      // response. These counters are memory-only, not stored schema revisions.
+      if (generation !== this.settingsGeneration || requestEpoch !== this.settingsRequestEpoch) return;
+      await this.applySettingsSnapshot(reply && reply.settings);
     } catch (_) {
-      // Hub not ready; keep the last known flags (default off) and try later.
+      // Hub not ready; keep the last known flags (default off).
     }
+  },
+
+  async applySettingsSnapshot(settings) {
+    const next = cbActivitySettingsFlags(settings);
+    if (!next) return false;
+    const webWasOn = this.enabled["web-visit"];
+    this.settingsGeneration += 1;
+    this.enabled = next;
+    // Apply category transitions through the existing session lifecycle.
+    if (webWasOn && !next["web-visit"]) await this.closeSession("web-visit-disabled");
+    if (!webWasOn && next["web-visit"]) await this.resolveActive("web-visit-enabled");
+    return true;
   },
 
   async resolveActive(_reason) {
