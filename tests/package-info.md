@@ -11,7 +11,7 @@
   with Chrome-reordered object properties, preserving real scalar edits, entry and
   group deletions, array order, and value types across browser program identities.
 
-- `runner-rule-initial-state.js` checks initialization-only custom-rule memory, repeated Run/restart persistence, registration validation, and stale group deletion.
+- `runner-rule-initial-state.js` checks initialization-only custom-rule memory, repeated Run/restart persistence, registration validation, stale group deletion, and a held reconciliation overlapping Runs of different rules. Its actual loader and reconciler share the same lexical snapshot; another rule's Run must not repeat initialization.
 
 - `browser-tag-panel-focus.js` loads the real closed-shadow renderer in an isolated
   Playwright context: a clipped ancestor tests opening without focus-induced

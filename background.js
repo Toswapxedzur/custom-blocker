@@ -2352,8 +2352,15 @@ async function cbRunRuleFile(action) {
 
 let lastReconcileSnapshot = new Map();
 
-async function reconcileCustomGroupHandlers(change) {
-  const newGroups = Array.isArray(change?.newValue) ? change.newValue : [];
+function reconcileCustomGroupHandlers() {
+  // Never replace a completed Run's snapshot with an older reconciliation.
+  return cbSerializeRuleMutation(cbReconcileCustomGroupHandlers);
+}
+
+async function cbReconcileCustomGroupHandlers() {
+  // Read after entering the queue; the caller's snapshot may already be stale.
+  const stored = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] });
+  const newGroups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
   const previous = lastReconcileSnapshot;
   const next = new Map();
   for (const group of newGroups) {
@@ -2376,7 +2383,8 @@ async function reconcileCustomGroupHandlers(change) {
     const group = newGroups.find((g) => g.id === groupId);
     if (!before || before.activeEventSource !== snapshot.activeEventSource) {
       // A load the sandbox never answered isn't recorded: the next change retries it.
-      if (!(await loadCustomGroupSource(group))) next.delete(groupId);
+      // Already in the rule queue: its outer loader would wait on us.
+      if (!(await cbLoadCustomGroupSource(group))) next.delete(groupId);
     } else if (before.enabled !== snapshot.enabled && cbRuleTypes.has(groupId)) {
       await cbSuppressRule(groupId, !snapshot.enabled);
     }

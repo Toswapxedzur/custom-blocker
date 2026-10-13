@@ -79,7 +79,7 @@ async function browserFixture() {
     cbWithDefinitionMutation:operation=>operation(), cbPublishDefinitionCommit(){},
     cbWriteDefinitionStoreLocked:patch=>env.chrome.storage.local.set(patch),
     chrome:{storage:{local:{get:async defaults=>clone(Object.fromEntries(Object.keys(defaults).map(key=>[key,store[key] ?? defaults[key]]))),set:async patch=>{if(failWrite){failWrite=false;throw new Error("disk-full");}const stable=clone(patch);if(heldWrite){heldEntered();await heldWrite;}Object.assign(store,stable);}}}},
-    cbRuleTypes:new Map(),cbRulePanels:new Map(),cbRuleItemsEpoch:1,lastReconcileSnapshot:new Map(),
+    cbRuleTypes:new Map(),cbRulePanels:new Map(),cbRuleItemsEpoch:1,
     CBGroupActions:{isLocked:group=>Boolean(group.lockedAtMs)},cbEnforceOnly:()=>false,
     ensureStartupGate:async()=>{},cbRulesHandle:()=>true,cbRuleSheets:new Map(),
     cbRulePageNeeds:()=>'',cbSetRulePanels(){},pushLogFeedEntry(){},cbDebugError(){},
@@ -87,7 +87,7 @@ async function browserFixture() {
     unloadCustomGroupHandlers:async()=>{sandbox.unload('rule');return {ok:true};},
     sendToEventSandbox:async request=>{
       if(request.kind==='dispatch-event')return sandbox.dispatch(request.descriptor);
-      if(request.kind==='prepare-source'){const reply=sandbox.prepareLoad(request.groupId,request.source,request.state);beforeReply();return reply;}
+      if(request.kind==='prepare-source'){const reply=sandbox.prepareLoad(request.groupId,request.source,request.state);await beforeReply();return reply;}
       if(request.kind==='commit-source'){duringCommit();return failCommit ? {ok:false,error:'journal-full'} : sandbox.commitLoad(request.token);}
       if(request.kind==='discard-source')return sandbox.discardLoad(request.token);
       throw new Error(request.kind);
@@ -96,7 +96,12 @@ async function browserFixture() {
   for (const file of ['platform-profiles.js','group-actions.js','group-scopes.js']) vm.runInContext(fs.readFileSync(path.join(root,file),'utf8'),env,{filename:file});
   const start=background.indexOf('let cbRuleMutationQueue');
   const end=background.indexOf('async function unloadCustomGroupHandlers',start);
-  vm.runInContext(background.slice(start,end),env);
+  const reconcileStart=background.indexOf('let lastReconcileSnapshot = new Map();');
+  const reconcileEnd=background.indexOf('async function loadAllCustomGroupsAtStartup()',reconcileStart);
+  assert(reconcileStart>=0 && reconcileEnd>reconcileStart);
+  // Compile both actual sections together so the loader and reconciler share
+  // the real lexical snapshot, rather than a fixture property of the same name.
+  vm.runInContext(background.slice(reconcileStart,reconcileEnd)+background.slice(start,end),env);
   const dispatchStart=background.indexOf('async function dispatchRule');
   vm.runInContext(background.slice(dispatchStart,background.indexOf('// A rule\'s file request',dispatchStart)),env);
   const run=source=>env.loadCustomGroupSource({id:'rule',groupType:'custom',enabled:true,activeEventSource:source},{run:true});
@@ -154,6 +159,29 @@ async function browserFixture() {
   beforeReply=()=>{store.blockedGroups=[];delete store.cbRuleState.rule;};
   await run(counter);assert.equal(store.cbRuleState.rule,undefined);
   console.log('PASS delayed initialization reply cannot recreate a deleted group’s saved memory');
+  // Actual popup negative: initial reconciliation awaits A while Run A
+  // commits a newer snapshot; Run B then reinitializes A if it was overwritten.
+  vm.runInContext('lastReconcileSnapshot = new Map();',env);
+  store.blockedGroups=['race-a','race-b'].map(id=>({id,groupType:'custom',enabled:true,blockingRulesText:'',activeEventSource:''}));
+  store.cbRuleState={unrelated:{keep:9}};sandbox=context.RuleCore.createEngine();
+  let releaseInitial,firstPrepare=true;
+  const paused=new Promise(resolve=>{releaseInitial=resolve;});
+  let markInitial;const initialEntered=new Promise(resolve=>{markInitial=resolve;});
+  beforeReply=async()=>{if(firstPrepare){firstPrepare=false;markInitial();await paused;}};
+  const initial=env.reconcileCustomGroupHandlers({newValue:clone(store.blockedGroups)});
+  await initialEntered;
+  const sourceA='(on,v)=>{v.state.loads=(v.state.loads||0)+1;v.log("A only");}';
+  const sourceB='(on,v)=>{v.state.loads=(v.state.loads||0)+1;v.log("B only");}';
+  const runA=env.loadCustomGroupSource({...store.blockedGroups[0],activeEventSource:sourceA},{run:true});
+  releaseInitial();await initial;assert.equal((await runA).ok,true);
+  beforeReply=()=>{};
+  assert.equal((await env.loadCustomGroupSource({...store.blockedGroups[1],activeEventSource:sourceB},{run:true})).ok,true);
+  await env.reconcileCustomGroupHandlers({newValue:clone(store.blockedGroups)});
+  assert.equal(store.cbRuleState['race-a'].loads,1,'Run B must not initialize A again after stale reconciliation');
+  assert.equal(store.cbRuleState['race-b'].loads,1,'Run B initialization runs once');
+  assert.equal(store.cbRuleState.unrelated.keep,9);
+  assert.equal(vm.runInContext('lastReconcileSnapshot.get("race-a").activeEventSource',env),sourceA);
+  console.log('PASS held reconciliation and different-rule Runs keep current snapshot and initialize each once');
 }
 const watchdog=setTimeout(()=>{console.error('FAIL initialization test did not finish its awaited transactions');process.exit(1);},5000);
 browserFixture().then(()=>{clearTimeout(watchdog);console.log('__CB_TEST_RESULT__: OK');}).catch(error=>{clearTimeout(watchdog);console.error(error);process.exitCode=1;});
