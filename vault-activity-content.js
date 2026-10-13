@@ -84,6 +84,10 @@
     if (!value.paused && (!a || typeof a.epoch !== "string"
       || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(a.epoch)
       || !Number.isSafeInteger(a.revision) || a.revision < 0 || !Number.isFinite(a.changedAtMs) || a.changedAtMs < 0)) return null;
+    var c = value.contentCutoff;
+    if (c !== null && (!c || typeof c.epoch !== "string"
+      || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(c.epoch)
+      || !Number.isSafeInteger(c.revision) || c.revision < 0 || !Number.isFinite(c.changedAtMs) || c.changedAtMs < 0)) return null;
     return value;
   }
 
@@ -144,7 +148,11 @@
   function flush(cutoffMs, continuation) {
     if (!current) return;
     var closed = current;current = null;
-    if (!episode?.eligible) return;
+    var excludedMS = continuation ? 0 : closed.segments.reduce(function (sum, segment) {
+      return sum + Math.max(0, segment.end - Math.max(segment.start, cutoffMs));
+    }, 0);
+    // Post-OFF cached ticks must not qualify a tiny pre-OFF episode.
+    if (!episode || episode.observedMS - excludedMS < MIN_WATCH_MS) return;
     for (var segment of closed.segments) {
       var parts = [{ start: segment.start, end: Math.min(segment.end, cutoffMs), id: segment.id, authorization: closed.authorization }];
       if (continuation && segment.end > cutoffMs) parts.push({ start: Math.max(segment.start, cutoffMs), end: segment.end,
@@ -167,9 +175,13 @@
     if (config && config.token !== next.token) { retiredTokens.add(config.token); if (retiredTokens.size > 16) retiredTokens.delete(retiredTokens.values().next().value); }
     // Close only already-observed intervals, never accrue time at flush.
     var cutoff = next.paused ? next.cutoffMs : next.authority.changedAtMs;
-    var continues = enabled && !next.paused && next.flags["content-watched"]
-      && config?.authority?.epoch === next.authority?.epoch;
+    var crossedOFF = next.contentCutoff && config?.authority?.epoch === next.contentCutoff.epoch
+      && next.contentCutoff.revision > config.authority.revision;
+    if (crossedOFF) cutoff = Math.min(cutoff, next.contentCutoff.changedAtMs);
+    var continues = enabled && !next.paused && next.flags["content-watched"] && !crossedOFF
+      && config?.token === next.token && config?.authority?.epoch === next.authority?.epoch;
     flush(cutoff, continues ? next.authority : null);
+    if (!continues) episode = null;
     if (config?.authority?.epoch && next.authority?.epoch !== config.authority.epoch) pending.clear();
     config = next;updates += 1;
     enabled = !next.paused && next.flags["content-watched"];

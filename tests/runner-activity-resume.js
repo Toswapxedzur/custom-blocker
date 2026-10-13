@@ -68,7 +68,7 @@ function pageFixture() {
 }
 function config(generation, content, changedAtMs, options = {}) {
   return { token: 'worker-token', generation, paused: false, flags: { 'content-watched': content },
-    authority: { epoch, revision: generation, changedAtMs }, cutoffMs: changedAtMs, ...options };
+    authority: { epoch, revision: generation, changedAtMs }, contentCutoff: null, cutoffMs: changedAtMs, ...options };
 }
 (async () => {
   // Regression premise: startup OFF, then an ordinary supported native commit
@@ -123,6 +123,10 @@ function config(generation, content, changedAtMs, options = {}) {
   await delayedFanout.apply(snapshot(1, true, true, 1000));await delayedFanout.apply(snapshot(2, false, false, 1000));
   delayedFanout.deliverFanouts();
   check('delayed tabs query cannot send obsolete ON after newer OFF', delayedFanout.pushes.at(-1).config.flags['content-watched'] === false && delayedFanout.pushes.filter(p => p.config.flags['content-watched']).length === 0);
+  const missedOFF = await fixture(false);missedOFF.holdFanout(true);
+  await missedOFF.apply(snapshot(1, false, true, 1000));missedOFF.at(5000);await missedOFF.apply(snapshot(2, false, false, 4500));
+  missedOFF.at(7000);await missedOFF.apply(snapshot(3, false, true, 6000));missedOFF.deliverFanouts();
+  check('actual worker latest ON carries prior committed content OFF boundary', missedOFF.pushes.at(-1).config.contentCutoff.revision === 2 && missedOFF.pushes.at(-1).config.contentCutoff.changedAtMs === 4500);
   const slowFocus = await fixture();let releaseFocus;
   slowFocus.holdActive(new Promise(resolve => { releaseFocus = resolve; }));
   const enabling = slowFocus.apply(snapshot(1, true, false, 1000));await new Promise(resolve => setImmediate(resolve));
@@ -138,6 +142,9 @@ function config(generation, content, changedAtMs, options = {}) {
   const tiny = await fixture(); await tiny.apply(snapshot(1, true, false, 1000)); tiny.at(1500);
   await tiny.apply(snapshot(2, false, false, 1500)); await tiny.drain();
   check('new tiny website episode keeps ordinary two-second eligibility threshold', !tiny.sent.length);
+  const lateTiny = await fixture();await lateTiny.apply(snapshot(1, true, false, 1000));lateTiny.at(6000);
+  await lateTiny.apply(snapshot(2, false, false, 1500));await lateTiny.drain();
+  check('delayed OFF cached disabled time cannot qualify tiny pre-OFF website episode', !lateTiny.sent.length);
   const disconnect = await fixture(); await disconnect.apply(snapshot(1, true, true, 1000)); disconnect.at(6000);
   disconnect.supported(false); disconnect.feeder.beginSettingsConnection(1); await disconnect.feeder.sessionTail;
   check('disconnect pauses and retains genuinely observed authorized prefix', disconnect.feeder.capturePaused && disconnect.storage.cbActivityBuffer[0].observedEndedAtMs === 6000);
@@ -200,12 +207,22 @@ function config(generation, content, changedAtMs, options = {}) {
   page.tick(13000); check('content OFF captures no disabled interval', page.watched.length === 1);
   page.at(17000);page.push(config(3, true, 15000));page.tick(21000);page.tick(25000);page.push(config(4, false, 23000));
   check('content ON starts fresh and never backfills disabled gap', page.watched.at(-1).startedAtMs === 17000 && page.watched.at(-1).observedEndedAtMs === 23000);
+  const collapsed = pageFixture();collapsed.push(config(1, true, 1000));collapsed.tick(5000);collapsed.at(7000);
+  collapsed.push(config(3, true, 6000, { contentCutoff: { epoch, revision: 2, changedAtMs: 4500 } }));
+  check('latest ON retains worker native OFF cutoff when intermediate page fanout was superseded', collapsed.watched[0].observedEndedAtMs === 4500);
+  collapsed.tick(7500);collapsed.push(config(4, false, 7500, { contentCutoff: { epoch, revision: 4, changedAtMs: 7500 } }));
+  check('collapsed OFF/ON resets episode eligibility and excludes tiny new episode', collapsed.watched.length === 1);
+  const collapsedTiny = pageFixture();collapsedTiny.push(config(1, true, 1000));collapsedTiny.tick(5000);
+  collapsedTiny.push(config(3, true, 6000, { contentCutoff: { epoch, revision: 2, changedAtMs: 1500 } }));
+  check('collapsed OFF/ON cannot qualify old tiny episode using disabled cached ticks', !collapsedTiny.watched.length);
   const tail = pageFixture();tail.push(config(1, true, 1000));tail.tick(5000);tail.tick(9000);tail.push(config(2, true, 6000));
   check('continuous ON content revision preserves both measured boundary fragments', tail.watched.length === 2 && tail.watched[0].seconds === 5 && tail.watched[1].seconds === 3 && tail.watched[1].authorization.revision === 2);
   tail.tick(9500);tail.push(config(3, false, 9500));
   check('eligible content episode retains later positive half-second fragment', tail.watched.at(-1).seconds === .5);
   const little = pageFixture();little.push(config(1, true, 1000));little.tick(2000);little.push(config(2, false, 2000));
   check('new tiny content episode retains ordinary three-second threshold', !little.watched.length);
+  const lateLittle = pageFixture();lateLittle.push(config(1, true, 1000));lateLittle.tick(5000);lateLittle.push(config(2, false, 1500));
+  check('delayed OFF cached disabled ticks cannot qualify tiny pre-OFF content episode', !lateLittle.watched.length);
   const gaps = pageFixture();gaps.push(config(1, true, 1000));gaps.tick(10000);gaps.at(11000);gaps.push(config(2, false, 11000, { paused: true }));
   check('capped tick records only last observed five seconds, not unobserved gap or flush-now', gaps.watched[0].startedAtMs === 5000 && gaps.watched[0].observedEndedAtMs === 10000);
   gaps.at(20000);gaps.push(config(3, true, 1000));gaps.tick(24000);gaps.push(config(4, false, 24000));
