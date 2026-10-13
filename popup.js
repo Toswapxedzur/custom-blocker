@@ -6376,7 +6376,7 @@ function formatLogFeedTime(ts) {
 }
 
 function renderLogFeedEntry(entry) {
-  if (!entry || !logFeedList || entry.source !== "v.log" || !entry.groupId
+  if (!entry || !logFeedList || !["v.log", "page-error"].includes(entry.source) || !entry.groupId
       || entry.groupId !== state.selectedGroupId || entry.groupId !== logFeedGroupId) return;
   if (entry.id != null && logFeedSeenIds.has(entry.id)) return;
   if (entry.id != null) logFeedSeenIds.add(entry.id);

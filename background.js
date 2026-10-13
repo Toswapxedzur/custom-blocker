@@ -1798,7 +1798,7 @@ const LOG_FEED_MAX_MESSAGE_BYTES = 4096;
 const logFeedBursts = new Map();
 
 function pushLogFeedEntry(entry) {
-  if (!entry || entry.source !== "v.log" || typeof entry.groupId !== "string" || !entry.groupId) return;
+  if (!entry || !["v.log", "page-error"].includes(entry.source) || typeof entry.groupId !== "string" || !entry.groupId) return;
   const now = Date.now();
   let burst = logFeedBursts.get(entry.groupId);
   if (!burst || now - burst.start > 1000) {
@@ -1826,8 +1826,8 @@ function pushLogFeedEntry(entry) {
   const record = {
     id: ++logFeedSeq,
     ts: now,
-    source: "v.log",
-    level: "log",
+    source: entry.source,
+    level: entry.source === "page-error" ? "error" : "log",
     groupId: entry.groupId || "",
     eventType: entry.eventType || "",
     message
@@ -2277,7 +2277,10 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
   for (const [groupId, panels] of Object.entries(result.panels || {})) if (current.has(groupId)) cbSetRulePanels(groupId, panels);
   const pages = new Map(); // tabId | "*" -> { items, dom, queries, cover }
   const sheetTabs = new Set(); // tabs (or "*") whose sheets changed
-  const page = (tabId) => {
+  const pageGroups = new Map(); // Worker-only attribution; page payload stays unchanged.
+  const page = (tabId, groupId) => {
+    if (!pageGroups.has(tabId)) pageGroups.set(tabId, new Set());
+    pageGroups.get(tabId).add(groupId);
     if (!pages.has(tabId)) pages.set(tabId, { type: "rule-apply", items: [], dom: [], queries: [], cover: null });
     return pages.get(tabId);
   };
@@ -2285,8 +2288,8 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
     const { groupId, kind, tabId } = action || {};
     if (!current.get(groupId)?.enabled) continue;
     try {
-      if (kind === "item") page(tabId).items.push({ groupId, ref: action.ref, verdict: action.verdict });
-      else if (kind === "cover") page(tabId).cover = { groupId, on: action.on, message: action.message };
+      if (kind === "item") page(tabId, groupId).items.push({ groupId, ref: action.ref, verdict: action.verdict });
+      else if (kind === "cover") page(tabId, groupId).cover = { groupId, on: action.on, message: action.message };
       else if (kind === "css") {
         const byId = cbRuleSheets.get(groupId) || new Map();
         if (action.css === null) byId.delete(action.id);
@@ -2295,8 +2298,8 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
         else cbRuleSheets.delete(groupId);
         sheetTabs.add(tabId);
       }
-      else if (kind === "dom") page(tabId).dom.push({ selector: action.selector, op: action.op, arg: action.arg });
-      else if (kind === "query") page(tabId).queries.push({ groupId, requestId: action.requestId, selector: action.selector });
+      else if (kind === "dom") page(tabId, groupId).dom.push({ selector: action.selector, op: action.op, arg: action.arg });
+      else if (kind === "query") page(tabId, groupId).queries.push({ groupId, requestId: action.requestId, selector: action.selector });
       else if (kind === "close") await chrome.tabs.remove(tabId);
       else if (kind === "go") {
         if (action.target === "back") await chrome.tabs.goBack(tabId);
@@ -2307,8 +2310,21 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
     } catch (_) {}
   }
   for (const [tabId, message] of pages) {
-    if (tabId === "*") await cbSendToWebPages(message);
-    else if (!(await trySendApply(tabId, message))) enqueueApply(tabId, message);
+    const report = (targetTabId, delivery) => {
+      if (delivery.status === "delivered" || delivery.status === "unavailable") return;
+      const detail = delivery.status === "receiver-error"
+        ? "A page action batch containing this rule failed; not replayed: " + delivery.error
+        : "Page action delivery is uncertain; not replayed" + (delivery.error ? ": " + delivery.error : "");
+      for (const groupId of pageGroups.get(tabId)) {
+        pushLogFeedEntry({ source: "page-error", level: "error", groupId, eventType, message: detail });
+      }
+    };
+    if (tabId === "*") await cbSendToWebPages(message, report);
+    else {
+      const delivery = await trySendApply(tabId, message);
+      if (delivery.status === "unavailable") enqueueApply(tabId, message);
+      else report(tabId, delivery);
+    }
   }
   if (sheetTabs.size > 0) {
     cbSaveRuleSheets();
@@ -2488,10 +2504,19 @@ function enqueueApply(tabId, message) {
 
 async function trySendApply(tabId, message) {
   try {
-    await chrome.tabs.sendMessage(tabId, message);
-    return true;
-  } catch {
-    return false;
+    const response = await chrome.tabs.sendMessage(tabId, message);
+    if (response?.ok === true) return { status: "delivered" };
+    if (response?.ok === false) {
+      return { status: "receiver-error", error: String(response.error || "Page action failed") };
+    }
+    // No ACK is not evidence that the page did nothing. Never replay it.
+    return { status: "unacknowledged" };
+  } catch (error) {
+    const detail = String(error?.message || error);
+    // A closed response channel can follow execution. Queue only an explicit
+    // missing receiver, retaining the existing bounded content-ready queue.
+    const unavailable = /^(?:Could not establish connection\. )?Receiving end does not exist\.?$/i.test(detail);
+    return { status: unavailable ? "unavailable" : "transport-error", error: detail };
   }
 }
 
@@ -2561,7 +2586,7 @@ function cbScheduleRecheck({ definitionChanged = false } = {}) {
 }
 
 // Sends one message to every open web page.
-async function cbSendToWebPages(message) {
+async function cbSendToWebPages(message, onDelivery = null) {
   if (!chrome.tabs || !chrome.tabs.query) return;
   const tabs = await chrome.tabs.query({});
   await Promise.all(
@@ -2569,7 +2594,8 @@ async function cbSendToWebPages(message) {
       if (!tab || typeof tab.id !== "number") return;
       const url = tab.url || tab.pendingUrl || "";
       if (url && !/^https?:/i.test(url)) return;
-      await trySendApply(tab.id, message);
+      const delivery = await trySendApply(tab.id, message);
+      if (onDelivery) onDelivery(tab.id, delivery);
     })
   );
 }
