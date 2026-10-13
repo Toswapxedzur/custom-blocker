@@ -52,5 +52,33 @@ engine.load('logging','(on,v)=>{on("tick",()=>v.log("my output"));}',{});
 result=engine.dispatch({type:'tick',targetGroupId:'logging'});
 assert.equal(result.logs[0].source,'v.log');
 assert.equal(result.logs[0].groupId,'logging');
-console.log('PASS separate retention, Clear, burst limits, diagnostics exclusion and v.log origin');
+clock += 2000;
+push({source:'page-error',groupId:'delivery',level:'log',message:'Failed page action; not replayed'});
+const delivery = request('get-log-feed','delivery').entries;
+assert.equal(delivery.length,1);
+assert.equal(delivery[0].source,'page-error');
+assert.equal(delivery[0].level,'error');
+push({source:'engine-error',groupId:'delivery',message:'Excluded engine error'});
+assert.equal(request('get-log-feed','delivery').entries.length,1);
+
+// The actual popup filter must show the narrow error source without admitting
+// other diagnostics or another rule's output. No browser/extension state.
+const popup = fs.readFileSync(path.join(root,'popup.js'),'utf8');
+const element = () => ({children:[],textContent:'',setAttribute(){},
+  appendChild(child){this.children.push(child);}});
+const list = element();
+const renderer = vm.createContext({document:{createElement:element},
+  logFeedList:list,logFeedSeenIds:new Set(),state:{selectedGroupId:'delivery'},
+  logFeedGroupId:'delivery',LOG_FEED_MAX_RENDER:200,
+  formatLogFeedTime:()=>'',updateLogFeedVisibleCount(){}});
+vm.runInContext(popup.slice(popup.indexOf('function renderLogFeedEntry('),
+  popup.indexOf('function updateLogFeedVisibleCount(')),renderer);
+renderer.renderLogFeedEntry(delivery[0]);
+assert.equal(list.children.length,1);
+assert.match(list.children[0].children[0].textContent,/ERROR/);
+assert.equal(list.children[0].children[1].textContent,'Failed page action; not replayed');
+renderer.renderLogFeedEntry({...delivery[0],id:'foreign',groupId:'other'});
+renderer.renderLogFeedEntry({...delivery[0],id:'diagnostic',source:'engine-error'});
+assert.equal(list.children.length,1);
+console.log('PASS separate retention/Clear/bursts, v.log origin and narrow visible page-error source');
 console.log('__CB_TEST_RESULT__: OK');
