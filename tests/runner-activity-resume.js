@@ -123,6 +123,15 @@ function config(generation, content, changedAtMs, options = {}) {
   await delayedFanout.apply(snapshot(1, true, true, 1000));await delayedFanout.apply(snapshot(2, false, false, 1000));
   delayedFanout.deliverFanouts();
   check('delayed tabs query cannot send obsolete ON after newer OFF', delayedFanout.pushes.at(-1).config.flags['content-watched'] === false && delayedFanout.pushes.filter(p => p.config.flags['content-watched']).length === 0);
+  const disconnectedFanout = await fixture();
+  await disconnectedFanout.apply(snapshot(1, true, true, 1000));
+  disconnectedFanout.holdFanout(true);disconnectedFanout.at(6000);disconnectedFanout.supported(false);
+  disconnectedFanout.feeder.beginSettingsConnection(1);disconnectedFanout.deliverFanouts();
+  const pausedPage = disconnectedFanout.pushes.at(-1).config;
+  check('asynchronous disconnect fanout reaches open content page with final generation',
+    pausedPage.paused && pausedPage.generation === disconnectedFanout.feeder.settingsGeneration);
+  check('disconnect page notification disables both recording categories at observed cutoff',
+    !pausedPage.flags['web-visit'] && !pausedPage.flags['content-watched'] && pausedPage.cutoffMs === 6000);
   const missedOFF = await fixture(false);missedOFF.holdFanout(true);
   await missedOFF.apply(snapshot(1, false, true, 1000));missedOFF.at(5000);await missedOFF.apply(snapshot(2, false, false, 4500));
   missedOFF.at(7000);await missedOFF.apply(snapshot(3, false, true, 6000));missedOFF.deliverFanouts();
