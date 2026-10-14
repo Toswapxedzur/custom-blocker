@@ -246,13 +246,15 @@ const cbActivity = {
   },
 
   beginSettingsConnection(generation) {
-    this.pauseCapture(Date.now(), "native-disconnect");
     this.settingsConnectionGeneration = generation;
     this.settingsGeneration += 1;
     this.settingsRequestEpoch += 1;
     this.settingsEpoch = null;
     this.settingsRevision = -1;
     this.settingsChangedAtMs = null;
+    // Publish after invalidating the old connection. tabs.query completes
+    // asynchronously and must see the final generation of this paused state.
+    this.pauseCapture(Date.now(), "native-disconnect");
   },
 
   async applyNativeSettingsSnapshot(body, connectionGeneration) {
