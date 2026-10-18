@@ -567,7 +567,11 @@
       local.version = 1; local.objects = cloneJSON(final.state.objects);
       for (const [id, value] of Object.entries(local.objects)) {
         if (value.kind === "timer") value.notified = old[id]?.incarnation === value.incarnation && old[id]?.generation === value.generation && old[id]?.notified === true;
-        else if (value.kind === "rolling") Object.assign(value, local.ownTargets?.[id] || { websites: [], apps: [] });
+        else if (value.kind === "rolling") {
+          const targets = local.ownTargets?.[id] || final.state.targets?.[id]?.[member] ||
+            (old[id]?.kind === "rolling" ? old[id] : { websites: [], apps: [] });
+          value.websites = cloneJSON(targets.websites || []); value.apps = cloneJSON(targets.apps || []);
+        }
       }
       local.scope = null; local.pending = [];
       if (acknowledged) delete local.detachedReceipt;

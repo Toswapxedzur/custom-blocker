@@ -100,6 +100,14 @@ test("unconfirmed member's untouched history is merged at final reconnection",()
  const bad=core.detachTime(seed,{...final,version:99},"safari/b","chrome/a","cluster","token",now);assert.equal(bad.ok,false);
  assert.equal(core.detachTime(seed,final,"safari/b","chrome/a","cluster","",now).ok,false);
 });
+test("offline unlink restores original targets from a valid namespace without its optional local ledger",()=>{
+ const offline=member("never-polled","offline.example.org"),seed=clone(offline.state.$vaultTime);delete seed.ownTargets;
+ const final=core.mergeTime(null,[{member:"chrome/a",state:a.state.$vaultTime},{member:"safari/never-polled",state:seed}],"chrome/a",now);assert(final.ok,final.error);
+ final.state.confirmed={"chrome/a":true};
+ const result=core.detachTime(seed,final.state,"safari/never-polled","chrome/a","offline","offline-token",now);assert(result.ok,result.error);
+ assert.deepEqual(Array.from(result.state.objects.shared.websites),["offline.example.org"]);
+ assert.equal(result.state.objects.shared.apps.length,0);
+});
 test("three-member leave drops only departed targets and retains its observed history",()=>{
  const e=member("e","example.org"),f=member("f","example.net"),g=member("g","example.com");
  let value=core.mergeTime(null,[{member:"chrome/e",state:e.state.$vaultTime},{member:"safari/f",state:f.state.$vaultTime},{member:"edge/g",state:g.state.$vaultTime}],"chrome/e",now);assert(value.ok,value.error);
