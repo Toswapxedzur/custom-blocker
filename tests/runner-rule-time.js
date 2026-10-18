@@ -69,22 +69,39 @@ test("multiple targets share one allowance and overlapping browser intervals cou
  send("trackers","visible",{url:"https://reddit.com/r/test",elapsedMs:1000});send("trackers");
  assert.equal(memory.get("trackers").shared.usedMs,1000);assert.equal(memory.get("trackers").other.usedMs,1000);
  send("trackers","visible",{url:"https://reddit.com",elapsedMs:2000},2000);send("trackers");
- assert.equal(memory.get("trackers").shared.usedMs,3000);assert.equal(memory.get("trackers").other.usedMs,2000);
+ assert.equal(memory.get("trackers").shared.usedMs,3000);assert.equal(memory.get("trackers").other.usedMs,3000);
  assert.equal(memory.get("trackers").site,true);assert.equal(memory.get("trackers").unassigned,false);
 });
 test("native observed foreground usage shares that same tracker budget",()=>{
  send("trackers","tick",{usageAppId:"org.example.game",elapsedMs:2000},2000);assert.equal(memory.get("trackers").shared.usedMs,5000);
- send("trackers","tick",{usageAppId:"org.example.game",elapsedMs:2000},2000);assert.equal(memory.get("trackers").shared.usedMs,6000);assert.equal(memory.get("trackers").shared.available,false);
+ send("trackers","tick",{usageAppId:"org.example.game",elapsedMs:2000},2000);assert.equal(memory.get("trackers").shared.usedMs,7000);assert.equal(memory.get("trackers").shared.available,false);
 });
 test("hidden/blocked/unknown targets do not accrue and heartbeat amounts are bounded",()=>{
  send("trackers","clear");send("trackers","visible",{url:"https://youtube.com.evil.example",elapsedMs:5000},5000);send("trackers");assert.equal(memory.get("trackers").shared.usedMs,0);
  send("trackers","tick",{frontmost:{appId:"org.example.game"},elapsedMs:5000},5000);assert.equal(memory.get("trackers").shared.usedMs,0);
  send("trackers","visible",{url:"https://youtube.com",elapsedMs:999999},5000);send("trackers");assert.equal(memory.get("trackers").shared.usedMs,5000);
 });
-test("ordinary minute-bucket expiry restores allowance without a fixed reset",()=>{
- const state=memory.get("trackers");const bucket=Object.keys(state.$vaultTime.objects.leisure.bucketsMs)[0];
- at=Number(bucket)+60000+120000-1;send("trackers");assert.equal(memory.get("trackers").shared.usedMs,5000);
+test("exact interval expiry returns allowance continuously at millisecond boundaries",()=>{
+ const state=memory.get("trackers"), segments=state.$vaultTime.objects.leisure.segments;
+ const first=segments[0][0],last=segments.at(-1)[1];
+ at=first+120000;send("trackers");assert.equal(memory.get("trackers").shared.usedMs,5000);
+ at++;send("trackers");assert.equal(memory.get("trackers").shared.usedMs,4999);
+ assert.equal(memory.get("trackers").shared.nextReturnAtMs,at+1);
+ at=last+120000-1;send("trackers");assert.equal(memory.get("trackers").shared.usedMs,1);
  at++;send("trackers");assert.equal(memory.get("trackers").shared.usedMs,0);assert.equal(memory.get("trackers").shared.available,true);
+});
+test("over-limit observed usage expires fully before availability returns",()=>{
+ const id="overuse";
+ assert(load(id,`(on,v)=>{const r=v.rolling("budget",{windowMs:10000,limitMs:3000});r.assign({websites:["example.org"]});on("tick",()=>v.state.status=r.snapshot());}`,{}).ok);
+ const first=at;send(id,"visible",{url:"https://example.org",elapsedMs:5000},5000);send(id);
+ assert.equal(memory.get(id).status.usedMs,5000);assert.equal(memory.get(id).status.remainingMs,0);assert.equal(memory.get(id).status.available,false);
+ // A second heartbeat remains recorded while exhausted, including overlap.
+ send(id,"visible",{url:"https://example.org",elapsedMs:5000},1000);send(id);
+ assert.equal(memory.get(id).status.usedMs,6000);
+ at=first+10001;send(id);assert.equal(memory.get(id).status.usedMs,5999);assert.equal(memory.get(id).status.available,false);
+ at=first+13000;send(id);assert.equal(memory.get(id).status.usedMs,3000);assert.equal(memory.get(id).status.available,false);
+ at++;send(id);assert.equal(memory.get(id).status.usedMs,2999);assert.equal(memory.get(id).status.available,true);
+ at=first+16000;send(id);assert.equal(memory.get(id).status.usedMs,0);
 });
 test("disabled/restarted rules do not manufacture usage during the gap",()=>{
  engine.suppress("trackers",true);send("trackers","visible",{url:"https://youtube.com",elapsedMs:5000},5000);

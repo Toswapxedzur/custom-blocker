@@ -2,8 +2,7 @@
 
 This feature branch is incomplete and private. The common core, linked policy,
 transport and save-recovery checks pass on Mini2 alt1. Mac native hub/runtime,
-Safari native journal and Windows native adapter checks also pass. Final unlink
-handover, actual Windows WebView2 and live linked-browser acceptance remain required.
+Safari native journal and Windows native adapter checks also pass. Final handover is under expanded regression testing; actual Windows WebView2 and live linked-browser acceptance remain required.
 
 Named objects share the existing per-rule saved-state path. `$vaultTime` is a
 reserved versioned namespace; incompatible existing content is refused. Both
@@ -31,15 +30,23 @@ saved history. Time durations are integer milliseconds, at most365days.
   makes the tracker unavailable with `rolling-history-capacity` until reset;
   it never silently ignores new usage and grants a fresh allowance.
 - One tracker pools all assigned targets. Separate IDs have independent
-  budgets. Overlapping intervals count once. Sparse minute-start→milliseconds
-  buckets use ordinary rolling-budget expiry, with bounded merged intervals
-  retained so linking can union overlapping pre-link usage correctly.
+  budgets. All observed eligible usage counts even beyond the allowance.
+  Overlapping intervals count once. Sparse minute-start→milliseconds buckets
+  retain the ordinary representation; merged interval boundaries give exact
+  millisecond expiry. Availability returns only below the limit.
 
 Owner-confirmed linked contract: same IDs share across members of one local
 linked custom cluster; combine usage/targets, keep initiating timer state,
 refuse incompatible configurations, stop shared availability/controls while
 disconnected, and deliver completion once to each linked member. This contract
-is wired into the private foundation, but unlink handover and complete live
-acceptance are unfinished and must not be presented as accepted.
+is wired into the private foundation. The hub retains ordered final snapshots
+until each member saves and acknowledges them; failed saves keep shared controls
+unavailable. Complete live acceptance is unfinished and must not be presented as
+accepted.
 
 Invalid or oversized event state prevents that event’s actions. A failed disk write preserves the previous saved completion; hosts reload that saved state and retry on a normal tick. Action batches that already began delivery are never replayed. Shared commands retain scoped serials until acknowledgment.
+
+Development verification uses `tests/run.sh --development`; the default also
+requires localized guide parity. Batch-translate changed English in-app code
+guides across the fixed locale set before any release. The release hold and
+default documentation audit remain unchanged.

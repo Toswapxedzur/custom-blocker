@@ -104,10 +104,15 @@
       // not permission to turn a remembered shared budget into a local one.
       if (context === null && read().scope) context = { linked: true, ready: false, clusterId: read().scope };
       shared = context?.linked ? context : null;
-      if (!shared && !previous && !read().scope) return;
-      const state = cloneJSON(read());
+      if (!shared && !previous && !read().scope && context?.detached !== true) return;
+      let state = cloneJSON(read());
+      if (context?.detached === true) {
+        if (context.linked !== false || context.state?.version !== 1 || context.state.scope || !isPlainObject(context.state.objects)) throw new Error("Invalid detached time snapshot.");
+        state = cloneJSON(context.state);
+      }
       const nextTimers = new Set(timers), nextTrackers = new Set(trackers);
       if (!shared) {
+        if (state.scope && context?.detached !== true) throw new Error("Final shared snapshot required before detaching.");
         state.scope = null; state.pending = [];
         for (const [id, value] of Object.entries(state.objects)) if (value.kind === "rolling") Object.assign(value, state.ownTargets?.[id] || { websites: [], apps: [] });
       } else {
@@ -134,6 +139,12 @@
       const json = safeJSON({ ...getState(), [TIME_KEY]: state });
       if (!json || utf8Bytes(json) > LIMITS.stateBytes) throw new Error("Shared snapshot exceeds the rule state limit.");
       getState()[TIME_KEY] = state; changed = true;
+      for (const [id, value] of Object.entries(state.objects)) {
+        if (value.kind === "timer") nextTimers.add(id);
+        else if (value.kind === "rolling") nextTrackers.add(id);
+      }
+      for (const id of nextTimers) if (state.objects[id]?.kind !== "timer") nextTimers.delete(id);
+      for (const id of nextTrackers) if (state.objects[id]?.kind !== "rolling") nextTrackers.delete(id);
       timers.clear(); trackers.clear();
       for (const id of nextTimers) timers.add(id);
       for (const id of nextTrackers) trackers.add(id);
@@ -193,10 +204,10 @@
       for (const [key, value] of Object.entries(t.bucketsMs)) {
         const minute = Number(key);
         if (!Number.isSafeInteger(minute) || minute < 0 || minute % MINUTE_MS || !Number.isFinite(value) || value <= 0) throw new Error("Invalid rolling usage bucket.");
-        // Same minute-bucket representation and expiry as ordinary rolling groups.
+        // Keep the ordinary bucket representation; interval expiry is exact.
         if (minute + MINUTE_MS <= at - t.windowMs) delete t.bucketsMs[key];
       }
-      const floor = Math.floor((at - t.windowMs) / MINUTE_MS) * MINUTE_MS;
+      const floor = Math.max(0, at - t.windowMs);
       t.segments = unionSegments(t.segments).map(([from, to]) => [Math.max(from, floor), to]).filter(([from, to]) => to > from);
       rebuildBuckets(t);
     }
@@ -229,22 +240,9 @@
       t.bucketsMs = buckets;
     }
     function addUsage(t, from, to) {
-      let room = Math.max(0, t.limitMs - used(t));
-      if (room <= 0 || to <= from) return;
-      const additions = [];
-      let cursor = from;
-      for (const [start, end] of t.segments) {
-        if (end <= cursor) continue;
-        if (start >= to) break;
-        if (start > cursor) {
-          const amount = Math.min(start - cursor, room);
-          additions.push([cursor, cursor + amount]); room -= amount;
-          if (!room) break;
-        }
-        cursor = Math.max(cursor, end);
-      }
-      if (room > 0 && cursor < to) additions.push([cursor, cursor + Math.min(to - cursor, room)]);
-      t.segments = unionSegments([...t.segments, ...additions]);
+      if (to <= from) return;
+      // An allowance controls availability, not whether observed use is retained.
+      t.segments = unionSegments([...t.segments, [from, to]]);
       rebuildBuckets(t);
     }
     const used = t => Object.values(t.bucketsMs).reduce((total, value) => total + value, 0);
@@ -275,9 +273,9 @@
       update(objects => {
         object(id, "rolling"); const t = objects[id]; prune(t, at);
         const usedMs = used(t), remainingMs = Math.max(0, t.limitMs - usedMs);
-        const minutes = Object.keys(t.bucketsMs).map(Number);
+        const first = t.segments[0]?.[0];
         snapshot = { id, ready: ready(id) && !t.fault, error: t.fault ? "rolling-history-capacity" : shared?.linked && !shared.ready ? shared.error || "shared-time-unavailable" : null, windowMs: t.windowMs, limitMs: t.limitMs, usedMs, remainingMs, available: ready(id) && !t.fault && remainingMs > 0,
-          nextReturnAtMs: minutes.length ? Math.min(...minutes) + MINUTE_MS + t.windowMs : null };
+          nextReturnAtMs: first !== undefined ? first + t.windowMs + 1 : null };
       });
       return snapshot;
     }
@@ -525,11 +523,59 @@
         merged.state.confirmed ||= {};
         merged.state.confirmed[request.member] = true;
       }
+      // Membership owns target contributions; history remains shared after leave.
+      for (const [id, ledger] of Object.entries(merged.state.targets || {})) {
+        for (const member of Object.keys(ledger)) if (!request.members.includes(member)) delete ledger[member];
+        const tracker = merged.state.objects[id];
+        if (tracker?.kind === "rolling") {
+          const targets = Object.values(ledger);
+          tracker.websites = [...new Set(targets.flatMap(t => t.websites || []))];
+          tracker.apps = [...new Set(targets.flatMap(t => t.apps || []))];
+        }
+      }
       const ready = request.members.every(member => merged.state.confirmed[member] === true);
       const result = reduceTime(merged.state, { member: request.member, commands: ready ? request.commands || [] : [], usage: ready ? request.usage : null, nowMs: request.nowMs });
       if (!result.ok) return result;
       result.state.revision = timeRevision(existing, result.state);
       return { ...result, ready };
+    } catch (error) { return { ok: false, error: String(error.message || error) }; }
+  }
+  // Final state transfer uses the same validation/accounting as a live link.
+  // Unconfirmed members contribute their untouched original history on return.
+  function detachTime(seed, snapshot, member, initiator, clusterId, token, nowMs, acknowledged = false) {
+    try {
+      if (typeof clusterId !== "string" || !clusterId || typeof token !== "string" || !token || token.length > 128) throw new Error("Invalid detached time identity.");
+      const local = cloneJSON(seed || { version: 1, objects: {} });
+      if (acknowledged) {
+        delete local.detachedReceipt;
+        const validation = mergeTime(null, [{ member, state: local }], member, nowMs);
+        if (!validation.ok) return validation;
+        return { ok: true, state: local };
+      }
+      let final = mergeTime(snapshot, [], initiator, nowMs);
+      if (!final.ok) return final;
+      if (final.state.confirmed?.[member] !== true) {
+        if (member === initiator) for (const [id, value] of Object.entries(local.objects || {})) if (value.kind === "timer") {
+          const previous = final.state.objects[id];
+          if (previous && ["kind", "direction", "durationMs"].some(key => previous[key] !== value[key])) throw new Error("Incompatible detached timer: " + id);
+          final.state.objects[id] = cloneJSON(value);
+        }
+        final = mergeTime(final.state, [{ member, state: local }], initiator, nowMs);
+        if (!final.ok) return final;
+      }
+      const old = local.objects || {};
+      local.version = 1; local.objects = cloneJSON(final.state.objects);
+      for (const [id, value] of Object.entries(local.objects)) {
+        if (value.kind === "timer") value.notified = old[id]?.incarnation === value.incarnation && old[id]?.generation === value.generation && old[id]?.notified === true;
+        else if (value.kind === "rolling") Object.assign(value, local.ownTargets?.[id] || { websites: [], apps: [] });
+      }
+      local.scope = null; local.pending = [];
+      if (acknowledged) delete local.detachedReceipt;
+      else local.detachedReceipt = { clusterId, token };
+      // Validate all objects and size without replacing unrelated rule fields.
+      const validation = mergeTime(null, [{ member, state: local }], member, nowMs);
+      if (!validation.ok || utf8Bytes(safeJSON({ [TIME_KEY]: local })) > LIMITS.stateBytes) throw new Error(validation.error || "Detached time storage limit exceeded.");
+      return { ok: true, state: local };
     } catch (error) { return { ok: false, error: String(error.message || error) }; }
   }
   function timeRevision(before, after) {
@@ -1091,7 +1137,7 @@
     return ["CUSTOM RULE API — use only what is listed; there are no other helpers.", ...SHARED_REFERENCE, ...(ENGINE_REFERENCE[engine] || [])].join("\n");
   }
 
-  const api = Object.freeze({ LIMITS, compile, createRule, createEngine, sanitizePanel, reference, mergeTime, reduceTime, syncTime });
+  const api = Object.freeze({ LIMITS, compile, createRule, createEngine, sanitizePanel, reference, mergeTime, reduceTime, syncTime, detachTime });
   global.RuleCore = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
