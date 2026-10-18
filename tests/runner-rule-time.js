@@ -102,4 +102,15 @@ test("a timer created by an event requests future host ticks",()=>{
  assert.equal(load("dynamic",`(on,v)=>{on("create",()=>{v.timer("later",{durationMs:100}).start();});on("timerEnded",()=>v.state.done=true);}`).ok,true);
  const r=send("dynamic","create");assert(r.types.dynamic.includes("tick"));send("dynamic","tick",{},101);assert.equal(memory.get("dynamic").done,true);
 });
+test("a full rolling history fails closed instead of ignoring new observed usage",()=>{
+ at=Math.ceil(at/60000)*60000;
+ const from=at-1024*60000, buckets={};for(let t=from;t<at;t+=60000)buckets[t]=60000;
+ const saved={$vaultTime:{version:1,objects:{full:{kind:"rolling",windowMs:31536000000,limitMs:31536000000,websites:["example.org"],apps:[],bucketsMs:buckets,segments:[[from,at]],accruedUntilMs:at,resetAtMs:from,fault:false}}}};
+ assert(load("full",`(on,v)=>{const r=v.rolling("full",{windowMs:31536000000,limitMs:31536000000});on("tick",()=>v.state.status=r.snapshot());on("reset",()=>r.reset());}`,saved).ok);
+ send("full","visible",{url:"https://example.org",elapsedMs:1000},1000);send("full");
+ assert.equal(memory.get("full").status.available,false,"usage capacity failure must not leave allowance available");
+ assert.equal(memory.get("full").status.error,"rolling-history-capacity");
+ engine=core.createEngine();assert(load("full",`(on,v)=>{const r=v.rolling("full",{windowMs:31536000000,limitMs:31536000000});on("tick",()=>v.state.status=r.snapshot());on("reset",()=>r.reset());}`).ok);send("full");assert.equal(memory.get("full").status.available,false);
+ send("full","reset");send("full");assert.equal(memory.get("full").status.available,true);
+});
 console.log(JSON.stringify({pass:true,cases:passed}));
