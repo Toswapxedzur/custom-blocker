@@ -19,7 +19,7 @@ async function main(){
   if(!result.ready){const other=core.syncTime(server,{member:"safari/b",members:["chrome/a","safari/b"],initiator:"chrome/a",seed:peerSeed,commands:[],nowMs:Date.now()});assert(other.ok,other.error);server=clone(other.state);result=core.syncTime(server,{member:"chrome/a",members:["chrome/a","safari/b"],initiator:"chrome/a",seed:frame.seed,commands:frame.commands,nowMs:Date.now()});assert(result.ok,result.error);server=clone(result.state);}
   env.CBRuleTime.receive({kind:"rule-time-response",requestID:frame.requestID,groupId:frame.groupId,body:{linked:true,ready:true,clusterId:"cluster",state:server,acknowledgedSerial:result.acknowledgedSerial},...override});
  }
- env=vm.createContext({console,Date,Map,Set,Promise,cbConnection:connection,cbRuleGenerations:generations,cbClusterCopy:[link],cbDetectProgramId:()=>"chrome",chrome:{storage:{local:{get:async()=>clone(store)}}},setTimeout(fn){timers.set(++timerID,fn);return timerID;},clearTimeout(id){timers.delete(id);},sendToEventSandbox:async payload=>{assert.equal(payload.kind,"time-context");contexts.push(clone(payload.context));return engine.setTimeContext(payload.groupId,payload.context);}});
+ env=vm.createContext({console,Date,URL,Map,Set,Promise,cbConnection:connection,cbRuleGenerations:generations,cbClusterCopy:[link],cbDetectProgramId:()=>"chrome",chrome:{storage:{local:{get:async()=>clone(store)}}},setTimeout(fn){timers.set(++timerID,fn);return timerID;},clearTimeout(id){timers.delete(id);},sendToEventSandbox:async payload=>{assert.equal(payload.kind,"time-context");contexts.push(clone(payload.context));return engine.setTimeContext(payload.groupId,payload.context);}});
  env.self=env;vm.runInContext(fs.readFileSync(path.join(root,"bridge-protocol.js"),"utf8"),env);vm.runInContext(fs.readFileSync(path.join(root,"rule-time-client.js"),"utf8"),env);
  async function heldRequest(){for(let attempt=0;attempt<20&&!held;attempt++)await new Promise(setImmediate);assert(held,"bounded request entry");}
  function persist(type="tick") {const r=engine.dispatch({type,now:Date.now(),targetGroupId:"a",data:{}});if(r.states.a)store.cbRuleState.a=clone(r.states.a);return r;}
@@ -32,6 +32,11 @@ async function main(){
  await test("source generation changes reject an in-flight context reply",async()=>{held=null;const waiting=env.CBRuleTime.configureGroup("a");await heldRequest();const before=contexts.length;generations.set("a",2);reply(held);await waiting;assert.equal(contexts.length,before);});
  await test("request deadline retains fail-closed state and clears its resources",async()=>{held=null;const waiting=env.CBRuleTime.configureGroup("a");await heldRequest();for(const fn of [...timers.values()])fn();await waiting;persist();assert.equal(timers.size,0);assert.equal(store.cbRuleState.a.budget.available,false);});
  await test("roster preflight strips usage history without exposing other rule fields",async()=>{const seed=env.CBRuleTime.seedForRoster(store.cbRuleState.a);assert.equal(seed.objects.budget.segments.length,0);assert(!JSON.stringify(seed).includes("NEVER_TRANSMIT"));assert(env.CBRuleTime.configurationKey(store.cbRuleState.a).includes("budget"));});
+ await test("usage transport strips paths, queries, fragments and native-only fields",async()=>{
+  hold=false;connection.ruleTimeVersion=1;
+  await env.CBRuleTime.configureGroup("a",{type:"visible",now:Date.now(),data:{url:"https://www.youtube.com/watch?v=PRIVATE_VIDEO#PRIVATE_FRAGMENT",elapsedMs:1,usageAppId:"PRIVATE_APP",title:"PRIVATE_TITLE"}});
+  const sample=sent.at(-1).usage;assert.deepEqual(Object.keys(sample.data).sort(),["elapsedMs","url"]);assert.equal(sample.data.url,"https://www.youtube.com");assert(!JSON.stringify(sample).includes("PRIVATE"));
+ });
  console.log(JSON.stringify({pass:true,cases}));
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

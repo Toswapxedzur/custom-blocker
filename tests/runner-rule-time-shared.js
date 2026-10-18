@@ -66,4 +66,14 @@ test("shared history capacity is persistent and unavailable to every member",()=
 test("reserved property names cannot corrupt object maps",()=>{
  for(const id of ["__proto__","prototype","constructor"]){const e=core.createEngine();assert.equal(e.load("bad",`(on,v)=>v.timer("${id}",{durationMs:1})`,{}).ok,false);}
 });
+test("remove and recreate in one linked event restores assignments with a fresh object",()=>{
+ const e=core.createEngine();let saved={};
+ const code=`(on,v)=>{const r=v.rolling("same",{windowMs:120000,limitMs:10000});r.assign({websites:["example.org"]});on("replace",()=>{v.removeTime("same");v.rolling("same",{windowMs:120000,limitMs:10000}).assign({websites:["example.org"]});});}`;
+ const loaded=e.load("replace",code,{});assert(loaded.ok);saved=clone(loaded.states.replace);
+ const merged=core.mergeTime(null,[{member:"chrome/replace",state:saved.$vaultTime}],"chrome/replace",now);assert(merged.ok,merged.error);
+ assert(e.setTimeContext("replace",{linked:true,ready:true,clusterId:"replace-cluster",state:merged.state,acknowledgedSerial:0}).ok);
+ const result=e.dispatch({type:"replace",now,targetGroupId:"replace",data:{}});saved=clone(result.states.replace);
+ assert.deepEqual(saved.$vaultTime.pending.map(c=>c.op),["remove","ensure","assign"]);
+ const applied=core.reduceTime(merged.state,{member:"chrome/replace",commands:saved.$vaultTime.pending,nowMs:now});assert(applied.ok,applied.error);assert.deepEqual(Array.from(applied.state.objects.same.websites),["example.org"]);
+});
 console.log(JSON.stringify({pass:true,cases}));

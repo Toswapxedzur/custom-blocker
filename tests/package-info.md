@@ -90,3 +90,5 @@ acceptance remain separate and pending. No second driver or runtime is required.
 
 - `runner-rule-time-shared.js`: shared merge, overlap, receipts, join barriers, disconnects and capacity refusal.
 - `runner-rule-time-client.js`: bounded authenticated time transport, reconnect/stale response and payload privacy controls.
+
+- `runner-rule-time-save.js`: saved-completion-before-action ordering, failed write recovery and exactly-once retry.

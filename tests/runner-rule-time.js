@@ -113,4 +113,14 @@ test("a full rolling history fails closed instead of ignoring new observed usage
  engine=core.createEngine();assert(load("full",`(on,v)=>{const r=v.rolling("full",{windowMs:31536000000,limitMs:31536000000});on("tick",()=>v.state.status=r.snapshot());on("reset",()=>r.reset());}`).ok);send("full");assert.equal(memory.get("full").status.available,false);
  send("full","reset");send("full");assert.equal(memory.get("full").status.available,true);
 });
+test("unpersistable event state cannot deliver completion actions",()=>{
+ const e=core.createEngine(act=>({close:tabId=>act("close",{tabId})}));
+ assert(e.load("overflow",`(on,v)=>{const t=v.timer("clock",{durationMs:1});t.start();on("timerEnded",()=>{v.state.overflow="x".repeat(70000);v.close(1);});}`,{}).ok);
+ at+=2;const result=e.dispatch({type:"tick",targetGroupId:"overflow",now:at,data:{}});
+ assert.deepEqual(Array.from(result.stateFailures),["overflow"]);assert.equal(result.actions.length,0);assert.equal(result.states.overflow,undefined);
+});
+test("user-emitted visibility events cannot manufacture recorded time",()=>{
+ const e=core.createEngine();const loaded=e.load("fabrication",`(on,v)=>{const r=v.rolling("actual",{windowMs:120000,limitMs:10000});r.assign({websites:["example.org"]});on("fabricate",()=>v.emit("visible",{url:"https://example.org",elapsedMs:5000}));on("visible",()=>v.state.status=r.snapshot());}`,{});assert(loaded.ok);
+ at+=5000;const r=e.dispatch({type:"fabricate",now:at,targetGroupId:"fabrication",data:{}});assert.equal(r.states.fabrication.status.usedMs,0);
+});
 console.log(JSON.stringify({pass:true,cases:passed}));
