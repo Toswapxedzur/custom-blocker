@@ -94,7 +94,7 @@ async function browserFixture() {
     }
   });
   for (const file of ['platform-profiles.js','group-actions.js','group-scopes.js']) vm.runInContext(fs.readFileSync(path.join(root,file),'utf8'),env,{filename:file});
-  const start=background.indexOf('let cbRuleMutationQueue');
+  const start=background.indexOf('const cbRuleStateSaveRetries');
   const end=background.indexOf('async function unloadCustomGroupHandlers',start);
   const reconcileStart=background.indexOf('let lastReconcileSnapshot = new Map();');
   const reconcileEnd=background.indexOf('async function loadAllCustomGroupsAtStartup()',reconcileStart);

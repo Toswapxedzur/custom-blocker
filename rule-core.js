@@ -89,6 +89,7 @@
       next.serial = (next.serial || 0) + 1;
       if (!Number.isSafeInteger(next.serial)) throw new Error("Invalid shared time command serial.");
       next.pending = [...pending, { id, op, ...cloneJSON(fields), serial: next.serial, atMs: clock(), scope: shared.clusterId }];
+      if (op === "remove" && next.ownTargets) delete next.ownTargets[id];
       if (op === "assign") {
         next.ownTargets ||= {};
         Object.defineProperty(next.ownTargets, id, { value: cloneJSON(fields.targets), enumerable: true, writable: true, configurable: true });
@@ -840,7 +841,7 @@
     // logs, changed panels ({ groupId: [panel] }), changed states
     // ({ groupId: state }) and a quarantine, if a rule earned one.
     function dispatch(descriptor) {
-      const out = { ok: true, actions: [], logs: [], diagnostics: [], panels: {}, states: {}, types: {}, quarantine: null };
+      const out = { ok: true, actions: [], logs: [], diagnostics: [], panels: {}, states: {}, types: {}, stateFailures: [], quarantine: null };
       const queue = [];
       for (const [groupId, rule] of rules) {
         if (descriptor.targetGroupId && descriptor.targetGroupId !== groupId) continue;
@@ -869,8 +870,13 @@
         const panels = rule.takePanels();
         if (panels) out.panels[groupId] = panels;
         const state = rule.takeState();
-        if (!state.ok) out.diagnostics.push({ groupId, level: "error", args: [state.error] });
-        else if (state.value !== undefined) out.states[groupId] = state.value;
+        if (!state.ok) {
+          out.diagnostics.push({ groupId, level: "error", args: [state.error] });
+          out.stateFailures.push(groupId);
+          out.actions = out.actions.filter(action => action.groupId !== groupId);
+          out.logs = out.logs.filter(entry => entry.groupId !== groupId);
+          delete out.panels[groupId];
+        } else if (state.value !== undefined) out.states[groupId] = state.value;
       }
       return out;
     }
@@ -973,7 +979,10 @@
   }
   function sanitizeControl(raw, index, depth, values) {
     if (!isPlainObject(raw)) return null;
-    const type = CONTROL_TYPES.has(raw.type) ? raw.type : "text";
+    let type = CONTROL_TYPES.has(raw.type) ? raw.type : "text";
+    // A legacy unknown/malformed timer control remains harmless plain text.
+    // A valid managed timer control supplies an explicit named object ID.
+    if (type === "timer") { try { timeID(raw.timerId); } catch (_) { type = "text"; } }
     const id = sanitizePanelId(raw.id || "control-" + (index + 1));
     if (!id) return null;
     const out = { id, type, label: text(raw.label ?? "", 240), disabled: raw.disabled === true };
