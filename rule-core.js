@@ -35,30 +35,33 @@
   const MINUTE_MS = 60000;
   const MAX_TIME_MS = 365 * 24 * 60 * MINUTE_MS;
   const windowsTimeIdentities = global.CBNativeRulePlatform === "windows";
+  const normalizeTimeApp = value => windowsTimeIdentities || /^(?:[A-Za-z]:[\\/]|\\\\)|!/.test(String(value || "")) ? String(value || "").toLowerCase() : value;
   const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
   function duration(value, name, zero = false) {
     if (!Number.isSafeInteger(value) || value < (zero ? 0 : 1) || value > MAX_TIME_MS) throw new Error("Invalid " + name + " (integer milliseconds, at most 365 days).");
     return value;
   }
   function timeID(value) {
-    if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(value)) throw new Error("Time object IDs use 1–80 letters, digits, _ or -.");
+    if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(value) || ["__proto__", "prototype", "constructor"].includes(value)) throw new Error("Time object IDs use 1–80 letters, digits, _ or - and cannot be prototype names.");
     return value;
   }
-  function timeTools(getState, clock, check) {
+  function timeTools(getState, clock, check, initialContext = null) {
     const timers = new Set(), trackers = new Set();
     let changed = false;
     let usageFloor = clock();
+    let shared = null;
     const read = () => {
       const state = getState();
       if (!own(state, TIME_KEY)) return { version: 1, objects: {} };
       const saved = state[TIME_KEY];
       if (!isPlainObject(saved) || saved.version !== 1 || !isPlainObject(saved.objects)) throw new Error("Unsupported or invalid " + TIME_KEY + " state; saved data was preserved.");
+      if (saved.pending !== undefined && (!Array.isArray(saved.pending) || saved.pending.length > 64) || saved.serial !== undefined && (!Number.isSafeInteger(saved.serial) || saved.serial < 0) || saved.ownTargets !== undefined && !isPlainObject(saved.ownTargets)) throw new Error("Invalid saved time metadata.");
       return saved;
     };
     const update = (fn) => {
       check();
       const saved = cloneJSON(read());
-      const result = fn(saved.objects);
+      const result = fn(saved.objects, saved);
       const state = getState();
       const json = safeJSON({ ...state, [TIME_KEY]: saved });
       if (!json || utf8Bytes(json) > LIMITS.stateBytes) throw new Error("Managed time exceeds the rule's 65536-byte state limit; update refused.");
@@ -71,7 +74,72 @@
       if (!value || value.kind !== kind) throw new Error("Missing or incompatible time object: " + id);
       return value;
     };
+    const pendingFor = id => (read().pending || []).some(command => command.id === id);
+    const removed = id => shared?.linked && (read().pending || []).filter(command => command.id === id).at(-1)?.op === "remove";
+    const ready = id => !shared?.linked || shared.ready === true && !pendingFor(id);
+    function command(id, op, fields = {}, requireReady = true) {
+      if (!shared?.linked) return false;
+      if (requireReady && !shared.ready) throw new Error("Linked time controls require fresh hub state" + (shared.error ? ": " + shared.error : "."));
+      if (removed(id) && !["ensure", "remove"].includes(op)) throw new Error("Time object was removed; declare it before using it again.");
+      update(() => {});
+      const state = getState()[TIME_KEY];
+      const pending = state.pending || [];
+      if (pending.length >= 64) throw new Error("Shared time command queue is full; reconnect before retrying.");
+      const next = cloneJSON(state);
+      next.serial = (next.serial || 0) + 1;
+      if (!Number.isSafeInteger(next.serial)) throw new Error("Invalid shared time command serial.");
+      next.pending = [...pending, { id, op, ...cloneJSON(fields), serial: next.serial, atMs: clock(), scope: shared.clusterId }];
+      if (op === "assign") {
+        next.ownTargets ||= {};
+        Object.defineProperty(next.ownTargets, id, { value: cloneJSON(fields.targets), enumerable: true, writable: true, configurable: true });
+      }
+      if (utf8Bytes(safeJSON({ ...getState(), [TIME_KEY]: next })) > LIMITS.stateBytes) throw new Error("Shared command exceeds the rule state limit.");
+      getState()[TIME_KEY] = next; changed = true;
+      return true;
+    }
+    function configure(context) {
+      const previous = shared;
+      // Journal recovery may precede transport recovery. An absent context is
+      // not permission to turn a remembered shared budget into a local one.
+      if (context === null && read().scope) context = { linked: true, ready: false, clusterId: read().scope };
+      shared = context?.linked ? context : null;
+      if (!shared && !previous && !read().scope) return;
+      const state = cloneJSON(read());
+      const nextTimers = new Set(timers), nextTrackers = new Set(trackers);
+      if (!shared) {
+        state.scope = null; state.pending = [];
+        for (const [id, value] of Object.entries(state.objects)) if (value.kind === "rolling") Object.assign(value, state.ownTargets?.[id] || { websites: [], apps: [] });
+      } else {
+        if (typeof shared.clusterId !== "string" || !shared.clusterId) throw new Error("Missing linked time identity.");
+        const same = state.scope === shared.clusterId;
+        state.scope = shared.clusterId;
+        state.pending = same ? state.pending || [] : [];
+        if (shared.ready) {
+          if (!shared.state || shared.state.version !== 1 || !isPlainObject(shared.state.objects)) throw new Error("Unsupported shared time snapshot.");
+          const old = state.objects;
+          state.objects = cloneJSON(shared.state.objects);
+          for (const [id, value] of Object.entries(state.objects)) {
+            if (value.kind === "timer") {
+              value.notified = old[id]?.incarnation === value.incarnation && old[id]?.generation === value.generation && old[id]?.notified === true;
+              nextTimers.add(id);
+            } else if (value.kind === "rolling") nextTrackers.add(id);
+          }
+          state.pending = state.pending.filter(item => item.serial > (shared.acknowledgedSerial || 0));
+          state.serial = Math.max(state.serial || 0, shared.acknowledgedSerial || 0);
+          for (const id of nextTimers) if (state.objects[id]?.kind !== "timer") nextTimers.delete(id);
+          for (const id of nextTrackers) if (state.objects[id]?.kind !== "rolling") nextTrackers.delete(id);
+        }
+      }
+      const json = safeJSON({ ...getState(), [TIME_KEY]: state });
+      if (!json || utf8Bytes(json) > LIMITS.stateBytes) throw new Error("Shared snapshot exceeds the rule state limit.");
+      getState()[TIME_KEY] = state; changed = true;
+      timers.clear(); trackers.clear();
+      for (const id of nextTimers) timers.add(id);
+      for (const id of nextTrackers) trackers.add(id);
+      usageFloor = clock();
+    }
     const ensure = (id, initial) => update(objects => {
+      if (removed(id)) delete objects[id];
       if (own(objects, id)) {
         const old = objects[id];
         for (const key of Object.keys(initial)) {
@@ -83,13 +151,13 @@
       Object.defineProperty(objects, id, { value: initial, enumerable: true, writable: true, configurable: true });
     });
     function elapsed(t, at) {
-      if (!["up", "down"].includes(t.direction) || !Number.isFinite(t.elapsedMs) || t.elapsedMs < 0 || (t.startedAtMs !== null && !Number.isFinite(t.startedAtMs))) throw new Error("Invalid saved timer.");
+      if (!["up", "down"].includes(t.direction) || !Number.isSafeInteger(t.elapsedMs) || t.elapsedMs < 0 || !Number.isSafeInteger(t.generation) || t.generation < 0 || typeof t.notified !== "boolean" || typeof t.incarnation !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(t.incarnation) || (t.startedAtMs !== null && (!Number.isSafeInteger(t.startedAtMs) || t.startedAtMs < 0))) throw new Error("Invalid saved timer.");
       return Math.min(MAX_TIME_MS, t.elapsedMs + (t.startedAtMs === null ? 0 : Math.max(0, at - t.startedAtMs)));
     }
     function timerSnapshot(id, at = clock()) {
       const t = object(id, "timer"), raw = elapsed(t, at);
       const done = t.direction === "down" && raw >= t.durationMs;
-      return { id, direction: t.direction, durationMs: t.durationMs, elapsedMs: t.direction === "down" ? Math.min(raw, t.durationMs) : raw,
+      return { id, ready: ready(id), error: shared?.linked && !shared.ready ? shared.error || "shared-time-unavailable" : null, direction: t.direction, durationMs: t.durationMs, elapsedMs: t.direction === "down" ? Math.min(raw, t.durationMs) : raw,
         remainingMs: t.direction === "down" ? Math.max(0, t.durationMs - raw) : null, running: t.startedAtMs !== null && !done, completed: done };
     }
     function timer(id, options = {}) {
@@ -97,27 +165,30 @@
       const direction = options.direction === undefined ? "down" : options.direction;
       if (!["up", "down"].includes(direction)) throw new Error("Timer direction is up or down.");
       const durationMs = direction === "down" ? duration(options.durationMs, "durationMs") : 0;
-      ensure(id, { kind: "timer", direction, durationMs, elapsedMs: 0, startedAtMs: null, notified: false, generation: 0 });
+      const existed = own(read().objects, id) && !removed(id);
+      ensure(id, { kind: "timer", direction, durationMs, elapsedMs: 0, startedAtMs: null, notified: false, generation: 0, incarnation: clock().toString(36) + "-" + Math.random().toString(36).slice(2) });
+      if (!existed) command(id, "ensure", { value: { kind: "timer", direction, durationMs } }, false);
       // Validate loaded values before activating the candidate.
       timerSnapshot(id); timers.add(id);
-      const resume = () => update(objects => {
+      const resume = () => { if (command(id, "resume")) return; update(objects => {
         const t = objects[id]; object(id, "timer");
         if (t.startedAtMs === null && !(t.direction === "down" && t.elapsedMs >= t.durationMs)) t.startedAtMs = clock();
-      });
+      }); };
       return Object.freeze({
         id, start: resume, resume,
-        pause: () => update(objects => {
+        pause: () => { if (command(id, "pause")) return; update(objects => {
           const t = objects[id]; object(id, "timer");
           t.elapsedMs = elapsed(t, clock());
           if (t.direction === "down") t.elapsedMs = Math.min(t.durationMs, t.elapsedMs);
           t.startedAtMs = null;
-        }),
-        reset: () => update(objects => { const t = objects[id]; object(id, "timer"); t.elapsedMs = 0; t.startedAtMs = null; t.notified = false; t.generation = (t.generation || 0) + 1; }),
+        }); },
+        reset: () => { if (command(id, "reset")) return; update(objects => { const t = objects[id]; object(id, "timer"); t.elapsedMs = 0; t.startedAtMs = null; t.notified = false; t.generation = (t.generation || 0) + 1; }); },
         snapshot: () => { check(); return timerSnapshot(id); }
       });
     }
     function prune(t, at) {
-      if (!isPlainObject(t.bucketsMs) || !Array.isArray(t.segments) || !Number.isFinite(t.accruedUntilMs) || t.accruedUntilMs < 0) throw new Error("Invalid saved rolling tracker.");
+      if (t.fault !== undefined && typeof t.fault !== "boolean") throw new Error("Invalid saved rolling capacity status.");
+      if (!isPlainObject(t.bucketsMs) || !Array.isArray(t.segments) || !Number.isSafeInteger(t.accruedUntilMs) || t.accruedUntilMs < 0 || !Number.isSafeInteger(t.resetAtMs) || t.resetAtMs < 0) throw new Error("Invalid saved rolling tracker.");
       for (const [key, value] of Object.entries(t.bucketsMs)) {
         const minute = Number(key);
         if (!Number.isSafeInteger(minute) || minute < 0 || minute % MINUTE_MS || !Number.isFinite(value) || value <= 0) throw new Error("Invalid rolling usage bucket.");
@@ -179,7 +250,7 @@
     function targetList(value, kind) {
       if (!Array.isArray(value) || value.length > 100 || value.some(x => typeof x !== "string" || !x || x.length > 32767)) throw new Error("Assign at most 100 " + kind + " targets.");
       return [...new Set(value.map(x => {
-        if (kind !== "website") return windowsTimeIdentities ? x.toLowerCase() : x;
+        if (kind !== "website") return normalizeTimeApp(x);
         // Domain targets include their subdomains, exactly like Website scopes.
         const domain = x.toLowerCase().replace(/\.$/, "");
         if (domain.length > 253 || !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(domain) || domain.includes("..")) throw new Error("Website targets must be hostnames, without a scheme or path.");
@@ -195,7 +266,7 @@
       return t.websites.some(domain => host === domain || host.endsWith("." + domain));
     }
     function appMatches(t, value) {
-      const app = windowsTimeIdentities ? String(value || "").toLowerCase() : value;
+      const app = normalizeTimeApp(value);
       return t.apps.includes(app);
     }
     function trackerSnapshot(id) {
@@ -204,7 +275,7 @@
         object(id, "rolling"); const t = objects[id]; prune(t, at);
         const usedMs = used(t), remainingMs = Math.max(0, t.limitMs - usedMs);
         const minutes = Object.keys(t.bucketsMs).map(Number);
-        snapshot = { id, windowMs: t.windowMs, limitMs: t.limitMs, usedMs, remainingMs, available: remainingMs > 0,
+        snapshot = { id, ready: ready(id) && !t.fault, error: t.fault ? "rolling-history-capacity" : shared?.linked && !shared.ready ? shared.error || "shared-time-unavailable" : null, windowMs: t.windowMs, limitMs: t.limitMs, usedMs, remainingMs, available: ready(id) && !t.fault && remainingMs > 0,
           nextReturnAtMs: minutes.length ? Math.min(...minutes) + MINUTE_MS + t.windowMs : null };
       });
       return snapshot;
@@ -212,73 +283,257 @@
     function rolling(id, options) {
       id = timeID(id);
       const windowMs = duration(options?.windowMs, "windowMs"), limitMs = duration(options?.limitMs, "limitMs", true);
-      ensure(id, { kind: "rolling", windowMs, limitMs, websites: [], apps: [], bucketsMs: {}, segments: [], accruedUntilMs: 0, resetAtMs: clock() });
+      const existed = own(read().objects, id) && !removed(id);
+      ensure(id, { kind: "rolling", windowMs, limitMs, websites: [], apps: [], bucketsMs: {}, segments: [], accruedUntilMs: 0, resetAtMs: clock(), fault: false });
+      if (!existed) command(id, "ensure", { value: { kind: "rolling", windowMs, limitMs } }, false);
       const stored = object(id, "rolling"); targetList(stored.websites, "website"); targetList(stored.apps, "app");
       trackerSnapshot(id); trackers.add(id);
       return Object.freeze({
         id,
         assign: (targets) => {
           const websites = targetList(targets?.websites || [], "website"), apps = targetList(targets?.apps || [], "app");
-          update(objects => { object(id, "rolling"); Object.assign(objects[id], { websites, apps }); });
+          if (shared?.linked) {
+            const ownTargets = read().ownTargets || {};
+            if (safeJSON(ownTargets[id]) !== safeJSON({ websites, apps })) {
+              command(id, "assign", { targets: { websites, apps } }, false);
+            }
+            return;
+          }
+          update((objects, state) => {
+            object(id, "rolling"); Object.assign(objects[id], { websites, apps });
+            state.ownTargets ||= {};
+            Object.defineProperty(state.ownTargets, id, { value: { websites, apps }, enumerable: true, writable: true, configurable: true });
+          });
         },
         snapshot: () => { check(); return trackerSnapshot(id); },
         available: (target) => {
           check(); const t = object(id, "rolling");
           return (target === undefined || websiteMatches(t, target) || appMatches(t, target)) && trackerSnapshot(id).available;
         },
-        reset: () => update(objects => { object(id, "rolling"); objects[id].bucketsMs = {}; objects[id].segments = []; objects[id].accruedUntilMs = clock(); objects[id].resetAtMs = clock(); })
+        reset: () => { if (command(id, "reset")) return; update(objects => { object(id, "rolling"); objects[id].bucketsMs = {}; objects[id].segments = []; objects[id].accruedUntilMs = clock(); objects[id].resetAtMs = clock(); objects[id].fault = false; }); }
       });
     }
     function advance(event, emit) {
       const at = clock();
       if (!timers.size && !trackers.size) return;
+      if (shared?.linked && !shared.ready) return;
       const ended = [];
       update(objects => {
         for (const id of timers) {
+          if (!ready(id)) continue;
           const t = objects[id]; object(id, "timer");
           if (t.direction === "down" && elapsed(t, at) >= t.durationMs && !t.notified) {
             t.elapsedMs = t.durationMs; t.startedAtMs = null; t.notified = true;
-            ended.push({ id, direction: "down", durationMs: t.durationMs, generation: t.generation || 0 });
+            ended.push({ id, direction: "down", durationMs: t.durationMs, generation: t.generation || 0, incarnation: t.incarnation });
           }
         }
-        for (const id of trackers) {
-          const t = objects[id]; object(id, "rolling"); prune(t, at);
-          const data = event.data || {};
-          const matches = event.type === "visible" ? websiteMatches(t, data.url) : event.type === "tick" && appMatches(t, data.usageAppId);
-          const amount = Number(data.elapsedMs);
-          if (!matches || !Number.isFinite(amount) || amount <= 0) continue;
-          const bounded = Math.min(5000, Math.round(amount));
-          const from = Math.max(at - bounded, usageFloor, t.resetAtMs || 0);
-          t.accruedUntilMs = Math.max(at, t.accruedUntilMs);
-          addUsage(t, from, at);
-        }
       });
+      for (const id of trackers) {
+        try {
+          update(objects => {
+            const t = objects[id]; object(id, "rolling"); prune(t, at);
+            if (shared?.linked || t.fault) return; // The authenticated hub accounts first.
+            if (event.trustedUsage === false) return; // v.emit is not observed usage.
+            const data = event.data || {};
+            const matches = event.type === "visible" ? websiteMatches(t, data.url) : event.type === "tick" && appMatches(t, data.usageAppId);
+            const amount = Number(data.elapsedMs);
+            if (!matches || !Number.isFinite(amount) || amount <= 0) return;
+            const bounded = Math.min(5000, Math.round(amount));
+            const from = Math.max(at - bounded, usageFloor, t.resetAtMs || 0);
+            t.accruedUntilMs = Math.max(at, t.accruedUntilMs);
+            addUsage(t, from, at);
+          });
+        } catch (error) {
+          if (!/history exceeds|usage segments|state limit/.test(String(error.message || error))) throw error;
+          // Preallocated false -> true cannot grow a valid current record. Keep
+          // the last valid history and persist a fault, never a fresh allowance.
+          update(objects => { objects[id].fault = true; });
+        }
+      }
       for (const data of ended) emit("timerEnded", data);
     }
     function hydrate(controls) {
       return controls.map(control => {
         if (control.type === "section") return { ...control, controls: hydrate(control.controls) };
         if (control.type !== "timer") return control;
-        if (!timers.has(control.timerId)) return { ...control, type: "text", text: (control.label ? control.label + " " : "") + "—" };
+        if (!timers.has(control.timerId) || !own(read().objects, control.timerId) || read().objects[control.timerId].kind !== "timer") return { ...control, type: "text", text: (control.label ? control.label + " " : "") + "—" };
         const status = timerSnapshot(control.timerId);
-        const seconds = Math.ceil((status.direction === "down" ? status.remainingMs : status.elapsedMs) / 1000);
+        if (!status.ready) return { ...control, type: "text", text: (control.label ? control.label + " " : "") + "—" };
+        const seconds = status.direction === "down" ? Math.ceil(status.remainingMs / 1000) : Math.floor(status.elapsedMs / 1000);
         const h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), s = seconds % 60;
         const display = (h ? h + ":" + String(m).padStart(2, "0") : String(m)) + ":" + String(s).padStart(2, "0");
         // Use the existing native/browser text control; no parallel renderer.
         return { ...control, type: "text", text: (control.label ? control.label + " " : "") + display };
       });
     }
-    return { timer, rolling, advance, hydrate,
+    configure(initialContext);
+    return { timer, rolling, advance, hydrate, configure,
+      pending: () => cloneJSON(read().pending || []),
       types: () => [...(timers.size || trackers.size ? ["tick"] : []), ...(trackers.size ? ["visible"] : [])],
       takeChanged: () => { const result = changed || timers.size > 0; changed = false; return result; },
       resetUsageBoundary: (at = clock()) => { usageFloor = at; },
       currentCompletion: data => {
         if (!timers.has(data?.id)) return false;
         const t = object(data.id, "timer");
-        return t.notified && (t.generation || 0) === data.generation;
+        return t.notified && t.incarnation === data.incarnation && (t.generation || 0) === data.generation;
       },
-      remove: id => { id = timeID(id); update(objects => { delete objects[id]; }); timers.delete(id); trackers.delete(id); }
+      mergeSeed: seed => update(objects => {
+        if (!seed || seed.version !== 1 || !isPlainObject(seed.objects)) throw new Error("Unsupported time seed.");
+        for (const [id, value] of Object.entries(seed.objects)) {
+          timeID(id);
+          if (!value || !["timer", "rolling"].includes(value.kind)) throw new Error("Invalid time seed object.");
+          if (own(objects, id)) {
+            const old = objects[id];
+            const keys = value.kind === "timer" ? ["kind", "direction", "durationMs"] : ["kind", "windowMs", "limitMs"];
+            if (keys.some(key => old[key] !== value[key])) throw new Error("Incompatible linked time object: " + id);
+            if (value.kind === "rolling") {
+              old.websites = [...new Set([...old.websites, ...targetList(value.websites, "website")])];
+              old.apps = [...new Set([...old.apps, ...targetList(value.apps, "app")])];
+              old.segments = unionSegments([...old.segments, ...value.segments]);
+              old.resetAtMs = Math.min(old.resetAtMs, value.resetAtMs);
+              prune(old, clock());
+            }
+          } else {
+            if (Object.keys(objects).length >= LIMITS.timeObjectsPerGroup) throw new Error("At most 32 linked time objects.");
+            Object.defineProperty(objects, id, { value: cloneJSON(value), enumerable: true, writable: true, configurable: true });
+          }
+        }
+        for (const [id, value] of Object.entries(objects)) {
+          if (value.kind === "timer") {
+            if (!["up", "down"].includes(value.direction)) throw new Error("Invalid timer direction.");
+            duration(value.durationMs, "durationMs", value.direction === "up");
+            elapsed(value, clock());
+          } else {
+            duration(value.windowMs, "windowMs"); duration(value.limitMs, "limitMs", true);
+            targetList(value.websites, "website"); targetList(value.apps, "app"); prune(value, clock());
+          }
+        }
+      }),
+      remove: id => { id = timeID(id); if (command(id, "remove")) return; update((objects, state) => { delete objects[id]; if (state.ownTargets) delete state.ownTargets[id]; }); timers.delete(id); trackers.delete(id); }
     };
+  }
+
+  // Pure hub policy. Mac's JavaScriptCore and Windows' existing trusted policy
+  // worker execute these exact functions; no second timer/accounting engine.
+  // The host binds `member` to authenticated program + pinned group identity,
+  // serializes transactions and persists state before returning an acknowledgment.
+  function mergeTime(existing, sources, initiator, nowMs) {
+    try {
+      if (!Number.isSafeInteger(nowMs) || nowMs < 0 || !Array.isArray(sources) || sources.length > 16) throw new Error("Invalid shared time merge.");
+      const state = existing ? cloneJSON(existing) : { version: 1, objects: {}, receipts: {}, targets: {}, revision: 0 };
+      if (state.version !== 1 || !isPlainObject(state.objects) || !isPlainObject(state.receipts) || !isPlainObject(state.targets)) throw new Error("Unsupported shared time state.");
+      const wrapper = { [TIME_KEY]: state };
+      const tools = timeTools(() => wrapper, () => nowMs, () => {});
+      // First creation takes the initiating member's timers. Existing shared
+      // timers are already authoritative when a further member joins.
+      const ordered = sources.slice().sort((a, b) => (a.member === initiator ? -1 : b.member === initiator ? 1 : 0));
+      for (const source of ordered) {
+        if (typeof source.member !== "string" || source.member.length > 200) throw new Error("Invalid time member.");
+        const seed = cloneJSON(source.state || { version: 1, objects: {} });
+        for (const [id, value] of Object.entries(seed.objects || {})) if (value?.kind === "rolling" && seed.ownTargets?.[id]) Object.assign(value, seed.ownTargets[id]);
+        tools.mergeSeed(seed);
+        const current = wrapper[TIME_KEY];
+        for (const [id, value] of Object.entries(seed.objects)) if (value.kind === "rolling") {
+          if (!own(current.targets, id)) Object.defineProperty(current.targets, id, { value: {}, enumerable: true, writable: true, configurable: true });
+          current.targets[id][source.member] = { websites: value.websites, apps: value.apps };
+        }
+      }
+      const out = wrapper[TIME_KEY];
+      out.revision = timeRevision(existing, out);
+      if (utf8Bytes(safeJSON(wrapper)) > LIMITS.stateBytes) throw new Error("Shared time storage limit exceeded.");
+      return { ok: true, state: out };
+    } catch (error) { return { ok: false, error: String(error.message || error) }; }
+  }
+  function reduceTime(existing, request) {
+    try {
+      if (!request || typeof request.member !== "string" || request.member.length > 200 || !Number.isSafeInteger(request.nowMs) || request.nowMs < 0 || !Array.isArray(request.commands) || request.commands.length > 64) throw new Error("Invalid shared time request.");
+      const initial = mergeTime(existing, [], "", request.nowMs);
+      if (!initial.ok) return initial;
+      const wrapper = { [TIME_KEY]: initial.state };
+      let clock = request.nowMs;
+      const tools = timeTools(() => wrapper, () => clock, () => {});
+      tools.resetUsageBoundary(0);
+      const objects = new Map();
+      const register = id => {
+        const value = wrapper[TIME_KEY].objects[id];
+        if (!value) throw new Error("Unknown shared time object: " + id);
+        const handle = value.kind === "timer" ? tools.timer(id, value) : tools.rolling(id, value);
+        objects.set(id, handle); return handle;
+      };
+      for (const id of Object.keys(wrapper[TIME_KEY].objects)) register(id);
+      let receipt = wrapper[TIME_KEY].receipts[request.member] || 0;
+      for (const command of request.commands) {
+        if (!command || !Number.isSafeInteger(command.serial) || command.serial <= 0) throw new Error("Invalid time command serial.");
+        if (command.serial <= receipt) continue;
+        if (!Number.isSafeInteger(command.atMs) || command.atMs < 0 || command.atMs > request.nowMs + 1000) throw new Error("Invalid time command clock.");
+        clock = Math.min(command.atMs, request.nowMs);
+        const id = timeID(command.id);
+        if (command.op === "ensure") {
+          const value = command.value;
+          if (!value || !["timer", "rolling"].includes(value.kind)) throw new Error("Invalid shared object declaration.");
+          objects.set(id, value.kind === "timer" ? tools.timer(id, value) : tools.rolling(id, value));
+        } else if (command.op === "remove") {
+          tools.remove(id); objects.delete(id); delete wrapper[TIME_KEY].targets[id];
+        } else {
+          const handle = objects.get(id) || register(id);
+          if (command.op === "assign") {
+            // Validate the assignment through the same public implementation.
+            handle.assign(command.targets);
+            const state = wrapper[TIME_KEY];
+            if (!own(state.targets, id)) Object.defineProperty(state.targets, id, { value: {}, enumerable: true, writable: true, configurable: true });
+            state.targets[id][request.member] = cloneJSON(command.targets);
+            const targets = Object.values(state.targets[id]);
+            handle.assign({ websites: [...new Set(targets.flatMap(t => t.websites || []))], apps: [...new Set(targets.flatMap(t => t.apps || []))] });
+          } else if (["start", "resume", "pause", "reset"].includes(command.op) && typeof handle[command.op] === "function") handle[command.op]();
+          else throw new Error("Unsupported shared time command.");
+        }
+        receipt = command.serial;
+      }
+      if (request.usage) {
+        if (!["visible", "tick"].includes(request.usage.type) || !Number.isSafeInteger(request.usage.now) || request.usage.now < 0 || request.usage.now > request.nowMs + 1000) throw new Error("Invalid shared usage event.");
+        clock = Math.min(request.usage.now, request.nowMs);
+        tools.advance(request.usage, () => {});
+      }
+      clock = request.nowMs;
+      tools.advance({ type: "tick", data: {} }, () => {});
+      wrapper[TIME_KEY].receipts[request.member] = receipt;
+      if (utf8Bytes(safeJSON(wrapper)) > LIMITS.stateBytes) throw new Error("Shared time storage limit exceeded.");
+      wrapper[TIME_KEY].revision = timeRevision(existing, wrapper[TIME_KEY]);
+      return { ok: true, state: wrapper[TIME_KEY], acknowledgedSerial: receipt };
+    } catch (error) { return { ok: false, error: String(error.message || error) }; }
+  }
+  function syncTime(existing, request) {
+    try {
+      if (!request || !Array.isArray(request.members) || request.members.length < 2 || request.members.length > 16 || !request.members.includes(request.member) || !request.members.includes(request.initiator)) throw new Error("Invalid linked time membership.");
+      let merged = existing ? { ok: true, state: cloneJSON(existing) } : mergeTime(null, request.seeds || [], request.initiator, request.nowMs);
+      if (!merged.ok) return merged;
+      merged.state.confirmed ||= {};
+      if (!merged.state.confirmed[request.member]) {
+        const seed = request.seed || { version: 1, objects: {} };
+        if (request.member === request.initiator) {
+          // No control is admitted until all original seeds arrive. Refresh
+          // preliminary roster timer values from the initiator's fresh state.
+          for (const [id, value] of Object.entries(seed.objects || {})) if (value.kind === "timer") {
+            const old = merged.state.objects[id];
+            if (old && ["kind", "direction", "durationMs"].some(key => old[key] !== value[key])) throw new Error("Incompatible linked time object: " + id);
+            Object.defineProperty(merged.state.objects, id, { value: cloneJSON(value), enumerable: true, writable: true, configurable: true });
+          }
+        }
+        merged = mergeTime(merged.state, [{ member: request.member, state: seed }], request.initiator, request.nowMs);
+        if (!merged.ok) return merged;
+        merged.state.confirmed ||= {};
+        merged.state.confirmed[request.member] = true;
+      }
+      const ready = request.members.every(member => merged.state.confirmed[member] === true);
+      const result = reduceTime(merged.state, { member: request.member, commands: ready ? request.commands || [] : [], usage: ready ? request.usage : null, nowMs: request.nowMs });
+      if (!result.ok) return result;
+      result.state.revision = timeRevision(existing, result.state);
+      return { ...result, ready };
+    } catch (error) { return { ok: false, error: String(error.message || error) }; }
+  }
+  function timeRevision(before, after) {
+    const withoutRevision = value => ({ ...value, revision: 0 });
+    return (before?.revision || 0) + (before && safeJSON(withoutRevision(before)) === safeJSON(withoutRevision(after)) ? 0 : 1);
   }
 
   // ── Compiling ────────────────────────────────────────────────────────────
@@ -300,7 +555,7 @@
   // `engineActions(act, check, requestId)` returns the engine's own actions;
   // `requestId()` names a request whose answer comes back as an event; `act(kind,
   // fields)` queues one. Registration runs once, now.
-  function createRule(groupId, fn, { state, engineActions, now = () => Date.now() } = {}) {
+  function createRule(groupId, fn, { state, engineActions, timeContext = null, now = () => Date.now() } = {}) {
     const handlers = new Map();
     let handlerCount = 0;
     let record = null;
@@ -329,7 +584,7 @@
       if (record) push(record.actions, { groupId, kind, ...fields }, LIMITS.actionsPerDispatch);
     };
 
-    const time = timeTools(() => stateObj, () => eventNow ?? now(), check);
+    const time = timeTools(() => stateObj, () => eventNow ?? now(), check, timeContext);
 
     const v = {
       log(...args) {
@@ -426,6 +681,7 @@
       handles: (type) => handlers.has(type) || time.types().includes(type),
       resetUsageBoundary: time.resetUsageBoundary,
       currentCompletion: time.currentCompletion,
+      configureTime: context => { time.configure(context); if (context?.linked) stateJSON = null; },
       // Runs this group's handlers for one event. Returns its record.
       dispatch(event) {
         begin();
@@ -480,6 +736,7 @@
   function createEngine(engineActions, { beacon = () => {} } = {}) {
     const incarnation = Date.now().toString(36) + ":" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + ":" + (++engineSequence);
     const rules = new Map(); // groupId -> rule
+    const timeContexts = new Map();
     const overruns = new Map(); // groupId -> [time]
     // A disabled group's rule stays loaded but hears nothing (owner
     // 2026-09-27): enabling it resumes it as it was; only Run loads new code.
@@ -515,7 +772,11 @@
       let result = { ok: true, handlers: 0, types: [], error: null, logs: [], panels: [], states: {} };
       if (compiled.fn) {
         beacon(groupId);
-        rule = createRule(groupId, compiled.fn, { state: cloneJSON(state), engineActions });
+        try {
+          rule = createRule(groupId, compiled.fn, { state: cloneJSON(state), engineActions, timeContext: timeContexts.get(groupId) ?? null });
+        } catch (error) {
+          return { ok: false, handlers: 0, types: [], error: "Registration failed: " + String(error.message || error), logs: [] };
+        }
         if (rule.error) {
           const budget = /longer than/.test(rule.error);
           return { ok: false, handlers: 0, types: [], error: rule.error, logs: rule.registrationLogs, quarantine: budget ? { groupId, reason: "registration-deadline-overrun" } : null };
@@ -561,6 +822,7 @@
     }
 
     function unload(groupId) {
+      timeContexts.delete(groupId);
       discardGroup(groupId);
       rules.delete(groupId);
       overruns.delete(groupId);
@@ -589,7 +851,7 @@
         const { rule, event, depth } = queue.shift();
         if (event.managedTimer && !rule.currentCompletion(event.data)) continue;
         beacon(rule.groupId);
-        const record = rule.dispatch({ type: event.type, now: event.now ?? Date.now(), data: event.data ?? null });
+        const record = rule.dispatch({ type: event.type, now: event.now ?? Date.now(), data: event.data ?? null, trustedUsage: event.trustedUsage !== false });
         out.actions.push(...record.actions);
         out.logs.push(...record.logs);
         out.diagnostics.push(...record.diagnostics);
@@ -598,7 +860,7 @@
         }
         if (depth < EMIT_DEPTH) {
           for (const emitted of record.emits) {
-            if (rule.handles(emitted.type)) queue.push({ rule, event: { type: emitted.type, now: Date.now(), data: emitted.data, managedTimer: emitted.managedTimer }, depth: depth + 1 });
+            if (rule.handles(emitted.type)) queue.push({ rule, event: { type: emitted.type, now: Date.now(), data: emitted.data, managedTimer: emitted.managedTimer, trustedUsage: false }, depth: depth + 1 });
           }
         }
       }
@@ -613,7 +875,19 @@
       return out;
     }
 
-    return { load, prepareLoad, commitLoad, discardLoad, unload, suppress, dispatch, types: (groupId) => (rules.has(groupId) ? rules.get(groupId).types() : []) };
+    function setTimeContext(groupId, context) {
+      try {
+        rules.get(groupId)?.configureTime(context);
+        timeContexts.set(groupId, context);
+        return { ok: true };
+      } catch (error) {
+        const unavailable = { linked: true, ready: false, clusterId: context?.clusterId || "unavailable" };
+        timeContexts.set(groupId, unavailable);
+        rules.get(groupId)?.configureTime(unavailable);
+        return { ok: false, error: String(error.message || error) };
+      }
+    }
+    return { load, prepareLoad, commitLoad, discardLoad, unload, suppress, dispatch, setTimeContext, types: (groupId) => (rules.has(groupId) ? rules.get(groupId).types() : []) };
   }
 
   // ── Values ───────────────────────────────────────────────────────────────
@@ -768,11 +1042,15 @@
   // ── The reference an AI writes rules from ────────────────────────────────
   const SHARED_REFERENCE = [
     "A rule is ONE JavaScript function expression: (on, v) => { … }. It runs once when the user presses Run: register handlers there. Run replaces the old handlers; deleting the group removes them. While the group is disabled no handler runs and what the rule did is lifted (its panels, style sheets, covers, blocks); enabling it resumes the rule as it was.",
-    "on(type, handler) adds a handler; several per type are fine. handler(ev) gets ev = { type, now (ms since 1970), data }. Handlers are synchronous and must finish within 1 s: no loops that wait, no network, no timers, no DOM of your own (you run in a sandbox).",
+    "on(type, handler) adds a handler; several per type are fine. handler(ev) gets ev = { type, now (ms since 1970), data }. Handlers are synchronous and must finish within 1 s: no loops that wait, no network, no setTimeout/setInterval, no DOM of your own (you run in a sandbox).",
     "v.state is the group's memory: one JSON object (≤ 64 KB), kept across restarts and across Run (a new version of the rule finds what the old one saved), deleted with the group. Change it freely inside handlers.",
     "v.log(...values) writes to the group's log in the editor.",
+    "v.timer(id, {direction: down|up, durationMs?}) creates/returns a named managed timer (default down; durationMs required for down). It begins paused. start()/resume() are idempotent; pause() freezes; reset() clears elapsed and pauses; snapshot() gives ready/error, elapsedMs, remainingMs (null for up), running and completed. Running clocks continue while closed/disabled. timerEnded delivers {id, direction, durationMs, generation, incarnation} once per run to each enabled linked member when it next executes.",
+    "v.rolling(id, {windowMs, limitMs}) creates/returns a named active-use tracker. assign({websites:[hostnames],apps:[native app IDs]}) replaces this member's targets; all assigned targets share the allowance. snapshot() gives ready/error, usedMs, remainingMs, available and nextReturnAtMs; available(target?) also checks assignment. reset() clears this object's usage. Browser visible intervals and native observed foreground samples count once across overlaps, not wall time or v.emit events.",
+    "Managed time IDs: 1–80 ASCII letters/digits/_/-. Integer millisecond durations ≤365 days; at most32 objects and64KiB total rule JSON. A changed same-ID configuration is refused; removeTime(id) explicitly deletes it before recreation. $vaultTime is a reserved versioned state namespace; do not edit it. Run/restart preserve objects. Linked custom groups on one local hub share same-ID objects, combine tracker history/targets and retain initiating timers; disconnected shared trackers are unavailable and controls fail. Check ready. Unlinked groups are independent.",
+
     "v.emit(type, data) delivers a \"type\" event with that data to this group, right after the current one.",
-    "v.panel(id, spec, tabId?) shows a panel (spec = { title, description, position: top-left|top-right|bottom-left|bottom-right|center, layout, width: small|medium|large, controls: [...] }); calling again replaces it; v.panel(id, null) removes it. Controls: { id, type, label, value, ... } with type text (text), html (html, sanitized; inherits Vault colors/font and discards CSS), button (action submit|cancel|close), checkbox, toggle, select / radio (options), textInput / textarea (placeholder), numberInput / range (min, max, step), date, time, color, pin (length, masked), section (controls). Interactions arrive as \"panel\" events: data = { panelId, controlId, eventName, value, values }.",
+    "v.panel(id, spec, tabId?) shows a panel (spec = { title, description, position: top-left|top-right|bottom-left|bottom-right|center, layout, width: small|medium|large, controls: [...] }); calling again replaces it; v.panel(id, null) removes it. Controls: { id, type, label, value, ... } with type text (text), timer (timerId; managed timer displayed as text), html (html, sanitized; inherits Vault colors/font and discards CSS), button (action submit|cancel|close), checkbox, toggle, select / radio (options), textInput / textarea (placeholder), numberInput / range (min, max, step), date, time, color, pin (length, masked), section (controls). Interactions arrive as \"panel\" events: data = { panelId, controlId, eventName, value, values }.",
     "v.file(op, path, payload?) uses the folder the user chose in Settings (.txt, .csv, .json; paths relative to it): op read | write | append | list | exists. It returns a request id; the answer arrives as a \"file\" event: data = { requestId, ok, op, path, text, entries, exists, error }.",
     "Other events: \"snooze\" (the user pressed the group's Snooze), plus every type you v.emit.",
     "Limits per event: 256 actions, 200 log entries, 64 emits; 24 panels of 32 controls per group."
@@ -804,7 +1082,7 @@
     return ["CUSTOM RULE API — use only what is listed; there are no other helpers.", ...SHARED_REFERENCE, ...(ENGINE_REFERENCE[engine] || [])].join("\n");
   }
 
-  const api = Object.freeze({ LIMITS, compile, createRule, createEngine, sanitizePanel, reference });
+  const api = Object.freeze({ LIMITS, compile, createRule, createEngine, sanitizePanel, reference, mergeTime, reduceTime, syncTime });
   global.RuleCore = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

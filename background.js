@@ -17,7 +17,7 @@
 // Chromium uses a classic service worker. Safari preloads these shared
 // dependencies through its manifest background script list.
 if (typeof importScripts === "function") {
-  importScripts("browser-compat.js", "storage-schema.js");
+  importScripts("browser-compat.js", "storage-schema.js", "rule-time-client.js");
   try {
     if (typeof CBBridgeProtocol === "undefined") importScripts("bridge-protocol.js");
   } catch (error) {
@@ -56,6 +56,7 @@ if (typeof importScripts === "function") {
     console.error("[CustomBlocker] importScripts(vault-activity.js) failed", error);
   }
 }
+if (!globalThis.CBRuleTime) throw new Error("Managed rule-time coordination is unavailable.");
 
 // A group's policy rules (field defaults and parsers, time windows, budget
 // periods, runtime-state sanitizers): one copy, in group-actions.js.
@@ -2141,6 +2142,7 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
   const original = (before[BLOCKED_GROUPS_KEY] || []).find(current => current?.id === group.id && current.groupType === "custom");
   if (!original) return { ok: false, error: "group-not-found" };
   const stored = (before[CB_RULE_STATE_KEY] || {})[group.id] || {};
+  if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureGroup(group.id);
   let result = await sendToEventSandbox({ kind: "prepare-source", groupId: group.id, source, state: stored, run });
   if (!result) return null;
   for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType: "run" });
@@ -2224,6 +2226,7 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
     return { ok: false, error: "group-not-found" };
   }
   await cbSuppressRule(group.id, !latestGroup.enabled);
+  if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureGroup(group.id);
   return result;
 }
 
@@ -2242,11 +2245,13 @@ async function unloadCustomGroupHandlers(groupId) {
 // One event to the rules that handle it (or to one group's rule).
 async function dispatchRule(type, data, { targetGroupId = null } = {}) {
   await ensureStartupGate();
-  if (targetGroupId ? !cbRuleTypes.has(targetGroupId) : !cbRulesHandle(type)) return null;
+  if (targetGroupId ? !cbRuleTypes.has(targetGroupId) : !cbRulesHandle(type) && !(type === "tick" && globalThis.CBRuleTime?.hasLinkedCustom())) return null;
   return cbSerializeRuleMutation(async () => {
     const generations = new Map(cbRuleGenerations);
+    if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureAll({ type, now: Date.now(), data }, targetGroupId);
     const result = await sendToEventSandbox({ kind: "dispatch-event", descriptor: { type, now: Date.now(), data, targetGroupId } });
     await applyRuleResult(result, type, generations);
+    if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureAll(null, targetGroupId);
     return result;
   });
 }
@@ -2274,6 +2279,9 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
   if (Object.keys(states).length > 0) {
     const stored = snapshot[CB_RULE_STATE_KEY] || {};
     await chrome.storage.local.set({ [CB_RULE_STATE_KEY]: { ...stored, ...states } });
+    if (globalThis.CBRuleTime && Object.keys(states).some(id => globalThis.CBRuleTime.configurationKey(stored[id]) !== globalThis.CBRuleTime.configurationKey(states[id]))) {
+      await cbAnnounceStoredGroups(groups);
+    }
   }
   for (const [groupId, panels] of Object.entries(result.panels || {})) if (current.has(groupId)) cbSetRulePanels(groupId, panels);
   const pages = new Map(); // tabId | "*" -> { items, dom, queries, cover }
@@ -2720,7 +2728,7 @@ self.CBSafariLifetimeTick = cbSafariLifetimeTick;
 if (sandboxTransportMode() === "native") setInterval(cbSafariLifetimeTick, 1000);
 
 async function emitRuleTick() {
-  if (!cbRulesHandle("tick")) return;
+  if (!cbRulesHandle("tick") && !globalThis.CBRuleTime?.hasLinkedCustom()) return;
   const tabs = await chrome.tabs.query({});
   await dispatchRule("tick", {
     tabs: tabs.filter((tab) => typeof tab?.id === "number").map((tab) => ({ tabId: tab.id, url: tab.url || "", active: Boolean(tab.active) }))
@@ -2999,10 +3007,11 @@ async function cbRenameDuplicatesLocked(groups) {
 async function cbAnnounceStoredGroups(groups) {
   const list = Array.isArray(groups) ? groups : (await getState()).groups;
   if (!cbConnection.desktopRouteIsReady()) return;
+  const states = (await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY];
   cbConnection.sendWS({
     kind: "groups-announce",
     program: cbDetectProgramId(),
-    groups: list.map((group) => ({ id: group.id, name: group.name, frozen: CBGroupActions.isLocked(group) }))
+    groups: list.map((group) => ({ id: group.id, name: group.name, frozen: CBGroupActions.isLocked(group), timeState: globalThis.CBRuleTime?.seedForRoster(states?.[group.id]) }))
   });
 }
 
@@ -3745,6 +3754,7 @@ const cbConnection = {
   },
 
   invalidateActivitySettingsConnection() {
+    globalThis.CBRuleTime?.disconnect();
     this.activitySettingsConnectionGeneration += 1;
     this.activitySettingsNotifications = false;
     if (typeof cbActivity !== "undefined") cbActivity.beginSettingsConnection(this.activitySettingsConnectionGeneration);
@@ -3908,6 +3918,7 @@ const cbConnection = {
         this.activitySettingsNotifications = msg.activitySettingsNotifications === true
           && ["macapp", "windowsapp"].includes(msg.hubProgram);
         this.usageTransferReceipts = msg.usageTransferReceipts === true;
+        this.ruleTimeVersion = msg.ruleTimeVersion === 1 ? 1 : 0;
         cbJoinsSent.clear();
         this.burstStartMs = 0;
         this.setStatus({
@@ -3974,6 +3985,9 @@ const cbConnection = {
         // The request map below ignores unmatched replies, so classifier
         // responses cannot cross-route ordinary group-sync traffic.
         if (self.CBClassifierHub) self.CBClassifierHub.receive(msg);
+        break;
+      case "rule-time-response":
+        globalThis.CBRuleTime?.receive(msg);
         break;
       case "activity-settings-updated":
         // Only the authenticated desktop hub can originate this kind. It is

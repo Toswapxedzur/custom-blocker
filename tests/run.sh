@@ -36,6 +36,8 @@ node tests/runner-rule-stale-results.js || failed=1
 node tests/runner-rule-delivery-ack.js || failed=1
 node tests/runner-rule-initial-state.js || failed=1
 node tests/runner-rule-time.js || failed=1
+node tests/runner-rule-time-shared.js || failed=1
+node tests/runner-rule-time-client.js || failed=1
 node tests/runner-safari-native-lifecycle.js || failed=1
 node tests/runner-safari-packaging.js || failed=1
 node_out=$(node tests/runner-editor-intent.js 2>&1) || failed=1

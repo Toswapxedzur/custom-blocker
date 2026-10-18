@@ -87,3 +87,5 @@
   bounded compatible-alpha imports and write barriers across worker/editor APIs.
   `docs/STORAGE-SCHEMAS.md` documents retention; `tests/runner-storage-schema.js`
   checks expiry, retries, callbacks and unsupported-destination preservation.
+
+- `rule-time-client.js`: authenticated local-hub coordination for linked custom-rule timers and rolling trackers (private implementation in progress).
