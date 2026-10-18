@@ -2139,11 +2139,13 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
   const source = typeof group.activeEventSource === "string" ? group.activeEventSource : "";
   const pageNeeds = cbRulePageNeeds();
   const defaults = { [BLOCKED_GROUPS_KEY]: [], [CB_RULE_STATE_KEY]: {} };
+  // Final shared handover can save reserved state. Read the initializer's
+  // candidate only after that save, so Run cannot prepare against stale bytes.
+  if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureGroup(group.id);
   const before = await chrome.storage.local.get(defaults);
   const original = (before[BLOCKED_GROUPS_KEY] || []).find(current => current?.id === group.id && current.groupType === "custom");
   if (!original) return { ok: false, error: "group-not-found" };
   const stored = (before[CB_RULE_STATE_KEY] || {})[group.id] || {};
-  if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureGroup(group.id);
   let result = await sendToEventSandbox({ kind: "prepare-source", groupId: group.id, source, state: stored, run });
   if (!result) return null;
   for (const entry of result.logs || []) pushLogFeedEntry({ ...entry, eventType: "run" });
@@ -3256,6 +3258,7 @@ const cbClusterUsageBaseline = {};
 
 function cbSaveClusterCopy(clusters) {
   const before = cbLinkedGroupIds(cbClusterCopy);
+  globalThis.CBRuleTime?.clustersChanged(cbClusterCopy, Array.isArray(clusters) ? clusters : []);
   cbClusterCopy = Array.isArray(clusters) ? clusters : [];
   const now = cbLinkedGroupIds(cbClusterCopy);
   const left = [...before].filter((id) => !now.has(id));

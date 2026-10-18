@@ -4,7 +4,7 @@
 
 ## Rule contract
 
-Source: one function expression `(on, v) => { ... }`. Only synchronous JavaScript and the API below are supported; no timers, network, extension APIs or direct DOM access. Time-based rules use `ev.now` and events.
+Source: one function expression `(on, v) => { ... }`. Only synchronous JavaScript and the API below are supported; no JavaScript scheduling callbacks, network, extension APIs or direct DOM access. Time-based rules use managed timers/trackers below, or `ev.now` and events.
 
 - Editing saves a draft; **Run** activates it and enables the group. Frozen groups cannot Run. Empty source unloads the rule.
 - Successful Run replaces handlers and panels, preserving `v.state`. Compilation/registration failure keeps the previous rule; a timeout can stop it. Reloading the engine registers the last activated source again; closure variables reset.
@@ -21,7 +21,39 @@ Source: one function expression `(on, v) => { ... }`. Only synchronous JavaScrip
 - `v.panel(id, spec, tabId?)`: replaces this group's named panel; omit `tabId` for every accessible web page, or use an integer tab ID. Null `spec` removes it. See Panels.
 - `v.file(op, path, payload?)` → request ID string. See Files.
 
-Other shared calls return `undefined`. IDs/state belong to one group, not its display name.
+Other shared calls return `undefined` except the named managed-time factories below. IDs/state belong to one group, not its display name.
+
+## Managed timers and rolling usage
+
+`v.timer(id, {direction:"down", durationMs:300000})` creates or returns a named countdown, initially paused. Use `{direction:"up"}` for a count-up timer. The handle has `start()`, `pause()`, `resume()`, `reset()` and `snapshot()`. Start/resume are idempotent; reset returns to paused zero elapsed. Snapshot fields include `ready`, `error`, `elapsedMs`, `remainingMs` (null for count-up), `running` and `completed`.
+
+Running timers advance by wall-clock time while the app/browser is closed or the rule is disabled. A completed countdown delivers `timerEnded` with `{id, direction, durationMs, generation, incarnation}` once per run when the rule next runs. Delivery depends on host events; this is not a real-time alarm. Put `{type:"timer", timerId:"focus", label:"Focus"}` in a panel to display it through the existing text control.
+
+`v.rolling(id, {windowMs:3600000, limitMs:600000})` creates or returns a named active-use tracker. `assign({websites:["youtube.com","reddit.com"], apps:[]})` replaces this member's target assignments. Native rules can assign platform app IDs instead. Domains include subdomains. One tracker pools its targets; other IDs have independent allowances. `snapshot()` returns `ready`, `error`, `usedMs`, `remainingMs`, `available`, and `nextReturnAtMs` (the next millisecond that any recorded usage expires). `available(target?)` also checks assignment when a target is supplied. `reset()` clears this object's history.
+
+All observed eligible usage counts, including usage beyond the allowance; the tracker itself does not block a page/app. Overlapping visible-page intervals count once, and native apps count observed foreground usage. Disabled rules add no usage; history still expires at exact interval boundaries. Availability returns only when the remaining history is below the limit. Heartbeat samples are bounded to five seconds; shutdown/disabled gaps do not manufacture activity. User-emitted events do not add usage.
+
+Same object IDs in linked custom groups share one local native-hub authority. Linking combines tracker history and assignments and keeps the initiating timer state; incompatible configurations refuse linking. Each member receives its own completion event. Disconnection makes shared trackers unavailable and rejects timer controls until fresh authority returns. On unlink, each member keeps final shared usage and timer state, restores its own targets, and drops commands from the old link. The hub retains the final snapshot until the returning member saves and acknowledges it; pending handovers finish before a new link becomes available.
+
+Named objects survive Run and restart in reserved `v.state.$vaultTime`; do not edit that field directly. Remove explicitly with `v.removeTime(id)`. IDs are 1–80 ASCII letters, digits, `_` or `-`; reserved property names are refused. Up to32 objects share the rule's64KiB UTF-8 state limit. Durations are integer milliseconds up to365days. Rolling history is bounded to1024 minute buckets and2048 merged intervals. History-capacity errors leave the tracker unavailable until explicitly reset; invalid configurations and oversized saves report errors without erasing saved data.
+
+```js
+(on, v) => {
+  const timer = v.timer("focus", {durationMs: 300000});
+  v.panel("focus", {controls: [
+    {type: "timer", timerId: "focus", label: "Focus"},
+    {id: "start", type: "button", label: "Start"},
+    {id: "pause", type: "button", label: "Pause"},
+    {id: "reset", type: "button", label: "Reset"}
+  ]});
+  on("panel", ev => {
+    if (ev.data.controlId === "start") timer.start();
+    if (ev.data.controlId === "pause") timer.pause();
+    if (ev.data.controlId === "reset") timer.reset();
+  });
+  on("timerEnded", ev => v.log("Finished", ev.data.id));
+}
+```
 
 ## Browser events
 
@@ -123,7 +155,7 @@ Unused result fields are null; success has empty error. Failures include invalid
 
 ## Limits
 
-Per event per group: 256 queued actions, 200 log calls, 64 emits; excess is dropped. Per rule: 1000 handlers, 24 panels; each control list has 32 entries and each choice 64 options; excess is ignored/truncated. Emit chains stop after 16 generations. Serialized state limit: 65536 JavaScript string characters. Keep registration and each event's combined handlers under 1 second; repeated overruns or a hard timeout stop the group until Run. Log retains 200 entries, accepts 50/sec per group, and truncates long messages near 4096 characters. Timers/replies are best-effort, not real-time guarantees.
+Per event per group: 256 queued actions, 200 log calls, 64 emits; excess is dropped. Per rule: 1000 handlers, 24 panels; each control list has 32 entries and each choice 64 options; excess is ignored/truncated. Emit chains stop after 16 generations. Serialized state limit:65536 UTF-8 bytes. Keep registration and each event's combined handlers under 1 second; repeated overruns or a hard timeout stop the group until Run. Log retains 200 entries, accepts 50/sec per group, and truncates long messages near 4096 characters. Timers/replies are best-effort, not real-time guarantees.
 
 ## Complete rule
 

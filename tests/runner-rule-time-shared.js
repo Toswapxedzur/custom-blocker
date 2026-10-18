@@ -41,7 +41,7 @@ test("every linked member receives completion once for the same timer run",()=>{
  now+=11000;reduce("chrome/a");adopt(a,"chrome");adopt(b,"safari");assert.equal(a.state.ends,1);assert.equal(b.state.ends,1);adopt(a,"chrome");adopt(b,"safari");assert.equal(a.state.ends,1);assert.equal(b.state.ends,1);
 });
 test("unlink retains current usage and restores the member's own assigned targets",()=>{
- assert(b.context({linked:false}).ok);b.send();assert.equal(b.state.status.usedMs,6000);assert.deepEqual(b.state.$vaultTime.objects.shared.websites,["reddit.com"]);
+ const transfer=core.detachTime(b.state.$vaultTime,shared,"safari/b","chrome/a","cluster-one","detach-token",now);assert(transfer.ok,transfer.error);assert(b.context({linked:false,detached:true,state:transfer.state}).ok);b.send();assert.equal(b.state.status.usedMs,6000);assert.deepEqual(b.state.$vaultTime.objects.shared.websites,["reddit.com"]);
 });
 test("malformed commands and newer shared formats preserve authoritative state",()=>{
  const before=clone(shared);
@@ -75,5 +75,39 @@ test("remove and recreate in one linked event restores assignments with a fresh 
  const result=e.dispatch({type:"replace",now,targetGroupId:"replace",data:{}});saved=clone(result.states.replace);
  assert.deepEqual(saved.$vaultTime.pending.map(c=>c.op),["remove","ensure","assign"]);
  const applied=core.reduceTime(merged.state,{member:"chrome/replace",commands:saved.$vaultTime.pending,nowMs:now});assert(applied.ok,applied.error);assert.deepEqual(Array.from(applied.state.objects.same.websites),["example.org"]);
+});
+test("unlink requires a final snapshot instead of promoting a cached allowance",()=>{
+ const c=member("no-cached","youtube.com");
+ const joined=core.mergeTime(null,[{member:"chrome/no-cached",state:c.state.$vaultTime}],"chrome/no-cached",now);assert(joined.ok);
+ assert(c.context({linked:true,ready:true,clusterId:"remembered",state:joined.state,acknowledgedSerial:0}).ok);c.send();
+ const refused=c.context({linked:false});assert.equal(refused.ok,false);assert.match(refused.error,/Final shared snapshot/);
+});
+test("final transfer retains authoritative timers and usage while discarding stale commands",()=>{
+ const seed=clone(a.state.$vaultTime);seed.pending=[{id:"clock",op:"reset",serial:999,atMs:now,scope:"cluster-one"}];
+ const final=clone(shared);final.confirmed={"chrome/a":true};final.objects.clock.generation=9;
+ const result=core.detachTime(seed,final,"chrome/a","chrome/a","cluster-one","token",now);assert(result.ok,result.error);
+ assert.equal(result.state.objects.clock.generation,9);assert.equal(result.state.pending.length,0);assert.equal(result.state.scope,null);
+ assert.equal(result.state.detachedReceipt.token,"token");assert.deepEqual(Array.from(result.state.objects.shared.websites),["youtube.com"]);
+ const local=clone(result.state);local.objects.clock.generation=10;local.objects.clock.notified=true;
+ const ack=core.detachTime(local,final,"chrome/a","chrome/a","cluster-one","token",now,true);assert(ack.ok,ack.error);
+ assert.equal(ack.state.objects.clock.generation,10);assert.equal(ack.state.objects.clock.notified,true);assert.equal(ack.state.detachedReceipt,undefined);
+});
+test("unconfirmed member's untouched history is merged at final reconnection",()=>{
+ const seed=clone(b.state.$vaultTime), final=clone(shared);final.confirmed={"chrome/a":true};
+ const tracker=seed.objects.shared;tracker.segments=[[now-500,now]];tracker.bucketsMs={};
+ const result=core.detachTime(seed,final,"safari/b","chrome/a","cluster","token",now);assert(result.ok,result.error);
+ assert(result.state.objects.shared.segments.some(pair=>pair[1]===now));
+ const bad=core.detachTime(seed,{...final,version:99},"safari/b","chrome/a","cluster","token",now);assert.equal(bad.ok,false);
+ assert.equal(core.detachTime(seed,final,"safari/b","chrome/a","cluster","",now).ok,false);
+});
+test("three-member leave drops only departed targets and retains its observed history",()=>{
+ const e=member("e","example.org"),f=member("f","example.net"),g=member("g","example.com");
+ let value=core.mergeTime(null,[{member:"chrome/e",state:e.state.$vaultTime},{member:"safari/f",state:f.state.$vaultTime},{member:"edge/g",state:g.state.$vaultTime}],"chrome/e",now);assert(value.ok,value.error);
+ value.state.confirmed={"chrome/e":true,"safari/f":true,"edge/g":true};
+ now+=2000;value=core.reduceTime(value.state,{member:"edge/g",commands:[],usage:{type:"visible",now,data:{url:"https://example.com",elapsedMs:2000}},nowMs:now});assert(value.ok,value.error);
+ const reduced=core.syncTime(value.state,{member:"chrome/e",members:["chrome/e","safari/f"],initiator:"chrome/e",seed:e.state.$vaultTime,commands:[],usage:{type:"visible",now:now+1000,data:{url:"https://example.com",elapsedMs:1000}},nowMs:now+1000});assert(reduced.ok,reduced.error);
+ assert.deepEqual(new Set(reduced.state.objects.shared.websites),new Set(["example.org","example.net"]));
+ assert.equal(reduced.state.targets.shared["edge/g"],undefined);
+ assert.equal(Object.values(reduced.state.objects.shared.bucketsMs).reduce((a,b)=>a+b,0),2000);
 });
 console.log(JSON.stringify({pass:true,cases}));

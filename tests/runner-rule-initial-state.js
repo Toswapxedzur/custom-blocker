@@ -112,6 +112,13 @@ async function browserFixture() {
   sandbox=context.RuleCore.createEngine();
   await expectRun(counter);assert.equal(store.cbRuleState.rule.count,3);
   console.log('PASS browser persists initialization with no handlers, consecutive Runs and a fresh sandbox restart, preserving other groups');
+  let handoverPending=true;
+  env.CBRuleTime={configureGroup:async()=>{if(handoverPending){handoverPending=false;store.cbRuleState.rule.handover=9;}}};
+  await expectRun('(on,v)=>{if(v.state.handover!==9)throw new Error("stale before handover");}');
+  assert.equal(store.cbRuleState.rule.handover,9);assert.equal(store.cbRuleState.other.keep,9);
+  delete env.CBRuleTime;
+  console.log('PASS Run reads initialization state after a final shared handover saves, without losing unrelated memory');
+
   beforeReply=()=>{};
   await run('(on,v)=>{on("tick",()=>{v.state.count++;});}');
   const before=clone(store.cbRuleState);
