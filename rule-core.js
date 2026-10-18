@@ -1,8 +1,7 @@
 // Custom rules — the one core both engines run (owner 2026-09-27).
 //
-// A rule is bare-bone: an AI writes it, not a person, so there is no helper
-// library — only raw events in and a small set of actions out, one way to do
-// each thing, and everything the program can do. The browser engine (the
+// Rules use raw events, managed time objects and a small set of actions.
+// The browser engine (the
 // extension's sandbox, event-sandbox.js) controls only the browser; Mac Vault's
 // engine (custom-rule-runtime.js) controls only apps — the scope line.
 //
@@ -25,8 +24,262 @@
     controlsPerPanel: 32,
     optionsPerControl: 64,
     stateBytes: 64 * 1024,
+    timeObjectsPerGroup: 32,
     handlerMs: 1000
   });
+
+  // Managed time uses the existing per-rule JSON persistence/commit path.
+  // A versioned reserved namespace keeps user fields and ordinary group budgets
+  // independent. Unsupported/colliding state is refused, never silently reset.
+  const TIME_KEY = "$vaultTime";
+  const MINUTE_MS = 60000;
+  const MAX_TIME_MS = 365 * 24 * 60 * MINUTE_MS;
+  const windowsTimeIdentities = global.CBNativeRulePlatform === "windows";
+  const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+  function duration(value, name, zero = false) {
+    if (!Number.isSafeInteger(value) || value < (zero ? 0 : 1) || value > MAX_TIME_MS) throw new Error("Invalid " + name + " (integer milliseconds, at most 365 days).");
+    return value;
+  }
+  function timeID(value) {
+    if (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(value)) throw new Error("Time object IDs use 1–80 letters, digits, _ or -.");
+    return value;
+  }
+  function timeTools(getState, clock, check) {
+    const timers = new Set(), trackers = new Set();
+    let changed = false;
+    let usageFloor = clock();
+    const read = () => {
+      const state = getState();
+      if (!own(state, TIME_KEY)) return { version: 1, objects: {} };
+      const saved = state[TIME_KEY];
+      if (!isPlainObject(saved) || saved.version !== 1 || !isPlainObject(saved.objects)) throw new Error("Unsupported or invalid " + TIME_KEY + " state; saved data was preserved.");
+      return saved;
+    };
+    const update = (fn) => {
+      check();
+      const saved = cloneJSON(read());
+      const result = fn(saved.objects);
+      const state = getState();
+      const json = safeJSON({ ...state, [TIME_KEY]: saved });
+      if (!json || utf8Bytes(json) > LIMITS.stateBytes) throw new Error("Managed time exceeds the rule's 65536-byte state limit; update refused.");
+      if (safeJSON(state[TIME_KEY]) !== safeJSON(saved)) { state[TIME_KEY] = saved; changed = true; }
+      return result;
+    };
+    const object = (id, kind) => {
+      const objects = read().objects;
+      const value = own(objects, id) ? objects[id] : null;
+      if (!value || value.kind !== kind) throw new Error("Missing or incompatible time object: " + id);
+      return value;
+    };
+    const ensure = (id, initial) => update(objects => {
+      if (own(objects, id)) {
+        const old = objects[id];
+        for (const key of Object.keys(initial)) {
+          if (["kind", "direction", "durationMs", "windowMs", "limitMs"].includes(key) && old[key] !== initial[key]) throw new Error("Time object configuration changed: " + id + ". Use a new ID or remove it explicitly.");
+        }
+        return;
+      }
+      if (Object.keys(objects).length >= LIMITS.timeObjectsPerGroup) throw new Error("At most 32 time objects per rule.");
+      Object.defineProperty(objects, id, { value: initial, enumerable: true, writable: true, configurable: true });
+    });
+    function elapsed(t, at) {
+      if (!["up", "down"].includes(t.direction) || !Number.isFinite(t.elapsedMs) || t.elapsedMs < 0 || (t.startedAtMs !== null && !Number.isFinite(t.startedAtMs))) throw new Error("Invalid saved timer.");
+      return Math.min(MAX_TIME_MS, t.elapsedMs + (t.startedAtMs === null ? 0 : Math.max(0, at - t.startedAtMs)));
+    }
+    function timerSnapshot(id, at = clock()) {
+      const t = object(id, "timer"), raw = elapsed(t, at);
+      const done = t.direction === "down" && raw >= t.durationMs;
+      return { id, direction: t.direction, durationMs: t.durationMs, elapsedMs: t.direction === "down" ? Math.min(raw, t.durationMs) : raw,
+        remainingMs: t.direction === "down" ? Math.max(0, t.durationMs - raw) : null, running: t.startedAtMs !== null && !done, completed: done };
+    }
+    function timer(id, options = {}) {
+      id = timeID(id);
+      const direction = options.direction === undefined ? "down" : options.direction;
+      if (!["up", "down"].includes(direction)) throw new Error("Timer direction is up or down.");
+      const durationMs = direction === "down" ? duration(options.durationMs, "durationMs") : 0;
+      ensure(id, { kind: "timer", direction, durationMs, elapsedMs: 0, startedAtMs: null, notified: false, generation: 0 });
+      // Validate loaded values before activating the candidate.
+      timerSnapshot(id); timers.add(id);
+      const resume = () => update(objects => {
+        const t = objects[id]; object(id, "timer");
+        if (t.startedAtMs === null && !(t.direction === "down" && t.elapsedMs >= t.durationMs)) t.startedAtMs = clock();
+      });
+      return Object.freeze({
+        id, start: resume, resume,
+        pause: () => update(objects => {
+          const t = objects[id]; object(id, "timer");
+          t.elapsedMs = elapsed(t, clock());
+          if (t.direction === "down") t.elapsedMs = Math.min(t.durationMs, t.elapsedMs);
+          t.startedAtMs = null;
+        }),
+        reset: () => update(objects => { const t = objects[id]; object(id, "timer"); t.elapsedMs = 0; t.startedAtMs = null; t.notified = false; t.generation = (t.generation || 0) + 1; }),
+        snapshot: () => { check(); return timerSnapshot(id); }
+      });
+    }
+    function prune(t, at) {
+      if (!isPlainObject(t.bucketsMs) || !Array.isArray(t.segments) || !Number.isFinite(t.accruedUntilMs) || t.accruedUntilMs < 0) throw new Error("Invalid saved rolling tracker.");
+      for (const [key, value] of Object.entries(t.bucketsMs)) {
+        const minute = Number(key);
+        if (!Number.isSafeInteger(minute) || minute < 0 || minute % MINUTE_MS || !Number.isFinite(value) || value <= 0) throw new Error("Invalid rolling usage bucket.");
+        // Same minute-bucket representation and expiry as ordinary rolling groups.
+        if (minute + MINUTE_MS <= at - t.windowMs) delete t.bucketsMs[key];
+      }
+      const floor = Math.floor((at - t.windowMs) / MINUTE_MS) * MINUTE_MS;
+      t.segments = unionSegments(t.segments).map(([from, to]) => [Math.max(from, floor), to]).filter(([from, to]) => to > from);
+      rebuildBuckets(t);
+    }
+    function unionSegments(segments) {
+      if (segments.length > 2048) throw new Error("Too many rolling usage segments.");
+      const sorted = segments.map(pair => {
+        if (!Array.isArray(pair) || pair.length !== 2 || !Number.isSafeInteger(pair[0]) || !Number.isSafeInteger(pair[1]) || pair[0] < 0 || pair[1] <= pair[0] || pair[1] - pair[0] > MAX_TIME_MS) throw new Error("Invalid rolling usage interval.");
+        return pair.slice();
+      }).sort((a, b) => a[0] - b[0]);
+      const out = [];
+      for (const [from, to] of sorted) {
+        const last = out[out.length - 1];
+        if (last && from <= last[1]) last[1] = Math.max(last[1], to);
+        else out.push([from, to]);
+      }
+      return out;
+    }
+    function rebuildBuckets(t) {
+      const buckets = {};
+      for (const [from, to] of t.segments) {
+        for (let at = from; at < to;) {
+          check();
+          const minute = Math.floor(at / MINUTE_MS) * MINUTE_MS;
+          const end = Math.min(to, minute + MINUTE_MS);
+          if (!own(buckets, String(minute)) && Object.keys(buckets).length >= 1024) throw new Error("Rolling history exceeds 1024 minute buckets; update refused.");
+          buckets[String(minute)] = (buckets[String(minute)] || 0) + end - at;
+          at = end;
+        }
+      }
+      t.bucketsMs = buckets;
+    }
+    function addUsage(t, from, to) {
+      let room = Math.max(0, t.limitMs - used(t));
+      if (room <= 0 || to <= from) return;
+      const additions = [];
+      let cursor = from;
+      for (const [start, end] of t.segments) {
+        if (end <= cursor) continue;
+        if (start >= to) break;
+        if (start > cursor) {
+          const amount = Math.min(start - cursor, room);
+          additions.push([cursor, cursor + amount]); room -= amount;
+          if (!room) break;
+        }
+        cursor = Math.max(cursor, end);
+      }
+      if (room > 0 && cursor < to) additions.push([cursor, cursor + Math.min(to - cursor, room)]);
+      t.segments = unionSegments([...t.segments, ...additions]);
+      rebuildBuckets(t);
+    }
+    const used = t => Object.values(t.bucketsMs).reduce((total, value) => total + value, 0);
+    function targetList(value, kind) {
+      if (!Array.isArray(value) || value.length > 100 || value.some(x => typeof x !== "string" || !x || x.length > 32767)) throw new Error("Assign at most 100 " + kind + " targets.");
+      return [...new Set(value.map(x => {
+        if (kind !== "website") return windowsTimeIdentities ? x.toLowerCase() : x;
+        // Domain targets include their subdomains, exactly like Website scopes.
+        const domain = x.toLowerCase().replace(/\.$/, "");
+        if (domain.length > 253 || !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(domain) || domain.includes("..")) throw new Error("Website targets must be hostnames, without a scheme or path.");
+        return domain;
+      }))];
+    }
+    function websiteMatches(t, value) {
+      // URL is unavailable in JavaScriptCore; parse only HTTP(S) authorities.
+      const input = String(value || "");
+      const match = /^https?:\/\/([^/?#]+)(?:[/?#]|$)/i.exec(input.includes("://") ? input : "https://" + input);
+      if (!match) return false;
+      const host = match[1].split("@").pop().split(":")[0].toLowerCase().replace(/\.$/, "");
+      return t.websites.some(domain => host === domain || host.endsWith("." + domain));
+    }
+    function appMatches(t, value) {
+      const app = windowsTimeIdentities ? String(value || "").toLowerCase() : value;
+      return t.apps.includes(app);
+    }
+    function trackerSnapshot(id) {
+      const at = clock(); let snapshot;
+      update(objects => {
+        object(id, "rolling"); const t = objects[id]; prune(t, at);
+        const usedMs = used(t), remainingMs = Math.max(0, t.limitMs - usedMs);
+        const minutes = Object.keys(t.bucketsMs).map(Number);
+        snapshot = { id, windowMs: t.windowMs, limitMs: t.limitMs, usedMs, remainingMs, available: remainingMs > 0,
+          nextReturnAtMs: minutes.length ? Math.min(...minutes) + MINUTE_MS + t.windowMs : null };
+      });
+      return snapshot;
+    }
+    function rolling(id, options) {
+      id = timeID(id);
+      const windowMs = duration(options?.windowMs, "windowMs"), limitMs = duration(options?.limitMs, "limitMs", true);
+      ensure(id, { kind: "rolling", windowMs, limitMs, websites: [], apps: [], bucketsMs: {}, segments: [], accruedUntilMs: 0, resetAtMs: clock() });
+      const stored = object(id, "rolling"); targetList(stored.websites, "website"); targetList(stored.apps, "app");
+      trackerSnapshot(id); trackers.add(id);
+      return Object.freeze({
+        id,
+        assign: (targets) => {
+          const websites = targetList(targets?.websites || [], "website"), apps = targetList(targets?.apps || [], "app");
+          update(objects => { object(id, "rolling"); Object.assign(objects[id], { websites, apps }); });
+        },
+        snapshot: () => { check(); return trackerSnapshot(id); },
+        available: (target) => {
+          check(); const t = object(id, "rolling");
+          return (target === undefined || websiteMatches(t, target) || appMatches(t, target)) && trackerSnapshot(id).available;
+        },
+        reset: () => update(objects => { object(id, "rolling"); objects[id].bucketsMs = {}; objects[id].segments = []; objects[id].accruedUntilMs = clock(); objects[id].resetAtMs = clock(); })
+      });
+    }
+    function advance(event, emit) {
+      const at = clock();
+      if (!timers.size && !trackers.size) return;
+      const ended = [];
+      update(objects => {
+        for (const id of timers) {
+          const t = objects[id]; object(id, "timer");
+          if (t.direction === "down" && elapsed(t, at) >= t.durationMs && !t.notified) {
+            t.elapsedMs = t.durationMs; t.startedAtMs = null; t.notified = true;
+            ended.push({ id, direction: "down", durationMs: t.durationMs, generation: t.generation || 0 });
+          }
+        }
+        for (const id of trackers) {
+          const t = objects[id]; object(id, "rolling"); prune(t, at);
+          const data = event.data || {};
+          const matches = event.type === "visible" ? websiteMatches(t, data.url) : event.type === "tick" && appMatches(t, data.usageAppId);
+          const amount = Number(data.elapsedMs);
+          if (!matches || !Number.isFinite(amount) || amount <= 0) continue;
+          const bounded = Math.min(5000, Math.round(amount));
+          const from = Math.max(at - bounded, usageFloor, t.resetAtMs || 0);
+          t.accruedUntilMs = Math.max(at, t.accruedUntilMs);
+          addUsage(t, from, at);
+        }
+      });
+      for (const data of ended) emit("timerEnded", data);
+    }
+    function hydrate(controls) {
+      return controls.map(control => {
+        if (control.type === "section") return { ...control, controls: hydrate(control.controls) };
+        if (control.type !== "timer") return control;
+        if (!timers.has(control.timerId)) return { ...control, type: "text", text: (control.label ? control.label + " " : "") + "—" };
+        const status = timerSnapshot(control.timerId);
+        const seconds = Math.ceil((status.direction === "down" ? status.remainingMs : status.elapsedMs) / 1000);
+        const h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), s = seconds % 60;
+        const display = (h ? h + ":" + String(m).padStart(2, "0") : String(m)) + ":" + String(s).padStart(2, "0");
+        // Use the existing native/browser text control; no parallel renderer.
+        return { ...control, type: "text", text: (control.label ? control.label + " " : "") + display };
+      });
+    }
+    return { timer, rolling, advance, hydrate,
+      types: () => [...(timers.size || trackers.size ? ["tick"] : []), ...(trackers.size ? ["visible"] : [])],
+      takeChanged: () => { const result = changed || timers.size > 0; changed = false; return result; },
+      resetUsageBoundary: (at = clock()) => { usageFloor = at; },
+      currentCompletion: data => {
+        if (!timers.has(data?.id)) return false;
+        const t = object(data.id, "timer");
+        return t.notified && (t.generation || 0) === data.generation;
+      },
+      remove: id => { id = timeID(id); update(objects => { delete objects[id]; }); timers.delete(id); trackers.delete(id); }
+    };
+  }
 
   // ── Compiling ────────────────────────────────────────────────────────────
   // One source form: a function expression `(on, v) => { … }`.
@@ -58,6 +311,7 @@
     let panelsChanged = false;
     const panelValues = new Map();
     let requestSeq = 0;
+    let eventNow = null;
     const requestId = () => groupId + ":" + (++requestSeq);
 
     const check = () => {
@@ -75,6 +329,8 @@
       if (record) push(record.actions, { groupId, kind, ...fields }, LIMITS.actionsPerDispatch);
     };
 
+    const time = timeTools(() => stateObj, () => eventNow ?? now(), check);
+
     const v = {
       log(...args) {
         check();
@@ -86,6 +342,9 @@
         if (!name || !record) return;
         push(record.emits, { type: name, data: cloneJSON(data) }, LIMITS.emitsPerDispatch);
       },
+      timer: time.timer,
+      rolling: time.rolling,
+      removeTime: time.remove,
       // A panel on screen: `spec` replaces it, null removes it. The browser
       // shows it on every page, or one tab's (`tabId`).
       panel(id, spec, tabId) {
@@ -163,11 +422,17 @@
       error: registrationError,
       registrationLogs: registration.logs,
       get handlerCount() { return handlerCount; },
-      types: () => [...handlers.keys()],
-      handles: (type) => handlers.has(type),
+      types: () => [...new Set([...handlers.keys(), ...time.types()])],
+      handles: (type) => handlers.has(type) || time.types().includes(type),
+      resetUsageBoundary: time.resetUsageBoundary,
+      currentCompletion: time.currentCompletion,
       // Runs this group's handlers for one event. Returns its record.
       dispatch(event) {
         begin();
+        eventNow = event.now;
+        runGuarded(() => time.advance(event, (type, data) => {
+          push(record.emits, { type, data, managedTimer: true }, LIMITS.emitsPerDispatch);
+        }), "Managed time");
         if (event.type === "panel") {
           const data = event.data || {};
           const values = panelValues.get(data.panelId) || {};
@@ -180,13 +445,15 @@
           runGuarded(() => handler(ev), event.type + " handler");
           if (record.overrun) break;
         }
+        eventNow = null;
         return end();
       },
       // The group's panels when they changed since the last call (else null).
       takePanels() {
+        if (time.takeChanged()) panelsChanged = true;
         if (!panelsChanged) return null;
         panelsChanged = false;
-        return [...panels.values()].map((panel) => ({ ...panel, groupId }));
+        return [...panels.values()].map((panel) => ({ ...panel, groupId, controls: time.hydrate(panel.controls) }));
       },
       // The group's state when it changed since the last call (else undefined).
       // Over the size limit it is not kept, and the rule is told.
@@ -301,6 +568,7 @@
     }
 
     function suppress(groupId, on) {
+      if (suppressed.has(groupId) !== (on === true)) rules.get(groupId)?.resetUsageBoundary();
       if (on) suppressed.add(groupId);
       else suppressed.delete(groupId);
     }
@@ -310,7 +578,7 @@
     // logs, changed panels ({ groupId: [panel] }), changed states
     // ({ groupId: state }) and a quarantine, if a rule earned one.
     function dispatch(descriptor) {
-      const out = { ok: true, actions: [], logs: [], diagnostics: [], panels: {}, states: {}, quarantine: null };
+      const out = { ok: true, actions: [], logs: [], diagnostics: [], panels: {}, states: {}, types: {}, quarantine: null };
       const queue = [];
       for (const [groupId, rule] of rules) {
         if (descriptor.targetGroupId && descriptor.targetGroupId !== groupId) continue;
@@ -319,6 +587,7 @@
       }
       while (queue.length > 0) {
         const { rule, event, depth } = queue.shift();
+        if (event.managedTimer && !rule.currentCompletion(event.data)) continue;
         beacon(rule.groupId);
         const record = rule.dispatch({ type: event.type, now: event.now ?? Date.now(), data: event.data ?? null });
         out.actions.push(...record.actions);
@@ -329,11 +598,12 @@
         }
         if (depth < EMIT_DEPTH) {
           for (const emitted of record.emits) {
-            if (rule.handles(emitted.type)) queue.push({ rule, event: { type: emitted.type, now: Date.now(), data: emitted.data }, depth: depth + 1 });
+            if (rule.handles(emitted.type)) queue.push({ rule, event: { type: emitted.type, now: Date.now(), data: emitted.data, managedTimer: emitted.managedTimer }, depth: depth + 1 });
           }
         }
       }
       for (const [groupId, rule] of rules) {
+        out.types[groupId] = rule.types();
         const panels = rule.takePanels();
         if (panels) out.panels[groupId] = panels;
         const state = rule.takeState();
@@ -382,7 +652,7 @@
   const PANEL_WIDTHS = new Set(["small", "medium", "large"]);
   const PANEL_LAYOUTS = new Set(["vertical", "compact", "comfortable", "spacious", "inline", "row", "wrap", "twoColumn", "grid", "split", "form", "toolbar", "stack"]);
   const PANEL_ROLES = new Set(["region", "dialog", "alert", "status", "form", "group"]);
-  const CONTROL_TYPES = new Set(["text", "checkbox", "select", "textInput", "textarea", "button", "section", "numberInput", "range", "toggle", "radio", "date", "time", "color", "pin", "html"]);
+  const CONTROL_TYPES = new Set(["text", "timer", "checkbox", "select", "textInput", "textarea", "button", "section", "numberInput", "range", "toggle", "radio", "date", "time", "color", "pin", "html"]);
   const BUTTON_ACTIONS = new Set(["submit", "cancel", "close"]);
 
   function sanitizePanelId(value) {
@@ -456,6 +726,7 @@
     if (height) out.height = height;
     if (Number.isFinite(Number(raw.rows))) out.rows = Math.max(1, Math.min(12, Math.floor(Number(raw.rows))));
     if (type === "text") out.text = text(raw.text ?? raw.label ?? "", 1000);
+    if (type === "timer") out.timerId = timeID(raw.timerId);
     if (type === "html") out.html = sanitizeHtml(raw.html ?? raw.text ?? "");
     if (type === "textInput" || type === "textarea") out.placeholder = text(raw.placeholder ?? "", 500);
     if (type === "select" || type === "radio") {
