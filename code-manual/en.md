@@ -16,7 +16,7 @@ Source: one function expression `(on, v) => { ... }`. Only synchronous JavaScrip
 
 - `on(type, handler)` → boolean. Registers `handler(ev)`; multiple handlers run in registration order. False means invalid arguments or handler limit reached. `ev = { type: string, now: number, data }`; `now` is Unix milliseconds.
 - `v.state`: mutable JSON object, persisted after event dispatch. Initialize missing fields rather than overwriting existing state. Assigning a non-object or array resets it to `{}`; nonserializable/oversized updates are not persisted.
-- `v.log(...values)`: writes this group's Log. Reported page-action errors also appear here; those actions are not replayed. Logs/Clear are independent per group. Load errors appear in Run status; other handler diagnostics do not populate Log.
+- `v.log(...values)`: writes this group's Log. Handler and reported page-action errors also appear here; reporting does not replay actions. Logs/Clear are independent per group. Load errors appear in Run status.
 - `v.emit(type, data)`: queues a JSON copy of `data` for this group's handlers after the current event, with a fresh `now`; not a synchronous call.
 - `v.panel(id, spec, tabId?)`: replaces this group's named panel; omit `tabId` for every accessible web page, or use an integer tab ID. Null `spec` removes it. See Panels.
 - `v.file(op, path, payload?)` → request ID string. See Files.
@@ -47,6 +47,7 @@ Named objects survive Run and restart in reserved `v.state.$vaultTime`; do not e
     {id: "reset", type: "button", label: "Reset"}
   ]});
   on("panel", ev => {
+    if (ev.data.eventName !== "click") return;
     if (ev.data.controlId === "start") timer.start();
     if (ev.data.controlId === "pause") timer.pause();
     if (ev.data.controlId === "reset") timer.reset();
