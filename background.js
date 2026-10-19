@@ -17,7 +17,7 @@
 // Chromium uses a classic service worker. Safari preloads these shared
 // dependencies through its manifest background script list.
 if (typeof importScripts === "function") {
-  importScripts("browser-compat.js", "storage-schema.js");
+  importScripts("browser-compat.js", "storage-schema.js", "rule-time-client.js");
   try {
     if (typeof CBBridgeProtocol === "undefined") importScripts("bridge-protocol.js");
   } catch (error) {
@@ -56,6 +56,7 @@ if (typeof importScripts === "function") {
     console.error("[CustomBlocker] importScripts(vault-activity.js) failed", error);
   }
 }
+if (!globalThis.CBRuleTime) throw new Error("Managed rule-time coordination is unavailable.");
 
 // A group's policy rules (field defaults and parsers, time windows, budget
 // periods, runtime-state sanitizers): one copy, in group-actions.js.
@@ -2117,6 +2118,7 @@ function cbSetRulePanels(groupId, panels) {
 
 // Loads a group's rule with its stored memory; `run` (the Run button) also
 // replaces the rule's panels.
+const cbRuleStateSaveRetries = new Set();
 let cbRuleMutationQueue = Promise.resolve();
 function cbSerializeRuleMutation(operation) {
   const task = cbRuleMutationQueue.catch(() => {}).then(operation);
@@ -2137,6 +2139,9 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
   const source = typeof group.activeEventSource === "string" ? group.activeEventSource : "";
   const pageNeeds = cbRulePageNeeds();
   const defaults = { [BLOCKED_GROUPS_KEY]: [], [CB_RULE_STATE_KEY]: {} };
+  // Final shared handover can save reserved state. Read the initializer's
+  // candidate only after that save, so Run cannot prepare against stale bytes.
+  if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureGroup(group.id);
   const before = await chrome.storage.local.get(defaults);
   const original = (before[BLOCKED_GROUPS_KEY] || []).find(current => current?.id === group.id && current.groupType === "custom");
   if (!original) return { ok: false, error: "group-not-found" };
@@ -2224,6 +2229,7 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
     return { ok: false, error: "group-not-found" };
   }
   await cbSuppressRule(group.id, !latestGroup.enabled);
+  if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureGroup(group.id);
   return result;
 }
 
@@ -2242,11 +2248,32 @@ async function unloadCustomGroupHandlers(groupId) {
 // One event to the rules that handle it (or to one group's rule).
 async function dispatchRule(type, data, { targetGroupId = null } = {}) {
   await ensureStartupGate();
-  if (targetGroupId ? !cbRuleTypes.has(targetGroupId) : !cbRulesHandle(type)) return null;
+  if (targetGroupId ? !cbRuleTypes.has(targetGroupId) : !cbRulesHandle(type) && !(type === "tick" && (cbRuleStateSaveRetries.size || globalThis.CBRuleTime?.hasLinkedCustom()))) return null;
   return cbSerializeRuleMutation(async () => {
+    if (type === "tick" && cbRuleStateSaveRetries.size) {
+      const stored = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] });
+      for (const id of [...cbRuleStateSaveRetries]) {
+        const group = stored[BLOCKED_GROUPS_KEY].find(group => group?.id === id && group.groupType === "custom");
+        if (!group) { cbRuleStateSaveRetries.delete(id); continue; }
+        try { if ((await cbLoadCustomGroupSource(group))?.ok) cbRuleStateSaveRetries.delete(id); } catch (_) { /* Retry on the next normal tick. */ }
+      }
+    }
     const generations = new Map(cbRuleGenerations);
+    if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureAll({ type, now: Date.now(), data }, targetGroupId);
     const result = await sendToEventSandbox({ kind: "dispatch-event", descriptor: { type, now: Date.now(), data, targetGroupId } });
-    await applyRuleResult(result, type, generations);
+    try { await applyRuleResult(result, type, generations); }
+    catch (error) {
+      // State persistence precedes every page/action delivery. Only this
+      // failure is safe to recover from saved state; never replay an action
+      // batch that has already started executing.
+      for (const id of error.ruleStateSaveGroupIds || []) {
+        cbRuleStateSaveRetries.add(id);
+        await unloadCustomGroupHandlers(id);
+        pushLogFeedEntry({ source: "page-error", level: "error", groupId: id, eventType: type, message: "Event state could not be saved; no actions were performed. " + error.message });
+      }
+      throw error;
+    }
+    if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureAll(null, targetGroupId);
     return result;
   });
 }
@@ -2263,17 +2290,35 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
   const snapshot = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [], [CB_RULE_STATE_KEY]: {} });
   const groups = Array.isArray(snapshot[BLOCKED_GROUPS_KEY]) ? snapshot[BLOCKED_GROUPS_KEY] : [];
   const current = new Map(groups.filter((group) => group?.groupType === "custom" && (!generations || generations.get(group.id) === cbRuleGenerations.get(group.id))).map((group) => [group.id, group]));
-  for (const entry of result.logs || []) if (current.has(entry.groupId)) pushLogFeedEntry({ ...entry, eventType });
-  for (const entry of result.diagnostics || []) if (current.has(entry.groupId)) cbDebugError("[Vault rule]", entry.groupId, eventType, ...(entry.args || []));
+  for (const [groupId, types] of Object.entries(result.types || {})) if (current.has(groupId) && Array.isArray(types)) cbRuleTypes.set(groupId, new Set(types));
+  for (const entry of result.diagnostics || []) if (current.has(entry.groupId)) {
+    cbDebugError("[Vault rule]", entry.groupId, eventType, ...(entry.args || []));
+    pushLogFeedEntry({ ...entry, source: "page-error", eventType });
+  }
   if (result.quarantine && current.has(result.quarantine.groupId)) {
     quarantineGroup(result.quarantine.groupId, result.quarantine.reason || "deadline-overrun").catch(() => {});
+  }
+  const invalidStates = (result.stateFailures || []).filter(id => current.has(id));
+  if (invalidStates.length) {
+    const failure = new Error("Event state exceeds its limit or is not valid JSON.");
+    failure.ruleStateSaveGroupIds = [...new Set([...invalidStates, ...Object.keys(result.states || {}).filter(id => current.has(id))])];
+    throw failure;
   }
   const states = Object.fromEntries(Object.entries(result.states && typeof result.states === "object" ? result.states : {})
     .filter(([groupId]) => current.has(groupId)));
   if (Object.keys(states).length > 0) {
     const stored = snapshot[CB_RULE_STATE_KEY] || {};
-    await chrome.storage.local.set({ [CB_RULE_STATE_KEY]: { ...stored, ...states } });
+    try { await chrome.storage.local.set({ [CB_RULE_STATE_KEY]: { ...stored, ...states } }); }
+    catch (error) {
+      const failure = new Error(String(error.message || error));
+      failure.ruleStateSaveGroupIds = Object.keys(states);
+      throw failure;
+    }
+    if (globalThis.CBRuleTime && Object.keys(states).some(id => globalThis.CBRuleTime.configurationKey(stored[id]) !== globalThis.CBRuleTime.configurationKey(states[id]))) {
+      await cbAnnounceStoredGroups(groups);
+    }
   }
+  for (const entry of result.logs || []) if (current.has(entry.groupId)) pushLogFeedEntry({ ...entry, eventType });
   for (const [groupId, panels] of Object.entries(result.panels || {})) if (current.has(groupId)) cbSetRulePanels(groupId, panels);
   const pages = new Map(); // tabId | "*" -> { items, dom, queries, cover }
   const sheetTabs = new Set(); // tabs (or "*") whose sheets changed
@@ -2719,7 +2764,7 @@ self.CBSafariLifetimeTick = cbSafariLifetimeTick;
 if (sandboxTransportMode() === "native") setInterval(cbSafariLifetimeTick, 1000);
 
 async function emitRuleTick() {
-  if (!cbRulesHandle("tick")) return;
+  if (!cbRulesHandle("tick") && !cbRuleStateSaveRetries.size && !globalThis.CBRuleTime?.hasLinkedCustom()) return;
   const tabs = await chrome.tabs.query({});
   await dispatchRule("tick", {
     tabs: tabs.filter((tab) => typeof tab?.id === "number").map((tab) => ({ tabId: tab.id, url: tab.url || "", active: Boolean(tab.active) }))
@@ -2998,10 +3043,11 @@ async function cbRenameDuplicatesLocked(groups) {
 async function cbAnnounceStoredGroups(groups) {
   const list = Array.isArray(groups) ? groups : (await getState()).groups;
   if (!cbConnection.desktopRouteIsReady()) return;
+  const states = (await chrome.storage.local.get({ [CB_RULE_STATE_KEY]: {} }))[CB_RULE_STATE_KEY];
   cbConnection.sendWS({
     kind: "groups-announce",
     program: cbDetectProgramId(),
-    groups: list.map((group) => ({ id: group.id, name: group.name, frozen: CBGroupActions.isLocked(group) }))
+    groups: list.map((group) => ({ id: group.id, name: group.name, frozen: CBGroupActions.isLocked(group), timeState: globalThis.CBRuleTime?.seedForRoster(states?.[group.id]) }))
   });
 }
 
@@ -3215,6 +3261,7 @@ const cbClusterUsageBaseline = {};
 
 function cbSaveClusterCopy(clusters) {
   const before = cbLinkedGroupIds(cbClusterCopy);
+  globalThis.CBRuleTime?.clustersChanged(cbClusterCopy, Array.isArray(clusters) ? clusters : []);
   cbClusterCopy = Array.isArray(clusters) ? clusters : [];
   const now = cbLinkedGroupIds(cbClusterCopy);
   const left = [...before].filter((id) => !now.has(id));
@@ -3744,6 +3791,7 @@ const cbConnection = {
   },
 
   invalidateActivitySettingsConnection() {
+    globalThis.CBRuleTime?.disconnect();
     this.activitySettingsConnectionGeneration += 1;
     this.activitySettingsNotifications = false;
     if (typeof cbActivity !== "undefined") cbActivity.beginSettingsConnection(this.activitySettingsConnectionGeneration);
@@ -3907,6 +3955,7 @@ const cbConnection = {
         this.activitySettingsNotifications = msg.activitySettingsNotifications === true
           && ["macapp", "windowsapp"].includes(msg.hubProgram);
         this.usageTransferReceipts = msg.usageTransferReceipts === true;
+        this.ruleTimeVersion = msg.ruleTimeVersion === 1 ? 1 : 0;
         cbJoinsSent.clear();
         this.burstStartMs = 0;
         this.setStatus({
@@ -3973,6 +4022,9 @@ const cbConnection = {
         // The request map below ignores unmatched replies, so classifier
         // responses cannot cross-route ordinary group-sync traffic.
         if (self.CBClassifierHub) self.CBClassifierHub.receive(msg);
+        break;
+      case "rule-time-response":
+        globalThis.CBRuleTime?.receive(msg);
         break;
       case "activity-settings-updated":
         // Only the authenticated desktop hub can originate this kind. It is

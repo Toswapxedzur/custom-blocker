@@ -71,7 +71,7 @@ const context = vm.createContext({
   atob: (s) => Buffer.from(s, "base64").toString("binary"), btoa: (s) => Buffer.from(s, "binary").toString("base64")
 });
 context.self = context; context.globalThis = context; context.window = context;
-for (const file of ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "background.js"]) {
+for (const file of ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "rule-time-client.js", "background.js"]) {
   const p = path.join(root, file);
   if (!fs.existsSync(p)) continue;
   try { vm.runInContext(fs.readFileSync(p, "utf8"), context, { filename: file }); }

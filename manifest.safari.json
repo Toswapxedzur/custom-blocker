@@ -25,6 +25,7 @@
     "scripts": [
       "browser-compat.js",
       "storage-schema.js",
+      "rule-time-client.js",
       "safari-runtime-config.js",
       "sandbox-transport.js",
       "bridge-protocol.js",
