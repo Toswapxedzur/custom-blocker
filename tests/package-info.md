@@ -92,3 +92,5 @@ acceptance remain separate and pending. No second driver or runtime is required.
 - `runner-rule-time-client.js`: bounded authenticated time transport, reconnect/stale response and payload privacy controls.
 
 - `runner-rule-time-save.js`: saved-completion-before-action ordering, failed write recovery and exactly-once retry.
+
+- `runner-rule-handler-errors.js`: real RuleCore handler exceptions reach the production per-rule error Log feed with debug OFF; stale replies stay excluded and failed state/save paths cannot replay actions.
