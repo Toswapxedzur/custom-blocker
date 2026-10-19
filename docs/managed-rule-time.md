@@ -1,8 +1,8 @@
-# Managed rule time — implementation checkpoint
+# Managed rule time
 
-This feature branch is incomplete and private. The common core, linked policy,
-transport and save-recovery checks pass on Mini2 alt1. Mac native hub/runtime,
-Safari native journal and Windows native adapter checks also pass. Final handover is under expanded regression testing; actual Windows WebView2 and live linked-browser acceptance remain required.
+This document describes the timer and rolling-usage API and its linked-state
+persistence contract. Verification receipts are maintained separately. Public
+publication remains subject to the owner's release hold.
 
 Named objects share the existing per-rule saved-state path. `$vaultTime` is a
 reserved versioned namespace; incompatible existing content is refused. Both
@@ -16,7 +16,7 @@ saved history. Time durations are integer milliseconds, at most365days.
   error. `start()`/`resume()` are idempotent; `pause()` freezes elapsed time;
   `reset()` returns to the initial paused state. `snapshot()` provides
   ready/error, elapsedMs, remainingMs (null for count-up), running and completed.
-- `timerEnded` carries `{id,direction:"down",durationMs,generation,incarnation}` once per run.
+- `timerEnded` carries `{id,direction:"down",durationMs,generation,incarnation}` once per timer incarnation and generation for each linked member; Run does not replay it.
   Running timers keep wall-clock time while closed/disabled and deliver the
   event when the rule runs again. No JavaScript scheduling capability is added.
 - `{type:"timer",timerId:"focus",label:"Focus"}` in `v.panel` uses the current
@@ -38,11 +38,9 @@ saved history. Time durations are integer milliseconds, at most365days.
 Owner-confirmed linked contract: same IDs share across members of one local
 linked custom cluster; combine usage/targets, keep initiating timer state,
 refuse incompatible configurations, stop shared availability/controls while
-disconnected, and deliver completion once to each linked member. This contract
-is wired into the private foundation. The hub retains ordered final snapshots
+disconnected, and deliver completion once to each linked member. The hub retains ordered final snapshots
 until each member saves and acknowledges them; failed saves keep shared controls
-unavailable. Complete live acceptance is unfinished and must not be presented as
-accepted.
+unavailable. A returning member needs fresh authority before shared controls become ready.
 
 Invalid or oversized event state prevents that event’s actions. A failed disk write preserves the previous saved completion; hosts reload that saved state and retry on a normal tick. Action batches that already began delivery are never replayed. Shared commands retain scoped serials until acknowledgment.
 
