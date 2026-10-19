@@ -2291,7 +2291,10 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
   const groups = Array.isArray(snapshot[BLOCKED_GROUPS_KEY]) ? snapshot[BLOCKED_GROUPS_KEY] : [];
   const current = new Map(groups.filter((group) => group?.groupType === "custom" && (!generations || generations.get(group.id) === cbRuleGenerations.get(group.id))).map((group) => [group.id, group]));
   for (const [groupId, types] of Object.entries(result.types || {})) if (current.has(groupId) && Array.isArray(types)) cbRuleTypes.set(groupId, new Set(types));
-  for (const entry of result.diagnostics || []) if (current.has(entry.groupId)) cbDebugError("[Vault rule]", entry.groupId, eventType, ...(entry.args || []));
+  for (const entry of result.diagnostics || []) if (current.has(entry.groupId)) {
+    cbDebugError("[Vault rule]", entry.groupId, eventType, ...(entry.args || []));
+    pushLogFeedEntry({ ...entry, source: "page-error", eventType });
+  }
   if (result.quarantine && current.has(result.quarantine.groupId)) {
     quarantineGroup(result.quarantine.groupId, result.quarantine.reason || "deadline-overrun").catch(() => {});
   }
