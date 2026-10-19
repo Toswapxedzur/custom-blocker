@@ -44,7 +44,22 @@ const feed = id=>plain(vm.runInContext(`logFeeds.get(${JSON.stringify(id)})||[]`
   assert.deepEqual(closes,[71],'Reporting must not replay the action batch');
   assert.equal(debugConsole.length,0,'No need to enable the debug console');
   assert.equal(broadcasts.filter(x=>x.type==='log-feed-entry').length,3);
-  console.log('PASS actual handler exceptions become one error Log entry each alongside v.log with debug OFF');
+  // Render these actual production-feed entries through the popup's own code.
+  const popup = fs.readFileSync(path.join(root,'popup.js'),'utf8');
+  const element = () => ({children:[],textContent:'',setAttribute(){},appendChild(child){this.children.push(child);}});
+  const list = element();
+  const renderer = vm.createContext({document:{createElement:element},logFeedList:list,
+    logFeedSeenIds:new Set(),state:{selectedGroupId:'live'},logFeedGroupId:'live',
+    LOG_FEED_MAX_RENDER:200,formatLogFeedTime:()=>'',updateLogFeedVisibleCount(){}});
+  vm.runInContext(popup.slice(popup.indexOf('function renderLogFeedEntry('),
+    popup.indexOf('function updateLogFeedVisibleCount(')),renderer);
+  first.forEach(entry=>renderer.renderLogFeedEntry(entry));
+  assert.equal(list.children.length,3);
+  assert.match(list.children[0].children[0].textContent,/ERROR/);
+  assert.match(list.children[0].children[1].textContent,/first failure/);
+  assert.match(list.children[1].children[0].textContent,/ERROR/);
+  assert.match(list.children[1].children[1].textContent,/second failure/);
+  console.log('PASS actual handler exceptions render as ERROR rows alongside v.log with debug OFF');
 
   c.cbRuleGenerations.set('live',8);
   await c.applyRuleResult(result,'panel',new Map([['live',7]]));
