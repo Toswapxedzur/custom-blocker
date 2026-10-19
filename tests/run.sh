@@ -43,6 +43,7 @@ node tests/runner-definition-worker-queue.js || failed=1
 node tests/runner-content-language.js || failed=1
 node tests/runner-rule-log-isolation.js || failed=1
 node tests/runner-rule-handler-errors.js || failed=1
+node tests/runner-timer-manual.js || failed=1
 node tests/runner-rule-stale-results.js || failed=1
 node tests/runner-rule-delivery-ack.js || failed=1
 node tests/runner-rule-initial-state.js || failed=1

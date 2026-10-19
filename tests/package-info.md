@@ -94,3 +94,5 @@ acceptance remain separate and pending. No second driver or runtime is required.
 - `runner-rule-time-save.js`: saved-completion-before-action ordering, failed write recovery and exactly-once retry.
 
 - `runner-rule-handler-errors.js`: real RuleCore handler exceptions reach the production per-rule error Log feed with debug OFF; stale replies stay excluded and failed state/save paths cannot replay actions.
+
+- `runner-timer-manual.js`: executes the published English timer example in real RuleCore; focus/blur/key cannot accidentally start or reset timers, while click controls retain correct pause elapsed time.
