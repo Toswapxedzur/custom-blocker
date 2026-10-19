@@ -8,7 +8,15 @@
     const url = typeof g.chrome?.runtime?.getURL === 'function' ? g.chrome.runtime.getURL('') : '';
     return id === 'windowsapp' ? 'windows' : id === 'macapp' ? 'mac' : /^safari-web-extension:\/\//.test(url) ? 'safari' : 'browser';
   }
-  function major(version) { return /^\d+(?:\.\d+)*$/.test(version || '') ? Number(version.split('.')[0]) : -1; }
+  function major(version) {
+    if (typeof version !== 'string') return -1;
+    // Browser manifests use numeric components; native informational versions
+    // may also carry SemVer prerelease/build identifiers (for example -alpha).
+    const match = /^(\d+)(?:\.\d+)*(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version);
+    if (!match || match[0] !== version || match[2]?.split('.').some(id => /^0\d+$/.test(id))) return -1;
+    const value = Number(match[1]);
+    return Number.isSafeInteger(value) ? value : -1;
+  }
   function identity() { return { product: product(), appVersion: g.chrome.runtime.getManifest().version }; }
   function validate(root, writer = identity()) {
     const v = root.schemaVersion === undefined ? 0 : root.schemaVersion;
