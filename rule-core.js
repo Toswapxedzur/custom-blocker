@@ -525,7 +525,7 @@
       "ENGINE: Mac Vault. It controls apps only (never websites).",
       "\"tick\" every second: data = { frontmost: { appId, name } | null, running: [{ appId, name }] } — every running app, menu-bar and background ones included.",
       "\"app\" when an app launches, quits, comes to the front or leaves it, hides or unhides: data = { kind: launch | quit | focus | blur | hide | unhide, appId, name, previousAppId (focus only) }.",
-      "v.block(appId, on) blocks an app (asked to quit, again after Settings' retry interval) until v.block(appId, false), Run, or the group is disabled; v.quit(appId) asks it to quit once; v.open(appId) opens it. appId is a bundle identifier. Apple's own apps (com.apple.*), browsers (their extension controls them) and Mac Vault are never blocked or quit.",
+      "v.block(appId, on) blocks an app (asked to quit, again after Settings' retry interval) until v.block(appId, false), Run, or the group is disabled; v.quit(appId) asks it to quit once; v.open(appId) opens it. appId is a bundle identifier. On Mac Vault, Apple apps and whole browsers can be blocked; Vault's own bundle identity remains protected.",
       "EXAMPLE: (on, v) => { on(\"tick\", () => { const h = new Date().getHours(); v.block(\"com.valvesoftware.steam\", h >= 22 || h < 7); }); }"
     ]
   };
