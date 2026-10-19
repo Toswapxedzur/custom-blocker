@@ -4,6 +4,16 @@
 
 set -euo pipefail
 
+# English docs change during development; locale parity remains a release gate.
+# Default invocation retains every release check.
+development=false
+case "${1:-}" in
+  "") ;;
+  --development) development=true; shift ;;
+  *) echo "Usage: tests/run.sh [--development]" >&2; exit 2 ;;
+esac
+if [ "$#" -ne 0 ]; then echo "Usage: tests/run.sh [--development]" >&2; exit 2; fi
+
 JSC=${JSC:-/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc}
 if [ ! -x "$JSC" ]; then
   echo "jsc not found at $JSC. Set JSC=<path-to-jsc> and retry." >&2
@@ -32,9 +42,15 @@ node tests/runner-definition-storage-order.js || failed=1
 node tests/runner-definition-worker-queue.js || failed=1
 node tests/runner-content-language.js || failed=1
 node tests/runner-rule-log-isolation.js || failed=1
+node tests/runner-rule-handler-errors.js || failed=1
+node tests/runner-timer-manual.js || failed=1
 node tests/runner-rule-stale-results.js || failed=1
 node tests/runner-rule-delivery-ack.js || failed=1
 node tests/runner-rule-initial-state.js || failed=1
+node tests/runner-rule-time.js || failed=1
+node tests/runner-rule-time-shared.js || failed=1
+node tests/runner-rule-time-client.js || failed=1
+node tests/runner-rule-time-save.js || failed=1
 node tests/runner-safari-native-lifecycle.js || failed=1
 node tests/runner-safari-packaging.js || failed=1
 node_out=$(node tests/runner-editor-intent.js 2>&1) || failed=1
@@ -339,7 +355,11 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
 fi
 run_suite "markdown-renderer" tests/runner-markdown.js || failed=1
 run_suite "event-sandbox-stress" tests/runner-event-sandbox-stress.js || failed=1
-node scripts/documentation-audit.js || failed=1
+if [ "$development" = true ]; then
+  echo "DEFERRED release-only documentation locale parity; batch-translate before release."
+else
+  node scripts/documentation-audit.js || failed=1
+fi
 node scripts/translation-audit.js --check || failed=1
 node_out=$(node tests/runner-local-file-broker.js 2>&1) || failed=1
 echo "$node_out"

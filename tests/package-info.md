@@ -85,3 +85,14 @@ Chrome DOM verification; headed YouTube behavior and native Safari/WebKit
 acceptance remain separate and pending. No second driver or runtime is required.
 
 - `runner-rule-delivery-ack.js`: actual extracted worker/content ACK and bounded pending queue regression, with inert Node page/APIs. Partial click/query failures, missing/malformed ACK and closed response ports report per-rule `page-error` without replay; proven absent receiver retains the existing targeted queue. Successful ACK, broadcast boundaries and shared-batch attribution are covered. Registered in `tests/run.sh`; execute only on the owner-designated Mini2 test host.
+
+- `runner-rule-time.js`: named timer lifecycle/panel/persistence and rolling usage scenarios, including overlap, expiry and invalid-state refusal.
+
+- `runner-rule-time-shared.js`: shared merge, overlap, receipts, join barriers, disconnects and capacity refusal.
+- `runner-rule-time-client.js`: bounded authenticated time transport, reconnect/stale response and payload privacy controls.
+
+- `runner-rule-time-save.js`: saved-completion-before-action ordering, failed write recovery and exactly-once retry.
+
+- `runner-rule-handler-errors.js`: real RuleCore handler exceptions reach the production per-rule error Log feed with debug OFF; stale replies stay excluded and failed state/save paths cannot replay actions.
+
+- `runner-timer-manual.js`: executes the published English timer example in real RuleCore; focus/blur/key cannot accidentally start or reset timers, while click controls retain correct pause elapsed time.

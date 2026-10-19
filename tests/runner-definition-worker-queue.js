@@ -39,6 +39,7 @@ async function runQueueControls() {
       if(request.kind==='discard-source')return sandbox.discardLoad(request.token);
       if(request.kind==='unload-group') {sandbox.unload(request.groupId);return {ok:true};}
       if(request.kind==='suppress-group') {sandbox.suppress(request.groupId,request.on);return {ok:true};}
+      if(request.kind==='time-context') return sandbox.setTimeContext(request.groupId,request.context);
       throw new Error(request.kind);
     };
     run('sendToEventSandbox=__transport');
@@ -84,6 +85,7 @@ async function runQueueControls() {
     if(request.kind==='commit-source')return engine.commitLoad(request.token);
     if(request.kind==='discard-source')return engine.discardLoad(request.token);
     if(request.kind==='suppress-group'){engine.suppress(request.groupId,request.on);return {ok:true};}
+    if(request.kind==='time-context') return engine.setTimeContext(request.groupId,request.context);
     throw new Error(request.kind);
   };
   vm.runInContext('sendToEventSandbox=__transport',migrated);

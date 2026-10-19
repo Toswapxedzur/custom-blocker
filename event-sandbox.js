@@ -75,6 +75,8 @@ window.addEventListener("message", (msg) => {
   const id = data.id;
   const payload = data.payload || {};
   switch (payload.kind) {
+    case "time-context":
+      return reply(msg.source, id, engine.setTimeContext(String(payload.groupId), payload.context));
     case "prepare-source":
       return reply(msg.source, id, engine.prepareLoad(String(payload.groupId), payload.source, payload.state));
     case "commit-source":
