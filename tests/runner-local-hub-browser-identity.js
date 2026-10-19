@@ -1,0 +1,77 @@
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const source = fs.readFileSync(path.join(__dirname, "..", "background.js"), "utf8");
+const start = source.indexOf("const cbConnection = {");
+const end = source.indexOf("\n};", start) + 3;
+if (start < 0 || end < 3) throw new Error("Missing connection implementation");
+let failures = 0;
+function assert(name, passed) {
+  console[passed ? "log" : "error"](`${passed ? "PASS" : "FAIL"} ${name}`);
+  if (!passed) failures++;
+}
+function connection(credentials, legacy = true) {
+  const sent = [];
+  const socket = { readyState: 1, send(value) { sent.push(JSON.parse(value)); } };
+  const context = vm.createContext({
+    CB_FIXED_ADDRESS: "ws://127.0.0.1:18787", CB_CONNECTION_PROTOCOL_VERSION: 4, CB_CONNECTION_PING_MS: 10000,
+    WebSocket: { OPEN: 1 }, cbDetectProgramId: () => "chrome", cbJoinsSent: new Set(),
+    CBLocalHubAuthentication: { proofForChallenge: async () => credentials,
+      legacyAuthenticationAllowed: () => legacy },
+    CBBridgeProtocol: { isHubProgram: p => p === "macapp" },
+    setInterval: () => 1, clearInterval() {}, clearTimeout() {}, console
+  });
+  context.self = context;
+  vm.runInContext(source.slice(start, end) + "\nself.connection = cbConnection;", context);
+  const client = context.connection;
+  let closed = 0;
+  client.clearTimers = () => {};
+  client.closeSocket = () => { closed++; client.ws = null; };
+  client.scheduleSlowRetry = () => {};
+  client.setStatus = patch => { client.status = { ...client.status, ...patch }; };
+  client.ws = socket;
+  return { client, context, sent, get closed() { return closed; } };
+}
+
+(async () => {
+  const identity = { v: 1, kind: "mac-bundle-id", value: "com.brave.browser", proof: "b".repeat(43) };
+  const fresh = connection({ proof: "p".repeat(43), browserIdentity: identity });
+  fresh.client.answerChallenge("c".repeat(43));
+  await new Promise(resolve => setImmediate(resolve));
+  assert("hello retains v4 base proof and forwards exact native Brave attestation",
+    fresh.sent.length === 1 && fresh.sent[0].v === 4 && fresh.sent[0].proof === "p".repeat(43)
+    && fresh.sent[0].browserIdentityVersion === 1
+    && JSON.stringify(fresh.sent[0].browserIdentity) === JSON.stringify(identity));
+  const old = connection({ proof: "p".repeat(43), browserIdentity: null });
+  old.client.answerChallenge("c".repeat(43));
+  await new Promise(resolve => setImmediate(resolve));
+  assert("legacy v4 hello omits both identity fields", old.sent.length === 1
+    && !Object.hasOwn(old.sent[0], "browserIdentity") && !Object.hasOwn(old.sent[0], "browserIdentityVersion"));
+  old.client.handleMessage({ kind: "welcome", v: 4, hubProgram: "macapp" });
+  assert("bounded legacy hub remains usable", old.client.status.state === "connected" && old.closed === 0);
+  const retired = connection({ proof: "p".repeat(43), browserIdentity: identity }, false);
+  retired.client.handleMessage({ kind: "welcome", v: 4, hubProgram: "macapp" });
+  assert("retired legacy hub gives upgrade requirement and closes", retired.client.status.error === "browser-identity-upgrade-required"
+    && retired.closed === 1 && retired.client.handshakeComplete === false);
+  const supported = connection({ proof: "p".repeat(43), browserIdentity: identity }, false);
+  supported.client.handleMessage({ kind: "welcome", v: 4, hubProgram: "macapp", browserIdentityVersion: 1 });
+  assert("attested-capable hub remains usable after retirement", supported.client.status.state === "connected");
+  const invalid = connection(null);
+  invalid.context.CBLocalHubAuthentication.proofForChallenge = async () => { throw Object.assign(new Error("invalid"), { code: "invalid-browser-identity" }); };
+  invalid.client.answerChallenge("c".repeat(43));
+  await new Promise(resolve => setImmediate(resolve));
+  assert("invalid attestation closes without sending hello or downgrading", invalid.sent.length === 0
+    && invalid.closed === 1 && invalid.client.status.error === "invalid-browser-identity");
+  let release;
+  const stale = connection(null);
+  stale.context.CBLocalHubAuthentication.proofForChallenge = () => new Promise(resolve => { release = resolve; });
+  stale.client.answerChallenge("c".repeat(43));
+  stale.client.ws = { readyState: 1, send() { throw new Error("stale proof reused"); } };
+  release({ proof: "p".repeat(43), browserIdentity: identity });
+  await new Promise(resolve => setImmediate(resolve));
+  assert("proof from replaced socket is discarded", stale.sent.length === 0 && stale.closed === 0);
+  console.log(`__CB_TEST_RESULT__: ${failures ? "FAIL" : "OK"} (${failures} failures)`);
+  if (failures) process.exitCode = 1;
+})().catch(error => { console.error(error); process.exitCode = 1; });
