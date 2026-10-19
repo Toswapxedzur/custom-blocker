@@ -5,14 +5,14 @@ const clone=x=>JSON.parse(JSON.stringify(x));
 async function test(name,fn){await fn();cases++;console.log("PASS "+name);}
 async function main(){
  const coreContext=vm.createContext({console});vm.runInContext(fs.readFileSync(path.join(root,"rule-core.js"),"utf8"),coreContext);const core=coreContext.RuleCore;
- const engine=core.createEngine();
- const source=`(on,v)=>{const t=v.timer("clock",{durationMs:10000});const r=v.rolling("budget",{windowMs:120000,limitMs:5000});r.assign({websites:["youtube.com"]});on("start",()=>t.start());on("tick",()=>{v.state.clock=t.snapshot();v.state.budget=r.snapshot();});}`;
+ const engine=core.createEngine(act=>({close:tabId=>act("close",{tabId})}));
+ const source=`(on,v)=>{const t=v.timer("clock",{durationMs:10000});const r=v.rolling("budget",{windowMs:120000,limitMs:5000});r.assign({websites:["youtube.com"]});on("start",()=>t.start());on("mutation",()=>{v.state.mutations=(v.state.mutations||0)+1;t.reset();v.close(9);});on("tick",()=>{v.state.clock=t.snapshot();v.state.budget=r.snapshot();});}`;
  const initial=engine.load("a",source,{});assert(initial.ok,initial.error);
  const store={blockedGroups:[{id:"a",groupType:"custom",enabled:true}],cbRuleState:{a:{...clone(initial.states.a),privateField:"NEVER_TRANSMIT"}}};
  let link={id:"cluster",members:[{program:"chrome",groupId:"a"},{program:"safari",groupId:"b"}]};
  const generations=new Map([["a",1]]),sent=[],contexts=[],timers=new Map();let timerID=0,held=null,hold=false,server=null;
  const peerSeed=clone(initial.states.a.$vaultTime);
- let env, failSave=false, retired=[];
+ let env, failSave=false, retired=[], deliveryFailure=null;const actions=[],unloaded=[];
  const connection={ws:{identity:"socket-one"},ruleTimeVersion:1,desktopRouteIsReady:()=>true,sendWS(frame){sent.push(clone(frame));if(hold){held=frame;return true;}Promise.resolve().then(()=>reply(frame));return true;}};
  function reply(frame,override={}){
   if(retired.length) {
@@ -30,8 +30,36 @@ async function main(){
   if(!result.ready){const other=core.syncTime(server,{member:"safari/b",members:["chrome/a","safari/b"],initiator:"chrome/a",seed:peerSeed,commands:[],nowMs:Date.now()});assert(other.ok,other.error);server=clone(other.state);result=core.syncTime(server,{member:"chrome/a",members:["chrome/a","safari/b"],initiator:"chrome/a",seed:frame.seed,commands:frame.commands,nowMs:Date.now()});assert(result.ok,result.error);server=clone(result.state);}
   env.CBRuleTime.receive({kind:"rule-time-response",requestID:frame.requestID,groupId:frame.groupId,body:{linked:true,ready:true,clusterId:"cluster",state:server,acknowledgedSerial:result.acknowledgedSerial},...override});
  }
- env=vm.createContext({console,Date,URL,Map,Set,Promise,cbConnection:connection,cbRuleGenerations:generations,cbClusterCopy:[link],cbDetectProgramId:()=>"chrome",chrome:{storage:{local:{get:async()=>clone(store),set:async values=>{if(failSave)throw new Error("injected storage failure");Object.assign(store,clone(values));}}}},setTimeout(fn){timers.set(++timerID,fn);return timerID;},clearTimeout(id){timers.delete(id);},sendToEventSandbox:async payload=>{assert.equal(payload.kind,"time-context");contexts.push(clone(payload.context));return engine.setTimeContext(payload.groupId,payload.context);}});
+ env=vm.createContext({console,Date,URL,Map,Set,Promise,cbConnection:connection,cbRuleGenerations:generations,cbClusterCopy:[link],cbDetectProgramId:()=>"chrome",chrome:{storage:{local:{get:async()=>clone(store),set:async values=>{if(failSave)throw new Error("injected storage failure");Object.assign(store,clone(values));}}}},setTimeout(fn){timers.set(++timerID,fn);return timerID;},clearTimeout(id){timers.delete(id);},sendToEventSandbox:async payload=>{
+  if(payload.kind==="unload-group"){unloaded.push(payload.groupId);engine.unload(payload.groupId);return {ok:true};}
+  if(payload.kind==="dispatch-event")return engine.dispatch(payload.descriptor);
+  assert.equal(payload.kind,"time-context");contexts.push(clone(payload.context));
+  if(deliveryFailure && payload.context.detached && !payload.context.state.detachedReceipt){
+   const mode=deliveryFailure;deliveryFailure=null;
+   if(mode==="throw")throw new Error("injected context transport failure");
+   return mode==="missing"?null:{ok:false,error:"injected context rejection"};
+  }
+  return engine.setTimeContext(payload.groupId,payload.context);
+ }});
  env.self=env;vm.runInContext(fs.readFileSync(path.join(root,"bridge-protocol.js"),"utf8"),env);vm.runInContext(fs.readFileSync(path.join(root,"rule-time-client.js"),"utf8"),env);
+ // Use the actual background queue, unload and next-tick retry path. Only the
+ // browser/store transport and candidate loader are fixture boundaries.
+ const background=fs.readFileSync(path.join(root,"background.js"),"utf8");
+ Object.assign(env,{BLOCKED_GROUPS_KEY:"blockedGroups",cbRuleTypes:new Map([["a",new Set(initial.types)]]),cbRuleSuppressed:new Set(),cbRuleSheets:new Map(),
+  cbSetRulePanels(){},cbSaveRuleSheets(){},cbPushRuleSheets:async()=>{},cbSendToWebPages:async()=>{},ensureStartupGate:async()=>{},pushLogFeedEntry(){},
+  cbRulesHandle:type=>store.blockedGroups.some(g=>g.enabled && env.cbRuleTypes.get(g.id)?.has(type)),
+  cbLoadCustomGroupSource:async group=>{
+   await env.CBRuleTime.configureGroup(group.id);
+   const result=engine.load(group.id,source,store.cbRuleState[group.id]);assert(result.ok,result.error);
+   if(result.states[group.id])store.cbRuleState[group.id]=clone(result.states[group.id]);
+   env.cbRuleTypes.set(group.id,new Set(result.types));engine.suppress(group.id,!group.enabled);return result;
+  },
+  applyRuleResult:async result=>{Object.assign(store.cbRuleState,clone(result.states||{}));actions.push(...clone(result.actions||[]));}
+ });
+ vm.runInContext(background.slice(background.indexOf("const cbRuleStateSaveRetries ="),background.indexOf("const cbCustomLoadQueues =")),env);
+ vm.runInContext(background.slice(background.indexOf("async function unloadCustomGroupHandlers("),background.indexOf("// One event to the rules")),env);
+ vm.runInContext(background.slice(background.indexOf("async function dispatchRule(type,"),background.indexOf("// What a dispatch asked for")),env);
+ const retries=vm.runInContext("cbRuleStateSaveRetries",env);
  async function heldRequest(){for(let attempt=0;attempt<20&&!held;attempt++)await new Promise(setImmediate);assert(held,"bounded request entry");}
  function persist(type="tick") {const r=engine.dispatch({type,now:Date.now(),targetGroupId:"a",data:{}});if(r.states.a)store.cbRuleState.a=clone(r.states.a);return r;}
  await test("client sends only reserved time data through the authenticated route",async()=>{await env.CBRuleTime.configureGroup("a");persist();assert(!JSON.stringify(sent).includes("NEVER_TRANSMIT"));assert.equal(store.cbRuleState.a.budget.ready,true);assert.equal(contexts.at(-1).clusterId,"cluster");});
@@ -80,6 +108,36 @@ async function main(){
   await env.CBRuleTime.configureGroup("a");assert.equal(store.cbRuleState.a.$vaultTime.detachedReceipt.clusterId,"short-link");
   await env.CBRuleTime.configureGroup("a");assert.equal(retired.length,0);
  });
+ for(const mode of ["rejected","missing","throw","disabled"]){
+  await test(mode+" final handover delivery reloads saved state without replaying the event",async()=>{
+   const id="delivery-"+mode,token="token-"+mode,final=clone(server);final.confirmed={"chrome/a":true};final.objects.clock.generation+=20;
+   const seed=clone(store.cbRuleState.a.$vaultTime);
+   assert(engine.setTimeContext("a",{linked:true,ready:true,clusterId:id,state:final}).ok);
+   retired=[{id,token,state:final}];env.cbClusterCopy=[];env.CBRuleTime.clustersChanged([{id,members:[{program:"chrome",groupId:"a"}]}],[]);
+   const detached=core.detachTime(seed,final,"chrome/a","chrome/a",id,token,Date.now());assert(detached.ok,detached.error);
+   store.cbRuleState.a.$vaultTime=clone(detached.state);store.cbRuleState.a.privateField="NEVER_TRANSMIT";
+   store.blockedGroups[0].enabled=mode!=="disabled";engine.suppress("a",false);
+   const before=clone(store.cbRuleState.a),actionCount=actions.length,unloadCount=unloaded.length;
+   deliveryFailure=mode==="disabled"?"rejected":mode;
+   await assert.rejects(()=>env.dispatchRule("mutation",{}, {targetGroupId:"a"}),/context/);
+   assert.equal(retired.length,0,"The saved receipt really consumed the hub ACK before delivery failed");
+   assert.equal(store.cbRuleState.a.$vaultTime.detachedReceipt,undefined);
+   assert.equal(store.cbRuleState.a.$vaultTime.objects.clock.generation,detached.state.objects.clock.generation);
+   assert.equal(store.cbRuleState.a.privateField,"NEVER_TRANSMIT");
+   assert.equal(store.cbRuleState.a.mutations,before.mutations);assert.equal(actions.length,actionCount);
+   assert.equal(unloaded.length,unloadCount+1);assert.equal(env.cbRuleTypes.has("a"),false);assert(retries.has("a"));
+   await env.dispatchRule("tick",{});
+   assert.equal(retries.size,0);assert.equal(store.cbRuleState.a.mutations,before.mutations);assert.equal(actions.length,actionCount);
+   assert.equal(store.cbRuleState.a.$vaultTime.scope,null);assert.equal(store.cbRuleState.a.$vaultTime.objects.clock.generation,detached.state.objects.clock.generation);
+   assert.deepEqual(store.cbRuleState.a.$vaultTime.objects.budget.websites,["youtube.com"]);
+   assert.deepEqual(store.cbRuleState.a.$vaultTime.objects.budget.apps,[]);
+   store.blockedGroups[0].enabled=true;engine.suppress("a",false);
+   await env.dispatchRule("mutation",{}, {targetGroupId:"a"});
+   assert.equal(store.cbRuleState.a.mutations,(before.mutations||0)+1);assert.equal(actions.length,actionCount+1);
+   assert.equal(store.cbRuleState.a.$vaultTime.pending.length,0);
+   await env.dispatchRule("tick",{});assert.equal(actions.length,actionCount+1,"No delayed action replay");
+  });
+ }
  await test("deleting a group during transfer cannot recreate its saved state",async()=>{
   retired=[{id:"deleted-link",token:"deleted",state:clone(server)}];env.CBRuleTime.clustersChanged([{id:"deleted-link",members:[{program:"chrome",groupId:"a"}]}],[]);
   hold=true;held=null;const waiting=env.CBRuleTime.configureGroup("a");await heldRequest();

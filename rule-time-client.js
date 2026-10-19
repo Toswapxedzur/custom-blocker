@@ -51,6 +51,21 @@
     saveTail = next;
     return next;
   }
+  async function deliverContext(groupId, context, generation) {
+    try {
+      const result = await sendToEventSandbox({ kind: "time-context", groupId, context });
+      if (result?.ok !== true) throw new Error(result?.error || "custom-time-context-refused");
+    } catch (error) {
+      // The saved handover may already have acknowledged the hub snapshot.
+      // Retire the stale engine now; the existing next-tick recovery loads
+      // saved state without replaying the event or re-entering its queue.
+      if (generation === cbRuleGenerations.get(groupId)) {
+        cbRuleStateSaveRetries.add(groupId);
+        await unloadCustomGroupHandlers(groupId);
+      }
+      throw error;
+    }
+  }
   async function configureGroup(groupId, event = null, snapshot = null) {
     const generation = cbRuleGenerations.get(groupId), socket = cbConnection.ws;
     // A delayed handover may precede a new link. Complete/save/acknowledge it
@@ -66,7 +81,7 @@
       if (discover) target = { id: "" };
       if (!target) {
         knownLinked.delete(groupId); knownScopes.delete(groupId);
-        await sendToEventSandbox({ kind: "time-context", groupId, context: { linked: false } });
+        await deliverContext(groupId, { linked: false }, generation);
         return;
       }
       if (target.id) { knownLinked.add(groupId); knownScopes.set(groupId, target.id); }
@@ -84,12 +99,11 @@
         if (context.relinkClusterId || context.handoverPending || cluster(groupId)) continue;
       } else if (link && (context.linked !== true || context.clusterId !== link.id)) context = unavailable(link.id);
       else if (context.linked === false && seed?.scope) context = unavailable(target.id);
-      const result = await sendToEventSandbox({ kind: "time-context", groupId, context });
-      if (result?.ok === false) throw new Error(result.error || "custom-time-context-refused");
+      await deliverContext(groupId, context, generation);
       return;
     }
     const target = cluster(groupId)?.id || knownScopes.get(groupId) || "unavailable";
-    await sendToEventSandbox({ kind: "time-context", groupId, context: unavailable(target) });
+    await deliverContext(groupId, unavailable(target), generation);
   }
   async function configureAll(event = null, targetGroupId = null) {
     const store = await chrome.storage.local.get({ blockedGroups: [], cbRuleState: {} });
