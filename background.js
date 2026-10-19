@@ -3947,6 +3947,13 @@ const cbConnection = {
           this.setStatus({ state: "error", error: "protocol-mismatch", peers: [], hubProgram: "" });
           break;
         }
+        if (self.CBLocalHubAuthentication?.legacyAuthenticationAllowed?.() === false && msg.browserIdentityVersion !== 1) {
+          this.desired = false;
+          this.clearTimers();
+          this.closeSocket();
+          this.setStatus({ state: "error", error: "browser-identity-upgrade-required", peers: [], hubProgram: "" });
+          break;
+        }
         if (this.connectTimer) {
           clearTimeout(this.connectTimer);
           this.connectTimer = null;
@@ -4058,24 +4065,31 @@ const cbConnection = {
     if (!socket || socket.readyState !== WebSocket.OPEN || this.handshakeComplete) return;
     const program = cbDetectProgramId();
     self.CBLocalHubAuthentication.proofForChallenge(program, challenge)
-      .then((proof) => {
+      .then((credentials) => {
         if (this.ws !== socket || socket.readyState !== WebSocket.OPEN || this.handshakeComplete) return;
-        socket.send(JSON.stringify({
+        const hello = {
           kind: "hello",
           v: CB_CONNECTION_PROTOCOL_VERSION,
           program,
           challenge,
-          proof
-        }));
+          proof: credentials.proof
+        };
+        if (credentials.browserIdentity) {
+          hello.browserIdentityVersion = 1;
+          hello.browserIdentity = credentials.browserIdentity;
+        }
+        socket.send(JSON.stringify(hello));
       })
-      .catch(() => this.authenticationFailed());
+      .catch((error) => this.authenticationFailed(error?.code));
   },
 
-  authenticationFailed() {
+  authenticationFailed(reason) {
     this.clearTimers();
     this.closeSocket();
     this.burstStartMs = 0;
-    this.setStatus({ state: "error", error: "authentication-unavailable", peers: [], hubProgram: "" });
+    const error = ["browser-identity-upgrade-required", "invalid-browser-identity"].includes(reason)
+      ? reason : "authentication-unavailable";
+    this.setStatus({ state: "error", error, peers: [], hubProgram: "" });
     this.scheduleSlowRetry();
   },
 
