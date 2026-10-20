@@ -96,3 +96,18 @@ acceptance remain separate and pending. No second driver or runtime is required.
 - `runner-rule-handler-errors.js`: real RuleCore handler exceptions reach the production per-rule error Log feed with debug OFF; stale replies stay excluded and failed state/save paths cannot replay actions.
 
 - `runner-timer-manual.js`: executes the published English timer example in real RuleCore; focus/blur/key cannot accidentally start or reset timers, while click controls retain correct pause elapsed time.
+- `runner-local-hub-browser-identity.js` exercises the actual connection object:
+  exact native attestation forwarding, bounded v4 compatibility, upgrade refusal,
+  invalid proof failure and discarding proofs from a replaced socket.
+
+
+- `runner-browser-identity-budget.js` exercises canonical enabled state and separate
+  runtime pauses, durable snapshot/first-join ACKs, failed saves and worker/socket
+  replacement, bounded in-flight edit patches, current lock validation, and
+  explicit snooze/reset/lock refusal before persistence, and malformed or oversized
+  retained edit refusal without changing saved edit bytes. `runner-popup-writes.js`
+  also routes the actual popup snooze IPC through those worker gates and retains
+  confirmation timing and honest failure feedback.
+- `runner-browser-identity-unlink.js` exercises correlated native unlink admission,
+  saved membership and own-scope adoption, ordered snapshots and failed saves,
+  editor/tool deletion gates, in-flight edits, socket replacement and relinking.

@@ -341,6 +341,7 @@ if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
   echo "[run.sh] suite 'classifier-hub-relay' FAILED" >&2
   failed=1
 fi
+node tests/runner-local-hub-browser-identity.js || failed=1
 node_out=$(node tests/runner-local-hub-auth.js 2>&1) || failed=1
 echo "$node_out"
 if ! echo "$node_out" | grep -q "__CB_TEST_RESULT__: OK"; then
