@@ -110,7 +110,7 @@ for (const file of scripts) {
 const worker = nativeEditor ? null : require("./runner-first-link.js").boot("chrome", storage);
 const requests = [];
 chrome.runtime.sendMessage = async message => {
-  if (message?.type !== "editor-definition-edit") return {ok:true};
+  if (!["editor-definition-edit", "set-group-snooze", "reset-group-runtime"].includes(message?.type)) return {ok:true};
   requests.push(JSON.parse(JSON.stringify(message)));
   if (nativeEditor) {
     // Native transaction model: the canonical helper runs against fresh data,
@@ -351,6 +351,27 @@ async function runNativeEditorControls() {
   run(`state.groupSnoozes.a1 = { startsAtMs: Date.now(), untilMs: Date.now()+300000, cooldownUntilMs: Date.now()+300000 }; answerNotice(true)`);
   await snooze;
   check("a linked snooze arriving during the notice is not replaced", !storage.get("groupSnoozes")?.a1 && run("state.groupSnoozes.a1.untilMs") === context.testNow + 300_000);
+
+  // The real popup request reaches the worker's pause gate even if a status
+  // push has not reached the editor yet. Failed IPC restores the saved UI map.
+  context.__english=JSON.parse(fs.readFileSync(path.join(root,"translation/en.json"),"utf8"));
+  run('state.translationMessages.en=__english;state.language="en"');
+  const pausedCluster={id:"identity-paused",members:[{program:"chrome",groupId:"a1",contributed:true},{program:"macapp",groupId:"native",contributed:true}],shared:{browserIdentityStatus:{state:"upgrade-required",generation:"paused",canonicalEnabled:true}}};
+  worker.__paused=pausedCluster;
+  vm.runInContext('cbConnection.clusters=[__paused];cbConnection.desktopRouteIsReady=()=>true;cbSaveClusterCopy([__paused])',worker);
+  run('state.groupSnoozes={};state.clusters=[];state.linkCopy=[]');storage.delete("groupSnoozes");
+  context.__entry={startsAtMs:context.testNow,untilMs:context.testNow+300000,cooldownUntilMs:context.testNow+300000};
+  let refused=false;
+  try { await run('persistSnooze("a1",__entry,"Incorrect success")'); } catch(error) { refused=/Update the browser Vault extension/.test(error.message); }
+  check("popup snooze uses actual gate-aware IPC and exposes the worker refusal",refused && requests.at(-1)?.type==="set-group-snooze");
+  check("refused popup snooze changes neither saved entry nor optimistic UI",!storage.get("groupSnoozes")?.a1 && !run('state.groupSnoozes.a1') && elements.get("statusMessage").textContent!=="Incorrect success");
+  context.__paused=pausedCluster;
+  run('state.clusters=[__paused];state.linkCopy=[__paused]');
+  check("selected affected budget refuses edits with an update explanation",run('refuseWhileDesktopVaultAway(state.groups[0])') && elements.get("statusMessage").textContent.includes("settings and usage are preserved"));
+  vm.runInContext('cbConnection.clusters=[];cbSaveClusterCopy([])',worker);
+  run('state.clusters=[];state.linkCopy=[]');
+  await run('persistSnooze("a1",__entry,"Snooze saved")');
+  check("ordinary unlinked snooze still commits through the same request",storage.get("groupSnoozes")?.a1?.untilMs===context.__entry.untilMs && elements.get("statusMessage").textContent==="Snooze saved");
 
   console.log(`POPUP WRITES TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
   console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");
