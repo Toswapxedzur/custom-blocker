@@ -4412,7 +4412,10 @@ const cbConnection = {
           v: CB_CONNECTION_PROTOCOL_VERSION,
           program,
           challenge,
-          proof: credentials.proof
+          proof: credentials.proof,
+          // A client declaration on this authenticated connection, independent
+          // of the native browser identity attestation and its HMAC context.
+          originalUsageVersion: 1
         };
         if (credentials.browserIdentity) {
           hello.browserIdentityVersion = 1;
