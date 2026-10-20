@@ -356,7 +356,7 @@ async function runNativeEditorControls() {
   // push has not reached the editor yet. Failed IPC restores the saved UI map.
   context.__english=JSON.parse(fs.readFileSync(path.join(root,"translation/en.json"),"utf8"));
   run('state.translationMessages.en=__english;state.language="en"');
-  const pausedCluster={id:"identity-paused",members:[{program:"chrome",groupId:"a1",contributed:true},{program:"macapp",groupId:"native",contributed:true}],shared:{browserIdentityStatus:{state:"upgrade-required",generation:"paused",canonicalEnabled:true}}};
+  const pausedCluster={id:"identity-paused",members:[{program:"chrome",groupId:"a1",contributed:true},{program:"macapp",groupId:"native",contributed:true}],shared:{browserIdentityStatus:{state:"upgrade-required",generation:"paused",canonicalEnabled:true,affectsBrowserBudget:true}}};
   worker.__paused=pausedCluster;
   vm.runInContext('cbConnection.clusters=[__paused];cbConnection.desktopRouteIsReady=()=>true;cbSaveClusterCopy([__paused])',worker);
   run('state.groupSnoozes={};state.clusters=[];state.linkCopy=[]');storage.delete("groupSnoozes");
