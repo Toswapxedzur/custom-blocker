@@ -108,3 +108,6 @@ acceptance remain separate and pending. No second driver or runtime is required.
   retained edit refusal without changing saved edit bytes. `runner-popup-writes.js`
   also routes the actual popup snooze IPC through those worker gates and retains
   confirmation timing and honest failure feedback.
+- `runner-browser-identity-unlink.js` exercises correlated native unlink admission,
+  saved membership and own-scope adoption, ordered snapshots and failed saves,
+  editor/tool deletion gates, in-flight edits, socket replacement and relinking.

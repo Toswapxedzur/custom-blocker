@@ -1282,5 +1282,6 @@
   "safari.app.quit": "Quit Safari Vault",
   "link.browserUpgradeRequired": "Update the browser Vault extension to resume this budget. Its settings and usage are preserved.",
   "link.browserIdentitySyncPending": "This linked budget is still syncing. Try again when syncing finishes.",
-  "link.browserIdentityPendingEditsInvalid": "Saved pending edits could not be read. The saved settings and usage have been preserved."
+  "link.browserIdentityPendingEditsInvalid": "Saved pending edits could not be read. The saved settings and usage have been preserved.",
+  "link.browserConnectRequired": "Connect the browser Vault extension before unlinking this budget. Saved settings and usage are preserved."
 }

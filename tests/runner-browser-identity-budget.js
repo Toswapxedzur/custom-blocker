@@ -9,7 +9,7 @@ const ack = env => env.ctx.__sent.filter(f => f.browserIdentitySnapshotApplied &
 const definitions = env => env.ctx.__sent.filter(f => f.scalars);
 function snapshot({ ready = false, generation = "opaque-1", contributed = true, enabled = true, rolling = false } = {}) {
   const c = cluster("chrome", contributed, rolling);
-  c.shared.browserIdentityStatus = { state: ready ? "ready" : "upgrade-required", generation, canonicalEnabled: enabled };
+  c.shared.browserIdentityStatus = { state: ready ? "ready" : "upgrade-required", generation, canonicalEnabled: enabled, affectsBrowserBudget: true };
   c.shared.scalars.enabled = ready && enabled;
   c.shared.scopes.push({ id: "site-1", surface: "site", action: "block", sites: ["example.com"], sitesExcept: false });
   return c;
