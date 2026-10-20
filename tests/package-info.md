@@ -111,3 +111,6 @@ acceptance remain separate and pending. No second driver or runtime is required.
 - `runner-browser-identity-unlink.js` exercises correlated native unlink admission,
   saved membership and own-scope adoption, ordered snapshots and failed saves,
   editor/tool deletion gates, in-flight edits, socket replacement and relinking.
+- `runner-original-usage-bootstrap.js` verifies ordinary fixed and rolling
+  original history retention before adoption, failed/held saves, socket replacement,
+  full-generation ACKs and exactly-once completed seed behavior.
