@@ -42,13 +42,20 @@ function connection(credentials, legacy = true, program = "chrome") {
   await new Promise(resolve => setImmediate(resolve));
   assert("hello retains v4 base proof and forwards exact native Brave attestation",
     fresh.sent.length === 1 && fresh.sent[0].v === 4 && fresh.sent[0].proof === "p".repeat(43)
+    && fresh.sent[0].originalUsageVersion === 1 && typeof fresh.sent[0].originalUsageVersion === "number"
     && fresh.sent[0].browserIdentityVersion === 1
     && JSON.stringify(fresh.sent[0].browserIdentity) === JSON.stringify(identity));
   const old = connection({ proof: "p".repeat(43), browserIdentity: null });
   old.client.answerChallenge("c".repeat(43));
   await new Promise(resolve => setImmediate(resolve));
-  assert("legacy v4 hello omits both identity fields", old.sent.length === 1
+  assert("ordinary v4 hello declares original-usage capability independently of identity", old.sent.length === 1
+    && old.sent[0].originalUsageVersion === 1 && typeof old.sent[0].originalUsageVersion === "number"
     && !Object.hasOwn(old.sent[0], "browserIdentity") && !Object.hasOwn(old.sent[0], "browserIdentityVersion"));
+  const edge = connection({ proof: "e".repeat(43), browserIdentity: null }, true, "edge");
+  edge.client.answerChallenge("c".repeat(43));
+  await new Promise(resolve => setImmediate(resolve));
+  assert("Edge declares the independent original-usage capability without changing base proof", edge.sent.length === 1
+    && edge.sent[0].program === "edge" && edge.sent[0].originalUsageVersion === 1 && edge.sent[0].proof === "e".repeat(43));
   old.client.handleMessage({ kind: "welcome", v: 4, hubProgram: "macapp" });
   assert("bounded legacy hub remains usable", old.client.status.state === "connected" && old.closed === 0);
   const retired = connection({ proof: "p".repeat(43), browserIdentity: identity }, false);
@@ -77,7 +84,7 @@ function connection(credentials, legacy = true, program = "chrome") {
     safari.client.answerChallenge("c".repeat(43));
     await new Promise(resolve => setImmediate(resolve));
     assert(`future Safari ${name} through actual authentication and hello transport`, succeeds
-      ? safari.sent.length === 1 && safari.sent[0].program === "safari" && safari.sent[0].proof === response.proof
+      ? safari.sent.length === 1 && safari.sent[0].program === "safari" && safari.sent[0].proof === response.proof && safari.sent[0].originalUsageVersion === 1
         && !Object.hasOwn(safari.sent[0], "browserIdentity") && !Object.hasOwn(safari.sent[0], "browserIdentityVersion")
       : safari.sent.length === 0 && safari.closed === 1);
     if (succeeds) {
