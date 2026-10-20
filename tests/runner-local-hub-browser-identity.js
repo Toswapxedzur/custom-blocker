@@ -12,12 +12,12 @@ function assert(name, passed) {
   console[passed ? "log" : "error"](`${passed ? "PASS" : "FAIL"} ${name}`);
   if (!passed) failures++;
 }
-function connection(credentials, legacy = true) {
+function connection(credentials, legacy = true, program = "chrome") {
   const sent = [];
   const socket = { readyState: 1, send(value) { sent.push(JSON.parse(value)); } };
   const context = vm.createContext({
     CB_FIXED_ADDRESS: "ws://127.0.0.1:18787", CB_CONNECTION_PROTOCOL_VERSION: 4, CB_CONNECTION_PING_MS: 10000,
-    WebSocket: { OPEN: 1 }, cbDetectProgramId: () => "chrome", cbJoinsSent: new Set(),
+    WebSocket: { OPEN: 1 }, cbDetectProgramId: () => program, cbJoinsSent: new Set(),
     CBLocalHubAuthentication: { proofForChallenge: async () => credentials,
       legacyAuthenticationAllowed: () => legacy },
     CBBridgeProtocol: { isHubProgram: p => p === "macapp" },
@@ -64,6 +64,23 @@ function connection(credentials, legacy = true) {
   await new Promise(resolve => setImmediate(resolve));
   assert("invalid attestation closes without sending hello or downgrading", invalid.sent.length === 0
     && invalid.closed === 1 && invalid.client.status.error === "invalid-browser-identity");
+  for (const [name, response, succeeds] of [
+    ["ordinary", { ok: true, proof: "s".repeat(43), environment: "development" }, true],
+    ["missing base proof", { ok: true, environment: "development" }, false],
+    ["malformed base proof", { ok: true, proof: "!".repeat(43), environment: "development" }, false],
+    ["partial identity", { ok: true, proof: "s".repeat(43), environment: "development", browserIdentityVersion: 1 }, false]
+  ]) {
+    const safari = connection(null, false, "safari");
+    safari.context.chrome = { runtime: { getManifest: () => ({ version: "5.0.0" }), lastError: null, sendNativeMessage: () => Promise.resolve(response) } };
+    safari.context.CBLocalHubEnvironment = { current: { name: "development", nativeHost: "test.fixture" } };
+    vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "local-hub-auth.js"), "utf8"), safari.context);
+    safari.client.answerChallenge("c".repeat(43));
+    await new Promise(resolve => setImmediate(resolve));
+    assert(`future Safari ${name} through actual authentication and hello transport`, succeeds
+      ? safari.sent.length === 1 && safari.sent[0].program === "safari" && safari.sent[0].proof === response.proof
+        && !Object.hasOwn(safari.sent[0], "browserIdentity") && !Object.hasOwn(safari.sent[0], "browserIdentityVersion")
+      : safari.sent.length === 0 && safari.closed === 1);
+  }
   let release;
   const stale = connection(null);
   stale.context.CBLocalHubAuthentication.proofForChallenge = () => new Promise(resolve => { release = resolve; });

@@ -2,8 +2,8 @@
 (function (root) {
   "use strict";
 
-  // Chrome and Safari are currently app major 3. Legacy native authentication
-  // remains supported through major 4 and is retired at major 5.
+  // Chromium legacy identity authentication remains supported through app
+  // major 4 and is retired at major 5. Safari uses its ordinary association.
   const LEGACY_RETIRE_APP_MAJOR = 5;
   const has = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
   const proofShape = (value) => typeof value === "string" && value.length === 43 && /^[A-Za-z0-9_-]{43}$/.test(value);
@@ -27,7 +27,9 @@
     const capability = has(response, "browserIdentityVersion");
     const identity = has(response, "browserIdentity");
     if (!capability && !identity) {
-      if (!legacyAuthenticationAllowed()) {
+      // Safari's ordinary program association needs the base proof, not an
+      // additional browser descriptor. Provided metadata is still strict below.
+      if (program !== "safari" && !legacyAuthenticationAllowed()) {
         throw authenticationError("Update Vault and its native helper to verify the browser application.", "browser-identity-upgrade-required");
       }
       return null;

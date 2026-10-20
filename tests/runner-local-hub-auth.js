@@ -90,6 +90,19 @@ function assert(name, ok, detail) {
   nativeResponse = { ok: true, proof: "s".repeat(43), environment: "development" };
   const safariProof = await context.CBLocalHubAuthentication.proofForChallenge("safari", "s".repeat(43));
   assert("Safari uses native challenge proof", safariProof.proof === "s".repeat(43) && calls.at(-1)?.message?.program === "safari");
+  manifestVersion = "5.0.0";
+  try {
+    const futureSafari = await context.CBLocalHubAuthentication.proofForChallenge("safari", "s".repeat(43));
+    assert("Safari ordinary association survives extra identity retirement", futureSafari.proof === "s".repeat(43) && futureSafari.browserIdentity === null);
+  } catch (_) { assert("Safari ordinary association survives extra identity retirement", false); }
+  const ordinarySafari = { ok: true, proof: "s".repeat(43), environment: "development" };
+  await refuses("future Safari still requires the base proof", { ...ordinarySafari, proof: undefined }, "5.0.0", "safari");
+  await refuses("future Safari rejects malformed base proof", { ...ordinarySafari, proof: "!".repeat(43) }, "5.0.0", "safari");
+  await refuses("future Safari rejects capability without identity", { ...ordinarySafari, browserIdentityVersion: 1 }, "5.0.0", "safari");
+  await refuses("future Safari rejects identity without capability", { ...ordinarySafari, browserIdentity: signed().browserIdentity }, "5.0.0", "safari");
+  await refuses("future Safari rejects malformed provided identity", { ...signed({ v: true }), environment: "development" }, "5.0.0", "safari");
+  await refuses("future Safari refuses native environment mismatch", { ...ordinarySafari, environment: "production" }, "5.0.0", "safari");
+  manifestVersion = "3.1.5";
   nativeResponse = { ok: true, proof: "s".repeat(43), environment: "production" };
   try {
     await context.CBLocalHubAuthentication.proofForChallenge("safari", "s".repeat(43));
