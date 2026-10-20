@@ -382,8 +382,8 @@
   "status.errorImportGroup": "无法从剪贴板导入分组。",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\n频道/UC...",
   "logFeed.title": "活动日志",
-  "logFeed.hint": "在自定义规则中调用 v.log() 的输出。",
-  "logFeed.empty": "暂无活动。触发一个事件（例如，按“开始稍后提醒”、切换标签页或单击“运行”）即可查看记录。",
+  "logFeed.hint": "此规则的 v.log() 输出及执行或事件送达错误。",
+  "logFeed.empty": "此规则尚无日志条目。",
   "logFeed.clear": "清空日志",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault 分类器",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "词条 · {count} 条 · {version}",
   "classifier.dictionary.creatorSummary": "创作者 · {summary} · {version}",
   "classifier.dictionary.configure": "配置词典",
-  "safari.app.quit": "退出 Safari Vault"
+  "safari.app.quit": "退出 Safari Vault",
+  "link.browserUpgradeRequired": "请更新浏览器 Vault 扩展以恢复此预算。其设置和使用量已保留。",
+  "link.browserIdentitySyncPending": "此关联预算仍在同步。请在同步完成后重试。",
+  "link.browserIdentityPendingEditsInvalid": "无法读取已保存的待处理编辑。已保存的设置和使用量已保留。",
+  "link.browserConnectRequired": "解除此预算的关联前，请连接浏览器 Vault 扩展。已保存的设置和使用量会保留。"
 }

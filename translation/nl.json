@@ -382,8 +382,8 @@
   "status.errorImportGroup": "Kan een blokgroep niet importeren van het klembord.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nkanaal/UC...",
   "logFeed.title": "Activiteitenlogboek",
-  "logFeed.hint": "Uitvoer van v.log() in de aangepaste regel van deze groep.",
-  "logFeed.empty": "Deze regel heeft nog geen uitvoer. Roep v.log(\"hello\") aan in een handler om een vermelding toe te voegen.",
+  "logFeed.hint": "De v.log()-uitvoer en uitvoerings- of leveringsfouten van deze regel.",
+  "logFeed.empty": "Deze regel heeft nog geen logentries.",
   "logFeed.clear": "Logboek wissen",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault Classificatie",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Termen · {count} vermeldingen · {version}",
   "classifier.dictionary.creatorSummary": "Creators · {summary} · {version}",
   "classifier.dictionary.configure": "Woordenboeken configureren",
-  "safari.app.quit": "Stop Safari Vault"
+  "safari.app.quit": "Stop Safari Vault",
+  "link.browserUpgradeRequired": "Werk de Vault-browserextensie bij om dit budget te hervatten. De instellingen en het gebruik blijven behouden.",
+  "link.browserIdentitySyncPending": "Dit gekoppelde budget wordt nog gesynchroniseerd. Probeer het opnieuw zodra de synchronisatie is voltooid.",
+  "link.browserIdentityPendingEditsInvalid": "Opgeslagen openstaande wijzigingen konden niet worden gelezen. De opgeslagen instellingen en het gebruik zijn behouden.",
+  "link.browserConnectRequired": "Verbind de Vault-browserextensie voordat je dit budget ontkoppelt. Opgeslagen instellingen en gebruik blijven behouden."
 }

@@ -382,8 +382,8 @@
   "status.errorImportGroup": "Panodan bir blok grubu içe aktarılamadı.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nkanal/UC...",
   "logFeed.title": "Etkinlik günlüğü",
-  "logFeed.hint": "Bu grubun özel kuralındaki v.log() çıktısı.",
-  "logFeed.empty": "Henüz etkinlik yok. Kayıtları görmek için bir olay başlatın (ör. Ertelemeyi başlat’a basın, sekmeleri değiştirin veya Çalıştır’a tıklayın).",
+  "logFeed.hint": "Bu kuralın v.log() çıktısı ile yürütme veya iletim hataları.",
+  "logFeed.empty": "Bu kuralın henüz günlük girdisi yok.",
   "logFeed.clear": "Günlüğü temizle",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault Sınıflandırıcı",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Terimler · {count} kayıt · {version}",
   "classifier.dictionary.creatorSummary": "İçerik üreticileri · {summary} · {version}",
   "classifier.dictionary.configure": "Sözlükleri yapılandır",
-  "safari.app.quit": "Safari Vault’tan Çık"
+  "safari.app.quit": "Safari Vault’tan Çık",
+  "link.browserUpgradeRequired": "Bu bütçeyi sürdürmek için Vault tarayıcı uzantısını güncelleyin. Ayarları ve kullanımı korunur.",
+  "link.browserIdentitySyncPending": "Bu bağlı bütçe hâlâ eşitleniyor. Eşitleme tamamlandığında yeniden deneyin.",
+  "link.browserIdentityPendingEditsInvalid": "Kaydedilmiş bekleyen düzenlemeler okunamadı. Kayıtlı ayarlar ve kullanım korundu.",
+  "link.browserConnectRequired": "Bu bütçenin bağını kaldırmadan önce Vault tarayıcı uzantısını bağlayın. Kayıtlı ayarlar ve kullanım korunur."
 }

@@ -4,7 +4,7 @@
 
 ## Contrato da regra
 
-Source: uma expressão de função `(on, v) => { ... }`. Apenas JavaScript síncrono e a API abaixo são compatíveis; não há timers, network, extension APIs nem acesso direto ao DOM. Regras baseadas em tempo usam `ev.now` e events.
+Source: uma expressão de função `(on, v) => { ... }`. Apenas JavaScript síncrono e a API abaixo são compatíveis; não há callbacks de agendamento JavaScript, acesso à rede, APIs de extensão nem acesso direto ao DOM. Regras baseadas em tempo usam os temporizadores/rastreadores gerenciados abaixo, ou `ev.now` e eventos.
 
 - A edição salva um rascunho; **Run** ativa a regra e habilita o grupo. Grupos congelados não podem executar Run. Source vazio descarrega a regra.
 - Um Run bem-sucedido substitui handlers e panels, preservando `v.state`. Se a compilação/inscrição falhar, a regra anterior é mantida; um timeout pode interrompê-la. Ao recarregar o engine, a última source ativada é registrada novamente; closure variables são redefinidas.
@@ -16,12 +16,45 @@ Source: uma expressão de função `(on, v) => { ... }`. Apenas JavaScript sínc
 
 - `on(type, handler)` → boolean. Registra `handler(ev)`; vários handlers executam na ordem de inscrição. False significa argumentos inválidos ou limite de handlers atingido. `ev = { type: string, now: number, data }`; `now` é Unix em milissegundos.
 - `v.state`: objeto JSON mutável, salvo depois do event dispatch. Inicialize fields ausentes em vez de sobrescrever o state atual. Atribuir non-object ou array redefine para `{}`; atualizações não serializáveis/grandes demais não são salvas.
-- `v.log(...values)`: escreve no Log deste grupo. Os erros relatados das ações de página também aparecem aqui; essas ações não são repetidas. Logs/Clear são independentes por grupo. Erros de carregamento aparecem no status Run; os demais diagnósticos de handlers não preenchem Log.
+- `v.log(...values)`: escreve no Log deste grupo. Erros de handlers e erros relatados de ações de página também aparecem aqui; o relato não repete as ações. Logs/Clear são independentes por grupo. Erros de carregamento aparecem no status Run.
 - `v.emit(type, data)`: coloca uma cópia JSON de `data` na fila dos handlers deste grupo após o event atual, com um novo `now`; não é uma chamada síncrona.
 - `v.panel(id, spec, tabId?)`: substitui o panel nomeado do grupo; omita `tabId` para todas as páginas acessíveis ou use um tab ID inteiro. `spec` null remove o panel. Consulte Panels.
 - `v.file(op, path, payload?)` → string request ID. Consulte Files.
 
-Outras chamadas compartilhadas retornam `undefined`. IDs/state pertencem a um grupo, não ao nome exibido.
+Outras chamadas compartilhadas retornam `undefined`, exceto as funções de criação de objetos de tempo gerenciados com nome descritas abaixo. IDs/state pertencem a um grupo, não ao nome exibido.
+
+## Temporizadores gerenciados e uso em janela móvel
+
+`v.timer(id, {direction:"down", durationMs:300000})` cria ou retorna uma contagem regressiva com nome, inicialmente pausada. Use `{direction:"up"}` para um temporizador de contagem crescente. O objeto oferece `start()`, `pause()`, `resume()`, `reset()` e `snapshot()`. Iniciar/retomar são idempotentes; redefinir deixa o temporizador pausado com zero tempo decorrido. Os campos do snapshot incluem `ready`, `error`, `elapsedMs`, `remainingMs` (null para contagem crescente), `running` e `completed`.
+
+Os temporizadores em execução avançam de acordo com o tempo real decorrido enquanto o app/navegador está fechado ou a regra está desabilitada. Uma contagem regressiva concluída entrega `timerEnded` com `{id, direction, durationMs, generation, incarnation}` uma vez por encarnação e geração do temporizador para cada membro quando sua regra volta a executar; Run não repete o evento. A entrega depende dos eventos do host; não é um alarme em tempo real. Coloque `{type:"timer", timerId:"focus", label:"Focus"}` em um painel para exibi-lo pelo controle de texto existente.
+
+`v.rolling(id, {windowMs:3600000, limitMs:600000})` cria ou retorna um rastreador com nome de uso ativo. `assign({websites:["youtube.com","reddit.com"], apps:[]})` substitui as atribuições de alvos deste membro. Regras nativas podem atribuir identificadores de apps da plataforma em vez disso. Os domínios incluem subdomínios. Um rastreador reúne seus alvos; outros identificadores têm cotas independentes. `snapshot()` retorna `ready`, `error`, `usedMs`, `remainingMs`, `available` e `nextReturnAtMs` (o próximo milissegundo em que algum uso registrado expira). `available(target?)` também verifica a atribuição quando um alvo é fornecido. `reset()` limpa o histórico deste objeto.
+
+Todo uso elegível observado conta, inclusive o que ultrapassa a cota; o rastreador em si não bloqueia páginas/apps. Intervalos sobrepostos de páginas visíveis contam uma vez, e apps nativos contam o uso observado em primeiro plano. Regras desabilitadas não adicionam uso; o histórico continua expirando nos limites exatos dos intervalos. A disponibilidade só retorna quando o histórico restante fica abaixo do limite. As amostras periódicas são limitadas a cinco segundos; lacunas por encerramento ou desabilitação não geram atividade. Eventos emitidos pelo usuário não adicionam uso.
+
+Os mesmos identificadores de objeto em grupos personalizados vinculados compartilham uma única autoridade local no hub nativo. A vinculação combina o histórico e as atribuições dos rastreadores e mantém o estado do temporizador que iniciou a vinculação; configurações incompatíveis impedem a vinculação. Cada membro recebe seu próprio evento de conclusão. A desconexão deixa os rastreadores compartilhados indisponíveis e rejeita os comandos dos temporizadores até que uma autoridade atualizada volte a estar disponível. Ao desvincular, cada membro mantém o uso compartilhado final e o estado do temporizador, restaura seus próprios alvos e descarta os comandos do vínculo antigo. O hub mantém o snapshot final até que o membro que retorna o salve e confirme o recebimento; as transferências pendentes terminam antes que um novo vínculo fique disponível.
+
+Os objetos com nome sobrevivem a Run e à reinicialização no campo reservado `v.state.$vaultTime`; não edite esse campo diretamente. Remova-os explicitamente com `v.removeTime(id)`. Os identificadores contêm de 1 a 80 letras ASCII, dígitos, `_` ou `-`; nomes de propriedades reservados são rejeitados. Até 32 objetos compartilham o limite de estado da regra de 64 KiB em UTF-8. As durações são milissegundos inteiros de até 365 dias. O histórico móvel é limitado a 1024 blocos de um minuto e 2048 intervalos mesclados. Erros de capacidade do histórico deixam o rastreador indisponível até uma redefinição explícita; configurações inválidas e salvamentos grandes demais relatam erros sem apagar os dados salvos.
+
+```js
+(on, v) => {
+  const timer = v.timer("focus", {durationMs: 300000});
+  v.panel("focus", {controls: [
+    {type: "timer", timerId: "focus", label: "Focus"},
+    {id: "start", type: "button", label: "Start"},
+    {id: "pause", type: "button", label: "Pause"},
+    {id: "reset", type: "button", label: "Reset"}
+  ]});
+  on("panel", ev => {
+    if (ev.data.eventName !== "click") return;
+    if (ev.data.controlId === "start") timer.start();
+    if (ev.data.controlId === "pause") timer.pause();
+    if (ev.data.controlId === "reset") timer.reset();
+  });
+  on("timerEnded", ev => v.log("Finished", ev.data.id));
+}
+```
 
 ## Browser events
 
@@ -123,7 +156,7 @@ result fields não usados são null; sucesso tem error vazio. Falhas incluem inv
 
 ## Limites
 
-Por event por group: 256 queued actions, 200 log calls, 64 emits; excesso é descartado. Por rule: 1000 handlers, 24 panels; cada control list tem 32 entries e cada choice 64 options; excesso é ignorado/truncado. Emit chains param após 16 gerações. Serialized state limit: 65536 JavaScript string characters. Mantenha registration e handlers combinados de cada event abaixo de 1 segundo; excessos repetidos ou hard timeout param a regra até Run. Log mantém 200 entries, aceita 50/sec por grupo e trunca mensagens longas perto de 4096 caracteres. Timers/replies são best-effort, sem garantias real-time.
+Por evento e grupo: 256 ações em fila, 200 chamadas de log, 64 emissões; o excesso é descartado. Por regra: 1000 handlers, 24 painéis; cada lista de controles tem 32 entradas e cada seleção 64 opções; o excesso é ignorado/truncado. As cadeias de emissões param após 16 gerações. Limite do estado serializado: 65536 bytes UTF-8. Mantenha o registro da regra e os handlers combinados de cada evento abaixo de 1 segundo; excessos repetidos ou um timeout rígido param o grupo até Run. O Log mantém 200 entradas, aceita 50 chamadas por segundo por grupo e trunca mensagens longas em torno de 4096 caracteres. Temporizadores/respostas funcionam conforme o melhor esforço, sem garantias de tempo real.
 
 ## Regra completa
 

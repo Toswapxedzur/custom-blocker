@@ -382,8 +382,8 @@
   "status.errorImportGroup": "Tidak dapat mengimpor grup blok dari clipboard.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nsaluran/UC...",
   "logFeed.title": "Log aktivitas",
-  "logFeed.hint": "Keluaran v.log() dalam aturan khusus grup ini.",
-  "logFeed.empty": "Belum ada aktivitas. Jalankan aturan, pindah tab, atau klik elemen untuk melihat log.",
+  "logFeed.hint": "Output v.log() aturan ini serta kesalahan eksekusi atau pengiriman.",
+  "logFeed.empty": "Belum ada entri log dari aturan ini.",
   "logFeed.clear": "Hapus log",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault Pengklasifikasi",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Istilah · {count} entri · {version}",
   "classifier.dictionary.creatorSummary": "Kreator · {summary} · {version}",
   "classifier.dictionary.configure": "Konfigurasikan kamus",
-  "safari.app.quit": "Keluar dari Safari Vault"
+  "safari.app.quit": "Keluar dari Safari Vault",
+  "link.browserUpgradeRequired": "Perbarui ekstensi browser Vault untuk melanjutkan anggaran ini. Pengaturan dan penggunaannya tetap tersimpan.",
+  "link.browserIdentitySyncPending": "Anggaran tertaut ini masih disinkronkan. Coba lagi setelah sinkronisasi selesai.",
+  "link.browserIdentityPendingEditsInvalid": "Suntingan tertunda yang tersimpan tidak dapat dibaca. Pengaturan dan penggunaan tersimpan tetap dipertahankan.",
+  "link.browserConnectRequired": "Hubungkan ekstensi browser Vault sebelum memutus tautan anggaran ini. Pengaturan dan penggunaan tersimpan tetap dipertahankan."
 }

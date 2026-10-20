@@ -382,8 +382,8 @@
   "status.errorImportGroup": "ไม่สามารถนำเข้ากลุ่มบล็อกจากคลิปบอร์ดได้",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nช่อง/UC...",
   "logFeed.title": "บันทึกกิจกรรม",
-  "logFeed.hint": "ผลลัพธ์จาก v.log() ในกฎที่กำหนดเองของกลุ่มนี้",
-  "logFeed.empty": "ยังไม่มีกิจกรรม เริ่มเหตุการณ์ (เช่น กดเริ่มพัก เปลี่ยนแท็บ หรือคลิกเรียกใช้) เพื่อดูบันทึก",
+  "logFeed.hint": "ผลลัพธ์ v.log() ของ rule นี้ และข้อผิดพลาดในการทำงานหรือการส่งผล",
+  "logFeed.empty": "ยังไม่มีรายการ log จาก rule นี้",
   "logFeed.clear": "ล้างบันทึก",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault ตัวจัดประเภท",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "คำศัพท์ · {count} รายการ · {version}",
   "classifier.dictionary.creatorSummary": "ครีเอเตอร์ · {summary} · {version}",
   "classifier.dictionary.configure": "กำหนดค่าพจนานุกรม",
-  "safari.app.quit": "ออกจาก Safari Vault"
+  "safari.app.quit": "ออกจาก Safari Vault",
+  "link.browserUpgradeRequired": "อัปเดต browser Vault extension เพื่อให้งบประมาณนี้ทำงานต่อ การตั้งค่าและการใช้งานยังคงเก็บไว้",
+  "link.browserIdentitySyncPending": "งบประมาณที่เชื่อมโยงนี้ยังซิงค์อยู่ ลองอีกครั้งเมื่อซิงค์เสร็จ",
+  "link.browserIdentityPendingEditsInvalid": "อ่านการแก้ไขที่รอดำเนินการซึ่งบันทึกไว้ไม่ได้ การตั้งค่าและการใช้งานที่บันทึกไว้ยังคงเก็บรักษาไว้",
+  "link.browserConnectRequired": "เชื่อมต่อ browser Vault extension ก่อนยกเลิกการเชื่อมโยงงบประมาณนี้ การตั้งค่าและการใช้งานที่บันทึกไว้ยังคงเก็บรักษาไว้"
 }
