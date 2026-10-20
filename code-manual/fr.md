@@ -4,7 +4,7 @@
 
 ## Contrat des règles
 
-Source : une expression de fonction `(on, v) => { ... }`. Seuls JavaScript synchrone et l’API ci-dessous sont pris en charge ; aucun minuteur, réseau, API d’extension ou accès direct au DOM. Les règles temporelles utilisent `ev.now` et des événements.
+Source : une expression de fonction `(on, v) => { ... }`. Seuls JavaScript synchrone et l’API ci-dessous sont pris en charge ; aucun rappel de planification JavaScript, réseau, API d’extension ou accès direct au DOM. Les règles temporelles utilisent les minuteurs/suivis gérés ci-dessous, ou `ev.now` et des événements.
 
 - La modification enregistre un brouillon ; **Exécuter** l’active et active le groupe. Les groupes verrouillés ne peuvent pas Exécuter. Une source vide décharge la règle.
 - Une exécution réussie remplace les gestionnaires et les panneaux tout en conservant `v.state`. Un échec de compilation/enregistrement conserve la règle précédente ; un dépassement de délai peut l’arrêter. Recharger le moteur enregistre à nouveau la dernière source activée ; les variables de fermeture sont réinitialisées.
@@ -16,12 +16,45 @@ Source : une expression de fonction `(on, v) => { ... }`. Seuls JavaScript synch
 
 - `on(type, handler)` → booléen. Enregistre `handler(ev)` ; plusieurs gestionnaires s’exécutent dans l’ordre d’enregistrement. False signifie des arguments invalides ou une limite de gestionnaires atteinte. `ev = { type: string, now: number, data }` ; `now` est en millisecondes Unix.
 - `v.state` : objet JSON modifiable, persisté après la distribution de l’événement. Initialisez les champs absents au lieu d’écraser l’état existant. Affecter une valeur non objet ou un tableau le réinitialise à `{}` ; les mises à jour non sérialisables/trop grandes ne sont pas persistées.
-- `v.log(...values)` : écrit dans le Journal de ce groupe. Les erreurs signalées des actions de page apparaissent aussi ici ; ces actions ne sont pas rejouées. Les journaux/Effacer sont indépendants par groupe. Les erreurs de chargement apparaissent dans l’état d’exécution ; les autres diagnostics des gestionnaires ne remplissent pas le Journal.
+- `v.log(...values)` : écrit dans le Journal de ce groupe. Les erreurs des gestionnaires et les erreurs signalées des actions de page apparaissent aussi ici ; leur signalement ne rejoue pas les actions. Les journaux/Effacer sont indépendants par groupe. Les erreurs de chargement apparaissent dans l’état d’exécution.
 - `v.emit(type, data)` : met en file une copie JSON de `data` pour les gestionnaires de ce groupe après l’événement courant, avec un nouveau `now` ; ce n’est pas un appel synchrone.
 - `v.panel(id, spec, tabId?)` : remplace le panneau nommé de ce groupe ; omettez `tabId` pour toutes les pages web accessibles ou utilisez un identifiant d’onglet entier. Un `spec` null le retire. Voir Panneaux.
 - `v.file(op, path, payload?)` → chaîne d’identifiant de requête. Voir Fichiers.
 
-Les autres appels partagés renvoient `undefined`. Les identifiants/l’état appartiennent à un groupe, pas à son nom affiché.
+Les autres appels partagés renvoient `undefined`, à l’exception des fonctions de création d’objets temporels gérés nommés ci-dessous. Les identifiants/l’état appartiennent à un groupe, pas à son nom affiché.
+
+## Minuteurs gérés et utilisation sur fenêtre glissante
+
+`v.timer(id, {direction:"down", durationMs:300000})` crée ou renvoie un compte à rebours nommé, initialement en pause. Utilisez `{direction:"up"}` pour un chronomètre croissant. L’objet propose `start()`, `pause()`, `resume()`, `reset()` et `snapshot()`. Démarrer/reprendre sont idempotents ; réinitialiser remet le minuteur en pause avec un temps écoulé nul. Les champs de l’instantané comprennent `ready`, `error`, `elapsedMs`, `remainingMs` (null pour un chronomètre croissant), `running` et `completed`.
+
+Les minuteurs en cours avancent selon le temps réel écoulé lorsque l’application/le navigateur est fermé ou que la règle est désactivée. Un compte à rebours terminé transmet `timerEnded` avec `{id, direction, durationMs, generation, incarnation}` une fois par incarnation et génération du minuteur à chaque membre lorsque sa règle s’exécute à nouveau ; Exécuter ne le rejoue pas. La transmission dépend des événements de l’hôte ; ce n’est pas une alarme en temps réel. Ajoutez `{type:"timer", timerId:"focus", label:"Focus"}` à un panneau pour l’afficher avec le contrôle de texte existant.
+
+`v.rolling(id, {windowMs:3600000, limitMs:600000})` crée ou renvoie un suivi nommé de l’utilisation active. `assign({websites:["youtube.com","reddit.com"], apps:[]})` remplace les affectations de cibles de ce membre. Les règles natives peuvent affecter à la place des identifiants d’applications de la plateforme. Les domaines incluent les sous-domaines. Un suivi regroupe ses cibles ; les autres identifiants ont des quotas indépendants. `snapshot()` renvoie `ready`, `error`, `usedMs`, `remainingMs`, `available` et `nextReturnAtMs` (la prochaine milliseconde où une utilisation enregistrée expire). `available(target?)` vérifie aussi l’affectation lorsqu’une cible est fournie. `reset()` efface l’historique de cet objet.
+
+Toute utilisation admissible observée est comptabilisée, y compris au-delà du quota ; le suivi lui-même ne bloque aucune page/application. Les intervalles de pages visibles qui se chevauchent ne sont comptés qu’une fois, et les applications natives comptabilisent l’utilisation observée au premier plan. Les règles désactivées n’ajoutent aucune utilisation ; l’historique continue d’expirer aux limites exactes des intervalles. La disponibilité ne revient que lorsque l’historique restant est inférieur à la limite. Les échantillons périodiques sont limités à cinq secondes ; les interruptions dues à la fermeture ou à la désactivation ne créent pas d’activité. Les événements émis par l’utilisateur n’ajoutent aucune utilisation.
+
+Les mêmes identifiants d’objet dans des groupes personnalisés liés partagent une autorité locale dans le hub natif. La liaison combine l’historique et les affectations des suivis et conserve l’état du minuteur initiateur ; les configurations incompatibles empêchent la liaison. Chaque membre reçoit son propre événement de fin. La déconnexion rend les suivis partagés indisponibles et refuse les commandes de minuteur jusqu’au retour d’une autorité à jour. Lors de la dissociation, chaque membre conserve l’utilisation partagée finale et l’état du minuteur, restaure ses propres cibles et abandonne les commandes de l’ancienne liaison. Le hub conserve l’instantané final jusqu’à ce que le membre de retour l’enregistre et en accuse réception ; les transferts en attente se terminent avant qu’une nouvelle liaison soit disponible.
+
+Les objets nommés survivent à Exécuter et au redémarrage dans le champ réservé `v.state.$vaultTime` ; ne modifiez pas ce champ directement. Supprimez-les explicitement avec `v.removeTime(id)`. Les identifiants comportent de 1 à 80 lettres ASCII, chiffres, `_` ou `-` ; les noms de propriété réservés sont refusés. Jusqu’à 32 objets partagent la limite d’état de la règle de 64 Kio en UTF-8. Les durées sont des millisecondes entières jusqu’à 365 jours. L’historique glissant est limité à 1024 compartiments d’une minute et 2048 intervalles fusionnés. Les erreurs de capacité de l’historique laissent le suivi indisponible jusqu’à sa réinitialisation explicite ; les configurations invalides et les enregistrements trop volumineux signalent des erreurs sans effacer les données enregistrées.
+
+```js
+(on, v) => {
+  const timer = v.timer("focus", {durationMs: 300000});
+  v.panel("focus", {controls: [
+    {type: "timer", timerId: "focus", label: "Focus"},
+    {id: "start", type: "button", label: "Start"},
+    {id: "pause", type: "button", label: "Pause"},
+    {id: "reset", type: "button", label: "Reset"}
+  ]});
+  on("panel", ev => {
+    if (ev.data.eventName !== "click") return;
+    if (ev.data.controlId === "start") timer.start();
+    if (ev.data.controlId === "pause") timer.pause();
+    if (ev.data.controlId === "reset") timer.reset();
+  });
+  on("timerEnded", ev => v.log("Finished", ev.data.id));
+}
+```
 
 ## Événements du navigateur
 
@@ -123,7 +156,7 @@ Les champs de résultat inutilisés sont null ; en cas de succès, error est vid
 
 ## Limites
 
-Par événement et groupe : 256 actions en file, 200 appels de journal, 64 émissions ; le dépassement est ignoré. Par règle : 1000 gestionnaires, 24 panneaux ; chaque liste de commandes contient 32 entrées et chaque choix 64 options ; le dépassement est ignoré/tronqué. Les chaînes d’émission s’arrêtent après 16 générations. Limite d’état sérialisé : 65536 caractères de chaîne JavaScript. Gardez l’enregistrement et l’ensemble des gestionnaires de chaque événement sous 1 seconde ; les dépassements répétés ou un délai strict dépassé arrêtent le groupe jusqu’à Exécuter. Le journal conserve 200 entrées, accepte 50/seconde par groupe et tronque les messages longs vers 4096 caractères. Les minuteurs/réponses sont au mieux, sans garantie de temps réel.
+Par événement et groupe : 256 actions en file, 200 appels de journal, 64 émissions ; le surplus est abandonné. Par règle : 1000 gestionnaires, 24 panneaux ; chaque liste de commandes contient 32 entrées et chaque choix 64 options ; le surplus est ignoré/tronqué. Les chaînes d’émission s’arrêtent après 16 générations. Limite d’état sérialisé : 65536 octets UTF-8. Gardez l’enregistrement et l’ensemble des gestionnaires de chaque événement sous 1 seconde ; les dépassements répétés ou un délai strict dépassé arrêtent le groupe jusqu’à Exécuter. Le journal conserve 200 entrées, accepte 50/seconde par groupe et tronque les messages longs vers 4096 caractères. Les minuteurs/réponses sont fournis au mieux, sans garantie de temps réel.
 
 ## Règle complète
 

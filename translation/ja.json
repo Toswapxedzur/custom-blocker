@@ -382,8 +382,8 @@
   "status.errorImportGroup": "クリップボードからブロック グループをインポートできませんでした。",
   "platform.placeholder.youtube": "@クリエイターハンドル\nhttps://www.youtube.com/@anothercreator\nチャンネル/UC...",
   "logFeed.title": "アクティビティログ",
-  "logFeed.hint": "このグループのカスタムルールで呼び出したv.log()の出力です。",
-  "logFeed.empty": "このルールの出力はまだありません。ハンドラーで v.log(\"hello\") を呼び出すと項目を追加できます。",
+  "logFeed.hint": "このルールのv.log()出力と、実行または配信のエラー。",
+  "logFeed.empty": "このルールのログ項目はまだありません。",
   "logFeed.clear": "ログを消去",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault 分類器",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "用語 · {count} 件 · {version}",
   "classifier.dictionary.creatorSummary": "クリエイター · {summary} · {version}",
   "classifier.dictionary.configure": "辞書を設定",
-  "safari.app.quit": "Safari Vaultを終了"
+  "safari.app.quit": "Safari Vaultを終了",
+  "link.browserUpgradeRequired": "この予算を再開するには、ブラウザーのVault拡張機能を更新してください。設定と使用量は保持されています。",
+  "link.browserIdentitySyncPending": "このリンク済み予算はまだ同期中です。同期が完了してから再試行してください。",
+  "link.browserIdentityPendingEditsInvalid": "保存された保留中の編集を読み取れませんでした。保存済みの設定と使用量は保持されています。",
+  "link.browserConnectRequired": "この予算のリンクを解除する前に、ブラウザーのVault拡張機能を接続してください。保存済みの設定と使用量は保持されています。"
 }

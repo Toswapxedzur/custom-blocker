@@ -4,15 +4,48 @@
 
 ## ข้อกำหนดของกฎ
 
-Source ต้องเป็น function expression หนึ่งรายการ `(on, v) => { ... }` รองรับเฉพาะ JavaScript แบบ synchronous และ API ด้านล่างเท่านั้น ไม่มี timers, network, extension APIs หรือการเข้าถึง DOM โดยตรง กฎที่อิงเวลาจะใช้ `ev.now` และ events
+แหล่งที่มา: function expression หนึ่งรายการ `(on, v) => { ... }` รองรับเฉพาะ synchronous JavaScript และ API ด้านล่าง ไม่มี JavaScript scheduling callbacks, network, extension APIs หรือการเข้าถึง DOM โดยตรง กฎที่อิงเวลาใช้ timer/tracker ที่จัดการโดยระบบด้านล่าง หรือ `ev.now` และ events
 
 - การแก้ไขจะบันทึกเป็น draft; **Run** จะเปิดใช้และเปิดใช้กลุ่ม กลุ่มที่ตรึงไว้กด Run ไม่ได้ หาก source ว่าง กฎจะถูก unload\n- Run ที่สำเร็จจะแทนที่ handlers และ panels โดยเก็บ `v.state` ไว้ หาก compilation/registration ล้มเหลว จะคงกฎก่อนหน้าไว้ แต่ timeout อาจหยุดกฎได้ เมื่อ engine โหลดใหม่ จะ register source ที่เปิดใช้ล่าสุดอีกครั้ง ส่วน closure variables จะ reset\n- ระหว่าง registration อาจเริ่มต้น state, register handlers, แสดง panels และเขียน log ได้ การกระทำกับหน้า/ไฟล์และ emits ต้องอยู่ใน handlers; สิ่งที่ queue ไว้ระหว่าง registration จะถูกทิ้ง\n- Disable จะระงับ handlers และยกเลิก panels, sheets, covers และคำตัดสินต่อรายการที่จัดการไว้ Enable จะคืน panels/sheets ที่ยังเก็บไว้และขอรายการอีกครั้ง Run จะไม่ล้าง sheets, covers หรือคำตัดสินต่อรายการที่มีอยู่ Delete จะนำกฎ state และผลที่เกิดจากกฎออก การนำทาง การเปลี่ยน DOM และการเขียนไฟล์จะไม่ถูกย้อนกลับ\n- Events ไม่จำกัดตามเป้าหมายทั่วไปของกลุ่ม ให้กรอง URLs/items ในกฎ Actions จะถูก queue แล้วนำไปใช้หลัง dispatch หากเกิด exception handler นั้นจะหยุด แต่ state/actions ของมันไม่ย้อนกลับ; handlers ถัดไปอาจยังทำงาน ไม่มีการตอบรับ action ยกเว้น events จาก file/query
 
 ## API ที่ใช้ร่วมกัน
 
-- `on(type, handler)` → boolean ลงทะเบียน `handler(ev)`; หลาย handlers จะทำงานตามลำดับที่ลงทะเบียน False หมายถึง arguments ไม่ถูกต้องหรือถึงขีดจำกัด handlers แล้ว `ev = { type: string, now: number, data }`; `now` คือ Unix milliseconds\n- `v.state`: JSON object ที่แก้ไขได้และบันทึกหลัง event dispatch ให้เริ่มค่าเฉพาะ fields ที่ยังไม่มี แทนการเขียนทับ state เดิม การกำหนด non-object หรือ array จะ reset เป็น `{}`; การอัปเดตที่ serialize ไม่ได้หรือใหญ่เกินไปจะไม่ถูกบันทึก\n- `v.log(...values)`: เขียนลงใน Log ของกลุ่มนี้ ข้อผิดพลาดจากการทำงานบนหน้าที่รายงานไว้จะแสดงที่นี่ด้วย โดยจะไม่เรียกการทำงานเหล่านั้นซ้ำ Logs/Clear แยกกันสำหรับแต่ละกลุ่ม ข้อผิดพลาดการโหลดจะแสดงในสถานะ Run ส่วนการวินิจฉัย handler อื่น ๆ จะไม่เพิ่มลงใน Log\n- `v.emit(type, data)`: queue สำเนา JSON ของ `data` ให้ handlers ของกลุ่มนี้หลัง event ปัจจุบัน พร้อม `now` ใหม่; ไม่ใช่การเรียกแบบ synchronous\n- `v.panel(id, spec, tabId?)`: แทนที่ panel ที่ตั้งชื่อของกลุ่มนี้ ไม่ระบุ `tabId` เพื่อใช้กับทุกหน้าเว็บที่เข้าถึงได้ หรือใช้ tab ID จำนวนเต็ม หาก `spec` เป็น null จะนำ panel ออก ดูหัวข้อ Panels\n- `v.file(op, path, payload?)` → request ID string ดูหัวข้อ Files
+- `on(type, handler)` → boolean ลงทะเบียน `handler(ev)`; หลาย handlers จะทำงานตามลำดับที่ลงทะเบียน False หมายถึง arguments ไม่ถูกต้องหรือถึงขีดจำกัด handlers แล้ว `ev = { type: string, now: number, data }`; `now` คือ Unix milliseconds\n- `v.state`: JSON object ที่แก้ไขได้และบันทึกหลัง event dispatch ให้เริ่มค่าเฉพาะ fields ที่ยังไม่มี แทนการเขียนทับ state เดิม การกำหนด non-object หรือ array จะ reset เป็น `{}`; การอัปเดตที่ serialize ไม่ได้หรือใหญ่เกินไปจะไม่ถูกบันทึก\n- `v.log(...values)`: เขียนลงใน Log ของกลุ่มนี้ ข้อผิดพลาดของ handler และข้อผิดพลาดจากการทำงานบนหน้าที่มีการรายงานจะแสดงที่นี่ด้วย การรายงานจะไม่เรียก actions ซ้ำ Logs/Clear แยกกันในแต่ละกลุ่ม Load errors แสดงใน Run status\n- `v.emit(type, data)`: queue สำเนา JSON ของ `data` ให้ handlers ของกลุ่มนี้หลัง event ปัจจุบัน พร้อม `now` ใหม่; ไม่ใช่การเรียกแบบ synchronous\n- `v.panel(id, spec, tabId?)`: แทนที่ panel ที่ตั้งชื่อของกลุ่มนี้ ไม่ระบุ `tabId` เพื่อใช้กับทุกหน้าเว็บที่เข้าถึงได้ หรือใช้ tab ID จำนวนเต็ม หาก `spec` เป็น null จะนำ panel ออก ดูหัวข้อ Panels\n- `v.file(op, path, payload?)` → request ID string ดูหัวข้อ Files
 
-Calls ที่ใช้ร่วมกันรายการอื่นคืน `undefined` IDs/state ผูกกับกลุ่ม ไม่ใช่ชื่อที่แสดง
+Calls ที่ใช้ร่วมกันอื่น ๆ คืน `undefined` ยกเว้น factories สำหรับสร้างออบเจ็กต์เวลาที่จัดการโดยระบบแบบมีชื่อด้านล่าง IDs/state เป็นของแต่ละกลุ่ม ไม่ใช่ของชื่อที่แสดง
+
+## ตัวจับเวลาที่จัดการโดยระบบและการใช้งานในช่วงเวลาเลื่อน
+
+`v.timer(id, {direction:"down", durationMs:300000})` สร้างหรือคืน countdown แบบมีชื่อ ซึ่งเริ่มต้นในสถานะ paused ใช้ `{direction:"up"}` สำหรับ timer แบบนับขึ้น Handle มี `start()`, `pause()`, `resume()`, `reset()` และ `snapshot()` การเรียก start/resume ซ้ำไม่มีผลเพิ่มเติม ส่วน reset จะกลับสู่สถานะ paused โดยมีเวลาที่ผ่านไปเป็นศูนย์ Fields ใน snapshot มี `ready`, `error`, `elapsedMs`, `remainingMs` (เป็น null สำหรับการนับขึ้น), `running` และ `completed`
+
+Timer ที่กำลังทำงานจะเดินตามเวลานาฬิกาจริงขณะ app/browser ปิดอยู่หรือ rule ถูกปิดใช้งาน Countdown ที่ครบเวลาจะส่ง `timerEnded` พร้อม `{id, direction, durationMs, generation, incarnation}` หนึ่งครั้งต่อ incarnation และ generation ของ timer ให้สมาชิกแต่ละรายเมื่อ rule ของรายนั้นทำงานครั้งถัดไป Run จะไม่ส่งซ้ำ การส่งขึ้นอยู่กับ host events จึงไม่ใช่นาฬิกาปลุกแบบ real-time ใส่ `{type:"timer", timerId:"focus", label:"Focus"}` ใน panel เพื่อแสดงผ่าน text control ที่มีอยู่
+
+`v.rolling(id, {windowMs:3600000, limitMs:600000})` สร้างหรือคืน tracker การใช้งานจริงแบบมีชื่อ `assign({websites:["youtube.com","reddit.com"], apps:[]})` แทนที่การกำหนด targets ของสมาชิกรายนี้ Native rules สามารถกำหนด app IDs ของแพลตฟอร์มแทนได้ Domains รวม subdomains ด้วย Tracker หนึ่งตัวรวมการใช้งานของ targets ทั้งหมด ส่วน IDs อื่นมีโควตาแยกกัน `snapshot()` คืน `ready`, `error`, `usedMs`, `remainingMs`, `available` และ `nextReturnAtMs` (millisecond ถัดไปที่การใช้งานที่บันทึกไว้รายการใดรายการหนึ่งหมดอายุ) `available(target?)` ตรวจสอบการกำหนด target ด้วยเมื่อระบุ target ส่วน `reset()` ล้าง history ของออบเจ็กต์นี้
+
+การใช้งานที่เข้าเกณฑ์และตรวจพบทั้งหมดจะถูกนับ รวมถึงส่วนที่เกินโควตา แต่ tracker ไม่ได้บล็อก page/app เอง ช่วงเวลาของหน้าที่มองเห็นซึ่งซ้อนทับกันจะนับเพียงครั้งเดียว และ native apps จะนับการใช้งาน foreground ที่ตรวจพบ Rules ที่ปิดใช้งานจะไม่เพิ่มการใช้งาน แต่ history ยังคงหมดอายุตามขอบเขต interval ที่แน่นอน Availability จะกลับมาเมื่อการใช้งานใน history ที่เหลือต่ำกว่า limit เท่านั้น Heartbeat samples จำกัดไว้ไม่เกินห้าวินาที ช่วงที่ปิดโปรแกรมหรือปิดใช้งานจะไม่สร้าง activity สมมติ Events ที่ผู้ใช้ emit เองจะไม่เพิ่มการใช้งาน
+
+Object IDs เดียวกันใน custom groups ที่เชื่อมโยงกันใช้ native hub ภายในเครื่องเป็นแหล่งข้อมูลหลักร่วมกัน การเชื่อมโยงจะรวม history และการกำหนด targets ของ tracker และเก็บ timer state ของฝ่ายที่เริ่มเชื่อมโยง หาก configurations ไม่เข้ากันจะปฏิเสธการเชื่อมโยง สมาชิกแต่ละรายได้รับ completion event ของตนเอง เมื่อขาดการเชื่อมต่อ shared trackers จะ unavailable และปฏิเสธ timer controls จนกว่าจะได้รับข้อมูลล่าสุดจากแหล่งข้อมูลหลัก เมื่อ unlink สมาชิกแต่ละรายเก็บ shared usage และ timer state สุดท้าย คืน targets ของตนเอง และทิ้ง commands จาก link เดิม Hub เก็บ snapshot สุดท้ายจนกว่าสมาชิกที่กลับมาจะบันทึกและยืนยันการรับ โดยต้องดำเนินการ handover ที่ค้างอยู่ให้เสร็จก่อนจึงจะเชื่อมโยงใหม่ได้
+
+ออบเจ็กต์แบบมีชื่อคงอยู่หลัง Run และ restart ใน field ที่สงวนไว้ `v.state.$vaultTime` อย่าแก้ไข field นี้โดยตรง ลบอย่างชัดเจนด้วย `v.removeTime(id)` IDs มีความยาว 1–80 ตัว ประกอบด้วยตัวอักษร ASCII ตัวเลข `_` หรือ `-` และไม่ยอมรับชื่อ properties ที่สงวนไว้ ออบเจ็กต์ได้สูงสุด 32 ตัวใช้ state limit ขนาด 64KiB UTF-8 ของ rule ร่วมกัน Durations เป็นจำนวนเต็ม millisecond สูงสุด 365 วัน Rolling history จำกัดไว้ที่ 1024 minute buckets และ 2048 merged intervals ข้อผิดพลาดความจุ history ทำให้ tracker unavailable จนกว่าจะ reset อย่างชัดเจน Configurations ที่ไม่ถูกต้องและการบันทึกที่ใหญ่เกินไปจะรายงานข้อผิดพลาดโดยไม่ลบข้อมูลที่บันทึกไว้
+
+```js
+(on, v) => {
+  const timer = v.timer("focus", {durationMs: 300000});
+  v.panel("focus", {controls: [
+    {type: "timer", timerId: "focus", label: "Focus"},
+    {id: "start", type: "button", label: "Start"},
+    {id: "pause", type: "button", label: "Pause"},
+    {id: "reset", type: "button", label: "Reset"}
+  ]});
+  on("panel", ev => {
+    if (ev.data.eventName !== "click") return;
+    if (ev.data.controlId === "start") timer.start();
+    if (ev.data.controlId === "pause") timer.pause();
+    if (ev.data.controlId === "reset") timer.reset();
+  });
+  on("timerEnded", ev => v.log("Finished", ev.data.id));
+}
+```
 
 ## Events ของเบราว์เซอร์
 
@@ -93,7 +126,7 @@ result fields ที่ไม่ได้ใช้เป็น null; เมื�
 
 ## ขีดจำกัด
 
-ต่อ event ต่อ group: 256 queued actions, 200 log calls, 64 emits; ส่วนเกินจะถูกทิ้ง ต่อ rule: 1000 handlers, 24 panels; แต่ละ control list มี 32 entries และแต่ละ choice มี 64 options; ส่วนเกินจะถูกละเว้น/ตัด Emit chains หยุดหลัง 16 generations Serialized state limit: 65536 JavaScript string characters ให้ registration และ handlers ทั้งหมดของแต่ละ event ใช้เวลารวมต่ำกว่า 1 second หากเกินซ้ำ ๆ หรือชน hard timeout กลุ่มจะหยุดจนกด Run Log เก็บ 200 entries, รับได้ 50 ครั้ง/วินาทีต่อกลุ่ม และตัดข้อความยาวใกล้ 4096 ตัวอักษร Timers/replies เป็น best-effort ไม่ใช่การรับประกันแบบ real-time
+ต่อ event ต่อ group: 256 queued actions, 200 log calls, 64 emits; ส่วนเกินจะถูกทิ้ง ต่อ rule: 1000 handlers, 24 panels; แต่ละ control list มี 32 entries และแต่ละ choice มี 64 options; ส่วนเกินจะถูกละเว้น/ตัด Emit chains หยุดหลัง 16 generations Serialized state limit: 65536 UTF-8 bytes ให้ registration และ handlers ทั้งหมดของแต่ละ event ใช้เวลารวมต่ำกว่า 1 second หากเกินซ้ำ ๆ หรือชน hard timeout กลุ่มจะหยุดจนกด Run Log เก็บ 200 entries, รับได้ 50 ครั้ง/วินาทีต่อกลุ่ม และตัดข้อความยาวใกล้ 4096 ตัวอักษร Timers/replies เป็น best-effort ไม่ใช่การรับประกันแบบ real-time
 
 ## กฎฉบับเต็ม
 

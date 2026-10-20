@@ -382,8 +382,8 @@
   "status.errorImportGroup": "Eine Sperrgruppe konnte nicht aus der Zwischenablage importiert werden.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nKanal/UC...",
   "logFeed.title": "Aktivitätsprotokoll",
-  "logFeed.hint": "Ausgabe von v.log() in der benutzerdefinierten Regel dieser Gruppe.",
-  "logFeed.empty": "Diese Regel hat noch keine Ausgabe erzeugt. Rufen Sie v.log(\"hello\") in einem Handler auf, um einen Eintrag hinzuzufügen.",
+  "logFeed.hint": "Die v.log()-Ausgabe dieser Regel sowie Ausführungs- oder Zustellungsfehler.",
+  "logFeed.empty": "Noch keine Log-Einträge von dieser Regel.",
   "logFeed.clear": "Protokoll leeren",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault-Klassifizierer",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Begriffe · {count} Einträge · {version}",
   "classifier.dictionary.creatorSummary": "Creator · {summary} · {version}",
   "classifier.dictionary.configure": "Wörterbücher konfigurieren",
-  "safari.app.quit": "Safari Vault beenden"
+  "safari.app.quit": "Safari Vault beenden",
+  "link.browserUpgradeRequired": "Aktualisieren Sie die Vault-Browsererweiterung, um dieses Budget fortzusetzen. Seine Einstellungen und Nutzungsdaten bleiben erhalten.",
+  "link.browserIdentitySyncPending": "Dieses verknüpfte Budget wird noch synchronisiert. Versuchen Sie es nach Abschluss der Synchronisierung erneut.",
+  "link.browserIdentityPendingEditsInvalid": "Gespeicherte ausstehende Änderungen konnten nicht gelesen werden. Die gespeicherten Einstellungen und Nutzungsdaten bleiben erhalten.",
+  "link.browserConnectRequired": "Verbinden Sie die Vault-Browsererweiterung, bevor Sie die Verknüpfung dieses Budgets aufheben. Gespeicherte Einstellungen und Nutzungsdaten bleiben erhalten."
 }

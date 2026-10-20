@@ -382,8 +382,8 @@
   "status.errorImportGroup": "No se pudo importar un grupo de bloqueo desde el portapapeles.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nchannel/UC...",
   "logFeed.title": "Registro",
-  "logFeed.hint": "Salida de v.log() en la regla personalizada de este grupo.",
-  "logFeed.empty": "Esta regla aún no ha generado salida. Llama a v.log(\"hello\") en un manejador para añadir una entrada.",
+  "logFeed.hint": "La salida v.log() de esta regla y los errores de ejecución o entrega.",
+  "logFeed.empty": "Esta regla aún no tiene entradas de registro.",
   "logFeed.clear": "Borrar",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault Clasificador",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Términos · {count} entradas · {version}",
   "classifier.dictionary.creatorSummary": "Creadores · {summary} · {version}",
   "classifier.dictionary.configure": "Configurar diccionarios",
-  "safari.app.quit": "Salir de Safari Vault"
+  "safari.app.quit": "Salir de Safari Vault",
+  "link.browserUpgradeRequired": "Actualice la extensión de navegador Vault para reanudar este presupuesto. Su configuración y uso se conservan.",
+  "link.browserIdentitySyncPending": "Este presupuesto vinculado aún se está sincronizando. Vuelva a intentarlo cuando termine la sincronización.",
+  "link.browserIdentityPendingEditsInvalid": "No se pudieron leer las modificaciones pendientes guardadas. Se han conservado la configuración y el uso guardados.",
+  "link.browserConnectRequired": "Conecte la extensión de navegador Vault antes de desvincular este presupuesto. Se conservan la configuración y el uso guardados."
 }

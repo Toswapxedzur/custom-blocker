@@ -382,8 +382,8 @@
   "status.errorImportGroup": "클립보드에서 블록 그룹을 가져올 수 없습니다.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\n채널/UC...",
   "logFeed.title": "활동 로그",
-  "logFeed.hint": "이 그룹의 사용자 지정 규칙에서 v.log()가 출력한 내용입니다.",
-  "logFeed.empty": "이 규칙의 출력이 아직 없습니다. 항목을 추가하려면 핸들러에서 v.log(\"hello\")를 호출하세요.",
+  "logFeed.hint": "이 규칙의 v.log() 출력 및 실행 또는 전달 오류입니다.",
+  "logFeed.empty": "이 규칙의 로그 항목이 아직 없습니다.",
   "logFeed.clear": "로그 지우기",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault 분류기",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "용어 · {count}개 항목 · {version}",
   "classifier.dictionary.creatorSummary": "크리에이터 · {summary} · {version}",
   "classifier.dictionary.configure": "사전 구성",
-  "safari.app.quit": "Safari Vault 종료"
+  "safari.app.quit": "Safari Vault 종료",
+  "link.browserUpgradeRequired": "이 예산을 재개하려면 브라우저 Vault 확장 프로그램을 업데이트하세요. 설정과 사용량은 보존됩니다.",
+  "link.browserIdentitySyncPending": "이 연결된 예산은 아직 동기화 중입니다. 동기화가 끝나면 다시 시도하세요.",
+  "link.browserIdentityPendingEditsInvalid": "저장된 대기 중 편집 내용을 읽을 수 없습니다. 저장된 설정과 사용량은 보존되었습니다.",
+  "link.browserConnectRequired": "이 예산의 연결을 해제하기 전에 브라우저 Vault 확장 프로그램을 연결하세요. 저장된 설정과 사용량은 보존됩니다."
 }
