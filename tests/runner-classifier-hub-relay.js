@@ -44,7 +44,7 @@ const context = vm.createContext({
   CB_FIXED_ADDRESS: "ws://127.0.0.1:8787",
   CB_CONNECTION_PROTOCOL_VERSION: 4,
   cbDetectProgramId: () => "chrome",
-  CBLocalHubAuthentication: { proofForChallenge: async () => "a".repeat(43) },
+  CBLocalHubAuthentication: { proofForChallenge: async () => ({ proof: "a".repeat(43), browserIdentity: null }) },
   CBBridgeProtocol: { isHubProgram: (value) => value === "macapp" || value === "classifier" },
   TextEncoder,
   setTimeout,

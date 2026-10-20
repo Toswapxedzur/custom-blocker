@@ -82,7 +82,9 @@ const CB_SYNC_SCALAR_FIELDS = CBGroupScopes.SYNC_SCALAR_FIELDS;
 const CB_CLUSTER_COPY_KEY = "cbClusterCopy";
 const CB_OFFLINE_USAGE_KEY = "cbOfflineUsage";
 const CB_OFFLINE_TRANSFERS_KEY = "cbOfflineUsageTransfers";
+const CB_BROWSER_IDENTITY_INTENTS_KEY = "cbBrowserIdentityDefinitionIntents";
 let cbClusterCopy = [];
+let cbClusterCopyRevision = 0;
 // Loaded once per worker; getState and the sharing wait for it, so right after
 // a wake a linked group is never taken for an unlinked one.
 const cbClusterCopyReady = (async () => {
@@ -136,7 +138,7 @@ function cbWithDefinitionMutation(operation) {
   return task;
 }
 
-async function cbWriteDefinitionStoreLocked(writes, { sharedIds = null, publish = true } = {}) {
+async function cbWriteDefinitionStoreLocked(writes, { sharedIds = null, publish = true, identityReplay = false } = {}) {
   if (!Object.hasOwn(writes, BLOCKED_GROUPS_KEY)) return chrome.storage.local.set(writes);
   if (cbDefinitionInitializing) return chrome.storage.local.set(writes);
   if (!cbDefinitionOperation) throw new Error("Definition write requires the worker queue.");
@@ -147,6 +149,7 @@ async function cbWriteDefinitionStoreLocked(writes, { sharedIds = null, publish 
     if (Object.keys(remaining).length) await chrome.storage.local.set(remaining);
     return;
   }
+  if (!sharedIds && !identityReplay) writes = await cbRetainBrowserIdentityEditsLocked(oldValue, newValue, writes);
   // Definition and its budget/deletion cleanup commit as one storage write.
   // A cleanup write failure must not leave a saved group with orphaned state,
   // or publish an edit whose associated persistence did not succeed.
@@ -580,7 +583,7 @@ function applyRuntimeNormalizations(
   }
 
   for (const group of groups) {
-    if (!isTimedBlockingMode(group.mode)) continue;
+    if (!isTimedBlockingMode(group.mode) || cbBrowserIdentityPaused(group)) continue;
     if (group.rollingLimit) {
       // Rolling limit: the timer is the total still inside the window.
       const pruned = cbPruneUsageBuckets(nextBuckets[group.id], group, now);
@@ -826,6 +829,7 @@ function getExposedTimedGroups(exposedGroupIds, groups, relevantGroups, groupSno
       !alreadyRelevant.has(group.id) &&
       isTimedBlockingMode(group.mode) &&
       group.enabled &&
+      !cbBrowserIdentityPaused(group) &&
       isGroupActiveNow(group, now) &&
       !getActiveSnooze(group.id, groupSnoozes, now)
   );
@@ -1682,10 +1686,14 @@ async function cbFireSnoozePress(groupId) {
 // cover runs the group's confirmation steps itself; the worker stores the
 // entry, re-syncs blocking and shares it with linked members (newest start
 // wins there, exactly like a snooze started in the popup).
-async function cbStartSnooze(groupId, now = Date.now()) {
+function cbStartSnooze(groupId, now = Date.now()) {
+  return cbWithDefinitionMutation(() => cbStartSnoozeLocked(groupId, now));
+}
+async function cbStartSnoozeLocked(groupId, now) {
   const { groups, groupSnoozes, usageResetAtMs, usageTimersMs } = await getState();
   const group = groups.find((item) => item.id === groupId);
   if (!group) throw new Error("group-not-found");
+  cbAssertBrowserIdentityEdit(group);
   if (cbEnforceOnly(group)) throw new Error("desktop-vault-away");
   const plan = CBGroupActions.snoozePlan(group, groupSnoozes[group.id], now);
   if (plan.error) throw new Error(plan.error);
@@ -1695,8 +1703,24 @@ async function cbStartSnooze(groupId, now = Date.now()) {
   return entry;
 }
 
+function cbPersistEditorSnooze(groupId, rawEntry) {
+  return cbWithDefinitionMutation(async () => {
+    const { groups, groupSnoozes } = await getState();
+    const group = groups.find(group => group?.id === groupId);
+    if (!group) throw new Error("group-not-found");
+    cbAssertBrowserIdentityEdit(group);
+    if (cbEnforceOnly(group)) throw new Error("desktop-vault-away");
+    const entry = CBGroupActions.sanitizeSnoozeEntry(rawEntry);
+    if (!entry || group.groupType === "custom") throw new Error("invalid-snooze-entry");
+    await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: { ...groupSnoozes, [groupId]: entry } });
+    return entry;
+  });
+}
+
 // A snooze change reaches linked members at once (the newest change wins).
 function cbShareSnooze(group, entry, now) {
+  if (!cbBrowserIdentityConfigReady(group)) return false;
+  const status = cbBrowserIdentityStatus(cbBrowserIdentityCluster(group));
   try {
     cbConnection.sendWS({
       kind: "group-sync",
@@ -1704,7 +1728,8 @@ function cbShareSnooze(group, entry, now) {
       groupId: group.id,
       ts: now,
       snooze: entry,
-      snoozeTs: CBGroupActions.snoozeChangedAtMs(entry)
+      snoozeTs: CBGroupActions.snoozeChangedAtMs(entry),
+      ...(status ? { browserIdentitySnapshotApplied: { generation: status.generation } } : {})
     });
   } catch (_) {}
 }
@@ -2586,7 +2611,7 @@ let cbRecheckDefinition = false;
 
 // In effect right now: on, inside its schedule, not snoozed.
 function cbGroupActive(group, groupSnoozes, now) {
-  return Boolean(group) && group.enabled && isGroupActiveNow(group, now) && !getActiveSnooze(group.id, groupSnoozes, now);
+  return Boolean(group) && group.enabled && !cbBrowserIdentityPaused(group) && isGroupActiveNow(group, now) && !getActiveSnooze(group.id, groupSnoozes, now);
 }
 
 // The one gate every line goes through (pages, feed cards, home, shelves):
@@ -3054,7 +3079,11 @@ async function cbAnnounceStoredGroups(groups) {
 // An imported group starts fresh (owner 2026-09-27): its usage, snooze,
 // snooze total and offline time go; a new budget period starts now.
 function cbResetGroupRuntime(groupId) {
-  return cbWithOfflineUsage(() => cbResetGroupRuntimeLocked(groupId));
+  return cbWithDefinitionMutation(async () => {
+    const groups = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+    cbAssertBrowserIdentityEdit((groups || []).find(group => group?.id === groupId));
+    return cbWithOfflineUsage(() => cbResetGroupRuntimeLocked(groupId));
+  });
 }
 async function cbResetGroupRuntimeLocked(groupId) {
   if (!groupId) return;
@@ -3107,9 +3136,189 @@ const cbSharingReady = (async () => {
   } catch (_) {}
 })();
 
+// Identity readiness changes runtime enforcement, never the saved on/off setting.
+// The generation is connection-scoped. A replacement socket must adopt and ACK
+// its own snapshot, even if the cached generation happens to be the same.
+function cbBrowserIdentityStatus(cluster) {
+  const shared = cluster?.shared;
+  if (!shared || !Object.hasOwn(shared, "browserIdentityStatus")) return null;
+  const status = shared.browserIdentityStatus;
+  return status && ["ready", "upgrade-required"].includes(status.state)
+    && typeof status.generation === "string" && status.generation.length > 0
+    && typeof status.canonicalEnabled === "boolean" && typeof status.affectsBrowserBudget === "boolean" ? status : false;
+}
+function cbBrowserIdentityCluster(group, clusters = cbConnection.clusters) {
+  return self.CBBridgeProtocol.clusterForGroup(clusters, group, cbDetectProgramId());
+}
+function cbBrowserIdentityApplied(cluster) {
+  const status = cbBrowserIdentityStatus(cluster);
+  const applied = cbConnection.browserIdentityApplied?.get(cluster?.id);
+  const member = cluster?.members?.find(m => m?.program === cbDetectProgramId());
+  return Boolean(status && applied && applied.generation === status.generation
+    && applied.groupId === member?.groupId && applied.ws === cbConnection.ws
+    && applied.connectionGeneration === cbConnection.activitySettingsConnectionGeneration);
+}
+function cbBrowserIdentityPaused(group) {
+  const live = cbBrowserIdentityCluster(group);
+  const cluster = live || cbBrowserIdentityCluster(group, cbClusterCopy);
+  const status = cbBrowserIdentityStatus(cluster);
+  return status === false || Boolean(status && (status.state !== "ready"
+    || (live ? !cbBrowserIdentityApplied(live) : cluster.browserIdentitySnapshotPending === true)));
+}
+function cbBrowserIdentityConfigReady(group, initial = false) {
+  if (!cbGroupInLink(group)) return true;
+  const cluster = cbBrowserIdentityCluster(group);
+  if (!cluster) return cbConnection.browserIdentityVersion !== 1; // A capable hub must send its first roster.
+  if (!initial && cluster.members?.some(m => m?.program === cbDetectProgramId() && m.contributed === false)) return false;
+  const status = cbBrowserIdentityStatus(cluster);
+  return status === null || Boolean(status && cbBrowserIdentityApplied(cluster) && (initial || status.state === "ready"));
+}
+function cbAssertBrowserIdentityEdit(group) {
+  if (!group) return;
+  const cluster = cbBrowserIdentityCluster(group) || cbBrowserIdentityCluster(group, cbClusterCopy);
+  const status = cbBrowserIdentityStatus(cluster);
+  if (status === false || status?.state === "upgrade-required") throw new Error("browser-identity-upgrade-required");
+  if (cluster && !cbBrowserIdentityConfigReady(group)) throw new Error("browser-identity-sync-pending");
+}
+function cbAffectedBrowserBudget(group) {
+  const cluster = cbBrowserIdentityCluster(group) || cbBrowserIdentityCluster(group, cbClusterCopy);
+  const status = cbBrowserIdentityStatus(cluster);
+  return cluster && status !== null && status?.affectsBrowserBudget !== false ? { cluster, status } : null;
+}
+function cbPreflightBrowserRemoval(group) {
+  const affected = cbAffectedBrowserBudget(group);
+  if (!affected) return null;
+  if (!cbConnection.desktopRouteIsReady()) throw new Error("browser-connect-required");
+  if (!affected.status) throw new Error("browser-sync-required");
+  if (affected.status.state !== "ready") throw new Error("browser-upgrade-required");
+  if (!cbBrowserIdentityApplied(affected.cluster) || affected.cluster.members.some(m => m?.contributed === false)) throw new Error("browser-sync-required");
+  return affected.cluster;
+}
+function cbAssertBrowserGroupRemoval(group) {
+  if (cbPreflightBrowserRemoval(group)) throw new Error("browser-sync-required");
+}
+async function cbAdmitAffectedRemovals(groups) {
+  for (const group of groups) if (cbPreflightBrowserRemoval(group)) await cbConnection.unlinkBrowserBudgetGroup(group);
+}
+async function cbPrepareEditorRemovals(input) {
+  const groups = await cbWithDefinitionMutation(async () => {
+    const current = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+    const list = Array.isArray(current) ? current : [];
+    const next = CBGroupScopes.applyEditorRequest(list, input, "browser", {
+      nowMs: Date.now(), readOnlyGroupIds: list.filter(cbEnforceOnly).map(group => group.id)
+    }).groups;
+    return list.filter(group => !next.some(item => item?.id === group?.id));
+  });
+  await cbAdmitAffectedRemovals(groups);
+}
+function cbClusterIdentityCopy(cluster) {
+  const copy = { id: cluster.id, groupName: cluster.groupName, members: cluster.members };
+  const status = cbBrowserIdentityStatus(cluster);
+  if (status !== null) {
+    copy.shared = { browserIdentityStatus: status || null };
+    copy.browserIdentitySnapshotPending = !status || !cbBrowserIdentityApplied(cluster);
+  }
+  return copy;
+}
+
+const CB_BROWSER_IDENTITY_INTENTS_MAX_BYTES = 1024 * 1024;
+function cbValidateBrowserIdentityIntents(value, groups) {
+  const invalid = () => { throw new Error("browser-identity-pending-edits-invalid"); };
+  const object = item => item && typeof item === "object" && !Array.isArray(item);
+  if (!object(value)) return invalid();
+  let bytes;
+  try { bytes = new TextEncoder().encode(JSON.stringify(value)).length; } catch (_) { return invalid(); }
+  if (bytes > CB_BROWSER_IDENTITY_INTENTS_MAX_BYTES) throw new Error("browser-identity-pending-edits-too-large");
+  const ids = new Set((groups || []).filter(group => group?.id).map(group => group.id));
+  if (Object.keys(value).length > ids.size) return invalid();
+  for (const [id, intent] of Object.entries(value)) {
+    if (!ids.has(id) || !object(intent) || Object.keys(intent).some(key => !["clusterId", "base", "change", "error"].includes(key))
+      || typeof intent.clusterId !== "string" || !intent.clusterId || intent.clusterId.length > 256
+      || !object(intent.base) || intent.base.id !== id || !Array.isArray(intent.base.scopes)
+      || !object(intent.change) || intent.change.id !== id || intent.change.create || intent.change.delete
+      || Object.keys(intent.change).some(key => !["id", "lock", "fields", "lines"].includes(key))
+      || !object(intent.change.lock) || !object(intent.change.fields) || !object(intent.change.fields.set)
+      || !Array.isArray(intent.change.fields.remove) || !Array.isArray(intent.change.lines)
+      || (intent.error !== undefined && (typeof intent.error !== "string" || intent.error.length > 256))) return invalid();
+    const base = CBGroupScopes.sanitizeGroups([intent.base])[0];
+    const fields = new Set([...Object.keys(base || {}), ...CB_SYNC_SCALAR_FIELDS, ...CBGroupActions.LOCK_FIELDS, "lockSyncedVersion"]);
+    if (!base || Object.keys(intent.change.fields.set).some(key => !fields.has(key))
+      || intent.change.fields.remove.some(key => typeof key !== "string" || !fields.has(key))
+      || cbDefinitionJSON(intent.change.lock) !== cbDefinitionJSON(CBGroupActions.lockUnit(CBGroupScopes.editorEffectiveGroup(intent.base)))) return invalid();
+    try {
+      // Validation against the retained baseline checks browser-only line
+      // patches. Replay separately rechecks the current canonical lock.
+      CBGroupScopes.applyEditorRequest([intent.base], { changes: [intent.change] }, "browser", { nowMs: Date.now() });
+    } catch (_) { return invalid(); }
+  }
+  return value;
+}
+
+// At most one pending intent per linked group, committed with the original
+// edit. Repeated edits replace that bounded field/scope patch. Explicit edits
+// to a paused group fail before storage; only bootstrap/in-flight edits wait.
+async function cbRetainBrowserIdentityEditsLocked(before, after, writes) {
+  const stored = await chrome.storage.local.get({ [CB_BROWSER_IDENTITY_INTENTS_KEY]: {} });
+  const intents = { ...cbValidateBrowserIdentityIntents(stored[CB_BROWSER_IDENTITY_INTENTS_KEY], before) };
+  const old = new Map((before || []).map(group => [group?.id, group]));
+  const present = new Set((after || []).map(group => group?.id));
+  for (const group of before || []) if (!present.has(group?.id)) cbAssertBrowserGroupRemoval(group);
+  let changed = false;
+  for (const id of Object.keys(intents)) if (!present.has(id)) { delete intents[id]; changed = true; }
+  for (const group of after || []) {
+    const previous = old.get(group?.id);
+    if (!previous || cbDefinitionKey(previous) === cbDefinitionKey(group)) continue;
+    const cluster = cbBrowserIdentityCluster(group) || cbBrowserIdentityCluster(group, cbClusterCopy);
+    const status = cbBrowserIdentityStatus(cluster);
+    if (status === false || status?.state === "upgrade-required") throw new Error("browser-identity-upgrade-required");
+    if (!cluster || cbBrowserIdentityConfigReady(group)) {
+      if (intents[group.id]) { delete intents[group.id]; changed = true; }
+      continue;
+    }
+    const existing = intents[group.id]?.clusterId === cluster.id ? intents[group.id] : null;
+    const base = existing?.base || previous;
+    intents[group.id] = { clusterId: cluster.id, base, change: CBGroupScopes.editorChange(base, group, "browser") };
+    changed = true;
+  }
+  if (changed) cbValidateBrowserIdentityIntents(intents, after);
+  return changed ? { ...writes, [CB_BROWSER_IDENTITY_INTENTS_KEY]: intents } : writes;
+}
+
+async function cbReplayBrowserIdentityEditsLocked(clusters) {
+  const stored = await chrome.storage.local.get({ [CB_BROWSER_IDENTITY_INTENTS_KEY]: {}, [BLOCKED_GROUPS_KEY]: [] });
+  let groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
+  const intents = { ...cbValidateBrowserIdentityIntents(stored[CB_BROWSER_IDENTITY_INTENTS_KEY], groups) };
+  let changed = false;
+  for (const [id, intent] of Object.entries(intents)) {
+    const group = groups.find(group => group?.id === id);
+    const cluster = cbBrowserIdentityCluster(group, clusters);
+    if (!group || !cluster || cluster.id !== intent.clusterId) { delete intents[id]; changed = true; continue; }
+    if (intent.error || !cbBrowserIdentityConfigReady(group) || cluster.members.some(m => m?.program === cbDetectProgramId() && m.contributed === false)) continue;
+    // Re-check the actual current lock/freeze and scope ownership. A lock that
+    // changed during bootstrap cannot be bypassed by a retained local edit.
+    try {
+      groups = CBGroupScopes.applyEditorRequest(groups, { changes: [intent.change] }, "browser", { nowMs: Date.now() }).groups;
+    } catch (error) {
+      intents[id] = { ...intent, error: String(error?.message || error).slice(0, 256) };
+      await chrome.storage.local.set({ [CB_BROWSER_IDENTITY_INTENTS_KEY]: intents });
+      try { chrome.runtime.sendMessage({ type: "group-sync-refused", groupId: id, reason: intents[id].error }).catch(() => {}); } catch (_) {}
+      throw error;
+    }
+    await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: groups }, { identityReplay: true });
+    cbShareStoredGroups(groups);
+    const replayed = groups.find(group => group?.id === id);
+    if (cbDefinitionSeen.get(id) === cbDefinitionKey(replayed)) { delete intents[id]; changed = true; }
+  }
+  if (changed) await chrome.storage.local.set({ [CB_BROWSER_IDENTITY_INTENTS_KEY]: intents });
+}
+
 function cbSendDefinition(group, ts, usageSeed = {}) {
+  if (!cbBrowserIdentityConfigReady(group, ts === 0)) return false;
+  const cluster = cbBrowserIdentityCluster(group);
+  const status = cbBrowserIdentityStatus(cluster);
   const scalars = {};
   for (const field of CB_SYNC_SCALAR_FIELDS) scalars[field] = group[field];
+  if (status && ts === 0) scalars.enabled = status.canonicalEnabled;
   return cbConnection.sendWS({
     kind: "group-sync",
     program: cbDetectProgramId(),
@@ -3117,6 +3326,7 @@ function cbSendDefinition(group, ts, usageSeed = {}) {
     ts,
     scalars,
     ...usageSeed,
+    ...(status ? { browserIdentitySnapshotApplied: { generation: status.generation } } : {}),
     // Only this browser's own lines (the Apps lines are Mac Vault's), even none.
     scopes: (Array.isArray(group.scopes) ? group.scopes : []).filter((line) => CBGroupScopes.lineOwner(line) === "browser"),
     ...CBGroupActions.lockContribution(group)
@@ -3260,15 +3470,35 @@ const cbClusterUsageBaseline = {};
 // — two browsers' offline time adds up — and nothing counted is lost.
 
 function cbSaveClusterCopy(clusters) {
+  const revision = ++cbClusterCopyRevision;
+  const retained = new Set((Array.isArray(clusters) ? clusters : []).map(cluster => cluster?.id));
+  for (const id of cbConnection.browserIdentityApplied.keys()) if (!retained.has(id)) cbConnection.browserIdentityApplied.delete(id);
+  cbScheduleRecheck({ definitionChanged: true });
   const before = cbLinkedGroupIds(cbClusterCopy);
   globalThis.CBRuleTime?.clustersChanged(cbClusterCopy, Array.isArray(clusters) ? clusters : []);
   cbClusterCopy = Array.isArray(clusters) ? clusters : [];
+  const copy = cbClusterCopy.map(cbClusterIdentityCopy);
   const now = cbLinkedGroupIds(cbClusterCopy);
-  const left = [...before].filter((id) => !now.has(id));
-  if (left.length) cbKeepOwnLines(left).catch(() => {});
-  try {
-    chrome.storage.local.set({ [CB_CLUSTER_COPY_KEY]: cbClusterCopy.map((c) => ({ id: c.id, groupName: c.groupName, members: c.members })) }).catch(() => {});
-  } catch (_) {}
+  const left = [...before].filter(id => !now.has(id));
+  const previous = cbConnection.sharedApplyTail || Promise.resolve();
+  // A preceding usage snapshot must finish before removing its shared Apps
+  // lines. Membership and own-only definitions commit together, so a failed
+  // save cannot persist an unlinked roster with the old shared definition.
+  const durable = previous.catch(() => {}).then(() => cbKeepOwnLines(left, copy)).catch(async error => {
+    if (revision === cbClusterCopyRevision) {
+      try {
+        const saved = (await chrome.storage.local.get({ [CB_CLUSTER_COPY_KEY]: [] }))[CB_CLUSTER_COPY_KEY];
+        if (Array.isArray(saved)) {
+          globalThis.CBRuleTime?.clustersChanged(cbClusterCopy, saved);
+          cbClusterCopy = saved;
+        }
+      } catch (_) {}
+    }
+    throw error;
+  });
+  durable.catch(() => {});
+  cbConnection.membershipApplyTail = durable;
+  return durable;
 }
 
 // This browser's groups in the given links.
@@ -3284,21 +3514,28 @@ function cbLinkedGroupIds(clusters) {
 // A group that left a link (Unlink, or its link dissolved) keeps the shared
 // settings and only its own program's lines: a browser drops the Apps lines
 // (owner 2026-09-27).
-function cbKeepOwnLines(ids) {
-  return cbWithDefinitionMutation(() => cbKeepOwnLinesLocked(ids));
+function cbKeepOwnLines(ids, clusterCopy = null) {
+  return cbWithDefinitionMutation(() => cbKeepOwnLinesLocked(ids, clusterCopy));
 }
-async function cbKeepOwnLinesLocked(ids) {
-  const stored = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
-  const groups = Array.isArray(stored) ? stored : [];
+async function cbKeepOwnLinesLocked(ids, clusterCopy = null) {
+  const saved = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [], [CB_CLUSTER_COPY_KEY]: [] });
+  const groups = Array.isArray(saved[BLOCKED_GROUPS_KEY]) ? saved[BLOCKED_GROUPS_KEY] : [];
+  const removed = new Set(ids);
+  if (clusterCopy !== null) {
+    const retained = cbLinkedGroupIds(clusterCopy);
+    for (const id of cbLinkedGroupIds(saved[CB_CLUSTER_COPY_KEY])) if (!retained.has(id)) removed.add(id);
+  }
   let changed = false;
   const next = groups.map((group) => {
-    if (!group || !ids.includes(group.id) || !Array.isArray(group.scopes)) return group;
+    if (!group || !removed.has(group.id) || !Array.isArray(group.scopes)) return group;
     const own = group.scopes.filter((line) => CBGroupScopes.lineOwner(line) === "browser");
     if (own.length === group.scopes.length) return group;
     changed = true;
     return { ...group, scopes: own };
   });
-  if (changed) await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: next });
+  if (changed) await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: next,
+    ...(clusterCopy === null ? {} : { [CB_CLUSTER_COPY_KEY]: clusterCopy }) });
+  else if (clusterCopy !== null) await chrome.storage.local.set({ [CB_CLUSTER_COPY_KEY]: clusterCopy });
 }
 
 // Linked (per the copy), whether or not the hub is reachable right now.
@@ -3401,7 +3638,7 @@ function cbReportClusterUsage(groups, timers, resets, bucketDeltas = {}, buckets
     if (!cbConnection.desktopRouteIsReady()) return;
     const program = cbDetectProgramId();
     for (const g of groups) {
-      if (!cbGroupInLink(g)) continue;
+      if (!cbGroupInLink(g) || cbBrowserIdentityPaused(g)) continue;
       const joining = (cbConnection.clusters || []).find(cluster =>
         (cluster?.members || []).some(member => member?.program === program && member.groupId === g.id && member.contributed === false));
       // Do not report a delta before the original seed is captured. The first
@@ -3479,6 +3716,9 @@ const cbConnection = {
   activitySettingsNotifications: false,
   activitySettingsConnectionGeneration: 0,
   startupReady: null,
+  browserIdentityApplied: new Map(),
+  pendingBrowserUnlinks: new Map(),
+  browserUnlinkTimeoutMs: 5000,
 
   setStatus(patch) {
     const desktopRouteWasReady = this.desktopRouteIsReady();
@@ -3567,8 +3807,10 @@ const cbConnection = {
   // enforces changes made elsewhere even when the popup is closed.
   applySharedToStorage() {
     const clusters = this.clusters;
+    const receipt = { ws: this.ws, connectionGeneration: this.activitySettingsConnectionGeneration };
+    const membership = this.membershipApplyTail;
     const next = (this.sharedApplyTail || Promise.resolve()).catch(() => {})
-      .then(() => this.applySharedSnapshotToStorage(clusters));
+      .then(() => membership).then(() => this.applySharedSnapshotToStorage(clusters, receipt));
     this.sharedApplyTail = next;
     return next;
   },
@@ -3586,7 +3828,7 @@ const cbConnection = {
         cluster.members.some((m) => m && m.program === program)
     );
     if (relevant.length === 0) return;
-    const canAdoptDefinition = cluster => !cluster.members.some(
+    const canAdoptDefinition = cluster => cbBrowserIdentityStatus(cluster) !== false && !cluster.members.some(
       member => member?.program === program && member.contributed === false);
     let stored;
     try {
@@ -3606,7 +3848,10 @@ const cbConnection = {
       // The whole shared definition — policy settings AND every entry's lines —
       // is adopted here, so a linked group enforces an edit made on another
       // device even while this browser's editor is closed.
-      const scalars = cluster.shared.scalars && typeof cluster.shared.scalars === "object" ? cluster.shared.scalars : {};
+      const status = cbBrowserIdentityStatus(cluster);
+      if (status === false) continue;
+      const scalars = { ...(cluster.shared.scalars && typeof cluster.shared.scalars === "object" ? cluster.shared.scalars : {}) };
+      if (status) scalars.enabled = status.canonicalEnabled;
       for (const field of CB_SYNC_SCALAR_FIELDS) {
         if (
           Object.prototype.hasOwnProperty.call(scalars, field) &&
@@ -3635,11 +3880,20 @@ const cbConnection = {
     return { groups, program, relevant, canAdoptDefinition };
   },
 
-  applySharedSnapshotToStorage(clusters) {
-    return cbWithDefinitionMutation(() => this.applySharedSnapshotToStorageLocked(clusters));
+  applySharedSnapshotToStorage(clusters, receipt = { ws: this.ws, connectionGeneration: this.activitySettingsConnectionGeneration }) {
+    return cbWithDefinitionMutation(() => this.applySharedSnapshotToStorageLocked(clusters, receipt));
   },
 
-  async applySharedSnapshotToStorageLocked(clusters) {
+  async applySharedSnapshotToStorageLocked(clusters, receipt) {
+    try {
+      const pending = await chrome.storage.local.get({ [CB_BROWSER_IDENTITY_INTENTS_KEY]: {}, [BLOCKED_GROUPS_KEY]: [] });
+      cbValidateBrowserIdentityIntents(pending[CB_BROWSER_IDENTITY_INTENTS_KEY], pending[BLOCKED_GROUPS_KEY]);
+    } catch (error) {
+      for (const cluster of Array.isArray(clusters) ? clusters : []) this.browserIdentityApplied.delete(cluster?.id);
+      try { chrome.runtime.sendMessage({ type: "group-sync-refused", reason: String(error?.message || error) }).catch(() => {}); } catch (_) {}
+      cbScheduleRecheck({ definitionChanged: true });
+      return;
+    }
     let definition;
     try { definition = await this.adoptSharedDefinitionLocked(clusters); }
     catch (_) { return; }
@@ -3720,7 +3974,7 @@ const cbConnection = {
         });
         await cbScheduleTransitions();
       }
-    } catch (_) {}
+    } catch (_) { return; }
 
     // Adopt a newer shared active snooze so a snooze started on a linked member
     // enforces here even while the popup is closed (newest start wins; fully
@@ -3762,7 +4016,82 @@ const cbConnection = {
         totalsChanged = true;
       }
       if (totalsChanged) await chrome.storage.local.set({ [GROUP_SNOOZE_TOTALS_KEY]: totals });
-    } catch (_) {}
+    } catch (_) { return; }
+
+    // The initial join must retain its original definition and usage before
+    // acknowledging. Established members have just saved the canonical maps.
+    const joining = relevant.filter(cluster => cbBrowserIdentityStatus(cluster)
+      && !canAdoptDefinition(cluster));
+    if (joining.length) {
+      const original = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [], [USAGE_TIMERS_KEY]: {}, [USAGE_RESET_AT_KEY]: {}, [USAGE_BUCKETS_KEY]: {} });
+      await chrome.storage.local.set(original);
+    }
+    // Cache readiness independently of enabled, including service-worker wakes.
+    await chrome.storage.local.set({ [CB_CLUSTER_COPY_KEY]: cbClusterCopy.map(cbClusterIdentityCopy) });
+    for (const cluster of relevant) {
+      const status = cbBrowserIdentityStatus(cluster);
+      const member = cluster.members.find(m => m?.program === program);
+      const current = this.clusters.find(c => c?.id === cluster.id);
+      const fresh = cbBrowserIdentityStatus(current);
+      if (!status || !member?.groupId || !groups.some(g => g?.id === member.groupId)
+        || this.ws !== receipt.ws || this.activitySettingsConnectionGeneration !== receipt.connectionGeneration
+        || !this.desktopRouteIsReady() || !fresh || fresh.generation !== status.generation
+        || !current.members.some(m => m?.program === program && m.groupId === member.groupId)) continue;
+      if (!this.sendWS({ kind: "group-sync", program, groupId: member.groupId,
+        browserIdentitySnapshotApplied: { generation: status.generation } })) continue;
+      this.browserIdentityApplied.set(cluster.id, { generation: status.generation, groupId: member.groupId, ...receipt });
+    }
+    await chrome.storage.local.set({ [CB_CLUSTER_COPY_KEY]: cbClusterCopy.map(cbClusterIdentityCopy) });
+    await cbContributeJoins(clusters);
+    await cbReplayBrowserIdentityEditsLocked(clusters);
+    cbShareStoredGroups((await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY]);
+    cbScheduleRecheck({ definitionChanged: true });
+  },
+
+  unlinkBrowserBudgetGroup(group) {
+    const cluster = cbPreflightBrowserRemoval(group);
+    if (!cluster) return Promise.resolve();
+    const existing = [...this.pendingBrowserUnlinks.values()].find(item => item.groupId === group.id && item.clusterId === cluster.id
+      && item.ws === this.ws && item.connectionGeneration === this.activitySettingsConnectionGeneration);
+    if (existing) return existing.promise;
+    if (this.pendingBrowserUnlinks.size >= 64) return Promise.reject(new Error("browser-sync-required"));
+    const requestID = self.VaultClassifierExtensionContract.randomID("unlink").slice(0, 128);
+    let resolve, reject;
+    const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+    const pending = { requestID, groupId: group.id, clusterId: cluster.id, ws: this.ws,
+      connectionGeneration: this.activitySettingsConnectionGeneration, resolve, reject, promise };
+    pending.timer = setTimeout(() => this.finishBrowserUnlink(pending, new Error("browser-sync-required")), this.browserUnlinkTimeoutMs);
+    this.pendingBrowserUnlinks.set(requestID, pending);
+    if (!this.sendWS({ kind: "group-unlink", requestID, groupId: group.id })) this.finishBrowserUnlink(pending, new Error("browser-connect-required"));
+    return promise;
+  },
+
+  finishBrowserUnlink(pending, error = null) {
+    if (this.pendingBrowserUnlinks.get(pending.requestID) !== pending) return;
+    this.pendingBrowserUnlinks.delete(pending.requestID);
+    clearTimeout(pending.timer);
+    if (error) pending.reject(error); else pending.resolve();
+  },
+
+  receiveBrowserUnlink(message) {
+    const pending = typeof message.requestID === "string" && this.pendingBrowserUnlinks.get(message.requestID);
+    if (!pending || message.groupId !== pending.groupId || this.ws !== pending.ws
+      || this.activitySettingsConnectionGeneration !== pending.connectionGeneration) return;
+    if (message.ok !== true) {
+      this.finishBrowserUnlink(pending, new Error(typeof message.error === "string" && message.error ? message.error : "browser-sync-required"));
+      return;
+    }
+    const membership = this.membershipApplyTail;
+    const shared = this.sharedApplyTail;
+    Promise.all([membership, shared]).then(() => cbWithDefinitionMutation(async () => {
+      if (this.ws !== pending.ws || this.activitySettingsConnectionGeneration !== pending.connectionGeneration
+        || !this.desktopRouteIsReady() || cbBrowserIdentityCluster({ id: pending.groupId })
+        || cbBrowserIdentityCluster({ id: pending.groupId }, cbClusterCopy)) throw new Error("browser-sync-required");
+      const saved = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [], [CB_CLUSTER_COPY_KEY]: [] });
+      if (cbBrowserIdentityCluster({ id: pending.groupId }, saved[CB_CLUSTER_COPY_KEY])) throw new Error("browser-sync-required");
+      const group = saved[BLOCKED_GROUPS_KEY].find(item => item?.id === pending.groupId);
+      if (group && (group.scopes || []).some(line => CBGroupScopes.lineOwner(line) !== "browser")) throw new Error("browser-sync-required");
+    })).then(() => this.finishBrowserUnlink(pending), error => this.finishBrowserUnlink(pending, new Error(error?.message || "browser-sync-required")));
   },
 
   sendWS(obj) {
@@ -3791,6 +4120,8 @@ const cbConnection = {
   },
 
   invalidateActivitySettingsConnection() {
+    for (const pending of [...this.pendingBrowserUnlinks.values()]) this.finishBrowserUnlink(pending, new Error("browser-connect-required"));
+    this.browserIdentityApplied.clear();
     globalThis.CBRuleTime?.disconnect();
     this.activitySettingsConnectionGeneration += 1;
     this.activitySettingsNotifications = false;
@@ -3947,11 +4278,19 @@ const cbConnection = {
           this.setStatus({ state: "error", error: "protocol-mismatch", peers: [], hubProgram: "" });
           break;
         }
+        if (self.CBLocalHubAuthentication?.legacyAuthenticationAllowed?.() === false && msg.browserIdentityVersion !== 1) {
+          this.desired = false;
+          this.clearTimers();
+          this.closeSocket();
+          this.setStatus({ state: "error", error: "browser-identity-upgrade-required", peers: [], hubProgram: "" });
+          break;
+        }
         if (this.connectTimer) {
           clearTimeout(this.connectTimer);
           this.connectTimer = null;
         }
         this.handshakeComplete = true;
+        this.browserIdentityVersion = msg.browserIdentityVersion === 1 ? 1 : 0;
         this.activitySettingsNotifications = msg.activitySettingsNotifications === true
           && ["macapp", "windowsapp"].includes(msg.hubProgram);
         this.usageTransferReceipts = msg.usageTransferReceipts === true;
@@ -3986,6 +4325,12 @@ const cbConnection = {
       case "rosters":
         this.rosters = msg.rosters && typeof msg.rosters === "object" ? msg.rosters : {};
         this.broadcastClusters();
+        break;
+      case "group-unlink-response":
+        this.receiveBrowserUnlink(msg);
+        break;
+      case "group-sync-refused":
+        try { chrome.runtime.sendMessage({ type: "group-sync-refused", reason: String(msg.reason || ""), groupId: String(msg.groupId || "") }).catch(() => {}); } catch (_) {}
         break;
       case "link-refused":
         try { chrome.runtime.sendMessage({ type: "link-refused", reason: String(msg.reason || ""), groupId: String(msg.groupId || "") }).catch(() => {}); } catch (_) {}
@@ -4058,24 +4403,31 @@ const cbConnection = {
     if (!socket || socket.readyState !== WebSocket.OPEN || this.handshakeComplete) return;
     const program = cbDetectProgramId();
     self.CBLocalHubAuthentication.proofForChallenge(program, challenge)
-      .then((proof) => {
+      .then((credentials) => {
         if (this.ws !== socket || socket.readyState !== WebSocket.OPEN || this.handshakeComplete) return;
-        socket.send(JSON.stringify({
+        const hello = {
           kind: "hello",
           v: CB_CONNECTION_PROTOCOL_VERSION,
           program,
           challenge,
-          proof
-        }));
+          proof: credentials.proof
+        };
+        if (credentials.browserIdentity) {
+          hello.browserIdentityVersion = 1;
+          hello.browserIdentity = credentials.browserIdentity;
+        }
+        socket.send(JSON.stringify(hello));
       })
-      .catch(() => this.authenticationFailed());
+      .catch((error) => this.authenticationFailed(error?.code));
   },
 
-  authenticationFailed() {
+  authenticationFailed(reason) {
     this.clearTimers();
     this.closeSocket();
     this.burstStartMs = 0;
-    this.setStatus({ state: "error", error: "authentication-unavailable", peers: [], hubProgram: "" });
+    const error = ["browser-identity-upgrade-required", "invalid-browser-identity"].includes(reason)
+      ? reason : "authentication-unavailable";
+    this.setStatus({ state: "error", error, peers: [], hubProgram: "" });
     this.scheduleSlowRetry();
   },
 
@@ -4151,6 +4503,7 @@ async function cbLockGroupForTool(input) {
   const index = groups.findIndex((group) => group.id === input.id);
   if (index < 0) throw new Error("group-not-found");
   let group = groups[index];
+  cbAssertBrowserIdentityEdit(group);
   const pin = input.pin === undefined ? undefined : String(input.pin);
   if (pin !== undefined && !CBParentalPin.isValidParentalPin(pin)) throw new Error("invalid-pin: 6 digits");
   let pinFields;
@@ -4205,6 +4558,7 @@ async function cbUnlockGroupForTool(input) {
   const index = groups.findIndex((group) => group.id === input.id);
   if (index < 0) throw new Error("group-not-found");
   const group = groups[index];
+  cbAssertBrowserIdentityEdit(group);
   const now = Date.now();
   const plan = CBGroupActions.unlockPlan(group, now);
   if (plan.error) throw new Error(plan.waitUntilMs ? `wait-until:${new Date(plan.waitUntilMs).toISOString()}` : plan.error);
@@ -4233,6 +4587,7 @@ async function cbSnoozeGroupForTool(input) {
     await cbFireSnoozePress(group.id);
     return { snoozePressed: true };
   }
+  cbAssertBrowserIdentityEdit(group);
   const now = Date.now();
   const plan = CBGroupActions.snoozePlan(group, groupSnoozes[group.id], now);
   if (plan.error) throw new Error(plan.error);
@@ -4241,10 +4596,14 @@ async function cbSnoozeGroupForTool(input) {
   return { snoozed: true, snooze: await cbStartSnooze(group.id, Date.now()) };
 }
 
-async function cbEndSnoozeForTool(input) {
+function cbEndSnoozeForTool(input) {
+  return cbWithDefinitionMutation(() => cbEndSnoozeForToolLocked(input));
+}
+async function cbEndSnoozeForToolLocked(input) {
   const { groups, groupSnoozes } = await getState();
   const group = groups.find((item) => item.id === input.id);
   if (!group) throw new Error("group-not-found");
+  cbAssertBrowserIdentityEdit(group);
   const now = Date.now();
   const result = CBGroupActions.endSnoozeEntry(groupSnoozes[group.id], now);
   if (result.error) throw new Error(result.error);
@@ -4266,6 +4625,7 @@ async function cbSetLockGatesForTool(input) {
   const index = groups.findIndex((group) => group.id === input.id);
   if (index < 0) throw new Error("group-not-found");
   const group = groups[index];
+  cbAssertBrowserIdentityEdit(group);
   // A locked group's gates change only after unlocking (checked before any PIN
   // is tried, so a refusal never costs an attempt).
   if (CBGroupActions.isLocked(group)) throw new Error("group-locked");
@@ -4285,8 +4645,10 @@ async function cbSetLockGatesForTool(input) {
 
 // "Delete all" through the editor's gates: no wait holding on any locked
 // group, each distinct PIN once, then the confirmation.
-async function cbDeleteAllForTool(input) {
+async function cbPrepareDeleteAllForToolLocked(input) {
   const { groups } = await getState();
+  if (groups.some(cbEnforceOnly)) throw new Error("desktop-vault-away");
+  for (const group of groups) cbPreflightBrowserRemoval(group);
   const now = Date.now();
   const plan = CBGroupActions.deleteAllPlan(groups, now);
   if (plan.error) throw new Error(plan.waitUntilMs ? `wait-until:${new Date(plan.waitUntilMs).toISOString()}` : plan.error);
@@ -4301,12 +4663,31 @@ async function cbDeleteAllForTool(input) {
     return undefined;
   });
   if (!step.done) return { deleted: false, confirmationsLeft: step.left, confirmAfterSeconds: plan.intervalMs / 1000, next: CB_CONFIRM_NEXT };
-  await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: [] });
-  return { deleted: groups.length };
+  return { groups, tag };
+}
+async function cbDeleteAllForTool(input) {
+  const prepared = await cbWithDefinitionMutation(() => cbPrepareDeleteAllForToolLocked(input));
+  if (!prepared.groups) return prepared;
+  await cbAdmitAffectedRemovals(prepared.groups);
+  return cbWithDefinitionMutation(async () => {
+    const groups = (await getState()).groups;
+    if (groups.some(cbEnforceOnly)) throw new Error("desktop-vault-away");
+    const plan = CBGroupActions.deleteAllPlan(groups, Date.now());
+    const sameIds = cbDefinitionJSON(groups.map(group => group.id).sort()) === cbDefinitionJSON(prepared.groups.map(group => group.id).sort());
+    const old = new Map(prepared.groups.map(group => [group.id, CBGroupActions.lockUnit(group)]));
+    if (!sameIds || plan.error || (plan.pinHashes.join(",") || "no-pin") !== prepared.tag
+      || groups.some(group => cbDefinitionJSON(CBGroupActions.lockUnit(group)) !== cbDefinitionJSON(old.get(group.id)))) throw new Error("group-delete-gates-changed");
+    await cbWriteDefinitionStoreLocked({ [BLOCKED_GROUPS_KEY]: [] });
+    return { deleted: groups.length };
+  });
 }
 
-const CB_DEFINITION_TOOL_OPERATIONS = new Set(["settings-create-group", "settings-set-group", "settings-delete-group", "settings-lock-group", "settings-unlock-group", "settings-set-lock-gates", "settings-delete-all", "settings-move-group"]);
-function cbBrowserRequestBody(operation, body) {
+const CB_DEFINITION_TOOL_OPERATIONS = new Set(["settings-create-group", "settings-set-group", "settings-delete-group", "settings-lock-group", "settings-unlock-group", "settings-set-lock-gates", "settings-move-group"]);
+async function cbBrowserRequestBody(operation, body) {
+  if (operation === "settings-delete-group") {
+    const group = await cbWithDefinitionMutation(async () => (await getState()).groups.find(group => group.id === body?.id));
+    if (group) await cbPrepareEditorRemovals({ changes: [CBGroupScopes.editorChange(group, null, "browser")] });
+  }
   return CB_DEFINITION_TOOL_OPERATIONS.has(operation)
     ? cbWithDefinitionMutation(() => cbBrowserRequestBodyLocked(operation, body))
     : cbBrowserRequestBodyLocked(operation, body);
@@ -4684,6 +5065,7 @@ async function cbMeasureBridge({ op = "bridge-info", count = 20, gapMs = 50, bod
 self.CBVaultMeasureBridge = cbMeasureBridge;
 
 async function cbApplyEditorRequest(input) {
+  if ((input?.changes || []).some(change => change?.delete)) await cbPrepareEditorRemovals(input);
   return cbWithDefinitionMutation(async () => {
     let groups = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
     groups = Array.isArray(groups) ? groups : [];
@@ -4699,6 +5081,14 @@ async function cbApplyEditorRequest(input) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== "string") return false;
   switch (message.type) {
+    case "set-group-snooze":
+      if (String(sender?.url || "").split(/[?#]/)[0] !== chrome.runtime.getURL("popup.html") || (sender?.id && sender.id !== chrome.runtime.id)) {
+        sendResponse({ ok: false, error: "editor-only" }); return false;
+      }
+      cbPersistEditorSnooze(String(message.groupId || ""), message.entry)
+        .then(snooze => sendResponse({ ok: true, snooze }))
+        .catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
+      return true;
     case "editor-definition-edit":
       if (String(sender?.url || "").split(/[?#]/)[0] !== chrome.runtime.getURL("popup.html") || (sender?.id && sender.id !== chrome.runtime.id)) {
         sendResponse({ ok: false, error: "editor-only" }); return false;
@@ -4713,8 +5103,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
     // The editor's Link / Unlink buttons (owner 2026-09-27: links are made by
     // the user, never by names).
+    case "group-unlink": {
+      const groupId = String(message.groupId || "");
+      const cluster = cbBrowserIdentityCluster({ id: groupId }) || cbBrowserIdentityCluster({ id: groupId }, cbClusterCopy);
+      if (cbBrowserIdentityStatus(cluster)?.affectsBrowserBudget !== false && cbBrowserIdentityStatus(cluster) !== null) {
+        chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }).then(store => {
+          const group = store[BLOCKED_GROUPS_KEY].find(item => item?.id === groupId);
+          if (!group) throw new Error("group-not-found");
+          return cbConnection.unlinkBrowserBudgetGroup(group);
+        }).then(() => sendResponse({ ok: true }), error => sendResponse({ ok: false, error: String(error?.message || error) }));
+        return true;
+      }
+      if (!cbConnection.desktopRouteIsReady()) { sendResponse({ ok: false, error: "desktop-unavailable" }); return false; }
+      sendResponse({ ok: cbConnection.sendWS({ kind: "group-unlink", groupId }) });
+      return false;
+    }
     case "group-link":
-    case "group-unlink":
       if (!cbConnection.desktopRouteIsReady()) { sendResponse({ ok: false, error: "desktop-unavailable" }); return false; }
       cbConnection.sendWS(message.type === "group-link"
         ? { kind: "group-link", groupId: String(message.groupId || ""), targetProgram: String(message.targetProgram || ""), targetGroupId: String(message.targetGroupId || "") }

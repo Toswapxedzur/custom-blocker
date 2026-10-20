@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Terms · {count} entries · {version}",
   "classifier.dictionary.creatorSummary": "Creators · {summary} · {version}",
   "classifier.dictionary.configure": "Configure dictionaries",
-  "safari.app.quit": "Quit Safari Vault"
+  "safari.app.quit": "Quit Safari Vault",
+  "link.browserUpgradeRequired": "Update the browser Vault extension to resume this budget. Its settings and usage are preserved.",
+  "link.browserIdentitySyncPending": "This linked budget is still syncing. Try again when syncing finishes.",
+  "link.browserIdentityPendingEditsInvalid": "Saved pending edits could not be read. The saved settings and usage have been preserved.",
+  "link.browserConnectRequired": "Connect the browser Vault extension before unlinking this budget. Saved settings and usage are preserved."
 }
