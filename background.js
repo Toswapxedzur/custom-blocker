@@ -4278,7 +4278,9 @@ const cbConnection = {
           this.setStatus({ state: "error", error: "protocol-mismatch", peers: [], hubProgram: "" });
           break;
         }
-        if (self.CBLocalHubAuthentication?.legacyAuthenticationAllowed?.() === false && msg.browserIdentityVersion !== 1) {
+        // Safari's authenticated ordinary association has no extra browser
+        // proof requirement, including when the v4 hub lacks that capability.
+        if (cbDetectProgramId() !== "safari" && self.CBLocalHubAuthentication?.legacyAuthenticationAllowed?.() === false && msg.browserIdentityVersion !== 1) {
           this.desired = false;
           this.clearTimers();
           this.closeSocket();
