@@ -3189,12 +3189,45 @@ function cbClusterIdentityCopy(cluster) {
   return copy;
 }
 
+const CB_BROWSER_IDENTITY_INTENTS_MAX_BYTES = 1024 * 1024;
+function cbValidateBrowserIdentityIntents(value, groups) {
+  const invalid = () => { throw new Error("browser-identity-pending-edits-invalid"); };
+  const object = item => item && typeof item === "object" && !Array.isArray(item);
+  if (!object(value)) return invalid();
+  let bytes;
+  try { bytes = new TextEncoder().encode(JSON.stringify(value)).length; } catch (_) { return invalid(); }
+  if (bytes > CB_BROWSER_IDENTITY_INTENTS_MAX_BYTES) throw new Error("browser-identity-pending-edits-too-large");
+  const ids = new Set((groups || []).filter(group => group?.id).map(group => group.id));
+  if (Object.keys(value).length > ids.size) return invalid();
+  for (const [id, intent] of Object.entries(value)) {
+    if (!ids.has(id) || !object(intent) || Object.keys(intent).some(key => !["clusterId", "base", "change", "error"].includes(key))
+      || typeof intent.clusterId !== "string" || !intent.clusterId || intent.clusterId.length > 256
+      || !object(intent.base) || intent.base.id !== id || !Array.isArray(intent.base.scopes)
+      || !object(intent.change) || intent.change.id !== id || intent.change.create || intent.change.delete
+      || Object.keys(intent.change).some(key => !["id", "lock", "fields", "lines"].includes(key))
+      || !object(intent.change.lock) || !object(intent.change.fields) || !object(intent.change.fields.set)
+      || !Array.isArray(intent.change.fields.remove) || !Array.isArray(intent.change.lines)
+      || (intent.error !== undefined && (typeof intent.error !== "string" || intent.error.length > 256))) return invalid();
+    const base = CBGroupScopes.sanitizeGroups([intent.base])[0];
+    const fields = new Set([...Object.keys(base || {}), ...CB_SYNC_SCALAR_FIELDS, ...CBGroupActions.LOCK_FIELDS, "lockSyncedVersion"]);
+    if (!base || Object.keys(intent.change.fields.set).some(key => !fields.has(key))
+      || intent.change.fields.remove.some(key => typeof key !== "string" || !fields.has(key))
+      || cbDefinitionJSON(intent.change.lock) !== cbDefinitionJSON(CBGroupActions.lockUnit(CBGroupScopes.editorEffectiveGroup(intent.base)))) return invalid();
+    try {
+      // Validation against the retained baseline checks browser-only line
+      // patches. Replay separately rechecks the current canonical lock.
+      CBGroupScopes.applyEditorRequest([intent.base], { changes: [intent.change] }, "browser", { nowMs: Date.now() });
+    } catch (_) { return invalid(); }
+  }
+  return value;
+}
+
 // At most one pending intent per linked group, committed with the original
 // edit. Repeated edits replace that bounded field/scope patch. Explicit edits
 // to a paused group fail before storage; only bootstrap/in-flight edits wait.
 async function cbRetainBrowserIdentityEditsLocked(before, after, writes) {
   const stored = await chrome.storage.local.get({ [CB_BROWSER_IDENTITY_INTENTS_KEY]: {} });
-  const intents = { ...(stored[CB_BROWSER_IDENTITY_INTENTS_KEY] || {}) };
+  const intents = { ...cbValidateBrowserIdentityIntents(stored[CB_BROWSER_IDENTITY_INTENTS_KEY], before) };
   const old = new Map((before || []).map(group => [group?.id, group]));
   const present = new Set((after || []).map(group => group?.id));
   let changed = false;
@@ -3214,13 +3247,14 @@ async function cbRetainBrowserIdentityEditsLocked(before, after, writes) {
     intents[group.id] = { clusterId: cluster.id, base, change: CBGroupScopes.editorChange(base, group, "browser") };
     changed = true;
   }
+  if (changed) cbValidateBrowserIdentityIntents(intents, after);
   return changed ? { ...writes, [CB_BROWSER_IDENTITY_INTENTS_KEY]: intents } : writes;
 }
 
 async function cbReplayBrowserIdentityEditsLocked(clusters) {
   const stored = await chrome.storage.local.get({ [CB_BROWSER_IDENTITY_INTENTS_KEY]: {}, [BLOCKED_GROUPS_KEY]: [] });
-  const intents = { ...(stored[CB_BROWSER_IDENTITY_INTENTS_KEY] || {}) };
   let groups = Array.isArray(stored[BLOCKED_GROUPS_KEY]) ? stored[BLOCKED_GROUPS_KEY] : [];
+  const intents = { ...cbValidateBrowserIdentityIntents(stored[CB_BROWSER_IDENTITY_INTENTS_KEY], groups) };
   let changed = false;
   for (const [id, intent] of Object.entries(intents)) {
     const group = groups.find(group => group?.id === id);
@@ -3791,6 +3825,15 @@ const cbConnection = {
   },
 
   async applySharedSnapshotToStorageLocked(clusters, receipt) {
+    try {
+      const pending = await chrome.storage.local.get({ [CB_BROWSER_IDENTITY_INTENTS_KEY]: {}, [BLOCKED_GROUPS_KEY]: [] });
+      cbValidateBrowserIdentityIntents(pending[CB_BROWSER_IDENTITY_INTENTS_KEY], pending[BLOCKED_GROUPS_KEY]);
+    } catch (error) {
+      for (const cluster of Array.isArray(clusters) ? clusters : []) this.browserIdentityApplied.delete(cluster?.id);
+      try { chrome.runtime.sendMessage({ type: "group-sync-refused", reason: String(error?.message || error) }).catch(() => {}); } catch (_) {}
+      cbScheduleRecheck({ definitionChanged: true });
+      return;
+    }
     let definition;
     try { definition = await this.adoptSharedDefinitionLocked(clusters); }
     catch (_) { return; }

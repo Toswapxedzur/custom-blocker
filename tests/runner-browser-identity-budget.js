@@ -167,6 +167,21 @@ async function restore(env) {
   const retainedLockError=(await locked.ctx.chrome.storage.local.get("cbBrowserIdentityDefinitionIntents")).cbBrowserIdentityDefinitionIntents.L;
   check(retainedLockError.error?.includes("group-lock-changed"), "refused bootstrap patch retains one bounded actionable diagnostic instead of repeated retries");
 
+  for (const kind of ["null-record", "array-root", "oversize"]) {
+    const corrupt = await setup();
+    const original = await state(corrupt);
+    const base = clone(original.blockedGroups[0]);
+    const change = corrupt.run("CBGroupScopes.editorChange")(base, { ...base, name: "中".repeat(350000) }, "browser");
+    const bytes = kind === "null-record" ? { L: null } : kind === "array-root" ? [] : { L: { clusterId: "c1", base, change } };
+    await corrupt.ctx.chrome.storage.local.set({ cbBrowserIdentityDefinitionIntents: bytes });
+    await frame(corrupt, snapshot({ ready: true }));
+    const preserved = await state(corrupt);
+    check(!ack(corrupt).length && JSON.stringify(preserved) === JSON.stringify(original)
+      && JSON.stringify((await corrupt.ctx.chrome.storage.local.get("cbBrowserIdentityDefinitionIntents")).cbBrowserIdentityDefinitionIntents) === JSON.stringify(bytes),
+      `${kind}: invalid retained bytes refuse adoption/ACK and preserve original definition, usage and edit bytes`);
+    await assert.rejects(edit(corrupt, { name: "Must not overwrite retained bytes" }), /browser-identity-pending-edits-(invalid|too-large)/);
+  }
+
   const bad = await setup();
   const malformed = snapshot({ ready: true });
   malformed.shared.browserIdentityStatus.canonicalEnabled = "true";
