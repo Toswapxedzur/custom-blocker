@@ -80,7 +80,14 @@ function connection(credentials, legacy = true, program = "chrome") {
       ? safari.sent.length === 1 && safari.sent[0].program === "safari" && safari.sent[0].proof === response.proof
         && !Object.hasOwn(safari.sent[0], "browserIdentity") && !Object.hasOwn(safari.sent[0], "browserIdentityVersion")
       : safari.sent.length === 0 && safari.closed === 1);
+    if (succeeds) {
+      safari.client.handleMessage({ kind: "welcome", v: 4, hubProgram: "macapp" });
+      assert("future ordinary Safari accepts authenticated v4 welcome without extra identity capability", safari.client.status.state === "connected" && safari.closed === 0);
+    }
   }
+  const wrongSafariProtocol = connection({ proof: "s".repeat(43), browserIdentity: null }, false, "safari");
+  wrongSafariProtocol.client.handleMessage({ kind: "welcome", v: 3, hubProgram: "macapp" });
+  assert("Safari ordinary association still rejects protocol downgrade", wrongSafariProtocol.client.status.error === "protocol-mismatch" && wrongSafariProtocol.closed === 1);
   let release;
   const stale = connection(null);
   stale.context.CBLocalHubAuthentication.proofForChallenge = () => new Promise(resolve => { release = resolve; });
