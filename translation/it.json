@@ -382,8 +382,8 @@
   "status.errorImportGroup": "Impossibile importare un gruppo di blocchi dagli appunti.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\ncanale/UC...",
   "logFeed.title": "Registro attività",
-  "logFeed.hint": "Output di v.log() nella regola personalizzata di questo gruppo.",
-  "logFeed.empty": "Questa regola non ha ancora prodotto output. Chiama v.log(\"hello\") in un gestore per aggiungere una voce.",
+  "logFeed.hint": "L’output v.log() di questa regola e gli errori di esecuzione o consegna.",
+  "logFeed.empty": "Questa regola non ha ancora voci di log.",
   "logFeed.clear": "Svuota registro",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault Classificatore",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Termini · {count} voci · {version}",
   "classifier.dictionary.creatorSummary": "Creator · {summary} · {version}",
   "classifier.dictionary.configure": "Configura i dizionari",
-  "safari.app.quit": "Esci da Safari Vault"
+  "safari.app.quit": "Esci da Safari Vault",
+  "link.browserUpgradeRequired": "Aggiorna l’estensione browser Vault per riprendere questo budget. Le impostazioni e l’utilizzo vengono conservati.",
+  "link.browserIdentitySyncPending": "Questo budget collegato è ancora in sincronizzazione. Riprova al termine della sincronizzazione.",
+  "link.browserIdentityPendingEditsInvalid": "Impossibile leggere le modifiche in sospeso salvate. Le impostazioni e l’utilizzo salvati sono stati conservati.",
+  "link.browserConnectRequired": "Connetti l’estensione browser Vault prima di scollegare questo budget. Le impostazioni e l’utilizzo salvati vengono conservati."
 }

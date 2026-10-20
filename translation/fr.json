@@ -382,8 +382,8 @@
   "status.errorImportGroup": "Impossible d’importer un groupe de blocage depuis le presse-papiers.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nchannel/UC...",
   "logFeed.title": "Journal",
-  "logFeed.hint": "Sortie de v.log() dans la règle personnalisée de ce groupe.",
-  "logFeed.empty": "Aucune sortie de cette règle pour le moment. Appelez v.log(\"hello\") dans un gestionnaire pour ajouter une entrée.",
+  "logFeed.hint": "La sortie v.log() de cette règle et les erreurs d’exécution ou de transmission.",
+  "logFeed.empty": "Aucune entrée de journal de cette règle pour le moment.",
   "logFeed.clear": "Effacer",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault Classificateur",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Termes · {count} entrées · {version}",
   "classifier.dictionary.creatorSummary": "Créateurs · {summary} · {version}",
   "classifier.dictionary.configure": "Configurer les dictionnaires",
-  "safari.app.quit": "Quitter Safari Vault"
+  "safari.app.quit": "Quitter Safari Vault",
+  "link.browserUpgradeRequired": "Mettez à jour l’extension de navigateur Vault pour reprendre ce budget. Ses paramètres et son utilisation sont conservés.",
+  "link.browserIdentitySyncPending": "Ce budget lié est encore en cours de synchronisation. Réessayez une fois la synchronisation terminée.",
+  "link.browserIdentityPendingEditsInvalid": "Impossible de lire les modifications en attente enregistrées. Les paramètres et l’utilisation enregistrés ont été conservés.",
+  "link.browserConnectRequired": "Connectez l’extension de navigateur Vault avant de dissocier ce budget. Les paramètres et l’utilisation enregistrés sont conservés."
 }

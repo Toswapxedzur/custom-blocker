@@ -382,8 +382,8 @@
   "status.errorImportGroup": "Не удалось импортировать группу блоков из буфера обмена.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nканал/UC...",
   "logFeed.title": "Журнал действий",
-  "logFeed.hint": "Вывод v.log() в пользовательском правиле этой группы.",
-  "logFeed.empty": "Пока нет событий. Выполните действие (например, нажмите «Начать паузу», переключите вкладку или нажмите «Запустить»), чтобы увидеть записи.",
+  "logFeed.hint": "Вывод v.log() этого правила и ошибки выполнения или доставки.",
+  "logFeed.empty": "У этого правила пока нет записей в журнале.",
   "logFeed.clear": "Очистить журнал",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Классификатор Vault",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Термины · записей: {count} · {version}",
   "classifier.dictionary.creatorSummary": "Авторы · {summary} · {version}",
   "classifier.dictionary.configure": "Настроить словари",
-  "safari.app.quit": "Завершить Safari Vault"
+  "safari.app.quit": "Завершить Safari Vault",
+  "link.browserUpgradeRequired": "Обновите расширение Vault для браузера, чтобы возобновить этот бюджет. Его настройки и использование сохранятся.",
+  "link.browserIdentitySyncPending": "Этот связанный бюджет ещё синхронизируется. Повторите попытку после завершения синхронизации.",
+  "link.browserIdentityPendingEditsInvalid": "Не удалось прочитать сохранённые ожидающие изменения. Настройки и данные об использовании сохранены.",
+  "link.browserConnectRequired": "Подключите расширение Vault для браузера, прежде чем разрывать связь этого бюджета. Сохранённые настройки и использование сохранятся."
 }

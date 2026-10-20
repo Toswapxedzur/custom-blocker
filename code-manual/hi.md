@@ -4,7 +4,7 @@
 
 ## नियम अनुबंध
 
-स्रोत: एक function expression `(on, v) => { ... }`। केवल synchronous JavaScript और नीचे दिया API समर्थित है; timer, network, extension API या सीधे DOM तक पहुँच नहीं। समय-आधारित नियम `ev.now` और events का उपयोग करते हैं।
+स्रोत: एक function expression `(on, v) => { ... }`। केवल synchronous JavaScript और नीचे दिया API समर्थित है; JavaScript के scheduling callbacks, network, extension API या सीधे DOM तक पहुँच नहीं है। समय-आधारित नियम नीचे दिए प्रबंधित timer/tracker या `ev.now` और events का उपयोग करते हैं।
 
 - संपादन draft सहेजता है; **Run** नियम सक्रिय कर समूह सक्षम करता है। फ़्रीज़ समूह Run नहीं कर सकते। खाली source नियम unload करता है।
 - सफल Run handlers और panels बदलता है तथा `v.state` बचाए रखता है। Compile/registration विफल होने पर पिछला नियम रहता है; timeout इसे रोक सकता है। Engine reload होने पर अंतिम सक्रिय source फिर register होता है; closure variables reset होते हैं।
@@ -16,12 +16,45 @@
 
 - `on(type, handler)` → boolean। `handler(ev)` register करता है; कई handlers registration order में चलते हैं। False का अर्थ invalid arguments या handler limit पूरा। `ev = { type: string, now: number, data }`; `now` Unix milliseconds है।
 - `v.state`: mutable JSON object, event dispatch के बाद सहेजा जाता है। मौजूदा state को बदलने के बजाय missing fields initialize करें। Non-object या array देने पर `{}` होता है; nonserializable/अत्यधिक बड़ा update सहेजा नहीं जाता।
-- `v.log(...values)`: इस group के Log में लिखता है। रिपोर्ट किए गए page-action errors भी यहाँ दिखते हैं; उन actions को दोबारा नहीं चलाया जाता। Logs/Clear प्रति group अलग हैं। Load errors Run status में दिखते हैं; अन्य handler diagnostics Log में नहीं आते।
+- `v.log(...values)`: इस group के Log में लिखता है। Handler errors और रिपोर्ट किए गए page-action errors भी यहाँ दिखते हैं; रिपोर्ट करने से actions दोबारा नहीं चलते। Logs/Clear हर group के लिए अलग हैं। Load errors Run status में दिखते हैं।
 - `v.emit(type, data)`: मौजूदा event के बाद इस group के handlers के लिए `data` की JSON copy queue करता है, नए `now` के साथ; यह synchronous call नहीं है।
 - `v.panel(id, spec, tabId?)`: group का नामित panel बदलता है; सभी उपलब्ध web pages के लिए `tabId` छोड़ें या integer tab ID दें। Null `spec` हटाता है। Panels देखें।
 - `v.file(op, path, payload?)` → request ID string। Files देखें।
 
-अन्य साझा calls `undefined` लौटाते हैं। ID/state एक group के हैं, display name के नहीं।
+नीचे दी गई नामित प्रबंधित समय-ऑब्जेक्ट बनाने वाली factories को छोड़कर अन्य साझा calls `undefined` लौटाती हैं। ID/state एक group के हैं, उसके display name के नहीं।
+
+## प्रबंधित टाइमर और चलती समय-सीमा का उपयोग
+
+`v.timer(id, {direction:"down", durationMs:300000})` एक नामित countdown बनाता है या मौजूदा countdown लौटाता है, जो शुरुआत में paused होता है। Count-up timer के लिए `{direction:"up"}` इस्तेमाल करें। Handle में `start()`, `pause()`, `resume()`, `reset()` और `snapshot()` हैं। Start/resume को बार-बार बुलाने से अतिरिक्त असर नहीं होता; reset समय को शून्य elapsed वाली paused स्थिति में लौटाता है। Snapshot fields में `ready`, `error`, `elapsedMs`, `remainingMs` (count-up के लिए null), `running` और `completed` शामिल हैं।
+
+चलते timer app/browser बंद होने या rule disabled होने पर भी घड़ी के वास्तविक समय के अनुसार आगे बढ़ते हैं। पूरा हुआ countdown हर timer incarnation और generation के लिए हर member का rule अगली बार चलने पर एक बार `timerEnded` के साथ `{id, direction, durationMs, generation, incarnation}` देता है; Run इसे फिर नहीं देता। Delivery host events पर निर्भर है; यह real-time alarm नहीं है। मौजूदा text control से दिखाने के लिए panel में `{type:"timer", timerId:"focus", label:"Focus"}` रखें।
+
+`v.rolling(id, {windowMs:3600000, limitMs:600000})` एक नामित सक्रिय उपयोग tracker बनाता है या मौजूदा tracker लौटाता है। `assign({websites:["youtube.com","reddit.com"], apps:[]})` इस member के target assignments बदल देता है। Native rules इसके बदले platform app IDs दे सकते हैं। Domains में subdomains भी शामिल हैं। एक tracker अपने सभी targets का उपयोग मिलाकर गिनता है; अन्य IDs की allowance स्वतंत्र होती है। `snapshot()` से `ready`, `error`, `usedMs`, `remainingMs`, `available` और `nextReturnAtMs` (अगला millisecond जब कोई दर्ज उपयोग expire होगा) मिलते हैं। Target दिए जाने पर `available(target?)` assignment भी जाँचता है। `reset()` इस object का history मिटाता है।
+
+Allowance से अधिक उपयोग समेत सभी देखे गए पात्र उपयोग गिने जाते हैं; tracker स्वयं page/app block नहीं करता। दिखाई दे रहे pages के overlapping intervals एक बार गिने जाते हैं और native apps में देखा गया foreground उपयोग गिना जाता है। Disabled rules नया उपयोग नहीं जोड़ते; history फिर भी interval की सटीक सीमाओं पर expire होता रहता है। Availability तभी लौटती है जब बची हुई history का उपयोग limit से नीचे हो। Heartbeat samples अधिकतम पाँच सेकंड के होते हैं; shutdown/disabled gaps से काल्पनिक activity नहीं बनती। उपयोगकर्ता के emit किए events उपयोग नहीं जोड़ते।
+
+Linked custom groups में समान object IDs एक स्थानीय native hub के नियंत्रण को साझा करते हैं। Linking tracker history और assignments मिलाता है और linking शुरू करने वाले timer की state रखता है; असंगत configurations linking अस्वीकार करते हैं। हर member को अपना completion event मिलता है। Disconnect होने पर fresh authoritative जानकारी लौटने तक shared trackers unavailable होते हैं और timer controls अस्वीकार होते हैं। Unlink पर हर member अंतिम shared usage और timer state रखता है, अपने targets वापस पाता है और पुराने link के commands छोड़ देता है। लौटने वाला member अंतिम snapshot save करके acknowledgement देने तक hub उसे रखता है; नया link उपलब्ध होने से पहले pending handovers पूरे होते हैं।
+
+नामित objects Run और restart के बाद भी आरक्षित `v.state.$vaultTime` में रहते हैं; उस field को सीधे edit न करें। साफ़ तौर पर हटाने के लिए `v.removeTime(id)` इस्तेमाल करें। IDs में 1–80 ASCII अक्षर, अंक, `_` या `-` हो सकते हैं; आरक्षित property names अस्वीकार होते हैं। अधिकतम 32 objects rule की 64KiB UTF-8 state limit साझा करते हैं। Duration पूर्णांक millisecond में, अधिकतम 365 दिन है। Rolling history में अधिकतम 1024 minute buckets और 2048 merged intervals होते हैं। History capacity errors tracker को स्पष्ट reset तक unavailable रखते हैं; invalid configurations और oversized saves त्रुटियाँ बताते हैं, saved data मिटाते नहीं हैं।
+
+```js
+(on, v) => {
+  const timer = v.timer("focus", {durationMs: 300000});
+  v.panel("focus", {controls: [
+    {type: "timer", timerId: "focus", label: "Focus"},
+    {id: "start", type: "button", label: "Start"},
+    {id: "pause", type: "button", label: "Pause"},
+    {id: "reset", type: "button", label: "Reset"}
+  ]});
+  on("panel", ev => {
+    if (ev.data.eventName !== "click") return;
+    if (ev.data.controlId === "start") timer.start();
+    if (ev.data.controlId === "pause") timer.pause();
+    if (ev.data.controlId === "reset") timer.reset();
+  });
+  on("timerEnded", ev => v.log("Finished", ev.data.id));
+}
+```
 
 ## ब्राउज़र events
 
@@ -123,7 +156,7 @@ Unused result fields null; success में error खाली। Failures म�
 
 ## सीमाएँ
 
-प्रति event/group: 256 queued actions, 200 log calls, 64 emits; अतिरिक्त drop होते हैं। प्रति rule: 1000 handlers, 24 panels; हर control list में 32 entries और हर choice में 64 options; अतिरिक्त ignore/truncate। Emit chains 16 generations पर रुकते हैं। Serialized state limit 65536 JavaScript string characters। Registration और event के संयुक्त handlers 1 second से कम रखें; बार-बार अधिक समय या hard timeout rule को Run तक रोकता है। Log प्रति group 200 entries रखता है, 50/sec स्वीकारता है और लंबे संदेश लगभग 4096 characters पर काटता है। Timers/replies best-effort हैं, real-time guarantee नहीं।
+प्रति event/group: 256 queued actions, 200 log calls, 64 emits; अतिरिक्त drop होते हैं। प्रति rule: 1000 handlers, 24 panels; हर control list में 32 entries और हर choice में 64 options; अतिरिक्त ignore/truncate। Emit chains 16 generations पर रुकते हैं। Serialized state limit 65536 UTF-8 bytes। Registration और event के संयुक्त handlers 1 second से कम रखें; बार-बार अधिक समय या hard timeout group को Run तक रोकता है। Log प्रति group 200 entries रखता है, 50/sec स्वीकारता है और लंबे संदेश लगभग 4096 characters पर काटता है। Timers/replies best-effort हैं, real-time guarantee नहीं।
 
 ## पूरा नियम
 

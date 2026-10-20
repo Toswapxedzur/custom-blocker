@@ -382,8 +382,8 @@
   "status.errorImportGroup": "ਕਲਿੱਪਬੋਰਡ ਤੋਂ ਬਲਾਕ ਸਮੂਹ ਨੂੰ ਆਯਾਤ ਨਹੀਂ ਕੀਤਾ ਜਾ ਸਕਿਆ।",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nਚੈਨਲ/UC...",
   "logFeed.title": "ਗਤੀਵਿਧੀ ਲੌਗ",
-  "logFeed.hint": "ਇਸ ਸਮੂਹ ਦੇ ਕਸਟਮ ਨਿਯਮ ਵਿੱਚ v.log() ਦਾ ਆਉਟਪੁੱਟ।",
-  "logFeed.empty": "ਇਸ ਨਿਯਮ ਤੋਂ ਹਾਲੇ ਕੋਈ ਆਉਟਪੁੱਟ ਨਹੀਂ। ਐਂਟਰੀ ਜੋੜਨ ਲਈ ਹੈਂਡਲਰ ਵਿੱਚ v.log(\"hello\") ਕਾਲ ਕਰੋ।",
+  "logFeed.hint": "ਇਸ rule ਦਾ v.log() output ਅਤੇ execution ਜਾਂ delivery errors।",
+  "logFeed.empty": "ਇਸ rule ਤੋਂ ਹਾਲੇ ਕੋਈ log entry ਨਹੀਂ ਹੈ।",
   "logFeed.clear": "ਲੌਗ ਸਾਫ਼ ਕਰੋ",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault ਵਰਗੀਕਰਤਾ",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "ਸ਼ਬਦ · {count} ਐਂਟਰੀਆਂ · {version}",
   "classifier.dictionary.creatorSummary": "ਕ੍ਰੀਏਟਰ · {summary} · {version}",
   "classifier.dictionary.configure": "ਸ਼ਬਦਕੋਸ਼ ਕੌਂਫਿਗਰ ਕਰੋ",
-  "safari.app.quit": "Safari Vault ਬੰਦ ਕਰੋ"
+  "safari.app.quit": "Safari Vault ਬੰਦ ਕਰੋ",
+  "link.browserUpgradeRequired": "ਇਹ ਬਜਟ ਮੁੜ ਚਲਾਉਣ ਲਈ browser Vault extension ਅੱਪਡੇਟ ਕਰੋ। ਇਸ ਦੀਆਂ settings ਅਤੇ usage ਸੰਭਾਲੀਆਂ ਹੋਈਆਂ ਹਨ।",
+  "link.browserIdentitySyncPending": "ਇਹ linked ਬਜਟ ਹਾਲੇ sync ਹੋ ਰਿਹਾ ਹੈ। Sync ਪੂਰਾ ਹੋਣ ਉੱਤੇ ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+  "link.browserIdentityPendingEditsInvalid": "ਸੰਭਾਲੇ pending edits ਪੜ੍ਹੇ ਨਹੀਂ ਜਾ ਸਕੇ। ਸੰਭਾਲੀਆਂ settings ਅਤੇ usage ਸੁਰੱਖਿਅਤ ਰੱਖੀਆਂ ਗਈਆਂ ਹਨ।",
+  "link.browserConnectRequired": "ਇਹ ਬਜਟ unlink ਕਰਨ ਤੋਂ ਪਹਿਲਾਂ browser Vault extension ਕਨੈਕਟ ਕਰੋ। ਸੰਭਾਲੀਆਂ settings ਅਤੇ usage ਸੁਰੱਖਿਅਤ ਰਹਿਣਗੀਆਂ।"
 }
