@@ -382,8 +382,8 @@
   "status.errorImportGroup": "Nie można zaimportować grupy bloków ze schowka.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nkanał/UC...",
   "logFeed.title": "Dziennik aktywności",
-  "logFeed.hint": "Wynik v.log() w regule niestandardowej tej grupy.",
-  "logFeed.empty": "Ta reguła nie wygenerowała jeszcze wyniku. Wywołaj v.log(\"hello\") w procedurze obsługi, aby dodać wpis.",
+  "logFeed.hint": "Dane wyjściowe v.log() tej reguły oraz błędy wykonania lub dostarczenia.",
+  "logFeed.empty": "Ta reguła nie ma jeszcze wpisów w dzienniku.",
   "logFeed.clear": "Wyczyść dziennik",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault Klasyfikator",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Terminy · {count} wpisów · {version}",
   "classifier.dictionary.creatorSummary": "Twórcy · {summary} · {version}",
   "classifier.dictionary.configure": "Konfiguruj słowniki",
-  "safari.app.quit": "Zakończ Safari Vault"
+  "safari.app.quit": "Zakończ Safari Vault",
+  "link.browserUpgradeRequired": "Zaktualizuj rozszerzenie przeglądarki Vault, aby wznowić ten budżet. Jego ustawienia i użycie zostaną zachowane.",
+  "link.browserIdentitySyncPending": "Ten połączony budżet nadal się synchronizuje. Spróbuj ponownie po zakończeniu synchronizacji.",
+  "link.browserIdentityPendingEditsInvalid": "Nie można odczytać zapisanych oczekujących zmian. Zapisane ustawienia i użycie zostały zachowane.",
+  "link.browserConnectRequired": "Połącz rozszerzenie przeglądarki Vault przed rozłączeniem tego budżetu. Zapisane ustawienia i użycie zostaną zachowane."
 }

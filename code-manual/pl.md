@@ -4,7 +4,7 @@
 
 ## Zasady działania reguły
 
-Source: jedno wyrażenie funkcji `(on, v) => { ... }`. Obsługiwane są tylko synchroniczne JavaScript i poniższe API; bez timers, network, extension APIs i bezpośredniego dostępu do DOM. Reguły czasowe używają `ev.now` i events.
+Source: jedno wyrażenie funkcji `(on, v) => { ... }`. Obsługiwane są tylko synchroniczny JavaScript i poniższe API; bez wywołań zwrotnych harmonogramu JavaScript, sieci, API rozszerzeń i bezpośredniego dostępu do DOM. Reguły czasowe używają opisanych poniżej zarządzanych timerów/liczników lub `ev.now` i zdarzeń.
 
 - Edycja zapisuje wersję roboczą; **Run** aktywuje ją i włącza grupę. Zamrożonych grup nie można uruchomić przyciskiem Run. Puste source wyładowuje regułę.
 - Udane Run zastępuje handlers i panels, zachowując `v.state`. Błąd kompilacji/rejestracji pozostawia poprzednią regułę; timeout może ją zatrzymać. Po ponownym załadowaniu silnika rejestrowany jest ostatni aktywowany source; closure variables są resetowane.
@@ -16,12 +16,45 @@ Source: jedno wyrażenie funkcji `(on, v) => { ... }`. Obsługiwane są tylko sy
 
 - `on(type, handler)` → boolean. Rejestruje `handler(ev)`; wiele handlers działa w kolejności rejestracji. False oznacza nieprawidłowe argumenty lub osiągnięcie limitu handlers. `ev = { type: string, now: number, data }`; `now` to milisekundy Unix.
 - `v.state`: modyfikowalny obiekt JSON, zapisywany po event dispatch. Inicjalizuj brakujące fields zamiast nadpisywać istniejący state. Przypisanie non-object lub tablicy resetuje go do `{}`; aktualizacje niepodlegające serializacji lub zbyt duże nie są zapisywane.
-- `v.log(...values)`: zapisuje wpisy do Log tej grupy. Zgłoszone błędy działań na stronie także pojawiają się tutaj; te działania nie są powtarzane. Logs/Clear są niezależne dla grup. Błędy ładowania pojawiają się w statusie Run; pozostała diagnostyka handlerów nie trafia do Log.
+- `v.log(...values)`: zapisuje wpisy do Log tej grupy. Pojawiają się tu również błędy procedur obsługi i zgłoszone błędy działań na stronie; zgłoszenie nie powtarza działań. Logs/Clear są niezależne dla grup. Błędy ładowania pojawiają się w statusie Run.
 - `v.emit(type, data)`: umieszcza kopię JSON `data` w kolejce handlers tej grupy po bieżącym evencie, ze świeżym `now`; to nie jest wywołanie synchroniczne.
 - `v.panel(id, spec, tabId?)`: zastępuje nazwany panel grupy; pomiń `tabId` dla wszystkich dostępnych stron internetowych albo użyj całkowitego tab ID. Null `spec` usuwa panel. Zobacz Panels.
 - `v.file(op, path, payload?)` → string request ID. Zobacz Files.
 
-Pozostałe wspólne wywołania zwracają `undefined`. IDs/state należą do grupy, nie do jej nazwy wyświetlanej.
+Pozostałe wspólne wywołania zwracają `undefined`, z wyjątkiem opisanych poniżej funkcji tworzących nazwane zarządzane obiekty czasu. IDs/state należą do grupy, nie do jej nazwy wyświetlanej.
+
+## Zarządzane timery i użycie w ruchomym oknie
+
+`v.timer(id, {direction:"down", durationMs:300000})` tworzy lub zwraca nazwany licznik odliczający, początkowo wstrzymany. Użyj `{direction:"up"}` dla licznika zliczającego w górę. Uchwyt udostępnia `start()`, `pause()`, `resume()`, `reset()` i `snapshot()`. Start/resume są idempotentne; reset przywraca stan wstrzymany z zerowym czasem, który upłynął. Pola migawki obejmują `ready`, `error`, `elapsedMs`, `remainingMs` (null przy zliczaniu w górę), `running` i `completed`.
+
+Uruchomione timery odmierzają czas zegarowy także wtedy, gdy aplikacja/przeglądarka jest zamknięta lub reguła wyłączona. Zakończone odliczanie dostarcza `timerEnded` z `{id, direction, durationMs, generation, incarnation}` raz na wcielenie i generację timera każdemu członkowi przy następnym wykonaniu jego reguły; Run nie powtarza tego zdarzenia. Dostarczenie zależy od zdarzeń hosta; nie jest to alarm czasu rzeczywistego. Umieść `{type:"timer", timerId:"focus", label:"Focus"}` w panelu, aby wyświetlić timer przez istniejącą kontrolkę tekstową.
+
+`v.rolling(id, {windowMs:3600000, limitMs:600000})` tworzy lub zwraca nazwany licznik aktywnego użycia. `assign({websites:["youtube.com","reddit.com"], apps:[]})` zastępuje przypisania celów tego członka. Reguły natywne mogą zamiast tego przypisywać identyfikatory aplikacji danej platformy. Domeny obejmują subdomeny. Jeden licznik sumuje użycie swoich celów; inne identyfikatory mają niezależne limity. `snapshot()` zwraca `ready`, `error`, `usedMs`, `remainingMs`, `available` i `nextReturnAtMs` (najbliższą milisekundę, w której wygasa dowolne zapisane użycie). `available(target?)` sprawdza również przypisanie, jeśli podano cel. `reset()` czyści historię tego obiektu.
+
+Liczy się całe zaobserwowane użycie spełniające warunki, także ponad przyznany limit; sam licznik nie blokuje strony/aplikacji. Nakładające się przedziały widoczności stron liczą się raz, a aplikacje natywne zliczają zaobserwowane użycie na pierwszym planie. Wyłączone reguły nie dodają użycia; historia nadal wygasa na dokładnych granicach przedziałów. Dostępność wraca dopiero wtedy, gdy pozostała historia jest poniżej limitu. Próbki sygnału aktywności są ograniczone do pięciu sekund; przerwy wynikające z zamknięcia/wyłączenia nie tworzą aktywności. Zdarzenia emitowane przez użytkownika nie dodają użycia.
+
+Te same identyfikatory obiektów w połączonych grupach niestandardowych współdzielą jeden lokalny natywny hub jako źródło rozstrzygające. Łączenie scala historię i przypisania liczników oraz zachowuje stan timera inicjującego członka; niezgodne konfiguracje uniemożliwiają połączenie. Każdy członek otrzymuje własne zdarzenie zakończenia. Utrata połączenia powoduje niedostępność wspólnych liczników i odrzucanie poleceń timera do czasu powrotu aktualnego źródła rozstrzygającego. Po rozłączeniu każdy członek zachowuje końcowe wspólne użycie i stan timera, przywraca własne cele i odrzuca polecenia ze starego połączenia. Hub przechowuje końcową migawkę, dopóki powracający członek jej nie zapisze i nie potwierdzi; oczekujące przekazania kończą się przed udostępnieniem nowego połączenia.
+
+Nazwane obiekty przetrwają Run i ponowne uruchomienie w zarezerwowanym `v.state.$vaultTime`; nie edytuj tego pola bezpośrednio. Usuwaj je jawnie przez `v.removeTime(id)`. Identyfikatory mają 1–80 liter ASCII, cyfr, `_` lub `-`; zarezerwowane nazwy właściwości są odrzucane. Do 32 obiektów współdzieli limit stanu reguły wynoszący 64 KiB UTF-8. Czas trwania to całkowita liczba milisekund, maksymalnie 365 dni. Historia ruchomego okna jest ograniczona do 1024 koszyków minutowych i 2048 scalonych przedziałów. Błędy pojemności historii pozostawiają licznik niedostępny do jawnego zresetowania; nieprawidłowe konfiguracje i zbyt duże zapisy zgłaszają błędy bez usuwania zapisanych danych.
+
+```js
+(on, v) => {
+  const timer = v.timer("focus", {durationMs: 300000});
+  v.panel("focus", {controls: [
+    {type: "timer", timerId: "focus", label: "Focus"},
+    {id: "start", type: "button", label: "Start"},
+    {id: "pause", type: "button", label: "Pause"},
+    {id: "reset", type: "button", label: "Reset"}
+  ]});
+  on("panel", ev => {
+    if (ev.data.eventName !== "click") return;
+    if (ev.data.controlId === "start") timer.start();
+    if (ev.data.controlId === "pause") timer.pause();
+    if (ev.data.controlId === "reset") timer.reset();
+  });
+  on("timerEnded", ev => v.log("Finished", ev.data.id));
+}
+```
 
 ## Browser events
 
@@ -123,7 +156,7 @@ Nieużywane result fields są null; sukces ma pusty error. Błędy obejmują inv
 
 ## Limity
 
-Na event na group: 256 queued actions, 200 log calls, 64 emits; nadmiar jest odrzucany. Na rule: 1000 handlers, 24 panels; każda control list ma 32 entries, a każdy choice 64 options; nadmiar jest ignorowany/obcinany. Emit chains kończą się po 16 generacjach. Serialized state limit: 65536 JavaScript string characters. Utrzymuj rejestrację i łączne handlers każdego event poniżej 1 sekundy; powtarzające się przekroczenia lub hard timeout zatrzymują group do Run. Log przechowuje 200 entries, przyjmuje 50/sec na group i obcina długie wiadomości w pobliżu 4096 znaków. Timers/replies są best-effort, bez gwarancji real-time.
+Na zdarzenie na grupę: 256 działań w kolejce, 200 wywołań logowania, 64 emisje zdarzeń; nadmiar jest odrzucany. Na regułę: 1000 procedur obsługi, 24 panele; każda lista kontrolek ma 32 wpisy, a każdy wybór 64 opcje; nadmiar jest ignorowany/obcinany. Łańcuchy emisji kończą się po 16 generacjach. Limit serializowanego stanu: 65536 bajtów UTF-8. Rejestracja oraz łączne wykonanie procedur obsługi każdego zdarzenia powinny trwać poniżej 1 sekundy; powtarzające się przekroczenia lub twardy limit czasu zatrzymują grupę do ponownego Run. Log przechowuje 200 wpisów, przyjmuje 50 na sekundę na grupę i obcina długie wiadomości przy około 4096 znakach. Timery/odpowiedzi działają w miarę możliwości, bez gwarancji czasu rzeczywistego.
 
 ## Pełna reguła
 

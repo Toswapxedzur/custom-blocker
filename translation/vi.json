@@ -382,8 +382,8 @@
   "status.errorImportGroup": "Không thể nhập nhóm khối từ bảng nhớ tạm.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nkênh/UC...",
   "logFeed.title": "Nhật ký hoạt động",
-  "logFeed.hint": "Đầu ra từ v.log() trong quy tắc tùy chỉnh của nhóm này.",
-  "logFeed.empty": "Chưa có hoạt động. Hãy kích hoạt một sự kiện (ví dụ: nhấn Bắt đầu tạm hoãn, chuyển tab hoặc nhấp Chạy) để xem nhật ký.",
+  "logFeed.hint": "Đầu ra v.log() và lỗi thực thi hoặc chuyển giao của quy tắc này.",
+  "logFeed.empty": "Quy tắc này chưa có mục nhật ký nào.",
   "logFeed.clear": "Xóa nhật ký",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault Bộ phân loại",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "Thuật ngữ · {count} mục · {version}",
   "classifier.dictionary.creatorSummary": "Nhà sáng tạo · {summary} · {version}",
   "classifier.dictionary.configure": "Cấu hình từ điển",
-  "safari.app.quit": "Thoát Safari Vault"
+  "safari.app.quit": "Thoát Safari Vault",
+  "link.browserUpgradeRequired": "Cập nhật tiện ích trình duyệt Vault để tiếp tục ngân sách này. Cài đặt và mức sử dụng được giữ nguyên.",
+  "link.browserIdentitySyncPending": "Ngân sách được liên kết này vẫn đang đồng bộ. Thử lại khi đồng bộ xong.",
+  "link.browserIdentityPendingEditsInvalid": "Không thể đọc các chỉnh sửa đang chờ đã lưu. Cài đặt và mức sử dụng đã lưu được giữ nguyên.",
+  "link.browserConnectRequired": "Kết nối tiện ích trình duyệt Vault trước khi hủy liên kết ngân sách này. Cài đặt và mức sử dụng đã lưu được giữ nguyên."
 }

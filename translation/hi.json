@@ -382,8 +382,8 @@
   "status.errorImportGroup": "क्लिपबोर्ड से ब्लॉक समूह आयात नहीं किया जा सका.",
   "platform.placeholder.youtube": "@creatorhandle\nhttps://www.youtube.com/@anothercreator\nchannel/UC...",
   "logFeed.title": "गतिविधि लॉग",
-  "logFeed.hint": "इस समूह के कस्टम नियम में v.log() का आउटपुट।",
-  "logFeed.empty": "इस नियम से अभी कोई आउटपुट नहीं आया। एंट्री जोड़ने के लिए हैंडलर में v.log(\"hello\") कॉल करें।",
+  "logFeed.hint": "इस rule का v.log() output और execution या delivery errors।",
+  "logFeed.empty": "इस rule की अभी कोई log entry नहीं है।",
   "logFeed.clear": "लॉग साफ़ करें",
   "app.shortTitle": "Adamancia Vault",
   "classifierBridge.title": "Vault वर्गीकारक",
@@ -1279,5 +1279,9 @@
   "classifier.dictionary.termSummary": "शब्द · {count} प्रविष्टियाँ · {version}",
   "classifier.dictionary.creatorSummary": "क्रिएटर · {summary} · {version}",
   "classifier.dictionary.configure": "शब्दकोश कॉन्फ़िगर करें",
-  "safari.app.quit": "Safari Vault बंद करें"
+  "safari.app.quit": "Safari Vault बंद करें",
+  "link.browserUpgradeRequired": "इस बजट को फिर शुरू करने के लिए browser Vault extension अपडेट करें। इसकी settings और usage सुरक्षित हैं।",
+  "link.browserIdentitySyncPending": "यह linked बजट अभी sync हो रहा है। Sync पूरा होने पर फिर कोशिश करें।",
+  "link.browserIdentityPendingEditsInvalid": "सहेजे गए pending edits पढ़े नहीं जा सके। सहेजी गई settings और usage सुरक्षित रखे गए हैं।",
+  "link.browserConnectRequired": "इस बजट को unlink करने से पहले browser Vault extension कनेक्ट करें। सहेजी गई settings और usage सुरक्षित रहेंगी।"
 }
