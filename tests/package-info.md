@@ -100,3 +100,10 @@ acceptance remain separate and pending. No second driver or runtime is required.
   exact native attestation forwarding, bounded v4 compatibility, upgrade refusal,
   invalid proof failure and discarding proofs from a replaced socket.
 
+
+- `runner-browser-identity-budget.js` exercises canonical enabled state and separate
+  runtime pauses, durable snapshot/first-join ACKs, failed saves and worker/socket
+  replacement, bounded in-flight edit patches, current lock validation, and
+  explicit snooze/reset/lock refusal before persistence. `runner-popup-writes.js`
+  also routes the actual popup snooze IPC through those worker gates and retains
+  confirmation timing and honest failure feedback.

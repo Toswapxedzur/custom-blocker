@@ -923,6 +923,9 @@ function applyClusters(list, rosters) {
   for (const cluster of state.clusters) {
     if (!cluster || !Array.isArray(cluster.members)) continue;
     if (!cluster.members.some((m) => m && m.program === LOCAL_PROGRAM_ID)) continue;
+    const identityKey = "browser-upgrade:" + cluster.id;
+    if (cluster.shared?.browserIdentityStatus?.state === "upgrade-required") warnBridgeOnce(identityKey, t("link.browserUpgradeRequired"));
+    else clearBridgeWarn(identityKey);
     const key = "offline:" + cluster.id;
     if (cluster.allOnline === false) {
       warnBridgeOnce(key, t("connectionGroup.warnMemberOffline"));
@@ -1001,7 +1004,16 @@ function renderLinkSection(group, editable) {
   groupLinkButton.disabled = groupLinkTarget.disabled || !groupLinkTarget.value;
 }
 
+function browserIdentityErrorText(reason) {
+  const value = String(reason || "");
+  if (["browser-upgrade-required", "browser-identity-upgrade-required"].includes(value)) return t("link.browserUpgradeRequired");
+  if (value === "browser-identity-sync-pending") return t("link.browserIdentitySyncPending");
+  return value;
+}
 function showLinkRefusal(reason) {
+  if (["browser-upgrade-required", "browser-identity-upgrade-required", "browser-identity-sync-pending"].includes(String(reason))) {
+    setStatus(browserIdentityErrorText(reason), true); return;
+  }
   const key = `link.refused.${String(reason || "")}`;
   const text = t(key);
   setStatus(text && text !== key ? text : t("link.refused.generic"), true);
@@ -2964,14 +2976,18 @@ function refuseUnlessEditable(group) {
   return true;
 }
 
+function browserIdentityUpgradeRequired(group) {
+  return groupConnectionCluster(group)?.shared?.browserIdentityStatus?.state === "upgrade-required";
+}
 function refuseWhileDesktopVaultAway(group) {
   if (!isEnforceOnly(group)) return false;
-  setStatus(t("link.enforceOnly"), true);
+  setStatus(t(browserIdentityUpgradeRequired(group) ? "link.browserUpgradeRequired" : "link.enforceOnly"), true);
   render();
   return true;
 }
 
 function isEnforceOnly(group) {
+  if (group && browserIdentityUpgradeRequired(group)) return true;
   if (!group || !desktopVaultAway()) return false;
   const links = Array.isArray(state.linkCopy) ? state.linkCopy : [];
   return links.some((cluster) => window.CBBridgeProtocol.clusterForGroup([cluster], group, LOCAL_PROGRAM_ID) === cluster);
@@ -3502,7 +3518,7 @@ function updateFreezeUI(group, now = Date.now()) {
   unfreezeButton.disabled = !freezeStatus.canUnfreeze || enforceOnly;
 
   if (enforceOnly) {
-    freezeSummary.textContent = t("link.enforceOnly");
+    freezeSummary.textContent = t(browserIdentityUpgradeRequired(group) ? "link.browserUpgradeRequired" : "link.enforceOnly");
     return;
   }
   if (!freezeStatus.isFrozen) {
@@ -4160,7 +4176,7 @@ function persistGroups(ids, options = {}) {
   ++popupDefinitionReadRevision;
   const sent = chrome.runtime.sendMessage(request);
   const task = Promise.resolve(sent).then(async reply => {
-    if (!reply?.ok) throw new Error(reply?.error || "Unable to save group.");
+    if (!reply?.ok) throw new Error(browserIdentityErrorText(reply?.error) || "Unable to save group.");
     if (options.message) setStatus(options.message);
     return reply;
   }).finally(async () => {
@@ -4175,10 +4191,26 @@ function persistGroups(ids, options = {}) {
 // A snooze entry the user started or ended here; the service worker / Mac
 // Vault count its time and share it with linked devices.
 async function persistSnooze(groupId, entry, message = "") {
-  if (refuseWhileDesktopVaultAway(state.groups.find((item) => item.id === groupId))) return;
-  const stored = (await chrome.storage.local.get({ [GROUP_SNOOZES_KEY]: {} }))[GROUP_SNOOZES_KEY];
-  await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: { ...(stored && typeof stored === "object" ? stored : {}), [groupId]: entry } });
-  if (message) setStatus(message);
+  const group = state.groups.find((item) => item.id === groupId);
+  if (refuseWhileDesktopVaultAway(group)) throw new Error(t(browserIdentityUpgradeRequired(group) ? "link.browserUpgradeRequired" : "link.enforceOnly"));
+  try {
+    if (IS_NATIVE_DESKTOP) {
+      const stored = (await chrome.storage.local.get({ [GROUP_SNOOZES_KEY]: {} }))[GROUP_SNOOZES_KEY];
+      await chrome.storage.local.set({ [GROUP_SNOOZES_KEY]: { ...(stored && typeof stored === "object" ? stored : {}), [groupId]: entry } });
+    } else {
+      const reply = await chrome.runtime.sendMessage({ type: "set-group-snooze", groupId, entry });
+      if (!reply?.ok) throw new Error(browserIdentityErrorText(reply?.error) || "Unable to save snooze.");
+      entry = reply.snooze || entry;
+    }
+    state.groupSnoozes[groupId] = entry;
+    if (message) setStatus(message);
+  } catch (error) {
+    const stored = (await chrome.storage.local.get({ [GROUP_SNOOZES_KEY]: {} }))[GROUP_SNOOZES_KEY];
+    state.groupSnoozes = sanitizeSnoozes(stored, state.groups);
+    render();
+    setStatus(browserIdentityErrorText(error?.message || error), true);
+    throw error;
+  }
 }
 
 async function loadGroups() {
@@ -4594,10 +4626,12 @@ async function importIntoSelectedGroup() {
     state.groups = state.groups.map((item) => (item.id === group.id ? replacementGroup : item));
     delete state.drafts[group.id];
 
-    await persistGroups([group.id], { before: [group], message: t("status.importedGroup", { name: replacementGroup.name }) });
+    await persistGroups([group.id], { before: [group] });
     // An imported group starts fresh (owner 2026-09-27): no time used, no
     // snooze. The runtime's owner (the worker, Mac Vault) resets it.
-    await chrome.runtime.sendMessage({ type: "reset-group-runtime", groupId: group.id });
+    const reset = await chrome.runtime.sendMessage({ type: "reset-group-runtime", groupId: group.id });
+    if (reset?.ok === false) throw new Error(browserIdentityErrorText(reset.error));
+    setStatus(t("status.importedGroup", { name: replacementGroup.name }));
     render();
   } catch (error) {
     console.error("Failed to import block group.", error);
@@ -5376,7 +5410,6 @@ async function applySnoozeStart(group) {
       return;
     }
     const snoozeEntry = CBGroupActions.snoozeEntry(group, now, state.usageResetAtMs[group.id], state.usageTimersMs[group.id]);
-    state.groupSnoozes[group.id] = snoozeEntry;
     const minutes = Number(group.snoozeMinutes) || 0;
     await persistSnooze(
       group.id,
@@ -5397,7 +5430,6 @@ async function endSnooze() {
   // devices as the newest change (group-actions.js).
   const result = CBGroupActions.endSnoozeEntry(state.groupSnoozes[group.id], Date.now());
   if (result.error) return;
-  state.groupSnoozes[group.id] = result.entry;
   await persistSnooze(group.id, result.entry, t("status.endedSnooze", { name: group.name }));
   render();
 }
@@ -6494,6 +6526,10 @@ if (chrome.runtime && chrome.runtime.onMessage) {
     }
     if (message.type === "clusters-push") {
       applyClusters(message.clusters, message.rosters);
+      return;
+    }
+    if (message.type === "group-sync-refused") {
+      setStatus(browserIdentityErrorText(message.reason), true);
       return;
     }
     if (message.type === "link-refused") {

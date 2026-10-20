@@ -44,10 +44,10 @@ function makeContext(program = "chrome", storage = new Map()) {
   ctx.self = ctx; ctx.globalThis = ctx; ctx.window = ctx;
   return ctx;
 }
-function boot(program = "chrome", storage) {
+function boot(program = "chrome", storage, sourceRoot = root) {
 const context = makeContext(program, storage);
 for (const file of ["platform-profiles.js", "group-scopes.js", "parental-pin.js", "group-actions.js", "local-hub-environment.js", "local-hub-auth.js", "bridge-protocol.js", "vault-classifier-contract.js", "vault-classifier-bridge.js", "rule-time-client.js", "background.js"]) {
-  const p = path.join(root, file); if (!fs.existsSync(p)) continue;
+  const p = path.join(sourceRoot, file); if (!fs.existsSync(p)) continue;
   vm.runInContext(fs.readFileSync(p, "utf8"), context, { filename: file });
 }
 

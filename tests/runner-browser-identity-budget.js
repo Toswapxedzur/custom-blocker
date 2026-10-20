@@ -41,6 +41,22 @@ async function restore(env) {
   check(saved.usageTimersMs.L === 120000 && !paused.ctx.__sent.some(f => f.usageDeltaMs), "paused heartbeat preserves usage without reporting fresh time");
   await assert.rejects(edit(paused, { allowedMinutes: 19 }), /browser-identity-upgrade-required/);
   check((await state(paused)).blockedGroups[0].allowedMinutes === 10, "explicit affected-budget edit fails before its definition is persisted");
+  const pausedBefore = await paused.ctx.chrome.storage.local.get(null);
+  const runtimeMessage = message => new Promise(resolve => {
+    for (const listener of paused.ctx.__messageListeners) {
+      if (listener(message,{id:"t",url:"chrome-extension://t/popup.html"},resolve)===true) return;
+    }
+    throw Error("fixture mutation listener missing");
+  });
+  const resetReply=await runtimeMessage({type:"reset-group-runtime",groupId:"L"});
+  const snoozeReply=await runtimeMessage({type:"set-group-snooze",groupId:"L",entry:{startsAtMs:Date.now(),untilMs:Date.now()+300000,cooldownUntilMs:Date.now()+300000}});
+  await assert.rejects(paused.run('cbSnoozeGroupForTool({id:"L"})'),/browser-identity-upgrade-required/);
+  await assert.rejects(paused.run('cbEndSnoozeForTool({id:"L"})'),/browser-identity-upgrade-required/);
+  await assert.rejects(paused.run('cbBrowserRequestBody("settings-lock-group",{id:"L",waitHours:1})'),/browser-identity-upgrade-required/);
+  await assert.rejects(paused.run('cbBrowserRequestBody("settings-set-lock-gates",{id:"L",waitHours:1})'),/browser-identity-upgrade-required/);
+  check(resetReply.ok===false && snoozeReply.ok===false && resetReply.error==="browser-identity-upgrade-required", "actual popup reset/snooze requests return explicit refusal");
+  const pausedAfter=await paused.ctx.chrome.storage.local.get(null);
+  check(JSON.stringify(pausedAfter)===JSON.stringify(pausedBefore), "paused reset/snooze/lock requests cause no persisted usage, confirmation or PIN changes");
   const ready = snapshot({ ready: true, generation: "opaque-ready" });
   await frame(paused, ready);
   check(paused.run('cbGroupActive(__group,{},Date.now())') && ack(paused).some(f => f.browserIdentitySnapshotApplied.generation === "opaque-ready"), "ready generation resumes only after canonical snapshot persistence and ACK");
@@ -93,6 +109,17 @@ async function restore(env) {
   await frame(joinFailure, snapshot({ contributed: false }));
   check(ack(joinFailure).length === 1 && definitions(joinFailure)[0]?.usageMs === 300000, "failed firstjoin retention retries the untouched original");
 
+  const snoozeFailure = await setup();
+  const snoozeSet=snoozeFailure.ctx.chrome.storage.local.set;
+  let refuseSnooze=true;
+  snoozeFailure.ctx.chrome.storage.local.set=writes=>refuseSnooze && writes.groupSnoozes?.L ? Promise.reject(Error("fixture snooze save failure")):snoozeSet(writes);
+  const snoozed=snapshot({ready:true});
+  snoozed.shared.snoozeTs=Date.now();snoozed.shared.snooze={startsAtMs:Date.now(),untilMs:Date.now()+600000,cooldownUntilMs:Date.now()+600000};
+  await frame(snoozeFailure,snoozed);
+  check(!ack(snoozeFailure).length && snoozeFailure.run('cbBrowserIdentityPaused({id:"L"})'), "failed shared snooze persistence cannot prematurely acknowledge the canonical snapshot");
+  refuseSnooze=false;await frame(snoozeFailure,snoozed);
+  check(ack(snoozeFailure).length===1 && (await snoozeFailure.ctx.chrome.storage.local.get("groupSnoozes")).groupSnoozes.L, "canonical snooze retry persists before readiness ACK");
+
   const switched = await setup();
   const switchSet = switched.ctx.chrome.storage.local.set;
   let enteredResolve, release;
@@ -117,14 +144,15 @@ async function restore(env) {
   pending.ctx.__waiting = waiting;
   pending.ctx.__local = local;
   pending.run('cbConnection.clusters=[__waiting]; cbSaveClusterCopy([__waiting]); cbDefinitionSeen.set("L",cbDefinitionKey(__local))');
-  await edit(pending, { allowedMinutes: 25 });
+  await edit(pending, { allowedMinutes: 25, scopes: local.scopes.map(line => line.surface === "site" ? { ...line, sites: ["owner-edit.example"] } : line) });
   check(definitions(pending).length === 0 && (await pending.ctx.chrome.storage.local.get("cbBrowserIdentityDefinitionIntents")).cbBrowserIdentityDefinitionIntents.L.change.fields.set.allowedMinutes === 25, "finite bootstrap barrier durably retains actual field intent without sending config");
   const pendingRestart = await restore(pending);
   const canonical = snapshot({ ready: true });
   canonical.shared.scalars.name = "Independent native name";
+  canonical.shared.scopes = [...canonical.shared.scopes.filter(line => line.surface !== "site"), ...clone(local.scopes)];
   await frame(pendingRestart, canonical);
   saved = await state(pendingRestart);
-  check(saved.blockedGroups[0].allowedMinutes === 25 && saved.blockedGroups[0].name === "Independent native name" && saved.blockedGroups[0].scopes.some(l => l.surface === "apps"), "restart replays only the real local field patch over canonical definition and native scopes");
+  check(saved.blockedGroups[0].allowedMinutes === 25 && saved.blockedGroups[0].name === "Independent native name" && saved.blockedGroups[0].scopes.some(l => l.surface === "apps") && saved.blockedGroups[0].scopes.some(l => l.surface === "site" && l.sites.includes("owner-edit.example")), "restart replays only the real local field/scope patch over canonical definition and native scopes");
   check(definitions(pendingRestart).at(-1)?.scalars.allowedMinutes === 25 && ack(pendingRestart).length === 1 && !Object.keys((await pendingRestart.ctx.chrome.storage.local.get("cbBrowserIdentityDefinitionIntents")).cbBrowserIdentityDefinitionIntents).length, "real edit publishes after ACK and bounded retained intent clears after send");
 
   const locked = await setup();
@@ -135,6 +163,9 @@ async function restore(env) {
   frozen.shared.lock = { lockedAtMs: Date.now(), lockWaitHours: 1, lockVersion: 1 };
   await assert.rejects(frame(locked, frozen), /group-lock-changed/);
   check((await state(locked)).blockedGroups[0].name === "Mac target" && definitions(locked).length === 0 && (await locked.ctx.chrome.storage.local.get("cbBrowserIdentityDefinitionIntents")).cbBrowserIdentityDefinitionIntents.L, "replay revalidates current lock, reports refusal and retains the unapplied intent");
+
+  const retainedLockError=(await locked.ctx.chrome.storage.local.get("cbBrowserIdentityDefinitionIntents")).cbBrowserIdentityDefinitionIntents.L;
+  check(retainedLockError.error?.includes("group-lock-changed"), "refused bootstrap patch retains one bounded actionable diagnostic instead of repeated retries");
 
   const bad = await setup();
   const malformed = snapshot({ ready: true });
