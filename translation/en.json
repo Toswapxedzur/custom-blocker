@@ -848,7 +848,7 @@
   "classifier.knowledge.title": "Knowledge",
   "classifier.knowledge.copy": "Short descriptions of content sources and terms used for tagging. Source descriptions accompany their content; term descriptions apply when the term appears in a title.",
   "classifier.knowledge.badge": "Saved",
-  "classifier.knowledge.disclosure": "Descriptions are stored on this device and included in relevant ChatGPT tagging requests. Keep them short to reduce processing time. Editing a source description affects future tagging of its content. Deleted source knowledge can be researched again.",
+  "classifier.knowledge.disclosure": "Descriptions are stored on this device and included in relevant requests to your selected tagging provider. Keep them short to reduce processing time. Editing a source description affects future tagging of its content. Deleted source knowledge can be researched again.",
   "classifier.knowledge.creators": "Content sources",
   "classifier.knowledge.creatorsHint": "Sources include creators, accounts, channels, and communities. Add them yourself or let repeated tagging difficulties trigger web research.",
   "classifier.knowledge.terms": "Known terms",
@@ -1283,5 +1283,17 @@
   "link.browserUpgradeRequired": "Update the browser Vault extension to resume this budget. Its settings and usage are preserved.",
   "link.browserIdentitySyncPending": "This linked budget is still syncing. Try again when syncing finishes.",
   "link.browserIdentityPendingEditsInvalid": "Saved pending edits could not be read. The saved settings and usage have been preserved.",
-  "link.browserConnectRequired": "Connect the browser Vault extension before unlinking this budget. Saved settings and usage are preserved."
+  "link.browserConnectRequired": "Connect the browser Vault extension before unlinking this budget. Saved settings and usage are preserved.",
+  "classifier.connections.title": "Connections",
+  "classifier.connections.subscription": "ChatGPT subscription",
+  "classifier.connections.openAI": "OpenAI API",
+  "classifier.connections.gemini": "Gemini API",
+  "classifier.connections.grok": "Grok API",
+  "classifier.connections.manage": "Manage connections",
+  "classifier.connections.apiBilling": "Uses your provider’s API billing and usage limits.",
+  "classifier.connections.addKey": "Add key",
+  "classifier.connections.modelCount": "{count} models available",
+  "classifier.connections.advanced": "Research & data services",
+  "classifier.cloud.chooseModel": "Choose a connection and model",
+  "classifier.cloud.title": "ChatGPT"
 }
