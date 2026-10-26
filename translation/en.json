@@ -1295,5 +1295,12 @@
   "classifier.connections.modelCount": "{count} models available",
   "classifier.connections.advanced": "Research & data services",
   "classifier.cloud.chooseModel": "Choose a connection and model",
-  "classifier.cloud.title": "ChatGPT"
+  "classifier.cloud.title": "ChatGPT",
+  "classifier.cloud.searchAlways": "Web search is enabled. The model decides when to use it; searches can add cost and time.",
+  "classifier.cloud.reasoning": "Reasoning effort",
+  "classifier.cloud.reasoningHint": "Choose how much the selected model thinks. Higher effort can take longer and use more tokens.",
+  "classifier.cloud.reasoning.default": "Model default",
+  "classifier.cloud.reasoning.low": "Low",
+  "classifier.cloud.reasoning.medium": "Medium",
+  "classifier.cloud.reasoning.high": "High"
 }
