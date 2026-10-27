@@ -43,6 +43,8 @@ DIST_DIR = REPO_ROOT / "dist"
 # manifests and host pages are handled separately below so they can be
 # renamed/synthesised during the copy.
 COMMON_TOP_LEVEL_FILES = [
+    "content-items.js",
+    "rule-attachments.js",
     "background.js",
     "bridge-protocol.js",
     "content.js",

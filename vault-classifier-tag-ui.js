@@ -755,7 +755,7 @@
 
   }
 
-  function makeHost(root, anchor) {
+  function makeHost(root, anchor, identity) {
     const document = root?.ownerDocument || global.document;
     if (!document?.createElement) return null;
     const host = document.createElement("span");
@@ -819,7 +819,9 @@
     installCorrectionHandlers(shadow, host, panel);
 
     try {
-      if (anchor?.parentNode && root.contains?.(anchor) && typeof anchor.insertAdjacentElement === "function") {
+      if (global.VaultContentItems) {
+        global.VaultContentItems.mount({element:root,anchor,owner:"classifier",identity,host});
+      } else if (anchor?.parentNode && root.contains?.(anchor) && typeof anchor.insertAdjacentElement === "function") {
         anchor.insertAdjacentElement("afterend", host);
       } else {
         root.appendChild?.(host);
@@ -849,7 +851,7 @@
       return;
     }
     if (!state.host?.isConnected) {
-      const mount = makeHost(state.root, state.anchor);
+      const mount = makeHost(state.root, state.anchor, state.entryID);
       if (!mount) return;
       state.host = mount.host;
       state.rail = mount.rail;

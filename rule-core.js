@@ -682,6 +682,19 @@
         act("ai", {payload, requestId: id, generation: generation + ":" + aiEpoch});
         return id;
       },
+      // Browser content handle, not a selector or a mutable page/card ref.
+      attach(tabId, item, attachmentId, spec) {
+        check();
+        if (eventNow === null) throw new Error("v.attach must be called inside an event handler.");
+        if (!Number.isInteger(tabId) || !item || typeof item !== "object" ||
+            typeof item.ref !== "string" || item.ref.length > 128 ||
+            typeof item.contentId !== "string" || item.contentId.length > 2048 ||
+            typeof item.instanceId !== "string" || item.instanceId.length > 128 ||
+            typeof attachmentId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(attachmentId)) throw new Error("Invalid content attachment target.");
+        const value = cloneJSON(spec);
+        if (value !== null && (!isPlainObject(value) || utf8Bytes(JSON.stringify(value)) > 6000)) throw new Error("Invalid content attachment.");
+        act("attach", {tabId, target:{ref:item.ref,contentId:item.contentId,instanceId:item.instanceId},attachmentId,spec:value});
+      },
       file(op, path, payload) {
         const id = requestId();
         act("file", { op: String(op || ""), path: String(path || ""), payload: payload === undefined ? null : cloneJSON(payload), requestId: id });

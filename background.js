@@ -17,7 +17,7 @@
 // Chromium uses a classic service worker. Safari preloads these shared
 // dependencies through its manifest background script list.
 if (typeof importScripts === "function") {
-  importScripts("browser-compat.js", "storage-schema.js", "rule-time-client.js", "rule-ai-client.js");
+  importScripts("browser-compat.js", "storage-schema.js", "rule-time-client.js", "rule-ai-client.js", "content-items.js", "rule-attachments.js");
   try {
     if (typeof CBBridgeProtocol === "undefined") importScripts("bridge-protocol.js");
   } catch (error) {
@@ -2064,13 +2064,21 @@ const cbRuleSheets = new Map();
 // Disabled groups: their rule stays loaded but hears nothing, and what it did
 // is lifted until the group is enabled again (owner 2026-09-27).
 const cbRuleSuppressed = new Set();
+const cbAttachmentBroker = globalThis.CBRuleAttachments?.createBroker({
+  storage:chrome.storage.local,groupsKey:BLOCKED_GROUPS_KEY,serial:cbWithDefinitionMutation,epoch:()=>cbRuleItemsEpoch,
+  send:async(tabId,message,documentId)=>{try{await chrome.tabs.sendMessage(tabId,message,documentId?{documentId}:{frameId:0});}catch{}},
+  check:async(tabId,message,documentId)=>{try{return (await chrome.tabs.sendMessage(tabId,message,documentId?{documentId}:{frameId:0}))?.ok===true;}catch{return false;}},
+  isCurrent:(groupId,generation)=>generation==null||cbRuleGenerations.get(groupId)===generation,
+  click:(groupId,data,generation)=>dispatchRule('attachment',data,{targetGroupId:groupId,expectedGeneration:generation})
+}) || null;
+
 
 // Bumped whenever a rule that handles "items" loads: pages then send every
 // item again, so the new rule sees what is already on screen.
 let cbRuleItemsEpoch = Date.now(); // a restarted worker differs from the last one
 
 function cbRulesHandle(type) {
-  for (const [groupId, types] of cbRuleTypes) if (!cbRuleSuppressed.has(groupId) && types.has(type)) return true;
+  for (const [groupId, types] of cbRuleTypes) if (!cbRuleSuppressed.has(groupId) && (types.has(type) || (type === "items" && (types.has("attachment") || cbAttachmentBroker?.hasGroup(groupId))))) return true;
   return false;
 }
 
@@ -2245,7 +2253,7 @@ async function cbLoadCustomGroupSource(group, { run = false } = {}) {
   cbRuleGenerations.set(group.id, (cbRuleGenerations.get(group.id) || 0) + 1);
   cbRuleTypes.set(group.id, new Set(Array.isArray(result.types) ? result.types : []));
   if (run || !cbRulePanels.has(group.id)) cbSetRulePanels(group.id, Array.isArray(result.panels) ? result.panels : []);
-  if (cbRuleTypes.get(group.id).has("items")) cbRuleItemsEpoch += 1;
+  if (cbRuleTypes.get(group.id).has("items") || cbAttachmentBroker?.hasGroup(group.id)) cbRuleItemsEpoch += 1;
   if (cbRulePageNeeds() !== pageNeeds) broadcastSessionRefresh().catch(() => {});
   const latestGroups = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY] || [];
   const latestGroup = latestGroups.find(current => current?.id === group.id && current.groupType === "custom");
@@ -2379,6 +2387,14 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
         else if (/^https?:/i.test(action.target)) await chrome.tabs.update(tabId, { url: action.target });
       } else if (kind === "file") cbRunRuleFile(action).catch(() => {});
       else if (kind === "ai") cbRunRuleAI(action).catch(() => {});
+      else if (kind === "attach") {
+        try {
+          if (!cbAttachmentBroker) throw Error('attachment-unavailable');
+          await cbAttachmentBroker.applyLocked(action,generations?.get(groupId));
+        } catch(error) {
+          pushLogFeedEntry({groupId,source:'page-error',level:'error',eventType,message:String(error?.message||'attachment-failed')});
+        }
+      }
     } catch (_) {}
   }
   for (const [tabId, message] of pages) {
@@ -2477,6 +2493,7 @@ async function cbReconcileCustomGroupHandlers() {
     }
   }
   lastReconcileSnapshot = next;
+  await cbAttachmentBroker?.refresh();
 }
 
 async function loadAllCustomGroupsAtStartup() {
@@ -2484,6 +2501,7 @@ async function loadAllCustomGroupsAtStartup() {
   // Otherwise the startup load can capture the pre-migration source and then
   // fail its final freshness guard against the newly migrated saved group.
   await cbDefinitionStartupReady;
+  await cbAttachmentBroker?.load();
   // Recover per-tab URL history and queued apply messages from
   // chrome.storage.session BEFORE the first dispatch fans out. Every
   // dispatch already awaits ensureStartupGate(), so completing the
@@ -2716,6 +2734,7 @@ if (chrome.tabs && chrome.tabs.onCreated) {
 
 if (chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener((tabId) => {
+    cbAttachmentBroker?.forget(tabId);
     const previous = previousTabUrls.get(tabId);
     previousTabUrls.delete(tabId);
     cbCoveredTabs.delete(tabId);
@@ -2974,17 +2993,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  // A page's feed items (and the page itself) for the rules that want them.
+  if (message.type === 'rule-attachment-click') {
+    cbAttachmentBroker?.handleClick(sender,message,cbRuleGenerations.get(message.groupId))
+      .then(()=>sendResponse({ok:true})).catch(()=>sendResponse({ok:false}));
+    return true;
+  }
+  // Register current content handles before dispatching their events. Restore
+  // saved pills even when the current rule only handles attachment clicks.
   if (message.type === "rule-items") {
-    const tabId = sender?.tab?.id;
-    if (typeof tabId !== "number") return false;
-    dispatchRule("items", {
-      tabId,
-      platform: typeof message.platform === "string" ? message.platform : "",
-      items: Array.isArray(message.items) ? message.items.slice(0, 500) : []
-    }).catch(() => {});
-    sendResponse({ ok: true });
-    return false;
+    const tabId=sender?.tab?.id;
+    if(typeof tabId!=="number")return false;
+    ensureStartupGate().then(async()=>{
+      const items=cbAttachmentBroker?await cbAttachmentBroker.observe(sender,message):message.items;
+      await dispatchRule("items",{tabId,platform:message.platform,items});
+      sendResponse({ok:true});
+    }).catch(()=>sendResponse({ok:false}));
+    return true;
   }
 
   return false;
@@ -3075,6 +3099,7 @@ async function cbApplyStoredGroupChangeLocked(oldValue, newValue, { persist = tr
   const removed = new Set([...gone, ...restart]);
   for (const [id, transfer] of Object.entries(transfers)) if (removed.has(transfer.groupId)) delete transfers[id];
   writes[CB_OFFLINE_TRANSFERS_KEY] = transfers;
+  await cbAttachmentBroker?.pruneLocked(after);
   if (persist && Object.keys(writes).length) await chrome.storage.local.set(writes);
   return writes;
 }
