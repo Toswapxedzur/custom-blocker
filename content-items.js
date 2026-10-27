@@ -16,7 +16,7 @@
       if(platform==='twitter'&&(is('x.com')||is('twitter.com'))&&(match=u.pathname.match(/\/status\/(\d+)/)))return 'twitter:status:'+match[1];
       if(platform==='reddit'&&is('reddit.com')&&(match=u.pathname.match(/\/comments\/([a-z0-9]+)/i)))return 'reddit:post:'+match[1].toLowerCase();
       if(platform==='bilibili'&&is('bilibili.com')&&(match=u.pathname.match(/\/video\/(BV[\w]+|av\d+)/i)))return 'bilibili:video:'+match[1];
-      u.hash='';
+      // Unknown platforms may use hash routes as real content identity.
       for(const key of [...u.searchParams.keys()])if(/^utm_/i.test(key)||['fbclid','gclid','spm','si','feature'].includes(key))u.searchParams.delete(key);
       u.searchParams.sort();
       const value=platform+':url:'+u.href;return value.length<=2048?value:null;
@@ -45,12 +45,12 @@
   const palette={blue:['#E9EEFC','#1E3A8A'],cyan:['#CFFAFE','#155e75'],gold:['#FEF3C7','#a16207'],pink:['#FCE7F3','#9d174d'],red:['#FEE2E2','#991B1B']};
   function createPage({onClick}) {
     const token=id(),items=new Map(),mounted=new Map();let cards=new WeakMap();
-    let serial=0,enabled=true,lastSequence=0,itemsEpoch=0;
+    let serial=0,enabled=true,lastSequence=0,itemsEpoch=0,repairTimer=null;
     function remove(instanceId){unmount(mounted.get(instanceId)?.host);mounted.delete(instanceId);items.delete(instanceId);}
     function observe(element,{ref,platform,url,anchor,isPage=false,getURL=null}) {
       const identity=contentId(platform,url);if(!identity)return null;
       let item=cards.get(element);
-      if(!item||item.contentId!==identity||item.isPage!==isPage) {
+      if(!item||!items.has(item.instanceId)||item.contentId!==identity||item.isPage!==isPage) {
         if(item)remove(item.instanceId);
         item={ref,contentId:identity,instanceId:token+':'+(++serial),element,anchor,isPage};cards.set(element,item);
       }
@@ -61,18 +61,13 @@
       return target(item);
     }
     function current(value){try{const item=items.get(value?.instanceId);return !!(enabled&&item&&item.element.isConnected&&item.contentId===value.contentId&&item.ref===value.ref&&(!item.getURL||contentId(item.platform,item.getURL())===item.contentId));}catch{return false;}}
-    function snapshot(message) {
-      if(message.pageToken!==token||message.itemsEpoch!==itemsEpoch||!Number.isSafeInteger(message.sequence)||message.sequence<=lastSequence)return;
-      lastSequence=message.sequence;
-      const keep=new Set();
-      for(const entry of message.items||[]) {
-        if(!current(entry.target))continue;
+    function renderEntry(entry) {
+        if(!current(entry.target))return;
         const item=items.get(entry.target.instanceId),key=item.instanceId;
-        if(!Array.isArray(entry.attachments)||!entry.attachments.length)continue;
-        keep.add(key);
+        if(!Array.isArray(entry.attachments)||!entry.attachments.length){unmount(mounted.get(key)?.host);mounted.delete(key);return;}
         let mountedItem=mounted.get(key);
         const signature=JSON.stringify(entry.attachments);
-        if(mountedItem?.signature===signature&&mountedItem.host.isConnected)continue;
+        if(mountedItem?.signature===signature&&mountedItem.host.isConnected)return;
         if(mountedItem)unmount(mountedItem.host);
         const host=item.element.ownerDocument.createElement('span');
         host.style.cssText='all:initial;display:inline-block;vertical-align:middle;max-width:100%;margin-inline-start:6px;position:relative;z-index:1';
@@ -92,11 +87,27 @@
         // Card links must never consume pointer/key activation within the rail.
         for(const name of ['pointerdown','pointerup','mousedown','mouseup','keydown','keyup'])shadow.addEventListener(name,event=>event.stopPropagation());
         shadow.append(style,rail);mount({element:item.element,anchor:item.anchor,owner:'custom',identity:item.contentId,host});
-        mounted.set(key,{host,signature});
-      }
-      for(const [key,value] of mounted)if(!keep.has(key)){unmount(value.host);mounted.delete(key);}
+        mounted.set(key,{host,signature,attachments:entry.attachments});
     }
-    return {token,observe,current,snapshot,clear(){for(const key of [...items.keys()])remove(key);cards=new WeakMap();},setEpoch(value){if(itemsEpoch!==value){lastSequence=0;itemsEpoch=value;}const on=!!value;enabled=on;if(!on)for(const value of mounted.values())unmount(value.host);if(!on)mounted.clear();}};
+    function snapshot(message) {
+      if(message.pageToken!==token||message.itemsEpoch!==itemsEpoch||!Number.isSafeInteger(message.sequence)||message.sequence<=lastSequence)return;
+      lastSequence=message.sequence;
+      for(const entry of message.items||[])renderEntry(entry);
+    }
+    function repair() {
+      if(repairTimer!==null||!mounted.size)return;
+      repairTimer=setTimeout(()=>{
+        repairTimer=null;
+        for(const [key,value] of [...mounted]) {
+          const item=items.get(key);
+          if(!item||!current(item)){remove(key);continue;}
+          if(!value.host.isConnected)renderEntry({target:target(item),attachments:value.attachments});
+        }
+      },50);
+    }
+    function liftGroup(groupId){for(const [key,value] of [...mounted])if(value.attachments.some(a=>a.groupId===groupId))renderEntry({target:target(items.get(key)),attachments:value.attachments.filter(a=>a.groupId!==groupId)});}
+
+    return {token,observe,current,snapshot,repair,liftGroup,clear(){if(repairTimer!==null){clearTimeout(repairTimer);repairTimer=null;}for(const key of [...items.keys()])remove(key);cards=new WeakMap();},setEpoch(value){if(itemsEpoch!==value){lastSequence=0;itemsEpoch=value;}const on=!!value;enabled=on;if(!on)for(const value of mounted.values())unmount(value.host);if(!on)mounted.clear();}};
   }
   const api=Object.freeze({id,contentId,target,spec,mount,unmount,createPage});root.VaultContentItems=api;
   if(typeof module!=='undefined')module.exports=api;

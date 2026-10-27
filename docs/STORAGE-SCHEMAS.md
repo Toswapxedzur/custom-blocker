@@ -1,13 +1,13 @@
 # Local storage schemas
 
 Format versions and product releases are independent. The browser editor store
-uses `schemaVersion: 4` and `storageMetadata` with `format: vault.web-store`,
+uses `schemaVersion: 5` and `storageMetadata` with `format: vault.web-store`,
 `schemaVersion`, `product`, and `writtenByAppVersion`. Ordinary worker startup,
 installation and editor reads all enter the same registry. Metadata and migrated
 payload keys commit in one storage operation; a failed operation leaves the old
 schema and reruns the idempotent migration on retry.
 
-Compatible alpha roots (unversioned or schema 1–3) are imported. Scope lines are
+Compatible alpha roots (unversioned or schema 1–4) are imported. Scope lines are
 normalized with the current canonical sanitizer; retired flat scope fields do
 not survive a browser migration. Runtime usage, pending transfers, receipt IDs,
 rule state and unrelated storage keys remain. This is a bounded data import,
@@ -37,3 +37,5 @@ A release still requires separate publication authorization; these private
 changes do not rename the existing alpha builds to beta.
 
 Schema 4 adds optional credential-free `ruleAI` configuration to custom groups. Older groups remain unconfigured, with their rules, state and usage preserved. Linked groups share the selection and UTC daily cap; Mac Vault owns the private reservation ledger. No keys, pending requests or AI responses enter browser storage automatically.
+
+Schema5 adds `cbRuleAttachments`, a version1 browser-profile document whose `groups` map owns per-content, per-attachment records (`spec` and opaque revision). Reads of unknown/corrupt attachment formats refuse mutations without resetting data. Only the worker writes; one dispatch saves a batch atomically. Disabled groups retain records; deletion removes their namespace. Linked synchronization excludes these records. No executable callback or DOM references are stored.

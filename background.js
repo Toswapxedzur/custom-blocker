@@ -2354,6 +2354,7 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
   }
   for (const entry of result.logs || []) if (current.has(entry.groupId)) pushLogFeedEntry({ ...entry, eventType });
   for (const [groupId, panels] of Object.entries(result.panels || {})) if (current.has(groupId)) cbSetRulePanels(groupId, panels);
+  const attachmentActions=[];
   const pages = new Map(); // tabId | "*" -> { items, dom, queries, cover }
   const sheetTabs = new Set(); // tabs (or "*") whose sheets changed
   const pageGroups = new Map(); // Worker-only attribution; page payload stays unchanged.
@@ -2387,15 +2388,16 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
         else if (/^https?:/i.test(action.target)) await chrome.tabs.update(tabId, { url: action.target });
       } else if (kind === "file") cbRunRuleFile(action).catch(() => {});
       else if (kind === "ai") cbRunRuleAI(action).catch(() => {});
-      else if (kind === "attach") {
-        try {
-          if (!cbAttachmentBroker) throw Error('attachment-unavailable');
-          await cbAttachmentBroker.applyLocked(action,generations?.get(groupId));
-        } catch(error) {
-          pushLogFeedEntry({groupId,source:'page-error',level:'error',eventType,message:String(error?.message||'attachment-failed')});
-        }
-      }
+      else if (kind === "attach") attachmentActions.push(action);
     } catch (_) {}
+  }
+  if(attachmentActions.length) {
+    let errors;
+    try {
+      if(!cbAttachmentBroker)throw Error('attachment-unavailable');
+      errors=await cbAttachmentBroker.applyBatchLocked(attachmentActions,generations);
+    } catch(error) {errors=attachmentActions.map(action=>({action,error}));}
+    for(const {action,error} of errors)pushLogFeedEntry({groupId:action.groupId,source:'page-error',level:'error',eventType,message:String(error?.message||'attachment-failed')});
   }
   for (const [tabId, message] of pages) {
     const report = (targetTabId, delivery) => {
@@ -3005,7 +3007,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if(typeof tabId!=="number")return false;
     ensureStartupGate().then(async()=>{
       const items=cbAttachmentBroker?await cbAttachmentBroker.observe(sender,message):message.items;
-      await dispatchRule("items",{tabId,platform:message.platform,items});
+      if(!cbAttachmentBroker)await dispatchRule("items",{tabId,platform:message.platform,items});
+      else for(const [groupId,types] of cbRuleTypes) {
+        if(!types.has('items')||cbRuleSuppressed.has(groupId))continue;
+        const ownItems=cbAttachmentBroker.itemsForGroup(groupId,items);
+        let batch=[],size=0;
+        for(const item of ownItems){const bytes=JSON.stringify(item).length;if(size+bytes>100000&&batch.length){await dispatchRule('items',{tabId,platform:message.platform,items:batch},{targetGroupId:groupId});batch=[];size=0;}batch.push(item);size+=bytes;}
+        if(batch.length)await dispatchRule('items',{tabId,platform:message.platform,items:batch},{targetGroupId:groupId});
+      }
       sendResponse({ok:true});
     }).catch(()=>sendResponse({ok:false}));
     return true;
@@ -3099,7 +3108,9 @@ async function cbApplyStoredGroupChangeLocked(oldValue, newValue, { persist = tr
   const removed = new Set([...gone, ...restart]);
   for (const [id, transfer] of Object.entries(transfers)) if (removed.has(transfer.groupId)) delete transfers[id];
   writes[CB_OFFLINE_TRANSFERS_KEY] = transfers;
-  await cbAttachmentBroker?.pruneLocked(after);
+  // This path can already hold the definition lock. Queue cleanup after its
+  // commit so it shares attachment writes' lock without reentering that lock.
+  if(gone.length)cbAttachmentBroker?.load().catch(error=>cbDebugError('Attachment cleanup failed',error));
   if (persist && Object.keys(writes).length) await chrome.storage.local.set(writes);
   return writes;
 }

@@ -66,6 +66,7 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click", tabId: number, attachmentId: string, item: Item, text: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +75,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Pill },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +86,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - `tick` is approximate; use timestamps, not tick counts. `active` means selected within a browser window, not proof the user is looking at it. URLs may be empty/restricted.
 - `visible` comes from accessible, non-hidden pages; `elapsedMs` is time since their last heartbeat, zero while covered. It is not accumulated usage or playback time.
-- `items` reports new/changed supported feed items, and resends them after Run/re-enable. `ref` identifies a card on that page, not a durable content ID; `ref === "page"` denotes the page itself. Empty titles/URLs/authors are possible. `authors` contains platform-specific source identifiers.
+- `items` reports each accessible HTTP(S) page (`platform: "web"` outside recognized sites), new/changed supported feed items, and resends them after Run/re-enable. `ref` identifies a card on that page, not a durable content ID; `ref === "page"` denotes the page itself. Empty titles/URLs/authors are possible. `authors` contains platform-specific source identifiers.
 - Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. Item availability depends on the page's supported markup.
 - Tags require the connected desktop Classifier and a tagging-enabled build/platform (Chromium and Safari: YouTube, Reddit, Bilibili, X/`twitter`). Confidence is 1–5. `tagsSettled === false` is pending/unavailable, not untagged; settled `tags: []` is untagged.
 - `snooze` means the group's Snooze button was pressed. It applies no pause by itself.
@@ -228,3 +230,65 @@ browser's `settings-rule-ai-models`, and configure `ruleAI` through the existing
 set-group path. Its fields are `providerModel`, `accountID`, `reasoningEffort`
 (`default`, `low`, `medium`, `high`) and `dailyRequestLimit` (null or1–100000).
 Use a returned choice; do not put a key or provider URL into rule source.
+
+## Saved content pills
+
+`v.attach(tabId, item, id, spec)` saves a clickable pill for an observed content item.
+Pass the complete `item` from an `items` or `attachment` event; a bare `ref` is not
+an attachment handle. `contentId` identifies saved content; `instanceId` identifies
+its current appearance. Keep that original handle while awaiting AI. A removed,
+recycled or navigated target refuses a late attachment rather than attaching it
+to another item. Existing `v.item(tabId, ref, verdict)` behavior stays separate.
+
+`spec` is `{type:"pill", text, tone?, tooltip?}`; tones are `blue`, `cyan`, `gold`,
+`pink` or `red`. Text is plain text, up to240 characters; tooltip up to1000.
+IDs use1–80 ASCII letters, digits, underscores or hyphens. A null spec removes
+that group's saved pill. Call inside a handler. Persistence/delivery failures
+appear in the rule Log; the engine does not retry them automatically.
+
+Each item exposes this group's saved pills as `item.attachments`, a read-only
+snapshot keyed by attachment ID. Other groups' attachments are not in that map.
+Use it to avoid requesting AI for content that already has a saved result:
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (!item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+Pointer, Enter and Space activation produce one `attachment` click event for the
+currently running group. Pills prevent the underlying card link from navigating.
+The event includes `tabId`, `attachmentId`, the current `item` and displayed `text`.
+Saved data contains no callback or executable code. A stale pill revision or old
+document cannot invoke a current attachment. Rule emit events are ordinary rule
+logic; the browser validates actual UI click messages independently.
+
+Pills are saved in this browser profile per group/content/ID and return on other
+occurrences, navigation, browser restart and Run. Disable hides them while retaining
+the saved data; reenable restores them. Deleting the group removes its attachments.
+Linked groups keep separate attachments. These pills are separate from classifier
+tags and correction/training data. There is no automatic cross-browser/device sync.
+Known YouTube, Reddit, X and Bilibili content use platform IDs. Other detected
+content uses a conservative normalized URL, so availability follows supported
+page markup; unresolved identities cannot receive saved pills.
+
+Limits:8 pills per group/content,32 across all groups for one content item,
+10000 content entries per group and an8MB UTF-8 serialized attachment document.
+Reaching a limit refuses the new mutation with `attachment-item-limit` or
+`attachment-storage-limit` in the Log; existing saved data is preserved. A dispatch
+batches its attachment writes, and identical specs do not rewrite the store.
+Attachments are browser content UI, including Safari's native rule engine; Mac
+application rules have no browser content handles or in-app content-pill surface.

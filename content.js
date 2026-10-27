@@ -3268,8 +3268,7 @@ function cbRuleCardRef(card) {
 async function cbScanRuleItems() {
   cbRuleScanTimer = null;
   if (!cbRuleItemsEpoch || exitAttempted || extensionContextInvalid) return;
-  const platform = getCurrentFeedSite();
-  if (!platform) return;
+  const platform = getCurrentFeedSite() || 'web';
   for (const [ref, card] of cbRuleRefs) if (!card.isConnected) cbRuleRefs.delete(ref);
   let items = [], processed = 0;
   const epoch = cbRuleItemsEpoch, roots = cbRuleFullScan ? [document] : [...cbRuleDirtyRoots];
@@ -3292,7 +3291,7 @@ async function cbScanRuleItems() {
     cbRuleSent.set(card, sent);
     items.push(item);
   }
-  const pageHandle=cbContentPage?.observe(document.documentElement,{ref:'page',platform,url:location.href,anchor:document.querySelector('h1'),isPage:true,getURL:()=>location.href});
+  const pageHandle=cbContentPage?.observe(document.documentElement,{ref:'page',platform,url:location.href,anchor:document.querySelector('h1')||document.body?.firstElementChild,isPage:true,getURL:()=>location.href});
   const page = cbRuleItem("page", location.href, document.title, {
     creators: collectPlatformAuthors(location.pathname, platform === "youtube")[platform] || [],
     videoForm: detectVideoSiteContext(normalizeHostname(location.hostname), location.pathname).form,
@@ -3326,8 +3325,8 @@ function cbSetRuleItemsEpoch(epoch) {
   cbRuleSent = new WeakMap();
   cbRulePageSent = "";
   if (next && !cbRuleObserver && document.documentElement) {
-    cbRuleObserver = new MutationObserver(records => { const roots = changedFeedRoots(records); if (roots.length) cbScheduleRuleItems(roots); });
-    cbRuleObserver.observe(document.documentElement, { childList: true, subtree: true });
+    cbRuleObserver = new MutationObserver(records => { cbContentPage?.repair(); const roots = changedFeedRoots(records); if (roots.length) cbScheduleRuleItems(roots); });
+    cbRuleObserver.observe(document.documentElement, { childList: true, subtree: true, attributes:true, attributeFilter:["href","data-id","data-video-id"] });
   } else if (!next) {
     cbStopRuleItems();
   }
@@ -3395,6 +3394,7 @@ function cbSetRuleSheets(sheets) {
 // A disabled or removed group: what its rule did on this page is lifted
 // (its cover and its card verdicts; its sheets and panels come separately).
 function cbLiftRule(groupId) {
+  cbContentPage?.liftGroup(groupId);
   if (cbCover.ruleCover && cbCover.ruleCover.groupId === groupId) cbSetRuleCover(null);
   for (const card of [...cbTrackedCards]) {
     if (!card.isConnected) { cbTrackedCards.delete(card); continue; }

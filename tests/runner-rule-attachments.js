@@ -15,9 +15,9 @@ const action=engine.dispatch({type:'items',data:{tabId:1,items:[item]}}).actions
 assert.equal(action.kind,'attach');assert.deepEqual(action.target,C.target(item));
 assert.equal(engine.load('bad',`(on,v)=>{v.attach(1,{},'summary',null)}`,{}).ok,false);
 let stored={blockedGroups:[{id:'a',groupType:'custom',enabled:true},{id:'b',groupType:'custom',enabled:true}]};
-let queue=Promise.resolve(),generation=1,valid=true,failWrite=false;
+let queue=Promise.resolve(),generation=1,valid=true,failWrite=false,writes=0;
 const messages=[],clicks=[];
-const storage={get:async defaults=>Object.assign(structuredClone(defaults),structuredClone(stored)),set:async changes=>{if(failWrite)throw Error('quota');Object.assign(stored,structuredClone(changes));}};
+const storage={get:async keys=>Object.fromEntries(keys.filter(k=>k in stored).map(k=>[k,structuredClone(stored[k])])),set:async changes=>{if(failWrite)throw Error('quota');writes++;Object.assign(stored,structuredClone(changes));}};
 function broker(){return createBroker({storage,groupsKey:'blockedGroups',epoch:()=>10,
  serial:fn=>{const result=queue.then(fn);queue=result.catch(()=>{});return result;},
  send:async(tabId,message)=>messages.push({tabId,message}),check:async()=>valid,
@@ -31,6 +31,8 @@ async function observe(b,target=item,token='page'){return b.observe(sender,{item
  assert.equal(messages.at(-1).message.items[0].attachments.length,1);
  await b.applyLocked({...action,groupId:'b',spec:{...spec,text:'Other group'}},1);
  assert.equal(messages.at(-1).message.items[0].attachments.length,2);
+ assert.equal(b.itemsForGroup('a',[item])[0].attachments.summary.text,'Read');
+ assert.equal(b.itemsForGroup('b',[item])[0].attachments.summary.text,'Other group');
  // Actual persistence, not a runtime cache: reconstruct all broker state.
  b=broker();await b.load();await observe(b,{...item,instanceId:'return:1'},'return');
  let shown=messages.at(-1).message.items[0];assert.equal(shown.attachments.length,2);
@@ -46,7 +48,12 @@ async function observe(b,target=item,token='page'){return b.observe(sender,{item
  failWrite=true;await assert.rejects(()=>b.applyLocked({...action,groupId:'a',target:shown.target,spec:{...spec,text:'Unsaved'}},1),/quota/);failWrite=false;
  assert.equal(stored[KEY].groups.a[item.contentId].summary.spec.text,'Read');
  await b.applyLocked({...action,groupId:'a',target:shown.target,spec:null},1);assert(!stored[KEY].groups.a);
- await b.pruneLocked([]);assert.deepEqual(Object.keys(stored[KEY].groups),[]);
+ const batch=Array.from({length:9},(_,i)=>({...action,groupId:'a',target:shown.target,attachmentId:'batch'+i})),beforeWrites=writes;
+ const errors=await b.applyBatchLocked(batch,new Map([['a',1]]));
+ assert.equal(errors.length,1);assert.match(errors[0].error.message,/item-limit/);
+ assert.equal(Object.keys(stored[KEY].groups.a[item.contentId]).length,8);assert.equal(writes-beforeWrites,1,'one durable write per dispatch');
+ await b.applyBatchLocked(batch.slice(0,8),new Map([['a',1]]));assert.equal(writes-beforeWrites,1,'identical specs do not rewrite storage');
+ stored.blockedGroups=[];await b.load();assert.deepEqual(Object.keys(stored[KEY].groups),[]);
  stored[KEY]={version:999,groups:{keep:'future'}};await assert.rejects(()=>b.load(),/storage-unavailable/);assert.equal(stored[KEY].groups.keep,'future');
  console.log('PASS content identity, rule action, durable per-group pills, reconstruction, click correlation, disabled groups, stale targets/generations, quota preservation and deletion');
 })().catch(error=>{console.error(error);process.exitCode=1;});
