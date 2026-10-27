@@ -1954,3 +1954,9 @@ input[type="url"], input[type="email"], input[type="password"],
   unicode-bidi: isolate;
   text-align: start;
 }
+
+/* Custom-rule AI uses the existing editor density and surfaces. */
+.rule-ai-fields {display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-block:10px;}
+.rule-ai-fields > label {flex:1 1 110px;min-width:0;display:grid;gap:5px;}
+.rule-ai-fields > label:first-child {flex:2 1 220px;}
+.rule-ai-fields select,.rule-ai-fields input {width:100%;min-width:0;box-sizing:border-box;}

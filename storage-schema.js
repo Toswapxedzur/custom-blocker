@@ -2,7 +2,7 @@
  * numbers describe data only. All consumers use the guarded chrome API below. */
 (function (g) {
   'use strict';
-  const SCHEMA = 3, FORMAT = 'vault.web-store';
+  const SCHEMA = 4, FORMAT = 'vault.web-store';
   function product() {
     const id = g.__CB_DESKTOP_PROGRAM_ID;
     const url = typeof g.chrome?.runtime?.getURL === 'function' ? g.chrome.runtime.getURL('') : '';

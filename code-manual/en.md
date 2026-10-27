@@ -178,3 +178,53 @@ A five-minute pause, triggered by Snooze or its panel button:
   });
 }
 ```
+
+
+## AI calls from a running rule
+
+Each custom group selects one connection/model and reasoning effort in **AI calls**.
+Use the same API on Mac and in browser rules. Browser requests require connected
+Mac Vault; provider credentials stay there. Linked groups share the selection and
+optional daily request cap. Blank means no group cap; account limits still apply.
+The cap uses the UTC day, persists across restart, and counts submitted attempts
+including failures. Linking combines existing usage; unlinking retains prior usage.
+
+`v.ai({ prompt, input? })` returns a request ID immediately. Call it inside a handler,
+not while registering the rule. `input` may be any JSON value; each prompt/input is
+limited to20KB. Replies arrive as `ai` events: `{requestId, ok, text, citations,
+error}`. Success text is at most48KB; citations are `{url,title}`. Preserve visible,
+clickable source links when displaying answers based on web search. Search is always
+available to the model. Requests have a70-second deadline and bounded concurrency;
+there is no provider fallback or automatic retry. Responses are data, never executed
+as JavaScript. The rule decides which existing actions to take.
+
+For a panel with an `ask` button and `note` field:
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: "Summarize this text.", input: data.values?.note ?? "" });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+Outstanding calls are not replayed after restart. Run, disable/re-enable and deletion
+discard obsolete replies; a disconnected browser reports `ai-unavailable`. Other
+errors include `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`,
+`ai-timeout`, `ai-request-failed` and `ai-usage-storage-unavailable`. Failed calls do
+not overwrite a previous result the rule chose to retain. Rule state still has its
+existing64KB limit.
+
+Tools can discover credential-free choices with `rule_ai_models` on Mac, or the
+browser's `settings-rule-ai-models`, and configure `ruleAI` through the existing
+set-group path. Its fields are `providerModel`, `accountID`, `reasoningEffort`
+(`default`, `low`, `medium`, `high`) and `dailyRequestLimit` (null or1–100000).
+Use a returned choice; do not put a key or provider URL into rule source.

@@ -2747,6 +2747,7 @@ function getSerializableGroupSnapshot(group) {
     activeDays: [...group.activeDays],
     timeWindowsText: group.timeWindowsText,
     blockingRulesText: group.blockingRulesText,
+    ruleAI: group.ruleAI ?? null,
     // The lock (and its PIN) is not part of an exported definition.
     fallbackUrl: group.fallbackUrl ?? "",
     pauseSeconds: group.pauseSeconds ?? DEFAULT_PAUSE_SECONDS
@@ -2861,6 +2862,7 @@ function groupToDraft(group) {
     discordTargetsText: group.discordTargets.join("\n"),
     surfaceHides: normalizeSurfaceHides(group.surfaceHides, group.groupType),
     blockingRulesText: group.blockingRulesText,
+    ruleAI: group.ruleAI ?? null,
     blockHomePage: Boolean(group.blockHomePage),
     allowlist: Boolean(group.allowlist),
     fallbackUrl: group.fallbackUrl ?? "",
@@ -3778,6 +3780,7 @@ function renderEditorFields(now) {
   if (blockedAppsData) blockedAppsData.value = draft?.appsData ?? serializeApps(group.apps || []);
   if (appsAllowlistField) appsAllowlistField.checked = Boolean(draft?.appsAllowlist ?? group.appsAllowlist);
   blockingRulesField.value = draft?.blockingRulesText ?? group.blockingRulesText;
+  if (isCustomGroup) window.CBRuleAIUI?.render(group, editable, draft && Object.hasOwn(draft,"ruleAI") ? draft.ruleAI : group.ruleAI, () => {stashCurrentDraft();scheduleAutosave();});
   platformAuthorsField.value = draft?.sourcesText ?? group.sources.join("\n");
   platformVideoModeField.value = draft?.platformVideoMode ?? group.platformVideoMode;
   platformAuthorModeField.value = normalizeSourceMode(
@@ -4038,6 +4041,7 @@ function stashCurrentDraft() {
     appsData: blockedAppsData ? blockedAppsData.value : "[]",
     appsAllowlist: appsAllowlistField ? appsAllowlistField.checked : false,
     blockingRulesText: blockingRulesField.value,
+    ruleAI: window.CBRuleAIUI?.read() ?? null,
     platformVideoMode: platformVideoModeField.value,
     sourceMode: platformAuthorModeField.value.startsWith("tags-") ? "nobody" : platformAuthorModeField.value,
     sourcesText: platformAuthorsField.value,
@@ -4646,7 +4650,8 @@ function buildUpdatedGroupFromDraft(group, draft) {
   // field still gets committed, so an unrelated mid-edit field (e.g. a blank
   // name) can't discard the whole update. The first error is returned so the
   // UI can surface it.
-  let firstError = null;
+  const ruleAI = draft.ruleAI == null ? null : CBGroupActions.normalizeRuleAI(draft.ruleAI);
+  let firstError = draft.ruleAI != null && ruleAI === null ? new Error(t("custom.ai.invalid")) : null;
   const fail = (error) => {
     if (!firstError) firstError = error;
   };
@@ -4787,6 +4792,7 @@ function buildUpdatedGroupFromDraft(group, draft) {
         group.groupType === "discord" ? discordResults.validTargets : group.discordTargets,
       discordMode: group.groupType === "discord" ? discordMode : group.discordMode,
       blockingRulesText: isCustomGroup ? blockingRulesText : group.blockingRulesText,
+      ruleAI: isCustomGroup ? (draft.ruleAI != null && ruleAI === null ? group.ruleAI : ruleAI) : null,
       // An entry not in view keeps its own values (a custom group's site list).
       sites: usesSiteList ? siteResults.validSites : group.sites,
       // Blocklist (false) vs "block all except" (true).
@@ -6662,3 +6668,5 @@ initializePopupApp().catch((error) => {
 });
 
 window.VaultInfo?.watch(document, { enabled: () => true });
+
+window.CBRuleAIText = (key,fallback) => {const value=t(key);return value===key?fallback:value;};

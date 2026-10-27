@@ -89,3 +89,5 @@
   checks expiry, retries, callbacks and unsupported-destination preservation.
 
 - `rule-time-client.js`: authenticated local-hub coordination for linked custom-rule timers and rolling trackers (private implementation in progress).
+
+- `rule-ai-client.js` provides connection-bound runtime AI RPC to Mac Vault; `rule-ai-ui.js` supplies credential-free per-custom-group model/effort/cap controls. `ruleAI` is a shared scalar and web storage schema4 preserves older groups as unconfigured. Browser source checkpoint is private; runtime/UI acceptance continues on Mini2.

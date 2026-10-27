@@ -278,6 +278,15 @@
             <span class="label" data-i18n="custom.title" data-info-key="custom.title" data-i18n-info="info.custom.title" data-info-copy="Write a custom rule using the Vault rule API. Running the rule activates the code for this group.">Custom rule</span>
 
 
+            <details id="ruleAISettings" class="vui-expand">
+              <summary data-i18n="custom.ai.title">AI calls</summary>
+              <div class="rule-ai-fields">
+                <label class="label"><span data-i18n="custom.ai.model">Connection &amp; model</span><select id="ruleAIModel" aria-label="AI connection and model"></select></label>
+                <label class="label"><span data-i18n="custom.ai.effort">Reasoning</span><select id="ruleAIEffort" aria-label="AI reasoning effort"></select></label>
+                <label class="label"><span data-i18n="custom.ai.cap">Daily request cap</span><input id="ruleAICap" type="number" min="1" max="100000" step="1" placeholder="No cap" data-i18n-placeholder="custom.ai.noCap" /></label>
+              </div>
+              <div class="field-actions"><button id="ruleAIRefresh" type="button" class="secondary weird" data-i18n="custom.ai.refresh">Refresh models</button><span id="ruleAIStatus" class="field-help" role="status"></span></div>
+            </details>
             <div id="blockingRulesEditor" class="code-editor">
               <pre id="blockingRulesHighlight" class="code-editor-highlight" aria-hidden="true"></pre>
               <textarea
@@ -698,6 +707,7 @@
     <script src="popup-markdown.js"></script>
     <script src="rule-core.js"></script>
     <script src="vault-info.js"></script>
+    <script src="rule-ai-ui.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

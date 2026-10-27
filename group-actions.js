@@ -709,11 +709,23 @@
   // tools do exactly what the user can). Returns the first problem as
   // "invalid-<field>", or null. A tool's invalid value is refused, never
   // replaced by a default.
+  function normalizeRuleAI(value) {
+    if (value == null) return null;
+    if (!value || typeof value !== "object" || Array.isArray(value)
+      || Object.keys(value).some(key => !["providerModel", "accountID", "reasoningEffort", "dailyRequestLimit"].includes(key))
+      || typeof value.providerModel !== "string" || value.providerModel.length > 520
+      || !/^(chatgpt:.+|api:[^:]+:.+)$/.test(value.providerModel)
+      || typeof value.accountID !== "string" || value.accountID.length > 256
+      || !["default", "low", "medium", "high"].includes(value.reasoningEffort)
+      || (value.dailyRequestLimit != null && (!Number.isInteger(value.dailyRequestLimit) || value.dailyRequestLimit < 1 || value.dailyRequestLimit > 100000))) return null;
+    return {providerModel: value.providerModel, accountID: value.accountID, reasoningEffort: value.reasoningEffort, dailyRequestLimit: value.dailyRequestLimit ?? null};
+  }
   function validateGroupPatch(patch, groupType) {
     const has = (key) => Object.prototype.hasOwnProperty.call(patch || {}, key);
     const bad = (key, ok) => (has(key) && !ok(patch[key]) ? `invalid-${key}` : null);
     const bool = (value) => typeof value === "boolean";
     const checks = [
+      bad("ruleAI", v => groupType === "custom" && (v === null || normalizeRuleAI(v) !== null)),
       bad("name", (v) => typeof v === "string" && v.trim().length > 0),
       bad("enabled", bool), bad("allowSnooze", bool), bad("resetAtMidnight", bool), bad("rollingLimit", bool),
       bad("mode", (v) => v === "instant" || (v === "after-minutes" && groupType !== "custom")),
@@ -835,7 +847,7 @@
     cbUsageBucketStartMs, cbPruneUsageBuckets, cbBucketsUsedMs, cbNextReturnMs,
     sanitizeUsageTimers, sanitizeSnoozeTotals, sanitizeResetTimes, sanitizeUsageBuckets, sanitizeSnoozes,
     DEFAULT_GLOBAL_SETTINGS, AUTOSAVE_DEBOUNCE_MAX_MS, sanitizeGlobalSettings, validateSettingsPatch,
-    nameTaken, freeName, dedupeNames, budgetRestarts, validateGroupPatch
+    normalizeRuleAI, nameTaken, freeName, dedupeNames, budgetRestarts, validateGroupPatch
   });
   global.CBGroupActions = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;

@@ -17,7 +17,7 @@
 // Chromium uses a classic service worker. Safari preloads these shared
 // dependencies through its manifest background script list.
 if (typeof importScripts === "function") {
-  importScripts("browser-compat.js", "storage-schema.js", "rule-time-client.js");
+  importScripts("browser-compat.js", "storage-schema.js", "rule-time-client.js", "rule-ai-client.js");
   try {
     if (typeof CBBridgeProtocol === "undefined") importScripts("bridge-protocol.js");
   } catch (error) {
@@ -2271,10 +2271,11 @@ async function unloadCustomGroupHandlers(groupId) {
 }
 
 // One event to the rules that handle it (or to one group's rule).
-async function dispatchRule(type, data, { targetGroupId = null } = {}) {
+async function dispatchRule(type, data, { targetGroupId = null, expectedGeneration = null } = {}) {
   await ensureStartupGate();
   if (targetGroupId ? !cbRuleTypes.has(targetGroupId) : !cbRulesHandle(type) && !(type === "tick" && (cbRuleStateSaveRetries.size || globalThis.CBRuleTime?.hasLinkedCustom()))) return null;
   return cbSerializeRuleMutation(async () => {
+    if (expectedGeneration !== null && cbRuleGenerations.get(targetGroupId) !== expectedGeneration) return null;
     if (type === "tick" && cbRuleStateSaveRetries.size) {
       const stored = await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] });
       for (const id of [...cbRuleStateSaveRetries]) {
@@ -2377,6 +2378,7 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
         else if (action.target === "reload") await chrome.tabs.reload(tabId);
         else if (/^https?:/i.test(action.target)) await chrome.tabs.update(tabId, { url: action.target });
       } else if (kind === "file") cbRunRuleFile(action).catch(() => {});
+      else if (kind === "ai") cbRunRuleAI(action).catch(() => {});
     } catch (_) {}
   }
   for (const [tabId, message] of pages) {
@@ -2401,6 +2403,21 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
     if (sheetTabs.has("*")) await cbPushRuleSheets();
     else for (const tabId of sheetTabs) await cbPushRuleSheets(tabId);
   }
+}
+
+// Keep the RPC outside the rule/definition queues; deliver only to its original
+// active generation. The sandbox independently checks the rule-instance token.
+async function cbRunRuleAI(action) {
+  const generation = cbRuleGenerations.get(action.groupId);
+  const initial = (await chrome.storage.local.get({[BLOCKED_GROUPS_KEY]:[]}))[BLOCKED_GROUPS_KEY].find(g => g.id === action.groupId);
+  if (!initial?.enabled || initial.groupType !== "custom") return;
+  const connection = cbConnection.ws;
+  const answer = await (globalThis.CBRuleAIHub?.request("generate", action.groupId, action.payload) ?? Promise.resolve({ok:false,error:"ai-unavailable"}));
+  const current = (await chrome.storage.local.get({[BLOCKED_GROUPS_KEY]:[]}))[BLOCKED_GROUPS_KEY].find(g => g.id === action.groupId);
+  if (!current?.enabled || current.groupType !== "custom" || generation !== cbRuleGenerations.get(action.groupId)
+    || initial.activeEventSource !== current.activeEventSource || CBGroupScopes.definitionJSON(initial.ruleAI) !== CBGroupScopes.definitionJSON(current.ruleAI)
+    || connection !== cbConnection.ws) return;
+  await dispatchRule("ai", {...answer, requestId:action.requestId,generation:action.generation},{targetGroupId:action.groupId,expectedGeneration:generation});
 }
 
 // A rule's file request, through the folder broker; its answer is the rule's
@@ -2892,6 +2909,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  if (message.type === "rule-ai-models") {
+    globalThis.CBRuleAIHub?.request("models").then(sendResponse, () => sendResponse({ok:false,error:"ai-unavailable",models:[]}));
+    return true;
+  }
   if (message.type === "reset-group-runtime") {
     cbResetGroupRuntime(String(message.groupId || ""))
       .then(() => sendResponse({ ok: true }))
@@ -3028,6 +3049,10 @@ async function cbApplyStoredGroupChangeLocked(oldValue, newValue, { persist = tr
   const before = new Map((Array.isArray(oldValue) ? oldValue : []).filter((g) => g && g.id).map((g) => [g.id, g]));
   const after = (Array.isArray(newValue) ? newValue : []).filter((g) => g && g.id);
   const present = new Set(after.map((g) => g.id));
+  for (const group of after) {
+    const old = before.get(group.id);
+    if (old && (old.enabled !== group.enabled || CBGroupScopes.definitionJSON(old.ruleAI) !== CBGroupScopes.definitionJSON(group.ruleAI))) cbRuleGenerations.set(group.id,(cbRuleGenerations.get(group.id)||0)+1);
+  }
   const restart = after.filter((g) => before.has(g.id) && CBGroupActions.budgetRestarts(before.get(g.id), g)).map((g) => g.id);
   const gone = [...before.keys()].filter((id) => !present.has(id));
   if (restart.length === 0 && gone.length === 0) return {};
@@ -3072,7 +3097,7 @@ async function cbAnnounceStoredGroups(groups) {
   cbConnection.sendWS({
     kind: "groups-announce",
     program: cbDetectProgramId(),
-    groups: list.map((group) => ({ id: group.id, name: group.name, frozen: CBGroupActions.isLocked(group), timeState: globalThis.CBRuleTime?.seedForRoster(states?.[group.id]) }))
+    groups: list.map((group) => ({ id: group.id, name: group.name, frozen: CBGroupActions.isLocked(group), groupType: group.groupType, enabled: group.enabled, ruleAI: group.ruleAI ?? null, timeState: globalThis.CBRuleTime?.seedForRoster(states?.[group.id]) }))
   });
 }
 
@@ -3122,7 +3147,7 @@ function cbDefinitionKey(group) {
 }
 
 function cbRosterKey(groups) {
-  return JSON.stringify(groups.map((group) => [group.id, group.name, CBGroupActions.isLocked(group)]));
+  return JSON.stringify(groups.map((group) => [group.id, group.name, CBGroupActions.isLocked(group), group.groupType, group.enabled, group.ruleAI ?? null]));
 }
 
 const cbSharingReady = (async () => {
@@ -4129,6 +4154,8 @@ const cbConnection = {
   },
 
   closeSocket() {
+    globalThis.CBRuleAIHub?.disconnected();
+    this.ruleAIVersion = 0;
     this.invalidateActivitySettingsConnection();
     // Requests in flight fail now, not after their timeout.
     try { cbClassifierHub.rejectAll(); } catch (_) {}
@@ -4297,6 +4324,7 @@ const cbConnection = {
           && ["macapp", "windowsapp"].includes(msg.hubProgram);
         this.usageTransferReceipts = msg.usageTransferReceipts === true;
         this.ruleTimeVersion = msg.ruleTimeVersion === 1 ? 1 : 0;
+        this.ruleAIVersion = msg.ruleAIVersion === 1 ? 1 : 0;
         cbJoinsSent.clear();
         this.burstStartMs = 0;
         this.setStatus({
@@ -4369,6 +4397,9 @@ const cbConnection = {
         // The request map below ignores unmatched replies, so classifier
         // responses cannot cross-route ordinary group-sync traffic.
         if (self.CBClassifierHub) self.CBClassifierHub.receive(msg);
+        break;
+      case "rule-ai-response":
+        globalThis.CBRuleAIHub?.receive(msg);
         break;
       case "rule-time-response":
         globalThis.CBRuleTime?.receive(msg);
@@ -4460,6 +4491,7 @@ const cbConnection = {
 // frozen / strict / parental group is as untouchable here as it is in the popup.
 const CB_BROWSER_REQUEST_OPERATIONS = Object.freeze([
   "settings-get",
+  "settings-rule-ai-models",
   "settings-set-group",
   "settings-create-group",
   "settings-delete-group",
@@ -4700,6 +4732,8 @@ async function cbBrowserRequestBody(operation, body) {
 async function cbBrowserRequestBodyLocked(operation, body) {
   const input = body && typeof body === "object" && !Array.isArray(body) ? body : {};
   switch (operation) {
+    case "settings-rule-ai-models":
+      return globalThis.CBRuleAIHub?.request("models") ?? {ok:false,error:"ai-unavailable",models:[]};
     case "settings-get": {
       const { groups, usageTimersMs, groupSnoozes } = await getState();
       const stored = await chrome.storage.local.get(CB_GLOBAL_SETTINGS_KEY);

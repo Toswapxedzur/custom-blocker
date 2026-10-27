@@ -55,6 +55,8 @@ COMMON_TOP_LEVEL_FILES = [
     "group-actions.js",
     "rule-core.js",
     "rule-time-client.js",
+    "rule-ai-client.js",
+    "rule-ai-ui.js",
     "browser-compat.js",
     "storage-schema.js",
     "popup.html",

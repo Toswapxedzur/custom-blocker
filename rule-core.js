@@ -606,7 +606,7 @@
   // `engineActions(act, check, requestId)` returns the engine's own actions;
   // `requestId()` names a request whose answer comes back as an event; `act(kind,
   // fields)` queues one. Registration runs once, now.
-  function createRule(groupId, fn, { state, engineActions, timeContext = null, now = () => Date.now() } = {}) {
+  function createRule(groupId, fn, { state, engineActions, timeContext = null, generation = Date.now().toString(36) + Math.random().toString(36).slice(2), now = () => Date.now() } = {}) {
     const handlers = new Map();
     let handlerCount = 0;
     let record = null;
@@ -617,6 +617,7 @@
     let panelsChanged = false;
     const panelValues = new Map();
     let requestSeq = 0;
+    let aiEpoch = 0;
     let eventNow = null;
     const requestId = () => groupId + ":" + (++requestSeq);
 
@@ -670,6 +671,17 @@
       },
       // A file in the user's chosen folder: op read | write | append | list |
       // exists; the answer comes as a "file" event with this request id.
+      ai(options) {
+        check();
+        if (eventNow === null) throw new Error("v.ai must be called inside an event handler.");
+        if (!isPlainObject(options) || Object.keys(options).some(key => !["prompt", "input"].includes(key))
+          || typeof options.prompt !== "string" || !options.prompt.trim() || utf8Bytes(options.prompt) > 20000) throw new Error("Invalid AI request.");
+        const payload = JSON.stringify(options);
+        if (utf8Bytes(payload) > 48000 || (options.input !== undefined && utf8Bytes(JSON.stringify(options.input)) > 20000)) throw new Error("AI input is too large.");
+        const id = requestId();
+        act("ai", {payload, requestId: id, generation: generation + ":" + aiEpoch});
+        return id;
+      },
       file(op, path, payload) {
         const id = requestId();
         act("file", { op: String(op || ""), path: String(path || ""), payload: payload === undefined ? null : cloneJSON(payload), requestId: id });
@@ -725,6 +737,8 @@
 
     return {
       groupId,
+      acceptsAI: value => value === generation + ":" + aiEpoch,
+      invalidateAI: () => { aiEpoch++; },
       error: registrationError,
       registrationLogs: registration.logs,
       get handlerCount() { return handlerCount; },
@@ -824,7 +838,7 @@
       if (compiled.fn) {
         beacon(groupId);
         try {
-          rule = createRule(groupId, compiled.fn, { state: cloneJSON(state), engineActions, timeContext: timeContexts.get(groupId) ?? null });
+          rule = createRule(groupId, compiled.fn, { state: cloneJSON(state), engineActions, generation: incarnation + ":rule:" + (++nextToken), timeContext: timeContexts.get(groupId) ?? null });
         } catch (error) {
           return { ok: false, handlers: 0, types: [], error: "Registration failed: " + String(error.message || error), logs: [] };
         }
@@ -882,6 +896,7 @@
 
     function suppress(groupId, on) {
       if (suppressed.has(groupId) !== (on === true)) rules.get(groupId)?.resetUsageBoundary();
+      if (on && !suppressed.has(groupId)) rules.get(groupId)?.invalidateAI();
       if (on) suppressed.add(groupId);
       else suppressed.delete(groupId);
     }
@@ -896,6 +911,7 @@
       for (const [groupId, rule] of rules) {
         if (descriptor.targetGroupId && descriptor.targetGroupId !== groupId) continue;
         if (suppressed.has(groupId)) continue;
+        if (descriptor.type === "ai" && !rule.acceptsAI(descriptor.data?.generation)) continue;
         if (rule.handles(descriptor.type)) queue.push({ rule, event: descriptor, depth: 0 });
       }
       while (queue.length > 0) {
@@ -1102,6 +1118,7 @@
   const SHARED_REFERENCE = [
     "A rule is ONE JavaScript function expression: (on, v) => { … }. It runs once when the user presses Run: register handlers there. Run replaces the old handlers; deleting the group removes them. While the group is disabled no handler runs and what the rule did is lifted (its panels, style sheets, covers, blocks); enabling it resumes the rule as it was.",
     "on(type, handler) adds a handler; several per type are fine. handler(ev) gets ev = { type, now (ms since 1970), data }. Handlers are synchronous and must finish within 1 s: no loops that wait, no network, no setTimeout/setInterval, no DOM of your own (you run in a sandbox).",
+    "v.ai({prompt, input?}) calls the AI connection/model configured for this custom group. Call it inside an event handler; it returns a request ID immediately. The later ai event has data {requestId, ok, text, citations:[{url,title}], error}. Handle errors explicitly; no fallback or automatic retries. Text is at most48KB; prompt/input each20KB; each call times out after70seconds. Search is always enabled. Keys stay in connected Mac Vault; disconnected browsers report ai-unavailable. Disabled/replaced rules discard old replies. Linked groups share settings and the optional UTC daily request cap; failed submitted attempts count and linking/unlinking does not reset usage. AI output is data and is never executed automatically. Preserve visible clickable citations if displaying web-derived answers.",
     "v.state is the group's memory: one JSON object (≤ 64 KB), kept across restarts and across Run (a new version of the rule finds what the old one saved), deleted with the group. Change it freely inside handlers.",
     "v.log(...values) writes to the group's log in the editor.",
     "v.timer(id, {direction: down|up, durationMs?}) creates/returns a named managed timer (default down; durationMs required for down). It begins paused. start()/resume() are idempotent; pause() freezes; reset() clears elapsed and pauses; snapshot() gives ready/error, elapsedMs, remainingMs (null for up), running and completed. Running clocks continue while closed/disabled. timerEnded delivers {id, direction, durationMs, generation, incarnation} once per incarnation and generation to each enabled linked member when it next executes; Run does not replay it.",

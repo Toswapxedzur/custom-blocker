@@ -727,6 +727,7 @@
           // strip the user's saved source code, abort reason, or update
           // timestamp. The defaults are deliberately empty / null so non-custom
           // groups stay shape-compatible with the previous serialised form.
+          ruleAI: normalizedGroupType === "custom" ? A.normalizeRuleAI(group?.ruleAI) : null,
           activeEventSource:
             typeof group?.activeEventSource === "string" ? group.activeEventSource : "",
           lastAbortReason:
@@ -891,7 +892,7 @@
     "name", "enabled", "mode", "allowedMinutes", "resetIntervalHours", "resetAtMidnight", "rollingLimit",
     "allowSnooze", "snoozeKind", "snoozeMinutes", "snoozeActivationDelayMinutes", "snoozeCooldownMinutes", "snoozeConfirmations",
     "activeDays", "timeWindowsText",
-    "fallbackUrl", "pauseSeconds"
+    "fallbackUrl", "pauseSeconds", "ruleAI"
   ]);
 
   // Object property insertion order is not an edit. Array order remains meaningful.

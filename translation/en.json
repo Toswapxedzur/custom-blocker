@@ -1302,5 +1302,22 @@
   "classifier.cloud.reasoning.default": "Model default",
   "classifier.cloud.reasoning.low": "Low",
   "classifier.cloud.reasoning.medium": "Medium",
-  "classifier.cloud.reasoning.high": "High"
+  "classifier.cloud.reasoning.high": "High",
+  "custom.ai.title": "AI calls",
+  "custom.ai.model": "Connection & model",
+  "custom.ai.effort": "Reasoning",
+  "custom.ai.cap": "Daily request cap",
+  "custom.ai.noCap": "No cap",
+  "custom.ai.refresh": "Refresh models",
+  "custom.ai.none": "Not configured",
+  "custom.ai.unavailable": "Unavailable",
+  "custom.ai.loading": "Loading models…",
+  "custom.ai.search": "Search is enabled. Linked groups share the allowance.",
+  "custom.ai.connect": "Connect an AI provider and fetch its models in Vault Settings.",
+  "custom.ai.disconnected": "Connect to Mac Vault to use AI.",
+  "custom.ai.invalid": "Choose an AI model and a whole daily request cap from 1 to 100,000, or leave the cap blank.",
+  "custom.ai.effort.default": "Model default",
+  "custom.ai.effort.low": "Low",
+  "custom.ai.effort.medium": "Medium",
+  "custom.ai.effort.high": "High"
 }
