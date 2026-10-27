@@ -34,7 +34,7 @@
       const result=await chrome.runtime.sendMessage({type:"rule-ai-models"});
       choices=result?.ok && Array.isArray(result.models)?result.models.filter(item=>typeof item.value==="string"&&typeof item.label==="string"&&Array.isArray(item.efforts)):[];
       loaded=true;
-      status.textContent=result?.ok ? (choices.length?tr("custom.ai.search","Search is enabled. Linked groups share the allowance."):tr("custom.ai.connect","Connect an AI provider and fetch its models in Vault Settings.")) : tr("custom.ai.disconnected","Connect to Mac Vault to use AI.");
+      status.textContent=result?.ok ? (choices.length?tr("custom.ai.search","Search is enabled. Linked groups share the allowance."):tr("custom.ai.connect","Connect an AI provider and fetch its models in Mac Vault Settings.")) : tr("custom.ai.disconnected","Connect to Mac Vault to use AI.");
     } catch (_) {status.textContent=tr("custom.ai.disconnected","Connect to Mac Vault to use AI.");}
     finally {busy=false;draw();}
   }

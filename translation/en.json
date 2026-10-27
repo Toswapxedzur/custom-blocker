@@ -1313,7 +1313,7 @@
   "custom.ai.unavailable": "Unavailable",
   "custom.ai.loading": "Loading models…",
   "custom.ai.search": "Search is enabled. Linked groups share the allowance.",
-  "custom.ai.connect": "Connect an AI provider and fetch its models in Vault Settings.",
+  "custom.ai.connect": "Connect an AI provider and fetch its models in Mac Vault Settings.",
   "custom.ai.disconnected": "Connect to Mac Vault to use AI.",
   "custom.ai.invalid": "Choose an AI model and a whole daily request cap from 1 to 100,000, or leave the cap blank.",
   "custom.ai.effort.default": "Model default",

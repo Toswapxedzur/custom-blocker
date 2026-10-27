@@ -2412,11 +2412,11 @@ async function cbRunRuleAI(action) {
   const initial = (await chrome.storage.local.get({[BLOCKED_GROUPS_KEY]:[]}))[BLOCKED_GROUPS_KEY].find(g => g.id === action.groupId);
   if (!initial?.enabled || initial.groupType !== "custom") return;
   const connection = cbConnection.ws;
-  const answer = await (globalThis.CBRuleAIHub?.request("generate", action.groupId, action.payload) ?? Promise.resolve({ok:false,error:"ai-unavailable"}));
+  let answer = await (globalThis.CBRuleAIHub?.request("generate", action.groupId, action.payload) ?? Promise.resolve({ok:false,error:"ai-unavailable"}));
   const current = (await chrome.storage.local.get({[BLOCKED_GROUPS_KEY]:[]}))[BLOCKED_GROUPS_KEY].find(g => g.id === action.groupId);
   if (!current?.enabled || current.groupType !== "custom" || generation !== cbRuleGenerations.get(action.groupId)
-    || initial.activeEventSource !== current.activeEventSource || CBGroupScopes.definitionJSON(initial.ruleAI) !== CBGroupScopes.definitionJSON(current.ruleAI)
-    || connection !== cbConnection.ws) return;
+    || initial.activeEventSource !== current.activeEventSource || CBGroupScopes.definitionJSON(initial.ruleAI) !== CBGroupScopes.definitionJSON(current.ruleAI)) return;
+  if (connection !== cbConnection.ws) answer = {ok:false,error:"ai-unavailable",text:null,citations:[]};
   await dispatchRule("ai", {...answer, requestId:action.requestId,generation:action.generation},{targetGroupId:action.groupId,expectedGeneration:generation});
 }
 
@@ -4215,6 +4215,8 @@ const cbConnection = {
       }
     };
     socket.onclose = () => {
+      globalThis.CBRuleAIHub?.disconnected();
+      this.ruleAIVersion = 0;
       this.invalidateActivitySettingsConnection();
       this.clearTimers();
       this.ws = null;
