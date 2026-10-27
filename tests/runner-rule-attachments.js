@@ -55,5 +55,11 @@ async function observe(b,target=item,token='page'){return b.observe(sender,{item
  await b.applyBatchLocked(batch.slice(0,8),new Map([['a',1]]));assert.equal(writes-beforeWrites,1,'identical specs do not rewrite storage');
  stored.blockedGroups=[];await b.load();assert.deepEqual(Object.keys(stored[KEY].groups),[]);
  stored[KEY]={version:999,groups:{keep:'future'}};await assert.rejects(()=>b.load(),/storage-unavailable/);assert.equal(stored[KEY].groups.keep,'future');
+ for(const bad of [{version:1,groups:{a:'bad'}},{version:1,groups:{a:{content:[]}}},{version:1,groups:{a:{content:{note:{spec:{type:'html',text:'bad'},revision:'x'}}}}}]) {
+  stored[KEY]=bad;const original=structuredClone(bad);await assert.rejects(()=>b.load(),/storage-unavailable/);
+  assert.equal((await observe(b)).length,1,'metadata still reaches ordinary item rules');
+  assert.equal(b.itemsForGroup('a',[item])[0].attachments,null,'unavailable is not an empty cache');
+  assert.deepEqual(stored[KEY],original,'malformed nested records are preserved');
+ }
  console.log('PASS content identity, rule action, durable per-group pills, reconstruction, click correlation, disabled groups, stale targets/generations, quota preservation and deletion');
 })().catch(error=>{console.error(error);process.exitCode=1;});

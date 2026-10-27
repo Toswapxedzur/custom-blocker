@@ -5,7 +5,9 @@ from pathlib import Path
 HTML='''<!doctype html><style>body{font:16px Arial;background:white;padding:40px}ytd-rich-item-renderer{display:block;padding:20px;margin:20px;background:#f1f5f9}h3{display:inline}h1{font-size:24px}</style>
 <h1>Fixture feed</h1><ytd-rich-item-renderer><a id="thumbnail" href="/watch?v=attachmentA"><h3 id="video-title">Content A</h3></a></ytd-rich-item-renderer>'''
 SOURCE="""(on,v)=>{
+ on('tick',()=>{v.state.ticks=(v.state.ticks||0)+1;});
  on('items',({data})=>{for(const item of data.items){
+  if(item.attachments===null)continue;
   if(item.contentId==='youtube:video:attachmentA'){v.state.item=item;if(!item.attachments.summary){v.attach(data.tabId,item,'summary',{type:'pill',text:'Saved pill',tone:'blue'});v.state.created=(v.state.created||0)+1;}}
   if(item.isPage&&!item.attachments['page-note']){v.attach(data.tabId,item,'page-note',{type:'pill',text:'Page note',tone:'gold'});v.state.pageSaved=true;}
  }});
@@ -47,6 +49,14 @@ def run(context,worker):
             assert answer.get('loadResult',{}).get('ok'),answer
         else:
             group=worker.evaluate("async()=> (await chrome.storage.local.get('blockedGroups')).blockedGroups[0].id")
+        if phase=='3':
+            ticks=worker.evaluate("async id=>(await chrome.storage.local.get('cbRuleState')).cbRuleState[id].ticks||0",group)
+            page.goto('https://www.youtube.com/')
+            until(lambda:worker.evaluate("async id=>(await chrome.storage.local.get('cbRuleState')).cbRuleState[id].ticks>"+str(ticks),group),'ordinary rule ticks after corrupt-store cold restart')
+            assert worker.evaluate("async()=>(await chrome.storage.local.get('cbRuleAttachments')).cbRuleAttachments.version")==999
+            assert not buttons('Page note') and not buttons('Clicked 3')
+            print('PASS corrupt/future attachment storage survives cold restart without blocking ordinary rule handlers or resetting data',flush=True)
+            return
         page.goto('https://www.youtube.com/')
         until(lambda:buttons('Page note'),'saved page pill')
         if phase=='2':
@@ -54,6 +64,7 @@ def run(context,worker):
             assert worker.evaluate("async id=>(await chrome.storage.local.get('cbRuleState')).cbRuleState[id].created",group)==1
             click('Clicked 2');until(lambda:buttons('Clicked 3'),'saved click action after restart')
             print('PASS browser restart restores page/card pills and click action without rerunning attachment creation',flush=True)
+            worker.evaluate("async()=>chrome.storage.local.set({cbRuleAttachments:{version:999,groups:{keep:'future'}}})")
             return
         until(lambda:buttons('Saved pill'),'saved card pill')
         click('Saved pill');until(lambda:buttons('Clicked 1'),'pointer click delivered to rule')

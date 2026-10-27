@@ -2503,7 +2503,8 @@ async function loadAllCustomGroupsAtStartup() {
   // Otherwise the startup load can capture the pre-migration source and then
   // fail its final freshness guard against the newly migrated saved group.
   await cbDefinitionStartupReady;
-  await cbAttachmentBroker?.load();
+  try{await cbAttachmentBroker?.load();}
+  catch(error){cbDebugError('Saved attachments unavailable',error);}
   // Recover per-tab URL history and queued apply messages from
   // chrome.storage.session BEFORE the first dispatch fans out. Every
   // dispatch already awaits ensureStartupGate(), so completing the

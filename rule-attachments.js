@@ -3,15 +3,30 @@
   'use strict';
   const KEY='cbRuleAttachments',MAX_BYTES=8_000_000;
   const size=value=>new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
   function decode(value) {
     if(value===undefined)return {version:1,groups:Object.create(null)};
-    if(!value||value.version!==1||!value.groups||Array.isArray(value.groups)||typeof value.groups!=='object'||size(value)>MAX_BYTES)throw Error('attachment-storage-unavailable');
+    try {
+      if(!object(value)||value.version!==1||!object(value.groups)||Object.keys(value).some(k=>!['version','groups'].includes(k))||size(value)>MAX_BYTES)throw Error();
+      const totals=new Map();
+      for(const [groupId,contents] of Object.entries(value.groups)) {
+        if(!groupId||groupId.length>512||!object(contents)||Object.keys(contents).length>10000)throw Error();
+        for(const [contentId,records] of Object.entries(contents)) {
+          if(!contentId||contentId.length>2048||!object(records)||Object.keys(records).length>8)throw Error();
+          totals.set(contentId,(totals.get(contentId)||0)+Object.keys(records).length);if(totals.get(contentId)>32)throw Error();
+          for(const [id,record] of Object.entries(records)) {
+            if(!/^[A-Za-z0-9_-]{1,80}$/.test(id)||!object(record)||Object.keys(record).some(k=>!['spec','revision'].includes(k))||typeof record.revision!=='string'||!record.revision||record.revision.length>128)throw Error();
+            root.VaultContentItems.spec(record.spec);
+          }
+        }
+      }
+    }catch{throw Error('attachment-storage-unavailable');}
     const copy=JSON.parse(JSON.stringify(value));copy.groups=Object.assign(Object.create(null),copy.groups);return copy;
   }
   function createBroker({storage,groupsKey,send,check,serial,isCurrent=()=>true,epoch=()=>0,click}) {
     const C=root.VaultContentItems,bindings=new Map(),savedGroups=new Set();let sequence=0,latestDoc={version:1,groups:{}};
-    async function read(){const raw=await storage.get([groupsKey,KEY]);const doc=decode(raw[KEY]);latestDoc=doc;savedGroups.clear();for(const key of Object.keys(doc.groups))savedGroups.add(key);return {doc,groups:Array.isArray(raw[groupsKey])?raw[groupsKey]:[]};}
-    function itemsForGroup(groupId,items){return items.map(item=>({...item,attachments:Object.fromEntries(Object.entries(latestDoc.groups[groupId]?.[item.contentId]||{}).map(([id,record])=>[id,C.spec(record.spec)]))}));}
+    async function read(){try{const raw=await storage.get([groupsKey,KEY]);const doc=decode(raw[KEY]);latestDoc=doc;savedGroups.clear();for(const key of Object.keys(doc.groups))savedGroups.add(key);return {doc,groups:Array.isArray(raw[groupsKey])?raw[groupsKey]:[]};}catch(error){latestDoc=null;throw error;}}
+    function itemsForGroup(groupId,items){return items.map(item=>({...item,attachments:latestDoc?Object.fromEntries(Object.entries(latestDoc.groups[groupId]?.[item.contentId]||{}).map(([id,record])=>[id,C.spec(record.spec)])):null,...(latestDoc?{}:{attachmentError:'attachment-storage-unavailable'})}));}
     function active(groups,id){return groups.find(g=>g.id===id&&g.groupType==='custom'&&g.enabled===true);}
     function binding(tabId,value){const page=bindings.get(tabId),item=page?.items.get(value?.instanceId);return item&&item.contentId===value.contentId&&item.ref===value.ref?{page,item}:null;}
     async function publish(tabId,state) {
@@ -102,7 +117,9 @@
             const item={...raw,...value};page.items.set(value.instanceId,item);accepted.push(item);
           }
           while(page.items.size>3000)page.items.delete(page.items.keys().next().value);
-          await publish(tabId,await read());return accepted;
+          try{await publish(tabId,await read());}
+          catch{await publish(tabId,{groups:[],doc:{groups:{}}});}
+          return accepted;
         });
       },
       applyBatchLocked,

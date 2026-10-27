@@ -248,13 +248,15 @@ appear in the rule Log; the engine does not retry them automatically.
 
 Each item exposes this group's saved pills as `item.attachments`, a read-only
 snapshot keyed by attachment ID. Other groups' attachments are not in that map.
+If saved data is unavailable, `attachments` is null and `attachmentError` is set;
+this is not an empty cache. Unrelated rule handlers continue running.
 Use it to avoid requesting AI for content that already has a saved result:
 
 ```javascript
 (on, v) => {
   on("items", ({data}) => {
     for (const item of data.items) {
-      if (!item.attachments.note) {
+      if (item.attachments && !item.attachments.note) {
         v.attach(data.tabId, item, "note", {
           type: "pill", text: "Review this", tone: "blue"
         });
