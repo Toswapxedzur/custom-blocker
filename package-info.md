@@ -83,11 +83,11 @@
 
 - `popup-rule-logs.js` also checks that the optional Mac export uses exactly the same selected-rule text as browser downloads. Current source version is 3.1.5; Store publication remains 3.1.0.
 
-- Local storage: `storage-schema.js` owns format 3, writer product/app version,
+- Local storage: `storage-schema.js` owns format 4, writer product/app version,
   bounded compatible-alpha imports and write barriers across worker/editor APIs.
   `docs/STORAGE-SCHEMAS.md` documents retention; `tests/runner-storage-schema.js`
   checks expiry, retries, callbacks and unsupported-destination preservation.
 
 - `rule-time-client.js`: authenticated local-hub coordination for linked custom-rule timers and rolling trackers (private implementation in progress).
 
-- `rule-ai-client.js` provides connection-bound runtime AI RPC to Mac Vault; `rule-ai-ui.js` supplies credential-free per-custom-group model/effort/cap controls. `ruleAI` is a shared scalar and web storage schema4 preserves older groups as unconfigured. Browser source checkpoint is private; runtime/UI acceptance continues on Mini2.
+- `rule-ai-client.js` provides connection-bound runtime AI RPC to Mac Vault; `rule-ai-ui.js` supplies credential-free per-custom-group model/effort/cap controls. `ruleAI` is a shared scalar and web storage schema4 preserves older groups as unconfigured. `tests/runner-rule-ai*.js` checks the contract and worker races; `tests/browser-rule-ai.py` runs through the existing isolated extension driver with a fixture AI broker. New English text is batch-translated before release. Public app runtimes remain unchanged.
