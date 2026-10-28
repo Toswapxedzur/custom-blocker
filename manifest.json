@@ -33,7 +33,7 @@
         "<all_urls>"
       ],
       "js": [
-        "content-items.js",
+        "content-views.js", "content-items.js",
         "platform-profiles.js",
         "content-messages.js",
         "vault-content-i18n.js",

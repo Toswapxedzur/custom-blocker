@@ -10,16 +10,17 @@ Source: one function expression `(on, v) => { ... }`. Only synchronous JavaScrip
 - Successful Run replaces handlers and panels, preserving `v.state`. Compilation/registration failure keeps the previous rule; a timeout can stop it. Reloading the engine registers the last activated source again; closure variables reset.
 - Registration may initialize state, register handlers, show panels and log. Page/file actions and emits belong in handlers; their registration-time queue is discarded.
 - Disable suppresses handlers and lifts managed panels, sheets, covers and item verdicts. Enable restores retained panels/sheets and requests items again. Run does not clear existing sheets, covers or item verdicts. Delete removes the rule and its state/effects. Navigation, DOM mutations and file writes are not undone.
-- Events are not restricted by ordinary group targets; filter URLs/items in the rule. Actions are queued, then applied after dispatch. Exceptions stop that handler without rolling back its state/actions; later handlers may still run. No action acknowledgement exists except file/query events.
+- Events are not restricted by ordinary group targets; filter URLs/items in the rule. Actions are queued, then applied after dispatch. Exceptions stop that handler without rolling back its state/actions; later handlers may still run. File, query, AI and record requests have result events; visual actions have no acknowledgement.
 
 ## Shared API
 
-- `on(type, handler)` → boolean. Registers `handler(ev)`; multiple handlers run in registration order. False means invalid arguments or handler limit reached. `ev = { type: string, now: number, data }`; `now` is Unix milliseconds.
+- `on(type, handler)` → boolean. Registers `handler(ev)`; multiple handlers run in registration order. False means invalid arguments or handler limit reached. `ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`; `now` is Unix milliseconds. Actual rendered control events have `origin: "user"`; `v.emit` events have `origin: "rule"`.
 - `v.state`: mutable JSON object, persisted after event dispatch. Initialize missing fields rather than overwriting existing state. Assigning a non-object or array resets it to `{}`; nonserializable/oversized updates are not persisted.
 - `v.log(...values)`: writes this group's Log. Handler and reported page-action errors also appear here; reporting does not replay actions. Logs/Clear are independent per group. Load errors appear in Run status.
 - `v.emit(type, data)`: queues a JSON copy of `data` for this group's handlers after the current event, with a fresh `now`; not a synchronous call.
 - `v.panel(id, spec, tabId?)`: replaces this group's named panel; omit `tabId` for every accessible web page, or use an integer tab ID. Null `spec` removes it. See Panels.
 - `v.file(op, path, payload?)` → request ID string. See Files.
+- `v.store(request)` → request ID string. See Group records.
 
 Other shared calls return `undefined` except the named managed-time factories below. IDs/state belong to one group, not its display name.
 
@@ -66,7 +67,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
-attachment: { eventName: "click", tabId: number, attachmentId: string, item: Item, text: string }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -75,7 +81,7 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Pill },
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
          url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
@@ -91,6 +97,7 @@ Match = { tag: string, text: string, href: string, src: string,
 - Tags require the connected desktop Classifier and a tagging-enabled build/platform (Chromium and Safari: YouTube, Reddit, Bilibili, X/`twitter`). Confidence is 1–5. `tagsSettled === false` is pending/unavailable, not untagged; settled `tags: []` is untagged.
 - `snooze` means the group's Snooze button was pressed. It applies no pause by itself.
 - Query/file replies target the requesting group. Correlate `requestId`, check `error`/`ok`, and set a deadline using ticks: replies can be lost when a page closes, the engine reloads or the group is disabled. Request IDs can repeat after Run; pending requests are not durable work.
+- Record replies also target the requesting group. A changed rule or configuration drops obsolete replies. Record operations are asynchronous; the rule decides how to handle missing replies and conflicts.
 
 ## Browser actions
 
@@ -231,22 +238,64 @@ set-group path. Its fields are `providerModel`, `accountID`, `reasoningEffort`
 (`default`, `low`, `medium`, `high`) and `dailyRequestLimit` (null or1–100000).
 Use a returned choice; do not put a key or provider URL into rule source.
 
-## Saved content pills
+## Group records
 
-`v.attach(tabId, item, id, spec)` saves a clickable pill for an observed content item.
+`v.store(request)` starts an asynchronous JSON record operation from a handler.
+Records are private to this group, persist across Run and restart, and are removed
+with the group. Linked groups have separate records. The rule chooses keys, values,
+version strings, cache invalidation and feedback precedence. No classification or
+filtering behavior is attached to a record automatically. Mac and browser rules
+use the same API, but each app/browser store is separate.
+
+| Request | Result |
+| --- | --- |
+| `{op:"get", key}` | `record` or `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | saved `record` |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | sorted `entries` of headers and `next` cursor |
+| `{op:"clear", prefix?}` | `deleted` count |
+
+Each record has `{value, revision, version, updatedAt}`. The opaque revision
+changes on a real write. `version` is caller-owned metadata. `list` returns
+headers without values; use `get` to read one. Use `after: next` for the next page.
+For `put`/`delete`, omitted `ifRevision` means unconditional. `null` requires an
+absent key; a revision string requires an exact match. A mismatch returns
+`ok:false`, `error:"store-conflict"` and the current `record`. Use this to stop
+late automatic replies from overwriting user feedback. `v.context.revision` is
+an opaque rule-configuration marker; a rule may include it in its own cache
+version. A user-origin control event can make a correction, but authority is
+decided by the rule's code.
+
+Limits: key1–2048 characters, version≤128, JSON value≤64KiB, depth≤32,
+10000 keys per group,16MiB whole record document. `list` returns at most100
+headers and96KiB per page. At most32 requests per group and128 total requests
+start per second; overload reports one `store-busy` error per group per second
+and drops further requests that second. Storage errors return `ok:false`; a
+future or malformed record document is preserved and reported as
+`store-unavailable`. There is no automatic retry or eviction. Use ticks for
+deadlines when a reply matters.
+
+## Saved content attachments
+
+`v.attach(tabId, item, id, spec)` saves a pill or passive HTML/CSS view for an observed content item.
 Pass the complete `item` from an `items` or `attachment` event; a bare `ref` is not
 an attachment handle. `contentId` identifies saved content; `instanceId` identifies
 its current appearance. Keep that original handle while awaiting AI. A removed,
 recycled or navigated target refuses a late attachment rather than attaching it
 to another item. Existing `v.item(tabId, ref, verdict)` behavior stays separate.
 
-`spec` is `{type:"pill", text, tone?, tooltip?}`; tones are `blue`, `cyan`, `gold`,
-`pink` or `red`. Text is plain text, up to240 characters; tooltip up to1000.
+For a pill, `spec` is `{type:"pill", text, tone?, tooltip?}`; tones are `blue`,
+`cyan`, `gold`, `pink` or `red`. Text is plain text, up to240 characters;
+tooltip up to1000. For a view, use `{type:"html", html, css?, label?}`. HTML is
+≤32000 characters, CSS≤16000, and label≤200. The view is rebuilt from allowed
+passive HTML/SVG, in its own closed shadow root with scoped CSS. Scripts,
+event attributes, remote resources, embeds and unsafe CSS are removed. The
+visible view is constrained to the content card and scrolls at480px height.
 IDs use1–80 ASCII letters, digits, underscores or hyphens. A null spec removes
 that group's saved pill. Call inside a handler. Persistence/delivery failures
 appear in the rule Log; the engine does not retry them automatically.
 
-Each item exposes this group's saved pills as `item.attachments`, a read-only
+Each item exposes this group's saved attachments as `item.attachments`, a read-only
 snapshot keyed by attachment ID. Other groups' attachments are not in that map.
 If saved data is unavailable, `attachments` is null and `attachmentError` is set;
 this is not an empty cache. Unrelated rule handlers continue running.
@@ -271,26 +320,34 @@ Use it to avoid requesting AI for content that already has a saved result:
 }
 ```
 
-Pointer, Enter and Space activation produce one `attachment` click event for the
-currently running group. Pills prevent the underlying card link from navigating.
-The event includes `tabId`, `attachmentId`, the current `item` and displayed `text`.
+Pointer, Enter and Space activation produce `attachment` events for the current
+group. Pills send `click`. A view's controls use `data-control` or an `id` as
+their `controlId` and send `click`, `input` or `change`, plus current `value` and
+bounded `values` for named controls. Actual UI events have `ev.origin === "user"`;
+rule-created events have `origin === "rule"`. These events include `tabId`,
+`attachmentId` and the current `item`. The view does not execute rule code.
+Both pills and views prevent their interactions from navigating the underlying card.
 Saved data contains no callback or executable code. A stale pill revision or old
 document cannot invoke a current attachment. Rule emit events are ordinary rule
 logic; the browser validates actual UI click messages independently.
 
-Pills are saved in this browser profile per group/content/ID and return on other
+Attachments are saved in this browser profile per group/content/ID and return on other
 occurrences, navigation, browser restart and Run. Disable hides them while retaining
 the saved data; reenable restores them. Deleting the group removes its attachments.
-Linked groups keep separate attachments. These pills are separate from classifier
-tags and correction/training data. There is no automatic cross-browser/device sync.
+Linked groups keep separate attachments. There is no automatic cross-browser/device sync.
 Known YouTube, Reddit, X and Bilibili content use platform IDs. Other detected
 content uses a conservative normalized URL, so availability follows supported
 page markup; unresolved identities cannot receive saved pills.
 
-Limits:8 pills per group/content,32 across all groups for one content item,
+Limits:8 attachments per group/content,32 across all groups for one content item,
 10000 content entries per group and an8MB UTF-8 serialized attachment document.
 Reaching a limit refuses the new mutation with `attachment-item-limit` or
 `attachment-storage-limit` in the Log; existing saved data is preserved. A dispatch
 batches its attachment writes, and identical specs do not rewrite the store.
 Attachments are browser content UI, including Safari's native rule engine; Mac
-application rules have no browser content handles or in-app content-pill surface.
+application rules have no browser content handles or in-app attachment surface.
+
+`code-manual/generic-example.js` is an executable policy example. It uses
+records, AI calls, user-origin feedback, compare-and-swap, HTML controls, item
+verdicts, and a rule-owned usage report. Those behaviors are in the example's
+source, not special features of the record or attachment store.

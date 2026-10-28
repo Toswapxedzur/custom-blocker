@@ -83,7 +83,7 @@
 
 - `popup-rule-logs.js` also checks that the optional Mac export uses exactly the same selected-rule text as browser downloads. Current source version is 3.1.5; Store publication remains 3.1.0.
 
-- Local storage: `storage-schema.js` owns format 5, writer product/app version,
+- Local storage: `storage-schema.js` owns format 6, writer product/app version,
   bounded compatible-alpha imports and write barriers across worker/editor APIs.
   `docs/STORAGE-SCHEMAS.md` documents retention; `tests/runner-storage-schema.js`
   checks expiry, retries, callbacks and unsupported-destination preservation.
@@ -92,4 +92,6 @@
 
 - `rule-ai-client.js` provides connection-bound runtime AI RPC to Mac Vault; `rule-ai-ui.js` supplies credential-free per-custom-group model/effort/cap controls. `ruleAI` is a shared scalar and web storage schema4 preserves older groups as unconfigured. `tests/runner-rule-ai*.js` checks the contract and worker races; `tests/browser-rule-ai.py` runs through the existing isolated extension driver with a fixture AI broker. New English text is batch-translated before release. Public app runtimes remain unchanged.
 
-- `content-items.js` owns normalized content identities, occurrence handles and attachment host mounting shared by classifier and custom pills. `rule-attachments.js` owns group-private saved pill records, atomic dispatch batches, restore/click validation and bounds. `tests/runner-rule-attachments.js` checks persistence and safety; `browser-content-attachments.py` covers real extension pointer/keyboard/recycle/restart paths; `browser-pill-coexistence.py` checks independent classifier/custom slots. New English API text remains in the pre-release translation batch.
+- `content-items.js` owns normalized content identities, occurrence handles and attachment host mounting. `rule-attachments.js` owns group-private saved pill and HTML view specs, atomic dispatch batches, restore/event validation and bounds. `content-views.js` renders passive HTML/CSS in isolated shadow roots. `tests/runner-rule-attachments.js` checks persistence and safety; `browser-content-attachments.py` covers real extension pointer/keyboard/recycle/restart paths; `browser-pill-coexistence.py` checks independent classifier/custom slots. New English API text remains in the pre-release translation batch.
+
+Generic rule primitives: `rule-records.js` provides group-owned versioned JSON transactions with revisions, conditional writes, bounded listing and rate limits. `code-manual/generic-example.js` implements AI labels, user feedback, pills, HTML controls, an item verdict and a usage report entirely in rule code. The browser content view remains separate from Classifier data and Activity. Native Mac storage uses the same transaction module. `tests/browser-generic-content.py` checks real isolated Chromium behavior on Mini2.

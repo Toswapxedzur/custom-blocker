@@ -40,6 +40,8 @@ async function observe(b,target=item,token='page'){return b.observe(sender,{item
  await b.handleClick(sender,{pageToken:'return',target:shown.target,groupId:'a',attachmentId:'summary',revision:'forged'},1);assert.equal(clicks.length,0);
  await b.handleClick(sender,{pageToken:'return',target:shown.target,groupId:'a',attachmentId:'summary',revision:record.revision},1);
  assert.equal(clicks.length,1);assert.equal(clicks[0][1].item.contentId,item.contentId);assert.equal(clicks[0][1].eventName,'click');
+ await b.handleClick(sender,{pageToken:'return',target:shown.target,groupId:'a',attachmentId:'summary',revision:record.revision,value:{forged:true}},1);
+ assert.equal(clicks.length,1);
  valid=false;await assert.rejects(()=>b.applyLocked({...action,groupId:'a',target:shown.target,spec:{...spec,text:'Wrong card'}},1),/stale-target/);valid=true;
  assert.equal(stored[KEY].groups.a[item.contentId].summary.spec.text,'Read');
  generation=2;await assert.rejects(()=>b.applyLocked({...action,groupId:'a',target:shown.target},1),/stale-target/);generation=1;

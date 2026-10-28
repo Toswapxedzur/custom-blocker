@@ -618,6 +618,8 @@
     const panelValues = new Map();
     let requestSeq = 0;
     let aiEpoch = 0;
+    let contextRevision = "";
+    const requestToken = () => generation + ":" + aiEpoch + ":" + contextRevision;
     let eventNow = null;
     const requestId = () => groupId + ":" + (++requestSeq);
 
@@ -679,7 +681,17 @@
         const payload = JSON.stringify(options);
         if (utf8Bytes(payload) > 48000 || (options.input !== undefined && utf8Bytes(JSON.stringify(options.input)) > 20000)) throw new Error("AI input is too large.");
         const id = requestId();
-        act("ai", {payload, requestId: id, generation: generation + ":" + aiEpoch});
+        act("ai", {payload, requestId: id, generation: requestToken()});
+        return id;
+      },
+      store(options) {
+        check();
+        if (eventNow === null) throw new Error("v.store must be called inside an event handler.");
+        if (!isPlainObject(options) || !["get","put","delete","list","clear"].includes(options.op)) throw new Error("Invalid store request.");
+        const payload = JSON.stringify(options);
+        if (utf8Bytes(payload) > 75000) throw new Error("Store request is too large.");
+        const id = requestId();
+        act("store", {payload, requestId:id, generation:requestToken()});
         return id;
       },
       // Browser content handle, not a selector or a mutable page/card ref.
@@ -692,7 +704,7 @@
             typeof item.instanceId !== "string" || item.instanceId.length > 128 ||
             typeof attachmentId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(attachmentId)) throw new Error("Invalid content attachment target.");
         const value = cloneJSON(spec);
-        if (value !== null && (!isPlainObject(value) || utf8Bytes(JSON.stringify(value)) > 6000)) throw new Error("Invalid content attachment.");
+        if (value !== null && (!isPlainObject(value) || utf8Bytes(JSON.stringify(value)) > 52000)) throw new Error("Invalid content attachment.");
         act("attach", {tabId, target:{ref:item.ref,contentId:item.contentId,instanceId:item.instanceId},attachmentId,spec:value});
       },
       file(op, path, payload) {
@@ -708,6 +720,7 @@
       get: () => stateObj,
       set: (value) => { stateObj = isPlainObject(value) ? value : {}; }
     });
+    Object.defineProperty(v, "context", {enumerable:true,get:()=>Object.freeze({revision:requestToken()})});
     Object.freeze(v);
 
     const on = (type, handler) => {
@@ -750,7 +763,8 @@
 
     return {
       groupId,
-      acceptsAI: value => value === generation + ":" + aiEpoch,
+      configureRevision: value => { if(value!==undefined) contextRevision=String(value); },
+      acceptsAI: value => value === requestToken(),
       invalidateAI: () => { aiEpoch++; },
       error: registrationError,
       registrationLogs: registration.logs,
@@ -774,7 +788,7 @@
           if (data.values && typeof data.values === "object") Object.assign(values, data.values);
           panelValues.set(data.panelId, values);
         }
-        const ev = Object.freeze({ type: event.type, now: event.now, data: event.data ?? null });
+        const ev = Object.freeze({ type: event.type, now: event.now, origin: event.origin || "host", data: event.data ?? null });
         for (const handler of handlers.get(event.type) || []) {
           runGuarded(() => handler(ev), event.type + " handler");
           if (record.overrun) break;
@@ -924,14 +938,15 @@
       for (const [groupId, rule] of rules) {
         if (descriptor.targetGroupId && descriptor.targetGroupId !== groupId) continue;
         if (suppressed.has(groupId)) continue;
-        if (descriptor.type === "ai" && !rule.acceptsAI(descriptor.data?.generation)) continue;
+        rule.configureRevision(descriptor.contextRevisions?.[groupId]);
+        if (["ai", "record"].includes(descriptor.type) && !rule.acceptsAI(descriptor.data?.generation)) continue;
         if (rule.handles(descriptor.type)) queue.push({ rule, event: descriptor, depth: 0 });
       }
       while (queue.length > 0) {
         const { rule, event, depth } = queue.shift();
         if (event.managedTimer && !rule.currentCompletion(event.data)) continue;
         beacon(rule.groupId);
-        const record = rule.dispatch({ type: event.type, now: event.now ?? Date.now(), data: event.data ?? null, trustedUsage: event.trustedUsage !== false });
+        const record = rule.dispatch({ type: event.type, now: event.now ?? Date.now(), data: event.data ?? null, origin:event.origin || "host", trustedUsage: event.trustedUsage !== false });
         out.actions.push(...record.actions);
         out.logs.push(...record.logs);
         out.diagnostics.push(...record.diagnostics);
@@ -940,7 +955,7 @@
         }
         if (depth < EMIT_DEPTH) {
           for (const emitted of record.emits) {
-            if (rule.handles(emitted.type)) queue.push({ rule, event: { type: emitted.type, now: Date.now(), data: emitted.data, managedTimer: emitted.managedTimer, trustedUsage: false }, depth: depth + 1 });
+            if (rule.handles(emitted.type)) queue.push({ rule, event: { type: emitted.type, now: Date.now(), data: emitted.data, origin:"rule", managedTimer: emitted.managedTimer, trustedUsage: false }, depth: depth + 1 });
           }
         }
       }
@@ -972,7 +987,7 @@
         return { ok: false, error: String(error.message || error) };
       }
     }
-    return { load, prepareLoad, commitLoad, discardLoad, unload, suppress, dispatch, setTimeContext, types: (groupId) => (rules.has(groupId) ? rules.get(groupId).types() : []) };
+    return { acceptsRequest:(id,token)=>!suppressed.has(id)&&rules.get(id)?.acceptsAI(token)===true, load, prepareLoad, commitLoad, discardLoad, unload, suppress, dispatch, setTimeContext, types: (groupId) => (rules.has(groupId) ? rules.get(groupId).types() : []) };
   }
 
   // ── Values ───────────────────────────────────────────────────────────────
@@ -1130,9 +1145,10 @@
   // ── The reference an AI writes rules from ────────────────────────────────
   const SHARED_REFERENCE = [
     "A rule is ONE JavaScript function expression: (on, v) => { … }. It runs once when the user presses Run: register handlers there. Run replaces the old handlers; deleting the group removes them. While the group is disabled no handler runs and what the rule did is lifted (its panels, style sheets, covers, blocks); enabling it resumes the rule as it was.",
-    "on(type, handler) adds a handler; several per type are fine. handler(ev) gets ev = { type, now (ms since 1970), data }. Handlers are synchronous and must finish within 1 s: no loops that wait, no network, no setTimeout/setInterval, no DOM of your own (you run in a sandbox).",
+    "on(type, handler) adds a handler; several per type are fine. handler(ev) gets ev = { type, now (ms since 1970), origin: host|user|rule, data }. Rendered control input has origin user; v.emit has origin rule. Handlers are synchronous and must finish within 1 s: no loops that wait, no network, no setTimeout/setInterval, no DOM of your own (you run in a sandbox).",
     "v.ai({prompt, input?}) calls the AI connection/model configured for this custom group. Call it inside an event handler; it returns a request ID immediately. The later ai event has data {requestId, ok, text, citations:[{url,title}], error}. Handle errors explicitly; no fallback or automatic retries. Text is at most48KB; prompt/input each20KB; each call times out after70seconds. Search is always enabled. Keys stay in connected Mac Vault; disconnected browsers report ai-unavailable. Disabled/replaced rules discard old replies. Linked groups share settings and the optional UTC daily request cap; failed submitted attempts count and linking/unlinking does not reset usage. AI output is data and is never executed automatically. Preserve visible clickable citations if displaying web-derived answers.",
     "v.state is the group's memory: one JSON object (≤ 64 KB), kept across restarts and across Run (a new version of the rule finds what the old one saved), deleted with the group. Change it freely inside handlers.",
+    "v.store({op:get|put|delete|list|clear, key?, value?, version?, ifRevision?, prefix?, after?, limit?}) starts a group-owned JSON record request inside a handler and returns its request ID. Later record events carry {requestId, ok, op, key?, record?, entries?, next?, deleted?, error?}. get returns a record or null; put returns the saved record; list returns sorted headers without values and an after cursor. Each record has value, opaque revision, caller version and updatedAt. For put/delete, omit ifRevision for unconditional writes, pass null to require absence, or pass the expected revision to require an exact match. A mismatch is store-conflict with the current record. Caller code decides cache policy and user-feedback priority; v.context.revision is an opaque configuration marker that may be included in a caller-chosen version. No automatic retries. Records are private to the owning group, persist across Run/restart, and are deleted with the group. Linked groups keep separate records. Each value is at most64KB; the store at most16MB. A group may start32 requests per second, across all groups128; overload reports one store-busy error per group/second and drops further requests that second.",
     "v.log(...values) writes to the group's log in the editor.",
     "v.timer(id, {direction: down|up, durationMs?}) creates/returns a named managed timer (default down; durationMs required for down). It begins paused. start()/resume() are idempotent; pause() freezes; reset() clears elapsed and pauses; snapshot() gives ready/error, elapsedMs, remainingMs (null for up), running and completed. Running clocks continue while closed/disabled. timerEnded delivers {id, direction, durationMs, generation, incarnation} once per incarnation and generation to each enabled linked member when it next executes; Run does not replay it.",
     "v.rolling(id, {windowMs, limitMs}) creates/returns a named active-use tracker. assign({websites:[hostnames],apps:[native app IDs]}) replaces this member's targets; all assigned targets share the allowance. snapshot() gives ready/error, usedMs, remainingMs, available and nextReturnAtMs; available(target?) also checks assignment. reset() clears this object's usage. Browser visible intervals and native observed foreground samples count once across overlaps, not wall time or v.emit events.",
@@ -1151,7 +1167,7 @@
       "\"tab\" when a tab opens, goes to an address or closes: data = { kind: open | navigate | close, tabId, url, previousUrl }.",
       "\"visible\" while a page is visible: data = { tabId, url, elapsedMs } (the visible time since the last one).",
       "\"items\" as an accessible web page or supported feed (YouTube, Reddit, Bilibili, X…) shows items, each new or changed item once: data = { tabId, platform, items: [{ ref, url, title, authors, videoForm: short|long|post|unknown, tags: [{ name, confidence 1–5 }], tagsSettled, isPage }] }. The page itself is the item with isPage true (ref \"page\", title = the page's title); act on it with v.cover. tags come from the connected Mac Vault classifier; tagsSettled is false until it answered — decide nothing about tags before that.",
-      "Items also contain contentId (saved content), instanceId (current appearance), and attachments (this group's saved pill specs keyed by ID). v.attach(tabId, item, id, {type: pill, text, tone?, tooltip?}) saves a clickable pill; null removes it. Pass the complete item, not its ref. IDs1–80 ASCII letters/digits/_/-, text240 characters, tooltip1000, tones blue/cyan/gold/pink/red. Eight pills per group/content,32 total/content,10000 contents/group,8MB UTF-8 document. Stale handles/limits/storage errors are logged; no automatic retry or eviction. Saved pills survive navigation/restart/Run, hide on disable, return on reenable and disappear with group deletion. Linked groups keep separate attachments. Pointer/Enter/Space sends attachment event data {eventName: click, tabId, attachmentId, item, text} to the current group. Check item.attachments before invoking AI for an already annotated item. Pills are separate from classifier tags. Browser content only.",
+      "Items also contain contentId (saved content), instanceId (current appearance), and attachments (this group's saved attachment specs keyed by ID). v.attach(tabId,item,id,spec) saves a clickable pill {type:pill,text,tone?,tooltip?} or a passive HTML/CSS view {type:html,html,css?,label?}; null removes it. Pass the complete item, not its ref. IDs1–80 ASCII letters/digits/_/-. HTML is inert, sanitized and rendered in an isolated shadow root; scripts, event attributes, embeds, remote resources and unapproved CSS are removed. Named controls (data-control or id) send trusted attachment events with eventName click|input|change, controlId, value, values, tabId, attachmentId and the current item. ev.origin is user for actual control events; rule-emitted events are rule. Eight attachments per group/content,32 total/content,10000 contents/group,8MB UTF-8 document. Stale handles/limits/storage errors are logged; no automatic retry or eviction. Saved views survive navigation/restart/Run, hide on disable, return on reenable and disappear with group deletion. Linked groups keep separate attachments. Browser content only.",
       "v.item(tabId, ref, verdict) hides (\"hide\"), covers (\"dim\") or rescues (\"allow\") a feed item; null clears it. Groups higher in the list win.",
       "v.cover(tabId, on, message?) covers the page in place (or lifts it); a new address lifts it.",
       "v.go(tabId, url | \"back\" | \"forward\" | \"reload\") navigates. v.close(tabId) closes the tab.",

@@ -44,7 +44,9 @@ DIST_DIR = REPO_ROOT / "dist"
 # renamed/synthesised during the copy.
 COMMON_TOP_LEVEL_FILES = [
     "content-items.js",
+    "content-views.js",
     "rule-attachments.js",
+    "rule-records.js",
     "background.js",
     "bridge-protocol.js",
     "content.js",

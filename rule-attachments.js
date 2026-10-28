@@ -4,10 +4,11 @@
   const KEY='cbRuleAttachments',MAX_BYTES=8_000_000;
   const size=value=>new TextEncoder().encode(JSON.stringify(value)).byteLength;
   const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
+  const controlValue=value=>value===null||typeof value==='boolean'||(typeof value==='string'&&value.length<=2000)||(Array.isArray(value)&&value.length<=32&&value.every(entry=>typeof entry==='string'&&entry.length<=2000));
   function decode(value) {
-    if(value===undefined)return {version:1,groups:Object.create(null)};
+    if(value===undefined)return {version:2,groups:Object.create(null)};
     try {
-      if(!object(value)||value.version!==1||!object(value.groups)||Object.keys(value).some(k=>!['version','groups'].includes(k))||size(value)>MAX_BYTES)throw Error();
+      if(!object(value)||![1,2].includes(value.version)||!object(value.groups)||Object.keys(value).some(k=>!['version','groups'].includes(k))||size(value)>MAX_BYTES)throw Error();
       const totals=new Map();
       for(const [groupId,contents] of Object.entries(value.groups)) {
         if(!groupId||groupId.length>512||!object(contents)||Object.keys(contents).length>10000)throw Error();
@@ -21,10 +22,10 @@
         }
       }
     }catch{throw Error('attachment-storage-unavailable');}
-    const copy=JSON.parse(JSON.stringify(value));copy.groups=Object.assign(Object.create(null),copy.groups);return copy;
+    const copy=JSON.parse(JSON.stringify(value));copy.version=2;copy.groups=Object.assign(Object.create(null),copy.groups);return copy;
   }
   function createBroker({storage,groupsKey,send,check,serial,isCurrent=()=>true,epoch=()=>0,click}) {
-    const C=root.VaultContentItems,bindings=new Map(),savedGroups=new Set();let sequence=0,latestDoc={version:1,groups:{}};
+    const C=root.VaultContentItems,bindings=new Map(),savedGroups=new Set();let sequence=0,latestDoc={version:2,groups:{}};
     async function read(){try{const raw=await storage.get([groupsKey,KEY]);const doc=decode(raw[KEY]);latestDoc=doc;savedGroups.clear();for(const key of Object.keys(doc.groups))savedGroups.add(key);return {doc,groups:Array.isArray(raw[groupsKey])?raw[groupsKey]:[]};}catch(error){latestDoc=null;throw error;}}
     function itemsForGroup(groupId,items){return items.map(item=>({...item,attachments:latestDoc?Object.fromEntries(Object.entries(latestDoc.groups[groupId]?.[item.contentId]||{}).map(([id,record])=>[id,C.spec(record.spec)])):null,...(latestDoc?{}:{attachmentError:'attachment-storage-unavailable'})}));}
     function active(groups,id){return groups.find(g=>g.id===id&&g.groupType==='custom'&&g.enabled===true);}
@@ -77,7 +78,7 @@
           }
           if(Object.keys(records).length)byContent[target.contentId]=records;else delete byContent[target.contentId];
           if(Object.keys(byContent).length>10000)throw Error('attachment-storage-limit');
-          const candidate={version:1,groups:Object.assign(Object.create(null),state.doc.groups)};
+          const candidate={version:2,groups:Object.assign(Object.create(null),state.doc.groups)};
           if(Object.keys(byContent).length)candidate.groups[groupId]=byContent;else delete candidate.groups[groupId];
           if(size(candidate)>MAX_BYTES)throw Error('attachment-storage-limit');
           state.doc=candidate;
@@ -133,7 +134,10 @@
           const state=await read(),record=state.doc.groups[message.groupId]?.[message.target.contentId]?.[message.attachmentId];
           if(!active(state.groups,message.groupId)||!isCurrent(message.groupId,generation)||!record||record.revision!==message.revision)return null;
           if(!await check(sender.tab.id,{type:'rule-attachment-check',pageToken:found.page.token,target:message.target},found.page.documentId))return null;
-          return {eventName:'click',attachmentId:message.attachmentId,tabId:sender.tab.id,item:itemsForGroup(message.groupId,[found.item])[0],text:record.spec.text};
+          const eventName=message.eventName||'click',controlId=message.controlId||'',value=message.value??null,values=message.values||{};
+          if(!['click','input','change'].includes(eventName)||typeof controlId!=='string'||(controlId&&!/^[A-Za-z0-9_-]{1,80}$/.test(controlId))||!controlValue(value)||!object(values)||Object.keys(values).length>32||Object.entries(values).some(([key,entry])=>!/^[A-Za-z0-9_-]{1,80}$/.test(key)||!controlValue(entry))||size({value,values})>16000)return null;
+          if(record.spec.type==='pill'&&(eventName!=='click'||controlId))return null;
+          return {eventName,controlId,value,values,attachmentId:message.attachmentId,tabId:sender.tab.id,item:itemsForGroup(message.groupId,[found.item])[0],text:record.spec.text||''};
         });
         if(data)await click(message.groupId,data,generation);
       },

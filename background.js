@@ -17,7 +17,7 @@
 // Chromium uses a classic service worker. Safari preloads these shared
 // dependencies through its manifest background script list.
 if (typeof importScripts === "function") {
-  importScripts("browser-compat.js", "storage-schema.js", "rule-time-client.js", "rule-ai-client.js", "content-items.js", "rule-attachments.js");
+  importScripts("browser-compat.js", "storage-schema.js", "rule-time-client.js", "rule-ai-client.js", "content-items.js", "rule-attachments.js", "rule-records.js");
   try {
     if (typeof CBBridgeProtocol === "undefined") importScripts("bridge-protocol.js");
   } catch (error) {
@@ -2069,9 +2069,20 @@ const cbAttachmentBroker = globalThis.CBRuleAttachments?.createBroker({
   send:async(tabId,message,documentId)=>{try{await chrome.tabs.sendMessage(tabId,message,documentId?{documentId}:{frameId:0});}catch{}},
   check:async(tabId,message,documentId)=>{try{return (await chrome.tabs.sendMessage(tabId,message,documentId?{documentId}:{frameId:0}))?.ok===true;}catch{return false;}},
   isCurrent:(groupId,generation)=>generation==null||cbRuleGenerations.get(groupId)===generation,
-  click:(groupId,data,generation)=>dispatchRule('attachment',data,{targetGroupId:groupId,expectedGeneration:generation})
+  click:(groupId,data,generation)=>dispatchRule('attachment',data,{targetGroupId:groupId,expectedGeneration:generation,origin:'user'})
 }) || null;
 
+
+const cbRecordBroker=globalThis.VaultRuleRecords?.createBroker({
+  storage:chrome.storage.local,groupsKey:BLOCKED_GROUPS_KEY,serial:cbWithDefinitionMutation,
+  isCurrent:(id,token)=>cbRuleGenerations.get(id)===token,
+  reply:(id,data,token)=>dispatchRule('record',data,{targetGroupId:id,expectedGeneration:token})
+});
+async function cbRunRuleRecord(action) {
+  const token=cbRuleGenerations.get(action.groupId);
+  try { await cbRecordBroker.run(action,token); }
+  catch { if(cbRuleGenerations.get(action.groupId)===token)await dispatchRule('record',{ok:false,error:'store-unavailable',requestId:action.requestId,generation:action.generation},{targetGroupId:action.groupId,expectedGeneration:token}); }
+}
 
 // Bumped whenever a rule that handles "items" loads: pages then send every
 // item again, so the new rule sees what is already on screen.
@@ -2279,7 +2290,7 @@ async function unloadCustomGroupHandlers(groupId) {
 }
 
 // One event to the rules that handle it (or to one group's rule).
-async function dispatchRule(type, data, { targetGroupId = null, expectedGeneration = null } = {}) {
+async function dispatchRule(type, data, { targetGroupId = null, expectedGeneration = null, origin = "host" } = {}) {
   await ensureStartupGate();
   if (targetGroupId ? !cbRuleTypes.has(targetGroupId) : !cbRulesHandle(type) && !(type === "tick" && (cbRuleStateSaveRetries.size || globalThis.CBRuleTime?.hasLinkedCustom()))) return null;
   return cbSerializeRuleMutation(async () => {
@@ -2294,7 +2305,7 @@ async function dispatchRule(type, data, { targetGroupId = null, expectedGenerati
     }
     const generations = new Map(cbRuleGenerations);
     if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureAll({ type, now: Date.now(), data }, targetGroupId);
-    const result = await sendToEventSandbox({ kind: "dispatch-event", descriptor: { type, now: Date.now(), data, targetGroupId } });
+    const result = await sendToEventSandbox({ kind: "dispatch-event", descriptor: { type, now: Date.now(), data, targetGroupId, origin, contextRevisions:Object.fromEntries(generations) } });
     try { await applyRuleResult(result, type, generations); }
     catch (error) {
       // State persistence precedes every page/action delivery. Only this
@@ -2388,6 +2399,7 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
         else if (/^https?:/i.test(action.target)) await chrome.tabs.update(tabId, { url: action.target });
       } else if (kind === "file") cbRunRuleFile(action).catch(() => {});
       else if (kind === "ai") cbRunRuleAI(action).catch(() => {});
+      else if (kind === "store") cbRunRuleRecord(action).catch(() => {});
       else if (kind === "attach") attachmentActions.push(action);
     } catch (_) {}
   }
@@ -2503,6 +2515,7 @@ async function loadAllCustomGroupsAtStartup() {
   // Otherwise the startup load can capture the pre-migration source and then
   // fail its final freshness guard against the newly migrated saved group.
   await cbDefinitionStartupReady;
+  try{await cbWithDefinitionMutation(async()=>cbRecordBroker?.pruneLocked((await chrome.storage.local.get({[BLOCKED_GROUPS_KEY]:[]}))[BLOCKED_GROUPS_KEY]));}catch(error){cbDebugError('Saved records unavailable',error);}
   try{await cbAttachmentBroker?.load();}
   catch(error){cbDebugError('Saved attachments unavailable',error);}
   // Recover per-tab URL history and queued apply messages from
@@ -3111,7 +3124,7 @@ async function cbApplyStoredGroupChangeLocked(oldValue, newValue, { persist = tr
   writes[CB_OFFLINE_TRANSFERS_KEY] = transfers;
   // This path can already hold the definition lock. Queue cleanup after its
   // commit so it shares attachment writes' lock without reentering that lock.
-  if(gone.length)cbAttachmentBroker?.load().catch(error=>cbDebugError('Attachment cleanup failed',error));
+  if(gone.length){cbAttachmentBroker?.load().catch(error=>cbDebugError('Attachment cleanup failed',error));cbWithDefinitionMutation(async()=>cbRecordBroker?.pruneLocked((await chrome.storage.local.get({[BLOCKED_GROUPS_KEY]:[]}))[BLOCKED_GROUPS_KEY])).catch(error=>cbDebugError('Record cleanup failed',error));}
   if (persist && Object.keys(writes).length) await chrome.storage.local.set(writes);
   return writes;
 }
