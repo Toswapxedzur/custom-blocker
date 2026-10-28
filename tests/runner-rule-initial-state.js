@@ -79,7 +79,7 @@ async function browserFixture() {
     cbWithDefinitionMutation:operation=>operation(), cbPublishDefinitionCommit(){},
     cbWriteDefinitionStoreLocked:patch=>env.chrome.storage.local.set(patch),
     chrome:{storage:{local:{get:async defaults=>clone(Object.fromEntries(Object.keys(defaults).map(key=>[key,store[key] ?? defaults[key]]))),set:async patch=>{if(failWrite){failWrite=false;throw new Error("disk-full");}const stable=clone(patch);if(heldWrite){heldEntered();await heldWrite;}Object.assign(store,stable);}}}},
-    cbRuleTypes:new Map(),cbRulePanels:new Map(),cbRuleItemsEpoch:1,
+    cbRuleTypes:new Map(),cbRulePanels:new Map(),cbRuleItemsEpoch:1,cbAttachmentBroker:null,cbRecordBroker:null,
     CBGroupActions:{isLocked:group=>Boolean(group.lockedAtMs)},cbEnforceOnly:()=>false,
     ensureStartupGate:async()=>{},cbRulesHandle:()=>true,cbRuleSheets:new Map(),
     cbRulePageNeeds:()=>'',cbSetRulePanels(){},pushLogFeedEntry(){},cbDebugError(){},

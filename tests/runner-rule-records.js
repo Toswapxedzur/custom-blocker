@@ -36,5 +36,6 @@ const broker=R.createBroker({storage,groupsKey:'blockedGroups',serial:fn=>{const
  assert.equal(replies.filter(r=>r.ok).length,1);assert.equal(replies.filter(r=>r.error==='store-conflict').length,1);
  generation=2;await broker.run({...action,requestId:'stale'},1);assert.equal(replies.length,2);
  stored[R.key]=future;await broker.run({...action,requestId:'future'},2);assert.equal(replies.at(-1).error,'store-unavailable');assert.deepEqual(stored[R.key],future);
+ for(let i=0;i<32;i++)assert.equal(R.admit('budget',10000),'ok');assert.equal(R.admit('budget',10000),'busy');assert.equal(R.admit('budget',10000),'drop');assert.equal(R.admit('budget',11000),'ok');
  console.log('PASS generic records: revision conflicts, user-code precedence, identity-safe keys, versions, listing, prefix deletion, persistence, limits, corruption isolation, runtime contexts, event origin, concurrent writes and stale requests');
 })().catch(error=>{console.error(error);process.exitCode=1;});

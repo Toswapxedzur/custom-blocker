@@ -11,9 +11,10 @@
     const answer=record?.value||{},label=answer.label||'Waiting';
     const entry=seen.get(item.contentId);if(entry)entry.record=record;
     v.item(tabId,item.ref,label==='Dim'?'dim':null);
+    v.attach(tabId,item,'label',{type:'pill',text:String(label).slice(0,240),tone:label==='Dim'?'red':label==='Leisure'?'gold':'cyan'});
     v.attach(tabId,item,'editor',{type:'html',label:'Example annotation',
       html:`<section class="note"><strong>${esc(label)}</strong><input id="answer" value="${esc(label)}" aria-label="Your annotation"><button data-control="save">Save feedback</button><button data-control="refresh">Refresh example</button><button data-control="reset">Reset feedback</button><input type="checkbox" id="check" aria-label="Example checkbox"><button data-control="report">Usage report</button></section>`,
-      css:'.note{display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:#CFFAFE;color:#155e75;border-radius:10px;padding:8px}.note input{max-width:120px}.note button{border:0;border-radius:8px;padding:4px 7px;background:#E9EEFC;color:#1E3A8A}'
+      css:'.note{display:flex;flex-wrap:wrap;align-items:center;gap:6px;background:#CFFAFE;color:#155e75;border-radius:10px;padding:8px}.note input{max-width:120px;border:0;border-radius:6px;background:#fff;padding:3px 5px}.note input:focus-visible{outline:2px solid #06B6D4}.note button{border:0;border-radius:8px;padding:4px 7px;background:#E9EEFC;color:#1E3A8A}'
     });
     v.state.lastLabel=label;
   }
@@ -45,7 +46,11 @@
     request({op:'put',key:key(job.item),value:{label:answer.label,origin:'automatic'},ifRevision:job.revision,version:job.version},{...job,kind:'write'});
   });
   on('attachment',event=>{
-    const {data}=event;if(data.attachmentId!=='editor'||event.origin!=='user')return;
+    const {data}=event;if(event.origin!=='user')return;
+    if(data.attachmentId==='label'&&data.eventName==='click'){
+      v.panel('example-label',{title:'Saved annotation',controls:[{type:'text',text:String(seen.get(data.item.contentId)?.record?.value?.label||'Waiting')}]});return;
+    }
+    if(data.attachmentId!=='editor')return;
     v.state.lastOrigin=event.origin;
     if(data.controlId==='check'){v.state.checkbox=data.value;return;}
     if(data.eventName!=='click')return;

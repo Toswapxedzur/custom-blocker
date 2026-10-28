@@ -37,6 +37,8 @@ run_suite() {
 
 failed=0
 node tests/runner-storage-schema.js || failed=1
+node tests/runner-rule-records.js || failed=1
+node tests/runner-rule-attachments.js || failed=1
 node tests/runner-first-link.js || failed=1
 node tests/runner-definition-storage-order.js || failed=1
 node tests/runner-definition-worker-queue.js || failed=1

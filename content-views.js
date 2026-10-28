@@ -62,7 +62,7 @@
     function emit(event,name){
       if(!event.isTrusted)return;
       const control=event.target.closest?.('[data-control]');
-      if(name!=='click'&&!control)return;
+      if(!control)return;
       const values=Object.create(null);
       for(const node of view.querySelectorAll('input[data-control],select[data-control],textarea[data-control]')){
         if(Object.keys(values).length>=32)break;

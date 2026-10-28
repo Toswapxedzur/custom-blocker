@@ -4,6 +4,7 @@
   const KEY='cbRuleAttachments',MAX_BYTES=8_000_000;
   const size=value=>new TextEncoder().encode(JSON.stringify(value)).byteLength;
   const object=value=>value&&typeof value==='object'&&!Array.isArray(value);
+  const controlValue=value=>value===null||typeof value==='boolean'||(typeof value==='string'&&value.length<=2000)||(Array.isArray(value)&&value.length<=32&&value.every(entry=>typeof entry==='string'&&entry.length<=2000));
   function decode(value) {
     if(value===undefined)return {version:2,groups:Object.create(null)};
     try {
@@ -134,7 +135,7 @@
           if(!active(state.groups,message.groupId)||!isCurrent(message.groupId,generation)||!record||record.revision!==message.revision)return null;
           if(!await check(sender.tab.id,{type:'rule-attachment-check',pageToken:found.page.token,target:message.target},found.page.documentId))return null;
           const eventName=message.eventName||'click',controlId=message.controlId||'',value=message.value??null,values=message.values||{};
-          if(!['click','input','change'].includes(eventName)||typeof controlId!=='string'||(controlId&&!/^[A-Za-z0-9_-]{1,80}$/.test(controlId))||!object(values)||JSON.stringify({value,values}).length>16000)return null;
+          if(!['click','input','change'].includes(eventName)||typeof controlId!=='string'||(controlId&&!/^[A-Za-z0-9_-]{1,80}$/.test(controlId))||!controlValue(value)||!object(values)||Object.keys(values).length>32||Object.entries(values).some(([key,entry])=>!/^[A-Za-z0-9_-]{1,80}$/.test(key)||!controlValue(entry))||size({value,values})>16000)return null;
           if(record.spec.type==='pill'&&(eventName!=='click'||controlId))return null;
           return {eventName,controlId,value,values,attachmentId:message.attachmentId,tabId:sender.tab.id,item:itemsForGroup(message.groupId,[found.item])[0],text:record.spec.text||''};
         });

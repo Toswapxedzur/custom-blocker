@@ -82,8 +82,21 @@
     return {document:doc,changed,reply};
   }
   function prune(raw,ids){const doc=decode(raw),keep=new Set(ids);let changed=false;for(const group of Object.keys(doc.groups))if(!keep.has(group)){delete doc.groups[group];changed=true;}return {document:doc,changed};}
+  const budgets=new Map();let budgetStart=0,budgetTotal=0;
+  function admit(group,now){
+    if(now<budgetStart||now-budgetStart>=1000){budgetStart=now;budgetTotal=0;budgets.clear();}
+    const entry=budgets.get(group)||{count:0,notified:false};entry.count++;budgetTotal++;budgets.set(group,entry);
+    if(entry.count<=32&&budgetTotal<=128)return 'ok';
+    if(!entry.notified){entry.notified=true;return 'busy';}return 'drop';
+  }
   function createBroker({storage,groupsKey,serial,isCurrent,reply}){
     async function run(action,generation){
+      if(!isCurrent(action.groupId,generation))return;
+      const admission=admit(action.groupId,Date.now());
+      if(admission!=='ok'){
+        if(admission==='busy')await reply(action.groupId,{ok:false,error:'store-busy',requestId:action.requestId,generation:action.generation},generation);
+        return;
+      }
       const answer=await serial(async()=>{
         const raw=await storage.get([KEY,groupsKey]);
         if(!(raw[groupsKey]||[]).some(g=>g.id===action.groupId&&g.groupType==='custom'&&g.enabled===true)||!isCurrent(action.groupId,generation))return null;
@@ -99,6 +112,6 @@
     async function pruneLocked(groups){const raw=await storage.get(KEY),result=prune(raw[KEY],groups.filter(g=>g.groupType==='custom').map(g=>g.id));if(result.changed)await storage.set({[KEY]:result.document});}
     return {run,pruneLocked};
   }
-  root.VaultRuleRecords=Object.freeze({key:KEY,decode,request,transact,prune,createBroker});
+  root.VaultRuleRecords=Object.freeze({key:KEY,decode,request,transact,prune,admit,createBroker});
   if(typeof module!=='undefined')module.exports=root.VaultRuleRecords;
 })(typeof globalThis!=='undefined'?globalThis:this);

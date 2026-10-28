@@ -23,7 +23,10 @@ def run(context,worker):
     def until(predicate,label):
         deadline=time.monotonic()+15
         while not predicate():
-            if time.monotonic()>deadline:raise AssertionError('Timed out: '+label)
+            if time.monotonic()>deadline:
+                try:print('DIAGNOSTIC',label,state(group),record(group),worker.evaluate('()=>({calls:__genericCalls})'),flush=True)
+                except Exception:pass
+                raise AssertionError('Timed out: '+label)
             time.sleep(.05)
     def nodes(tag=None,text=None,control=None,cls=None):
         result=[]
@@ -50,6 +53,7 @@ def run(context,worker):
     try:
         popup.goto('chrome-extension://'+worker.url.split('/')[2]+'/popup.html')
         until(lambda:popup.evaluate('()=>state.groupsLoaded'),'popup')
+        worker.evaluate("()=>cbConnection.stop()")
         worker.evaluate("""()=>{globalThis.__genericCalls=0;globalThis.__genericHold=false;globalThis.CBRuleAIHub={request:async()=>{__genericCalls++;if(__genericHold)return new Promise(resolve=>globalThis.__genericRelease=resolve);return {ok:true,text:'{"label":"Study"}'};},disconnected(){},receive(){}};}""")
         phase=os.environ.get('ATTACHMENT_PHASE','1')
         if phase=='1':

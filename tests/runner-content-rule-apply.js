@@ -38,6 +38,7 @@ const context = vm.createContext({
   safeSendMessage: (message) => sent.push(message),
   cbRuleRefs: new Map([["i1", { card: 1 }]]),
   cbRuleStyles: new Map(),
+  cbContentPage: null,
   cbSetCardVerdict: (card, groupId, verdict, source) => verdicts.push({ card, groupId, verdict, source }),
   cbApplyCard() {},
   cbRuleDomOp() {},

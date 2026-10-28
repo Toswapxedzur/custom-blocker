@@ -26,6 +26,7 @@
       "browser-compat.js",
       "content-items.js",
       "rule-attachments.js",
+      "rule-records.js",
       "storage-schema.js",
       "rule-time-client.js",
       "rule-ai-client.js",
@@ -52,7 +53,7 @@
         "<all_urls>"
       ],
       "js": [
-        "content-items.js",
+        "content-views.js", "content-items.js",
         "browser-compat.js",
         "platform-profiles.js",
         "content-messages.js",
