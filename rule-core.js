@@ -618,6 +618,8 @@
     const panelValues = new Map();
     let requestSeq = 0;
     let aiEpoch = 0;
+    let contextRevision = "";
+    const requestToken = () => generation + ":" + aiEpoch + ":" + contextRevision;
     let eventNow = null;
     const requestId = () => groupId + ":" + (++requestSeq);
 
@@ -679,7 +681,17 @@
         const payload = JSON.stringify(options);
         if (utf8Bytes(payload) > 48000 || (options.input !== undefined && utf8Bytes(JSON.stringify(options.input)) > 20000)) throw new Error("AI input is too large.");
         const id = requestId();
-        act("ai", {payload, requestId: id, generation: generation + ":" + aiEpoch});
+        act("ai", {payload, requestId: id, generation: requestToken()});
+        return id;
+      },
+      store(options) {
+        check();
+        if (eventNow === null) throw new Error("v.store must be called inside an event handler.");
+        if (!isPlainObject(options) || !["get","put","delete","list","clear"].includes(options.op)) throw new Error("Invalid store request.");
+        const payload = JSON.stringify(options);
+        if (utf8Bytes(payload) > 75000) throw new Error("Store request is too large.");
+        const id = requestId();
+        act("store", {payload, requestId:id, generation:requestToken()});
         return id;
       },
       // Browser content handle, not a selector or a mutable page/card ref.
@@ -692,7 +704,7 @@
             typeof item.instanceId !== "string" || item.instanceId.length > 128 ||
             typeof attachmentId !== "string" || !/^[A-Za-z0-9_-]{1,80}$/.test(attachmentId)) throw new Error("Invalid content attachment target.");
         const value = cloneJSON(spec);
-        if (value !== null && (!isPlainObject(value) || utf8Bytes(JSON.stringify(value)) > 6000)) throw new Error("Invalid content attachment.");
+        if (value !== null && (!isPlainObject(value) || utf8Bytes(JSON.stringify(value)) > 52000)) throw new Error("Invalid content attachment.");
         act("attach", {tabId, target:{ref:item.ref,contentId:item.contentId,instanceId:item.instanceId},attachmentId,spec:value});
       },
       file(op, path, payload) {
@@ -708,6 +720,7 @@
       get: () => stateObj,
       set: (value) => { stateObj = isPlainObject(value) ? value : {}; }
     });
+    Object.defineProperty(v, "context", {enumerable:true,get:()=>Object.freeze({revision:requestToken()})});
     Object.freeze(v);
 
     const on = (type, handler) => {
@@ -750,7 +763,8 @@
 
     return {
       groupId,
-      acceptsAI: value => value === generation + ":" + aiEpoch,
+      configureRevision: value => { if(value!==undefined) contextRevision=String(value); },
+      acceptsAI: value => value === requestToken(),
       invalidateAI: () => { aiEpoch++; },
       error: registrationError,
       registrationLogs: registration.logs,
@@ -774,7 +788,7 @@
           if (data.values && typeof data.values === "object") Object.assign(values, data.values);
           panelValues.set(data.panelId, values);
         }
-        const ev = Object.freeze({ type: event.type, now: event.now, data: event.data ?? null });
+        const ev = Object.freeze({ type: event.type, now: event.now, origin: event.origin || "host", data: event.data ?? null });
         for (const handler of handlers.get(event.type) || []) {
           runGuarded(() => handler(ev), event.type + " handler");
           if (record.overrun) break;
@@ -924,14 +938,15 @@
       for (const [groupId, rule] of rules) {
         if (descriptor.targetGroupId && descriptor.targetGroupId !== groupId) continue;
         if (suppressed.has(groupId)) continue;
-        if (descriptor.type === "ai" && !rule.acceptsAI(descriptor.data?.generation)) continue;
+        rule.configureRevision(descriptor.contextRevisions?.[groupId]);
+        if (["ai", "record"].includes(descriptor.type) && !rule.acceptsAI(descriptor.data?.generation)) continue;
         if (rule.handles(descriptor.type)) queue.push({ rule, event: descriptor, depth: 0 });
       }
       while (queue.length > 0) {
         const { rule, event, depth } = queue.shift();
         if (event.managedTimer && !rule.currentCompletion(event.data)) continue;
         beacon(rule.groupId);
-        const record = rule.dispatch({ type: event.type, now: event.now ?? Date.now(), data: event.data ?? null, trustedUsage: event.trustedUsage !== false });
+        const record = rule.dispatch({ type: event.type, now: event.now ?? Date.now(), data: event.data ?? null, origin:event.origin || "host", trustedUsage: event.trustedUsage !== false });
         out.actions.push(...record.actions);
         out.logs.push(...record.logs);
         out.diagnostics.push(...record.diagnostics);
@@ -940,7 +955,7 @@
         }
         if (depth < EMIT_DEPTH) {
           for (const emitted of record.emits) {
-            if (rule.handles(emitted.type)) queue.push({ rule, event: { type: emitted.type, now: Date.now(), data: emitted.data, managedTimer: emitted.managedTimer, trustedUsage: false }, depth: depth + 1 });
+            if (rule.handles(emitted.type)) queue.push({ rule, event: { type: emitted.type, now: Date.now(), data: emitted.data, origin:"rule", managedTimer: emitted.managedTimer, trustedUsage: false }, depth: depth + 1 });
           }
         }
       }
@@ -972,7 +987,7 @@
         return { ok: false, error: String(error.message || error) };
       }
     }
-    return { load, prepareLoad, commitLoad, discardLoad, unload, suppress, dispatch, setTimeContext, types: (groupId) => (rules.has(groupId) ? rules.get(groupId).types() : []) };
+    return { acceptsRequest:(id,token)=>!suppressed.has(id)&&rules.get(id)?.acceptsAI(token)===true, load, prepareLoad, commitLoad, discardLoad, unload, suppress, dispatch, setTimeContext, types: (groupId) => (rules.has(groupId) ? rules.get(groupId).types() : []) };
   }
 
   // ── Values ───────────────────────────────────────────────────────────────

@@ -27,6 +27,10 @@
     return {ref:value.ref,contentId:value.contentId,instanceId:value.instanceId};
   }
   function spec(value) {
+    if(value?.type==='html') {
+      if(Object.keys(value).some(k=>!['type','html','css','label'].includes(k))||!text(value.html,32000)||(value.css!==undefined&&(typeof value.css!=='string'||value.css.length>16000))||(value.label!==undefined&&(typeof value.label!=='string'||value.label.length>200)))throw Error('attachment-invalid-spec');
+      return {type:'html',html:value.html,css:value.css||'',label:value.label||''};
+    }
     if(!value||Array.isArray(value)||typeof value!=='object'||Object.keys(value).some(k=>!['type','text','tone','tooltip'].includes(k))||value.type!=='pill'||!text(value.text,240)||!value.text.trim()||
       (value.tone!==undefined&&!['blue','cyan','gold','pink','red'].includes(value.tone))||(value.tooltip!==undefined&&(typeof value.tooltip!=='string'||value.tooltip.length>1000)))throw Error('attachment-invalid-spec');
     return {type:'pill',text:value.text,tone:value.tone||'blue',tooltip:value.tooltip||''};
@@ -76,11 +80,18 @@
         rail.className='rail';
         for(const attachment of entry.attachments) {
           let value;try{value=spec(attachment.spec);}catch{continue;}
+          if(value.type==='html'){
+            if(!root.VaultContentViews)continue;
+            const view=root.VaultContentViews.create(value,item.element.ownerDocument,body=>{
+              if(current(entry.target))onClick({pageToken:token,target:entry.target,groupId:attachment.groupId,attachmentId:attachment.id,revision:attachment.revision,...body});
+            });
+            rail.append(view.element);continue;
+          }
           const button=document.createElement('button');button.type='button';button.textContent=value.text;button.title=value.tooltip;
           button.style.backgroundColor=palette[value.tone][0];button.style.color=palette[value.tone][1];
           button.addEventListener('click',event=>{
             event.preventDefault();event.stopImmediatePropagation();
-            if(event.isTrusted&&current(entry.target))onClick({pageToken:token,target:entry.target,groupId:attachment.groupId,attachmentId:attachment.id,revision:attachment.revision});
+            if(event.isTrusted&&current(entry.target))onClick({pageToken:token,target:entry.target,groupId:attachment.groupId,attachmentId:attachment.id,revision:attachment.revision,eventName:'click',controlId:'',value:null,values:{}});
           });
           rail.append(button);
         }
