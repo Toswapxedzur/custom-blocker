@@ -1,6 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'), fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const root=path.resolve(__dirname,'..'),RuleCore=require('../rule-core.js');
+assert.match(RuleCore.reference('browser'), /without a fixed Vault deadline/);
 const engine=RuleCore.createEngine(()=>({}));
 const source='(on,v)=>{on("panel",()=>{v.state.id=v.ai({prompt:"Summarize",input:{text:"fixture"}});});on("ai",({data})=>{v.state.answer=data.text;v.log(data.text);});}';
 assert.equal(engine.load('g',source,{}).ok,true);
