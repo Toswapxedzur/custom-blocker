@@ -209,7 +209,7 @@ not while registering the rule. `input` may be any JSON value; each prompt/input
 limited to20KB. Replies arrive as `ai` events: `{requestId, ok, text, citations,
 error}`. Success text is at most48KB; citations are `{url,title}`. Preserve visible,
 clickable source links when displaying answers based on web search. Search is always
-available to the model. Requests have a70-second deadline and bounded concurrency;
+available to the model. Generation requests have no fixed app deadline and retain bounded concurrency;
 there is no provider fallback or automatic retry. Responses are data, never executed
 as JavaScript. The rule decides which existing actions to take.
 
@@ -234,7 +234,7 @@ For a panel with an `ask` button and `note` field:
 Outstanding calls are not replayed after restart. Run, disable/re-enable and deletion
 discard obsolete replies; a disconnected browser reports `ai-unavailable`. Other
 errors include `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`,
-`ai-timeout`, `ai-request-failed` and `ai-usage-storage-unavailable`. Failed calls do
+`ai-request-failed` and `ai-usage-storage-unavailable`. Failed calls do
 not overwrite a previous result the rule chose to retain. Rule state still has its
 existing64KB limit.
 

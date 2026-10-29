@@ -18,17 +18,22 @@ engine.load('context','(on,v)=>{on("panel",()=>v.ai({prompt:v.context.ai.prompt,
 const configured=engine.dispatch({type:'panel',targetGroupId:'context',contextRevisions:{context:'saved-1'},aiContexts:{context:{prompt:'Use saved prompt',context:'Saved background'}}}).actions[0];
 assert.deepEqual(JSON.parse(configured.payload),{prompt:'Use saved prompt',input:{context:'Saved background'}});
 assert.equal(engine.dispatch({type:'ai',targetGroupId:'context',contextRevisions:{context:'saved-2'},data:{generation:configured.generation,text:'obsolete'}}).logs.length,0);
-const sent=[],context=vm.createContext({setTimeout,clearTimeout,Date,Math,Map,JSON,Promise});context.self=context;
+const sent=[],timers=[],context=vm.createContext({setTimeout:(fn,ms)=>{timers.push({fn,ms});return timers.length;},clearTimeout:()=>{},Date,Math,Map,JSON,Promise});context.self=context;
 vm.runInContext(fs.readFileSync(path.join(root,'rule-ai-client.js'),'utf8'),context);
 let connection={ws:{},ruleAIVersion:1,desktopRouteIsReady:()=>true,sendWS:message=>{sent.push(message);return true;}};
 const client=context.CBRuleAITransport.createClient(()=>connection,20);
 (async()=>{
  let result=client.request('generate','g','{}');let message=sent.at(-1);
+ assert.equal(timers.length,0,'generation must not install a deadline');
  client.receive({requestID:'wrong',body:{ok:true,text:'forged'}});assert.equal(client.size,1);
  client.receive({requestID:message.requestID,body:{ok:true,text:'actual'}});assert.equal((await result).text,'actual');
  result=client.request('generate','g','{}');message=sent.at(-1);connection={...connection,ws:{}};
- client.receive({requestID:message.requestID,body:{ok:true,text:'old socket'}});assert.equal(client.size,1);client.disconnected();assert.equal((await result).ok,false);
+  client.receive({requestID:message.requestID,body:{ok:true,text:'old socket'}});assert.equal(client.size,1);client.disconnected();assert.equal((await result).ok,false);
+  connection.desktopRouteIsReady=()=>false;
  result=client.request('generate','g','{}');assert.equal((await result).error,'ai-unavailable');assert.equal(client.size,0);
  connection.ruleAIVersion=0;assert.equal((await client.request('generate','g','{}')).ok,false);
- console.log('PASS rule AI engine generation, input boundary, RPC correlation, disconnect and timeout');
+  connection.ruleAIVersion=1;connection.desktopRouteIsReady=()=>true;
+ result=client.request('models');assert.equal(timers.length,1);assert.equal(timers[0].ms,20);
+ timers[0].fn();assert.equal((await result).error,'ai-unavailable');assert.equal(client.size,0);
+ console.log('PASS rule AI engine generation, input boundary, RPC correlation, no generation deadline, disconnect and bounded model discovery');
 })().catch(error=>{console.error(error);process.exitCode=1;});

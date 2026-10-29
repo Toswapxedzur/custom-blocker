@@ -1,11 +1,11 @@
 /* Authenticated host RPC only. No credential or provider-specific rule API. */
 (function(root) {
   "use strict";
-  function createClient(connection, timeoutMs = 75000) {
+  function createClient(connection, modelTimeoutMs = 5000) {
     const pending = new Map();
     function finish(id, body) {
       const item = pending.get(id); if (!item) return;
-      pending.delete(id); clearTimeout(item.timer); item.resolve(body);
+      pending.delete(id); if (item.timer !== null) clearTimeout(item.timer); item.resolve(body);
     }
     const unavailable = () => ({ok:false,error:"ai-unavailable",text:null,citations:[]});
     return {
@@ -14,7 +14,10 @@
         if (!c?.desktopRouteIsReady() || c.ruleAIVersion !== 1 || pending.size >= 16) return Promise.resolve(unavailable());
         const requestID = root.crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2);
         return new Promise(resolve => {
-          const item = {resolve, ws:c.ws, timer:setTimeout(() => finish(requestID,unavailable()),operation === "models" ? 5000 : timeoutMs)};
+          // Generation has no app deadline. Disconnect and the Mac service
+          // settle abandoned requests; model discovery remains bounded.
+          const timer = operation === "models" ? setTimeout(() => finish(requestID,unavailable()),modelTimeoutMs) : null;
+          const item = {resolve, ws:c.ws, timer};
           pending.set(requestID,item);
           if (!c.sendWS({kind:"rule-ai-request",requestID,operation,groupId,payload})) finish(requestID,unavailable());
         });
