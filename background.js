@@ -2304,8 +2304,12 @@ async function dispatchRule(type, data, { targetGroupId = null, expectedGenerati
       }
     }
     const generations = new Map(cbRuleGenerations);
+    const groupSnapshot = (await chrome.storage.local.get({ [BLOCKED_GROUPS_KEY]: [] }))[BLOCKED_GROUPS_KEY];
+    const aiContexts = Object.fromEntries((Array.isArray(groupSnapshot) ? groupSnapshot : [])
+      .filter(group => group?.groupType === "custom" && group.id)
+      .map(group => [group.id,{prompt:group.ruleAI?.prompt ?? "",context:group.ruleAI?.context ?? ""}]));
     if (globalThis.CBRuleTime) await globalThis.CBRuleTime.configureAll({ type, now: Date.now(), data }, targetGroupId);
-    const result = await sendToEventSandbox({ kind: "dispatch-event", descriptor: { type, now: Date.now(), data, targetGroupId, origin, contextRevisions:Object.fromEntries(generations) } });
+    const result = await sendToEventSandbox({ kind: "dispatch-event", descriptor: { type, now: Date.now(), data, targetGroupId, origin, contextRevisions:Object.fromEntries(generations), aiContexts } });
     try { await applyRuleResult(result, type, generations); }
     catch (error) {
       // State persistence precedes every page/action delivery. Only this

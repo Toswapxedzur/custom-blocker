@@ -44,18 +44,23 @@ def run(context, service_worker):
         popup.wait_for_function("document.getElementById('ruleAIModel').options.length===2")
         popup.locator('label').filter(has=popup.locator('#ruleAIModel')).locator('.vui-select-button').click()
         popup.locator('.vui-menu-item').filter(has_text='OpenAI API · Fixture').click()
+        assert popup.locator('#ruleAIEffort').input_value() == 'medium'
         popup.locator('label').filter(has=popup.locator('#ruleAIEffort')).locator('.vui-select-button').click()
         popup.locator('.vui-menu-item').filter(has_text='Low').click()
         popup.fill('#ruleAICap','7');popup.locator('#ruleAICap').dispatch_event('change')
+        popup.fill('#ruleAIPrompt','Summarize with the saved prompt');popup.locator('#ruleAIPrompt').dispatch_event('change')
+        popup.fill('#ruleAIContext','The topic is a fixture');popup.locator('#ruleAIContext').dispatch_event('change')
         saved=popup.evaluate("""async()=>{await flushAutosave();return (await chrome.storage.local.get('blockedGroups')).blockedGroups[0].ruleAI;}""")
-        assert saved=={'providerModel':'api:fixture:gpt-5','accountID':'','reasoningEffort':'low','dailyRequestLimit':7},saved
-        print('PASS actual extension editor persists model, effort and cap through worker',flush=True)
+        assert saved=={'providerModel':'api:fixture:gpt-5','accountID':'','reasoningEffort':'low','dailyRequestLimit':7,'prompt':'Summarize with the saved prompt','context':'The topic is a fixture'},saved
+        print('PASS actual extension editor persists model, effort, cap and shared prompt/context through worker',flush=True)
         tab=service_worker.evaluate("async()=> (await chrome.tabs.query({})).find(t=>t.title==='Runtime AI fixture').id")
-        source="""(on,v)=>{let tab;on('panel',({data})=>{tab=data.tabId;v.ai({prompt:'Summarize',input:{text:'fixture'}});});on('ai',({data})=>{v.state.answer=data.text;v.cover(tab,data.ok,data.text);v.log(data.error||data.text);});}"""
+        source="""(on,v)=>{let tab;on('panel',({data})=>{tab=data.tabId;v.ai({prompt:v.context.ai.prompt,input:{context:v.context.ai.context,text:'fixture'}});});on('ai',({data})=>{v.state.answer=data.text;v.cover(tab,data.ok,data.text);v.log(data.error||data.text);});}"""
         loaded=popup.evaluate("async ({group,source})=>await chrome.runtime.sendMessage({type:'run-custom-group',groupId:group,source})",{'group':group,'source':source})
         assert loaded.get('loadResult',{}).get('ok') is True,loaded
         service_worker.evaluate("async ({group,tab})=>await dispatchRule('panel',{tabId:tab},{targetGroupId:group})",{'group':group,'tab':tab})
         until("__aiFixtureCalls.length===1")
+        call=service_worker.evaluate("()=>JSON.parse(__aiFixtureCalls[0].payload)")
+        assert call['prompt']=='Summarize with the saved prompt' and call['input']['context']=='The topic is a fixture',call
         service_worker.evaluate("()=>__aiFixtureReply({ok:true,text:'AI fixture says pause',citations:[],error:''})")
         page.locator('#cb-vault-cover').wait_for(state='visible')
         assert 'AI fixture says pause' in page.locator('#cb-vault-cover').inner_text()

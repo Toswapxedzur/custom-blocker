@@ -619,6 +619,7 @@
     let requestSeq = 0;
     let aiEpoch = 0;
     let contextRevision = "";
+    let aiContext = Object.freeze({prompt:"",context:""});
     const requestToken = () => generation + ":" + aiEpoch + ":" + contextRevision;
     let eventNow = null;
     const requestId = () => groupId + ":" + (++requestSeq);
@@ -720,7 +721,7 @@
       get: () => stateObj,
       set: (value) => { stateObj = isPlainObject(value) ? value : {}; }
     });
-    Object.defineProperty(v, "context", {enumerable:true,get:()=>Object.freeze({revision:requestToken()})});
+    Object.defineProperty(v, "context", {enumerable:true,get:()=>Object.freeze({revision:requestToken(),ai:aiContext})});
     Object.freeze(v);
 
     const on = (type, handler) => {
@@ -764,6 +765,12 @@
     return {
       groupId,
       configureRevision: value => { if(value!==undefined) contextRevision=String(value); },
+      configureAIContext: value => {
+        aiContext=Object.freeze({
+          prompt:typeof value?.prompt==="string"&&utf8Bytes(value.prompt)<=16000?value.prompt:"",
+          context:typeof value?.context==="string"&&utf8Bytes(value.context)<=16000?value.context:""
+        });
+      },
       acceptsAI: value => value === requestToken(),
       invalidateAI: () => { aiEpoch++; },
       error: registrationError,
@@ -939,6 +946,7 @@
         if (descriptor.targetGroupId && descriptor.targetGroupId !== groupId) continue;
         if (suppressed.has(groupId)) continue;
         rule.configureRevision(descriptor.contextRevisions?.[groupId]);
+        rule.configureAIContext(descriptor.aiContexts?.[groupId]);
         if (["ai", "record"].includes(descriptor.type) && !rule.acceptsAI(descriptor.data?.generation)) continue;
         if (rule.handles(descriptor.type)) queue.push({ rule, event: descriptor, depth: 0 });
       }

@@ -38,8 +38,7 @@ const productSources = {
     "macosBlocker/Sources/MacBlockerWebUI/BlockerWebView.swift",
     "macosBlocker/Sources/MacBlockerAppFeature/BlockerAppDelegate.swift",
     "macosBlocker/Sources/MacBlockerAppFeature/QuickAddPanel.swift",
-    "macosBlocker/Sources/MacBlockerPanel/MacBlockerPanelApp.swift",
-    "macosBlocker/classifier/Sources/VaultClassifierApp/DictionaryContributionPrompt.swift"
+    "macosBlocker/Sources/MacBlockerPanel/MacBlockerPanelApp.swift"
   ],
   windowsVault: [
     "windowsBlocker/src/WindowsBlocker/WebAssets/popup.html",

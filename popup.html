@@ -16,7 +16,7 @@
         <!-- Mac Vault: the scene switch (Vault / Classifier / Activity). -->
         <nav class="vui-tabs desktop-only" id="sceneTabs" aria-label="Scene">
           <button type="button" class="vui-tab is-active" data-scene="vault" data-i18n="scene.vault">Vault</button>
-          <button type="button" class="vui-tab" data-scene="classifier" data-i18n="scene.classifier">Classifier</button>
+          <button type="button" class="vui-tab" data-scene="classifier" data-i18n="scene.classifier">Content tagging</button>
           <button type="button" class="vui-tab" data-scene="activity" data-i18n="scene.activity">Activity</button>
         </nav>
         <h1 class="browser-only app-title" data-i18n="app.shortTitle">Adamancia Vault</h1>
@@ -216,7 +216,7 @@
             <div id="platformTagFields" class="platform-tag-fields hidden">
               <input id="platformTagMode" type="hidden" value="all" />
               <p class="field-help" data-i18n="tagFilter.help" data-info="tagFilter.help">
-                Filter content using its Classifier tags. One rule per line: "Gaming" matches that tag; "Gaming @3" sets a minimum confidence; "Gaming + Drama" requires both; "!Tutorial" makes an exception.
+                Filter content using tags from Content tagging. One rule per line: "Gaming" matches that tag; "Gaming @3" sets a minimum confidence; "Gaming + Drama" requires both; "!Tutorial" makes an exception.
               </p>
               <div id="platformTagListBlock">
                 <label class="label" for="platformTags" data-i18n="tagFilter.tags" data-info-key="tagFilter.tags" data-i18n-info="info.tagFilter.tags" data-info-copy="Add tags or tag rules to match against classified content. A confidence suffix such as @3 sets a minimum score.">Tags</label>
@@ -284,6 +284,8 @@
                 <label class="label"><span data-i18n="custom.ai.model">Connection &amp; model</span><select id="ruleAIModel" aria-label="AI connection and model"></select></label>
                 <label class="label"><span data-i18n="custom.ai.effort">Reasoning</span><select id="ruleAIEffort" aria-label="AI reasoning effort"></select></label>
                 <label class="label"><span data-i18n="custom.ai.cap">Daily request cap</span><input id="ruleAICap" type="number" min="1" max="100000" step="1" placeholder="No cap" data-i18n-placeholder="custom.ai.noCap" /></label>
+                <label class="label rule-ai-text"><span data-i18n="custom.ai.prompt">Saved prompt</span><textarea id="ruleAIPrompt" rows="3" maxlength="16000"></textarea></label>
+                <label class="label rule-ai-text"><span data-i18n="custom.ai.context">Saved context</span><textarea id="ruleAIContext" rows="3" maxlength="16000"></textarea></label>
               </div>
               <div class="field-actions"><button id="ruleAIRefresh" type="button" class="secondary weird" data-i18n="custom.ai.refresh">Refresh models</button><span id="ruleAIStatus" class="field-help" role="status"></span></div>
             </details>

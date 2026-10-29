@@ -14,6 +14,10 @@ assert.equal(engine.dispatch({type:'ai',targetGroupId:'g',data:{generation:actio
 assert.equal(engine.load('bad','(on,v)=>{v.ai({prompt:"registration"});}',{}).ok,false);
 engine.load('bad','(on,v)=>{on("panel",()=>v.ai({prompt:"x",provider:"override"}));}',{});
 assert.equal(engine.dispatch({type:'panel',targetGroupId:'bad',data:{}}).actions.length,0);
+engine.load('context','(on,v)=>{on("panel",()=>v.ai({prompt:v.context.ai.prompt,input:{context:v.context.ai.context}}));on("ai",()=>v.log("accepted"));}',{});
+const configured=engine.dispatch({type:'panel',targetGroupId:'context',contextRevisions:{context:'saved-1'},aiContexts:{context:{prompt:'Use saved prompt',context:'Saved background'}}}).actions[0];
+assert.deepEqual(JSON.parse(configured.payload),{prompt:'Use saved prompt',input:{context:'Saved background'}});
+assert.equal(engine.dispatch({type:'ai',targetGroupId:'context',contextRevisions:{context:'saved-2'},data:{generation:configured.generation,text:'obsolete'}}).logs.length,0);
 const sent=[],context=vm.createContext({setTimeout,clearTimeout,Date,Math,Map,JSON,Promise});context.self=context;
 vm.runInContext(fs.readFileSync(path.join(root,'rule-ai-client.js'),'utf8'),context);
 let connection={ws:{},ruleAIVersion:1,desktopRouteIsReady:()=>true,sendWS:message=>{sent.push(message);return true;}};
