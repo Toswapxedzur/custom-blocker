@@ -14,12 +14,13 @@ Source: una sola espressione di funzione `(on, v) => { ... }`. Sono supportati s
 
 ## API condivisa
 
-- `on(type, handler)` → boolean. Registra `handler(ev)`; più handlers vengono eseguiti nell'ordine di registrazione. False indica argomenti non validi o limite degli handlers raggiunto. `ev = { type: string, now: number, data }`; `now` è Unix in millisecondi.
+- `on(type, handler)` → boolean. Registra `handler(ev)`; più handlers vengono eseguiti nell'ordine di registrazione. False indica argomenti non validi o limite degli handlers raggiunto. `ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`; `now` è Unix in millisecondi. Gli eventi reali dei controlli visualizzati hanno `origin: "user"`; gli eventi `v.emit` hanno `origin: "rule"`.
 - `v.state`: oggetto JSON modificabile e salvato dopo l'event dispatch. Inizializza i fields mancanti invece di sovrascrivere lo state esistente. Assegnare un non-object o un array lo reimposta a `{}`; aggiornamenti non serializzabili/troppo grandi non vengono salvati.
 - `v.log(...values)`: scrive nel Log di questo gruppo. Qui appaiono anche gli errori degli handler e gli errori segnalati delle azioni sulla pagina; la segnalazione non ripete le azioni. Logs/Clear sono indipendenti per gruppo. Gli errori di caricamento appaiono nello stato Run.
 - `v.emit(type, data)`: mette in coda una copia JSON di `data` per gli handlers del gruppo dopo l'event corrente, con un nuovo `now`; non è una chiamata sincrona.
 - `v.panel(id, spec, tabId?)`: sostituisce il panel nominato del gruppo; ometti `tabId` per tutte le pagine web accessibili oppure usa un tab ID intero. `spec` null rimuove il panel. Vedi Panels.
 - `v.file(op, path, payload?)` → stringa request ID. Vedi Files.
+- `v.store(request)` restituisce un ID richiesta; consulta i record del gruppo.
 
 Le altre chiamate condivise restituiscono `undefined`, tranne le funzioni di creazione degli oggetti temporali gestiti con nome descritte di seguito. IDs/state appartengono al gruppo, non al suo nome visualizzato.
 
@@ -66,6 +67,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +81,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +92,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - `tick` è approssimativo; usa timestamps, non il conteggio dei tick. `active` indica una pagina selezionata in una finestra browser, non dimostra che l'utente la stia guardando. URLs possono essere vuote o limitate.
 - `visible` proviene da pagine accessibili e non nascoste; `elapsedMs` è il tempo dall'ultimo heartbeat e vale zero quando la pagina è coperta. Non è uso accumulato né tempo di riproduzione.
-- `items` segnala nuovi elementi feed supportati o modificati e li reinvia dopo Run/riattivazione. `ref` identifica una scheda nella pagina, non un content ID permanente; `ref === "page"` indica la pagina stessa. Titoli/URLs/autori possono essere vuoti. `authors` contiene source identifiers specifici della piattaforma.
+- `items` (`platform: "web"` fuori dai siti riconosciuti) segnala nuovi elementi feed supportati o modificati e li reinvia dopo Run/riattivazione. `ref` identifica una scheda nella pagina, non un content ID permanente; `ref === "page"` indica la pagina stessa. Titoli/URLs/autori possono essere vuoti. `authors` contiene source identifiers specifici della piattaforma.
 - Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. La disponibilità dipende dal markup supportato della pagina.
 - I tag richiedono Classifier desktop collegato e una build/piattaforma con tagging attivo (Chromium e Safari: YouTube, Reddit, Bilibili, X/`twitter`). Confidence va da 1 a 5. `tagsSettled === false` significa in attesa/non disponibile, non senza tag; `tags: []` settled significa senza tag.
 - `snooze` significa che è stato premuto il pulsante Snooze del gruppo. Non applica da solo una pausa.
@@ -178,3 +186,84 @@ Pausa di cinque minuti, avviata da Snooze o dal suo pulsante panel:
   });
 }
 ```
+
+
+## Chiamate IA da una regola in esecuzione
+
+Ogni custom group sceglie una connessione/modello e reasoning effort in **AI calls**. Le regole Mac e browser usano la stessa API; le richieste browser richiedono Mac Vault collegato e le credenziali provider restano lì. I gruppi collegati condividono la selezione e un limite giornaliero facoltativo. Campo vuoto significa nessun limite di gruppo, ma restano i limiti account. Il limite usa il giorno UTC, persiste al riavvio e conta i tentativi inviati inclusi quelli falliti. Link combina l’uso già fatto; unlink mantiene l’uso precedente.
+
+Prompt e contesto salvati sono condivisi dai gruppi collegati e disponibili nei handler come `v.context.ai.prompt` e `v.context.ai.context`. Vault non li invia automaticamente; la regola sceglie cosa includere in ogni chiamata `v.ai`.
+
+`v.ai({ prompt, input? })` restituisce subito un request ID. Chiamala dentro un handler, non durante la registrazione della regola. `input` può essere qualsiasi valore JSON; prompt/input sono limitati a20KB ciascuno. Le risposte arrivano come eventi `ai` events: `. Success text is at most48KB; citations are ` `ask` `note`: {requestId, ok, text, citations, error}. Testo riuscito massimo48KB; citazioni {url,title}. Mantieni visibili e cliccabili i link alle fonti nelle risposte della ricerca Web. Search è sempre disponibile al modello. Nessuna deadline fissa dell’app, concorrenza limitata, nessun fallback provider o retry automatico. Le risposte sono dati, non vengono eseguite come JavaScript; la regola decide quali azioni esistenti intraprendere.
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+Le chiamate pendenti non vengono riprodotte dopo il riavvio. Run, disabilita/riabilita ed elimina scartano risposte obsolete; un browser disconnesso segnala `ai-unavailable`. Altri errori: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. Le chiamate fallite non sovrascrivono un risultato precedente conservato dalla regola. Il limite di stato resta64KB.
+
+Scopri opzioni senza credenziali con `rule_ai_models` su Mac o `settings-rule-ai-models` nel browser; configura `ruleAI` tramite il percorso set-group esistente. Campi: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) e `dailyRequestLimit` (null o1–100000). Usa una scelta restituita; non inserire chiavi o URL provider nel sorgente della regola.
+I campi salvati facoltativi sono `prompt` e `context`, stringhe fino a16KB ciascuno.
+
+## Record del gruppo
+
+`v.store(request)` avvia un’operazione asincrona di record JSON dentro un handler. I record sono privati del gruppo, persistono dopo Run e riavvio, e vengono eliminati con il gruppo. I gruppi collegati hanno store distinti. La regola sceglie chiavi, valori, versioni, invalidazione cache e priorità dei feedback. Le regole Mac e browser usano la stessa API, ma ogni app/browser ha uno store separato.
+
+| Request | Result |
+|---|---|
+| `{op:"get", key}` | `record` o `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | `record` salvato |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | `entries` ordinate e `next` |
+| `{op:"clear", prefix?}` | conteggio `deleted` |
+
+Ogni record è `{value, revision, version, updatedAt}`. revision opaco cambia con una scrittura reale; `version` è metadato scelto dal chiamante. `list` restituisce header senza valori; usa `get` per leggerne uno e `after: next` `put` `delete` per la pagina successiva. Senza `ifRevision`, put/delete sono incondizionati; `null` richiede chiave assente e una stringa revision una corrispondenza esatta. Un conflitto restituisce `ok:false`, `error:"store-conflict"` e il `record` attuale, evitando che una risposta automatica tardiva sovrascriva il feedback utente. `v.context.revision` è un marker opaco della configurazione che la regola può includere nella propria versione; il framework non impone politiche cache.
+
+Limiti: chiave 1–2048 caratteri, version ≤128, valore JSON ≤64KiB, profondità ≤32, 10000 chiavi per gruppo e documento completo16MiB. `list` restituisce al massimo100 header e96KiB per pagina. Massimo32 richieste per gruppo e128 avvii al secondo complessivi; overload segnala un `store-busy` per gruppo al secondo e scarta le altre richieste. Errori di storage restituiscono `ok:false`; un documento futuro o malformato viene conservato e segnala `store-unavailable`. Nessun retry o eviction automatici; usa ticks per le deadline.
+
+## Allegati di contenuto salvati
+
+`v.attach(tabId, item, id, spec)` salva un pill o una vista HTML/CSS passiva per un elemento osservato. Passa l’`item` completo di un evento `items` o `attachment`; il solo `ref` non è un handle di allegato. `contentId` identifica il contenuto salvato e `instanceId` la sua presenza attuale. Conserva l’handle originale durante l’attesa di AI. Vault rifiuta allegati tardivi per destinazioni rimosse, riutilizzate o navigate. `v.item(tabId, ref, verdict)` resta indipendente.
+
+Per un pill, `spec` è `{type:"pill", text, tone?, tooltip?}`; i toni sono `blue`, `cyan`, `gold`, `pink` o `red`. Testo semplice fino a 240 caratteri, tooltip fino a 1000. Per una vista, spec è `{type:"html", html, css?, label?}`. Limiti: HTML 32000 caratteri, CSS 16000, label 200. La vista viene ricostruita da HTML/SVG passivo consentito, in uno shadow root chiuso con CSS circoscritto. Script, attributi evento, risorse remote, embed e CSS non sicuro vengono rimossi. La vista resta nella scheda contenuto e scorre a 480px di altezza. Gli ID usano 1–80 lettere/numeri ASCII, _ o -. Un spec null rimuove il pill del gruppo. Chiama dentro un handler; errori di persistenza/consegna compaiono in Log e non vengono ritentati automaticamente.
+
+Ogni elemento espone gli allegati di questo gruppo come snapshot di sola lettura in `item.attachments`; quelli degli altri gruppi non sono inclusi. Se i dati salvati non sono disponibili, `attachments` è null e `attachmentError` è impostato: non significa che la cache sia vuota. Gli altri handler proseguono. Usa l’esempio per non richiedere di nuovo AI per contenuti con un risultato salvato.
+
+L’attivazione con puntatore, Enter o Space genera un evento `attachment` per il gruppo. I pill inviano `click`. I controlli della vista usano `data-control` o `id` come `controlId` e inviano `click`, `input` o `change`, con il `value` corrente e `values` limitati dei controlli nominati. Gli eventi UI reali hanno `ev.origin === "user"`; quelli generati dalla regola hanno `origin === "rule"`. Includono `tabId`, `attachmentId` e l’`item` corrente. La vista non esegue codice della regola; pill e viste impediscono che l’interazione navighi la scheda sottostante. I dati salvati non contengono callback o codice eseguibile. Una revisione pill obsoleta non può richiamare un allegato attuale. Gli emit della regola restano logica normale; il browser convalida separatamente i veri messaggi di clic UI.
+
+Gli allegati sono salvati nel profilo browser per gruppo/contenuto/ID e ricompaiono in occorrenze successive, navigazione, riavvio browser e Run. Disable li nasconde mantenendo i dati; enable li ripristina. Eliminare il gruppo elimina gli allegati. I gruppi collegati restano separati; nessuna sincronizzazione automatica tra browser/dispositivi. I contenuti riconosciuti di YouTube, Reddit, X e Bilibili usano ID piattaforma. Gli altri usano un URL normalizzato con cautela, quindi la disponibilità dipende dal markup supportato.
+
+Limiti: 8 allegati per gruppo/contenuto, 32 per elemento tra tutti i gruppi, 10000 voci contenuto per gruppo e documento allegati serializzato di 8MB. Al limite, la nuova modifica viene rifiutata con `attachment-item-limit` o `attachment-storage-limit` nel Log; i dati esistenti sono conservati. Un dispatch raggruppa le scritture; spec identici non riscrivono lo store. Gli allegati sono UI di contenuto browser, incluso il motore nativo delle regole Safari. Le regole dell’app Mac non hanno handle di contenuto browser né una superficie allegati nell’app.
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+`code-manual/generic-example.js` è un esempio di policy eseguibile. Usa record, chiamate AI, feedback dell’utente, compare-and-swap, controlli HTML, verdict degli item e un report d’uso gestito dalla regola; questi comportamenti sono nel codice d’esempio, non sono caratteristiche speciali dello store.

@@ -14,12 +14,13 @@
 
 ## واجهة API المشتركة
 
-- `on(type, handler)` ← قيمة منطقية. يسجل `handler(ev)`؛ وتعمل عدة معالجات حسب ترتيب التسجيل. تشير القيمة false إلى وسيطات غير صالحة أو بلوغ حد المعالجات. `ev = { type: string, now: number, data }`؛ و`now` هو وقت Unix بالمللي ثانية.
+- `on(type, handler)` ← قيمة منطقية. يسجل `handler(ev)`؛ وتعمل عدة معالجات حسب ترتيب التسجيل. تشير القيمة false إلى وسيطات غير صالحة أو بلوغ حد المعالجات. `ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`؛ و`now` هو وقت Unix بالمللي ثانية. أحداث عناصر التحكم المعروضة فعلياً لها `origin: "user"`؛ وأحداث `v.emit` لها `origin: "rule"`.
 - `v.state`: كائن JSON قابل للتغيير، يُحفظ بعد إرسال الحدث. هيّئ الحقول المفقودة بدل الكتابة فوق الحالة الموجودة. تعيين قيمة ليست كائنًا أو كانت مصفوفة يعيدها إلى `{}`؛ ولا تُحفظ التحديثات غير القابلة للتسلسل أو الكبيرة جدًا.
 - `v.log(...values)`: يكتب في سجل هذه المجموعة. تظهر هنا أيضًا أخطاء المعالجات وأخطاء إجراءات الصفحة المُبلّغ عنها؛ ولا تؤدي الإبلاغات إلى إعادة تنفيذ الإجراءات. السجلات/المسح مستقلة لكل مجموعة. تظهر أخطاء التحميل في حالة التشغيل.
 - `v.emit(type, data)`: يضع نسخة JSON من `data` في طابور معالجات المجموعة بعد الحدث الحالي، مع `now` جديد؛ وليس استدعاءً متزامنًا.
 - `v.panel(id, spec, tabId?)`: يستبدل لوحة المجموعة المسماة؛ احذف `tabId` لاستخدام كل صفحة ويب متاحة، أو استخدم معرّف تبويب صحيحًا. تزيل قيمة `spec` الفارغة اللوحة. راجع قسم اللوحات.
 - `v.file(op, path, payload?)` ← سلسلة معرّف طلب. راجع قسم الملفات.
+- يُرجع `v.store(request)` معرّف الطلب؛ راجع سجلات المجموعة.
 
 تعيد الاستدعاءات المشتركة الأخرى `undefined`، باستثناء دوال إنشاء كائنات الوقت المُدارة المسماة أدناه. تنتمي المعرّفات والحالة إلى مجموعة واحدة، لا إلى اسم عرضها.
 
@@ -66,6 +67,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +81,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +92,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - حدث `tick` تقريبي؛ استخدم الطوابع الزمنية لا عدد النبضات. تعني `active` أن الصفحة محددة في نافذة متصفح، لا أن المستخدم ينظر إليها. قد تكون عناوين URL فارغة أو محظورة.
 - يأتي `visible` من الصفحات المتاحة وغير المخفية؛ ويمثل `elapsedMs` الوقت منذ آخر نبضة لها، ويكون صفرًا عند التغطية. لا يمثل استخدامًا متراكمًا أو وقت تشغيل فيديو.
-- يبلغ `items` عن عناصر موجز جديدة أو متغيرة، ويعيد إرسالها بعد التشغيل/إعادة التمكين. يحدد `ref` بطاقة في تلك الصفحة، وليس معرّف محتوى دائمًا؛ وتشير `ref === "page"` إلى الصفحة نفسها. قد تكون العناوين أو الروابط أو المؤلفون فارغة. يحتوي `authors` على معرّفات مصدر خاصة بالمنصة.
+- يبلغ `items` (`platform: "web"` خارج المواقع المعروفة) عن عناصر موجز جديدة أو متغيرة، ويعيد إرسالها بعد التشغيل/إعادة التمكين. يحدد `ref` بطاقة في تلك الصفحة، وليس معرّف محتوى دائمًا؛ وتشير `ref === "page"` إلى الصفحة نفسها. قد تكون العناوين أو الروابط أو المؤلفون فارغة. يحتوي `authors` على معرّفات مصدر خاصة بالمنصة.
 - معرّفات المنصات: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. يعتمد توفر العناصر على ترميز الصفحة المدعوم.
 - تتطلب الوسوم مصنّف سطح المكتب المتصل وإصدارًا/منصة تدعم التصنيف (Chromium وSafari: YouTube وReddit وBilibili وX/`twitter`). مستوى الثقة من 1 إلى 5. تعني `tagsSettled === false` أن النتيجة معلقة أو غير متاحة، لا أنها بلا وسم؛ أما `tags: []` بعد اكتمالها فتعني بلا وسوم.
 - يعني `snooze` أن زر التأجيل في المجموعة ضُغط. لا يطبق إيقافًا مؤقتًا من تلقاء نفسه.
@@ -178,3 +186,84 @@ file.data = { requestId: string, op: string, path: string, ok: boolean,
   });
 }
 ```
+
+
+## استدعاءات الذكاء الاصطناعي من قاعدة قيد التشغيل
+
+تختار كل مجموعة اتصالًا/نموذجًا وجهد استدلال ضمن **AI calls**. الواجهة نفسها لقواعد Mac والمتصفح؛ طلب المتصفح يتطلب اتصال Mac Vault، وتبقى بيانات اعتماد المزود فيه. تتشارك المجموعات المرتبطة الاختيار وحدًا يوميًا اختياريًا. الفراغ يعني بلا حد للمجموعة، وتظل حدود الحساب سارية. يحسب الحد يوم UTC، ويستمر بعد إعادة التشغيل، ويعد كل محاولة مرسلة بما فيها الفاشلة. يجمع الربط الاستخدام الموجود؛ والفصل يبقي الاستخدام السابق.
+
+تعيد يُشارك الموجّه والسياق المحفوظان بين المجموعات المرتبطة، ويتاحان في handlers عبر `v.context.ai.prompt` و`v.context.ai.context`. لا يرسلهما Vault تلقائياً؛ تختار القاعدة ما تضيفه إلى كل استدعاء `v.ai`.
+
+`v.ai({ prompt, input? })` معرّف طلب فورًا. استدعها داخل معالج لا عند تسجيل القاعدة. `input` أي قيمة JSON؛ حد كل من prompt/input هو20KB. تصل الردود كأحداث `ai` events: `. Success text is at most48KB; citations are ` `ask` `note`: {requestId, ok, text, citations, error}. حد نص النجاح48KB؛ والاستشهادات {url,title}. أظهر روابط المصادر قابلة للنقر عند عرض إجابات بحث الويب. البحث متاح دائمًا للنموذج. لا مهلة ثابتة للطلب، مع تزامن محدود؛ لا تبديل مزود أو إعادة تلقائية. الردود بيانات ولا تنفذ JavaScript؛ وتقرر القاعدة الإجراءات القائمة التي تتخذها.
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+لا تعاد الطلبات قيد التنفيذ بعد إعادة التشغيل. Run أو التعطيل/إعادة التفعيل أو الحذف يسقط الردود القديمة؛ والمتصفح غير المتصل يبلغ `ai-unavailable`. تشمل الأخطاء `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. لا تمحو المكالمات الفاشلة نتيجة سابقة احتفظت بها القاعدة؛ وحد حالة القاعدة ما زال64KB.
+
+اكتشف الخيارات الخالية من بيانات الاعتماد عبر `rule_ai_models` على Mac أو `settings-rule-ai-models` في المتصفح، واضبط `ruleAI` عبر مسار set-group الحالي. الحقول `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) و`dailyRequestLimit` (null أو1–100000). استخدم خيارًا معادًا؛ لا تضع مفتاحًا أو عنوان مزود في مصدر القاعدة.
+الحقول المحفوظة الاختيارية هي `prompt` و`context`؛ وكل منهما نص حتى 16KB.
+
+## سجلات المجموعة
+
+تبدأ `v.store(request)` عملية سجل JSON غير متزامنة داخل معالج. السجلات خاصة بالمجموعة وتستمر بعد Run وإعادة التشغيل وتحذف مع المجموعة؛ ولكل مجموعة مرتبطة سجلات مستقلة. تختار القاعدة المفاتيح والقيم والإصدارات وإبطال الذاكرة المؤقتة وأولوية الملاحظات. تستخدم قواعد Mac والمتصفح الواجهة نفسها، لكن تخزين كل تطبيق/متصفح مستقل.
+
+| الطلب | النتيجة |
+|---|---|
+| `{op:"get", key}` | `record` أو `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | `record` محفوظ |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | `entries` مرتبة و`next` |
+| `{op:"clear", prefix?}` | عدد `deleted` |
+
+يحوي السجل `{value, revision, version, updatedAt}`. يتغير revision المعتم عند كتابة حقيقية؛ و`version` بيانات وصفية يحددها المستدعي. يعيد `list` الرؤوس دون القيم؛ استخدم `get` للقراءة و`after: next` `put` `delete` للصفحة التالية. حذف/كتابة دون `ifRevision` غير مشروط؛ و`null` يشترط غياب المفتاح، أما سلسلة المراجعة فتشترط تطابقها. عند التعارض يعاد `ok:false` و`error:"store-conflict"` `record` والسجل الحالي؛ استخدم ذلك لمنع رد آلي متأخر من استبدال ملاحظات المستخدم. `v.context.revision` علامة معتمة لتكوين القاعدة يمكن إدراجها في إصدارها؛ لا تفرض المنظومة سياسة ذاكرة مؤقتة.
+
+الحدود: المفتاح 1–2048 حرفًا، الإصدار ≤128، قيمة JSON ≤64KiB وعمق ≤32، 10000 مفتاح للمجموعة، والوثيقة كلها 16MiB. تعيد `list` حتى100 رأس و96KiB في الصفحة. الحد 32 طلبًا للمجموعة و128 بدءًا في الثانية إجمالًا؛ عند الضغط يصدر خطأ `store-busy` واحد للمجموعة في الثانية وتسقط الطلبات الزائدة. أخطاء التخزين تعيد `ok:false`؛ وتحفظ الوثيقة المستقبلية أو المشوهة وتبلغ `store-unavailable`. لا إعادة محاولة أو إخلاء تلقائي. استخدم ticks للمهل.
+
+## المرفقات المحفوظة للمحتوى
+
+تُحفظ الحبة أو واجهة HTML/CSS الساكنة لعنصر محتوى مرصود باستخدام `v.attach(tabId, item, id, spec)`. مرّر `item` كاملة من حدث `items` أو `attachment`؛ فالمرجع `ref` وحده ليس معرّف مرفق. يعرّف `contentId` المحتوى المحفوظ، ويعرّف `instanceId` ظهوره الحالي. احتفظ بالمعرّف الأصلي أثناء انتظار AI. يرفض Vault الإرفاق المتأخر لهدف أزيل أو أعيد استخدامه أو انتقل؛ ويظل سلوك `v.item(tabId, ref, verdict)` مستقلاً.
+
+للحبة، استخدم `spec` بالشكل `{type:"pill", text, tone?, tooltip?}`؛ والنغمات `blue` و`cyan` و`gold` و`pink` و`red`. النص عادي حتى 240 حرفاً والتلميح حتى 1000. للعرض استخدم spec بالشكل `{type:"html", html, css?, label?}`. حد HTML هو 32000 حرف وCSS ‏16000 وlabel ‏200. يعاد بناء العرض من HTML/SVG ساكن مسموح داخل shadow root مغلق وبـCSS محصور؛ وتحذف البرامج النصية وسمات الأحداث والموارد البعيدة والتضمينات وCSS غير الآمن. يقتصر العرض المرئي على بطاقة المحتوى ويمكن تمريره عند ارتفاع 480px. تتكون المعرفات من 1–80 حرفاً/رقماً ASCII أو _ أو -. إزالة spec تحذف حبة المجموعة. استدعها من handler؛ وتظهر أخطاء الحفظ أو التسليم في Log بلا إعادة تلقائية.
+
+يعرض كل عنصر مرفقات هذه المجموعة عبر `item.attachments` كلقطة للقراءة فقط. لا تشمل المرفقات الخاصة بالمجموعات الأخرى. إذا تعذر جلب البيانات المحفوظة، تكون `attachments` بقيمة null ويُعيّن `attachmentError`؛ وهذا لا يعني أن الذاكرة المؤقتة فارغة. تستمر المعالجات الأخرى. فعّل الحبة في المثال أدناه لتجنب طلب AI لعنصر له نتيجة محفوظة.
+
+تؤدي إيماءة المؤشر أو Enter أو Space إلى حدث `attachment` للمجموعة. ترسل الحبوب `click`. تستخدم عناصر العرض `data-control` أو `id` كـ`controlId`، وترسل `click` أو `input` أو `change` مع `value` الحالي و`values` المحدودة لعناصر الإدخال المسماة. أحداث الواجهة الفعلية لها `ev.origin === "user"`، وأحداث القاعدة `origin === "rule"`. تتضمن الأحداث `tabId` و`attachmentId` و`item` الحالية. لا ينفذ العرض شيفرة القاعدة؛ كما تمنع الحبوب والعروض التفاعل من التنقل ببطاقة المحتوى. لا تحتوي البيانات المحفوظة على callbacks أو شيفرة قابلة للتنفيذ، ولا يستطيع إصدار قديم استدعاء مرفق حالي. أحداث emit من القاعدة منطق عادي؛ ويتحقق المتصفح من رسائل النقر الحقيقية بشكل مستقل.
+
+تحفظ المرفقات في ملف المتصفح الشخصي لكل مجموعة/محتوى/ID، وتعود في مرات الظهور اللاحقة والتنقل وإعادة التشغيل وRun. يعطلها Disable مع الاحتفاظ بالبيانات، ويعيدها Enable. يحذف حذف المجموعة مرفقاتها. المجموعات المرتبطة مستقلة، ولا توجد مزامنة تلقائية بين المتصفحات أو الأجهزة. تستخدم محتويات YouTube وReddit وX وBilibili المعروفة معرفات المنصة؛ ويستخدم المحتوى الآخر عنوان URL مطبّعاً بتحفظ، لذلك يعتمد التوفر على ترميز الصفحة المدعوم.
+
+الحدود: 8 مرفقات لكل مجموعة/محتوى، و32 لكل عنصر عبر المجموعات، و10000 إدخال محتوى لكل مجموعة، ووثيقة مرفقات بحجم 8MB. يرفض تجاوز الحد التغيير الجديد مع `attachment-item-limit` أو `attachment-storage-limit` في Log ويحفظ البيانات الحالية. تجمع عملية dispatch عمليات الكتابة، ولا تعيد كتابة التخزين عند تطابق spec. المرفقات واجهة لمحتوى المتصفح بما فيها محرك Safari الأصلي؛ أما قواعد تطبيق Mac فلا تملك مقابض محتوى المتصفح أو شاشة مرفقات داخل التطبيق.
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+`code-manual/generic-example.js` مثال سياسة قابل للتنفيذ. يستخدم السجلات وAI وردود المستخدم وcompare-and-swap وعناصر HTML وقرارات العناصر وتقرير استخدام تديره القاعدة؛ وهذه السلوكيات من شيفرة المثال وليست ميزات خاصة بالتخزين.

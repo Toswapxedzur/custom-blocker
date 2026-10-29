@@ -10,7 +10,8 @@
 
 ## API ที่ใช้ร่วมกัน
 
-- `on(type, handler)` → boolean ลงทะเบียน `handler(ev)`; หลาย handlers จะทำงานตามลำดับที่ลงทะเบียน False หมายถึง arguments ไม่ถูกต้องหรือถึงขีดจำกัด handlers แล้ว `ev = { type: string, now: number, data }`; `now` คือ Unix milliseconds\n- `v.state`: JSON object ที่แก้ไขได้และบันทึกหลัง event dispatch ให้เริ่มค่าเฉพาะ fields ที่ยังไม่มี แทนการเขียนทับ state เดิม การกำหนด non-object หรือ array จะ reset เป็น `{}`; การอัปเดตที่ serialize ไม่ได้หรือใหญ่เกินไปจะไม่ถูกบันทึก\n- `v.log(...values)`: เขียนลงใน Log ของกลุ่มนี้ ข้อผิดพลาดของ handler และข้อผิดพลาดจากการทำงานบนหน้าที่มีการรายงานจะแสดงที่นี่ด้วย การรายงานจะไม่เรียก actions ซ้ำ Logs/Clear แยกกันในแต่ละกลุ่ม Load errors แสดงใน Run status\n- `v.emit(type, data)`: queue สำเนา JSON ของ `data` ให้ handlers ของกลุ่มนี้หลัง event ปัจจุบัน พร้อม `now` ใหม่; ไม่ใช่การเรียกแบบ synchronous\n- `v.panel(id, spec, tabId?)`: แทนที่ panel ที่ตั้งชื่อของกลุ่มนี้ ไม่ระบุ `tabId` เพื่อใช้กับทุกหน้าเว็บที่เข้าถึงได้ หรือใช้ tab ID จำนวนเต็ม หาก `spec` เป็น null จะนำ panel ออก ดูหัวข้อ Panels\n- `v.file(op, path, payload?)` → request ID string ดูหัวข้อ Files
+- `on(type, handler)` → boolean ลงทะเบียน `handler(ev)`; หลาย handlers จะทำงานตามลำดับที่ลงทะเบียน False หมายถึง arguments ไม่ถูกต้องหรือถึงขีดจำกัด handlers แล้ว `ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`; `now` คือ Unix milliseconds เหตุการณ์ของตัวควบคุมที่แสดงจริงมี `origin: "user"`; เหตุการณ์ `v.emit` มี `origin: "rule"`.\n- `v.state`: JSON object ที่แก้ไขได้และบันทึกหลัง event dispatch ให้เริ่มค่าเฉพาะ fields ที่ยังไม่มี แทนการเขียนทับ state เดิม การกำหนด non-object หรือ array จะ reset เป็น `{}`; การอัปเดตที่ serialize ไม่ได้หรือใหญ่เกินไปจะไม่ถูกบันทึก\n- `v.log(...values)`: เขียนลงใน Log ของกลุ่มนี้ ข้อผิดพลาดของ handler และข้อผิดพลาดจากการทำงานบนหน้าที่มีการรายงานจะแสดงที่นี่ด้วย การรายงานจะไม่เรียก actions ซ้ำ Logs/Clear แยกกันในแต่ละกลุ่ม Load errors แสดงใน Run status\n- `v.emit(type, data)`: queue สำเนา JSON ของ `data` ให้ handlers ของกลุ่มนี้หลัง event ปัจจุบัน พร้อม `now` ใหม่; ไม่ใช่การเรียกแบบ synchronous\n- `v.panel(id, spec, tabId?)`: แทนที่ panel ที่ตั้งชื่อของกลุ่มนี้ ไม่ระบุ `tabId` เพื่อใช้กับทุกหน้าเว็บที่เข้าถึงได้ หรือใช้ tab ID จำนวนเต็ม หาก `spec` เป็น null จะนำ panel ออก ดูหัวข้อ Panels\n- `v.file(op, path, payload?)` → request ID string ดูหัวข้อ Files
+- `v.store(request)` ส่งคืน ID คำขอ ดูบันทึกของกลุ่ม
 
 Calls ที่ใช้ร่วมกันอื่น ๆ คืน `undefined` ยกเว้น factories สำหรับสร้างออบเจ็กต์เวลาที่จัดการโดยระบบแบบมีชื่อด้านล่าง IDs/state เป็นของแต่ละกลุ่ม ไม่ใช่ของชื่อที่แสดง
 
@@ -57,6 +58,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -65,7 +72,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -73,7 +81,7 @@ Match = { tag: string, text: string, href: string, src: string,
           title: string, label: string, value: string }
 ```
 
-- `tick` เป็นค่าโดยประมาณ ให้ใช้ timestamps แทนการนับ ticks `active` หมายถึงหน้าที่ถูกเลือกในหน้าต่างเบราว์เซอร์ ไม่ได้ยืนยันว่าผู้ใช้กำลังดูอยู่ URLs อาจว่างหรือถูกจำกัดการเข้าถึง\n- `visible` มาจากหน้าที่เข้าถึงได้และไม่ถูกซ่อน `elapsedMs` คือเวลาตั้งแต่ heartbeat ล่าสุดของหน้านั้น และเป็นศูนย์ขณะถูกปิดทับ ไม่ใช่เวลาการใช้งานหรือเวลาเล่นที่สะสม\n- `items` รายงานรายการฟีดที่รองรับซึ่งเพิ่มหรือเปลี่ยนแปลง และส่งซ้ำหลัง Run/เปิดใช้ใหม่ `ref` ระบุการ์ดบนหน้านั้น ไม่ใช่ content ID ที่คงทน; `ref === "page"` หมายถึงตัวหน้าเอง titles/URLs/authors อาจว่างได้ `authors` มี source identifiers เฉพาะแพลตฟอร์ม\n- Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou` ความพร้อมของรายการขึ้นอยู่กับ markup ที่รองรับบนหน้า\n- Tags ต้องมี desktop Classifier ที่เชื่อมต่อและ build/platform ที่เปิดใช้การติดแท็ก (Chromium และ Safari: YouTube, Reddit, Bilibili, X/`twitter`) Confidence มีค่า 1–5 `tagsSettled === false` หมายถึงกำลังรอ/ไม่พร้อม ไม่ใช่ไม่มีแท็ก; `tags: []` ที่ settled แล้วหมายถึงไม่มีแท็ก\n- `snooze` หมายถึงกดปุ่ม Snooze ของกลุ่ม ตัว event นี้ไม่ได้พักการบล็อกด้วยตัวเอง\n- Query/file replies ส่งกลับไปยังกลุ่มที่ร้องขอ ให้จับคู่ด้วย `requestId`, ตรวจ `error`/`ok` และตั้ง deadline โดยใช้ ticks: replies อาจหายเมื่อหน้าปิด engine โหลดใหม่ หรือปิดกลุ่ม Request IDs อาจซ้ำหลัง Run; requests ที่ค้างไม่ใช่งานถาวร
+- `tick` เป็นค่าโดยประมาณ ให้ใช้ timestamps แทนการนับ ticks `active` หมายถึงหน้าที่ถูกเลือกในหน้าต่างเบราว์เซอร์ ไม่ได้ยืนยันว่าผู้ใช้กำลังดูอยู่ URLs อาจว่างหรือถูกจำกัดการเข้าถึง\n- `visible` มาจากหน้าที่เข้าถึงได้และไม่ถูกซ่อน `elapsedMs` คือเวลาตั้งแต่ heartbeat ล่าสุดของหน้านั้น และเป็นศูนย์ขณะถูกปิดทับ ไม่ใช่เวลาการใช้งานหรือเวลาเล่นที่สะสม\n- `items` (`platform: "web"` นอกไซต์ที่รู้จัก) รายงานรายการฟีดที่รองรับซึ่งเพิ่มหรือเปลี่ยนแปลง และส่งซ้ำหลัง Run/เปิดใช้ใหม่ `ref` ระบุการ์ดบนหน้านั้น ไม่ใช่ content ID ที่คงทน; `ref === "page"` หมายถึงตัวหน้าเอง titles/URLs/authors อาจว่างได้ `authors` มี source identifiers เฉพาะแพลตฟอร์ม\n- Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou` ความพร้อมของรายการขึ้นอยู่กับ markup ที่รองรับบนหน้า\n- Tags ต้องมี desktop Classifier ที่เชื่อมต่อและ build/platform ที่เปิดใช้การติดแท็ก (Chromium และ Safari: YouTube, Reddit, Bilibili, X/`twitter`) Confidence มีค่า 1–5 `tagsSettled === false` หมายถึงกำลังรอ/ไม่พร้อม ไม่ใช่ไม่มีแท็ก; `tags: []` ที่ settled แล้วหมายถึงไม่มีแท็ก\n- `snooze` หมายถึงกดปุ่ม Snooze ของกลุ่ม ตัว event นี้ไม่ได้พักการบล็อกด้วยตัวเอง\n- Query/file replies ส่งกลับไปยังกลุ่มที่ร้องขอ ให้จับคู่ด้วย `requestId`, ตรวจ `error`/`ok` และตั้ง deadline โดยใช้ ticks: replies อาจหายเมื่อหน้าปิด engine โหลดใหม่ หรือปิดกลุ่ม Request IDs อาจซ้ำหลัง Run; requests ที่ค้างไม่ใช่งานถาวร
 
 ## Browser actions
 
@@ -148,3 +156,84 @@ result fields ที่ไม่ได้ใช้เป็น null; เมื�
   });
 }
 ```
+
+
+## การเรียก AI จากกฎที่กำลังทำงาน
+
+แต่ละ custom group เลือก connection/model และ reasoning effort ใน **AI calls** กฎ Mac และ browser ใช้ API เดียวกัน; browser request ต้องเชื่อม Mac Vault และ credentials ของ provider อยู่ที่นั่น กลุ่มที่เชื่อมกันแชร์ตัวเลือกและ daily cap แบบเลือกได้ ค่าว่างหมายถึงไม่จำกัดระดับกลุ่ม แต่ข้อจำกัดบัญชียังใช้ cap คิดตามวัน UTC อยู่หลัง restart และนับทุก attempt ที่ส่งรวมถึงที่ล้มเหลว Link รวม usage เดิม; unlink เก็บ usage ที่ผ่านมา
+
+prompt และ context ที่บันทึกไว้จะแชร์กันในกลุ่มที่เชื่อมโยง และใช้ใน handler ได้ผ่าน `v.context.ai.prompt` กับ `v.context.ai.context` Vault จะไม่ส่งให้เอง; rule เลือกสิ่งที่จะใส่ในแต่ละการเรียก `v.ai`.
+
+`v.ai({ prompt, input? })` คืน request ID ทันที เรียกใน handler ไม่ใช่ตอนลงทะเบียน rule `input` เป็น JSON ใดก็ได้; prompt/input จำกัดอย่างละ20KB คำตอบมาใน `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` event: {requestId, ok, text, citations, error} ข้อความสำเร็จไม่เกิน48KB; citations เป็น {url,title} เก็บลิงก์แหล่งที่มาให้มองเห็นและคลิกได้เมื่อแสดงคำตอบจาก web search Search มีให้โมเดลเสมอ ไม่มี app deadline คงที่และจำกัด concurrency; ไม่มี provider fallback หรือ auto retry คำตอบเป็นข้อมูล ไม่ถูก execute เป็น JavaScript และ rule ตัดสินใจว่าจะใช้ action เดิมใด
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+คำขอค้างไม่เล่นซ้ำหลัง restart; Run, disable/re-enable และ delete ทิ้งคำตอบเก่า เบราว์เซอร์ที่ตัดการเชื่อมต่อแจ้ง `ai-unavailable` ข้อผิดพลาดอื่น ได้แก่ `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable` คำขอที่ล้มเหลวไม่เขียนทับผลเดิมที่ rule เก็บไว้ ขนาด state ยังคงจำกัด64KB
+
+ค้นตัวเลือกที่ไม่มี credentials ด้วย `rule_ai_models` บน Mac หรือ `settings-rule-ai-models` ใน browser ตั้ง `ruleAI` ผ่าน set-group path เดิม ฟิลด์คือ `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) และ `dailyRequestLimit` (null หรือ1–100000) ใช้ตัวเลือกที่คืนมา อย่าใส่ key หรือ provider URL ใน source ของ rule
+field ที่บันทึกได้โดยเลือกคือ `prompt` และ `context` แต่ละค่าเป็น string ได้ถึง16KB
+
+## บันทึกของกลุ่ม
+
+`v.store(request)` เริ่มการทำงานบันทึก JSON แบบ asynchronous ภายใน handler บันทึกเป็นของกลุ่มนั้น อยู่ต่อหลัง Run และ restart และถูกลบพร้อมกลุ่ม กลุ่มที่เชื่อมกันมี store แยกกัน Rule เลือก key, value, version, cache invalidation และลำดับความสำคัญของ feedback กฎ Mac และ browser ใช้ API เดียวกัน แต่ store ของแต่ละ app/browser แยกกัน
+
+| Request | Result |
+|---|---|
+| `{op:"get", key}` | `record` หรือ `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | `record` ที่บันทึกแล้ว |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | `entries` ที่เรียงแล้วและ `next` |
+| `{op:"clear", prefix?}` | จำนวน `deleted` |
+
+แต่ละ record คือ `{value, revision, version, updatedAt}` ค่า revision แบบ opaque เปลี่ยนเมื่อเขียนจริง; `version` เป็น metadata ของ caller `list` คืน headers โดยไม่มี values ใช้ `get` เพื่ออ่านและ `after: next` `put` `delete` เพื่อขอหน้าถัดไป เมื่อไม่ระบุ `ifRevision` put/delete จะไม่มีเงื่อนไข; `null` ต้องไม่มี key นั้น ส่วน revision string ต้องตรงกันพอดี หากไม่ตรงจะคืน `ok:false`, `error:"store-conflict"` และ `record` ปัจจุบัน เพื่อป้องกัน automatic reply ที่ล่าช้าเขียนทับ feedback ของผู้ใช้ `v.context.revision` เป็น configuration marker แบบ opaque ที่ rule อาจรวมใน version ของตัวเอง framework ไม่กำหนดนโยบาย cache
+
+ขีดจำกัด: key 1–2048 ตัวอักษร, version ≤128, JSON value ≤64KiB, depth ≤32, 10000 keys ต่อกลุ่ม และเอกสารรวม16MiB `list` คืนได้สูงสุด100 headers และ96KiB ต่อหน้า สูงสุด32 requests ต่อกลุ่มและ128 starts/second โดยรวม เมื่อเกินจะรายงาน `store-busy` หนึ่งครั้งต่อกลุ่มต่อวินาทีและทิ้งรายการที่เหลือ Storage error คืน `ok:false`; เอกสารอนาคตหรือผิดรูปจะถูกเก็บไว้และรายงาน `store-unavailable` ไม่มี retry หรือ eviction อัตโนมัติ ใช้ ticks กำหนด deadline
+
+## ไฟล์แนบเนื้อหาที่บันทึกไว้
+
+ใช้ `v.attach(tabId, item, id, spec)` เพื่อบันทึก pill หรือมุมมอง HTML/CSS แบบไม่ทำงานสำหรับรายการเนื้อหาที่ตรวจพบ ส่ง `item` ทั้งรายการจากเหตุการณ์ `items` หรือ `attachment`; มีเพียง `ref` ไม่ใช่ handle ของไฟล์แนบ `contentId` ระบุเนื้อหาที่บันทึก ส่วน `instanceId` ระบุการปรากฏปัจจุบัน เก็บ handle เดิมไว้ขณะรอ AI การแนบล่าช้ากับเป้าหมายที่ถูกลบ ใช้ซ้ำ หรือนำทางแล้วจะถูกปฏิเสธ พฤติกรรม `v.item(tabId, ref, verdict)` แยกจากกัน
+
+สำหรับ pill ให้ `spec` เป็น `{type:"pill", text, tone?, tooltip?}`; tone คือ `blue`, `cyan`, `gold`, `pink` หรือ `red` ข้อความธรรมดาได้ 240 ตัวอักษร tooltip ได้ 1000 สำหรับมุมมองให้ spec เป็น `{type:"html", html, css?, label?}` ขีดจำกัด: HTML 32000 ตัวอักษร CSS 16000 label 200 มุมมองสร้างใหม่จาก HTML/SVG แบบไม่ทำงานที่อนุญาต ใน shadow root แบบปิดและ CSS ที่จำกัด ขจัดสคริปต์ event attribute ทรัพยากรระยะไกล embed และ CSS ที่ไม่ปลอดภัย มุมมองอยู่ในบัตรเนื้อหาและเลื่อนได้เมื่อสูง 480px ID ใช้ ASCII 1–80 ตัวอักษร/ตัวเลข _ หรือ - spec เป็น null เพื่อลบ pill ของกลุ่ม เรียกใน handler; ข้อผิดพลาดการบันทึก/ส่งปรากฏใน Log และไม่ retry อัตโนมัติ
+
+แต่ละ item แสดงไฟล์แนบของกลุ่มนี้เป็น snapshot แบบอ่านอย่างเดียวใน `item.attachments`; ไม่มีไฟล์แนบของกลุ่มอื่น หากข้อมูลบันทึกใช้ไม่ได้ `attachments` เป็น null และตั้ง `attachmentError`; ไม่ได้หมายถึง cache ว่าง handler อื่นยังทำงาน ใช้ตัวอย่างเพื่อไม่ส่งคำขอ AI ซ้ำให้เนื้อหาที่มีผลลัพธ์บันทึกแล้ว
+
+การกดด้วย pointer, Enter หรือ Space สร้างเหตุการณ์ `attachment` สำหรับกลุ่ม pill ส่ง `click` ตัวควบคุมของมุมมองใช้ `data-control` หรือ `id` เป็น `controlId` และส่ง `click`, `input` หรือ `change` พร้อม `value` ปัจจุบันและ `values` ที่จำกัดสำหรับตัวควบคุมที่มีชื่อ เหตุการณ์ UI จริงมี `ev.origin === "user"`; เหตุการณ์จากกฎมี `origin === "rule"` และมี `tabId`, `attachmentId`, `item` ปัจจุบัน มุมมองไม่เรียกใช้โค้ดกฎ ทั้ง pill และมุมมองป้องกันการนำทางจากการโต้ตอบ ข้อมูลที่บันทึกไม่มี callback หรือโค้ดที่เรียกใช้ได้ revision ของ pill เก่าเรียกไฟล์แนบปัจจุบันไม่ได้ emit event ของกฎเป็น logic ปกติ; browser ตรวจข้อความคลิก UI จริงแยกต่างหาก
+
+ไฟล์แนบบันทึกในโปรไฟล์ browser นี้ตาม group/content/ID และกลับมาเมื่อพบอีกครั้ง นำทาง เริ่ม browser ใหม่ และ Run Disable ซ่อนไว้แต่เก็บข้อมูล; enable คืนให้ การลบกลุ่มลบไฟล์แนบ กลุ่มที่เชื่อมโยงยังแยกกัน ไม่มี sync อัตโนมัติข้าม browser/device เนื้อหา YouTube, Reddit, X และ Bilibili ที่รู้จักใช้ platform ID เนื้อหาอื่นใช้ URL ที่ normalize อย่างระมัดระวัง จึงขึ้นกับ markup ของหน้าที่รองรับ
+
+ขีดจำกัด: 8 ไฟล์แนบต่อ group/content, 32 ต่อ item รวมทุกกลุ่ม, 10000 content entries ต่อกลุ่ม และเอกสารไฟล์แนบที่ serialize แล้ว 8MB เมื่อถึงขีดจำกัด การเปลี่ยนใหม่ถูกปฏิเสธพร้อม `attachment-item-limit` หรือ `attachment-storage-limit` ใน Log; ข้อมูลเดิมยังอยู่ Dispatch รวมการเขียน และ spec ที่เหมือนเดิมไม่เขียน storage ซ้ำ ไฟล์แนบเป็น UI เนื้อหาของ browser รวมถึง Safari native rule engine กฎแอป Mac ไม่มี browser content handle หรือหน้าจอไฟล์แนบในแอป
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+`code-manual/generic-example.js` เป็นตัวอย่าง policy ที่เรียกใช้ได้ ใช้ record, AI calls, feedback จากผู้ใช้, compare-and-swap, HTML controls, item verdict และรายงานการใช้งานของกฎ พฤติกรรมเหล่านี้อยู่ในตัวอย่าง ไม่ใช่คุณสมบัติเฉพาะของ store

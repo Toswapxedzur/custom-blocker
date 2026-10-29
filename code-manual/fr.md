@@ -14,12 +14,13 @@ Source : une expression de fonction `(on, v) => { ... }`. Seuls JavaScript synch
 
 ## API partagée
 
-- `on(type, handler)` → booléen. Enregistre `handler(ev)` ; plusieurs gestionnaires s’exécutent dans l’ordre d’enregistrement. False signifie des arguments invalides ou une limite de gestionnaires atteinte. `ev = { type: string, now: number, data }` ; `now` est en millisecondes Unix.
+- `on(type, handler)` → booléen. Enregistre `handler(ev)` ; plusieurs gestionnaires s’exécutent dans l’ordre d’enregistrement. False signifie des arguments invalides ou une limite de gestionnaires atteinte. `ev = { type: string, now: number, origin: "host" | "user" | "rule", data }` ; `now` est en millisecondes Unix. Les événements réels des contrôles affichés ont `origin: "user"` ; ceux de `v.emit` ont `origin: "rule"`.
 - `v.state` : objet JSON modifiable, persisté après la distribution de l’événement. Initialisez les champs absents au lieu d’écraser l’état existant. Affecter une valeur non objet ou un tableau le réinitialise à `{}` ; les mises à jour non sérialisables/trop grandes ne sont pas persistées.
 - `v.log(...values)` : écrit dans le Journal de ce groupe. Les erreurs des gestionnaires et les erreurs signalées des actions de page apparaissent aussi ici ; leur signalement ne rejoue pas les actions. Les journaux/Effacer sont indépendants par groupe. Les erreurs de chargement apparaissent dans l’état d’exécution.
 - `v.emit(type, data)` : met en file une copie JSON de `data` pour les gestionnaires de ce groupe après l’événement courant, avec un nouveau `now` ; ce n’est pas un appel synchrone.
 - `v.panel(id, spec, tabId?)` : remplace le panneau nommé de ce groupe ; omettez `tabId` pour toutes les pages web accessibles ou utilisez un identifiant d’onglet entier. Un `spec` null le retire. Voir Panneaux.
 - `v.file(op, path, payload?)` → chaîne d’identifiant de requête. Voir Fichiers.
+- `v.store(request)` renvoie un ID de requête ; voir les enregistrements du groupe.
 
 Les autres appels partagés renvoient `undefined`, à l’exception des fonctions de création d’objets temporels gérés nommés ci-dessous. Les identifiants/l’état appartiennent à un groupe, pas à son nom affiché.
 
@@ -66,6 +67,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +81,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +92,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - `tick` est approximatif ; utilisez des horodatages, pas des comptes de ticks. `active` signifie sélectionné dans une fenêtre de navigateur, sans prouver que l’utilisateur le regarde. Les URL peuvent être vides/restreintes.
 - `visible` provient de pages accessibles et non masquées ; `elapsedMs` est le temps depuis leur dernier signal périodique, zéro lorsqu’elles sont couvertes. Ce n’est ni une utilisation cumulée ni un temps de lecture.
-- `items` signale les éléments de flux nouveaux/modifiés pris en charge et les renvoie après Exécuter/réactivation. `ref` identifie une carte sur cette page, pas un identifiant durable de contenu ; `ref === "page"` désigne la page elle-même. Les titres/URL/auteurs peuvent être vides. `authors` contient des identifiants de source propres aux plateformes.
+- `items` (`platform: "web"` hors des sites reconnus) signale les éléments de flux nouveaux/modifiés pris en charge et les renvoie après Exécuter/réactivation. `ref` identifie une carte sur cette page, pas un identifiant durable de contenu ; `ref === "page"` désigne la page elle-même. Les titres/URL/auteurs peuvent être vides. `authors` contient des identifiants de source propres aux plateformes.
 - Identifiants de plateforme : `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. La disponibilité des éléments dépend du balisage pris en charge de la page.
 - Les étiquettes nécessitent le Classificateur de bureau connecté et une version/plateforme avec étiquetage activé (Chromium et Safari : YouTube, Reddit, Bilibili, X/`twitter`). La confiance va de 1–5. `tagsSettled === false` signifie en attente/indisponible, pas sans étiquette ; un `tags: []` terminé signifie sans étiquette.
 - `snooze` signifie que le bouton Pause du groupe a été pressé. Il n’applique aucune pause à lui seul.
@@ -178,3 +186,84 @@ Une pause de cinq minutes, déclenchée par Pause ou le bouton de son panneau :
   });
 }
 ```
+
+
+## Appels IA depuis une règle active
+
+Chaque groupe personnalisé choisit une connexion/un modèle et un effort de raisonnement dans **AI calls**. Mac et navigateur utilisent la même API ; les requêtes navigateur nécessitent Mac Vault connecté et les identifiants du fournisseur y restent. Les groupes liés partagent le choix et une limite quotidienne facultative. Vide signifie aucune limite de groupe ; les limites du compte s’appliquent. La limite suit le jour UTC, persiste après redémarrage et compte toutes les tentatives soumises, y compris échouées. Le lien combine l’usage existant ; la dissociation conserve l’usage antérieur.
+
+Le prompt et le contexte enregistrés sont partagés entre les groupes liés et disponibles dans les handlers sous `v.context.ai.prompt` et `v.context.ai.context`. Vault ne les envoie pas automatiquement ; la règle choisit ce qu’elle inclut dans chaque appel `v.ai`.
+
+`v.ai({ prompt, input? })` renvoie immédiatement un identifiant de requête. Appelez-la dans un handler, pas lors de l’enregistrement de la règle. `input` accepte toute valeur JSON ; chaque prompt/input est limité à20KB. Les réponses arrivent comme événements `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` : {requestId, ok, text, citations, error}. Texte réussi jusqu’à48KB ; citations {url,title}. Gardez les liens de sources visibles et cliquables pour les réponses de recherche Web. La recherche est toujours disponible au modèle. Aucun délai fixe de l’app ; concurrence bornée ; aucun repli de fournisseur ni nouvel essai automatique. Les réponses sont des données, jamais exécutées comme JavaScript ; la règle décide des actions existantes.
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+Les appels en attente ne sont pas rejoués après redémarrage. Run, désactivation/réactivation et suppression écartent les anciennes réponses ; un navigateur déconnecté signale `ai-unavailable`. Autres erreurs : `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. Un appel échoué ne remplace pas un résultat antérieur conservé par la règle. La limite d’état reste64KB.
+
+Découvrez les choix sans identifiants avec `rule_ai_models` sur Mac ou `settings-rule-ai-models` dans le navigateur ; configurez `ruleAI` via le chemin set-group existant. Champs : `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) et `dailyRequestLimit` (null ou1–100000). Utilisez un choix retourné ; ne placez ni clé ni URL fournisseur dans le code source.
+Les champs enregistrés facultatifs sont `prompt` et `context`, des chaînes de 16KB maximum chacune.
+
+## Enregistrements du groupe
+
+`v.store(request)` lance une opération asynchrone d’enregistrement JSON dans un handler. Les enregistrements sont privés au groupe, persistent après Run et redémarrage, et sont supprimés avec le groupe. Les groupes liés ont des enregistrements séparés. La règle choisit clés, valeurs, versions, invalidation du cache et priorité des retours. Mac et navigateur utilisent la même API, mais chaque app/navigateur a son stockage.
+
+| Requête | Résultat |
+|---|---|
+| `{op:"get", key}` | `record` ou `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | `record` enregistré |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | `entries` triées et `next` |
+| `{op:"clear", prefix?}` | nombre `deleted` |
+
+Chaque enregistrement contient `{value, revision, version, updatedAt}`. revision est opaque et change lors d’une vraie écriture ; `version` est une métadonnée de l’appelant. `list` renvoie les en-têtes sans valeurs ; `get` lit un enregistrement et `after: next` `put` `delete` demande la page suivante. Sans `ifRevision`, put/delete sont inconditionnels ; `null` exige une clé absente, une chaîne exige une correspondance exacte. En cas de conflit, retour `ok:false`, `error:"store-conflict"` et `record` courant. Cela évite qu’une réponse automatique tardive remplace un retour utilisateur. `v.context.revision` est un marqueur opaque de configuration que la règle peut inclure à sa version ; le framework n’impose pas de politique de cache.
+
+Limites : clé 1–2048 caractères, version ≤128, valeur JSON ≤64KiB, profondeur ≤32, 10000 clés par groupe et document entier de16MiB. `list` renvoie au plus100 en-têtes et96KiB par page. Maximum32 requêtes par groupe et128 démarrages par seconde au total ; en surcharge, une erreur `store-busy` par groupe/seconde puis les suivantes sont abandonnées. Les erreurs de stockage renvoient `ok:false` ; un document futur ou mal formé est conservé et signale `store-unavailable`. Pas de nouvel essai ni éviction automatiques ; utiliser ticks pour les délais.
+
+## Pièces jointes de contenu enregistrées
+
+`v.attach(tabId, item, id, spec)` enregistre une pastille ou une vue HTML/CSS passive pour un élément observé. Fournissez l’`item` complet d’un événement `items` ou `attachment` ; un simple `ref` n’est pas une référence de pièce jointe. `contentId` désigne le contenu enregistré et `instanceId` son apparition actuelle. Gardez cette référence d’origine pendant l’attente d’AI. Vault refuse une pièce jointe tardive si la cible a été supprimée, réutilisée ou a navigué. `v.item(tabId, ref, verdict)` reste indépendant.
+
+Pour une pastille, `spec` vaut `{type:"pill", text, tone?, tooltip?}` ; les tons sont `blue`, `cyan`, `gold`, `pink` ou `red`. Le texte brut accepte 240 caractères, le tooltip 1000. Pour une vue, spec vaut `{type:"html", html, css?, label?}`. Limites : HTML 32000 caractères, CSS 16000, label 200. La vue est reconstruite à partir de HTML/SVG passif autorisé dans une shadow root fermée avec CSS limité. Scripts, attributs d’événement, ressources distantes, intégrations et CSS dangereux sont retirés. La vue reste dans la carte de contenu et défile à 480px de hauteur. Les ID comportent 1–80 lettres/chiffres ASCII, _ ou -. Un spec null retire la pastille du groupe. Appelez depuis un handler ; les échecs de persistance/livraison apparaissent dans Log et ne sont pas relancés automatiquement.
+
+Chaque élément expose les pièces jointes de ce groupe dans `item.attachments`, instantané en lecture seule ; celles des autres groupes n’y figurent pas. Si les données ne sont pas disponibles, `attachments` vaut null et `attachmentError` est défini ; cela ne signifie pas que le cache est vide. Les autres handlers continuent. Utilisez l’exemple pour éviter de redemander AI pour un contenu déjà doté d’un résultat enregistré.
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+L’activation par pointeur, Enter ou Space produit l’événement `attachment` du groupe. Les pastilles envoient `click`. Les contrôles d’une vue utilisent `data-control` ou `id` comme `controlId` et envoient `click`, `input` ou `change`, avec le `value` actuel et les `values` bornées des champs nommés. Les vrais événements UI ont `ev.origin === "user"` ; ceux créés par la règle ont `origin === "rule"`. Ils comprennent `tabId`, `attachmentId` et l’`item` actuel. La vue n’exécute pas le code de règle ; pastilles et vues empêchent leurs interactions de faire naviguer la carte sous-jacente. Les données enregistrées ne contiennent ni callback ni code exécutable. Une ancienne révision de pill ne peut pas déclencher une pièce jointe actuelle. Les événements emit de la règle restent sa logique ordinaire ; le navigateur vérifie séparément les vrais messages de clic.
+
+Les pièces jointes sont enregistrées dans ce profil de navigateur par groupe/contenu/ID et reviennent lors d’apparitions ultérieures, de navigation, du redémarrage du navigateur et de Run. Disable les masque en gardant les données ; enable les restaure. La suppression du groupe supprime ses pièces jointes. Les groupes liés les gardent séparées ; aucune synchronisation automatique entre navigateurs/appareils. Les contenus YouTube, Reddit, X et Bilibili reconnus utilisent les ID de plateforme. Les autres utilisent une URL normalisée prudemment ; leur disponibilité dépend du balisage de page pris en charge.
+
+Limites : 8 pièces jointes par groupe/contenu, 32 par élément tous groupes confondus, 10000 entrées de contenu par groupe et document sérialisé de 8MB. Une nouvelle mutation dépassant une limite est refusée avec `attachment-item-limit` ou `attachment-storage-limit` dans Log ; les données existantes sont conservées. Un dispatch regroupe les écritures et des spec identiques ne réécrivent pas le stockage. Les pièces jointes sont une UI de contenu du navigateur, y compris dans le moteur natif de règles Safari. Les règles de l’app Mac n’ont pas de handles de contenu navigateur ni de surface de pièce jointe intégrée.
+
+`code-manual/generic-example.js` est un exemple de politique exécutable. Il utilise des enregistrements, appels AI, retours utilisateur, compare-and-swap, contrôles HTML, verdicts d’élément et rapport d’usage géré par la règle ; ces comportements appartiennent à l’exemple, pas au stockage.

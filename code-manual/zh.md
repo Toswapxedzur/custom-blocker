@@ -14,12 +14,12 @@
 
 ## 共享 API
 
-- `on(type, handler)` → 布尔值。注册 `handler(ev)`；多个处理器按注册顺序运行。返回 false 表示参数无效或处理器数量达到上限。`ev = { type: string, now: number, data }`；`now` 是 Unix 时间戳，单位为毫秒。
-- `v.state`：可修改的 JSON 对象，在事件分发后持久保存。应初始化缺失字段，而不是覆盖已有状态。赋值为非对象或数组会将其重置为 `{}`；无法序列化或超过大小限制的更新不会保存。
+- `on(type, handler)` → 布尔值。注册 `handler(ev)`；多个处理器按注册顺序运行。返回 false 表示参数无效或处理器数量达到上限。`ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`；`now` 是 Unix 时间戳，单位为毫秒。 实际呈现的控件事件具有 `origin: "user"`；`v.emit` 事件具有 `origin: "rule"`。- `v.state`：可修改的 JSON 对象，在事件分发后持久保存。应初始化缺失字段，而不是覆盖已有状态。赋值为非对象或数组会将其重置为 `{}`；无法序列化或超过大小限制的更新不会保存。
 - `v.log(...values)`：写入该组的日志。处理器错误和已报告的页面操作错误也会显示在这里；报告错误不会重放操作。各组的日志和清除操作相互独立。加载错误显示在运行状态中。
 - `v.emit(type, data)`：将 `data` 的 JSON 副本排入队列，在当前事件之后交给该组的处理器，并生成新的 `now`；不是同步调用。
 - `v.panel(id, spec, tabId?)`：替换该组指定名称的面板；省略 `tabId` 时应用于所有可访问的网页，也可使用整数标签页 ID。`spec` 为 null 时移除面板。详见“面板”。
 - `v.file(op, path, payload?)` → 请求 ID 字符串。详见“文件”。
+- `v.store(request)` 返回请求 ID；请参阅组记录。
 
 除下述命名托管时间对象的工厂函数外，其他共享调用返回 `undefined`。ID 和状态属于一个组，与其显示名称无关。
 
@@ -66,6 +66,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +80,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +91,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - `tick` 的间隔是近似值；请使用时间戳，而不是计数 tick。`active` 表示标签页在浏览器窗口中被选中，不代表用户正在查看它。URL 可能为空或受限制。
 - `visible` 来自可访问且未隐藏的页面；`elapsedMs` 是自上次心跳以来的时间，被覆盖时为零。它不是累计使用时长或播放时长。
-- `items` 报告新增或发生变化的受支持内容，并在运行或重新启用后再次发送。`ref` 标识该页面上的卡片，不是持久内容 ID；`ref === "page"` 表示页面本身。标题、URL 和作者可能为空。`authors` 包含特定平台的内容来源标识符。
+- `items` (`platform: "web"` 在已识别站点之外) 报告新增或发生变化的受支持内容，并在运行或重新启用后再次发送。`ref` 标识该页面上的卡片，不是持久内容 ID；`ref === "page"` 表示页面本身。标题、URL 和作者可能为空。`authors` 包含特定平台的内容来源标识符。
 - 平台 ID：`youtube`、`tiktok`、`facebook`、`instagram`、`twitch`、`reddit`、`discord`、`twitter`、`bluesky`、`threads`、`substack`、`bilibili`、`rumble`、`pinterest`、`kick`、`tumblr`、`peertube`、`pixelfed`、`kuaishou`。内容是否可用取决于页面的受支持结构。
 - 标签需要连接桌面分类器，并使用启用了打标的版本和平台（Chromium 和 Safari：YouTube、Reddit、Bilibili、X/`twitter`）。置信度为 1–5。`tagsSettled === false` 表示等待中或不可用，不是未标记；已完成的 `tags: []` 表示未标记。
 - `snooze` 表示用户按下了该组的暂缓按钮，本身不会实施暂停。
@@ -178,3 +185,84 @@ file.data = { requestId: string, op: string, path: string, ok: boolean,
   });
 }
 ```
+
+
+## 运行中规则的 AI 调用
+
+每个 custom group 在 **AI calls** 中选择一个 connection/model 和 reasoning effort。Mac 与浏览器规则使用同一 API；浏览器请求需要连接 Mac Vault，提供商凭据保存在那里。链接组共享选择和可选的每日请求上限。留空表示组级不限额，账户限制仍适用。上限按 UTC 日计算，重启后保留，并统计已提交的尝试（包括失败）。Link 合并现有用量；unlink 保留之前的用量。
+
+已保存的提示词和上下文由关联组共享，并可在handler中通过 `v.context.ai.prompt` 和 `v.context.ai.context` 访问。Vault不会自动发送它们；规则决定每次 `v.ai` 调用包含哪些内容。
+
+`v.ai({ prompt, input? })` 立即返回 request ID。请在 handler 中调用，不要在注册规则时调用。`input` 可以是任意 JSON 值；prompt/input 各限20KB。回复通过 `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` 事件到达：{requestId, ok, text, citations, error}。成功文本最多48KB；citations 是 {url,title}。展示网页搜索答案时保留可见、可点击的来源链接。模型始终可以使用搜索。没有固定的 app 截止时间，并发数受限；不会回退到其他提供商或自动重试。回复是数据，不会作为 JavaScript 执行；规则决定采取哪些现有操作。
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+未完成的调用不会在重启后重放。Run、禁用/重新启用和删除会丢弃过时回复；断开的浏览器会报告 `ai-unavailable`。其他错误包括 `ai-not-configured`、`ai-invalid-input`、`ai-busy`、`ai-daily-limit`、`ai-request-failed` 和 `ai-usage-storage-unavailable`。失败调用不会覆盖规则选择保留的旧结果。规则 state 仍受64KB限制。
+
+可在 Mac 使用 `rule_ai_models`，或在浏览器使用 `settings-rule-ai-models` 查找无需凭据的选项；通过现有 set-group 路径配置 `ruleAI`。字段为 `providerModel`、`accountID`、`reasoningEffort`（`default`、`low`、`medium`、`high`）和 `dailyRequestLimit`（null 或1–100000）。使用返回的选项；不要把 key 或 provider URL 写进规则源码。
+可选保存字段为 `prompt` 和 `context`，均为最长16KB的字符串。
+
+## 组记录
+
+`v.store(request)` 会在 handler 中启动异步 JSON 记录操作。记录属于该组，在 Run 和重启后保留，并随组删除。链接组的 store 相互独立。规则决定 key、value、version、缓存失效和反馈优先级。Mac 与浏览器规则使用同一 API，但每个 app/browser 的 store 独立。
+
+| Request | Result |
+|---|---|
+| `{op:"get", key}` | `record` 或 `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | 已保存的 `record` |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | 排序后的 `entries` 和 `next` |
+| `{op:"clear", prefix?}` | `deleted` 数量 |
+
+每条记录为 `{value, revision, version, updatedAt}`。不透明的 revision 在实际写入时更改；`version` 是调用方管理的元数据。`list` 返回不含 value 的 header；用 `get` 读取一条记录，用 `after: next` `put` `delete` 获取下一页。省略 `ifRevision` 时 put/delete 无条件执行；`null` 要求 key 不存在，revision 字符串要求完全匹配。不匹配时返回 `ok:false`、`error:"store-conflict"` 和当前 `record`，防止延迟的自动回复覆盖用户反馈。`v.context.revision` 是不透明的规则配置标记，规则可将其纳入自己的 version；框架不规定缓存策略。
+
+限制：key 为1–2048字符，version ≤128，JSON value ≤64KiB，深度≤32，每组10000个 key，整份记录文档16MiB。`list` 每页最多100个 header、96KiB。每组最多32个请求，总计每秒128个启动；过载时每组每秒报告一个 `store-busy`，其余请求丢弃。存储错误返回 `ok:false`；未来版本或格式错误文档会保留并报告 `store-unavailable`。没有自动重试或清理。用 ticks 设置期限。
+
+## 保存的内容附件
+
+使用 `v.attach(tabId, item, id, spec)` 为观察到的内容项保存 pill 或被动 HTML/CSS 视图。传入完整 `item`，它来自 `items` 或 `attachment` 事件；单独的 `ref` 不是附件句柄。`contentId` 标识已保存内容，`instanceId` 标识当前出现的实例。等待 AI 时保留原句柄。若目标已删除、复用或导航，延迟附件会被拒绝。`v.item(tabId, ref, verdict)` 的行为仍彼此独立。
+
+pill 的 `spec` 为 `{type:"pill", text, tone?, tooltip?}`；tone 可为 `blue`、`cyan`、`gold`、`pink` 或 `red`。纯文本最多240字符，tooltip最多1000。视图的 spec 为 `{type:"html", html, css?, label?}`。限制：HTML最多32000字符，CSS最多16000，label最多200。视图会从允许的被动HTML/SVG重建到封闭的 shadow root 中，并使用作用域CSS；脚本、事件属性、远程资源、嵌入内容和不安全CSS会被移除。视图限于内容卡片内，高度为480px时可滚动。ID由1–80个ASCII字母/数字、_或-组成。null spec 会移除组的pill。请在handler中调用；保存/传递错误会记入Log，不会自动重试。
+
+每个内容项在只读快照 `item.attachments` 中提供本组附件；其中不含其他组的附件。保存数据不可用时，`attachments` 为null且设置 `attachmentError`，这不代表缓存为空。其他handler仍会继续运行。示例用于避免对已有保存结果的内容再次请求AI。
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+通过指针、Enter或Space激活会为本组产生 `attachment` 事件。pill发送 `click`。视图控件使用 `data-control` 或 `id` 作为 `controlId`，并发送 `click`、`input` 或 `change`，附带当前 `value` 和受限的命名控件 `values`。真实UI事件具有 `ev.origin === "user"`；规则创建的事件具有 `origin === "rule"`。事件包含 `tabId`、`attachmentId` 和当前 `item`。视图不执行规则代码；pill和视图会阻止交互导致底层卡片导航。保存数据不含callback或可执行代码。旧pill revision不能触发当前附件。规则emit事件属于普通规则逻辑；浏览器会单独验证真实UI点击消息。
+
+附件按组/内容/ID保存在此浏览器配置中，并在后续出现、导航、浏览器重启和Run后恢复。Disable会隐藏但保留数据；enable会恢复显示。删除组会删除其附件。关联组仍各自独立；浏览器/设备间不会自动同步。已知的YouTube、Reddit、X和Bilibili内容使用平台ID；其他内容使用谨慎规范化的URL，因此可用性取决于支持的页面标记。
+
+限制：每组/内容8个、跨所有组每个内容项32个、每组10000条内容记录、序列化附件文档8MB。达到上限后，新的变更会在Log中以 `attachment-item-limit` 或 `attachment-storage-limit` 拒绝，现有数据保留。dispatch会批量写入；相同 spec 不会重复写入存储。附件是浏览器内容UI，也适用于Safari原生规则引擎。Mac应用规则没有浏览器内容句柄或应用内附件界面。
+
+`code-manual/generic-example.js` 是可执行策略示例。它使用记录、AI调用、用户反馈、compare-and-swap、HTML控件、内容项判定和规则管理的使用报告；这些行为属于示例代码，不是记录或附件存储的专属功能。

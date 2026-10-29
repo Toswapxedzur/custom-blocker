@@ -14,12 +14,12 @@ Source: tek bir function expression `(on, v) => { ... }`. Yalnızca eşzamanlı 
 
 ## Ortak API
 
-- `on(type, handler)` → boolean. `handler(ev)` kaydeder; birden çok handlers kayıt sırasıyla çalışır. False, geçersiz arguments veya handler limitinin dolduğu anlamına gelir. `ev = { type: string, now: number, data }`; `now` Unix milisaniyesidir.
-- `v.state`: event dispatch sonrasında kaydedilen değiştirilebilir JSON object. Mevcut state'i ezmek yerine eksik fields değerlerini başlatın. Non-object veya array atanması `{}` değerine sıfırlar; serileştirilemeyen/aşırı büyük güncellemeler kaydedilmez.
+- `on(type, handler)` → boolean. `handler(ev)` kaydeder; birden çok handlers kayıt sırasıyla çalışır. False, geçersiz arguments veya handler limitinin dolduğu anlamına gelir. `ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`; `now` Unix milisaniyesidir. Gerçekten görüntülenen denetim olaylarında `origin: "user"`, `v.emit` olaylarında `origin: "rule"` bulunur.- `v.state`: event dispatch sonrasında kaydedilen değiştirilebilir JSON object. Mevcut state'i ezmek yerine eksik fields değerlerini başlatın. Non-object veya array atanması `{}` değerine sıfırlar; serileştirilemeyen/aşırı büyük güncellemeler kaydedilmez.
 - `v.log(...values)`: bu grubun Log kaydına yazar. İşleyici hataları ve bildirilen sayfa eylemi hataları da burada görünür; bildirim, eylemleri yeniden yürütmez. Logs/Clear her grup için bağımsızdır. Yükleme hataları Run durumunda görünür.
 - `v.emit(type, data)`: geçerli event sonrasında bu grubun handlers değerleri için `data` öğesinin JSON kopyasını yeni `now` ile kuyruğa alır; eşzamanlı çağrı değildir.
 - `v.panel(id, spec, tabId?)`: grubun adlandırılmış panelini değiştirir; erişilebilir tüm web sayfaları için `tabId` değerini atlayın veya integer tab ID kullanın. Null `spec` paneli kaldırır. Panels bölümüne bakın.
 - `v.file(op, path, payload?)` → request ID string. Files bölümüne bakın.
+- `v.store(request)` istek kimliği döndürür; grup kayıtlarına bakın.
 
 Aşağıda adı verilen yönetilen zaman nesnesi oluşturucuları dışında, diğer ortak çağrılar `undefined` döndürür. IDs/state, görüntülenen ada değil gruba aittir.
 
@@ -66,6 +66,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +80,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +91,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - `tick` yaklaşık değerdir; tick sayısı yerine timestamps kullanın. `active`, tarayıcı penceresinde seçili sayfa anlamına gelir; kullanıcının sayfaya baktığını kanıtlamaz. URLs boş/kısıtlı olabilir.
 - `visible`, erişilebilir ve gizli olmayan sayfalardan gelir; `elapsedMs` son heartbeat üzerinden geçen süredir ve sayfa kaplanmışken sıfırdır. Birikmiş kullanım veya oynatma süresi değildir.
-- `items`, desteklenen yeni/değişmiş akış öğelerini bildirir ve Run/yeniden etkinleştirme sonrasında tekrar gönderir. `ref`, o sayfadaki kartı tanımlar, kalıcı content ID değildir; `ref === "page"` sayfanın kendisini belirtir. Başlıklar/URLs/yazarlar boş olabilir. `authors`, platforma özel source identifiers içerir.
+- `items` (`platform: "web"` tanınan sitelerin dışında), desteklenen yeni/değişmiş akış öğelerini bildirir ve Run/yeniden etkinleştirme sonrasında tekrar gönderir. `ref`, o sayfadaki kartı tanımlar, kalıcı content ID değildir; `ref === "page"` sayfanın kendisini belirtir. Başlıklar/URLs/yazarlar boş olabilir. `authors`, platforma özel source identifiers içerir.
 - Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. Öğelerin kullanılabilirliği sayfanın desteklenen markup öğesine bağlıdır.
 - Tags, bağlı desktop Classifier ve etiketlemenin etkin olduğu build/platform gerektirir (Chromium ve Safari: YouTube, Reddit, Bilibili, X/`twitter`). Confidence 1–5 arasındadır. `tagsSettled === false` beklemede/kullanılamaz demektir, etiketsiz değil; settled `tags: []` etiketsiz demektir.
 - `snooze`, grubun Snooze düğmesine basıldığı anlamına gelir. Tek başına duraklatma uygulamaz.
@@ -178,3 +185,84 @@ Snooze veya panel düğmesiyle başlatılan beş dakikalık duraklama:
   });
 }
 ```
+
+
+## Çalışan kuraldan AI çağrıları
+
+Her custom group **AI calls** içinde bir connection/model ve reasoning effort seçer. Mac ve tarayıcı kuralları aynı API'yi kullanır; tarayıcı istekleri bağlı Mac Vault gerektirir ve provider kimlik bilgileri orada kalır. Bağlı gruplar seçimi ve isteğe bağlı günlük sınırı paylaşır. Boş değer grup sınırı olmadığı anlamına gelir; hesap limitleri geçerlidir. Sınır UTC gününe göre hesaplanır, restart'ta korunur ve başarısızlar dahil gönderilen denemeleri sayar. Link mevcut kullanımı birleştirir; unlink önceki kullanımı saklar.
+
+Kaydedilmiş prompt ve context bağlantılı gruplar arasında paylaşılır, handler içinde `v.context.ai.prompt` ve `v.context.ai.context` olarak kullanılabilir. Vault bunları otomatik göndermez; her `v.ai` çağrısına ne ekleneceğini kural seçer.
+
+`v.ai({ prompt, input? })` hemen request ID döndürür. Kuralı kaydederken değil, handler içinde çağırın. `input` herhangi bir JSON olabilir; prompt/input ayrı ayrı20KB ile sınırlıdır. Yanıtlar `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` event'leriyle gelir: {requestId, ok, text, citations, error}. Başarılı metin en çok48KB; citation {url,title}. Web arama yanıtlarında kaynak bağlantılarını görünür ve tıklanabilir tutun. Search modele daima açıktır. Sabit app deadline yoktur, concurrency sınırlıdır; provider fallback veya otomatik retry yoktur. Yanıtlar veridir, JavaScript olarak çalıştırılmaz; mevcut eylemleri kural seçer.
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+Bekleyen çağrılar restart sonrasında yeniden oynatılmaz. Run, devre dışı bırakıp yeniden etkinleştirme ve silme eski yanıtları atar; bağlantısız tarayıcı `ai-unavailable` bildirir. Diğer hatalar: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. Başarısız çağrı kuralın koruduğu önceki sonucu ezmez. Kural state sınırı64KB olarak kalır.
+
+Kimlik bilgisi gerektirmeyen seçimleri Mac'te `rule_ai_models`, tarayıcıda `settings-rule-ai-models` ile keşfedin; mevcut set-group yolu üzerinden `ruleAI` yapılandırın. Alanlar: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) ve `dailyRequestLimit` (null veya1–100000). Dönen seçimi kullanın; kural kaynağına key ya da provider URL koymayın.
+İsteğe bağlı kaydedilen alanlar `prompt` ve `context` olup her biri en çok16KB metindir.
+
+## Grup kayıtları
+
+`v.store(request)` bir handler içinde asenkron JSON kayıt işlemi başlatır. Kayıtlar gruba özeldir, Run ve yeniden başlatma sonrasında kalır ve grupla silinir. Bağlı grupların store'ları ayrıdır. Key, value, version, cache invalidation ve feedback önceliğini kural belirler. Mac ve tarayıcı kuralları aynı API'yi kullanır ancak her app/tarayıcı store'u ayrıdır.
+
+| Request | Result |
+|---|---|
+| `{op:"get", key}` | `record` veya `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | kaydedilen `record` |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | sıralı `entries` ve `next` |
+| `{op:"clear", prefix?}` | `deleted` sayısı |
+
+Her kayıt `{value, revision, version, updatedAt}` biçimindedir. Opaque revision gerçek yazmada değişir; `version` çağıranın metadata'sıdır. `list` değerler olmadan başlıkları döndürür; okumak için `get`, sonraki sayfa için `after: next` `put` `delete` kullanın. `ifRevision` yoksa put/delete koşulsuzdur; `null` anahtarın bulunmamasını, revision metni tam eşleşmeyi şart koşar. Uyuşmazlık `ok:false`, `error:"store-conflict"` ve güncel `record` döndürür; geciken otomatik yanıtın kullanıcı geri bildirimini ezmesini önler. `v.context.revision` kuralın sürümüne katabileceği opaque yapılandırma işaretidir; framework cache politikası dayatmaz.
+
+Sınırlar: key 1–2048 karakter, version ≤128, JSON value ≤64KiB, depth ≤32, grup başına10000 key, tüm belge16MiB. `list` sayfa başına en çok100 başlık ve96KiB döndürür. Grup başına32 request, toplam saniyede128 başlangıç. Aşırı yükte grup başına saniyede bir `store-busy` hatası bildirilir ve fazlası atılır. Storage hatası `ok:false` döndürür; gelecekteki/bozuk belge korunup `store-unavailable` bildirilir. Otomatik retry/eviction yoktur. Deadline için ticks kullanın.
+
+## Kaydedilmiş içerik ekleri
+
+Gözlemlenen bir içerik öğesi için pill veya pasif HTML/CSS görünümü `v.attach(tabId, item, id, spec)` ile kaydedilir. Tam `item` nesnesini `items` ya da `attachment` olayından verin; tek başına `ref` ek tanıtıcısı değildir. `contentId` kaydedilen içeriği, `instanceId` o anki görünümü tanımlar. AI yanıtını beklerken özgün tanıtıcıyı saklayın. Silinmiş, yeniden kullanılmış veya gezinilmiş hedefe geç ekleme reddedilir. `v.item(tabId, ref, verdict)` davranışı ayrıdır.
+
+Pill için `spec`, `{type:"pill", text, tone?, tooltip?}` biçimindedir; tonlar `blue`, `cyan`, `gold`, `pink` veya `red` olabilir. Düz metin 240, tooltip 1000 karakterle sınırlıdır. Görünüm için spec, `{type:"html", html, css?, label?}` biçimindedir. Sınırlar: HTML 32000, CSS 16000, label 200 karakter. Görünüm izin verilen pasif HTML/SVG'den kapalı shadow root ve kapsamlı CSS içinde yeniden oluşturulur; scriptler, olay öznitelikleri, uzak kaynaklar, eklemeler ve güvenli olmayan CSS kaldırılır. Görünüm içerik kartıyla sınırlıdır ve 480px yükseklikte kaydırılır. ID'ler 1–80 ASCII harf/rakam, _ veya - içerir. null spec grubun pill'ini kaldırır. Handler içinde çağırın; kaydetme/iletim hataları Log'a yazılır ve otomatik yinelenmez.
+
+Her öğe bu grubun eklerini salt okunur anlık görüntü olarak `item.attachments` içinde sunar; diğer grupların ekleri bu haritada yoktur. Kayıtlı veri kullanılamıyorsa `attachments` null olur ve `attachmentError` ayarlanır; bu boş cache demek değildir. Diğer handler'lar çalışmayı sürdürür. Kaydedilmiş sonucu olan içerik için AI'ı yeniden çağırmamak üzere örneği kullanın.
+
+Pointer, Enter veya Space etkinleştirmesi grup için `attachment` olayı üretir. Pill'ler `click` gönderir. Görünüm denetimleri `data-control` veya `id` değerini `controlId` olarak kullanır; `click`, `input` veya `change` ile geçerli `value` ve adlandırılmış denetimlerin sınırlı `values` değerlerini gönderir. Gerçek UI olayları `ev.origin === "user"`, kural olayları `origin === "rule"` taşır. Olaylarda `tabId`, `attachmentId` ve güncel `item` bulunur. Görünüm kural kodu çalıştırmaz; pill ve görünüm etkileşimi alttaki kartta gezinmeyi önler. Kayıtlı veride callback veya çalıştırılabilir kod yoktur. Eski bir pill revizyonu güncel eki çağıramaz. Kural emit olayları olağan mantıktır; tarayıcı gerçek UI tıklama iletilerini ayrıca doğrular.
+
+Ekler bu tarayıcı profilinde grup/içerik/ID başına kaydedilir ve sonraki görünümlerde, gezinmede, tarayıcı yeniden başlatmasında ve Run sonrasında döner. Disable gizler ama veriyi tutar; enable geri getirir. Grup silinince ekleri de silinir. Bağlantılı gruplar ayrı kalır; tarayıcılar/cihazlar arasında otomatik eşitleme yoktur. Bilinen YouTube, Reddit, X ve Bilibili içeriği platform ID'leri kullanır. Diğerleri ihtiyatlı biçimde normalize edilmiş URL kullanır; kullanılabilirlik desteklenen sayfa işaretlemesine bağlıdır.
+
+Sınırlar: grup/içerik başına 8 ek, tüm gruplarda öğe başına 32, grup başına 10000 içerik girdisi ve serileştirilmiş ek belgesi için 8MB. Sınıra ulaşıldığında yeni değişiklik `attachment-item-limit` veya `attachment-storage-limit` ile Log'da reddedilir; mevcut veri korunur. Dispatch yazımları toplar; aynı spec depolamayı yeniden yazmaz. Ekler, Safari yerel kural motoru dahil tarayıcı içerik arayüzüdür. Mac uygulama kurallarında tarayıcı içerik tanıtıcısı veya uygulama içi ek yüzeyi yoktur.
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+`code-manual/generic-example.js` çalıştırılabilir bir ilke örneğidir. Kayıtlar, AI çağrıları, kullanıcı geri bildirimi, compare-and-swap, HTML denetimleri, öğe kararları ve kuralın yönettiği kullanım raporu kullanır; bunlar depolamanın özel özellikleri değil örnek kodun davranışlarıdır.
