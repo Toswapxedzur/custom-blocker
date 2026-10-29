@@ -36,7 +36,7 @@ and future-schema preservation. Bumping an app version does not bump storage.
 A release still requires separate publication authorization; these private
 changes do not rename the existing alpha builds to beta.
 
-Schema 4 adds optional credential-free `ruleAI` configuration to custom groups. Older groups remain unconfigured, with their rules, state and usage preserved. Linked groups share the selection and UTC daily cap; Mac Vault owns the private reservation ledger. No keys, pending requests or AI responses enter browser storage automatically.
+Schema 4 adds optional credential-free `ruleAI` configuration to custom groups. Older groups remain unconfigured, with their rules, state and usage preserved. Linked groups share the selection, UTC daily cap, saved prompt and saved context. Rule code reads the two saved texts through `v.context.ai` and chooses what to include in each call. Mac Vault owns the private reservation ledger. No keys, pending requests or AI responses enter browser storage automatically.
 
 Schema5 adds `cbRuleAttachments`, a version1 browser-profile document whose `groups` map owns per-content, per-attachment records (`spec` and opaque revision). Reads of unknown/corrupt attachment formats refuse mutations without resetting data. Only the worker writes; one dispatch saves a batch atomically. Disabled groups retain records; deletion removes their namespace. Linked synchronization excludes these records. No executable callback or DOM references are stored.
 
