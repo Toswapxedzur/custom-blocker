@@ -14,6 +14,7 @@ const delayedTimers = [];
 let virtualTime = Date.now();
 class TestDate extends Date { static now() { return virtualTime; } }
 let heldJob = null;
+let skippedTypeSent = false;
 let batchOutcome = "empty"; // "empty" -> tags:[]; "fail" -> ok:false everywhere
 
 class FakeElement {
@@ -142,6 +143,14 @@ const chrome = {
           platformID: message.platform,
           items: (Array.isArray(message.items) ? message.items : []).map((item) => ({ entryID: item.entryID, tags: [], predicted: false, pending: true }))
         };
+      } else if (batchOutcome === "skipped" && message.type === "vault-classifier-video-tags-batch") {
+        skippedTypeSent = message.items?.[0]?.entryType === "short";
+        response = {
+          ok: true, platformID: message.platform,
+          items: (Array.isArray(message.items) ? message.items : []).map((item) => ({
+            entryID: item.entryID, tags: [], predicted: false, pending: false, skipped: true
+          }))
+        };
       } else {
         // Batch unavailable + single fallback both fail (bridge down).
         response = { ok: false, items: [], tags: [] };
@@ -205,14 +214,23 @@ setTimeout(() => {
       const pendingNames = chipNamesFor(pendingRoot);
       const rendersTagging = JSON.stringify(pendingNames) === JSON.stringify(["Tagging"]);
 
-      if (rendersNone && failBlank && rendersTagging) {
-        console.log("PASS tagless video -> Untagged; failed lookup -> Untagged; pending video -> Tagging placeholder");
-        void raceChecks();
-        return;
-      }
-      console.error("FAIL none/tagging pill", { noneNames, rendersNone, failChildren: failRoot.children.length, pendingNames, rendersTagging });
-      console.log("__CB_TEST_RESULT__: FAIL");
-      process.exitCode = 1;
+      const skippedRoot = new FakeElement("article", document);
+      const skippedAnchor = skippedRoot.appendChild(new FakeElement("a", document));
+      batchOutcome = "skipped";
+      context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: "youtube:video:vskipped",
+        entryType: "short", creatorID: "youtube:channel:UCskipped", title: "A short", root: skippedRoot, anchor: skippedAnchor });
+      setTimeout(() => {
+        const skippedBlank = skippedTypeSent && skippedRoot.children.length === 1 && !context.vaultTagsSettledForCard(skippedRoot);
+        if (rendersNone && failBlank && rendersTagging && skippedBlank) {
+          console.log("PASS tagless -> Untagged; failed -> Untagged; pending -> Tagging; switched-off without decision -> no pill");
+          void raceChecks();
+          return;
+        }
+        console.error("FAIL none/tagging pill", { noneNames, rendersNone, failChildren: failRoot.children.length,
+          pendingNames, rendersTagging, skippedChildren: skippedRoot.children.length, skippedBlank });
+        console.log("__CB_TEST_RESULT__: FAIL");
+        process.exitCode = 1;
+      }, 40);
     }, 40);
   }, 40);
 }, 40);

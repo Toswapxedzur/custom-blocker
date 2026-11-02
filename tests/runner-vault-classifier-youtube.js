@@ -41,7 +41,7 @@ const otherCreatorImage = element({
   closest: { "yt-lockup-metadata-view-model": otherAvatarMetadata }
 });
 const feedCardQueryAll = {
-  'a#thumbnail[href], a#video-title-link[href], a[href*="watch?v="], a[href*="/shorts/"]': [video],
+  'a#thumbnail[href], a#video-title-link[href], a[href*="watch?v="], a[href*="/shorts/"], a[href*="/live/"]': [video],
   "#metadata-line span": [],
   "#channel-name a[href*='/channel/UC']": [],
   "ytd-channel-name a[href*='/channel/UC']": [],
@@ -155,7 +155,7 @@ setTimeout(() => {
     && debugLogs.includes("[VaultClassifier:source-icon] source-ready")
     && debugLogs.includes("[VaultClassifier:source-icon] enrichment-requested")
     && debugLogs.includes("[VaultClassifier:source-icon] delivery-accepted")
-    && tagPresentations.some((value) => value.root === feedCard && value.creatorID === "youtube:handle:@visiblecreator" && value.entryID === "youtube:video:dQw4w9WgXcQ" && typeof value.title === "string" && value.anchor === title)
+    && tagPresentations.some((value) => value.root === feedCard && value.creatorID === "youtube:handle:@visiblecreator" && value.entryID === "youtube:video:dQw4w9WgXcQ" && value.entryType === "video" && typeof value.title === "string" && value.anchor === title)
     && debugLogs.every((entry) => !/Visible Creator|dQw4w9WgXcQ|yt3\.ggpht\.com/.test(entry))
     && errors.length === 0);
   if (passes) {

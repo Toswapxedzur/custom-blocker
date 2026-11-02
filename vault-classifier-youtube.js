@@ -138,7 +138,7 @@
   }
 
   function findVideoID(root) {
-    const links = root.querySelectorAll('a#thumbnail[href], a#video-title-link[href], a[href*="watch?v="], a[href*="/shorts/"]');
+    const links = root.querySelectorAll('a#thumbnail[href], a#video-title-link[href], a[href*="watch?v="], a[href*="/shorts/"], a[href*="/live/"]');
     for (const link of links) {
       const id = C.youtubeVideoIDFromURL(link.getAttribute("href") || "", location.href);
       if (id) return id;
@@ -167,9 +167,16 @@
   }
 
   function cardEntryType(card, metadataLine) {
-    if (card.matches("ytd-backstage-post-thread-renderer")) return "post";
-    if (card.matches("ytd-reel-item-renderer, ytm-shorts-lockup-view-model")) return "short";
-    if ((metadataLine || []).some((value) => /\blive\b/i.test(value))) return "live";
+    const postSelector = "ytd-post-renderer, ytd-backstage-post-thread-renderer, ytd-backstage-post-renderer";
+    const shortSelector = "ytd-reel-item-renderer, yt-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2";
+    if (card.matches(postSelector) || card.querySelector(postSelector)) return "post";
+    if (card.matches(shortSelector) || card.querySelector(shortSelector)
+      || card.querySelector('a[href*="/shorts/"]')) return "short";
+    const badges = Array.from(card.querySelectorAll("ytd-badge-supported-renderer, #badges, [aria-label]"))
+      .map((element) => compactText(element.textContent || element.getAttribute("aria-label"), 128))
+      .filter(Boolean).slice(0, 16);
+    if (card.querySelector('a[href*="/live/"]')
+      || [...(metadataLine || []), ...badges].some((value) => /\blive\b/i.test(value))) return "live";
     return "video";
   }
 
@@ -365,15 +372,16 @@
 
   function feedEvidence(card) {
     if (isAdvertisement(card)) return null;
-    const title = selectorText(card, TITLE_SELECTORS, 500);
+    const metadataLine = Array.from(card.querySelectorAll("#metadata-line span"))
+      .map((item) => compactText(item.textContent, 128)).filter(Boolean).slice(0, 3);
+    const entryType = cardEntryType(card, metadataLine);
+    const title = selectorText(card, entryType === "post" ? ["#content-text", "#content #content-text"] : TITLE_SELECTORS, 500);
     if (!title) return null;
     const source = resolveCardSource(card);
-    const videoID = findVideoID(card);
-    const postID = videoID ? null : findPostID(card);
+    const postID = entryType === "post" ? findPostID(card) : null;
+    const videoID = postID ? null : findVideoID(card);
     const entryID = videoID ? `youtube:video:${videoID}` : (postID ? `youtube:post:${postID}` : null);
     const duration = selectorText(card, ["ytd-thumbnail-overlay-time-status-renderer span", ".ytd-thumbnail-overlay-time-status-renderer"], 64);
-    const metadataLine = Array.from(card.querySelectorAll("#metadata-line span")).map((item) => compactText(item.textContent, 128)).filter(Boolean).slice(0, 3);
-    const entryType = cardEntryType(card, metadataLine);
     const metadata = {
       sourceName: source.name || "",
       entryType,
@@ -414,6 +422,9 @@
   // earlier reels, and a hidden watch page, in the document); on a watch page
   // its metadata.
   function pageVideoRoot() {
+    if (location.pathname.startsWith("/post/")) {
+      return document.querySelector("ytd-backstage-post-thread-renderer, ytd-post-renderer, ytd-backstage-post-renderer");
+    }
     if (location.pathname.startsWith("/shorts/")) {
       return document.querySelector("ytd-reel-video-renderer[is-active] ytd-reel-player-overlay-renderer")
         || document.querySelector("ytd-reel-video-renderer[is-active]")
@@ -423,6 +434,15 @@
   }
 
   function watchEvidence() {
+    if (location.pathname.startsWith("/post/")) {
+      const postRoot = pageVideoRoot();
+      const post = postRoot && feedEvidence(postRoot);
+      if (!post || !post.entryID?.startsWith("youtube:post:")) {
+        lastWatchEvidenceFailure = "missing-post-evidence";
+        return null;
+      }
+      return { ...post, surface: "page" };
+    }
     const root = document;
     const videoID = C.youtubeVideoIDFromURL(location.href, location.href);
     if (!videoID) {
@@ -457,7 +477,8 @@
     const subscriberCount = selectorText(watchRoot, ["#owner-sub-count", "ytd-video-owner-renderer #owner-sub-count", "#subscribe-button #subscriber-count"], 64);
     const published = selectorText(watchRoot, ["#info-strings yt-formatted-string", "#date yt-formatted-string", "#info-strings span"], 128);
     const viewCount = selectorText(watchRoot, ["#info #count yt-formatted-string", "#info #count", "ytd-watch-info-text #count"], 128);
-    const entryType = location.pathname.startsWith("/shorts/") ? "short" : (/\blive\b/i.test(details || "") ? "live" : "video");
+    const entryType = location.pathname.startsWith("/shorts/") ? "short"
+      : (location.pathname.startsWith("/live/") || /\blive\b/i.test(details || "") ? "live" : "video");
     const metadata = {
       sourceName: source.name || "",
       entryType,
@@ -565,15 +586,28 @@
     // A verified video never waits for an author link (collaborations, Shorts,
     // and partial cards all use a per-video priorless identity until it exists).
     const source = resolveCardSource(card);
-    const videoID = findVideoID(card);
-    if (videoID && taggingEnabled) TagUI?.observe?.({
-      platform: PLATFORM, entryID: `${PLATFORM}:video:${videoID}`,
-      creatorID: source.id || `${PLATFORM}:collab:${videoID}`,
-      title: selectorText(card, TITLE_SELECTORS, 500), root: card,
-      anchor: selectorElement(card, TITLE_SELECTORS) || source.link || null
-    });
     const entry = feedEvidence(card);
-    if (entry) void collectEntry(entry);
+    if (!entry) {
+      // A card can expose its durable link before its title hydrates. Keep the
+      // provisional pill attached, then re-observe when the title arrives.
+      const entryType = cardEntryType(card, []);
+      const id = entryType === "post" ? findPostID(card) : findVideoID(card);
+      if (id && taggingEnabled) TagUI?.observe?.({
+        platform: PLATFORM, entryID: `${PLATFORM}:${entryType === "post" ? "post" : "video"}:${id}`,
+        creatorID: source.id || `${PLATFORM}:collab:${id}`, entryType,
+        title: selectorText(card, entryType === "post" ? ["#content-text"] : TITLE_SELECTORS, 500),
+        root: card, anchor: selectorElement(card, entryType === "post" ? ["#content-text"] : TITLE_SELECTORS) || source.link || null
+      });
+      return;
+    }
+    if (entry.entryID && taggingEnabled) TagUI?.observe?.({
+      platform: PLATFORM, entryID: entry.entryID,
+      creatorID: entry.sourceID || `${PLATFORM}:collab:${entry.entryID.slice(PLATFORM.length + 1)}`,
+      title: entry.evidence.title, entryType: entry.evidence.metadata.entryType,
+      root: card, anchor: selectorElement(card, entry.evidence.metadata.entryType === "post"
+        ? ["#content-text", "#content #content-text"] : TITLE_SELECTORS) || source.link || null
+    });
+    void collectEntry(entry);
   }
 
   async function collectPage() {
@@ -586,7 +620,7 @@
     reportDiagnostic("page-evidence-ready");
     const watchRoot = pageVideoRoot();
     const source = watchRoot ? findSource(watchRoot) : null;
-    const titleElement = watchRoot ? selectorElement(watchRoot, ["h1.ytd-watch-metadata", "h1", "h2", ".title"]) : null;
+    const titleElement = watchRoot ? selectorElement(watchRoot, ["h1.ytd-watch-metadata", "h1", "h2", ".title", "#content-text"]) : null;
     // A watch page's primary source ID is often the channel/UC form, while the
     // creator was classified from a feed under its @handle. Collect first so the
     // handle<->channel alias is stored, then request tags — so the pill resolves
@@ -602,6 +636,7 @@
         entryID: entry.entryID,
         creatorID: entry.sourceID,
         title: watchTitle,
+        entryType: entry.evidence.metadata.entryType,
         root: watchRoot || document.documentElement,
         anchor: titleElement || source?.link || null,
         kind: "page"
@@ -754,6 +789,7 @@
   chrome.runtime.onMessage?.addListener?.((message, sender) => {
     if (message?.type === "vault-classifier-state-updated" && message.platform === PLATFORM
       && (!sender?.id || sender.id === chrome.runtime.id)) {
+      TagUI?.clearPlatform?.(PLATFORM);
       taggingEnabled = false;
       refreshCollectionEnabled();
     }

@@ -330,7 +330,8 @@
       entryID: expectedEntryID,
       tags,
       predicted: value.predicted === true,
-      pending: value.pending === true
+      pending: value.pending === true,
+      skipped: value.skipped === true
     };
   }
 
@@ -360,7 +361,8 @@
       const tags = normalizeTagList(item.tags);
       if (tags === null) return null;
       results.set(item.entryID, {
-        tags, predicted: item.predicted === true, pending: item.pending === true
+        tags, predicted: item.predicted === true, pending: item.pending === true,
+        skipped: item.skipped === true
       });
     }
     return results;
