@@ -14,12 +14,13 @@
 
 ## ਸਾਂਝੀ API
 
-- `on(type, handler)` → boolean। `handler(ev)` register ਕਰਦਾ ਹੈ; ਕਈ handlers registration ਦੇ ਕ੍ਰਮ ਵਿੱਚ ਚੱਲਦੇ ਹਨ। False ਦਾ ਮਤਲਬ ਗਲਤ arguments ਜਾਂ handler ਹੱਦ ਪੂਰੀ। `ev = { type: string, now: number, data }`; `now` Unix milliseconds ਹੈ।
+- `on(type, handler)` → boolean। `handler(ev)` register ਕਰਦਾ ਹੈ; ਕਈ handlers registration ਦੇ ਕ੍ਰਮ ਵਿੱਚ ਚੱਲਦੇ ਹਨ। False ਦਾ ਮਤਲਬ ਗਲਤ arguments ਜਾਂ handler ਹੱਦ ਪੂਰੀ। `ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`; `now` Unix milliseconds ਹੈ। ਅਸਲ ਵਿੱਚ ਦਿਖਾਏ control event ਵਿੱਚ `origin: "user"`, ਅਤੇ `v.emit` event ਵਿੱਚ `origin: "rule"` ਹੁੰਦਾ ਹੈ।
 - `v.state`: ਬਦਲਣਯੋਗ JSON object, event dispatch ਮਗਰੋਂ ਸੰਭਾਲਿਆ ਜਾਂਦਾ ਹੈ। ਮੌਜੂਦਾ state ਮਿਟਾਉਣ ਦੀ ਥਾਂ ਗੁੰਮ fields ਸ਼ੁਰੂ ਕਰੋ। Non-object ਜਾਂ array ਦੇਣ ਨਾਲ `{}` ਬਣਦਾ ਹੈ; nonserializable/ਵੱਡੀਆਂ updates ਸੰਭਾਲੀਆਂ ਨਹੀਂ ਜਾਂਦੀਆਂ।
 - `v.log(...values)`: ਇਸ group ਦੇ Log ਵਿੱਚ ਲਿਖਦਾ ਹੈ। Handler errors ਅਤੇ ਰਿਪੋਰਟ ਕੀਤੀਆਂ page-action ਗਲਤੀਆਂ ਵੀ ਇੱਥੇ ਦਿਸਦੀਆਂ ਹਨ; ਰਿਪੋਰਟ ਕਰਨ ਨਾਲ actions ਦੁਬਾਰਾ ਨਹੀਂ ਚੱਲਦੇ। Logs/Clear ਹਰ group ਲਈ ਵੱਖਰੇ ਹਨ। Load errors Run status ਵਿੱਚ ਦਿਸਦੇ ਹਨ।
 - `v.emit(type, data)`: ਮੌਜੂਦਾ event ਤੋਂ ਬਾਅਦ, ਇਸ ਸਮੂਹ ਦੇ handlers ਲਈ `data` ਦੀ JSON copy ਨਵੇਂ `now` ਨਾਲ queue ਕਰਦਾ ਹੈ; synchronous call ਨਹੀਂ।
 - `v.panel(id, spec, tabId?)`: ਸਮੂਹ ਦਾ ਨਾਮੀ panel ਬਦਲਦਾ ਹੈ; ਸਾਰੇ ਉਪਲਬਧ web pages ਲਈ `tabId` ਛੱਡੋ ਜਾਂ integer tab ID ਵਰਤੋ। Null `spec` panel ਹਟਾਉਂਦਾ ਹੈ। Panels ਵੇਖੋ।
 - `v.file(op, path, payload?)` → request ID string। Files ਵੇਖੋ।
+- `v.store(request)` ਬੇਨਤੀ ID ਵਾਪਸ ਕਰਦਾ ਹੈ; ਸਮੂਹ ਰਿਕਾਰਡ ਵੇਖੋ।
 
 ਹੇਠਾਂ ਦਿੱਤੇ ਨਾਮ ਵਾਲੇ ਪ੍ਰਬੰਧਿਤ ਸਮਾਂ-ਆਬਜੈਕਟ ਬਣਾਉਣ ਵਾਲੇ factories ਤੋਂ ਬਿਨਾਂ ਹੋਰ ਸਾਂਝੀਆਂ calls `undefined` ਵਾਪਸ ਕਰਦੀਆਂ ਹਨ। IDs/state ਇੱਕ group ਦੇ ਹਨ, ਇਸ ਦੇ display name ਦੇ ਨਹੀਂ।
 
@@ -66,6 +67,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +81,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +92,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - `tick` ਅਨੁਮਾਨੀ ਹੈ; tick ਗਿਣਤੀ ਨਹੀਂ, timestamps ਵਰਤੋ। `active` ਦਾ ਮਤਲਬ browser window ਵਿੱਚ ਚੁਣਿਆ ਹੋਣਾ ਹੈ, ਵਰਤੋਂਕਾਰ ਵੱਲੋਂ ਵੇਖੇ ਜਾਣ ਦਾ ਸਬੂਤ ਨਹੀਂ। URLs ਖਾਲੀ/ਸੀਮਤ ਹੋ ਸਕਦੇ ਹਨ।
 - `visible` ਪਹੁੰਚਯੋਗ, ਨਾ-ਲੁਕੇ pages ਤੋਂ ਆਉਂਦਾ ਹੈ; `elapsedMs` ਆਖ਼ਰੀ heartbeat ਤੋਂ ਸਮਾਂ ਹੈ, ਢੱਕੇ ਹੋਣ 'ਤੇ zero। ਇਹ ਇਕੱਠੀ ਵਰਤੋਂ ਜਾਂ playback ਸਮਾਂ ਨਹੀਂ।
-- `items` ਨਵੀਆਂ/ਬਦਲੀਆਂ ਸਮਰਥਿਤ feed items ਦੱਸਦਾ ਅਤੇ Run/re-enable ਮਗਰੋਂ ਮੁੜ ਭੇਜਦਾ ਹੈ। `ref` ਉਸ page ਦਾ card ਦੱਸਦਾ ਹੈ, ਸਥਾਈ content ID ਨਹੀਂ; `ref === "page"` page ਨੂੰ ਆਪ ਦਰਸਾਉਂਦਾ ਹੈ। Titles/URLs/authors ਖਾਲੀ ਹੋ ਸਕਦੇ ਹਨ। `authors` ਵਿੱਚ platform-specific source IDs ਹੁੰਦੇ ਹਨ।
+- `items` (`platform: "web"` ਪਛਾਣੀਆਂ ਸਾਈਟਾਂ ਤੋਂ ਬਾਹਰ) ਨਵੀਆਂ/ਬਦਲੀਆਂ ਸਮਰਥਿਤ feed items ਦੱਸਦਾ ਅਤੇ Run/re-enable ਮਗਰੋਂ ਮੁੜ ਭੇਜਦਾ ਹੈ। `ref` ਉਸ page ਦਾ card ਦੱਸਦਾ ਹੈ, ਸਥਾਈ content ID ਨਹੀਂ; `ref === "page"` page ਨੂੰ ਆਪ ਦਰਸਾਉਂਦਾ ਹੈ। Titles/URLs/authors ਖਾਲੀ ਹੋ ਸਕਦੇ ਹਨ। `authors` ਵਿੱਚ platform-specific source IDs ਹੁੰਦੇ ਹਨ।
 - Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`। Item availability page ਦੇ supported markup 'ਤੇ ਨਿਰਭਰ ਹੈ।
 - Tags ਲਈ connected desktop ਵਰਗੀਕਰਤਾ ਅਤੇ tagging-enabled build/platform ਚਾਹੀਦੀ ਹੈ (Chromium ਅਤੇ Safari: YouTube, Reddit, Bilibili, X/`twitter`)। ਭਰੋਸਾ 1–5 ਹੈ। `tagsSettled === false` pending/unavailable ਹੈ, ਬਿਨਾਂ ਟੈਗ ਨਹੀਂ; settled `tags: []` ਬਿਨਾਂ ਟੈਗ ਹੈ।
 - `snooze` ਦਾ ਮਤਲਬ ਸਮੂਹ ਦਾ Snooze ਬਟਨ ਦਬਾਇਆ ਗਿਆ। ਇਹ ਆਪਣੇ ਆਪ pause ਲਾਗੂ ਨਹੀਂ ਕਰਦਾ।
@@ -178,3 +186,84 @@ Snooze ਜਾਂ ਇਸਦੇ panel button ਨਾਲ ਸ਼ੁਰੂ ਹੋਣ �
   });
 }
 ```
+
+
+## ਚੱਲਦੇ ਨਿਯਮ ਤੋਂ AI calls
+
+ਹਰ custom group **AI calls** ਵਿੱਚ ਇੱਕ connection/model ਅਤੇ reasoning effort ਚੁਣਦਾ ਹੈ। Mac ਅਤੇ browser rules ਇੱਕੋ API ਵਰਤਦੇ ਹਨ; browser request ਲਈ Mac Vault connected ਹੋਣਾ ਲਾਜ਼ਮੀ ਹੈ ਅਤੇ provider credentials ਉੱਥੇ ਹੀ ਰਹਿੰਦੇ ਹਨ। Linked groups ਚੋਣ ਅਤੇ optional daily cap ਸਾਂਝੇ ਕਰਦੇ ਹਨ। ਖਾਲੀ ਦਾ ਅਰਥ group cap ਨਹੀਂ, account limits ਫਿਰ ਵੀ ਲਾਗੂ ਹਨ। Cap UTC ਦਿਨ ਅਨੁਸਾਰ, restart ਮਗਰੋਂ ਕਾਇਮ ਅਤੇ failed ਸਮੇਤ submitted attempts ਗਿਣਦਾ ਹੈ। Link ਪੁਰਾਣੀ usage ਜੋੜਦਾ ਹੈ; unlink ਪੁਰਾਣੀ usage ਰੱਖਦਾ ਹੈ।
+
+ਸੰਭਾਲਿਆ prompt ਅਤੇ context linked groups ਵਿਚ ਸਾਂਝੇ ਹੁੰਦੇ ਹਨ ਅਤੇ handlers ਵਿੱਚ `v.context.ai.prompt` ਅਤੇ `v.context.ai.context` ਵਜੋਂ ਮਿਲਦੇ ਹਨ। Vault ਇਹ ਆਪਣੇ ਆਪ ਨਹੀਂ ਭੇਜਦਾ; ਹਰ `v.ai` call ਵਿੱਚ ਕੀ ਜੋੜਨਾ ਹੈ, rule ਚੁਣਦਾ ਹੈ।
+
+`v.ai({ prompt, input? })` ਤੁਰੰਤ request ID ਵਾਪਸ ਕਰਦਾ ਹੈ। Handler ਵਿੱਚ call ਕਰੋ, rule registration ਵੇਲੇ ਨਹੀਂ। `input` ਕੋਈ ਵੀ JSON value ਹੋ ਸਕਦੀ ਹੈ; prompt/input ਹਰ ਇੱਕ20KB ਤੱਕ। Replies `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` event ਵਿੱਚ {requestId, ok, text, citations, error} ਹੁੰਦੇ ਹਨ। ਸਫਲ text ਵੱਧ ਤੋਂ ਵੱਧ48KB; citations {url,title}। Web-search ਜਵਾਬ ਦਿਖਾਉਣ ਵੇਲੇ source links ਦਿੱਖਣਯੋਗ ਅਤੇ clickable ਰੱਖੋ। Search model ਲਈ ਹਮੇਸ਼ਾ ਉਪਲਬਧ ਹੈ। ਨਿਰਧਾਰਤ app deadline ਨਹੀਂ, concurrency ਸੀਮਤ ਹੈ, provider fallback/automatic retry ਨਹੀਂ। Reply data ਹੈ, JavaScript ਵਜੋਂ execute ਨਹੀਂ; ਮੌਜੂਦਾ actions ਕਦੋਂ ਲੈਣੇ ਹਨ rule ਤੈਅ ਕਰਦਾ ਹੈ।
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+Outstanding calls restart ਮਗਰੋਂ ਮੁੜ ਨਹੀਂ ਚਲਦੀਆਂ। Run, disable/re-enable ਅਤੇ delete ਪੁਰਾਣੇ replies discard ਕਰਦੇ ਹਨ; disconnected browser `ai-unavailable` ਦਿੰਦਾ ਹੈ। ਹੋਰ errors: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`। Failed call rule ਵੱਲੋਂ ਰੱਖਿਆ ਪਿਛਲਾ result ਨਹੀਂ ਬਦਲਦੀ। Rule state ਦੀ ਹੱਦ64KB ਹੈ।
+
+Credential-free choices Mac `rule_ai_models` ਜਾਂ browser `settings-rule-ai-models` ਨਾਲ ਲੱਭੋ; ਮੌਜੂਦਾ set-group ਰਾਹੀਂ `ruleAI` configure ਕਰੋ। Fields: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`), `dailyRequestLimit` (null ਜਾਂ1–100000)। ਵਾਪਸ ਮਿਲੀ choice ਵਰਤੋ; rule source ਵਿੱਚ key ਜਾਂ provider URL ਨਾ ਰੱਖੋ।
+ਚੋਣਵੇਂ ਸੰਭਾਲੇ fields `prompt` ਅਤੇ `context` ਹਨ; ਦੋਵੇਂ ਵੱਧ ਤੋਂ ਵੱਧ16KB string ਹਨ।
+
+## ਗਰੁੱਪ ਰਿਕਾਰਡ
+
+`v.store(request)` handler ਵਿੱਚ asynchronous JSON record operation ਸ਼ੁਰੂ ਕਰਦਾ ਹੈ। ਰਿਕਾਰਡ ਗਰੁੱਪ-ਨਿੱਜੀ ਹਨ, Run ਅਤੇ restart ਮਗਰੋਂ ਰਹਿੰਦੇ ਹਨ ਅਤੇ ਗਰੁੱਪ ਮਿਟਾਉਣ ਨਾਲ ਹਟਦੇ ਹਨ। Linked groups ਦੇ stores ਵੱਖਰੇ ਹਨ। Keys, values, versions, cache invalidation ਅਤੇ feedback precedence rule ਚੁਣਦਾ ਹੈ। Mac ਅਤੇ browser rules ਇੱਕੋ API ਵਰਤਦੇ ਹਨ, ਪਰ ਹਰ app/browser ਦਾ store ਵੱਖਰਾ ਹੈ।
+
+| Request | Result |
+|---|---|
+| `{op:"get", key}` | `record` ਜਾਂ `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | ਸੰਭਾਲਿਆ `record` |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | ਕ੍ਰਮਬੱਧ `entries` ਅਤੇ `next` |
+| `{op:"clear", prefix?}` | `deleted` ਗਿਣਤੀ |
+
+ਰਿਕਾਰਡ `{value, revision, version, updatedAt}` ਹੁੰਦਾ ਹੈ। Opaque revision ਅਸਲ write ਉੱਤੇ ਬਦਲਦਾ ਹੈ; `version` caller metadata ਹੈ। `list` values ਬਿਨਾਂ headers ਦਿੰਦਾ ਹੈ; ਇੱਕ ਪੜ੍ਹਨ ਲਈ `get`, ਅਗਲੇ page ਲਈ `after: next` `put` `delete` ਵਰਤੋ। `ifRevision` ਬਿਨਾਂ put/delete unconditional ਹਨ; `null` ਲਈ key ਗੈਰ-ਮੌਜੂਦ ਹੋਣੀ ਚਾਹੀਦੀ ਹੈ, revision string ਲਈ exact match। ਟਕਰਾਅ `ok:false`, `error:"store-conflict"` ਅਤੇ ਮੌਜੂਦਾ `record` ਦਿੰਦਾ ਹੈ; ਇਸ ਨਾਲ ਦੇਰ ਨਾਲ ਆਇਆ automatic reply user feedback ਨਹੀਂ ਮਿਟਾਉਂਦਾ। `v.context.revision` opaque configuration marker ਹੈ ਜਿਸਨੂੰ rule ਆਪਣੇ version ਵਿੱਚ ਜੋੜ ਸਕਦਾ ਹੈ। Framework cache policy ਨਹੀਂ ਥੋਪਦਾ।
+
+ਸੀਮਾਵਾਂ: key 1–2048 ਅੱਖਰ, version ≤128, JSON value ≤64KiB, depth ≤32, ਹਰ group ਵਿੱਚ10000 keys, ਪੂਰਾ document16MiB। `list` ਪ੍ਰਤੀ page ਵੱਧ ਤੋਂ ਵੱਧ100 headers ਅਤੇ96KiB ਦਿੰਦਾ ਹੈ। ਹਰ group ਵਾਸਤੇ32 requests ਅਤੇ ਕੁੱਲ128 starts/second। Overload ਵਿੱਚ ਹਰ group ਲਈ ਹਰ second ਇੱਕ `store-busy` error ਆਉਂਦਾ ਹੈ ਅਤੇ ਬਾਕੀ drop ਹੁੰਦੇ ਹਨ। Storage error `ok:false` ਦਿੰਦਾ ਹੈ; future/malformed document ਸੰਭਾਲ ਕੇ `store-unavailable` ਦਿੰਦਾ ਹੈ। Auto retry/eviction ਨਹੀਂ। Deadline ਲਈ ticks ਵਰਤੋ।
+
+## ਸੰਭਾਲੇ ਹੋਏ ਸਮੱਗਰੀ ਅਟੈਚਮੈਂਟ
+
+ਦੇਖੇ ਗਏ ਸਮੱਗਰੀ ਆਈਟਮ ਲਈ pill ਜਾਂ passive HTML/CSS ਦ੍ਰਿਸ਼ `v.attach(tabId, item, id, spec)` ਨਾਲ ਸੰਭਾਲੋ। ਪੂਰਾ `item` `items` ਜਾਂ `attachment` ਇਵੈਂਟ ਤੋਂ ਦਿਓ; ਇਕੱਲਾ `ref` ਅਟੈਚਮੈਂਟ ਹੈਂਡਲ ਨਹੀਂ। `contentId` ਸੰਭਾਲੀ ਸਮੱਗਰੀ ਅਤੇ `instanceId` ਇਸਦੀ ਮੌਜੂਦਾ ਦਿੱਖ ਪਛਾਣਦਾ ਹੈ। AI ਦੀ ਉਡੀਕ ਦੌਰਾਨ ਅਸਲ ਹੈਂਡਲ ਰੱਖੋ। ਮਿਟਾਏ, ਮੁੜ ਵਰਤੇ ਜਾਂ ਨੈਵੀਗੇਟ ਕੀਤੇ ਟੀਚੇ ਲਈ ਦੇਰ ਨਾਲ ਅਟੈਚਮੈਂਟ ਰੱਦ ਹੁੰਦੀ ਹੈ। `v.item(tabId, ref, verdict)` ਵੱਖਰਾ ਰਹਿੰਦਾ ਹੈ।
+
+Pill ਲਈ `spec` `{type:"pill", text, tone?, tooltip?}` ਹੈ; tone `blue`, `cyan`, `gold`, `pink` ਜਾਂ `red`। ਸਧਾਰਨ text 240 ਅਤੇ tooltip 1000 ਅੱਖਰਾਂ ਤੱਕ। ਦ੍ਰਿਸ਼ ਲਈ spec `{type:"html", html, css?, label?}` ਹੈ। ਹੱਦਾਂ: HTML 32000 ਅੱਖਰ, CSS 16000, label 200। ਮਨਜ਼ੂਰ passive HTML/SVG ਤੋਂ ਬੰਦ shadow root ਅਤੇ ਸੀਮਿਤ CSS ਵਿੱਚ ਦ੍ਰਿਸ਼ ਮੁੜ ਬਣਦਾ ਹੈ। Script, event attributes, remote resources, embeds ਅਤੇ ਅਸੁਰੱਖਿਅਤ CSS ਹਟਦੇ ਹਨ। ਦ੍ਰਿਸ਼ ਸਮੱਗਰੀ ਕਾਰਡ ਅੰਦਰ ਰਹਿੰਦਾ ਅਤੇ 480px ਉਚਾਈ 'ਤੇ scroll ਕਰਦਾ ਹੈ। ID 1–80 ASCII ਅੱਖਰ/ਅੰਕ, _ ਜਾਂ - ਹੋਣ। null spec ਸਮੂਹ ਦਾ pill ਹਟਾਉਂਦਾ ਹੈ। Handler ਵਿੱਚ ਕਾਲ ਕਰੋ; ਸੰਭਾਲ/ਡਿਲਿਵਰੀ ਦੀਆਂ ਗਲਤੀਆਂ Log ਵਿੱਚ ਆਉਂਦੀਆਂ ਹਨ ਅਤੇ ਆਪਣੇ ਆਪ retry ਨਹੀਂ ਹੁੰਦੀ।
+
+ਹਰ item ਇਸ ਸਮੂਹ ਦੇ ਅਟੈਚਮੈਂਟ read-only snapshot ਵਜੋਂ `item.attachments` ਵਿੱਚ ਦਿੰਦਾ ਹੈ; ਹੋਰ ਸਮੂਹ ਦੇ ਅਟੈਚਮੈਂਟ ਨਹੀਂ ਹੁੰਦੇ। ਸੰਭਾਲਿਆ ਡਾਟਾ ਨਾ ਮਿਲੇ ਤਾਂ `attachments` null ਅਤੇ `attachmentError` ਸੈੱਟ ਹੁੰਦਾ ਹੈ; ਇਹ ਖਾਲੀ cache ਨਹੀਂ। ਹੋਰ handlers ਚੱਲਦੇ ਰਹਿੰਦੇ ਹਨ। ਸੰਭਾਲੇ ਨਤੀਜੇ ਵਾਲੀ ਸਮੱਗਰੀ ਲਈ AI ਮੁੜ ਨਾ ਮੰਗਣ ਵਾਸਤੇ ਉਦਾਹਰਨ ਵਰਤੋ।
+
+Pointer, Enter ਜਾਂ Space ਸਰਗਰਮੀ ਸਮੂਹ ਦਾ `attachment` ਇਵੈਂਟ ਬਣਾਉਂਦੀ ਹੈ। Pill `click` ਭੇਜਦਾ ਹੈ। ਦ੍ਰਿਸ਼ controls ਵਿੱਚ `data-control` ਜਾਂ `id`, `controlId` ਬਣਦਾ ਹੈ; ਉਹ `click`, `input` ਜਾਂ `change`, ਮੌਜੂਦਾ `value` ਅਤੇ ਨਾਮ ਵਾਲੇ controls ਦੀ ਸੀਮਿਤ `values` ਭੇਜਦੇ ਹਨ। ਅਸਲ UI ਇਵੈਂਟ `ev.origin === "user"`, rule ਇਵੈਂਟ `origin === "rule"` ਦਿੰਦਾ ਹੈ। ਇਵੈਂਟਾਂ ਵਿੱਚ `tabId`, `attachmentId` ਅਤੇ ਮੌਜੂਦਾ `item` ਹੁੰਦਾ ਹੈ। ਦ੍ਰਿਸ਼ rule code ਨਹੀਂ ਚਲਾਉਂਦਾ; pill ਅਤੇ view ਦੀ ਕਾਰਵਾਈ ਹੇਠਾਂ ਵਾਲੇ ਕਾਰਡ ਨੂੰ navigate ਹੋਣ ਤੋਂ ਰੋਕਦੀ ਹੈ। ਸੰਭਾਲੇ ਡਾਟੇ ਵਿੱਚ callback ਜਾਂ ਚੱਲਣਯੋਗ code ਨਹੀਂ। ਪੁਰਾਣੀ pill revision ਮੌਜੂਦਾ ਅਟੈਚਮੈਂਟ ਨਹੀਂ ਚਲਾ ਸਕਦੀ। Rule emit ਆਮ logic ਹੈ ਅਤੇ browser ਅਸਲ click ਸੁਨੇਹੇ ਵੱਖਰੇ ਤੌਰ 'ਤੇ ਜਾਂਚਦਾ ਹੈ।
+
+ਅਟੈਚਮੈਂਟ ਇਸ browser profile ਵਿੱਚ group/content/ID ਮੁਤਾਬਕ ਸੰਭਾਲੇ ਜਾਂਦੇ ਹਨ ਅਤੇ ਮੁੜ ਦਿੱਖ, navigation, browser restart ਅਤੇ Run ਪਿੱਛੋਂ ਵਾਪਸ ਆਉਂਦੇ ਹਨ। Disable ਡਾਟਾ ਰੱਖ ਕੇ ਲੁਕਾਉਂਦਾ, enable ਵਾਪਸ ਦਿਖਾਉਂਦਾ ਹੈ। Group ਮਿਟਾਉਣ ਨਾਲ ਅਟੈਚਮੈਂਟ ਮਿਟਦੇ ਹਨ। Linked groups ਵੱਖਰੇ ਰਹਿੰਦੇ ਹਨ; browser/device ਵਿਚਕਾਰ automatic sync ਨਹੀਂ। ਜਾਣੀ YouTube, Reddit, X ਅਤੇ Bilibili ਸਮੱਗਰੀ platform ID ਵਰਤਦੀ ਹੈ। ਹੋਰ ਸਮੱਗਰੀ ਸੰਭਾਲ ਨਾਲ normalize URL ਵਰਤਦੀ ਹੈ; ਉਪਲਬਧਤਾ supported page markup ਉੱਤੇ ਨਿਰਭਰ ਹੈ।
+
+ਹੱਦਾਂ: ਹਰ group/content ਲਈ 8, ਸਾਰੇ groups ਵਿੱਚ ਹਰ item ਲਈ 32, group ਲਈ 10000 content entries ਅਤੇ serialized attachment document ਲਈ 8MB। ਹੱਦ ਪੂਰੀ ਹੋਣ 'ਤੇ ਨਵਾਂ ਬਦਲਾਅ `attachment-item-limit` ਜਾਂ `attachment-storage-limit` ਨਾਲ Log ਵਿੱਚ ਰੱਦ ਹੁੰਦਾ ਹੈ; ਪੁਰਾਣਾ ਡਾਟਾ ਰਹਿੰਦਾ ਹੈ। Dispatch ਲਿਖਤਾਂ ਨੂੰ ਇਕੱਠਾ ਕਰਦਾ ਹੈ; ਇੱਕੋ spec store ਨੂੰ ਮੁੜ ਨਹੀਂ ਲਿਖਦਾ। ਅਟੈਚਮੈਂਟ browser content UI ਹੈ, Safari ਦੇ native rule engine ਸਮੇਤ। Mac app rules ਕੋਲ browser content handles ਜਾਂ in-app attachment surface ਨਹੀਂ।
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+`code-manual/generic-example.js` ਚੱਲਣਯੋਗ policy ਉਦਾਹਰਨ ਹੈ। ਇਸ ਵਿੱਚ records, AI calls, user-origin feedback, compare-and-swap, HTML controls, item verdicts ਅਤੇ rule-owned usage report ਹਨ; ਇਹ ਉਦਾਹਰਨ code ਦਾ ਵਿਹਾਰ ਹੈ, store ਦੀ ਖਾਸ ਵਿਸ਼ੇਸ਼ਤਾ ਨਹੀਂ।
