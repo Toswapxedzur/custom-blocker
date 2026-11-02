@@ -12,7 +12,7 @@ SOURCE="""(on,v)=>{
   if(item.isPage&&!item.attachments['page-note']){v.attach(data.tabId,item,'page-note',{type:'pill',text:'Page note',tone:'gold'});v.state.pageSaved=true;}
  }});
  on('attachment',({data})=>{v.state.clicks=(v.state.clicks||0)+1;v.attach(data.tabId,data.item,'summary',{type:'pill',text:'Clicked '+v.state.clicks,tone:'cyan'});v.log('click',data.item.contentId);});
- on('panel',({data})=>{v.state.pendingItem=v.state.item;v.state.tab=data.tabId;v.state.request=v.ai({prompt:'Summarize'});});
+ on('panel',({data})=>{v.state.pendingItem=v.state.item;v.state.tab=data.tabId;v.state.request=v.ai({model:'chatgpt:fixture',prompt:'Summarize'});});
  on('ai',({data})=>{if(data.requestId===v.state.request)v.attach(v.state.tab,v.state.pendingItem,'summary',{type:'pill',text:data.text});});
 }"""
 

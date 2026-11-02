@@ -11,7 +11,7 @@
     return {
       request(operation, groupId = "", payload = "") {
         const c = connection();
-        if (!c?.desktopRouteIsReady() || c.ruleAIVersion !== 1 || pending.size >= 16) return Promise.resolve(unavailable());
+        if (!c?.desktopRouteIsReady() || c.ruleAIVersion !== 1) return Promise.resolve(unavailable());
         const requestID = root.crypto?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2);
         return new Promise(resolve => {
           // Generation has no app deadline. Disconnect and the Mac service

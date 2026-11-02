@@ -281,8 +281,7 @@
             <details id="ruleAISettings" class="vui-expand">
               <summary data-i18n="custom.ai.title">AI calls</summary>
               <div class="rule-ai-fields">
-                <label class="label"><span data-i18n="custom.ai.model">Connection &amp; model</span><select id="ruleAIModel" aria-label="AI connection and model"></select></label>
-                <label class="label"><span data-i18n="custom.ai.effort">Reasoning</span><select id="ruleAIEffort" aria-label="AI reasoning effort"></select></label>
+                <label class="label"><span data-i18n="custom.ai.model">Available model IDs</span><select id="ruleAIModel" aria-label="Available AI models"></select><input id="ruleAIModelID" type="text" readonly aria-label="Model ID to use in rule code" /></label>
                 <label class="label"><span data-i18n="custom.ai.cap">Daily request cap</span><input id="ruleAICap" type="number" min="1" max="100000" step="1" placeholder="No cap" data-i18n-placeholder="custom.ai.noCap" /></label>
                 <label class="label rule-ai-text"><span data-i18n="custom.ai.prompt">Saved prompt</span><textarea id="ruleAIPrompt" rows="3" maxlength="16000"></textarea></label>
                 <label class="label rule-ai-text"><span data-i18n="custom.ai.context">Saved context</span><textarea id="ruleAIContext" rows="3" maxlength="16000"></textarea></label>

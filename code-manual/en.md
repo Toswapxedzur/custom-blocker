@@ -191,25 +191,42 @@ A five-minute pause, triggered by Snooze or its panel button:
 
 ## AI calls from a running rule
 
-Each custom group selects one connection/model and reasoning effort in **AI calls**.
-Use the same API on Mac and in browser rules. Browser requests require connected
-Mac Vault; provider credentials stay there. Linked groups share the selection and
-optional daily request cap. Blank means no group cap; account limits still apply.
+Every `v.ai` call names its connection/model; there is no group default. Copy a
+model ID from **AI calls** or discover the credential-free catalog through Vault's
+rule AI model tool. Reasoning effort is chosen per call. Browser requests require
+a connected desktop Vault; provider credentials stay there. Linked groups share
+the optional daily request cap. Blank means no group cap; account limits still apply.
 The cap uses the UTC day, persists across restart, and counts submitted attempts
 including failures. Linking combines existing usage; unlinking retains prior usage.
-New selections use Medium reasoning when that model supports it. Saved selections
-keep their effort. The optional saved prompt and context are shared by linked
+The optional saved prompt and context are shared by linked
 groups and survive restart. They are available as `v.context.ai.prompt` and
 `v.context.ai.context` inside handlers; Vault does not automatically send them.
 The rule chooses what to include in each `v.ai` call. Editing either value
 invalidates replies from the old configuration.
 
-`v.ai({ prompt, input? })` returns a request ID immediately. Call it inside a handler,
-not while registering the rule. `input` may be any JSON value; each prompt/input is
+`conversation` is an optional name. Without it, the call is stateless. With it,
+desktop Vault saves the complete user/assistant transcript locally and includes
+up to16KB of the newest messages on the next call. The same conversation may
+switch models; only portable text is passed to the new model. Different names
+are independent. Linked groups can use the same names and receive local copies,
+so unlinking retains their histories. If two groups bring different histories
+with the same name into a link, Vault preserves both under distinct names and
+reports the renamed ones as `preservedConversations` in the first successful
+`ai` event that reconciles them. The rule may call those names later.
+Storage failure reports an error rather than silently forgetting a successful
+response. Conversation text is not automatically added to ordinary rule state.
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` returns a request
+ID immediately. Call it inside a handler, not while registering the rule. `model`
+is one available model ID; effort is `default` (if omitted), `low`, `medium` or
+`high` when supported. `input` may be any JSON value; each prompt/input is
 limited to20KB. Replies arrive as `ai` events: `{requestId, ok, text, citations,
-error}`. Success text is at most48KB; citations are `{url,title}`. Preserve visible,
+error, preservedConversations?}`. Success text is at most48KB; citations are `{url,title}`. Preserve visible,
 clickable source links when displaying answers based on web search. Search is always
-available to the model. Generation requests have no fixed app deadline and retain bounded concurrency;
+available to the model. Generation requests have no fixed app deadline. Several
+named conversations can run at once; calls using the same name run in order.
+Start another call from an `ai` event for a sequence. Vault does not yet schedule
+delayed calls. Provider capacity and quotas may still queue or reject requests;
 there is no provider fallback or automatic retry. Responses are data, never executed
 as JavaScript. The rule decides which existing actions to take.
 
@@ -220,7 +237,7 @@ For a panel with an `ask` button and `note` field:
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -233,16 +250,17 @@ For a panel with an `ask` button and `note` field:
 
 Outstanding calls are not replayed after restart. Run, disable/re-enable and deletion
 discard obsolete replies; a disconnected browser reports `ai-unavailable`. Other
-errors include `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`,
-`ai-request-failed` and `ai-usage-storage-unavailable`. Failed calls do
+errors include `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`,
+`ai-request-failed`, `ai-usage-storage-unavailable` and
+`ai-conversation-storage-unavailable`. Failed calls do
 not overwrite a previous result the rule chose to retain. Rule state still has its
 existing64KB limit.
 
 Tools can discover credential-free choices with `rule_ai_models` on Mac, or the
 browser's `settings-rule-ai-models`, and configure `ruleAI` through the existing
-set-group path. Its fields are `providerModel`, `accountID`, `reasoningEffort`
- (`default`, `low`, `medium`, `high`), `dailyRequestLimit` (null or1–100000),
-`prompt` and `context` (optional strings, at most16KB each).
+set-group path. Its fields are `dailyRequestLimit` (null or1–100000),
+`prompt` and `context` (optional strings, at most16KB each). Model and effort
+are specified on every call; there is no saved group default.
 Use a returned choice; do not put a key or provider URL into rule source.
 
 ## Group records

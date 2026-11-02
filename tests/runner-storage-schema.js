@@ -8,7 +8,7 @@ function rig(initial, version = '3.1.5', url = 'chrome-extension://fixture/', de
     async remove(keys) { for (const k of [].concat(keys)) delete state[k]; },
     async clear() { state = {}; }
   };
-  const context = vm.createContext({ __CB_DESKTOP_PROGRAM_ID: desktopProgramId, chrome: { storage: { local }, runtime: { getManifest: () => ({ version }), getURL: () => url, lastError: null } }, browser: {}, console, structuredClone });
+  const context = vm.createContext({ __CB_DESKTOP_PROGRAM_ID: desktopProgramId, CBGroupScopes: { sanitizeGroups: groups => groups, withoutFlatScopeFields: group => group }, chrome: { storage: { local }, runtime: { getManifest: () => ({ version }), getURL: () => url, lastError: null } }, browser: {}, console, structuredClone });
   vm.runInContext(fs.readFileSync('storage-schema.js', 'utf8'), context);
   return { context, api: context.chrome.storage.local, data: () => structuredClone(state), writes: () => writes, fail: () => { fail = true; } };
 }
@@ -16,10 +16,13 @@ function rig(initial, version = '3.1.5', url = 'chrome-extension://fixture/', de
   const alpha = { schemaVersion: 2, blockedGroups: [{ id: 'g', name: 'Keep', scopes: [{ surface: 'site', action: 'block', sites: ['example.com'] }] }], usageTimersMs: { g: 100 }, cbOfflineTransfers: { receipt: { id: 'receipt' } } };
   const r = rig(alpha);
   await r.api.get(null);
-  assert.equal(r.data().schemaVersion, 6);
+  assert.equal(r.data().schemaVersion, 7);
   assert.equal(r.data().storageMetadata.writtenByAppVersion, '3.1.5');
   for (const k of ['blockedGroups', 'usageTimersMs', 'cbOfflineTransfers']) assert.deepEqual(r.data()[k], alpha[k]);
   const first = r.data(); await r.api.get(null); assert.deepEqual(r.data(), first); assert.equal(r.writes(), 1);
+  const oldAI = rig({ schemaVersion: 6, blockedGroups: [{ id: 'g', groupType: 'custom', ruleAI: { providerModel: 'chatgpt:old', accountID: 'old', reasoningEffort: 'medium', dailyRequestLimit: 9, prompt: 'keep', context: 'keep too' } }] });
+  await oldAI.api.get(null);
+  assert.deepEqual(oldAI.data().blockedGroups[0].ruleAI, { dailyRequestLimit: 9, prompt: 'keep', context: 'keep too' });
   await r.api.set({ extra: true }); assert.equal(r.data().extra, true);
   const safari = rig({}, '3.1.5', 'safari-web-extension://fixture/');
   await safari.api.get(null); assert.equal(safari.data().storageMetadata.product, 'safari');
@@ -39,14 +42,14 @@ function rig(initial, version = '3.1.5', url = 'chrome-extension://fixture/', de
   // and the native runtime identity, without rewriting the original header on read.
   const nativeHeader = { schemaVersion: 3, storageMetadata: { format: 'vault.web-store', schemaVersion: 3, product: 'windows', writtenByAppVersion: '0.2.0-alpha' }, private: { preserve: true } };
   const native = rig(nativeHeader, '0.2.0-alpha', undefined, 'windowsapp');
-  await native.api.get(null); assert.deepEqual(native.data().private, nativeHeader.private); assert.equal(native.data().schemaVersion, 6); assert.equal(native.writes(), 1);
+  await native.api.get(null); assert.deepEqual(native.data().private, nativeHeader.private); assert.equal(native.data().schemaVersion, 7); assert.equal(native.writes(), 1);
   await native.api.set({ extra: true }); assert.equal(native.data().extra, true);
-  assert.deepEqual(native.data().storageMetadata, {...nativeHeader.storageMetadata,schemaVersion:6});
+  assert.deepEqual(native.data().storageMetadata, {...nativeHeader.storageMetadata,schemaVersion:7});
   policy.validate(header(2, '1.0.0-beta.2+build'), { product: 'browser', appVersion: '2.0.0-beta.2+build' });
   assert.throws(() => policy.validate(header(2, '1.0.0-beta.2+build'), { product: 'browser', appVersion: '3.0.0-beta.2+build' }), /expired/);
   for (const saved of [
     ...malformedVersions.map(version => header(3, version)),
-    header(7, '3.0.0-beta.2+build'), header(2, '1.0.0-beta.2+build')
+    header(8, '3.0.0-beta.2+build'), header(2, '1.0.0-beta.2+build')
   ]) {
     const q = rig({ ...saved, private: { preserve: true } }); const before = q.data();
     for (const action of [() => q.api.get(null), () => q.api.set({ private: false }), () => q.api.remove('private'), () => q.api.clear()]) await assert.rejects(action);
@@ -60,17 +63,17 @@ function rig(initial, version = '3.1.5', url = 'chrome-extension://fixture/', de
   policy.validate(header(2, '1.0.0'), { product: 'browser', appVersion: '2.0.0' });
   assert.throws(() => policy.validate(header(2, '1.0.0'), { product: 'browser', appVersion: '3.0.0' }), /expired/);
   policy.validate(header(2, '2.0.0'), { product: 'browser', appVersion: '3.0.0' });
-  policy.validate(header(6, '1.0.0'), { product: 'browser', appVersion: '5.0.0' }); // no transform needed
+  policy.validate(header(7, '1.0.0'), { product: 'browser', appVersion: '5.0.0' }); // no transform needed
   assert.throws(() => policy.validate({}, { product: 'browser', appVersion: '5.0.0' }), /expired/);
-  for (const schemaVersion of [7, -1, 1.5, true, '3', null]) {
+  for (const schemaVersion of [8, -1, 1.5, true, '3', null]) {
     const q = rig({ schemaVersion, private: { preserve: true } }); const before = q.data();
     for (const action of [() => q.api.get(null), () => q.api.set({ private: false }), () => q.api.remove('private'), () => q.api.clear()]) await assert.rejects(action);
     assert.deepEqual(q.data(), before); assert.equal(q.writes(), 0);
   }
   const interrupted = rig(alpha); interrupted.fail(); await assert.rejects(() => interrupted.api.get(null)); assert.deepEqual(interrupted.data(), alpha);
-  await interrupted.api.get(null); assert.equal(interrupted.data().schemaVersion, 6);
+  await interrupted.api.get(null); assert.equal(interrupted.data().schemaVersion, 7);
   const incoming = rig(first); await assert.rejects(() => incoming.api.set({ schemaVersion: 99, blockedGroups: [] })); assert.deepEqual(incoming.data(), first);
-  await r.api.remove(['schemaVersion', 'storageMetadata', 'extra']); assert.equal(r.data().schemaVersion, 6); assert.equal(r.data().extra, undefined);
+  await r.api.remove(['schemaVersion', 'storageMetadata', 'extra']); assert.equal(r.data().schemaVersion, 7); assert.equal(r.data().extra, undefined);
   await r.api.clear(); assert.deepEqual(Object.keys(r.data()).sort(), ['schemaVersion', 'storageMetadata']);
   const cb = rig({ schemaVersion: 99 });
   await new Promise(resolve => cb.api.get(null, result => { assert.equal(result, undefined); assert.match(cb.context.chrome.runtime.lastError.message, /preserved/); resolve(); }));

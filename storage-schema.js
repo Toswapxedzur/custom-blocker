@@ -2,7 +2,7 @@
  * numbers describe data only. All consumers use the guarded chrome API below. */
 (function (g) {
   'use strict';
-  const SCHEMA = 6, FORMAT = 'vault.web-store';
+  const SCHEMA = 7, FORMAT = 'vault.web-store';
   function product() {
     const id = g.__CB_DESKTOP_PROGRAM_ID;
     const url = typeof g.chrome?.runtime?.getURL === 'function' ? g.chrome.runtime.getURL('') : '';
@@ -49,7 +49,14 @@
     const root = await raw.get(null);
     validate(root);
     const writes = { schemaVersion: SCHEMA, storageMetadata: metadata() };
-    if (Array.isArray(root.blockedGroups) && g.CBGroupScopes) writes.blockedGroups = g.CBGroupScopes.sanitizeGroups(root.blockedGroups).map(g.CBGroupScopes.withoutFlatScopeFields);
+    if (Array.isArray(root.blockedGroups) && g.CBGroupScopes) {
+      const groups = root.blockedGroups.map(group => {
+        if (root.schemaVersion >= 7 || !group?.ruleAI || typeof group.ruleAI !== 'object') return group;
+        const { dailyRequestLimit, prompt, context } = group.ruleAI;
+        return { ...group, ruleAI: { dailyRequestLimit: dailyRequestLimit ?? null, prompt: prompt ?? '', context: context ?? '' } };
+      });
+      writes.blockedGroups = g.CBGroupScopes.sanitizeGroups(groups).map(g.CBGroupScopes.withoutFlatScopeFields);
+    }
     await raw.set(writes);
   }
   function run(name, args) {
