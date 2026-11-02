@@ -190,18 +190,20 @@ Pausa di cinque minuti, avviata da Snooze o dal suo pulsante panel:
 
 ## Chiamate IA da una regola in esecuzione
 
-Ogni custom group sceglie una connessione/modello e reasoning effort in **AI calls**. Le regole Mac e browser usano la stessa API; le richieste browser richiedono Mac Vault collegato e le credenziali provider restano lì. I gruppi collegati condividono la selezione e un limite giornaliero facoltativo. Campo vuoto significa nessun limite di gruppo, ma restano i limiti account. Il limite usa il giorno UTC, persiste al riavvio e conta i tentativi inviati inclusi quelli falliti. Link combina l’uso già fatto; unlink mantiene l’uso precedente.
+Ogni chiamata `v.ai` specifica connessione e modello; non esiste un valore predefinito per il gruppo. Copia un ID modello da **AI calls** o individua i modelli disponibili con lo strumento. Il reasoning effort si sceglie per ogni chiamata. Le richieste del browser richiedono Vault desktop collegato; le credenziali del provider restano lì. I gruppi collegati condividono il limite giornaliero facoltativo.
 
 Prompt e contesto salvati sono condivisi dai gruppi collegati e disponibili nei handler come `v.context.ai.prompt` e `v.context.ai.context`. Vault non li invia automaticamente; la regola sceglie cosa includere in ogni chiamata `v.ai`.
 
-`v.ai({ prompt, input? })` restituisce subito un request ID. Chiamala dentro un handler, non durante la registrazione della regola. `input` può essere qualsiasi valore JSON; prompt/input sono limitati a20KB ciascuno. Le risposte arrivano come eventi `ai` events: `. Success text is at most48KB; citations are ` `ask` `note`: {requestId, ok, text, citations, error}. Testo riuscito massimo48KB; citazioni {url,title}. Mantieni visibili e cliccabili i link alle fonti nelle risposte della ricerca Web. Search è sempre disponibile al modello. Nessuna deadline fissa dell’app, concorrenza limitata, nessun fallback provider o retry automatico. Le risposte sono dati, non vengono eseguite come JavaScript; la regola decide quali azioni esistenti intraprendere.
+`conversation` è un nome facoltativo. Senza, la chiamata è stateless; con il nome, Vault desktop salva localmente la trascrizione completa utente/assistente e include fino a16KB dei messaggi più recenti nella chiamata successiva. Il modello può cambiare; il nome è condiviso da tutte le regole e i gruppi del dispositivo e resta disponibile anche dopo l’eliminazione o lo scollegamento di un gruppo. Le conversazioni rinominate durante l’importazione sono indicate in `preservedConversations`. Usa `v.ai({op:"delete", conversation:"name"})` per eliminare una conversazione condivisa; la risposta arriva come evento `ai`. Una chiamata attiva con lo stesso nome restituisce `ai-conversation-busy`; riprova dopo la risposta.
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` Restituisce subito un ID richiesta. Chiamalo in un handler, non durante la registrazione della regola. `model` deve essere un ID disponibile; l’effort è `default` se omesso, oppure `low`, `medium` o `high` se supportato. `input` può essere qualsiasi valore JSON; prompt e input hanno un limite complessivo di20KB. Le risposte arrivano come eventi `ai` con `{requestId, ok, text, citations, error, preservedConversations?}`. Il testo di successo è al massimo48KB e le citazioni hanno forma `{url,title}`. Mantieni visibili e cliccabili i link alle fonti per le risposte basate sulla ricerca web. La ricerca è sempre disponibile al modello. Non c’è una scadenza fissa; le chiamate con lo stesso nome vengono eseguite in ordine. Avvia la chiamata successiva da un evento `ai`. Il pannello usa il pulsante `ask` e il campo `note`.
 
 ```javascript
 (on, v) => {
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -212,10 +214,9 @@ Prompt e contesto salvati sono condivisi dai gruppi collegati e disponibili nei 
 }
 ```
 
-Le chiamate pendenti non vengono riprodotte dopo il riavvio. Run, disabilita/riabilita ed elimina scartano risposte obsolete; un browser disconnesso segnala `ai-unavailable`. Altri errori: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. Le chiamate fallite non sovrascrivono un risultato precedente conservato dalla regola. Il limite di stato resta64KB.
+Le chiamate pendenti non vengono riprodotte dopo il riavvio. Run, disabilita/riabilita ed elimina scartano risposte obsolete; un browser disconnesso segnala `ai-unavailable`. Altri errori: `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`, `ai-conversation-storage-unavailable`. Le chiamate fallite non sovrascrivono un risultato precedente conservato dalla regola. Il limite di stato resta64KB.
 
-Scopri opzioni senza credenziali con `rule_ai_models` su Mac o `settings-rule-ai-models` nel browser; configura `ruleAI` tramite il percorso set-group esistente. Campi: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) e `dailyRequestLimit` (null o1–100000). Usa una scelta restituita; non inserire chiavi o URL provider nel sorgente della regola.
-I campi salvati facoltativi sono `prompt` e `context`, stringhe fino a16KB ciascuno.
+Scopri opzioni senza credenziali con `rule_ai_models` su Mac o `settings-rule-ai-models` nel browser; configura `ruleAI` I campi sono `dailyRequestLimit` (null o1–100000), `prompt` e `context` (stringhe facoltative, massimo16KB ciascuna).
 
 ## Record del gruppo
 

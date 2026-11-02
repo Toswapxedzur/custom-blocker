@@ -1,6 +1,6 @@
-# Vault browser extension user manual
+# Adamancia Vault browser extension user manual
 
-Vault controls websites and supported platform content in the browser profile where it is installed. Open its editor from the extension's toolbar button. Mac Vault or Windows Vault provides local tagging and Activity when connected; the extension enforces browser targets.
+Vault controls websites and supported platform content in the browser profile where it is installed. Open its editor from the extension's toolbar button. Vault on Mac or Vault on Windows provides local tagging and Activity when connected; the extension enforces browser targets.
 
 After installing the extension, refresh webpages that were already open so Vault can run on them. Newly opened pages activate automatically.
 
@@ -61,9 +61,9 @@ Platform targets use **Creators** for video platforms, **Accounts** for Twitter 
 
 ### Content tag filters
 
-The Classifier connection and tag correction are available in supported Chromium browsers, such as Chrome and Edge, and in Safari Vault on macOS.
+The Classifier connection and tag correction are available in supported Chromium browsers, such as Chrome and Edge, and in Vault for Safari on macOS.
 
-Connect Mac Vault or Windows Vault and configure its Classifier to obtain tags. A blocking group's tag filter chooses what to cover or hide. It does not start or pause tagging; use the desktop app's Classifier settings or the individual Classifier group's pause control.
+Connect Vault on Mac or Vault on Windows and configure its Classifier to obtain tags. A blocking group's tag filter chooses what to cover or hide. It does not start or pause tagging; use the desktop app's Classifier settings or the individual Classifier group's pause control.
 
 Each website entry has one **Apply to** filter: all content, selected creators, all except selected creators, selected tags, or all except selected tags. Add another entry for the same website when you need a different filter.
 

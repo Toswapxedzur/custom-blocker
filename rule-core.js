@@ -2,7 +2,7 @@
 //
 // Rules use raw events, managed time objects and a small set of actions.
 // The browser engine (the
-// extension's sandbox, event-sandbox.js) controls only the browser; Mac Vault's
+// extension's sandbox, event-sandbox.js) controls only the browser; the Mac app's
 // engine (custom-rule-runtime.js) controls only apps — the scope line.
 //
 //   (on, v) => {
@@ -838,7 +838,7 @@
   // A rule's syntax and registration, without keeping it.
   // ── An engine: every group's rule, one event at a time ──────────────────
   // Both hosts run this: `engineActions` are the host's own actions (the
-  // browser's or Mac Vault's), `beacon(groupId)` hears which group runs next
+  // browser's or the Mac app's), `beacon(groupId)` hears which group runs next
   // (the browser's sandbox blames a hung rule with it).
   const OVERRUN_LIMIT = 3;
   const OVERRUN_WINDOW_MS = 60000;
@@ -1187,7 +1187,7 @@
       "\"tick\" every second: data = { tabs: [{ tabId, url, active }] }.",
       "\"tab\" when a tab opens, goes to an address or closes: data = { kind: open | navigate | close, tabId, url, previousUrl }.",
       "\"visible\" while a page is visible: data = { tabId, url, elapsedMs } (the visible time since the last one).",
-      "\"items\" as an accessible web page or supported feed (YouTube, Reddit, Bilibili, X…) shows items, each new or changed item once: data = { tabId, platform, items: [{ ref, url, title, authors, videoForm: short|long|post|unknown, tags: [{ name, confidence 1–5 }], tagsSettled, isPage }] }. The page itself is the item with isPage true (ref \"page\", title = the page's title); act on it with v.cover. tags come from the connected Mac Vault classifier; tagsSettled is false until it answered — decide nothing about tags before that.",
+      "\"items\" as an accessible web page or supported feed (YouTube, Reddit, Bilibili, X…) shows items, each new or changed item once: data = { tabId, platform, items: [{ ref, url, title, authors, videoForm: short|long|post|unknown, tags: [{ name, confidence 1–5 }], tagsSettled, isPage }] }. The page itself is the item with isPage true (ref \"page\", title = the page's title); act on it with v.cover. tags come from the connected Vault classifier on Mac; tagsSettled is false until it answered — decide nothing about tags before that.",
       "Items also contain contentId (saved content), instanceId (current appearance), and attachments (this group's saved attachment specs keyed by ID). v.attach(tabId,item,id,spec) saves a clickable pill {type:pill,text,tone?,tooltip?} or a passive HTML/CSS view {type:html,html,css?,label?}; null removes it. Pass the complete item, not its ref. IDs1–80 ASCII letters/digits/_/-. HTML is inert, sanitized and rendered in an isolated shadow root; scripts, event attributes, embeds, remote resources and unapproved CSS are removed. Named controls (data-control or id) send trusted attachment events with eventName click|input|change, controlId, value, values, tabId, attachmentId and the current item. ev.origin is user for actual control events; rule-emitted events are rule. Eight attachments per group/content,32 total/content,10000 contents/group,8MB UTF-8 document. Stale handles/limits/storage errors are logged; no automatic retry or eviction. Saved views survive navigation/restart/Run, hide on disable, return on reenable and disappear with group deletion. Linked groups keep separate attachments. Browser content only.",
       "v.item(tabId, ref, verdict) hides (\"hide\"), covers (\"dim\") or rescues (\"allow\") a feed item; null clears it. Groups higher in the list win.",
       "v.cover(tabId, on, message?) covers the page in place (or lifts it); a new address lifts it.",
@@ -1198,10 +1198,10 @@
       "EXAMPLE: (on, v) => { on(\"items\", (ev) => { for (const item of ev.data.items) if (item.tagsSettled && item.tags.some((t) => t.name === \"Gaming\" && t.confidence >= 4)) v.item(ev.data.tabId, item.ref, \"dim\"); }); }"
     ],
     mac: [
-      "ENGINE: Mac Vault. It controls apps only (never websites).",
+      "ENGINE: Vault on Mac. It controls apps only (never websites).",
       "\"tick\" every second: data = { frontmost: { appId, name } | null, running: [{ appId, name }] } — every running app, menu-bar and background ones included.",
       "\"app\" when an app launches, quits, comes to the front or leaves it, hides or unhides: data = { kind: launch | quit | focus | blur | hide | unhide, appId, name, previousAppId (focus only) }.",
-      "v.block(appId, on) blocks an app (asked to quit, again after Settings' retry interval) until v.block(appId, false), Run, or the group is disabled; v.quit(appId) asks it to quit once; v.open(appId) opens it. appId is a bundle identifier. On Mac Vault, Apple apps and whole browsers can be blocked; Vault's own bundle identity remains protected.",
+      "v.block(appId, on) blocks an app (asked to quit, again after Settings' retry interval) until v.block(appId, false), Run, or the group is disabled; v.quit(appId) asks it to quit once; v.open(appId) opens it. appId is a bundle identifier. In Vault on Mac, Apple apps and whole browsers can be blocked; Vault's own bundle identity remains protected.",
       "EXAMPLE: (on, v) => { on(\"tick\", () => { const h = new Date().getHours(); v.block(\"com.valvesoftware.steam\", h >= 22 || h < 7); }); }"
     ]
   };

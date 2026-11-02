@@ -1,6 +1,6 @@
-# Manuale utente dell'estensione browser Vault
+# Manuale utente dell'estensione browser Adamancia Vault
 
-Vault controlla i siti web e i contenuti supportati delle piattaforme nel profilo del browser in cui è installato. Apri l'editor dal pulsante dell'estensione nella barra degli strumenti. Se connesso, Mac Vault o Windows Vault fornisce l'applicazione di tag e Activity in locale; l'estensione applica i blocchi agli obiettivi del browser.
+Vault controlla i siti web e i contenuti supportati delle piattaforme nel profilo del browser in cui è installato. Apri l'editor dal pulsante dell'estensione nella barra degli strumenti. Se connesso, Vault su Mac o Vault su Windows fornisce l'applicazione di tag e Activity in locale; l'estensione applica i blocchi agli obiettivi del browser.
 
 ## Gruppi di blocco
 
@@ -59,9 +59,9 @@ Gli obiettivi delle piattaforme usano **Creator** per le piattaforme video, **Ac
 
 ### Filtri dei tag dei contenuti
 
-La connessione a Classifier e la correzione dei tag sono disponibili nei browser Chromium supportati, come Chrome ed Edge, e in Safari Vault su macOS.
+La connessione a Classifier e la correzione dei tag sono disponibili nei browser Chromium supportati, come Chrome ed Edge, e in Vault per Safari su macOS.
 
-Connetti Mac Vault o Windows Vault e configura Classifier per ottenere i tag. Il filtro dei tag di un gruppo di blocco sceglie cosa coprire o nascondere. Non avvia né mette in pausa l'applicazione di tag; usa le impostazioni di Classifier nell'app desktop o il controllo di pausa del singolo gruppo Classifier.
+Connetti Vault su Mac o Vault su Windows e configura Classifier per ottenere i tag. Il filtro dei tag di un gruppo di blocco sceglie cosa coprire o nascondere. Non avvia né mette in pausa l'applicazione di tag; usa le impostazioni di Classifier nell'app desktop o il controllo di pausa del singolo gruppo Classifier.
 
 Ogni voce di sito ha un filtro **Si applica a**: tutti i contenuti, i creator selezionati, tutti tranne i creator selezionati, i tag selezionati o tutti tranne i tag selezionati. Aggiungi un'altra voce per lo stesso sito se ti serve un filtro diverso.
 

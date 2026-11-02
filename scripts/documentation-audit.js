@@ -14,7 +14,7 @@ const products = [
   ["Safari Vault", "safariBlocker/extension"]
 ];
 const fenceBlocks = text => [...text.matchAll(/^```[^\n]*\n[\s\S]*?^```\s*$/gm)].map(match => match[0]);
-const inlineCode = text => [...text.replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, "").matchAll(/`([^`\n]+)`/g)].map(match => match[1]);
+const inlineCode = text => [...text.replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, "").matchAll(/`([^`]+)`/g)].map(match => match[1].replace(/\s*\n\s*/g, " "));
 function fail(message) { console.error(message); process.exitCode = 1; }
 function sourceDocuments() {
   return products.flatMap(([, root]) => ["manual", "code-manual"].map(kind => path.join(workspace, root, kind, "en.md")));

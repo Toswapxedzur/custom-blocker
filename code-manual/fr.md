@@ -190,18 +190,20 @@ Une pause de cinq minutes, déclenchée par Pause ou le bouton de son panneau :
 
 ## Appels IA depuis une règle active
 
-Chaque groupe personnalisé choisit une connexion/un modèle et un effort de raisonnement dans **AI calls**. Mac et navigateur utilisent la même API ; les requêtes navigateur nécessitent Mac Vault connecté et les identifiants du fournisseur y restent. Les groupes liés partagent le choix et une limite quotidienne facultative. Vide signifie aucune limite de groupe ; les limites du compte s’appliquent. La limite suit le jour UTC, persiste après redémarrage et compte toutes les tentatives soumises, y compris échouées. Le lien combine l’usage existant ; la dissociation conserve l’usage antérieur.
+Chaque appel `v.ai` indique la connexion et le modèle ; aucun modèle par défaut n’est défini pour le groupe. Copiez un ID de modèle depuis **AI calls** ou découvrez les modèles disponibles avec l’outil. L’effort de raisonnement se choisit pour chaque appel. Les requêtes du navigateur nécessitent Vault sur ordinateur connecté ; les identifiants du fournisseur y restent. Les groupes liés partagent la limite quotidienne facultative.
 
 Le prompt et le contexte enregistrés sont partagés entre les groupes liés et disponibles dans les handlers sous `v.context.ai.prompt` et `v.context.ai.context`. Vault ne les envoie pas automatiquement ; la règle choisit ce qu’elle inclut dans chaque appel `v.ai`.
 
-`v.ai({ prompt, input? })` renvoie immédiatement un identifiant de requête. Appelez-la dans un handler, pas lors de l’enregistrement de la règle. `input` accepte toute valeur JSON ; chaque prompt/input est limité à20KB. Les réponses arrivent comme événements `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` : {requestId, ok, text, citations, error}. Texte réussi jusqu’à48KB ; citations {url,title}. Gardez les liens de sources visibles et cliquables pour les réponses de recherche Web. La recherche est toujours disponible au modèle. Aucun délai fixe de l’app ; concurrence bornée ; aucun repli de fournisseur ni nouvel essai automatique. Les réponses sont des données, jamais exécutées comme JavaScript ; la règle décide des actions existantes.
+`conversation` est un nom facultatif. Sans ce nom, l’appel est sans état ; avec lui, Vault sur ordinateur conserve localement toute la transcription utilisateur/assistant et inclut jusqu’à16KB des messages les plus récents au prochain appel. Le modèle peut changer ; le nom est partagé par toutes les règles et tous les groupes de l’appareil et reste disponible après suppression ou dissociation d’un groupe. Les conversations renommées lors d’un import sont signalées dans `preservedConversations`. Utilisez `v.ai({op:"delete", conversation:"name"})` pour supprimer une conversation partagée ; la réponse arrive comme événement `ai`. Un appel actif avec le même nom renvoie `ai-conversation-busy` ; réessayez après sa réponse.
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` L’appel renvoie immédiatement un ID de requête. Appelez-le dans un gestionnaire, pas lors de l’enregistrement de la règle. `model` doit être un ID disponible ; l’effort vaut `default` s’il est omis, ou `low`, `medium` ou `high` si le modèle le permet. `input` peut être toute valeur JSON ; prompt et input sont limités ensemble à20KB. Les réponses arrivent dans des événements `ai` avec `{requestId, ok, text, citations, error, preservedConversations?}`. Le texte réussi fait au plus48KB et les citations suivent `{url,title}`. Conservez des liens de source visibles et cliquables pour les réponses issues d’une recherche Web. La recherche est toujours disponible pour le modèle. Aucun délai fixe ; les appels de même nom s’exécutent dans l’ordre. Lancez l’appel suivant depuis un événement `ai`. Le panneau utilise le bouton `ask` et le champ `note`.
 
 ```javascript
 (on, v) => {
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -212,10 +214,9 @@ Le prompt et le contexte enregistrés sont partagés entre les groupes liés et 
 }
 ```
 
-Les appels en attente ne sont pas rejoués après redémarrage. Run, désactivation/réactivation et suppression écartent les anciennes réponses ; un navigateur déconnecté signale `ai-unavailable`. Autres erreurs : `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. Un appel échoué ne remplace pas un résultat antérieur conservé par la règle. La limite d’état reste64KB.
+Les appels en attente ne sont pas rejoués après redémarrage. Run, désactivation/réactivation et suppression écartent les anciennes réponses ; un navigateur déconnecté signale `ai-unavailable`. Autres erreurs : `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`, `ai-conversation-storage-unavailable`. Un appel échoué ne remplace pas un résultat antérieur conservé par la règle. La limite d’état reste64KB.
 
-Découvrez les choix sans identifiants avec `rule_ai_models` sur Mac ou `settings-rule-ai-models` dans le navigateur ; configurez `ruleAI` via le chemin set-group existant. Champs : `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) et `dailyRequestLimit` (null ou1–100000). Utilisez un choix retourné ; ne placez ni clé ni URL fournisseur dans le code source.
-Les champs enregistrés facultatifs sont `prompt` et `context`, des chaînes de 16KB maximum chacune.
+Découvrez les choix sans identifiants avec `rule_ai_models` sur Mac ou `settings-rule-ai-models` dans le navigateur ; configurez `ruleAI` Ses champs sont `dailyRequestLimit` (null ou1–100000), `prompt` et `context` (chaînes facultatives, 16KB maximum chacune).
 
 ## Enregistrements du groupe
 

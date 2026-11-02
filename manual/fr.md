@@ -1,6 +1,6 @@
-# Manuel d’utilisation de l’extension de navigateur Vault
+# Manuel d’utilisation de l’extension de navigateur Adamancia Vault
 
-Vault contrôle les sites web et les contenus des plateformes prises en charge dans le profil du navigateur où il est installé. Ouvrez son éditeur avec le bouton de l’extension dans la barre d’outils. Une fois connecté, Mac Vault ou Windows Vault fournit l’étiquetage local et l’Activité ; l’extension applique les cibles du navigateur.
+Vault contrôle les sites web et les contenus des plateformes prises en charge dans le profil du navigateur où il est installé. Ouvrez son éditeur avec le bouton de l’extension dans la barre d’outils. Une fois connecté, Vault sur Mac ou Vault sur Windows fournit l’étiquetage local et l’Activité ; l’extension applique les cibles du navigateur.
 
 ## Groupes de blocage
 
@@ -59,9 +59,9 @@ Les cibles de plateformes utilisent **Créateurs** pour les plateformes vidéo, 
 
 ### Filtres d’étiquettes de contenu
 
-La connexion au Classificateur et la correction des étiquettes sont disponibles dans les navigateurs Chromium pris en charge, comme Chrome et Edge, et dans Safari Vault sous macOS.
+La connexion au Classificateur et la correction des étiquettes sont disponibles dans les navigateurs Chromium pris en charge, comme Chrome et Edge, et dans Vault pour Safari sous macOS.
 
-Connectez Mac Vault ou Windows Vault et configurez son Classificateur pour obtenir des étiquettes. Le filtre d’étiquettes d’un groupe de blocage choisit ce qui sera couvert ou masqué. Il ne démarre ni ne suspend l’étiquetage ; utilisez les paramètres du Classificateur de l’application de bureau ou la commande de pause du groupe du Classificateur concerné.
+Connectez Vault sur Mac ou Vault sur Windows et configurez son Classificateur pour obtenir des étiquettes. Le filtre d’étiquettes d’un groupe de blocage choisit ce qui sera couvert ou masqué. Il ne démarre ni ne suspend l’étiquetage ; utilisez les paramètres du Classificateur de l’application de bureau ou la commande de pause du groupe du Classificateur concerné.
 
 Chaque entrée de site web a un filtre **Appliquer à** : tous les contenus, les créateurs sélectionnés, tous sauf les créateurs sélectionnés, les étiquettes sélectionnées ou tous sauf les étiquettes sélectionnées. Ajoutez une autre entrée du même site lorsque vous avez besoin d’un filtre différent.
 

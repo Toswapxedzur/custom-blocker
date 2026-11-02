@@ -1,6 +1,6 @@
-# Gebruikershandleiding voor de Vault-browserextensie
+# Gebruikershandleiding voor de Adamancia Vault-browserextensie
 
-Vault beheert websites en ondersteunde platforminhoud in het browserprofiel waarin het is geïnstalleerd. Open de editor via de extensieknop op de werkbalk. Bij verbinding levert Mac Vault of Windows Vault lokale tagging en Activity; de extensie handhaaft browserdoelen.
+Vault beheert websites en ondersteunde platforminhoud in het browserprofiel waarin het is geïnstalleerd. Open de editor via de extensieknop op de werkbalk. Bij verbinding levert Vault op Mac of Vault op Windows lokale tagging en Activity; de extensie handhaaft browserdoelen.
 
 ## Blokkeergroepen
 
@@ -59,9 +59,9 @@ Platformdoelen gebruiken **Creators** voor videoplatforms, **Accounts** voor Twi
 
 ### Filters voor inhoudstags
 
-De Classifier-verbinding en tagcorrectie zijn beschikbaar in ondersteunde Chromium-browsers, zoals Chrome en Edge, en in Safari Vault op macOS.
+De Classifier-verbinding en tagcorrectie zijn beschikbaar in ondersteunde Chromium-browsers, zoals Chrome en Edge, en in Vault voor Safari op macOS.
 
-Verbind Mac Vault of Windows Vault en configureer Classifier om tags te verkrijgen. Het tagfilter van een blokkeergroep kiest wat wordt afgedekt of verborgen. Het start of pauzeert tagging niet; gebruik de Classifier-instellingen van de desktopapp of de pauzeknop van de afzonderlijke Classifier-groep.
+Verbind Vault op Mac of Vault op Windows en configureer Classifier om tags te verkrijgen. Het tagfilter van een blokkeergroep kiest wat wordt afgedekt of verborgen. Het start of pauzeert tagging niet; gebruik de Classifier-instellingen van de desktopapp of de pauzeknop van de afzonderlijke Classifier-groep.
 
 Elk website-item heeft één filter **Toepassen op**: alle inhoud, geselecteerde creators, alles behalve geselecteerde creators, geselecteerde tags of alles behalve geselecteerde tags. Voeg voor een ander filter nog een item voor dezelfde website toe.
 

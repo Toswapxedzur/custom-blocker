@@ -190,18 +190,20 @@ Eine fünfminütige Pause, ausgelöst durch Aufschieben oder die Schaltfläche i
 
 ## KI-Aufrufe aus einer laufenden Regel
 
-Jede benutzerdefinierte Gruppe wählt unter **AI calls** eine Verbindung/ein Modell und Reasoning effort. Mac- und Browserregeln verwenden dieselbe API. Browseranfragen benötigen ein verbundenes Mac Vault; Anbieterdaten bleiben dort. Verknüpfte Gruppen teilen Auswahl und optionales Tageslimit. Leer bedeutet kein Gruppenlimit; Kontolimits gelten weiter. Das Limit gilt pro UTC-Tag, bleibt nach Neustart bestehen und zählt gesendete Versuche einschließlich Fehlern. Verknüpfen addiert bisherigen Verbrauch; Trennen behält ihn.
+Jeder Aufruf von `v.ai` nennt Verbindung und Modell; es gibt keinen Gruppenstandard. Kopieren Sie eine Modell-ID aus **AI calls** oder lassen Sie verfügbare Modelle mit dem Tool ermitteln. Der Reasoning-Aufwand gilt pro Aufruf. Browseranfragen benötigen ein verbundenes Vault auf dem Desktop; Anbieterdaten bleiben dort. Verknüpfte Gruppen teilen das optionale Tageslimit.
 
 Gespeicherter Prompt und Kontext werden von verknüpften Gruppen geteilt und stehen Handlern als `v.context.ai.prompt` und `v.context.ai.context` zur Verfügung. Vault sendet sie nicht automatisch; die Regel wählt aus, was jeder `v.ai`-Aufruf enthält.
 
-`v.ai({ prompt, input? })` liefert sofort eine Request-ID. Innerhalb eines Handlers aufrufen, nicht bei der Registrierung. `input` kann jeder JSON-Wert sein; prompt und input sind je auf20KB begrenzt. Antworten kommen als `ai` events: `. Success text is at most48KB; citations are ` `ask` `note`-Events: {requestId, ok, text, citations, error}. Erfolgstext höchstens48KB; Zitate {url,title}. Bei Websuche sichtbare, anklickbare Quellenlinks beibehalten. Suche ist für das Modell immer verfügbar. Keine feste App-Frist, begrenzte Gleichzeitigkeit, kein Provider-Fallback und keine automatische Wiederholung. Antworten sind Daten und werden nicht als JavaScript ausgeführt; die Regel entscheidet über bestehende Aktionen.
+`conversation` ist ein optionaler Name. Ohne ihn ist der Aufruf zustandslos; mit ihm speichert Vault auf dem Desktop den vollständigen Nutzer/Assistenten-Verlauf lokal und sendet beim nächsten Aufruf höchstens die neuesten16KB. Das Modell kann wechseln; der Name gilt für alle Regeln und Gruppen auf diesem Gerät und bleibt auch nach Löschen oder Trennen einer Gruppe verfügbar. Importierte umbenannte Verläufe werden in `preservedConversations` gemeldet. Mit `v.ai({op:"delete", conversation:"name"})` löschen Sie einen gemeinsamen Verlauf; die Antwort kommt als `ai`-Ereignis. Ein aktiver Aufruf mit demselben Namen liefert `ai-conversation-busy`; versuchen Sie es nach der Antwort erneut.
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` Der Aufruf gibt sofort eine Request-ID zurück. Rufen Sie ihn in einem Handler auf, nicht bei der Regelregistrierung. `model` muss eine verfügbare Modell-ID sein; der Aufwand ist `default` (falls nicht angegeben), oder bei Unterstützung `low`, `medium` bzw. `high`. `input` darf ein beliebiger JSON-Wert sein; prompt und input zusammen höchstens20KB. Antworten kommen als `ai`-Ereignisse mit `{requestId, ok, text, citations, error, preservedConversations?}`. Erfolgstext ist höchstens48KB lang; Quellenangaben haben die Form `{url,title}`. Bewahren Sie bei Websuche sichtbare, anklickbare Quellenlinks. Die Suche ist für das Modell immer verfügbar. Es gibt keine feste Frist; Aufrufe mit demselben Namen laufen nacheinander. Starten Sie den nächsten Aufruf über ein `ai`-Ereignis. Das Panel verwendet die Schaltfläche `ask` und das Feld `note`.
 
 ```javascript
 (on, v) => {
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -212,10 +214,9 @@ Gespeicherter Prompt und Kontext werden von verknüpften Gruppen geteilt und ste
 }
 ```
 
-Offene Aufrufe werden nach Neustart nicht wiederholt. Run, Deaktivieren/Aktivieren und Löschen verwerfen alte Antworten; ein getrennter Browser meldet `ai-unavailable`. Weitere Fehler: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. Fehlgeschlagene Aufrufe überschreiben kein vorheriges, von der Regel behaltenes Ergebnis. Zustandslimit bleibt64KB.
+Offene Aufrufe werden nach Neustart nicht wiederholt. Run, Deaktivieren/Aktivieren und Löschen verwerfen alte Antworten; ein getrennter Browser meldet `ai-unavailable`. Weitere Fehler: `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`, `ai-conversation-storage-unavailable`. Fehlgeschlagene Aufrufe überschreiben kein vorheriges, von der Regel behaltenes Ergebnis. Zustandslimit bleibt64KB.
 
-Anmeldedatenfreie Optionen: Mac `rule_ai_models`, Browser `settings-rule-ai-models`. `ruleAI` über den vorhandenen set-group-Pfad konfigurieren. Felder: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`), `dailyRequestLimit` (null oder1–100000). Eine zurückgegebene Auswahl nutzen; keinen Schlüssel oder Anbieter-URL in den Regelquelltext schreiben.
-Die optional gespeicherten Felder heißen `prompt` und `context`; beide sind Zeichenfolgen bis 16KB.
+Anmeldedatenfreie Optionen: Mac `rule_ai_models`, Browser `settings-rule-ai-models`. `ruleAI` Felder: `dailyRequestLimit` (null oder1–100000), `prompt` und `context` (optionale Zeichenfolgen, jeweils höchstens16KB).
 
 ## Gruppen-Datensätze
 

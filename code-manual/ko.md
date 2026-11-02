@@ -190,18 +190,20 @@ Snooze 또는 패널 버튼으로 시작되는 5분 일시 중지:
 
 ## 실행 중인 규칙의 AI 호출
 
-각 custom group은 **AI calls**에서 connection/model과 reasoning effort를 선택합니다. Mac과 브라우저 규칙은 같은 API를 사용합니다. 브라우저 요청은 Mac Vault 연결이 필요하며 provider 자격 증명은 그곳에 유지됩니다. 연결된 그룹은 선택 및 선택적 일일 요청 한도를 공유합니다. 빈 값은 그룹 한도 없음이며 계정 제한은 계속 적용됩니다. 한도는 UTC 날짜 기준이고 재시작 후 유지되며 실패를 포함한 제출 시도를 셉니다. Link는 기존 사용량을 합치고 Unlink 후에도 이전 사용량을 유지합니다.
+각 `v.ai` 호출에서 연결과 모델을 지정하며 그룹 기본값은 없습니다. **AI calls**에서 모델 ID를 복사하거나 도구로 사용 가능한 모델을 찾으세요. 추론 강도는 호출마다 선택합니다. 브라우저 요청에는 데스크톱 Vault 연결이 필요하고 제공업체 자격 증명은 그곳에 유지됩니다. 연결된 그룹은 선택적 일일 요청 한도를 공유합니다.
 
 저장된 prompt와 context는 연결된 그룹이 공유하며 handler에서 `v.context.ai.prompt` 및 `v.context.ai.context`로 사용할 수 있습니다. Vault가 자동 전송하지 않으며 각 `v.ai` 호출에 포함할 내용은 규칙이 선택합니다.
 
-`v.ai({ prompt, input? })`는 즉시 request ID를 반환합니다. 규칙 등록이 아니라 handler 안에서 호출하세요. `input`은 모든 JSON 값이며 prompt/input 각각 최대20KB입니다. 응답은 `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` 이벤트 {requestId, ok, text, citations, error}로 옵니다. 성공 텍스트 최대48KB, citation은 {url,title}입니다. 웹 검색 답변을 표시할 때 출처 링크를 보이고 클릭 가능하게 유지하세요. 검색은 모델에 항상 제공됩니다. 앱의 고정 deadline은 없고 동시성은 제한됩니다. provider 대체나 자동 재시도는 없습니다. 응답은 데이터이며 JavaScript로 실행되지 않습니다. 기존 동작을 할지는 규칙이 결정합니다.
+`conversation`은 선택적인 이름입니다. 지정하지 않으면 호출은 상태를 유지하지 않습니다. 지정하면 데스크톱 Vault가 사용자/어시스턴트 전체 대화를 로컬에 저장하고 다음 호출에 최신 메시지 최대16KB를 포함합니다. 모델을 바꿀 수 있으며 이름은 이 장치의 모든 규칙과 그룹에서 공유되고 그룹을 삭제하거나 연결 해제해도 사용할 수 있습니다. 가져오면서 이름이 바뀐 대화는 `preservedConversations`에 표시됩니다. 공유 대화를 삭제하려면 `v.ai({op:"delete", conversation:"name"})`를 사용하세요. 응답은 `ai` 이벤트로 옵니다. 같은 이름의 호출이 진행 중이면 `ai-conversation-busy`가 반환되므로 응답 후 다시 시도하세요.
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` 호출 즉시 요청 ID를 반환합니다. 규칙을 등록할 때가 아니라 핸들러 안에서 호출하세요. `model`은 사용 가능한 모델 ID여야 합니다. effort는 생략 시 `default`, 지원되는 경우 `low`, `medium`, `high`입니다. `input`은 모든 JSON 값이 가능하며 prompt/input 합계는20KB로 제한됩니다. `ai` 이벤트에 `{requestId, ok, text, citations, error, preservedConversations?}`가 담겨 응답이 전달됩니다. 성공 텍스트는 최대48KB이고 인용은 `{url,title}` 형식입니다. 웹 검색 기반 답변을 표시할 때 출처 링크를 보이고 클릭할 수 있게 유지하세요. 검색은 항상 모델에서 사용할 수 있습니다. 고정 기한은 없으며 이름이 같은 호출은 순서대로 실행됩니다. 다음 호출은 `ai` 이벤트에서 시작하세요. 패널에는 `ask` 버튼과 `note` 필드를 사용합니다.
 
 ```javascript
 (on, v) => {
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -212,10 +214,9 @@ Snooze 또는 패널 버튼으로 시작되는 5분 일시 중지:
 }
 ```
 
-대기 중 호출은 재시작 후 재생되지 않습니다. Run, 비활성화/재활성화, 삭제는 오래된 응답을 버립니다. 연결이 끊긴 브라우저는 `ai-unavailable`을 보고합니다. 다른 오류: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. 실패 호출은 규칙이 유지하기로 한 이전 결과를 덮어쓰지 않습니다. 규칙 state 한도는64KB입니다.
+대기 중 호출은 재시작 후 재생되지 않습니다. Run, 비활성화/재활성화, 삭제는 오래된 응답을 버립니다. 연결이 끊긴 브라우저는 `ai-unavailable`을 보고합니다. 다른 오류: `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`, `ai-conversation-storage-unavailable`. 실패 호출은 규칙이 유지하기로 한 이전 결과를 덮어쓰지 않습니다. 규칙 state 한도는64KB입니다.
 
-자격 증명 없는 선택지는 Mac의 `rule_ai_models` 또는 브라우저의 `settings-rule-ai-models`로 확인하고 기존 set-group 경로에서 `ruleAI`를 설정합니다. 필드: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`), `dailyRequestLimit` (null 또는1–100000). 반환된 선택지를 사용하고 규칙 소스에 키나 provider URL을 넣지 마세요.
-선택적 저장 필드는 `prompt`와 `context`이며 각각 최대16KB 문자열입니다.
+자격 증명 없는 선택지는 Mac의 `rule_ai_models` 또는 브라우저의 `settings-rule-ai-models`로 확인하고 기존 set-group 경로에서 `ruleAI` 필드는 `dailyRequestLimit`(null 또는1–100000), `prompt`, `context`(선택적 문자열, 각각 최대16KB)입니다.
 
 ## 그룹 레코드
 

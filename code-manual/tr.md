@@ -189,18 +189,20 @@ Snooze veya panel düğmesiyle başlatılan beş dakikalık duraklama:
 
 ## Çalışan kuraldan AI çağrıları
 
-Her custom group **AI calls** içinde bir connection/model ve reasoning effort seçer. Mac ve tarayıcı kuralları aynı API'yi kullanır; tarayıcı istekleri bağlı Mac Vault gerektirir ve provider kimlik bilgileri orada kalır. Bağlı gruplar seçimi ve isteğe bağlı günlük sınırı paylaşır. Boş değer grup sınırı olmadığı anlamına gelir; hesap limitleri geçerlidir. Sınır UTC gününe göre hesaplanır, restart'ta korunur ve başarısızlar dahil gönderilen denemeleri sayar. Link mevcut kullanımı birleştirir; unlink önceki kullanımı saklar.
+Her `v.ai` çağrısı bağlantıyı ve modeli belirtir; grup varsayılanı yoktur. **AI calls** bölümünden model kimliğini kopyalayın veya araçla kullanılabilir modelleri bulun. Akıl yürütme düzeyi her çağrı için seçilir. Tarayıcı istekleri bağlı masaüstü Vault gerektirir; sağlayıcı kimlik bilgileri orada kalır. Bağlı gruplar isteğe bağlı günlük sınırı paylaşır.
 
 Kaydedilmiş prompt ve context bağlantılı gruplar arasında paylaşılır, handler içinde `v.context.ai.prompt` ve `v.context.ai.context` olarak kullanılabilir. Vault bunları otomatik göndermez; her `v.ai` çağrısına ne ekleneceğini kural seçer.
 
-`v.ai({ prompt, input? })` hemen request ID döndürür. Kuralı kaydederken değil, handler içinde çağırın. `input` herhangi bir JSON olabilir; prompt/input ayrı ayrı20KB ile sınırlıdır. Yanıtlar `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` event'leriyle gelir: {requestId, ok, text, citations, error}. Başarılı metin en çok48KB; citation {url,title}. Web arama yanıtlarında kaynak bağlantılarını görünür ve tıklanabilir tutun. Search modele daima açıktır. Sabit app deadline yoktur, concurrency sınırlıdır; provider fallback veya otomatik retry yoktur. Yanıtlar veridir, JavaScript olarak çalıştırılmaz; mevcut eylemleri kural seçer.
+`conversation` isteğe bağlı bir addır. Olmazsa çağrı durumsuzdur; varsa masaüstü Vault kullanıcı/asistan dökümünün tamamını yerel olarak saklar ve sonraki çağrıya en yeni iletilerden en fazla16KB ekler. Model değiştirilebilir; ad bu cihazdaki tüm kurallar ve gruplar arasında paylaşılır, grup silinse veya bağlantısı kesilse de kullanılabilir. İçe aktarma sırasında yeniden adlandırılanlar `preservedConversations` içinde bildirilir. Paylaşılan konuşmayı silmek için `v.ai({op:"delete", conversation:"name"})` kullanın; yanıt `ai` olayı olarak gelir. Aynı adlı etkin çağrı `ai-conversation-busy` döndürür; yanıt geldikten sonra yeniden deneyin.
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` Çağrı hemen bir istek kimliği döndürür. Kuralı kaydederken değil, bir handler içinde çağırın. Çağrı hemen bir istek kimliği döndürür. Kuralı kaydederken değil, bir handler içinde çağırın. `model` kullanılabilir bir model kimliği olmalıdır; effort belirtilmezse `default`, destekleniyorsa `low`, `medium` veya `high` olur. `input` herhangi bir JSON değeri olabilir; prompt/input toplamı20KB ile sınırlıdır. `ai` olayları `{requestId, ok, text, citations, error, preservedConversations?}` içerir ve yanıtları taşır. Başarılı metin en fazla48KB olur; alıntılar `{url,title}` biçimindedir. Web aramasına dayalı yanıtları gösterirken kaynak bağlantılarını görünür ve tıklanabilir tutun. Arama model için her zaman kullanılabilir. Sabit bir süre sınırı yoktur; aynı adlı çağrılar sırayla yürütülür. Sonraki çağrıyı bir `ai` olayından başlatın. Panelde `ask` düğmesi ve `note` alanı kullanılır.
 
 ```javascript
 (on, v) => {
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -211,10 +213,9 @@ Kaydedilmiş prompt ve context bağlantılı gruplar arasında paylaşılır, ha
 }
 ```
 
-Bekleyen çağrılar restart sonrasında yeniden oynatılmaz. Run, devre dışı bırakıp yeniden etkinleştirme ve silme eski yanıtları atar; bağlantısız tarayıcı `ai-unavailable` bildirir. Diğer hatalar: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. Başarısız çağrı kuralın koruduğu önceki sonucu ezmez. Kural state sınırı64KB olarak kalır.
+Bekleyen çağrılar restart sonrasında yeniden oynatılmaz. Run, devre dışı bırakıp yeniden etkinleştirme ve silme eski yanıtları atar; bağlantısız tarayıcı `ai-unavailable` bildirir. Diğer hatalar: `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`, `ai-conversation-storage-unavailable`. Başarısız çağrı kuralın koruduğu önceki sonucu ezmez. Kural state sınırı64KB olarak kalır.
 
-Kimlik bilgisi gerektirmeyen seçimleri Mac'te `rule_ai_models`, tarayıcıda `settings-rule-ai-models` ile keşfedin; mevcut set-group yolu üzerinden `ruleAI` yapılandırın. Alanlar: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) ve `dailyRequestLimit` (null veya1–100000). Dönen seçimi kullanın; kural kaynağına key ya da provider URL koymayın.
-İsteğe bağlı kaydedilen alanlar `prompt` ve `context` olup her biri en çok16KB metindir.
+Kimlik bilgisi gerektirmeyen seçimleri Mac'te `rule_ai_models`, tarayıcıda `settings-rule-ai-models` ile keşfedin; mevcut set-group yolu üzerinden `ruleAI` Alanlar `dailyRequestLimit` (null veya1–100000), `prompt` ve `context`tir (isteğe bağlı dizeler, her biri en fazla16KB).
 
 ## Grup kayıtları
 

@@ -1,6 +1,6 @@
-# Vault tarayıcı uzantısı kullanıcı kılavuzu
+# Adamancia Vault tarayıcı uzantısı kullanıcı kılavuzu
 
-Vault, yüklü olduğu tarayıcı profilindeki web sitelerini ve desteklenen platform içeriklerini denetler. Düzenleyiciyi araç çubuğundaki uzantı düğmesinden açın. Bağlandığında Mac Vault veya Windows Vault yerel etiketleme ve Activity sağlar; uzantı tarayıcı hedeflerine yönelik engellemeyi uygular.
+Vault, yüklü olduğu tarayıcı profilindeki web sitelerini ve desteklenen platform içeriklerini denetler. Düzenleyiciyi araç çubuğundaki uzantı düğmesinden açın. Bağlandığında Mac'teki Vault veya Windows'taki Vault yerel etiketleme ve Activity sağlar; uzantı tarayıcı hedeflerine yönelik engellemeyi uygular.
 
 ## Engelleme grupları
 
@@ -59,9 +59,9 @@ Platform hedefleri video platformları için **İçerik üreticileri**, Twitter 
 
 ### İçerik etiketi filtreleri
 
-Classifier bağlantısı ve etiket düzeltme; Chrome ve Edge gibi desteklenen Chromium tarayıcılarında ve macOS'taki Safari Vault'ta kullanılabilir.
+Classifier bağlantısı ve etiket düzeltme; Chrome ve Edge gibi desteklenen Chromium tarayıcılarında ve macOS'taki Safari için Vault'ta kullanılabilir.
 
-Etiketleri almak için Mac Vault veya Windows Vault'a bağlanıp Classifier'ı yapılandırın. Engelleme grubunun etiket filtresi kaplanacak veya gizlenecek içeriği seçer. Etiketlemeyi başlatmaz veya duraklatmaz; masaüstü uygulamasındaki Classifier ayarlarını ya da ilgili Classifier grubunun duraklatma kontrolünü kullanın.
+Etiketleri almak için Mac'teki Vault veya Windows'taki Vault'a bağlanıp Classifier'ı yapılandırın. Engelleme grubunun etiket filtresi kaplanacak veya gizlenecek içeriği seçer. Etiketlemeyi başlatmaz veya duraklatmaz; masaüstü uygulamasındaki Classifier ayarlarını ya da ilgili Classifier grubunun duraklatma kontrolünü kullanın.
 
 Her web sitesi kaydında bir **Uygula** filtresi vardır: tüm içerikler, seçili içerik üreticileri, seçili içerik üreticileri dışındakiler, seçili etiketler veya seçili etiketler dışındaki her şey. Farklı bir filtre gerekiyorsa aynı web sitesi için başka bir kayıt ekleyin.
 

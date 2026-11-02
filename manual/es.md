@@ -1,6 +1,6 @@
-# Manual de usuario de la extensión de navegador Vault
+# Manual de usuario de la extensión de navegador Adamancia Vault
 
-Vault controla sitios web y contenido de plataformas compatibles en el perfil del navegador donde está instalado. Abra su editor desde el botón de la extensión en la barra de herramientas. Mac Vault o Windows Vault proporciona etiquetado local y Actividad cuando está conectado; la extensión aplica los objetivos del navegador.
+Vault controla sitios web y contenido de plataformas compatibles en el perfil del navegador donde está instalado. Abra su editor desde el botón de la extensión en la barra de herramientas. Vault en Mac o Vault en Windows proporciona etiquetado local y Actividad cuando está conectado; la extensión aplica los objetivos del navegador.
 
 ## Grupos de bloqueo
 
@@ -59,9 +59,9 @@ Los objetivos de plataformas usan **Creadores** para plataformas de vídeo, **Cu
 
 ### Filtros de etiquetas de contenido
 
-La conexión con el Clasificador y la corrección de etiquetas están disponibles en navegadores Chromium compatibles, como Chrome y Edge, y en Safari Vault en macOS.
+La conexión con el Clasificador y la corrección de etiquetas están disponibles en navegadores Chromium compatibles, como Chrome y Edge, y en Vault para Safari en macOS.
 
-Conecte Mac Vault o Windows Vault y configure su Clasificador para obtener etiquetas. El filtro de etiquetas de un grupo de bloqueo elige qué cubrir u ocultar. No inicia ni pausa el etiquetado; use los ajustes del Clasificador de la aplicación de escritorio o el control de pausa del grupo del Clasificador correspondiente.
+Conecte Vault en Mac o Vault en Windows y configure su Clasificador para obtener etiquetas. El filtro de etiquetas de un grupo de bloqueo elige qué cubrir u ocultar. No inicia ni pausa el etiquetado; use los ajustes del Clasificador de la aplicación de escritorio o el control de pausa del grupo del Clasificador correspondiente.
 
 Cada entrada de sitio web tiene un filtro **Aplicar a**: todo el contenido, creadores seleccionados, todos excepto los creadores seleccionados, etiquetas seleccionadas o todo excepto las etiquetas seleccionadas. Añada otra entrada del mismo sitio cuando necesite un filtro diferente.
 

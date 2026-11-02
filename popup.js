@@ -955,7 +955,7 @@ const groupLinkButton = document.getElementById("groupLinkButton");
 const groupUnlinkButton = document.getElementById("groupUnlinkButton");
 
 function programLabel(program) {
-  const labels = { macapp: "Mac Vault", windowsapp: "Windows Vault", chrome: "Chrome", edge: "Edge", safari: "Safari" };
+  const labels = { macapp: "Vault on Mac", windowsapp: "Vault on Windows", chrome: "Chrome", edge: "Edge", safari: "Safari" };
   return labels[program] || program;
 }
 

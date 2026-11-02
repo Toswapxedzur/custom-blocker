@@ -1,6 +1,6 @@
-# Podręcznik użytkownika rozszerzenia przeglądarki Vault
+# Podręcznik użytkownika rozszerzenia przeglądarki Adamancia Vault
 
-Vault kontroluje witryny i obsługiwane treści platform w profilu przeglądarki, w którym jest zainstalowany. Otwórz edytor przyciskiem rozszerzenia na pasku narzędzi. Po połączeniu Mac Vault lub Windows Vault zapewnia lokalne tagowanie i Activity; rozszerzenie egzekwuje cele przeglądarkowe.
+Vault kontroluje witryny i obsługiwane treści platform w profilu przeglądarki, w którym jest zainstalowany. Otwórz edytor przyciskiem rozszerzenia na pasku narzędzi. Po połączeniu Vault na Macu lub Vault w systemie Windows zapewnia lokalne tagowanie i Activity; rozszerzenie egzekwuje cele przeglądarkowe.
 
 ## Grupy blokowania
 
@@ -59,9 +59,9 @@ Cele platform używają **Twórców** dla platform wideo, **Kont** dla Twitter /
 
 ### Filtry tagów treści
 
-Połączenie Classifier i poprawianie tagów są dostępne w obsługiwanych przeglądarkach Chromium, takich jak Chrome i Edge, oraz w Safari Vault na macOS.
+Połączenie Classifier i poprawianie tagów są dostępne w obsługiwanych przeglądarkach Chromium, takich jak Chrome i Edge, oraz w Vault dla Safari na macOS.
 
-Połącz Mac Vault lub Windows Vault i skonfiguruj Classifier, aby uzyskać tagi. Filtr tagów grupy blokowania wybiera treści do zasłonięcia lub ukrycia. Nie rozpoczyna ani nie wstrzymuje tagowania; użyj ustawień Classifier w aplikacji komputerowej lub elementu wstrzymania danej grupy Classifier.
+Połącz Vault na Macu lub Vault w systemie Windows i skonfiguruj Classifier, aby uzyskać tagi. Filtr tagów grupy blokowania wybiera treści do zasłonięcia lub ukrycia. Nie rozpoczyna ani nie wstrzymuje tagowania; użyj ustawień Classifier w aplikacji komputerowej lub elementu wstrzymania danej grupy Classifier.
 
 Każdy wpis witryny ma jeden filtr **Zastosuj do**: wszystkie treści, wybrani twórcy, wszyscy oprócz wybranych twórców, wybrane tagi albo wszystkie oprócz wybranych tagów. Dodaj kolejny wpis tej samej witryny, aby użyć innego filtra.
 

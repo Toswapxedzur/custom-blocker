@@ -190,18 +190,20 @@ Jeda lima menit yang dipicu Snooze atau tombol panelnya:
 
 ## Panggilan AI dari aturan berjalan
 
-Setiap custom group memilih satu connection/model dan reasoning effort di **AI calls**. Mac dan browser rule menggunakan API sama; request browser memerlukan Mac Vault terhubung, kredensial provider tetap di sana. Grup tertaut berbagi pilihan dan optional daily request cap. Kosong berarti tanpa cap grup, tetapi limit akun tetap berlaku. Cap memakai hari UTC, bertahan setelah restart, menghitung semua attempt terkirim termasuk gagal. Link menggabungkan usage yang ada; unlink mempertahankan usage sebelumnya.
+Setiap panggilan `v.ai` menentukan connection/model; tidak ada default untuk grup. Salin ID model dari **AI calls** atau temukan model yang tersedia melalui tool. Reasoning effort dipilih untuk setiap panggilan. Permintaan browser memerlukan Vault desktop yang terhubung; kredensial provider tetap di sana. Grup tertaut berbagi batas permintaan harian opsional.
 
 Prompt dan konteks tersimpan dibagikan oleh grup tertaut dan tersedia di handler sebagai `v.context.ai.prompt` dan `v.context.ai.context`. Vault tidak mengirimnya otomatis; rule memilih apa yang disertakan pada setiap panggilan `v.ai`.
 
-`v.ai({ prompt, input? })` langsung mengembalikan request ID. Panggil di dalam handler, bukan saat mendaftarkan rule. `input` boleh berupa JSON apa pun; prompt/input masing-masing dibatasi20KB. Balasan hadir sebagai event `ai` events: `. Success text is at most48KB; citations are ` `ask` `note`: {requestId, ok, text, citations, error}. Teks sukses maksimal48KB; citation {url,title}. Pertahankan link sumber yang terlihat dan dapat diklik saat menampilkan jawaban web-search. Search selalu tersedia bagi model. Tidak ada deadline app tetap; concurrency terbatas; tidak ada provider fallback atau retry otomatis. Respons adalah data, tidak dieksekusi sebagai JavaScript. Rule menentukan tindakan yang sudah ada.
+`conversation` adalah nama opsional. Tanpanya, panggilan bersifat stateless; dengannya, Vault desktop menyimpan transkrip user/assistant lengkap secara lokal dan menyertakan hingga16KB pesan terbaru pada panggilan berikutnya. Model dapat diganti; nama dibagikan ke semua rule dan grup di perangkat ini dan tetap tersedia setelah grup dihapus atau diputus. Nama yang diubah saat impor dilaporkan dalam `preservedConversations`. Gunakan `v.ai({op:"delete", conversation:"name"})` untuk menghapus conversation bersama; balasannya tiba sebagai event `ai`. Panggilan aktif dengan nama yang sama menghasilkan `ai-conversation-busy`; coba lagi setelah balasannya.
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` Panggilan langsung mengembalikan ID permintaan. Panggil di dalam handler, bukan saat mendaftarkan rule. `model` harus berupa ID model yang tersedia; effort adalah `default` jika dihilangkan, atau `low`, `medium`, `high` jika didukung. `input` dapat berupa nilai JSON apa pun; prompt/input dibatasi total20KB. Balasan tiba sebagai event `ai` dengan `{requestId, ok, text, citations, error, preservedConversations?}`. Teks sukses maksimal48KB; sitasi berbentuk `{url,title}`. Pertahankan tautan sumber yang terlihat dan dapat diklik untuk jawaban dari pencarian web. Pencarian selalu tersedia bagi model. Tidak ada tenggat tetap; panggilan bernama sama berjalan berurutan. Mulai panggilan berikutnya dari event `ai`. Panel memakai tombol `ask` dan kolom `note`.
 
 ```javascript
 (on, v) => {
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -212,10 +214,9 @@ Prompt dan konteks tersimpan dibagikan oleh grup tertaut dan tersedia di handler
 }
 ```
 
-Call yang masih berjalan tidak diputar ulang setelah restart. Run, disable/re-enable, dan delete membuang balasan usang; browser terputus melaporkan `ai-unavailable`. Error lain: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. Call gagal tidak menimpa hasil lama yang dipertahankan rule. Batas state tetap64KB.
+Call yang masih berjalan tidak diputar ulang setelah restart. Run, disable/re-enable, dan delete membuang balasan usang; browser terputus melaporkan `ai-unavailable`. Error lain: `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`, `ai-conversation-storage-unavailable`. Call gagal tidak menimpa hasil lama yang dipertahankan rule. Batas state tetap64KB.
 
-Temukan pilihan bebas kredensial dengan `rule_ai_models` di Mac atau `settings-rule-ai-models` di browser; konfigurasi `ruleAI` melalui jalur set-group yang ada. Field: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`), `dailyRequestLimit` (null atau1–100000). Gunakan pilihan yang dikembalikan; jangan taruh key atau URL provider di source rule.
-Field tersimpan opsional adalah `prompt` dan `context`, masing-masing string hingga16KB.
+Temukan pilihan bebas kredensial dengan `rule_ai_models` di Mac atau `settings-rule-ai-models` di browser; konfigurasi `ruleAI` Field-nya adalah `dailyRequestLimit` (null atau1–100000), `prompt`, dan `context` (string opsional, masing-masing maksimal16KB).
 
 ## Catatan grup
 

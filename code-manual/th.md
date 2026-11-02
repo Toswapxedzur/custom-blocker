@@ -160,18 +160,20 @@ result fields ที่ไม่ได้ใช้เป็น null; เมื�
 
 ## การเรียก AI จากกฎที่กำลังทำงาน
 
-แต่ละ custom group เลือก connection/model และ reasoning effort ใน **AI calls** กฎ Mac และ browser ใช้ API เดียวกัน; browser request ต้องเชื่อม Mac Vault และ credentials ของ provider อยู่ที่นั่น กลุ่มที่เชื่อมกันแชร์ตัวเลือกและ daily cap แบบเลือกได้ ค่าว่างหมายถึงไม่จำกัดระดับกลุ่ม แต่ข้อจำกัดบัญชียังใช้ cap คิดตามวัน UTC อยู่หลัง restart และนับทุก attempt ที่ส่งรวมถึงที่ล้มเหลว Link รวม usage เดิม; unlink เก็บ usage ที่ผ่านมา
+แต่ละการเรียก `v.ai` ระบุการเชื่อมต่อและโมเดล ไม่มีค่าเริ่มต้นระดับกลุ่ม คัดลอก model ID จาก **AI calls** หรือค้นหาโมเดลที่ใช้ได้ด้วยเครื่องมือ เลือกระดับ reasoning ในแต่ละครั้ง คำขอจากเบราว์เซอร์ต้องเชื่อมต่อ Vault บนเดสก์ท็อป และข้อมูลรับรองผู้ให้บริการจะอยู่ที่นั่น กลุ่มที่เชื่อมกันใช้ขีดจำกัดรายวันแบบเลือกได้ร่วมกัน
 
 prompt และ context ที่บันทึกไว้จะแชร์กันในกลุ่มที่เชื่อมโยง และใช้ใน handler ได้ผ่าน `v.context.ai.prompt` กับ `v.context.ai.context` Vault จะไม่ส่งให้เอง; rule เลือกสิ่งที่จะใส่ในแต่ละการเรียก `v.ai`.
 
-`v.ai({ prompt, input? })` คืน request ID ทันที เรียกใน handler ไม่ใช่ตอนลงทะเบียน rule `input` เป็น JSON ใดก็ได้; prompt/input จำกัดอย่างละ20KB คำตอบมาใน `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` event: {requestId, ok, text, citations, error} ข้อความสำเร็จไม่เกิน48KB; citations เป็น {url,title} เก็บลิงก์แหล่งที่มาให้มองเห็นและคลิกได้เมื่อแสดงคำตอบจาก web search Search มีให้โมเดลเสมอ ไม่มี app deadline คงที่และจำกัด concurrency; ไม่มี provider fallback หรือ auto retry คำตอบเป็นข้อมูล ไม่ถูก execute เป็น JavaScript และ rule ตัดสินใจว่าจะใช้ action เดิมใด
+`conversation` เป็นชื่อที่เลือกได้ หากไม่ระบุ การเรียกจะไม่เก็บสถานะ หากระบุ Vault บนเดสก์ท็อปจะบันทึกบทสนทนาผู้ใช้/ผู้ช่วยทั้งหมดไว้ในเครื่อง และส่งข้อความล่าสุดไม่เกิน16KB ในการเรียกครั้งถัดไป เปลี่ยนโมเดลได้ ชื่อนี้ใช้ร่วมกันทุกกฎและกลุ่มบนอุปกรณ์ และยังใช้ได้หลังลบหรือยกเลิกการเชื่อมต่อกลุ่ม ชื่อที่เปลี่ยนระหว่างนำเข้าจะแสดงใน `preservedConversations` ใช้ `v.ai({op:"delete", conversation:"name"})` เพื่อลบบทสนทนาที่แชร์ คำตอบจะมาเป็นเหตุการณ์ `ai` หากมีการเรียกชื่อเดียวกันที่ยังทำงานอยู่ จะได้ `ai-conversation-busy` ให้ลองใหม่หลังได้รับคำตอบ
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` การเรียกจะส่งคืน request ID ทันที ให้เรียกภายใน handler ไม่ใช่ตอนลงทะเบียนกฎ `model` ต้องเป็น ID ของโมเดลที่ใช้ได้ ระดับ effort คือ `default` หากไม่ระบุ หรือ `low`, `medium`, `high` เมื่อรองรับ `input` เป็นค่า JSON ใดก็ได้ จำกัด prompt/input รวมไม่เกิน20KB คำตอบจะมาเป็นเหตุการณ์ `ai` พร้อม `{requestId, ok, text, citations, error, preservedConversations?}` ข้อความที่สำเร็จยาวได้ไม่เกิน48KB และ citations ใช้รูปแบบ `{url,title}` คงลิงก์แหล่งที่มาให้มองเห็นและคลิกได้เมื่อแสดงคำตอบจากการค้นเว็บ การค้นหาใช้ได้เสมอสำหรับโมเดล ไม่มีเวลาเสร็จตายตัว และการเรียกชื่อเดียวกันจะทำงานตามลำดับ เริ่มการเรียกครั้งถัดไปจากเหตุการณ์ `ai` แผงควบคุมใช้ปุ่ม `ask` และช่อง `note`
 
 ```javascript
 (on, v) => {
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -182,10 +184,9 @@ prompt และ context ที่บันทึกไว้จะแชร์�
 }
 ```
 
-คำขอค้างไม่เล่นซ้ำหลัง restart; Run, disable/re-enable และ delete ทิ้งคำตอบเก่า เบราว์เซอร์ที่ตัดการเชื่อมต่อแจ้ง `ai-unavailable` ข้อผิดพลาดอื่น ได้แก่ `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable` คำขอที่ล้มเหลวไม่เขียนทับผลเดิมที่ rule เก็บไว้ ขนาด state ยังคงจำกัด64KB
+คำขอค้างไม่เล่นซ้ำหลัง restart; Run, disable/re-enable และ delete ทิ้งคำตอบเก่า เบราว์เซอร์ที่ตัดการเชื่อมต่อแจ้ง `ai-unavailable` ข้อผิดพลาดอื่น ได้แก่ `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`, `ai-conversation-storage-unavailable` คำขอที่ล้มเหลวไม่เขียนทับผลเดิมที่ rule เก็บไว้ ขนาด state ยังคงจำกัด64KB
 
-ค้นตัวเลือกที่ไม่มี credentials ด้วย `rule_ai_models` บน Mac หรือ `settings-rule-ai-models` ใน browser ตั้ง `ruleAI` ผ่าน set-group path เดิม ฟิลด์คือ `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) และ `dailyRequestLimit` (null หรือ1–100000) ใช้ตัวเลือกที่คืนมา อย่าใส่ key หรือ provider URL ใน source ของ rule
-field ที่บันทึกได้โดยเลือกคือ `prompt` และ `context` แต่ละค่าเป็น string ได้ถึง16KB
+ค้นตัวเลือกที่ไม่มี credentials ด้วย `rule_ai_models` บน Mac หรือ `settings-rule-ai-models` ใน browser ตั้ง `ruleAI` ฟิลด์คือ `dailyRequestLimit` (null หรือ1–100000), `prompt` และ `context` (สตริงไม่บังคับ แต่ละรายการไม่เกิน16KB)
 
 ## บันทึกของกลุ่ม
 

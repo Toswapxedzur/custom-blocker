@@ -1,4 +1,4 @@
-# Vault browser extension code manual
+# Adamancia Vault browser extension code manual
 
 [User manual](../manual/en.md)
 
