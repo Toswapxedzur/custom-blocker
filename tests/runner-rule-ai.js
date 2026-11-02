@@ -15,6 +15,8 @@ assert.equal(engine.dispatch({type:'ai',targetGroupId:'g',data:{generation:actio
 assert.equal(engine.load('bad','(on,v)=>{v.ai({prompt:"registration"});}',{}).ok,false);
 engine.load('bad','(on,v)=>{on("panel",()=>v.ai({model:"chatgpt:fixture",prompt:"x",provider:"override"}));}',{});
 assert.equal(engine.dispatch({type:'panel',targetGroupId:'bad',data:{}}).actions.length,0);
+engine.load('delete','(on,v)=>{on("panel",()=>v.ai({op:"delete",conversation:"shared"}));}',{});
+assert.deepEqual(JSON.parse(engine.dispatch({type:'panel',targetGroupId:'delete',data:{}}).actions[0].payload),{op:'delete',conversation:'shared'});
 engine.load('context','(on,v)=>{on("panel",()=>v.ai({model:"api:fixture:model",prompt:v.context.ai.prompt,input:{context:v.context.ai.context}}));on("ai",()=>v.log("accepted"));}',{});
 const configured=engine.dispatch({type:'panel',targetGroupId:'context',contextRevisions:{context:'saved-1'},aiContexts:{context:{prompt:'Use saved prompt',context:'Saved background'}}}).actions[0];
 assert.deepEqual(JSON.parse(configured.payload),{model:'api:fixture:model',prompt:'Use saved prompt',input:{context:'Saved background'}});

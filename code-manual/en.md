@@ -207,12 +207,16 @@ invalidates replies from the old configuration.
 `conversation` is an optional name. Without it, the call is stateless. With it,
 desktop Vault saves the complete user/assistant transcript locally and includes
 up to16KB of the newest messages on the next call. The same conversation may
-switch models; only portable text is passed to the new model. Different names
-are independent. Linked groups can use the same names and receive local copies,
-so unlinking retains their histories. If two groups bring different histories
-with the same name into a link, Vault preserves both under distinct names and
-reports the renamed ones as `preservedConversations` in the first successful
-`ai` event that reconciles them. The rule may call those names later.
+switch models; only portable text is passed to the new model. A name is shared
+by every rule and group on this device. Deleting or unlinking a group leaves
+its named conversations available. The total local transcript limit defaults
+to 1 GB and can be changed in Vault Settings. When full, Vault removes the
+least recently used conversations. If an earlier private build saved separate
+same-name histories per group, Vault imports both under distinct names and
+reports the renamed ones as `preservedConversations`.
+Call `v.ai({op:"delete", conversation:"name"})` to explicitly delete a shared
+conversation; its reply arrives as an `ai` event. An active call with the same
+name returns `ai-conversation-busy`; retry after its reply.
 Storage failure reports an error rather than silently forgetting a successful
 response. Conversation text is not automatically added to ordinary rule state.
 
