@@ -3076,6 +3076,10 @@ const CB_CONNECTION_PING_MS = 20_000;
 const CB_CONNECTION_BURST_INTERVAL_MS = 100;
 const CB_CONNECTION_BURST_WINDOW_MS = 5_000;
 const CB_CONNECTION_SLOW_INTERVAL_MS = 5_000;
+// A JS timeout disappears when Chrome suspends the MV3 worker. An alarm also
+// wakes a fresh worker after that suspension; older Chromium may clamp its
+// cadence, while the in-worker retry remains five seconds.
+const CB_CONNECTION_RETRY_ALARM_NAME = "vault-local-hub-retry";
 
 // ── Changes made outside the editor (owner 2026-09-26) ─────────────────────
 // The AI tools get exactly what a user gets — the same actions and the same
@@ -4321,6 +4325,23 @@ const cbConnection = {
     }, CB_CONNECTION_SLOW_INTERVAL_MS);
   },
 
+  onRetryAlarm() {
+    if (this.desired && !this.ws && !this.reconnectTimer) this.connect();
+  },
+
+  ensureRetryWakeAlarm() {
+    // Use the verified extension environment, not the user agent: headless
+    // Chromium reports HeadlessChrome and can be mistaken for Safari.
+    if (!self.CBLocalHubEnvironment?.current?.nativeHost?.startsWith("com.adamancia.vault.local_hub")
+        || !chrome.alarms?.create) return;
+    // Recreate after worker/browser startup: Chrome does not guarantee that
+    // persisted alarms survive a restart.
+    try {
+      chrome.alarms.create(CB_CONNECTION_RETRY_ALARM_NAME,
+        { periodInMinutes: CB_CONNECTION_SLOW_INTERVAL_MS / 60_000 })?.catch?.(() => {});
+    } catch (_) {}
+  },
+
   stop() {
     this.desired = false;
     this.clearTimers();
@@ -4530,6 +4551,7 @@ const cbConnection = {
 
   startAutomatically() {
     if (!this.startupReady) this.startupReady = Promise.resolve();
+    this.ensureRetryWakeAlarm();
     if (!this.desired) {
       this.burstStartMs = 0;
       this.connect();
@@ -5244,6 +5266,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Every service-worker lifetime participates in the authenticated local hub.
 cbConnection.startAutomatically();
+chrome.alarms?.onAlarm?.addListener?.((alarm) => {
+  if (alarm.name === CB_CONNECTION_RETRY_ALARM_NAME) cbConnection.onRetryAlarm();
+});
 
 // Start the Activity log's browser feeders (web-visit dwell + watched content).
 // Records only while the matching category is enabled in the native settings.

@@ -3,6 +3,10 @@
   disposable data: app-major expiry, alpha import, failed commits/retry, callback
   errors, idempotence and future-schema protection for all write methods.
 
+- `runner-local-hub-target-status.js` checks automatic hub routing and that a
+  browser alarm restarts a disconnected worker without duplicating a live socket
+  or an already scheduled retry.
+
 - `runner-first-link.js` exercises original definition/usage capture, consecutive
   and interrupted snapshots, receipts, retries/restart, rolling buckets, second
   browsers, empty scope contributions and serialized slow storage adoption.

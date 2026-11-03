@@ -13,6 +13,7 @@ if (start < 0 || end < 0) throw new Error("Could not locate cbConnection.");
 
 const pushes = [];
 const sockets = [];
+const alarms = [];
 const timers = new Map();
 let nextTimerID = 1;
 let failures = 0;
@@ -62,6 +63,12 @@ function runTimersWithDelay(delay) {
 }
 
 const chrome = {
+  alarms: {
+    create(name, options) {
+      alarms.push({ name, options });
+      return Promise.resolve();
+    }
+  },
   runtime: {
     sendMessage(message) {
       pushes.push(message);
@@ -85,6 +92,8 @@ const context = vm.createContext({
   CB_CONNECTION_BURST_INTERVAL_MS: 100,
   CB_CONNECTION_BURST_WINDOW_MS: 5_000,
   CB_CONNECTION_SLOW_INTERVAL_MS: 5_000,
+  CB_CONNECTION_RETRY_ALARM_NAME: "vault-local-hub-retry",
+  CBLocalHubEnvironment: { current: { nativeHost: "com.adamancia.vault.local_hub.development" } },
   cbDetectProgramId: () => "chrome",
   cbAnnounceStoredGroups: async () => { announcesFromStorage += 1; },
   cbShareOnReconnect: async () => {},
@@ -124,9 +133,23 @@ function targetStates() {
   await connection.startAutomatically();
   assert(
     "startup always requests one durable connection without reading retired settings",
-    automaticConnects === 1 && connection.desired === true && storageReads === 0,
-    { automaticConnects, desired: connection.desired, storageReads }
+    automaticConnects === 1 && connection.desired === true && storageReads === 0 &&
+      alarms[0]?.name === "vault-local-hub-retry" && alarms[0]?.options.periodInMinutes === 5 / 60,
+    { automaticConnects, desired: connection.desired, storageReads, alarms }
   );
+
+  // Chrome may terminate the worker and lose its JS timeout while disconnected.
+  // An alarm event in the new worker must restart the connection, but never
+  // duplicate an active socket or a scheduled retry.
+  connection.onRetryAlarm();
+  assert("retry alarm restarts a disconnected worker", automaticConnects === 2);
+  connection.reconnectTimer = 17;
+  connection.onRetryAlarm();
+  assert("retry alarm leaves a pending in-worker retry alone", automaticConnects === 2);
+  connection.reconnectTimer = null;
+  connection.ws = { readyState: FakeWebSocket.OPEN };
+  connection.onRetryAlarm();
+  assert("retry alarm leaves an active socket alone", automaticConnects === 2);
 
   connection.ws = { readyState: FakeWebSocket.OPEN, send() {} };
   connection.setStatus({ state: "connected", hubProgram: "classifier", peers: [] });
