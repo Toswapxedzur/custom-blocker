@@ -14,12 +14,13 @@
 
 ## 共通API
 
-- `on(type, handler)` → boolean。`handler(ev)` を登録します。複数ハンドラーは登録順に動きます。falseは引数不正かハンドラー上限を示します。`ev = { type: string, now: number, data }`、`now`はUnixミリ秒です。
+- `on(type, handler)` → boolean。`handler(ev)` を登録します。複数ハンドラーは登録順に動きます。falseは引数不正かハンドラー上限を示します。`ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`、`now`はUnixミリ秒です。 実際に表示されたコントロールイベントは `origin: "user"`、`v.emit` のイベントは `origin: "rule"` です。
 - `v.state`: イベントdispatch後に保存される変更可能なJSONオブジェクトです。既存stateを上書きせず、欠けているフィールドを初期化してください。オブジェクト以外または配列を代入すると `{}` に戻ります。シリアライズ不可/過大な更新は保存されません。
 - `v.log(...values)`: このグループのLogに書き込みます。ハンドラーのエラーと報告されたページ操作のエラーもここに表示されます。報告によって操作が再実行されることはありません。Logs/Clearはグループごとに独立しています。読み込みエラーはRun状態に表示されます。
 - `v.emit(type, data)`: 現在のイベント後に `data` のJSONコピーをキューし、新しい `now` とともにをこのグループのハンドラーへキューします。同期呼び出しではありません。
 - `v.panel(id, spec, tabId?)`: グループの名前付きパネルを置き換えます。アクセス可能な全Webページには `tabId` を省略し、整数タブIDを指定することもできます。`spec` がnullなら削除します。Panelsを参照してください。
 - `v.file(op, path, payload?)` → リクエストID文字列。Filesを参照してください。
+- `v.store(request)` はリクエスト ID を返します。グループ記録を参照してください。
 
 その他の共通呼び出しは、以下の名前付き管理時間オブジェクトのファクトリーを除き、`undefined` を返します。ID/stateは表示名ではなく一つのグループに属します。
 
@@ -66,6 +67,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +81,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +92,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - `tick`は概算です。回数ではなくタイムスタンプを使います。`active`はブラウザーウィンドウ内で選択中という意味で、ユーザーが見ている証拠ではありません。URLは空/制限される場合があります。
 - `visible`はアクセス可能で非表示でないページから取得します。`elapsedMs`は最後のheartbeatからの時間で、覆われている間はゼロです。累積利用時間や再生時間ではありません。
-- `items`は新規/変更された対応フィード項目を示し、Run/再有効化後に再送します。`ref`はそのページ上のカードを示し、永続コンテンツIDではありません。`ref === "page"`はページ自体を示します。タイトル/URL/作者は空の場合があります。`authors`にはプラットフォーム固有のソースIDが入ります。
+- `items` (`platform: "web"` 認識済みサイト以外)は新規/変更された対応フィード項目を示し、Run/再有効化後に再送します。`ref`はそのページ上のカードを示し、永続コンテンツIDではありません。`ref === "page"`はページ自体を示します。タイトル/URL/作者は空の場合があります。`authors`にはプラットフォーム固有のソースIDが入ります。
 - プラットフォームID: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`。項目を取得できるかはページの対応マークアップによります。
 - タグには接続済みデスクトップ分類器とタグ付け対応ビルド/プラットフォームが必要です（Chromium/Safari: YouTube、Reddit、Bilibili、X/`twitter`）。信頼度は1～5です。`tagsSettled === false`は保留/利用不可で、タグなしではありません。確定済みの `tags: []` はタグなしです。
 - `snooze`はグループのSnoozeボタンが押されたことを示します。それだけで一時停止にはなりません。
@@ -178,3 +186,84 @@ Snoozeまたはそのパネルボタンで始まる5分間の一時停止:
   });
 }
 ```
+
+
+## 実行中ルールからの AI 呼び出し
+
+各 custom group は **AI calls** で接続/モデルと reasoning effort を選択します。Mac とブラウザーのルールは同じ API を使います。ブラウザー要求には Mac Vault 接続が必要で、プロバイダー認証情報はそこに保持されます。リンク済みグループは選択と任意の日次上限を共有します。空欄はグループ上限なしですが、アカウント制限は適用されます。上限は UTC 日で計算し、再起動後も維持、失敗を含む送信試行を数えます。Link は既存使用量を合算し、Unlink 後も過去分は保持されます。
+
+保存された prompt と context はリンク済みグループ間で共有され、handler 内で `v.context.ai.prompt` と `v.context.ai.context` として利用できます。Vault は自動送信しません。各 `v.ai` 呼び出しに含める内容はルールが選択します。
+
+`v.ai({ prompt, input? })` は即時に request ID を返します。ルール登録時でなくハンドラー内で呼びます。`input` は任意の JSON 値で、prompt/input はそれぞれ20KBまでです。応答は `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` イベント {requestId, ok, text, citations, error} で届きます。成功テキストは最大48KB、引用は {url,title}。Web 検索の回答を表示する際はソースリンクを見えるクリック可能な状態に保ちます。検索は常にモデルから利用可能です。アプリの固定期限はなく、並行処理は制限されます。プロバイダーフォールバックや自動再試行はありません。応答はデータであり JavaScript として実行されません。既存アクションを取るかはルールが決めます。
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+未完了呼び出しは再起動後に再送されません。Run、無効化/再有効化、削除は古い応答を破棄します。未接続ブラウザーは `ai-unavailable` を返します。その他のエラー: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`。失敗した呼び出しはルールが保持した前の結果を上書きしません。state 上限は64KBのままです。
+
+認証情報なしの候補は Mac の `rule_ai_models`、ブラウザーの `settings-rule-ai-models` で取得し、既存の set-group 経路から `ruleAI` を設定します。フィールドは `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`), `dailyRequestLimit` (null または1～100000) です。返された候補を使い、キーやプロバイダー URL をルールソースに書かないでください。
+任意の保存フィールドは `prompt` と `context` で、それぞれ最大16KBの文字列です。
+
+## グループレコード
+
+`v.store(request)` はハンドラー内で非同期の JSON レコード操作を開始します。レコードはグループ専用で、Run や再起動後も保持され、グループ削除時に削除されます。リンク済みグループのストアは別々です。キー、値、バージョン、キャッシュ無効化、フィードバックの優先順位はルールが決めます。Mac とブラウザーのルールは同じ API を使いますが、アプリ/ブラウザーごとにストアは別です。
+
+| Request | Result |
+|---|---|
+| `{op:"get", key}` | `record` または `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | 保存された `record` |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | ソート済み `entries` と `next` |
+| `{op:"clear", prefix?}` | `deleted` 件数 |
+
+レコードは `{value, revision, version, updatedAt}` です。不透明な revision は実際の書き込みで変わります。`version` は呼び出し側のメタデータです。`list` は値を含まないヘッダーを返します。1件の読み出しには `get`、次ページには `after: next` `put` `delete` を使います。`ifRevision` 省略時の put/delete は無条件です。`null` はキーが存在しないこと、revision 文字列は完全一致を条件にします。不一致は `ok:false`、`error:"store-conflict"`、現在の `record` を返します。遅延した自動応答がユーザーのフィードバックを上書きするのを防げます。`v.context.revision` はルール設定の不透明なマーカーで、ルール独自のバージョンに含められます。フレームワークはキャッシュ方針を定めません。
+
+上限: キー1～2048文字、version ≤128、JSON値 ≤64KiB、深さ≤32、グループあたり10000キー、レコード文書全体16MiB。`list` は1ページあたり最大100ヘッダー、96KiB。グループあたり32要求、全体で毎秒128開始まで。過負荷時はグループごとに毎秒1回 `store-busy` を返し、残りを破棄します。ストレージエラーは `ok:false`。将来形式または不正な文書は保持して `store-unavailable` を報告します。自動再試行/削除はありません。期限には ticks を使います。
+
+## 保存済みコンテンツ添付
+
+観測したコンテンツ項目に pill または受動的な HTML/CSS ビューを保存するには `v.attach(tabId, item, id, spec)` を使います。完全な `item` を `items` または `attachment` イベントから渡してください。`ref` だけでは添付ハンドルになりません。`contentId` は保存コンテンツ、`instanceId` は現在の表示を識別します。AI の応答を待つ間も元のハンドルを保持します。削除、再利用、移動された対象への遅延添付は拒否されます。`v.item(tabId, ref, verdict)` は別の動作です。
+
+pill の `spec` は `{type:"pill", text, tone?, tooltip?}` で、tone は `blue`、`cyan`、`gold`、`pink`、`red` です。プレーンテキストは240文字、tooltip は1000文字まで。ビューの spec は `{type:"html", html, css?, label?}` です。上限は HTML 32000文字、CSS 16000文字、label 200文字。許可された受動 HTML/SVG から、閉じた shadow root とスコープ付き CSS で再構築します。スクリプト、イベント属性、外部リソース、埋め込み、安全でない CSS は除去されます。ビューはコンテンツカード内に制限され、高さ480pxでスクロールします。ID は1～80文字の ASCII 英数字、_、-。null の spec はグループの pill を削除します。handler 内で呼び出してください。保存/配信エラーは Log に記録され、自動再試行されません。
+
+各項目の `item.attachments` はこのグループの添付の読み取り専用スナップショットです。他グループ分は含みません。保存データを利用できない場合は `attachments` が null になり `attachmentError` が設定されます。これは空のキャッシュを意味しません。他の handler は続行します。保存済み結果があるコンテンツへの AI 再要求を避ける例として使えます。
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+ポインター、Enter、Space の操作でグループの `attachment` イベントが発生します。pill は `click` を送ります。ビューのコントロールは `data-control` または `id` を `controlId` として使い、`click`、`input`、`change` と現在の `value`、名前付きコントロールの制限済み `values` を送ります。実際の UI イベントは `ev.origin === "user"`、ルール生成イベントは `origin === "rule"` です。イベントには `tabId`、`attachmentId`、現在の `item` が含まれます。ビューはルールコードを実行しません。pill とビューは操作によるカード遷移を防ぎます。保存データに callback や実行可能コードは含まれません。古い pill revision は現在の添付を起動できません。ルールの emit は通常のロジックで、実際の UI クリックメッセージはブラウザーが別途検証します。
+
+添付はこのブラウザプロファイルにグループ/コンテンツ/ID ごとに保存され、再表示、移動、ブラウザー再起動、Run 後も戻ります。Disable はデータを保持して非表示にし、Enable で復元します。グループ削除で添付も削除されます。リンク済みグループも別々で、ブラウザー/デバイス間の自動同期はありません。既知の YouTube、Reddit、X、Bilibili コンテンツはプラットフォーム ID を使います。他の内容は慎重に正規化した URL を使うため、対応するページマークアップに依存します。
+
+上限: グループ/コンテンツあたり8件、全グループ合計で項目あたり32件、グループあたり10000コンテンツエントリ、シリアライズ済み添付文書8MB。上限到達時は `attachment-item-limit` または `attachment-storage-limit` を Log に記録して新しい変更を拒否し、既存データを保持します。dispatch は書き込みをまとめ、同一 spec ではストレージを書き換えません。添付は Safari のネイティブルールエンジンを含むブラウザーのコンテンツ UI です。Mac アプリルールにはブラウザーコンテンツハンドルやアプリ内添付画面はありません。
+
+`code-manual/generic-example.js` は実行可能なポリシー例です。record、AI 呼び出し、ユーザー起点のフィードバック、compare-and-swap、HTML コントロール、項目 verdict、ルール管理の利用レポートを使います。これらは例のコードの動作であり、record/添付ストア固有の機能ではありません。

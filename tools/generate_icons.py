@@ -1,58 +1,30 @@
-"""Render the owner's selected vector icons with Chromium, preserving SVG shadows.
+"""Render the approved bright Vault icons with Chromium, preserving SVG shadows.
 
-Run on mini1 with its Playwright Python environment. The defaults regenerate
+Run on Mini2 with its Playwright Python environment. The defaults regenerate
 Chrome and Safari browser assets. --product mac/windows/safari --output PATH
 also creates native masters, browser aliases, and .icns/.ico files as appropriate.
+The website retains the separate dark source SVGs and pinned demo icons.
 """
 from pathlib import Path
 import argparse
 import shutil
 import struct
 import subprocess
-import xml.etree.ElementTree as ET
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 PRODUCTS = ('mac', 'windows', 'chrome', 'safari')
-SELECTIONS = {'mac': 4, 'windows': 3, 'safari': 5}
-SYMBOL_SCALES = {'mac': .85, 'windows': .85, 'safari': .90}
-SYMBOL_CENTERS = {'mac': (32, 30.5), 'windows': (32, 30), 'safari': (32, 30.5)}
-NS = {'s': 'http://www.w3.org/2000/svg'}
-ET.register_namespace('', NS['s'])
+BRANDING_SOURCES = {
+    'mac': 'tools/branding/mac-vault-bright.svg',
+    'windows': 'tools/branding/windows-vault-bright.svg',
+    'chrome': 'tools/branding/extension-lock-bright.svg',
+    'safari': 'tools/branding/safari/safari-vault.svg',
+}
 
 
 def selected_svg(product):
-    """Restore the original extension lock or scale a native symbol once."""
-    if product == 'chrome':
-        return (ROOT / 'tools/branding/extension-lock.svg').read_text()
-    source = (ROOT / f'tools/branding/choices/{product}-{SELECTIONS[product]:02d}.svg').read_text()
-    root = ET.fromstring(source)
-    symbol = root.find('s:g[@id="platform-symbol"]', NS)
-    x, y = SYMBOL_CENTERS[product]
-    wrapper = ET.Element('{'+NS['s']+'}g', {
-        'id': 'symbol-scale',
-        'transform': f'translate({x} {y}) scale({SYMBOL_SCALES[product]:g}) translate({-x} {-y})'
-    })
-    position = list(root).index(symbol)
-    root.remove(symbol)
-    wrapper.append(symbol)
-    root.insert(position, wrapper)
-    return '\n'.join(line.rstrip() for line in ET.tostring(root, encoding='unicode').splitlines()) + '\n'
-
-
-def inverse(svg):
-    """Keep the existing light-tile/dark-shield toolbar appearance, new symbol."""
-    root = ET.fromstring(svg)
-    for name, colors in [('tile', ['#ffffff', '#c2dbfa']), ('white', ['#22344f', '#152339', '#070d18'])]:
-        for stop, color in zip(root.find(f's:defs/s:linearGradient[@id="{name}"]', NS), colors):
-            stop.set('stop-color', color)
-    rects = root.findall('s:rect', NS)
-    rects[1].set('opacity', '.52')
-    rects[2].set('stroke', '#1c5ca8'); rects[2].set('stroke-opacity', '.18')
-    shade = root.find('s:g[@id="vault-shield"]/s:path', NS)
-    shade.set('fill', '#fff'); shade.set('opacity', '.07')
-    root.find('s:defs/s:filter/s:feDropShadow', NS).set('flood-opacity', '.42')
-    return '\n'.join(line.rstrip() for line in ET.tostring(root, encoding='unicode').splitlines()) + '\n'
+    """Use the exact approved product SVG, including its original geometry."""
+    return (ROOT / BRANDING_SOURCES[product]).read_text()
 
 
 def render(page, svg, path, size):
@@ -64,7 +36,10 @@ def render(page, svg, path, size):
 def generate(page, product, output):
     output.mkdir(parents=True, exist_ok=True)
     svg = selected_svg(product)
-    dark = (ROOT / 'tools/branding/extension-lock-inverse-dark.svg').read_text() if product == 'chrome' else inverse(svg)
+    # The app and extension icon stays bright in both browser theme states.
+    # The legacy inverse-dark filenames are aliases consumed by the popup and
+    # toolbar, not separate artwork. The website has its own dark sources.
+    dark = svg
     name = 'official-vault-extension' if product == 'chrome' else f'{product}-vault'
     (output / f'{name}.svg').write_text(svg)
     (output / f'{name}-inverse-dark.svg').write_text(dark)
@@ -100,8 +75,7 @@ def generate(page, product, output):
             entries.append(struct.pack('<BBBBHHII', size if size<256 else 0, size if size<256 else 0, 0, 0, 1, 32, len(png), offset))
             data.append(png); offset+=len(png)
         (output/'windows-vault.ico').write_bytes(struct.pack('<HHH', 0, 1, len(frames))+b''.join(entries+data))
-    selection = 'original lock' if product == 'chrome' else f'choice {SELECTIONS[product]:02d}, symbol −{round((1-SYMBOL_SCALES[product])*100)}%'
-    print(f'{product} {selection}: {output}')
+    print(f'{product} bright icon: {output}')
 
 
 def main():

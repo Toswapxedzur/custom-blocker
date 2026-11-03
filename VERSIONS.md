@@ -2,7 +2,11 @@
 
 The owner approved this capability split on 2026-10-04. Existing tags and packaged downloads remain unchanged. All new records are **alpha, source-only**. A source record does not certify store submission, signing or native release acceptance.
 
-Current source version: **3.1.5**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+Current source version: **3.2.0**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+
+## 3.2.0 — 2026-10-29 — AI and generic content rules
+
+Adds connected AI for custom rules, durable prompt context, per-item records, and saved interactive attachments. The Chrome and Safari packages use the same browser source and retain separate native app scope.
 
 ## 3.1.5 — 2026-10-07 — Native Mac rule-log export
 

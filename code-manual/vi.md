@@ -14,12 +14,12 @@ Source: một biểu thức hàm `(on, v) => { ... }`. Chỉ hỗ trợ JavaScri
 
 ## API dùng chung
 
-- `on(type, handler)` → boolean. Đăng ký `handler(ev)`; nhiều handlers chạy theo thứ tự đăng ký. False nghĩa là arguments không hợp lệ hoặc đạt giới hạn handlers. `ev = { type: string, now: number, data }`; `now` là Unix milliseconds.
-- `v.state`: JSON object có thể thay đổi, được lưu sau event dispatch. Khởi tạo fields còn thiếu thay vì ghi đè state hiện có. Gán non-object hoặc array sẽ reset thành `{}`; cập nhật không serialize được/quá lớn sẽ không lưu.
+- `on(type, handler)` → boolean. Đăng ký `handler(ev)`; nhiều handlers chạy theo thứ tự đăng ký. False nghĩa là arguments không hợp lệ hoặc đạt giới hạn handlers. `ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`; `now` là Unix milliseconds. Sự kiện điều khiển được hiển thị thực tế có `origin: "user"`; sự kiện `v.emit` có `origin: "rule"`.- `v.state`: JSON object có thể thay đổi, được lưu sau event dispatch. Khởi tạo fields còn thiếu thay vì ghi đè state hiện có. Gán non-object hoặc array sẽ reset thành `{}`; cập nhật không serialize được/quá lớn sẽ không lưu.
 - `v.log(...values)`: ghi vào Log của nhóm này. Lỗi handler và lỗi thao tác trang được báo cáo cũng xuất hiện ở đây; việc báo cáo không chạy lại thao tác. Logs/Clear độc lập theo nhóm. Lỗi tải hiện trong trạng thái Run.
 - `v.emit(type, data)`: xếp hàng bản sao JSON của `data` cho handlers nhóm này sau event hiện tại, kèm `now` mới; không phải lời gọi đồng bộ.
 - `v.panel(id, spec, tabId?)`: thay panel có tên của nhóm; bỏ `tabId` để áp dụng cho mọi trang web truy cập được, hoặc dùng tab ID dạng số nguyên. `spec` null sẽ xóa panel. Xem Panels.
 - `v.file(op, path, payload?)` → request ID string. Xem Files.
+- `v.store(request)` trả về ID yêu cầu; xem bản ghi nhóm.
 
 Các lời gọi dùng chung khác trả về `undefined`, ngoại trừ các hàm tạo đối tượng thời gian được quản lý có tên bên dưới. ID/state thuộc về một nhóm, không phải tên hiển thị.
 
@@ -66,6 +66,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +80,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +91,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - `tick` chỉ gần đúng; dùng timestamps thay vì đếm tick. `active` nghĩa là trang được chọn trong cửa sổ trình duyệt, không chứng minh người dùng đang nhìn trang đó. URLs có thể trống/bị hạn chế.
 - `visible` lấy từ các trang truy cập được, không bị ẩn; `elapsedMs` là thời gian từ heartbeat gần nhất của chúng và bằng 0 khi trang bị phủ. Đây không phải mức sử dụng tích lũy hay thời gian phát.
-- `items` báo các mục feed được hỗ trợ mới/thay đổi và gửi lại sau Run/bật lại. `ref` xác định thẻ trên trang đó, không phải content ID lâu dài; `ref === "page"` nghĩa là chính trang. Titles/URLs/authors có thể trống. `authors` chứa source identifiers đặc thù nền tảng.
+- `items` (`platform: "web"` ngoài các trang được nhận diện) báo các mục feed được hỗ trợ mới/thay đổi và gửi lại sau Run/bật lại. `ref` xác định thẻ trên trang đó, không phải content ID lâu dài; `ref === "page"` nghĩa là chính trang. Titles/URLs/authors có thể trống. `authors` chứa source identifiers đặc thù nền tảng.
 - Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. Việc có items tùy markup được hỗ trợ trên trang.
 - Tags cần desktop Classifier được kết nối và build/platform hỗ trợ gắn thẻ (Chromium và Safari: YouTube, Reddit, Bilibili, X/`twitter`). Confidence từ 1–5. `tagsSettled === false` là đang chờ/không khả dụng, không phải chưa gắn thẻ; `tags: []` khi đã settled nghĩa là chưa gắn thẻ.
 - `snooze` nghĩa là đã nhấn nút Snooze của nhóm. Nó không tự tạm dừng gì.
@@ -178,3 +185,84 @@ Tạm dừng năm phút, kích hoạt bởi Snooze hoặc nút panel của nó:
   });
 }
 ```
+
+
+## Lời gọi AI từ quy tắc đang chạy
+
+Mỗi custom group chọn một connection/model và reasoning effort trong **AI calls**. Quy tắc Mac và trình duyệt dùng cùng API; request trình duyệt cần Mac Vault kết nối, thông tin nhà cung cấp được giữ tại đó. Nhóm liên kết chia sẻ lựa chọn và daily cap tùy chọn. Để trống nghĩa là không giới hạn ở nhóm; giới hạn tài khoản vẫn áp dụng. Cap theo ngày UTC, tồn tại qua khởi động lại và đếm mọi lần gửi kể cả lỗi. Link cộng usage hiện có; unlink giữ usage trước đó.
+
+Prompt và context đã lưu được các nhóm liên kết chia sẻ, có trong handler dưới dạng `v.context.ai.prompt` và `v.context.ai.context`. Vault không tự gửi chúng; rule chọn nội dung đưa vào mỗi lần gọi `v.ai`.
+
+`v.ai({ prompt, input? })` trả request ID ngay. Gọi bên trong handler, không gọi lúc đăng ký quy tắc. `input` nhận mọi giá trị JSON; prompt/input tối đa20KB mỗi phần. Phản hồi đến trong event `ai` events: `. Success text is at most48KB; citations are ` `ask` `note`: {requestId, ok, text, citations, error}. Văn bản thành công tối đa48KB; citation {url,title}. Giữ liên kết nguồn hiển thị và có thể nhấp khi trình bày câu trả lời từ web search. Search luôn sẵn có cho mô hình. Không có deadline cố định của app; concurrency có giới hạn; không fallback nhà cung cấp hoặc tự retry. Phản hồi là dữ liệu, không thực thi như JavaScript; quy tắc quyết định có dùng hành động hiện có nào.
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+Lời gọi đang chờ không chạy lại sau khởi động. Run, tắt/bật lại và xóa sẽ loại phản hồi cũ; trình duyệt mất kết nối báo `ai-unavailable`. Lỗi khác: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. Lời gọi lỗi không thay kết quả trước mà quy tắc muốn giữ. State của quy tắc vẫn giới hạn64KB.
+
+Tìm lựa chọn không cần credential bằng `rule_ai_models` trên Mac hoặc `settings-rule-ai-models` trong trình duyệt; cấu hình `ruleAI` qua đường set-group hiện có. Các trường: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) và `dailyRequestLimit` (null hoặc1–100000). Dùng lựa chọn được trả về; không đặt key hoặc URL nhà cung cấp trong mã nguồn quy tắc.
+Các trường lưu tùy chọn là `prompt` và `context`, mỗi trường là chuỗi tối đa16KB.
+
+## Bản ghi nhóm
+
+`v.store(request)` bắt đầu thao tác bản ghi JSON bất đồng bộ trong handler. Bản ghi riêng tư theo nhóm, tồn tại qua Run và khởi động lại, rồi bị xóa cùng nhóm. Nhóm liên kết có store riêng. Quy tắc chọn key, value, version, cache invalidation và mức ưu tiên phản hồi. Quy tắc Mac và trình duyệt dùng cùng API nhưng mỗi app/trình duyệt có store riêng.
+
+| Request | Result |
+|---|---|
+| `{op:"get", key}` | `record` hoặc `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | `record` đã lưu |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | `entries` đã sắp xếp và `next` |
+| `{op:"clear", prefix?}` | số `deleted` |
+
+Mỗi record là `{value, revision, version, updatedAt}`. revision opaque đổi khi ghi thực sự; `version` là metadata của bên gọi. `list` trả header không kèm value; dùng `get` để đọc, `after: next` `put` `delete` để lấy trang tiếp. Bỏ `ifRevision` nghĩa là put/delete vô điều kiện; `null` yêu cầu key chưa tồn tại, chuỗi revision yêu cầu trùng khớp chính xác. Sai lệch trả `ok:false`, `error:"store-conflict"` và `record` hiện tại để phản hồi tự động đến muộn không ghi đè ý kiến người dùng. `v.context.revision` là dấu cấu hình opaque mà quy tắc có thể đưa vào version; framework không áp đặt chính sách cache.
+
+Giới hạn: key 1–2048 ký tự, version ≤128, JSON value ≤64KiB, depth ≤32, 10000 key mỗi nhóm, toàn bộ tài liệu16MiB. `list` trả tối đa100 header và96KiB mỗi trang. Tối đa32 request mỗi nhóm và128 request khởi chạy mỗi giây tổng cộng; quá tải báo một `store-busy` mỗi nhóm mỗi giây và bỏ các yêu cầu dư. Lỗi lưu trữ trả `ok:false`; tài liệu phiên bản tương lai hoặc lỗi định dạng được giữ lại và báo `store-unavailable`. Không tự retry/evict. Dùng ticks đặt deadline.
+
+## Tệp đính kèm nội dung đã lưu
+
+Dùng `v.attach(tabId, item, id, spec)` để lưu pill hoặc chế độ xem HTML/CSS thụ động cho mục nội dung đã quan sát. Truyền toàn bộ `item` từ sự kiện `items` hoặc `attachment`; chỉ có `ref` không phải handle tệp đính kèm. `contentId` xác định nội dung đã lưu, `instanceId` xác định lần xuất hiện hiện tại. Giữ handle ban đầu khi chờ AI. Tệp đính kèm đến muộn cho mục tiêu đã xóa, tái sử dụng hoặc điều hướng sẽ bị từ chối. `v.item(tabId, ref, verdict)` vẫn độc lập.
+
+Với pill, `spec` là `{type:"pill", text, tone?, tooltip?}`; tone là `blue`, `cyan`, `gold`, `pink` hoặc `red`. Văn bản thường tối đa 240 ký tự, tooltip 1000. Với chế độ xem, spec là `{type:"html", html, css?, label?}`. Giới hạn: HTML 32000 ký tự, CSS 16000, label 200. Chế độ xem được dựng lại từ HTML/SVG thụ động được phép trong shadow root đóng với CSS giới hạn. Script, thuộc tính sự kiện, tài nguyên từ xa, nội dung nhúng và CSS không an toàn bị loại bỏ. Chế độ xem nằm trong thẻ nội dung và cuộn ở chiều cao 480px. ID gồm 1–80 chữ/số ASCII, _ hoặc -. spec null xóa pill của nhóm. Gọi trong handler; lỗi lưu/giao xuất hiện trong Log và không tự thử lại.
+
+Mỗi mục cung cấp tệp đính kèm của nhóm này dưới dạng snapshot chỉ đọc trong `item.attachments`; tệp của nhóm khác không có ở đó. Nếu không có dữ liệu đã lưu, `attachments` là null và `attachmentError` được đặt; điều đó không có nghĩa cache rỗng. Handler khác tiếp tục chạy. Dùng ví dụ để tránh yêu cầu AI lần nữa cho nội dung đã có kết quả lưu.
+
+Thao tác con trỏ, Enter hoặc Space tạo sự kiện `attachment` cho nhóm. Pill gửi `click`. Điều khiển trong chế độ xem dùng `data-control` hoặc `id` làm `controlId`, gửi `click`, `input` hoặc `change` cùng `value` hiện tại và `values` giới hạn cho trường có tên. Sự kiện UI thật có `ev.origin === "user"`; sự kiện do rule tạo có `origin === "rule"`. Chúng gồm `tabId`, `attachmentId` và `item` hiện tại. Chế độ xem không chạy mã rule; pill và chế độ xem ngăn thao tác điều hướng thẻ bên dưới. Dữ liệu đã lưu không có callback hay mã thực thi. Revision pill cũ không thể gọi tệp hiện tại. Emit của rule là logic thông thường; trình duyệt kiểm tra riêng thông điệp nhấp UI thật.
+
+Tệp đính kèm được lưu trong hồ sơ trình duyệt này theo nhóm/nội dung/ID và xuất hiện lại ở lần sau, sau điều hướng, khởi động lại trình duyệt và Run. Disable ẩn nhưng giữ dữ liệu; enable khôi phục. Xóa nhóm sẽ xóa tệp của nhóm. Nhóm liên kết vẫn riêng biệt; không tự đồng bộ giữa trình duyệt/thiết bị. Nội dung YouTube, Reddit, X và Bilibili đã nhận diện dùng ID nền tảng. Nội dung khác dùng URL chuẩn hóa thận trọng, nên khả năng có mặt tùy markup trang được hỗ trợ.
+
+Giới hạn: 8 tệp mỗi nhóm/nội dung, 32 mỗi mục trên mọi nhóm, 10000 mục nội dung mỗi nhóm và tài liệu tệp đính kèm đã tuần tự hóa 8MB. Khi chạm giới hạn, thay đổi mới bị từ chối với `attachment-item-limit` hoặc `attachment-storage-limit` trong Log; dữ liệu cũ được giữ. Dispatch gom các lần ghi; spec giống hệt không ghi lại store. Đây là UI nội dung trình duyệt, kể cả bộ máy rule gốc của Safari. Rule của ứng dụng Mac không có handle nội dung trình duyệt hoặc giao diện tệp đính kèm trong ứng dụng.
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+`code-manual/generic-example.js` là ví dụ policy có thể chạy. Nó dùng record, lời gọi AI, phản hồi người dùng, compare-and-swap, điều khiển HTML, verdict mục và báo cáo sử dụng do rule quản lý; đó là hành vi trong mã ví dụ, không phải tính năng đặc biệt của store.
