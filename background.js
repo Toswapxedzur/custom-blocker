@@ -1678,7 +1678,15 @@ async function cbSetTabCovered(tabId, covered) {
 
 // A custom group's Snooze (the editor's button, or a tool): the rule's
 // "snooze" event (the rule decides what it means).
-async function cbFireSnoozePress(groupId) {
+async function cbFireSnoozePress(groupId, expectedConfirmations) {
+  const { groups } = await getState();
+  const group = groups.find(item => item?.id === groupId);
+  if (!group || group.groupType !== "custom") throw new Error("group-not-found");
+  cbAssertBrowserIdentityEdit(group);
+  if (cbEnforceOnly(group)) throw new Error("desktop-vault-away");
+  if (group.allowSnooze === false) throw new Error("snooze-disabled");
+  const count = Math.max(0, Number(group.snoozeConfirmations) || 0);
+  if (expectedConfirmations !== count) throw new Error("snooze-settings-changed");
   return dispatchRule("snooze", {}, { targetGroupId: groupId });
 }
 
@@ -2969,7 +2977,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: "missing groupId" });
           return;
         }
-        const result = await cbFireSnoozePress(groupId);
+        const result = await cbFireSnoozePress(groupId, message.expectedConfirmations);
         sendResponse({ ok: true, result });
       } catch (error) {
         cbDebugError("[CustomBlocker:trace] bg fire-snooze-press error", error);
@@ -4675,10 +4683,17 @@ async function cbSnoozeGroupForTool(input) {
   const { groups, groupSnoozes } = await getState();
   const group = groups.find((item) => item.id === input.id);
   if (!group) throw new Error("group-not-found");
-  // A custom group's Snooze is its rule's (owner 2026-09-27), as in the editor.
+  // The rule owns the effect, while its configured confirmation count
+  // still gates the event for tool callers.
   if (group.groupType === "custom") {
+    const count = Math.max(0, Number(group.snoozeConfirmations) || 0);
     if (group.allowSnooze === false) throw new Error("snooze-disabled");
-    await cbFireSnoozePress(group.id);
+    const now = Date.now();
+    const step = await cbToolConfirmation(`snooze:${group.id}`, count,
+      JSON.stringify([group.allowSnooze, count, group.activeEventSource, group.enabled]), input.confirm, now);
+    if (!step.done) return { snoozePressed: false, confirmationsLeft: step.left,
+      confirmAfterSeconds: 5, next: CB_CONFIRM_NEXT };
+    await cbFireSnoozePress(group.id, count);
     return { snoozePressed: true };
   }
   cbAssertBrowserIdentityEdit(group);

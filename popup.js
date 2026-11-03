@@ -3578,10 +3578,11 @@ function updateSnoozeUI(group, now = Date.now()) {
   snoozeCooldownField.disabled = settingsLocked || !allowSnooze;
   snoozeConfirmationsField.disabled = settingsLocked || !allowSnooze;
 
-  // Custom groups own snooze semantics via the rule's "snooze" event, so
-  // the numeric knobs are hidden and a copy line replaces them.
-  if (snoozeNumericFields) {
-    snoozeNumericFields.classList.toggle("hidden", isCustomGroup);
+  // Custom groups own duration and cooldown, but still use the shared
+  // confirmation count. Only ordinary snooze timing fields are hidden.
+  if (snoozeNumericFields) snoozeNumericFields.classList.remove("hidden");
+  for (const field of [snoozeMinutesField, snoozeActivationDelayField, snoozeCooldownField]) {
+    field.parentElement?.classList.toggle("hidden", isCustomGroup);
   }
   if (snoozeCustomCopy) {
     snoozeCustomCopy.classList.toggle("hidden", !isCustomGroup);
@@ -5225,7 +5226,7 @@ function renderUnfreezeModal(now = Date.now()) {
     const messageIndex = Math.min(completedCount, localizedMessages.length - 1);
     confirmTitle.textContent = t("modal.deleteAllTitle");
     confirmMessage.textContent = localizedMessages[messageIndex];
-  } else if (state.unfreezeFlow.kind === "snooze") {
+  } else if (state.unfreezeFlow.kind === "snooze" || state.unfreezeFlow.kind === "custom-snooze") {
     confirmTitle.textContent = t("modal.snoozeTitle");
     confirmMessage.textContent = t("snooze.confirmationMessage", {
       count: state.unfreezeFlow.confirmationsLeft,
@@ -5272,10 +5273,15 @@ async function handleUnfreezeConfirm() {
       return;
     }
 
-    if (state.unfreezeFlow.kind === "snooze") {
-      const group = state.groups.find((item) => item.id === state.unfreezeFlow.groupId);
+    if (state.unfreezeFlow.kind === "snooze" || state.unfreezeFlow.kind === "custom-snooze") {
+      const flow = state.unfreezeFlow;
+      const group = state.groups.find((item) => item.id === flow.groupId);
       closeUnfreezeFlow();
-      if (group) await applySnoozeStart(group);
+      if (group && flow.kind === "custom-snooze") {
+        await fireCustomSnoozePress(group.id, flow.expectedConfirmations, flow.expectedSource);
+      } else if (group) {
+        await applySnoozeStart(group);
+      }
       return;
     }
 
@@ -5301,6 +5307,47 @@ async function handleUnfreezeConfirm() {
   state.unfreezeFlow.confirmationsLeft -= 1;
   state.unfreezeFlow.nextAllowedAtMs = now + UNFREEZE_CONFIRMATION_INTERVAL_MS;
   renderUnfreezeModal();
+}
+
+// Custom groups own snooze behavior. Send their event only after this group's
+// confirmation flow finishes and the saved rule/settings still match the ask.
+async function fireCustomSnoozePress(groupId, expectedConfirmations, expectedSource) {
+  if (state.snoozeNoticeOpen) return;
+  state.snoozeNoticeOpen = true;
+  try {
+    const group = state.groups.find(item => item.id === groupId);
+    if (!group || group.groupType !== "custom" || group.allowSnooze === false ||
+        Math.max(0, Number(group.snoozeConfirmations) || 0) !== expectedConfirmations ||
+        group.activeEventSource !== expectedSource || refuseWhileDesktopVaultAway(group)) {
+      return;
+    }
+    // Every Snooze ends with a final confirmation. A custom rule owns the
+    // effect, so the ordinary duration/total notice would be misleading.
+    const accepted = await cbDialog.confirm(
+      `${group.name}\n\n${t("snooze.customCopy")}`,
+      { title: t("snooze.title"), confirmText: t("modal.confirm"), cancelText: t("modal.cancel") }
+    );
+    if (!accepted) return;
+    const fresh = state.groups.find(item => item.id === groupId);
+    if (!fresh || fresh.groupType !== "custom" || fresh.allowSnooze === false ||
+        Math.max(0, Number(fresh.snoozeConfirmations) || 0) !== expectedConfirmations ||
+        fresh.activeEventSource !== expectedSource || refuseWhileDesktopVaultAway(fresh)) {
+      return;
+    }
+    setSnoozeWarning("");
+    const response = await chrome.runtime.sendMessage({
+      type: "fire-snooze-press",
+      groupId,
+      expectedConfirmations
+    });
+    if (!response || !response.ok) {
+      setSnoozeWarning((response && response.error) || t("snooze.warning.snoozePressFailed"));
+    }
+  } catch (error) {
+    setSnoozeWarning(String(error && error.message ? error.message : error));
+  } finally {
+    state.snoozeNoticeOpen = false;
+  }
 }
 
 async function startSnooze() {
@@ -5330,47 +5377,30 @@ async function startSnooze() {
     return;
   }
 
-  // Custom groups: Start Snooze sends the rule its "snooze" event; the rule
-  // decides what happens (the group itself doesn't snooze).
-  if (group.groupType === "custom") {
-    setSnoozeWarning("");
-    try {
-      cbDebugLog("[CustomBlocker:trace] popup → fire-snooze-press", group.id);
-      const response = await chrome.runtime.sendMessage({
-        type: "fire-snooze-press",
-        groupId: group.id
-      });
-      cbDebugLog("[CustomBlocker:trace] popup ← fire-snooze-press response", response);
-      if (!response || !response.ok) {
-        const err =
-          (response && response.error) || t("snooze.warning.snoozePressFailed");
-        setSnoozeWarning(err);
-      }
-    } catch (error) {
-      cbDebugWarn("[CustomBlocker:trace] popup fire-snooze-press error", error);
-      setSnoozeWarning(String(error && error.message ? error.message : error));
-    }
-    return;
-  }
-
-  // The rules are group-actions.js; the snooze uses the group's SAVED
-  // settings (the autosave above), the same ones the cover and linked devices use.
-  const plan = CBGroupActions.snoozePlan(group, state.groupSnoozes[group.id], Date.now());
+  // A custom group's Snooze is its rule event. Its confirmations still use
+  // the same modal and five-second pacing as ordinary groups.
+  const isCustomGroup = group.groupType === "custom";
+  const plan = isCustomGroup
+    ? { confirmations: Math.max(0, Number(group.snoozeConfirmations) || 0) }
+    : CBGroupActions.snoozePlan(group, state.groupSnoozes[group.id], Date.now());
   if (plan.error) {
     showSnoozeInProgress(currentSnooze, currentSnoozePhase);
     return;
   }
   setSnoozeWarning("");
   if (plan.confirmations === 0) {
-    await applySnoozeStart(group);
+    if (isCustomGroup) await fireCustomSnoozePress(group.id, 0, group.activeEventSource);
+    else await applySnoozeStart(group);
     return;
   }
 
   state.unfreezeFlow = {
-    kind: "snooze",
+    kind: isCustomGroup ? "custom-snooze" : "snooze",
     groupId: group.id,
     label: group.name,
     confirmationsLeft: plan.confirmations,
+    expectedConfirmations: plan.confirmations,
+    expectedSource: isCustomGroup ? group.activeEventSource : null,
     nextAllowedAtMs: Date.now() + UNFREEZE_CONFIRMATION_INTERVAL_MS
   };
 

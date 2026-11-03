@@ -253,6 +253,32 @@ async function op(operation, body) {
     return (await op("settings-snooze-group", { id }))?.body?.snoozed === true;
   })());
 
+  const customSnooze = (await op("settings-create-group", {
+    groupType: "custom", patch: { name: "Confirmed custom snooze", snoozeConfirmations: 2 }
+  })).body.group.id;
+  const snoozeEvents = [];
+  const dispatchBefore = context.dispatchRule;
+  context.dispatchRule = async (type, data, options) => {
+    if (type === "snooze") snoozeEvents.push({ type, options });
+    return {};
+  };
+  const customAsk = await op("settings-snooze-group", { id: customSnooze });
+  check("custom tool Snooze asks for its configured confirmations",
+    customAsk?.body?.snoozePressed === false && customAsk.body.confirmationsLeft === 2 && snoozeEvents.length === 0, customAsk);
+  const customEarly = await op("settings-snooze-group", { id: customSnooze, confirm: true });
+  check("custom tool Snooze enforces the five-second interval", /^confirm-wait:/.test(customEarly?.error || "") && snoozeEvents.length === 0, customEarly);
+  ageKey(`snooze:${customSnooze}`);
+  const customFirst = await op("settings-snooze-group", { id: customSnooze, confirm: true });
+  check("custom tool first confirmation sends no rule event", customFirst?.body?.confirmationsLeft === 1 && snoozeEvents.length === 0, customFirst);
+  ageKey(`snooze:${customSnooze}`);
+  const customDone = await op("settings-snooze-group", { id: customSnooze, confirm: true });
+  check("custom tool final confirmation sends exactly one rule event",
+    customDone?.body?.snoozePressed === true && snoozeEvents.length === 1 && snoozeEvents[0].options?.targetGroupId === customSnooze, customDone);
+  let rejectedStaleCount = false;
+  try { await context.cbFireSnoozePress(customSnooze, 0); } catch (error) { rejectedStaleCount = error?.message === "snooze-settings-changed"; }
+  check("worker refuses a stale custom Snooze confirmation count", rejectedStaleCount && snoozeEvents.length === 1);
+  context.dispatchRule = dispatchBefore;
+
   const order = storage.get("blockedGroups").map((x) => x.id);
   const moved = await op("settings-move-group", { id: c, index: 0 });
   check("move-group reorders, like a drag", moved?.body?.order?.[0] === c && moved.body.order.length === order.length, moved);
