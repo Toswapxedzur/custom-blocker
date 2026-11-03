@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "সংরক্ষিত pending edit পড়া যায়নি। সংরক্ষিত সেটিংস ও ব্যবহার অক্ষুণ্ণ রাখা হয়েছে।",
   "link.browserConnectRequired": "এই বাজেট unlink করার আগে browser Vault extension সংযুক্ত করুন। সংরক্ষিত সেটিংস ও ব্যবহার অক্ষুণ্ণ থাকবে।",
   "custom.ai.prompt": "সংরক্ষিত প্রম্পট",
-  "custom.ai.context": "সংরক্ষিত প্রসঙ্গ"
+  "custom.ai.context": "সংরক্ষিত প্রসঙ্গ",
+  "contentTag.failure.limitReached": "সীমা পূর্ণ",
+  "contentTag.failure.rateLimited": "অনুরোধের সীমা ছাড়িয়েছে",
+  "contentTag.failure.signInRequired": "AI আবার সংযোগ করুন",
+  "contentTag.failure.accessDenied": "প্রবেশাধিকার নেই",
+  "contentTag.failure.modelUnavailable": "মডেল বাছুন",
+  "contentTag.failure.serviceUnavailable": "পরিষেবা অনুপলব্ধ",
+  "contentTag.failure.connectionIssue": "সংযোগে সমস্যা",
+  "contentTag.failure.invalidResponse": "অবৈধ উত্তর",
+  "contentTag.failure.requestRejected": "অনুরোধ প্রত্যাখ্যাত",
+  "contentTag.failure.taggingFailed": "ট্যাগ করা যায়নি",
+  "contentTag.failure.refreshHint": "আবার চেষ্টা করতে Vault Settings খুলে Refresh models চাপুন।"
 }

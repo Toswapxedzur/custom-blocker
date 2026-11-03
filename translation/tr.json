@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "Kaydedilmiş bekleyen düzenlemeler okunamadı. Kayıtlı ayarlar ve kullanım korundu.",
   "link.browserConnectRequired": "Bu bütçenin bağını kaldırmadan önce Vault tarayıcı uzantısını bağlayın. Kayıtlı ayarlar ve kullanım korunur.",
   "custom.ai.prompt": "Kaydedilen istem",
-  "custom.ai.context": "Kaydedilen bağlam"
+  "custom.ai.context": "Kaydedilen bağlam",
+  "contentTag.failure.limitReached": "Limite ulaşıldı",
+  "contentTag.failure.rateLimited": "İstek sınırı aşıldı",
+  "contentTag.failure.signInRequired": "Yapay zekâyı yeniden bağla",
+  "contentTag.failure.accessDenied": "Erişim reddedildi",
+  "contentTag.failure.modelUnavailable": "Model seç",
+  "contentTag.failure.serviceUnavailable": "Hizmet kullanılamıyor",
+  "contentTag.failure.connectionIssue": "Bağlantı sorunu",
+  "contentTag.failure.invalidResponse": "Geçersiz yanıt",
+  "contentTag.failure.requestRejected": "İstek reddedildi",
+  "contentTag.failure.taggingFailed": "Etiketleme başarısız",
+  "contentTag.failure.refreshHint": "Yeniden denemek için Vault Ayarları’nı açıp Modelleri yenile’ye tıklayın."
 }

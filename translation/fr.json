@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "Impossible de lire les modifications en attente enregistrées. Les paramètres et l’utilisation enregistrés ont été conservés.",
   "link.browserConnectRequired": "Connectez l’extension de navigateur Vault avant de dissocier ce budget. Les paramètres et l’utilisation enregistrés sont conservés.",
   "custom.ai.prompt": "Consigne enregistrée",
-  "custom.ai.context": "Contexte enregistré"
+  "custom.ai.context": "Contexte enregistré",
+  "contentTag.failure.limitReached": "Limite atteinte",
+  "contentTag.failure.rateLimited": "Limite de requêtes",
+  "contentTag.failure.signInRequired": "Reconnecter l’IA",
+  "contentTag.failure.accessDenied": "Accès refusé",
+  "contentTag.failure.modelUnavailable": "Choisir un modèle",
+  "contentTag.failure.serviceUnavailable": "Service indisponible",
+  "contentTag.failure.connectionIssue": "Problème de connexion",
+  "contentTag.failure.invalidResponse": "Réponse invalide",
+  "contentTag.failure.requestRejected": "Requête refusée",
+  "contentTag.failure.taggingFailed": "Échec du classement",
+  "contentTag.failure.refreshHint": "Ouvrez les réglages de Vault et cliquez sur « Actualiser les modèles » pour réessayer."
 }

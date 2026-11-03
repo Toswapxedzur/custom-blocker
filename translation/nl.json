@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "Opgeslagen openstaande wijzigingen konden niet worden gelezen. De opgeslagen instellingen en het gebruik zijn behouden.",
   "link.browserConnectRequired": "Verbind de Vault-browserextensie voordat je dit budget ontkoppelt. Opgeslagen instellingen en gebruik blijven behouden.",
   "custom.ai.prompt": "Opgeslagen prompt",
-  "custom.ai.context": "Opgeslagen context"
+  "custom.ai.context": "Opgeslagen context",
+  "contentTag.failure.limitReached": "Limiet bereikt",
+  "contentTag.failure.rateLimited": "Aanvraaglimiet bereikt",
+  "contentTag.failure.signInRequired": "AI opnieuw verbinden",
+  "contentTag.failure.accessDenied": "Toegang geweigerd",
+  "contentTag.failure.modelUnavailable": "Model kiezen",
+  "contentTag.failure.serviceUnavailable": "Service niet beschikbaar",
+  "contentTag.failure.connectionIssue": "Verbindingsprobleem",
+  "contentTag.failure.invalidResponse": "Ongeldig antwoord",
+  "contentTag.failure.requestRejected": "Aanvraag geweigerd",
+  "contentTag.failure.taggingFailed": "Taggen mislukt",
+  "contentTag.failure.refreshHint": "Open Vault-instellingen en klik op Modellen vernieuwen om opnieuw te proberen."
 }

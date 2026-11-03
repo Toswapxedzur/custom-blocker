@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "无法读取已保存的待处理编辑。已保存的设置和使用量已保留。",
   "link.browserConnectRequired": "解除此预算的关联前，请连接浏览器 Vault 扩展。已保存的设置和使用量会保留。",
   "custom.ai.prompt": "已保存的提示词",
-  "custom.ai.context": "已保存的上下文"
+  "custom.ai.context": "已保存的上下文",
+  "contentTag.failure.limitReached": "已达上限",
+  "contentTag.failure.rateLimited": "请求次数受限",
+  "contentTag.failure.signInRequired": "重新连接 AI",
+  "contentTag.failure.accessDenied": "拒绝访问",
+  "contentTag.failure.modelUnavailable": "选择模型",
+  "contentTag.failure.serviceUnavailable": "服务不可用",
+  "contentTag.failure.connectionIssue": "连接问题",
+  "contentTag.failure.invalidResponse": "响应无效",
+  "contentTag.failure.requestRejected": "请求被拒绝",
+  "contentTag.failure.taggingFailed": "标记失败",
+  "contentTag.failure.refreshHint": "打开 Vault 设置并点击“刷新模型”以重试。"
 }

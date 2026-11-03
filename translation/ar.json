@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "تعذرت قراءة التعديلات المعلقة المحفوظة. تم الاحتفاظ بالإعدادات والاستخدام المحفوظين.",
   "link.browserConnectRequired": "صِل إضافة Vault للمتصفح قبل إلغاء ربط هذه الميزانية. تم الاحتفاظ بالإعدادات والاستخدام المحفوظين.",
   "custom.ai.prompt": "المطالبة المحفوظة",
-  "custom.ai.context": "السياق المحفوظ"
+  "custom.ai.context": "السياق المحفوظ",
+  "contentTag.failure.limitReached": "تم بلوغ الحد",
+  "contentTag.failure.rateLimited": "تجاوز حد الطلبات",
+  "contentTag.failure.signInRequired": "أعد ربط الذكاء الاصطناعي",
+  "contentTag.failure.accessDenied": "تم رفض الوصول",
+  "contentTag.failure.modelUnavailable": "اختر نموذجًا",
+  "contentTag.failure.serviceUnavailable": "الخدمة غير متاحة",
+  "contentTag.failure.connectionIssue": "مشكلة في الاتصال",
+  "contentTag.failure.invalidResponse": "استجابة غير صالحة",
+  "contentTag.failure.requestRejected": "تم رفض الطلب",
+  "contentTag.failure.taggingFailed": "فشل وضع الوسوم",
+  "contentTag.failure.refreshHint": "افتح إعدادات Vault واضغط على «تحديث النماذج» لإعادة المحاولة."
 }

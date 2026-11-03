@@ -1,5 +1,5 @@
-/* A video that resolves but carries no tags renders a "Untagged" pill; a lookup that
- * fails renders Untagged, while late pushes and root reuse remain safe. */
+/* A valid empty result renders "Untagged"; failed lookups remain visibly
+ * unsettled, while late pushes and root reuse remain safe. */
 "use strict";
 
 const fs = require("node:fs");
@@ -142,6 +142,13 @@ const chrome = {
           platformID: message.platform,
           items: (Array.isArray(message.items) ? message.items : []).map((item) => ({ entryID: item.entryID, tags: [], predicted: false, pending: true }))
         };
+      } else if (batchOutcome === "limit" && message.type === "vault-classifier-video-tags-batch") {
+        response = {
+          ok: true, platformID: message.platform,
+          items: (Array.isArray(message.items) ? message.items : []).map((item) => ({
+            entryID: item.entryID, tags: [], failureCode: "limitReached"
+          }))
+        };
       } else {
         // Batch unavailable + single fallback both fail (bridge down).
         response = { ok: false, items: [], tags: [] };
@@ -184,16 +191,22 @@ setTimeout(() => {
   const noneNames = chipNamesFor(noneRoot);
   const rendersNone = JSON.stringify(noneNames) === JSON.stringify(["Untagged"]);
 
-  // Phase 2: a failed lookup renders Untagged and remains retryable.
+  // Phase 2: a failed lookup shows its connection status without becoming a decision.
   const failRoot = new FakeElement("article", document);
   const failAnchor = failRoot.appendChild(new FakeElement("a", document));
   batchOutcome = "fail";
   context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: "youtube:video:vfail", creatorID: "youtube:channel:UCfail", title: "A video title", root: failRoot, anchor: failAnchor });
 
   setTimeout(() => {
-    // Only the anchor remains; no pill host was appended.
-    const failBlank = JSON.stringify(chipNamesFor(failRoot)) === JSON.stringify(["Untagged"]) && context.vaultTagsSettledForCard(failRoot);
+    const failVisible = JSON.stringify(chipNamesFor(failRoot)) === JSON.stringify(["Connection issue"])
+      && !context.vaultTagsSettledForCard(failRoot);
 
+    const limitRoot = new FakeElement("article", document);
+    batchOutcome = "limit";
+    context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: "youtube:video:vlimit",
+      creatorID: "youtube:channel:UClimit", title: "A video title", root: limitRoot });
+
+    setTimeout(() => {
     // Phase 3: a video the app is still classifying (pending) shows exactly one
     // temporary "Tagging" placeholder chip.
     const pendingRoot = new FakeElement("article", document);
@@ -204,15 +217,19 @@ setTimeout(() => {
     setTimeout(() => {
       const pendingNames = chipNamesFor(pendingRoot);
       const rendersTagging = JSON.stringify(pendingNames) === JSON.stringify(["Tagging"]);
+      const limitVisible = JSON.stringify(chipNamesFor(limitRoot)) === JSON.stringify(["Limit reached"])
+        && !context.vaultTagsSettledForCard(limitRoot);
 
-      if (rendersNone && failBlank && rendersTagging) {
-        console.log("PASS tagless video -> Untagged; failed lookup -> Untagged; pending video -> Tagging placeholder");
+      if (rendersNone && failVisible && limitVisible && rendersTagging) {
+        console.log("PASS valid empty -> Untagged; failed lookup -> Connection issue; limit -> Limit reached; pending -> Tagging");
         void raceChecks();
         return;
       }
-      console.error("FAIL none/tagging pill", { noneNames, rendersNone, failChildren: failRoot.children.length, pendingNames, rendersTagging });
+      console.error("FAIL none/tagging pill", { noneNames, rendersNone, failChildren: failRoot.children.length,
+        limitNames: chipNamesFor(limitRoot), pendingNames, rendersTagging });
       console.log("__CB_TEST_RESULT__: FAIL");
       process.exitCode = 1;
+    }, 40);
     }, 40);
   }, 40);
 }, 40);
@@ -281,7 +298,8 @@ async function raceChecks() {
       const timers = delayedTimers.splice(0); timers.forEach(fn => fn());
       await wait();
     }
-    check(JSON.stringify(chipNamesFor(timeoutRoot)) === '["Untagged"]', "bounded pending timeout outputs Untagged");
+    check(JSON.stringify(chipNamesFor(timeoutRoot)) === '["Connection issue"]'
+      && !context.vaultTagsSettledForCard(timeoutRoot), "bounded pending timeout remains visibly unsettled");
     context.VaultClassifierTagUI.clearPlatform("youtube");
     console.log("PASS immediate recognition, evidence readiness, push ordering, stable hydration and recycled Reddit roots");
     console.log("__CB_TEST_RESULT__: OK");

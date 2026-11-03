@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "सहेजे गए pending edits पढ़े नहीं जा सके। सहेजी गई settings और usage सुरक्षित रखे गए हैं।",
   "link.browserConnectRequired": "इस बजट को unlink करने से पहले browser Vault extension कनेक्ट करें। सहेजी गई settings और usage सुरक्षित रहेंगी।",
   "custom.ai.prompt": "सहेजा गया प्रॉम्प्ट",
-  "custom.ai.context": "सहेजा गया संदर्भ"
+  "custom.ai.context": "सहेजा गया संदर्भ",
+  "contentTag.failure.limitReached": "सीमा पूरी हुई",
+  "contentTag.failure.rateLimited": "अनुरोध सीमा पूरी",
+  "contentTag.failure.signInRequired": "AI फिर से जोड़ें",
+  "contentTag.failure.accessDenied": "पहुंच अस्वीकृत",
+  "contentTag.failure.modelUnavailable": "मॉडल चुनें",
+  "contentTag.failure.serviceUnavailable": "सेवा उपलब्ध नहीं",
+  "contentTag.failure.connectionIssue": "कनेक्शन समस्या",
+  "contentTag.failure.invalidResponse": "अमान्य जवाब",
+  "contentTag.failure.requestRejected": "अनुरोध अस्वीकृत",
+  "contentTag.failure.taggingFailed": "टैगिंग विफल",
+  "contentTag.failure.refreshHint": "फिर कोशिश के लिए Vault Settings खोलें और Refresh models पर क्लिक करें।"
 }

@@ -58,6 +58,10 @@ const VALID_TAGS = [
       && good.items[0].entryID === "youtube:video:v1" && good.items[0].tags.length === 1,
     good
   );
+  const failed = C.normalizeVideoTagsBroadcast(inContext({
+    platformID: "youtube", items: [{ entryID: "youtube:video:v1", tags: [], failureCode: "limitReached" }]
+  }));
+  check("contract accepts a bounded failure broadcast", failed?.items?.[0]?.failureCode === "limitReached", failed);
   const rejected = [
     C.normalizeVideoTagsBroadcast(null),
     C.normalizeVideoTagsBroadcast(inContext({ platformID: "youtube", items: [] })),
@@ -290,6 +294,24 @@ const sentToTabs = [];
       { id: "ext" }
     );
     check("pushed empty tags render the Untagged pill", JSON.stringify(chipNames()) === JSON.stringify(["Untagged"]), chipNames());
+
+    pushListener(
+      { type: "vault-classifier-video-tags-updated", platform: "youtube",
+        items: [{ entryID, tags: [], failureCode: "limitReached" }] }, { id: "ext" }
+    );
+    check("pushed failure stays visible and unsettled", JSON.stringify(chipNames()) === JSON.stringify(["Limit reached"])
+      && context.vaultTagsSettledForCard(cardRoot) === false, chipNames());
+    pushListener(
+      { type: "vault-classifier-video-tags-updated", platform: "youtube",
+        items: [{ entryID, tags: [], pending: true }] }, { id: "ext" }
+    );
+    check("manual refresh can return a failed pill to Tagging", JSON.stringify(chipNames()) === JSON.stringify(["Tagging"]), chipNames());
+    pushListener(
+      { type: "vault-classifier-video-tags-updated", platform: "youtube",
+        items: [{ entryID, tags: VALID_TAGS }] }, { id: "ext" }
+    );
+    check("the retried result settles with real tags", JSON.stringify(chipNames()) === JSON.stringify(["Games"])
+      && context.vaultTagsSettledForCard(cardRoot) === true, chipNames());
 
     // A push for a not-yet-observed video pre-fills the cache: the later
     // observe renders from it without a request round-trip.

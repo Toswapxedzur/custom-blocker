@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "Не удалось прочитать сохранённые ожидающие изменения. Настройки и данные об использовании сохранены.",
   "link.browserConnectRequired": "Подключите расширение Vault для браузера, прежде чем разрывать связь этого бюджета. Сохранённые настройки и использование сохранятся.",
   "custom.ai.prompt": "Сохранённый запрос",
-  "custom.ai.context": "Сохранённый контекст"
+  "custom.ai.context": "Сохранённый контекст",
+  "contentTag.failure.limitReached": "Лимит достигнут",
+  "contentTag.failure.rateLimited": "Лимит запросов",
+  "contentTag.failure.signInRequired": "Переподключить ИИ",
+  "contentTag.failure.accessDenied": "Доступ запрещён",
+  "contentTag.failure.modelUnavailable": "Выбрать модель",
+  "contentTag.failure.serviceUnavailable": "Сервис недоступен",
+  "contentTag.failure.connectionIssue": "Проблема с подключением",
+  "contentTag.failure.invalidResponse": "Неверный ответ",
+  "contentTag.failure.requestRejected": "Запрос отклонён",
+  "contentTag.failure.taggingFailed": "Не удалось добавить теги",
+  "contentTag.failure.refreshHint": "Откройте настройки Vault и нажмите «Обновить модели», чтобы повторить попытку."
 }

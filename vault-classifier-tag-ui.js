@@ -42,9 +42,25 @@
     darkColorHex: "#1E3A8A"
   })]);
 
-  // Maps a resolved lookup to what should render. A definitive answer with no
-  // tags or a failed lookup becomes Untagged. Failures keep a short retry TTL
-  // internally, and a later successful response or push replaces the pill.
+  const FAILURE_LABELS = Object.freeze({
+    limitReached: "Limit reached", rateLimited: "Rate limited",
+    signInRequired: "Reconnect AI", accessDenied: "Access denied",
+    modelUnavailable: "Choose model", serviceUnavailable: "Service unavailable",
+    connectionIssue: "Connection issue", invalidResponse: "Invalid response",
+    requestRejected: "Request rejected", taggingFailed: "Tagging failed"
+  });
+  function failureTags(code) {
+    const reason = Object.hasOwn(FAILURE_LABELS, code) ? code : "taggingFailed";
+    return [{ id: `vault:failure:${reason}`, name: FAILURE_LABELS[reason],
+      lightColorHex: "#FEE2E2", darkColorHex: "#7F1D1D" }];
+  }
+  function isSyntheticTag(tag) {
+    return tag?.id === "vault:none" || tag?.id === "vault:tagging"
+      || String(tag?.id || "").startsWith("vault:failure:");
+  }
+
+  // Only a valid model answer with no tags becomes Untagged. Failures use a
+  // separate status pill and remain unsettled until an explicit retry resolves.
   function displayTags(tags) {
     if (!Array.isArray(tags)) return NONE_TAGS;
     return tags.length ? tags : NONE_TAGS;
@@ -181,7 +197,7 @@
     if (state.kind === "page") {
       const evaluate = global.cbEvaluateTagPage;
       if (typeof evaluate !== "function") return;
-      const settled = Boolean(result) && !result.provisional;
+      const settled = Boolean(result) && !result.provisional && !result.failed && !result.skipped;
       let action = "allow";
       try { action = evaluate(state.root, { entryID: state.entryID, platform: state.platform, settled }); } catch (_) {}
       devLog("page-verdict", { entry: state.entryID, action });
@@ -228,14 +244,14 @@
   // 15 s after it was tagged.
   function shownTags(state) {
     const tags = state && Array.isArray(state.currentTags) ? state.currentTags : null;
-    if (!tags || tags.some((t) => t && t.id === "vault:tagging")) return null;
+    if (!tags || tags.some((t) => t && (t.id === "vault:tagging" || String(t.id).startsWith("vault:failure:")))) return null;
     return tags;
   }
 
   function tagsForCard(root) {
     const tags = shownTags(stateForCard(root));
     // Drop the "None" placeholder pill — custom rules only see real tags.
-    return tags ? tags.filter((t) => t && t.id !== "vault:none") : [];
+    return tags ? tags.filter((t) => t && !isSyntheticTag(t)) : [];
   }
   if (global) global.vaultTagsForCard = tagsForCard;
 
@@ -273,7 +289,8 @@
     const cached = sourceCache.get(key);
     if (cached?.pending) return cached.pending;
     if (cached && cached.expiresAt > Date.now()) {
-      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true, provisional: cached.provisional === true, failed: cached.failed === true });
+      return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true,
+        provisional: cached.provisional === true, failed: cached.failed === true, skipped: cached.skipped === true });
     }
 
     const epoch = platformEpochs.get(platform) || 0;
@@ -288,7 +305,7 @@
       const latest = sourceCache.get(key);
       if (latest && latest !== record) return latest.pending || {
         tags: latest.tags, predicted: latest.predicted === true,
-        provisional: latest.provisional === true, failed: latest.failed === true
+        provisional: latest.provisional === true, failed: latest.failed === true, skipped: latest.skipped === true
       };
       // The app is still classifying this video: show the "Tagging" placeholder
       // and re-check soon so the real tags replace it quickly. Never dim/hide
@@ -298,11 +315,17 @@
         prune();
         return { tags: TAGGING_TAGS, predicted: false, provisional: true };
       }
-      const display = displayTags(result && result.tags);
+      if (result?.skipped) {
+        sourceCache.set(key, { tags: [], skipped: true, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
+        return { tags: [], skipped: true };
+      }
+      const failed = !result || Boolean(result.failureCode);
+      const display = failed ? failureTags(result?.failureCode || "connectionIssue") : displayTags(result.tags);
       const predicted = Boolean(result && result.predicted);
-      sourceCache.set(key, { tags: display, predicted, provisional: false, failed: !result, expiresAt: Date.now() + (result ? CACHE_TTL_MS : PENDING_TTL_MS), pending: null });
+      sourceCache.set(key, { tags: display, predicted, provisional: false, failed,
+        expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
       prune();
-      return { tags: display, predicted, provisional: false, failed: !result };
+      return { tags: display, predicted, provisional: false, failed };
     });
     record.pending = pending;
     sourceCache.set(key, record);
@@ -377,7 +400,9 @@
           (response) => {
             if (chrome.runtime.lastError || response?.ok !== true) return resolve(null);
             const normalized = C.normalizeVideoTagsResponse(response, platform, entryID);
-            resolve(normalized ? { tags: normalized.tags, predicted: normalized.predicted === true, pending: normalized.pending === true } : null);
+            resolve(normalized ? { tags: normalized.tags, predicted: normalized.predicted === true,
+              pending: normalized.pending === true, skipped: normalized.skipped === true,
+              failureCode: normalized.failureCode } : null);
           }
         );
       } catch (_) {
@@ -387,7 +412,6 @@
   }
 
   // --- Live correction: taxonomy (add choices) + submit-correction ----------
-  const SYNTHETIC_IDS = new Set(["vault:none", "vault:tagging"]);
   const taxonomyCache = new Map(); // platform -> { value, expiresAt, pending }
 
   // The predictable tag choices per classifier type, cached briefly. `tagToType`
@@ -435,10 +459,9 @@
     });
   }
 
-  // Real (correctable) tag ids currently on this video, i.e. excluding the
-  // synthetic None/Tagging placeholders.
+  // Real (correctable) tag ids currently on this video, excluding status pills.
   function realTagIDs(state) {
-    return (state.currentTags || []).filter((tag) => !SYNTHETIC_IDS.has(tag.id)).map((tag) => tag.id);
+    return (state.currentTags || []).filter((tag) => !isSyntheticTag(tag)).map((tag) => tag.id);
   }
 
   // The corrected set for one type after adding/removing a tag id. When the
@@ -470,7 +493,7 @@
   // {id,name,lightColorHex,darkColorHex}; `removeID` is a tag id.
   function editTags(state, { addTag, removeID }) {
     if (state.correctionPending) return;
-    const before = (state.currentTags || []).filter((tag) => !SYNTHETIC_IDS.has(tag.id));
+    const before = (state.currentTags || []).filter((tag) => !isSyntheticTag(tag));
     let next;
     if (removeID) {
       next = before.filter((tag) => tag.id !== removeID);
@@ -786,7 +809,7 @@
       ".add-btn{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-height:18px;padding:1px 8px;border:0;border-radius:999px;background:#1e3a8a;color:#eef2ff;font:600 11px/16px Arial,Helvetica,sans-serif;cursor:pointer;opacity:.7}",
       ".add-btn.pointer-hover{opacity:1}",
       // CSS updates already-mounted pills when the browser preference changes.
-      "@media (prefers-color-scheme:dark){.chip,.chip.predicted,.chip.tagging{background:var(--vault-tag-color-light);color:#000}.chip.predicted,.chip.tagging{color:var(--vault-tag-color-dark);border-color:var(--vault-tag-color-dark)}.add-btn{background:#eef2ff;color:#1e3a8a}.chip-del{background:#fee2e2;color:#991b1b}}",
+      "@media (prefers-color-scheme:dark){.chip,.chip.predicted,.chip.tagging,.chip.failed{background:var(--vault-tag-color-light);color:#000}.chip.predicted,.chip.tagging{color:var(--vault-tag-color-dark);border-color:var(--vault-tag-color-dark)}.add-btn{background:#eef2ff;color:#1e3a8a}.chip-del{background:#fee2e2;color:#991b1b}}",
       ".panel{position:fixed;inset:auto;top:0;left:0;margin:0;padding:0;pointer-events:auto;z-index:2147483647;width:190px;max-height:230px;display:none;flex-direction:column;background:#fff;color:#1f2937;border:0;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.22);overflow:hidden;font:500 12px/1.3 Arial,Helvetica,sans-serif}",
       ".panel.open{display:flex}",
       ".panel::backdrop{background:transparent;pointer-events:none}",
@@ -879,18 +902,22 @@
     state.host.dir = global.VaultContentI18n?.language === "ar" ? "rtl" : "ltr";
     const document = state.root.ownerDocument || global.document;
     const isTagging = tags.length === 1 && tags[0].id === "vault:tagging";
+    const isFailure = tags.length === 1 && tags[0].id.startsWith("vault:failure:");
     for (const tag of tags) {
       const wrap = document.createElement("span");
       wrap.className = "chip-wrap";
       const chip = document.createElement("span");
-      chip.className = tag.id === "vault:tagging" ? "chip tagging" : (predicted ? "chip predicted" : "chip");
+      chip.className = tag.id === "vault:tagging" ? "chip tagging" : (isFailure ? "chip failed" : (predicted ? "chip predicted" : "chip"));
       chip.dir = "auto";
-      chip.textContent = tag.id === "vault:none" ? ui("contentTag.untagged", "Untagged") : tag.id === "vault:tagging" ? ui("contentTag.tagging", "Tagging") : tag.name;
+      chip.textContent = tag.id === "vault:none" ? ui("contentTag.untagged", "Untagged")
+        : tag.id === "vault:tagging" ? ui("contentTag.tagging", "Tagging")
+        : isFailure ? ui(`contentTag.failure.${tag.id.slice("vault:failure:".length)}`, tag.name) : tag.name;
+      if (isFailure) chip.title = ui("contentTag.failure.refreshHint", "Open Vault Settings and click Refresh models to retry.");
       chip.style.setProperty("--vault-tag-color-light", tag.lightColorHex);
       chip.style.setProperty("--vault-tag-color-dark", tag.darkColorHex);
       wrap.appendChild(chip);
-      // Real tags carry a hover delete affordance; the None/Tagging placeholders do not.
-      if (!SYNTHETIC_IDS.has(tag.id)) {
+      // Real tags carry a hover delete affordance; status pills do not.
+      if (!isSyntheticTag(tag)) {
         wrap.tabIndex = 0;
         wrap.setAttribute("aria-label", ui("contentTag.removeInstruction", tag.name + ". Press Delete to remove", { tag: tag.name }));
         wrap.setAttribute("aria-keyshortcuts", "Delete Backspace");
@@ -907,7 +934,7 @@
     }
     // An add-a-tag button always sits at the end of the queue (except while the
     // video is still being classified).
-    if (!isTagging) {
+    if (!isTagging && !isFailure) {
       const add = document.createElement("button");
       add.className = "add-btn";
       add.dataset.owner = state.ownerToken;
@@ -925,20 +952,30 @@
   function settleState(state, result) {
     if (stateByRoot.get(state.root) !== state || state.root.isConnected === false
       || state.epoch !== (platformEpochs.get(state.platform) || 0)) return;
+    if (!result?.provisional && state.recheckTimer) {
+      clearTimeout(state.recheckTimer);
+      state.recheckTimer = null;
+    }
     // Rechecks can return pending after a known answer. Hold the answer until
     // another settled answer exists; Reddit hydration must not flash Tagging.
-    const holding = shownTags(state) && (result?.provisional || result?.failed);
-    if (!holding) render(state, result?.tags || NONE_TAGS, Boolean(result?.predicted));
+    const holding = shownTags(state) && result?.provisional;
+    if (result?.skipped) {
+      state.currentTags = null;
+      render(state, []);
+    } else if (!holding) {
+      render(state, result?.tags || failureTags("connectionIssue"), Boolean(result?.predicted));
+    }
     notifyTagsChanged(state, holding ? { provisional: false } : result || { failed: true });
-    if (result?.provisional || result?.failed) scheduleProvisionalRecheck(state);
+    if (result?.provisional) scheduleProvisionalRecheck(state);
   }
   function scheduleProvisionalRecheck(state) {
     if (state.recheckTimer) return;
     if (state.recheckAttempts >= MAX_PENDING_RECHECKS) {
       if (!shownTags(state)) {
-        sourceCache.set(state.key, { tags: NONE_TAGS, predicted: false, provisional: false,
-          failed: true, expiresAt: Date.now() + PENDING_TTL_MS, pending: null });
-        render(state, NONE_TAGS);
+        const tags = failureTags("connectionIssue");
+        sourceCache.set(state.key, { tags, predicted: false, provisional: false,
+          failed: true, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
+        render(state, tags);
         notifyTagsChanged(state, { failed: true, provisional: false });
       }
       return;
@@ -990,6 +1027,12 @@
     state.epoch = platformEpochs.get(platform) || 0;
     devLog("observe", { platform, entry: entryID, creator: creatorID });
     const cached = sourceCache.get(key);
+    if (cached?.skipped && cached.expiresAt > Date.now()) {
+      state.currentTags = null;
+      render(state, []);
+      notifyTagsChanged(state, { skipped: true });
+      return;
+    }
     render(state, state.currentTags || (cached?.tags?.length ? cached.tags : TAGGING_TAGS), cached?.predicted === true);
     notifyTagsChanged(state, { provisional: !shownTags(state) });
     if (!state.title) return scheduleProvisionalRecheck(state);
@@ -1010,14 +1053,22 @@
     for (const item of items) {
       if (!item || typeof item.entryID !== "string" || !Array.isArray(item.tags)) continue;
       const key = boundedIdentity(platform, item.entryID);
-      const display = displayTags(item && item.tags);
+      const failed = Boolean(item.failureCode);
+      const display = item.skipped ? [] : item.pending ? TAGGING_TAGS
+        : failed ? failureTags(item.failureCode) : displayTags(item.tags);
       if (!key || !display) continue;
       const predicted = item.predicted === true;
-      sourceCache.set(key, { tags: display, predicted, provisional: false, expiresAt: Date.now() + CACHE_TTL_MS, pending: null });
+      sourceCache.set(key, { tags: display, predicted, provisional: item.pending === true, failed,
+        skipped: item.skipped === true,
+        expiresAt: Date.now() + (item.pending ? PENDING_TTL_MS : CACHE_TTL_MS), pending: null });
       for (const state of [...mountedStates]) {
         if (state.key === key) {
+          if (state.recheckTimer) { clearTimeout(state.recheckTimer); state.recheckTimer = null; }
+          if (item.pending) state.recheckAttempts = 0;
+          if (item.skipped) state.currentTags = null;
           render(state, display, predicted);
-          notifyTagsChanged(state, { provisional: false });
+          notifyTagsChanged(state, { provisional: item.pending === true, failed, skipped: item.skipped === true });
+          if (item.pending) scheduleProvisionalRecheck(state);
         }
       }
     }

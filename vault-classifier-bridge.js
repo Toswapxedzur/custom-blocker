@@ -451,7 +451,7 @@
     }
     try {
       if (!(await taggingAllowed(platform))) {
-        return { ok: true, platformID: platform, entryID, tags: [], pending: false };
+        return { ok: true, platformID: platform, entryID, tags: [], pending: false, skipped: true };
       }
       const body = await hubRequest("video-tags", {
         platformID: platform, entryID, creatorID, title,
@@ -460,7 +460,7 @@
       });
       const normalized = C.normalizeVideoTagsResponse?.(body, platform, entryID);
       return normalized
-        ? { ok: true, platformID: normalized.platformID, entryID: normalized.entryID, tags: normalized.tags, predicted: normalized.predicted, pending: normalized.pending }
+        ? { ok: true, platformID: normalized.platformID, entryID: normalized.entryID, tags: normalized.tags, predicted: normalized.predicted, pending: normalized.pending, skipped: normalized.skipped, failureCode: normalized.failureCode }
         : { ok: false, tags: [], pending: false };
     } catch (_) {
       return { ok: false, tags: [], pending: false };
@@ -495,7 +495,7 @@
     }
     if (!items.length) return { ok: true, platformID: platform, items: [] };
     try {
-      if (!(await taggingAllowed(platform))) return { ok: true, platformID: platform, items: [] };
+      if (!(await taggingAllowed(platform))) return { ok: true, platformID: platform, items: items.map(({ entryID }) => ({ entryID, tags: [], skipped: true })) };
       const body = await hubRequest("video-tags-batch", { platformID: platform, items });
       const expected = new Set(items.map((item) => item.entryID));
       const results = C.normalizeVideoTagsBatchResponse?.(body, platform, expected);
@@ -503,7 +503,7 @@
       return {
         ok: true,
         platformID: platform,
-        items: [...results.entries()].map(([entryID, value]) => ({ entryID, tags: value.tags, predicted: value.predicted, pending: value.pending }))
+        items: [...results.entries()].map(([entryID, value]) => ({ entryID, tags: value.tags, predicted: value.predicted, pending: value.pending, skipped: value.skipped, failureCode: value.failureCode }))
       };
     } catch (_) {
       return { ok: false, items: [] };

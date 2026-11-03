@@ -1321,5 +1321,16 @@
   "custom.ai.effort.default": "Model default",
   "custom.ai.effort.low": "Low",
   "custom.ai.effort.medium": "Medium",
-  "custom.ai.effort.high": "High"
+  "custom.ai.effort.high": "High",
+  "contentTag.failure.limitReached": "Limit reached",
+  "contentTag.failure.rateLimited": "Rate limited",
+  "contentTag.failure.signInRequired": "Reconnect AI",
+  "contentTag.failure.accessDenied": "Access denied",
+  "contentTag.failure.modelUnavailable": "Choose model",
+  "contentTag.failure.serviceUnavailable": "Service unavailable",
+  "contentTag.failure.connectionIssue": "Connection issue",
+  "contentTag.failure.invalidResponse": "Invalid response",
+  "contentTag.failure.requestRejected": "Request rejected",
+  "contentTag.failure.taggingFailed": "Tagging failed",
+  "contentTag.failure.refreshHint": "Open Vault Settings and click Refresh models to retry."
 }

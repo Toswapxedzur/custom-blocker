@@ -312,6 +312,19 @@
   }
 
 
+  const VIDEO_TAG_FAILURE_CODES = new Set([
+    "limitReached", "rateLimited", "signInRequired", "accessDenied",
+    "modelUnavailable", "serviceUnavailable", "connectionIssue",
+    "invalidResponse", "requestRejected", "taggingFailed"
+  ]);
+
+  function normalizedFailureCode(value, tags) {
+    if (value.failureCode == null) return null;
+    if (!VIDEO_TAG_FAILURE_CODES.has(value.failureCode)
+      || tags.length || value.pending === true || value.skipped === true) return false;
+    return value.failureCode;
+  }
+
   // Local-LLM rework: validates a per-video tags reply, keyed by the video's
   // entryID (not the creator). `pending` is true when the app has queued
   // classification and the caller should re-request shortly.
@@ -325,12 +338,16 @@
       return null;
     }
     const tags = normalizeTagList(value.tags);
-    return tags === null ? null : {
+    if (tags === null) return null;
+    const failureCode = normalizedFailureCode(value, tags);
+    return failureCode === false ? null : {
       platformID: expectedPlatform,
       entryID: expectedEntryID,
       tags,
       predicted: value.predicted === true,
-      pending: value.pending === true
+      pending: value.pending === true,
+      skipped: value.skipped === true,
+      failureCode
     };
   }
 
@@ -359,8 +376,11 @@
       }
       const tags = normalizeTagList(item.tags);
       if (tags === null) return null;
+      const failureCode = normalizedFailureCode(item, tags);
+      if (failureCode === false) return null;
       results.set(item.entryID, {
-        tags, predicted: item.predicted === true, pending: item.pending === true
+        tags, predicted: item.predicted === true, pending: item.pending === true,
+        skipped: item.skipped === true, failureCode
       });
     }
     return results;
@@ -390,9 +410,12 @@
       }
       const tags = normalizeTagList(item.tags);
       if (tags === null) return null;
+      const failureCode = normalizedFailureCode(item, tags);
+      if (failureCode === false) return null;
       seen.add(item.entryID);
       items.push({
-        entryID: item.entryID, tags, predicted: item.predicted === true
+        entryID: item.entryID, tags, predicted: item.predicted === true,
+        pending: item.pending === true, skipped: item.skipped === true, failureCode
       });
     }
     return { platformID: platform, items };

@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "Suntingan tertunda yang tersimpan tidak dapat dibaca. Pengaturan dan penggunaan tersimpan tetap dipertahankan.",
   "link.browserConnectRequired": "Hubungkan ekstensi browser Vault sebelum memutus tautan anggaran ini. Pengaturan dan penggunaan tersimpan tetap dipertahankan.",
   "custom.ai.prompt": "Prompt tersimpan",
-  "custom.ai.context": "Konteks tersimpan"
+  "custom.ai.context": "Konteks tersimpan",
+  "contentTag.failure.limitReached": "Batas tercapai",
+  "contentTag.failure.rateLimited": "Batas permintaan",
+  "contentTag.failure.signInRequired": "Hubungkan ulang AI",
+  "contentTag.failure.accessDenied": "Akses ditolak",
+  "contentTag.failure.modelUnavailable": "Pilih model",
+  "contentTag.failure.serviceUnavailable": "Layanan tidak tersedia",
+  "contentTag.failure.connectionIssue": "Masalah koneksi",
+  "contentTag.failure.invalidResponse": "Respons tidak valid",
+  "contentTag.failure.requestRejected": "Permintaan ditolak",
+  "contentTag.failure.taggingFailed": "Gagal memberi tag",
+  "contentTag.failure.refreshHint": "Buka Pengaturan Vault lalu klik Refresh models untuk mencoba lagi."
 }

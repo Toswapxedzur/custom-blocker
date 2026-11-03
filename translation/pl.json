@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "Nie można odczytać zapisanych oczekujących zmian. Zapisane ustawienia i użycie zostały zachowane.",
   "link.browserConnectRequired": "Połącz rozszerzenie przeglądarki Vault przed rozłączeniem tego budżetu. Zapisane ustawienia i użycie zostaną zachowane.",
   "custom.ai.prompt": "Zapisany prompt",
-  "custom.ai.context": "Zapisany kontekst"
+  "custom.ai.context": "Zapisany kontekst",
+  "contentTag.failure.limitReached": "Limit osiągnięty",
+  "contentTag.failure.rateLimited": "Limit żądań",
+  "contentTag.failure.signInRequired": "Połącz ponownie AI",
+  "contentTag.failure.accessDenied": "Brak dostępu",
+  "contentTag.failure.modelUnavailable": "Wybierz model",
+  "contentTag.failure.serviceUnavailable": "Usługa niedostępna",
+  "contentTag.failure.connectionIssue": "Problem z połączeniem",
+  "contentTag.failure.invalidResponse": "Nieprawidłowa odpowiedź",
+  "contentTag.failure.requestRejected": "Odrzucono żądanie",
+  "contentTag.failure.taggingFailed": "Tagowanie nie powiodło się",
+  "contentTag.failure.refreshHint": "Otwórz ustawienia Vault i kliknij „Odśwież modele”, aby spróbować ponownie."
 }

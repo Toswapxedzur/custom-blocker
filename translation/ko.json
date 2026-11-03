@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "저장된 대기 중 편집 내용을 읽을 수 없습니다. 저장된 설정과 사용량은 보존되었습니다.",
   "link.browserConnectRequired": "이 예산의 연결을 해제하기 전에 브라우저 Vault 확장 프로그램을 연결하세요. 저장된 설정과 사용량은 보존됩니다.",
   "custom.ai.prompt": "저장된 프롬프트",
-  "custom.ai.context": "저장된 맥락"
+  "custom.ai.context": "저장된 맥락",
+  "contentTag.failure.limitReached": "한도 도달",
+  "contentTag.failure.rateLimited": "요청 한도 초과",
+  "contentTag.failure.signInRequired": "AI 다시 연결",
+  "contentTag.failure.accessDenied": "접근 거부",
+  "contentTag.failure.modelUnavailable": "모델 선택",
+  "contentTag.failure.serviceUnavailable": "서비스 이용 불가",
+  "contentTag.failure.connectionIssue": "연결 문제",
+  "contentTag.failure.invalidResponse": "잘못된 응답",
+  "contentTag.failure.requestRejected": "요청 거부됨",
+  "contentTag.failure.taggingFailed": "태그 지정 실패",
+  "contentTag.failure.refreshHint": "Vault 설정을 열고 모델 새로 고침을 클릭해 다시 시도하세요."
 }

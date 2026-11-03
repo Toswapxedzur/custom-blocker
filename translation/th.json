@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "อ่านการแก้ไขที่รอดำเนินการซึ่งบันทึกไว้ไม่ได้ การตั้งค่าและการใช้งานที่บันทึกไว้ยังคงเก็บรักษาไว้",
   "link.browserConnectRequired": "เชื่อมต่อ browser Vault extension ก่อนยกเลิกการเชื่อมโยงงบประมาณนี้ การตั้งค่าและการใช้งานที่บันทึกไว้ยังคงเก็บรักษาไว้",
   "custom.ai.prompt": "พรอมป์ต์ที่บันทึกไว้",
-  "custom.ai.context": "บริบทที่บันทึกไว้"
+  "custom.ai.context": "บริบทที่บันทึกไว้",
+  "contentTag.failure.limitReached": "ถึงขีดจำกัดแล้ว",
+  "contentTag.failure.rateLimited": "เกินขีดจำกัดคำขอ",
+  "contentTag.failure.signInRequired": "เชื่อมต่อ AI ใหม่",
+  "contentTag.failure.accessDenied": "ถูกปฏิเสธการเข้าถึง",
+  "contentTag.failure.modelUnavailable": "เลือกโมเดล",
+  "contentTag.failure.serviceUnavailable": "บริการไม่พร้อมใช้งาน",
+  "contentTag.failure.connectionIssue": "ปัญหาการเชื่อมต่อ",
+  "contentTag.failure.invalidResponse": "การตอบกลับไม่ถูกต้อง",
+  "contentTag.failure.requestRejected": "คำขอถูกปฏิเสธ",
+  "contentTag.failure.taggingFailed": "ติดแท็กไม่สำเร็จ",
+  "contentTag.failure.refreshHint": "เปิดการตั้งค่า Vault แล้วคลิกรีเฟรชโมเดลเพื่อลองอีกครั้ง"
 }

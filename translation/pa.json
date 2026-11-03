@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "ਸੰਭਾਲੇ pending edits ਪੜ੍ਹੇ ਨਹੀਂ ਜਾ ਸਕੇ। ਸੰਭਾਲੀਆਂ settings ਅਤੇ usage ਸੁਰੱਖਿਅਤ ਰੱਖੀਆਂ ਗਈਆਂ ਹਨ।",
   "link.browserConnectRequired": "ਇਹ ਬਜਟ unlink ਕਰਨ ਤੋਂ ਪਹਿਲਾਂ browser Vault extension ਕਨੈਕਟ ਕਰੋ। ਸੰਭਾਲੀਆਂ settings ਅਤੇ usage ਸੁਰੱਖਿਅਤ ਰਹਿਣਗੀਆਂ।",
   "custom.ai.prompt": "ਸੰਭਾਲਿਆ ਪ੍ਰੋਂਪਟ",
-  "custom.ai.context": "ਸੰਭਾਲਿਆ ਸੰਦਰਭ"
+  "custom.ai.context": "ਸੰਭਾਲਿਆ ਸੰਦਰਭ",
+  "contentTag.failure.limitReached": "ਸੀਮਾ ਪੂਰੀ",
+  "contentTag.failure.rateLimited": "ਬੇਨਤੀ ਸੀਮਾ ਪੂਰੀ",
+  "contentTag.failure.signInRequired": "AI ਮੁੜ ਕਨੈਕਟ ਕਰੋ",
+  "contentTag.failure.accessDenied": "ਪਹੁੰਚ ਮਨਜ਼ੂਰ ਨਹੀਂ",
+  "contentTag.failure.modelUnavailable": "ਮਾਡਲ ਚੁਣੋ",
+  "contentTag.failure.serviceUnavailable": "ਸੇਵਾ ਉਪਲਬਧ ਨਹੀਂ",
+  "contentTag.failure.connectionIssue": "ਕਨੈਕਸ਼ਨ ਸਮੱਸਿਆ",
+  "contentTag.failure.invalidResponse": "ਅਵੈਧ ਜਵਾਬ",
+  "contentTag.failure.requestRejected": "ਬੇਨਤੀ ਰੱਦ",
+  "contentTag.failure.taggingFailed": "ਟੈਗਿੰਗ ਅਸਫਲ",
+  "contentTag.failure.refreshHint": "ਮੁੜ ਕੋਸ਼ਿਸ਼ ਲਈ Vault Settings ਖੋਲ੍ਹੋ ਅਤੇ Refresh models ਦਬਾਓ।"
 }

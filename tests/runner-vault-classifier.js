@@ -198,6 +198,14 @@ assert("accepts a per-video tags response keyed by entryID", videoTags
 assert("carries the pending flag on per-video responses", VC.normalizeVideoTagsResponse({
   platformID: "youtube", entryID: "youtube:video:v2", tags: [], pending: true
 }, "youtube", "youtube:video:v2").pending === true);
+assert("carries a bounded failure code without treating it as tags", VC.normalizeVideoTagsResponse({
+  platformID: "youtube", entryID: "youtube:video:v2", tags: [], failureCode: "limitReached"
+}, "youtube", "youtube:video:v2")?.failureCode === "limitReached");
+assert("rejects an unknown or conflicting failure code", VC.normalizeVideoTagsResponse({
+  platformID: "youtube", entryID: "youtube:video:v2", tags: [], failureCode: "raw-provider-error"
+}, "youtube", "youtube:video:v2") === null && VC.normalizeVideoTagsResponse({
+  platformID: "youtube", entryID: "youtube:video:v2", tags: [], pending: true, failureCode: "limitReached"
+}, "youtube", "youtube:video:v2") === null);
 assert("rejects per-video responses for a different entry", VC.normalizeVideoTagsResponse({
   platformID: "youtube", entryID: "youtube:video:forged", tags: []
 }, "youtube", "youtube:video:v1") === null);

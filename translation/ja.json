@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "保存された保留中の編集を読み取れませんでした。保存済みの設定と使用量は保持されています。",
   "link.browserConnectRequired": "この予算のリンクを解除する前に、ブラウザーのVault拡張機能を接続してください。保存済みの設定と使用量は保持されています。",
   "custom.ai.prompt": "保存したプロンプト",
-  "custom.ai.context": "保存したコンテキスト"
+  "custom.ai.context": "保存したコンテキスト",
+  "contentTag.failure.limitReached": "上限に達しました",
+  "contentTag.failure.rateLimited": "リクエスト制限中",
+  "contentTag.failure.signInRequired": "AIを再接続",
+  "contentTag.failure.accessDenied": "アクセス拒否",
+  "contentTag.failure.modelUnavailable": "モデルを選択",
+  "contentTag.failure.serviceUnavailable": "サービス利用不可",
+  "contentTag.failure.connectionIssue": "接続の問題",
+  "contentTag.failure.invalidResponse": "無効な応答",
+  "contentTag.failure.requestRejected": "リクエスト拒否",
+  "contentTag.failure.taggingFailed": "タグ付け失敗",
+  "contentTag.failure.refreshHint": "Vault設定を開き、「モデルを更新」をクリックして再試行してください。"
 }

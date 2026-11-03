@@ -17,6 +17,7 @@ let enabledPlatformIDs = ["youtube", "reddit", "discord"];
 let taggingPlatformIDs = ["youtube", "reddit"];
 
 let pagedCatalog = false;
+let videoTagFailureCode = null;
 const hub = {
   request(operation, body) {
     if (!hubAvailable) return Promise.reject(new Error("hub unavailable"));
@@ -29,6 +30,11 @@ const hub = {
       } else if (operation === "diagnostic") {
         resolve(inExtensionRealm({ accepted: true }));
       } else if (operation === "video-tags") {
+        if (videoTagFailureCode) {
+          resolve(inExtensionRealm({ platformID: body.platformID, entryID: body.entryID,
+            tags: [], failureCode: videoTagFailureCode }));
+          return;
+        }
         resolve(inExtensionRealm({
           platformID: body.platformID,
           entryID: body.entryID,
@@ -273,6 +279,14 @@ function assert(name, condition, detail) {
   // extension. A stale app that still sends a verdict must not leak through.
   assert("drops any classifier-sent feedAction/pageAction at the bridge",
     videoTags.value?.feedAction === undefined && videoTags.value?.pageAction === undefined, videoTags);
+  videoTagFailureCode = "limitReached";
+  const failedTags = await dispatch({ type: "vault-classifier-video-tags", platform: "youtube",
+    entryID: "youtube:video:limited", creatorID: "youtube:channel:UC1234567890123456789012",
+    title: "A limited video" }, trustedSender);
+  videoTagFailureCode = null;
+  assert("forwards a bounded classification failure instead of inventing Untagged",
+    failedTags.value?.ok === true && failedTags.value?.failureCode === "limitReached"
+      && failedTags.value?.tags?.length === 0, failedTags);
   // Tag-name suggestions for the popup's tag-filter editor: read-only, answered
   // ONLY to this extension's own pages (no tab, our origin), de-duplicated.
   const ownPage = { id: "vault-classifier-test-extension", url: "chrome-extension://vault-classifier-test-extension/popup.html" };

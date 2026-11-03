@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "Não foi possível ler as edições pendentes salvas. As configurações e o uso salvos foram preservados.",
   "link.browserConnectRequired": "Conecte a extensão de navegador Vault antes de desvincular este orçamento. As configurações e o uso salvos são preservados.",
   "custom.ai.prompt": "Prompt salvo",
-  "custom.ai.context": "Contexto salvo"
+  "custom.ai.context": "Contexto salvo",
+  "contentTag.failure.limitReached": "Limite atingido",
+  "contentTag.failure.rateLimited": "Limite de solicitações",
+  "contentTag.failure.signInRequired": "Reconectar IA",
+  "contentTag.failure.accessDenied": "Acesso negado",
+  "contentTag.failure.modelUnavailable": "Escolher modelo",
+  "contentTag.failure.serviceUnavailable": "Serviço indisponível",
+  "contentTag.failure.connectionIssue": "Problema de conexão",
+  "contentTag.failure.invalidResponse": "Resposta inválida",
+  "contentTag.failure.requestRejected": "Solicitação recusada",
+  "contentTag.failure.taggingFailed": "Falha ao marcar",
+  "contentTag.failure.refreshHint": "Abra as configurações do Vault e clique em Atualizar modelos para tentar novamente."
 }

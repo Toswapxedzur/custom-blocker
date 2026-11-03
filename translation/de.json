@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "Gespeicherte ausstehende Änderungen konnten nicht gelesen werden. Die gespeicherten Einstellungen und Nutzungsdaten bleiben erhalten.",
   "link.browserConnectRequired": "Verbinden Sie die Vault-Browsererweiterung, bevor Sie die Verknüpfung dieses Budgets aufheben. Gespeicherte Einstellungen und Nutzungsdaten bleiben erhalten.",
   "custom.ai.prompt": "Gespeicherter Prompt",
-  "custom.ai.context": "Gespeicherter Kontext"
+  "custom.ai.context": "Gespeicherter Kontext",
+  "contentTag.failure.limitReached": "Limit erreicht",
+  "contentTag.failure.rateLimited": "Anfragelimit erreicht",
+  "contentTag.failure.signInRequired": "KI neu verbinden",
+  "contentTag.failure.accessDenied": "Zugriff verweigert",
+  "contentTag.failure.modelUnavailable": "Modell wählen",
+  "contentTag.failure.serviceUnavailable": "Dienst nicht verfügbar",
+  "contentTag.failure.connectionIssue": "Verbindungsproblem",
+  "contentTag.failure.invalidResponse": "Ungültige Antwort",
+  "contentTag.failure.requestRejected": "Anfrage abgelehnt",
+  "contentTag.failure.taggingFailed": "Tagging fehlgeschlagen",
+  "contentTag.failure.refreshHint": "Öffne die Vault-Einstellungen und klicke auf „Modelle aktualisieren“, um es erneut zu versuchen."
 }

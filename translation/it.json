@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "Impossibile leggere le modifiche in sospeso salvate. Le impostazioni e l’utilizzo salvati sono stati conservati.",
   "link.browserConnectRequired": "Connetti l’estensione browser Vault prima di scollegare questo budget. Le impostazioni e l’utilizzo salvati vengono conservati.",
   "custom.ai.prompt": "Prompt salvato",
-  "custom.ai.context": "Contesto salvato"
+  "custom.ai.context": "Contesto salvato",
+  "contentTag.failure.limitReached": "Limite raggiunto",
+  "contentTag.failure.rateLimited": "Limite richieste",
+  "contentTag.failure.signInRequired": "Ricollega l’IA",
+  "contentTag.failure.accessDenied": "Accesso negato",
+  "contentTag.failure.modelUnavailable": "Scegli modello",
+  "contentTag.failure.serviceUnavailable": "Servizio non disponibile",
+  "contentTag.failure.connectionIssue": "Problema di connessione",
+  "contentTag.failure.invalidResponse": "Risposta non valida",
+  "contentTag.failure.requestRejected": "Richiesta rifiutata",
+  "contentTag.failure.taggingFailed": "Tagging non riuscito",
+  "contentTag.failure.refreshHint": "Apri le impostazioni di Vault e fai clic su Aggiorna modelli per riprovare."
 }

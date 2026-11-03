@@ -1285,5 +1285,16 @@
   "link.browserIdentityPendingEditsInvalid": "Không thể đọc các chỉnh sửa đang chờ đã lưu. Cài đặt và mức sử dụng đã lưu được giữ nguyên.",
   "link.browserConnectRequired": "Kết nối tiện ích trình duyệt Vault trước khi hủy liên kết ngân sách này. Cài đặt và mức sử dụng đã lưu được giữ nguyên.",
   "custom.ai.prompt": "Lời nhắc đã lưu",
-  "custom.ai.context": "Ngữ cảnh đã lưu"
+  "custom.ai.context": "Ngữ cảnh đã lưu",
+  "contentTag.failure.limitReached": "Đã đạt giới hạn",
+  "contentTag.failure.rateLimited": "Đã chạm giới hạn yêu cầu",
+  "contentTag.failure.signInRequired": "Kết nối lại AI",
+  "contentTag.failure.accessDenied": "Từ chối truy cập",
+  "contentTag.failure.modelUnavailable": "Chọn mô hình",
+  "contentTag.failure.serviceUnavailable": "Dịch vụ không khả dụng",
+  "contentTag.failure.connectionIssue": "Lỗi kết nối",
+  "contentTag.failure.invalidResponse": "Phản hồi không hợp lệ",
+  "contentTag.failure.requestRejected": "Yêu cầu bị từ chối",
+  "contentTag.failure.taggingFailed": "Không thể gắn thẻ",
+  "contentTag.failure.refreshHint": "Mở Cài đặt Vault và nhấp Làm mới mô hình để thử lại."
 }
