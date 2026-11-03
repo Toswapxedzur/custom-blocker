@@ -14,12 +14,13 @@
 
 ## 공통 API
 
-- `on(type, handler)` → boolean. `handler(ev)`를 등록합니다. 여러 핸들러는 등록 순서대로 실행됩니다. false는 인수 오류 또는 핸들러 한도 초과를 뜻합니다. `ev = { type: string, now: number, data }`; `now`는 Unix 밀리초입니다.
+- `on(type, handler)` → boolean. `handler(ev)`를 등록합니다. 여러 핸들러는 등록 순서대로 실행됩니다. false는 인수 오류 또는 핸들러 한도 초과를 뜻합니다. `ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`; `now`는 Unix 밀리초입니다. 실제로 렌더링된 컨트롤 이벤트는 `origin: "user"`, `v.emit` 이벤트는 `origin: "rule"`입니다.
 - `v.state`: 이벤트 dispatch 후 저장되는 변경 가능한 JSON 객체입니다. 기존 state를 덮어쓰지 말고 없는 필드를 초기화하세요. 객체가 아닌 값이나 배열을 지정하면 `{}`로 초기화됩니다. 직렬화할 수 없거나 너무 큰 업데이트는 저장되지 않습니다.
 - `v.log(...values)`: 이 그룹의 Log에 기록합니다. 핸들러 오류와 보고된 페이지 동작 오류도 여기에 표시됩니다. 오류 보고가 동작을 다시 실행하지는 않습니다. Logs/Clear는 그룹별로 독립적입니다. 로드 오류는 Run 상태에 표시됩니다.
 - `v.emit(type, data)`: 현재 이벤트 다음에 `data`의 JSON 사본을 새 `now`와 함께을 이 그룹 핸들러에 대기시킵니다. 동기 호출이 아닙니다.
 - `v.panel(id, spec, tabId?)`: 이 그룹의 이름 있는 패널을 바꿉니다. 접근 가능한 모든 웹 페이지에 표시하려면 `tabId`를 생략하고, 정수 탭 ID를 사용할 수도 있습니다. null `spec`은 패널을 제거합니다. Panels를 참조하세요.
 - `v.file(op, path, payload?)` → 요청 ID 문자열. Files를 참조하세요.
+- `v.store(request)`는 요청 ID를 반환합니다. 그룹 기록을 참고하세요.
 
 그 밖의 공통 호출은 아래의 이름 있는 관리 시간 객체 팩터리를 제외하고 `undefined`를 반환합니다. ID/state는 표시 이름이 아니라 하나의 그룹에 속합니다.
 
@@ -66,6 +67,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +81,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +92,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - `tick`은 근사값입니다. tick 수가 아니라 타임스탬프를 사용하세요. `active`는 브라우저 창에서 선택되었다는 뜻이지 사용자가 보고 있다는 증거는 아닙니다. URL은 비어 있거나 제한될 수 있습니다.
 - `visible`은 접근 가능하고 숨겨지지 않은 페이지에서 옵니다. `elapsedMs`는 마지막 heartbeat 이후 시간이며 덮여 있으면 0입니다. 누적 사용량이나 재생 시간이 아닙니다.
-- `items`는 새로 생기거나 바뀐 지원 피드 항목을 보고하며 Run/re-enable 뒤 재전송합니다. `ref`는 해당 페이지의 카드를 식별하며 영구 콘텐츠 ID가 아닙니다. `ref === "page"`는 페이지 자체를 뜻합니다. 제목/URL/작성자는 비어 있을 수 있습니다. `authors`에는 플랫폼별 원본 ID가 있습니다.
+- `items` (`platform: "web"` 인식된 사이트 외부)는 새로 생기거나 바뀐 지원 피드 항목을 보고하며 Run/re-enable 뒤 재전송합니다. `ref`는 해당 페이지의 카드를 식별하며 영구 콘텐츠 ID가 아닙니다. `ref === "page"`는 페이지 자체를 뜻합니다. 제목/URL/작성자는 비어 있을 수 있습니다. `authors`에는 플랫폼별 원본 ID가 있습니다.
 - 플랫폼 ID: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. 항목 사용 가능 여부는 페이지의 지원 마크업에 달려 있습니다.
 - 태그에는 연결된 데스크톱 분류기와 태그 지정 지원 빌드/플랫폼이 필요합니다(Chromium 및 Safari: YouTube, Reddit, Bilibili, X/`twitter`). 신뢰도는 1–5입니다. `tagsSettled === false`는 대기/사용 불가이지 태그 없음이 아닙니다. 확정된 `tags: []`는 태그가 없다는 뜻입니다.
 - `snooze`는 그룹의 Snooze 버튼을 눌렀다는 뜻입니다. 이것만으로 일시 중지되지는 않습니다.
@@ -178,3 +186,84 @@ Snooze 또는 패널 버튼으로 시작되는 5분 일시 중지:
   });
 }
 ```
+
+
+## 실행 중인 규칙의 AI 호출
+
+각 custom group은 **AI calls**에서 connection/model과 reasoning effort를 선택합니다. Mac과 브라우저 규칙은 같은 API를 사용합니다. 브라우저 요청은 Mac Vault 연결이 필요하며 provider 자격 증명은 그곳에 유지됩니다. 연결된 그룹은 선택 및 선택적 일일 요청 한도를 공유합니다. 빈 값은 그룹 한도 없음이며 계정 제한은 계속 적용됩니다. 한도는 UTC 날짜 기준이고 재시작 후 유지되며 실패를 포함한 제출 시도를 셉니다. Link는 기존 사용량을 합치고 Unlink 후에도 이전 사용량을 유지합니다.
+
+저장된 prompt와 context는 연결된 그룹이 공유하며 handler에서 `v.context.ai.prompt` 및 `v.context.ai.context`로 사용할 수 있습니다. Vault가 자동 전송하지 않으며 각 `v.ai` 호출에 포함할 내용은 규칙이 선택합니다.
+
+`v.ai({ prompt, input? })`는 즉시 request ID를 반환합니다. 규칙 등록이 아니라 handler 안에서 호출하세요. `input`은 모든 JSON 값이며 prompt/input 각각 최대20KB입니다. 응답은 `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` 이벤트 {requestId, ok, text, citations, error}로 옵니다. 성공 텍스트 최대48KB, citation은 {url,title}입니다. 웹 검색 답변을 표시할 때 출처 링크를 보이고 클릭 가능하게 유지하세요. 검색은 모델에 항상 제공됩니다. 앱의 고정 deadline은 없고 동시성은 제한됩니다. provider 대체나 자동 재시도는 없습니다. 응답은 데이터이며 JavaScript로 실행되지 않습니다. 기존 동작을 할지는 규칙이 결정합니다.
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+대기 중 호출은 재시작 후 재생되지 않습니다. Run, 비활성화/재활성화, 삭제는 오래된 응답을 버립니다. 연결이 끊긴 브라우저는 `ai-unavailable`을 보고합니다. 다른 오류: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. 실패 호출은 규칙이 유지하기로 한 이전 결과를 덮어쓰지 않습니다. 규칙 state 한도는64KB입니다.
+
+자격 증명 없는 선택지는 Mac의 `rule_ai_models` 또는 브라우저의 `settings-rule-ai-models`로 확인하고 기존 set-group 경로에서 `ruleAI`를 설정합니다. 필드: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`), `dailyRequestLimit` (null 또는1–100000). 반환된 선택지를 사용하고 규칙 소스에 키나 provider URL을 넣지 마세요.
+선택적 저장 필드는 `prompt`와 `context`이며 각각 최대16KB 문자열입니다.
+
+## 그룹 레코드
+
+`v.store(request)`는 handler 안에서 비동기 JSON 레코드 작업을 시작합니다. 레코드는 그룹 전용이며 Run 및 재시작 후에도 유지되고 그룹을 삭제하면 제거됩니다. 연결된 그룹은 별도 store를 사용합니다. 키, 값, 버전, 캐시 무효화, 피드백 우선순위는 규칙이 결정합니다. Mac과 브라우저 규칙은 같은 API를 쓰지만 앱/브라우저별 저장소는 분리됩니다.
+
+| Request | Result |
+|---|---|
+| `{op:"get", key}` | `record` 또는 `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | 저장된 `record` |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | 정렬된 `entries`와 `next` |
+| `{op:"clear", prefix?}` | `deleted` 개수 |
+
+레코드는 `{value, revision, version, updatedAt}`입니다. 불투명한 revision은 실제 쓰기 시 바뀌며 `version`은 호출자가 관리하는 메타데이터입니다. `list`는 값 없는 헤더를 돌려줍니다. 하나를 읽으려면 `get`, 다음 페이지는 `after: next` `put` `delete`를 사용하세요. `ifRevision` 생략 시 put/delete는 무조건 실행됩니다. `null`은 키가 없어야 하고 revision 문자열은 정확히 일치해야 합니다. 불일치 시 `ok:false`, `error:"store-conflict"`, 현재 `record`가 반환됩니다. 지연된 자동 응답이 사용자 피드백을 덮어쓰지 않게 합니다. `v.context.revision`은 규칙 버전에 포함할 수 있는 불투명한 설정 마커입니다. 프레임워크는 캐시 정책을 강제하지 않습니다.
+
+제한: 키 1–2048자, version ≤128, JSON 값 ≤64KiB, depth ≤32, 그룹당 10000개 키, 전체 문서16MiB. `list`는 페이지당 최대100개 헤더와96KiB를 반환합니다. 그룹당 최대32개 요청, 전체 초당128개 시작입니다. 과부하 시 그룹별 초당 하나의 `store-busy` 오류를 알리고 나머지는 버립니다. 저장 오류는 `ok:false`를 반환합니다. 미래 형식/손상 문서는 보존하고 `store-unavailable`을 알립니다. 자동 재시도나 제거는 없습니다. deadline에는 ticks를 사용하세요.
+
+## 저장된 콘텐츠 첨부
+
+관찰한 콘텐츠 항목에 pill 또는 수동적 HTML/CSS 보기를 저장하려면 `v.attach(tabId, item, id, spec)`를 사용합니다. 완전한 `item`을 `items` 또는 `attachment` 이벤트에서 전달하세요. `ref`만으로는 첨부 핸들이 아닙니다. `contentId`는 저장된 콘텐츠, `instanceId`는 현재 표시를 식별합니다. AI 응답을 기다리는 동안 원래 핸들을 유지하세요. 삭제, 재사용 또는 이동된 대상에 대한 늦은 첨부는 거부됩니다. `v.item(tabId, ref, verdict)` 동작은 별개입니다.
+
+pill의 `spec`은 `{type:"pill", text, tone?, tooltip?}`이며 tone은 `blue`, `cyan`, `gold`, `pink`, `red`입니다. 일반 텍스트는 240자, tooltip은 1000자까지입니다. 보기의 spec은 `{type:"html", html, css?, label?}`입니다. 한도는 HTML 32000자, CSS 16000자, label 200자입니다. 허용된 수동 HTML/SVG를 닫힌 shadow root와 범위 지정 CSS 안에서 다시 구성합니다. 스크립트, 이벤트 속성, 원격 리소스, 임베드, 안전하지 않은 CSS는 제거됩니다. 보기는 콘텐츠 카드 안에 제한되며 높이 480px에서 스크롤됩니다. ID는 ASCII 문자/숫자, _, -로 된 1–80자입니다. null spec은 그룹 pill을 제거합니다. Handler에서 호출하세요. 저장/전달 실패는 Log에 기록되고 자동 재시도되지 않습니다.
+
+각 항목은 이 그룹의 첨부를 읽기 전용 스냅샷 `item.attachments`로 노출합니다. 다른 그룹 첨부는 포함되지 않습니다. 저장 데이터를 사용할 수 없으면 `attachments`는 null이고 `attachmentError`가 설정됩니다. 이는 빈 캐시가 아닙니다. 다른 handler는 계속 실행됩니다. 이미 결과가 저장된 콘텐츠에 AI를 다시 요청하지 않도록 예제를 활용하세요.
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+포인터, Enter, Space 활성화는 그룹의 `attachment` 이벤트를 발생시킵니다. pill은 `click`을 보냅니다. 보기 컨트롤은 `data-control` 또는 `id`를 `controlId`로 사용하고 `click`, `input`, `change`와 현재 `value`, 이름 있는 입력의 제한된 `values`를 보냅니다. 실제 UI 이벤트의 `ev.origin === "user"`, 규칙 생성 이벤트의 `origin === "rule"`입니다. 이벤트에는 `tabId`, `attachmentId`, 현재 `item`이 포함됩니다. 보기는 규칙 코드를 실행하지 않습니다. pill과 보기는 상호작용으로 밑의 카드가 이동하지 않게 합니다. 저장 데이터에는 callback이나 실행 가능한 코드가 없습니다. 오래된 pill revision은 현재 첨부를 호출할 수 없습니다. 규칙 emit은 일반 로직이며 실제 UI 클릭 메시지는 브라우저가 별도로 검증합니다.
+
+첨부는 이 브라우저 프로필에서 그룹/콘텐츠/ID별로 저장되고 이후 출현, 이동, 브라우저 재시작, Run 뒤에도 돌아옵니다. Disable은 데이터를 유지하며 숨기고 Enable은 복원합니다. 그룹 삭제 시 첨부도 제거됩니다. 연결된 그룹도 각각 별도이며 브라우저/기기 간 자동 동기화는 없습니다. 알려진 YouTube, Reddit, X, Bilibili 콘텐츠는 플랫폼 ID를 사용합니다. 기타 콘텐츠는 보수적으로 정규화한 URL을 사용하므로 지원되는 페이지 마크업에 따라 달라집니다.
+
+한도: 그룹/콘텐츠별 8개, 모든 그룹에서 항목별 32개, 그룹당 콘텐츠 항목 10000개, 직렬화 첨부 문서 8MB. 한도에 이르면 새 변경은 Log에 `attachment-item-limit` 또는 `attachment-storage-limit`로 거부되며 기존 데이터는 보존됩니다. Dispatch는 쓰기를 묶고 동일한 spec이면 저장소를 다시 쓰지 않습니다. 첨부는 Safari 네이티브 규칙 엔진을 포함한 브라우저 콘텐츠 UI입니다. Mac 앱 규칙에는 브라우저 콘텐츠 핸들이나 앱 내 첨부 화면이 없습니다.
+
+`code-manual/generic-example.js`는 실행 가능한 정책 예제입니다. record, AI 호출, 사용자 피드백, compare-and-swap, HTML 컨트롤, 항목 verdict, 규칙 소유 사용량 보고를 사용합니다. 이런 동작은 예제 코드에 있으며 record/첨부 저장소만의 기능은 아닙니다.

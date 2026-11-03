@@ -1,19 +1,15 @@
-# Shared Vault icon base
+# Vault icon sources
 
-- `vault-shield-base.svg`: canonical normal icon base for platform-icon composition.
-  Background, definitions, edge, highlight, shield paths and shading are copied
-  exactly from Mac Vault `e23bddb` / `Assets/Branding/mac-vault.svg`. The complete
-  shield is scaled 1.10 about its original bounds center (32, 31.5). The 70×70
-  viewBox and transparent margin remain unchanged. The Mac symbol is omitted;
-  separate platform-symbol layers are the next stage. This is a design source,
-  not a replacement installed app icon or a shipped extension resource.
-- `generate_choices.py`: compose ten curved, gradient symbol choices per app
-  onto the approved shared base; leaves active product icons untouched.
-- `choices/`: generated 40 SVGs and numbered review index; identical base/colors.
-
-- Active selections: Mac 04, Windows 03, Safari 05; extension restored to its original lock. `../generate_icons.py` renders these exact SVGs on mini1, including native containers and browser aliases.
-- `extension-lock.svg`, `extension-lock-inverse-dark.svg`: original lock artwork and toolbar inverse from `af5194e`, scaled 1.15 about (32,32) from the owner's screenshot (`prog-lock` proportions), replacing the former 1.32 enlargement. Only the lock grows; original background and keyhole design retained. The grid source is retired.
-- `safari/`: generated compass masters and browser icons used by Safari packaging.
-
-- Approved symbol scales: Mac and Windows 0.85; Safari 0.90, relative to the original selected choices. The extension lock SVGs include their approved 1.15 scale; the generator applies no additional scaling.
-- Extension viewport: `2 2 60 60`, matching the complete rounded tile bounds. No outer padding; shapes and gradients are unchanged. Generated toolbar images fill the available slot without clipping the tile.
+- `mac-vault-bright.svg`, `windows-vault-bright.svg`,
+  `extension-lock-bright.svg`, and `safari/safari-vault.svg` are the approved
+  bright product icons. Each preserves the geometry of its corresponding dark
+  icon, with the visible tile outline removed. `../generate_icons.py` renders
+  the production PNG, ICNS, ICO, browser and toolbar assets from these files.
+- `extension-lock.svg` and `safari/safari-vault-dark.svg` remain the dark
+  artwork for the website. Mac and Windows keep their dark website sources in
+  their respective `Assets/Branding` and `Assets` folders.
+- `extension-lock-inverse-dark.svg` is an alias of the bright extension icon
+  retained for the popup/toolbar's theme-specific resource names.
+- `vault-shield-base.svg`, `generate_choices.py`, and `choices/` preserve the
+  earlier design exploration. Active product generation uses the exact
+  approved SVGs above, not a regenerated choice.

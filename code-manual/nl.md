@@ -14,12 +14,13 @@ Source: één functie-expressie `(on, v) => { ... }`. Alleen synchrone JavaScrip
 
 ## Gedeelde API
 
-- `on(type, handler)` → boolean. Registreert `handler(ev)`; meerdere handlers worden uitgevoerd in registratievolgorde. False betekent ongeldige argumenten of dat de handlerlimiet is bereikt. `ev = { type: string, now: number, data }`; `now` is Unix-milliseconden.
+- `on(type, handler)` → boolean. Registreert `handler(ev)`; meerdere handlers worden uitgevoerd in registratievolgorde. False betekent ongeldige argumenten of dat de handlerlimiet is bereikt. `ev = { type: string, now: number, origin: "host" | "user" | "rule", data }`; `now` is Unix-milliseconden. Echte gebeurtenissen van weergegeven bedieningselementen hebben `origin: "user"`; gebeurtenissen van `v.emit` hebben `origin: "rule"`.
 - `v.state`: wijzigbaar JSON-object, opgeslagen na eventdispatch. Initialiseer ontbrekende fields in plaats van bestaande state te overschrijven. Toewijzing van een non-object of array reset naar `{}`; niet-serialiseerbare/te grote wijzigingen worden niet opgeslagen.
 - `v.log(...values)`: schrijft naar de Log van deze groep. Fouten in handlers en gemelde fouten bij pagina-acties verschijnen hier ook; het melden voert acties niet opnieuw uit. Logs/Clear zijn per groep onafhankelijk. Laadfouten staan in de Run-status.
 - `v.emit(type, data)`: zet een JSON-kopie van `data` in de wachtrij voor de handlers van deze groep na het huidige event, met een nieuwe `now`; dit is geen synchrone aanroep.
 - `v.panel(id, spec, tabId?)`: vervangt het benoemde panel van deze groep; laat `tabId` weg voor elke toegankelijke webpagina of gebruik een geheel tab-ID. `spec` null verwijdert het panel. Zie Panels.
 - `v.file(op, path, payload?)` → request-ID-string. Zie Files.
+- `v.store(request)` retourneert een aanvraag-ID; zie groepsrecords.
 
 Andere gedeelde aanroepen retourneren `undefined`, behalve de hieronder genoemde fabrieksfuncties voor beheerde tijdobjecten. IDs/state horen bij een groep, niet bij de weergavenaam.
 
@@ -66,6 +67,12 @@ tab: { kind: "open" | "navigate" | "close", tabId: number,
        url: string, previousUrl: string | null }
 visible: { tabId: number, url: string, elapsedMs: number }
 items: { tabId: number, platform: string, items: Item[] }
+attachment: { eventName: "click" | "input" | "change", tabId: number,
+              attachmentId: string, controlId: string, value: unknown,
+              values: { [controlId: string]: unknown }, item: Item, text: string }
+record: { requestId: string, ok: boolean, op?: string, key?: string,
+          record?: Record | null, entries?: Header[], next?: string | null,
+          deleted?: number, error?: string }
 snooze: {}
 panel: { panelId: string, controlId: string, eventName: string,
          value: string | number | boolean | null,
@@ -74,7 +81,8 @@ query: { requestId: string, tabId: number, url: string, selector: string,
          matches: Match[], error: string }
 file: see Files
 
-Item = { ref: string, url: string, title: string, authors: string[],
+Item = { ref: string, contentId: string, instanceId: string, attachments: { [id: string]: Attachment },
+         url: string, title: string, authors: string[],
          videoForm: "short" | "long" | "post" | "unknown",
          tags: { name: string, confidence: number }[],
          tagsSettled: boolean, isPage: boolean }
@@ -84,7 +92,7 @@ Match = { tag: string, text: string, href: string, src: string,
 
 - `tick` is bij benadering; gebruik timestamps, geen tickaantallen. `active` betekent geselecteerd in een browservenster en bewijst niet dat de gebruiker ernaar kijkt. URLs kunnen leeg/beperkt zijn.
 - `visible` komt van toegankelijke, niet-verborgen pagina's; `elapsedMs` is de tijd sinds hun laatste heartbeat en nul wanneer de pagina wordt afgedekt. Dit is geen cumulatief gebruik of afspeeltijd.
-- `items` meldt nieuwe/gewijzigde ondersteunde feeditems en stuurt ze opnieuw na Run/herinschakeling. `ref` identificeert een kaart op die pagina, geen blijvend content-ID; `ref === "page"` duidt de pagina zelf aan. Titels/URLs/auteurs kunnen leeg zijn. `authors` bevat platformgebonden source identifiers.
+- `items` (`platform: "web"` buiten herkende sites) meldt nieuwe/gewijzigde ondersteunde feeditems en stuurt ze opnieuw na Run/herinschakeling. `ref` identificeert een kaart op die pagina, geen blijvend content-ID; `ref === "page"` duidt de pagina zelf aan. Titels/URLs/auteurs kunnen leeg zijn. `authors` bevat platformgebonden source identifiers.
 - Platform IDs: `youtube`, `tiktok`, `facebook`, `instagram`, `twitch`, `reddit`, `discord`, `twitter`, `bluesky`, `threads`, `substack`, `bilibili`, `rumble`, `pinterest`, `kick`, `tumblr`, `peertube`, `pixelfed`, `kuaishou`. Beschikbare items hangen af van ondersteunde markup op de pagina.
 - Tags vereisen een verbonden desktop-Classifier en een build/platform met tagging (Chromium en Safari: YouTube, Reddit, Bilibili, X/`twitter`). Confidence is 1–5. `tagsSettled === false` betekent in behandeling/niet beschikbaar, niet niet-getagd; `tags: []` als settled betekent niet-getagd.
 - `snooze` betekent dat de Snooze-knop van de groep is ingedrukt. Dit pauzeert niets op zichzelf.
@@ -178,3 +186,84 @@ Een pauze van vijf minuten, gestart met Snooze of de panelknop ervan:
   });
 }
 ```
+
+
+## AI-aanroepen vanuit een actieve regel
+
+Elke custom group kiest onder **AI calls** een verbinding/model en reasoning effort. Mac- en browserregels gebruiken dezelfde API; browserverzoeken vereisen een verbonden Mac Vault en providergegevens blijven daar. Gekoppelde groepen delen de keuze en een optionele dagelijkse limiet. Leeg betekent geen groepslimiet; accountlimieten blijven gelden. De limiet gebruikt UTC-dagen, blijft na herstart bestaan en telt ingediende pogingen, ook mislukte. Link combineert bestaand gebruik; unlink behoudt eerder gebruik.
+
+De opgeslagen prompt en context worden gedeeld door gekoppelde groepen en zijn in handlers beschikbaar als `v.context.ai.prompt` en `v.context.ai.context`. Vault verzendt ze niet automatisch; de regel kiest wat elke `v.ai`-aanroep bevat.
+
+`v.ai({ prompt, input? })` retourneert direct een request-ID. Roep dit binnen een handler aan, niet bij registratie. `input` mag elke JSON-waarde zijn; prompt en input zijn elk maximaal20KB. Antwoorden komen als `ai` events: `. Success text is at most48KB; citations are ` `ask` `note`-events: {requestId, ok, text, citations, error}. Succesvolle tekst maximaal48KB; citaties {url,title}. Behoud zichtbare, klikbare bronlinks bij antwoorden op basis van web search. Search is altijd beschikbaar voor het model. Geen vaste app-deadline; concurrency is begrensd; geen provider-fallback of automatische retry. Antwoorden zijn gegevens, geen uitvoerbare JavaScript; de regel beslist welke bestaande acties worden uitgevoerd.
+
+```javascript
+(on, v) => {
+  let pending = null;
+  on("panel", ({ data }) => {
+    if (data.controlId !== "ask" || pending) return;
+    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+  });
+  on("ai", ({ data }) => {
+    if (data.requestId !== pending) return;
+    pending = null;
+    if (!data.ok) { v.log("AI request failed:", data.error); return; }
+    v.log(data.text, data.citations);
+  });
+}
+```
+
+Openstaande aanroepen worden na herstart niet opnieuw afgespeeld. Run, uitschakelen/opnieuw inschakelen en verwijderen verwerpen oude antwoorden; een niet-verbonden browser meldt `ai-unavailable`. Andere fouten: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`. Mislukte aanroepen overschrijven geen eerder resultaat dat de regel bewaart. De statelimiet blijft64KB.
+
+Ontdek keuzes zonder inloggegevens met `rule_ai_models` op Mac of `settings-rule-ai-models` in de browser. Configureer `ruleAI` via het bestaande set-group-pad. Velden: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) en `dailyRequestLimit` (null of1–100000). Gebruik een geretourneerde keuze; zet geen sleutel of provider-URL in de regelbron.
+De optionele opgeslagen velden zijn `prompt` en `context`, elk een tekenreeks van maximaal16KB.
+
+## Groepsrecords
+
+`v.store(request)` start binnen een handler een asynchrone JSON-recordbewerking. Records zijn privé per groep, blijven bestaan na Run en herstart en worden met de groep verwijderd. Gekoppelde groepen hebben aparte stores. De regel kiest sleutels, waarden, versies, cache-invalidatie en voorrang van feedback. Mac- en browserregels gebruiken dezelfde API, maar elke app/browser heeft een eigen store.
+
+| Request | Result |
+|---|---|
+| `{op:"get", key}` | `record` of `null` |
+| `{op:"put", key, value, version?, ifRevision?}` | opgeslagen `record` |
+| `{op:"delete", key, ifRevision?}` | `record: null` |
+| `{op:"list", prefix?, after?, limit?}` | gesorteerde `entries` en `next` |
+| `{op:"clear", prefix?}` | aantal `deleted` |
+
+Een record bevat `{value, revision, version, updatedAt}`. De ondoorzichtige revision verandert bij een echte schrijfoperatie; `version` is metadata van de aanroeper. `list` retourneert headers zonder waarden; gebruik `get` om er een te lezen en `after: next` `put` `delete` voor de volgende pagina. Zonder `ifRevision` zijn put/delete onvoorwaardelijk; `null` vereist een ontbrekende sleutel, een revision-string een exacte overeenkomst. Een conflict retourneert `ok:false`, `error:"store-conflict"` en de huidige `record`. Zo overschrijft een late automatische reactie geen gebruikersfeedback. `v.context.revision` is een ondoorzichtige configuratiemarker die een regel in zijn versie kan opnemen. Het framework legt geen cachebeleid op.
+
+Limieten: sleutel 1–2048 tekens, versie ≤128, JSON-waarde ≤64KiB, diepte ≤32, 10000 sleutels per groep, volledig document16MiB. `list` retourneert maximaal100 headers en96KiB per pagina. Maximaal32 verzoeken per groep en128 starts per seconde totaal. Bij overbelasting meldt het systeem één `store-busy` per groep per seconde en laat overige verzoeken vallen. Opslagfouten geven `ok:false`; toekomstige of beschadigde documenten blijven behouden en melden `store-unavailable`. Geen automatische retry of verwijdering. Gebruik ticks voor deadlines.
+
+## Opgeslagen inhoudsbijlagen
+
+`v.attach(tabId, item, id, spec)` slaat een pill of passieve HTML/CSS-weergave op voor een waargenomen inhoudsitem. Geef het volledige `item` van een `items`- of `attachment`-gebeurtenis door; alleen een `ref` is geen bijlagehandle. `contentId` identificeert opgeslagen inhoud en `instanceId` de huidige verschijning. Bewaar de oorspronkelijke handle terwijl je op AI wacht. Een late bijlage voor een verwijderd, hergebruikt of genavigeerd doel wordt geweigerd. `v.item(tabId, ref, verdict)` blijft apart werken.
+
+Voor een pill is `spec` `{type:"pill", text, tone?, tooltip?}`; tonen zijn `blue`, `cyan`, `gold`, `pink` of `red`. Platte tekst: maximaal 240 tekens; tooltip: 1000. Voor een weergave is spec `{type:"html", html, css?, label?}`. Grenzen: HTML 32000 tekens, CSS 16000, label 200. De weergave wordt opnieuw opgebouwd uit toegestane passieve HTML/SVG in een gesloten shadow root met afgebakende CSS. Scripts, eventattributen, externe bronnen, embeds en onveilige CSS worden verwijderd. De weergave blijft in de inhoudskaart en scrolt bij 480px hoogte. ID's bevatten 1–80 ASCII-letters/cijfers, _ of -. Een null-spec verwijdert de pill van de groep. Roep dit aan vanuit een handler; opslag-/bezorgfouten verschijnen in Log en worden niet automatisch opnieuw geprobeerd.
+
+Elk item biedt de bijlagen van deze groep als alleen-lezen snapshot in `item.attachments`; bijlagen van andere groepen staan daar niet in. Als opgeslagen gegevens niet beschikbaar zijn, is `attachments` null en wordt `attachmentError` ingesteld; dat betekent niet dat de cache leeg is. Andere handlers blijven lopen. Gebruik het voorbeeld om AI niet opnieuw aan te vragen voor inhoud met een opgeslagen resultaat.
+
+Activering met aanwijzer, Enter of Space maakt een `attachment`-gebeurtenis voor de groep. Pills sturen `click`. Weergavebesturing gebruikt `data-control` of `id` als `controlId` en stuurt `click`, `input` of `change`, met de huidige `value` en begrensde `values` voor benoemde velden. Echte UI-gebeurtenissen hebben `ev.origin === "user"`; regelgebeurtenissen `origin === "rule"`. Ze bevatten `tabId`, `attachmentId` en het huidige `item`. De weergave voert geen regelcode uit. Pills en weergaven voorkomen dat hun interactie de onderliggende kaart navigeert. Opgeslagen gegevens bevatten geen callback of uitvoerbare code. Een oude pill-revisie kan geen actuele bijlage aanroepen. Rule-emit-gebeurtenissen zijn gewone logica; de browser controleert echte UI-klikberichten afzonderlijk.
+
+Bijlagen worden in dit browserprofiel per groep/inhoud/ID opgeslagen en keren terug bij volgende vermeldingen, navigatie, browserherstart en Run. Disable verbergt ze maar behoudt de gegevens; enable herstelt ze. Groep verwijderen wist de bijlagen. Gekoppelde groepen blijven apart; er is geen automatische synchronisatie tussen browsers/apparaten. Bekende YouTube-, Reddit-, X- en Bilibili-inhoud gebruikt platform-ID's. Andere inhoud gebruikt een voorzichtig genormaliseerde URL, waardoor beschikbaarheid afhangt van ondersteunde paginamarkup.
+
+Grenzen: 8 bijlagen per groep/inhoud, 32 per item over alle groepen, 10000 inhoudsitems per groep en 8MB voor het geserialiseerde bijlagendocument. Bij een limiet wordt de nieuwe wijziging geweigerd met `attachment-item-limit` of `attachment-storage-limit` in Log; bestaande gegevens blijven behouden. Een dispatch bundelt schrijfacties; identieke spec-waarden schrijven de opslag niet opnieuw. Bijlagen zijn browserinhoud-UI, ook in Safari's native rule-engine. Mac-apprules hebben geen browserinhoudhandles of bijlagenscherm in de app.
+
+```javascript
+(on, v) => {
+  on("items", ({data}) => {
+    for (const item of data.items) {
+      if (item.attachments && !item.attachments.note) {
+        v.attach(data.tabId, item, "note", {
+          type: "pill", text: "Review this", tone: "blue"
+        });
+      }
+    }
+  });
+  on("attachment", ({data}) => {
+    if (data.attachmentId === "note") {
+      v.log("Review clicked", data.item.contentId);
+    }
+  });
+}
+```
+
+`code-manual/generic-example.js` is een uitvoerbaar beleidsvoorbeeld. Het gebruikt records, AI-aanroepen, feedback van de gebruiker, compare-and-swap, HTML-besturingselementen, itemverdicts en een door de regel beheerd gebruiksrapport; dit zijn gedragingen van de voorbeeldcode, geen speciale functies van de opslag.
