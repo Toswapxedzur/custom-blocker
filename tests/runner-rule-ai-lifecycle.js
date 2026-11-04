@@ -4,7 +4,7 @@ const source=fs.readFileSync(require('node:path').join(__dirname,'../background.
 const first=source.indexOf('async function cbRunRuleAI('),last=source.indexOf('// A rule\'s file request',first);
 assert(first>=0&&last>first);
 function fixture() {
- let group={id:'g',enabled:true,groupType:'custom',activeEventSource:'code',ruleAI:{providerModel:'selected'}},reply;
+ let group={id:'g',enabled:true,groupType:'custom',activeEventSource:'code',ruleAI:{dailyRequestLimit:null,prompt:'',context:''}},reply;
  const events=[],connection={ws:{}},generations=new Map([['g',1]]);
  const context=vm.createContext({Promise,Map,JSON,globalThis:null,structuredClone,
   chrome:{storage:{local:{get:async()=>({blockedGroups:structuredClone([group])})}}},BLOCKED_GROUPS_KEY:'blockedGroups',cbRuleGenerations:generations,cbConnection:connection,
@@ -20,16 +20,16 @@ function fixture() {
 (async()=>{
  let f=fixture(),pending=await f.begin();pending.reply({ok:true,text:'answer'});await pending.task;
  assert.equal(f.events.length,1);assert.equal(f.events[0].data.requestId,'r');assert.equal(f.events[0].data.generation,'original-instance');
- for(const change of ['disable','run','model','delete']) {
+ for(const change of ['disable','run','config','delete']) {
   f=fixture();pending=await f.begin();
   if(change==='disable'||change==='delete')f.remove();
   else if(change==='run')f.generations.set('g',2);
-  else f.group.ruleAI={providerModel:'replacement'};
+  else f.group.ruleAI={dailyRequestLimit:null,prompt:'replacement',context:''};
   pending.reply({ok:true,text:'must not be delivered'});await pending.task;assert.equal(f.events.length,0,change);
  }
  f=fixture();pending=await f.begin();f.connection.ws={};pending.reply({ok:true,text:'old socket answer'});await pending.task;
  assert.equal(f.events.length,1);assert.equal(f.events[0].data.ok,false);assert.equal(f.events[0].data.error,'ai-unavailable');assert.equal(f.events[0].data.text,null);
  f=fixture();pending=await f.begin();pending.reply({ok:false,error:'ai-daily-limit'});await pending.task;
  assert.equal(f.events[0].data.error,'ai-daily-limit');
- console.log('PASS actual worker AI delivery, request identity, disable/Run/model/delete races, disconnect failure and daily-limit events');
+ console.log('PASS actual worker AI delivery, request identity, disable/Run/config/delete races, disconnect failure and daily-limit events');
 })().catch(error=>{console.error(error);process.exitCode=1;});

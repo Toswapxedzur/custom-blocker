@@ -1,6 +1,6 @@
-# Manual do usuário da extensão de navegador Vault
+# Manual do usuário da extensão de navegador Adamancia Vault
 
-O Vault controla sites e conteúdo compatível de plataformas no perfil do navegador em que está instalado. Abra o editor pelo botão da extensão na barra de ferramentas. Quando conectado, o Mac Vault ou o Windows Vault oferece marcação local e Activity; a extensão aplica o bloqueio aos alvos do navegador.
+O Vault controla sites e conteúdo compatível de plataformas no perfil do navegador em que está instalado. Abra o editor pelo botão da extensão na barra de ferramentas. Quando conectado, o Vault no Mac ou o Vault no Windows oferece marcação local e Activity; a extensão aplica o bloqueio aos alvos do navegador.
 
 ## Grupos de bloqueio
 
@@ -59,9 +59,9 @@ Os alvos de plataforma usam **Criadores** para plataformas de vídeo, **Contas**
 
 ### Filtros de tags de conteúdo
 
-A conexão com Classifier e a correção de tags estão disponíveis em navegadores Chromium compatíveis, como Chrome e Edge, e no Safari Vault para macOS.
+A conexão com Classifier e a correção de tags estão disponíveis em navegadores Chromium compatíveis, como Chrome e Edge, e no Vault para Safari para macOS.
 
-Conecte o Mac Vault ou o Windows Vault e configure o Classifier para obter tags. O filtro de tags de um grupo de bloqueio escolhe o que cobrir ou ocultar. Ele não inicia nem pausa a marcação; use as configurações do Classifier no aplicativo para desktop ou o controle de pausa do grupo Classifier específico.
+Conecte o Vault no Mac ou o Vault no Windows e configure o Classifier para obter tags. O filtro de tags de um grupo de bloqueio escolhe o que cobrir ou ocultar. Ele não inicia nem pausa a marcação; use as configurações do Classifier no aplicativo para desktop ou o controle de pausa do grupo Classifier específico.
 
 Cada entrada de site tem um filtro **Aplicar a**: todo conteúdo, criadores selecionados, todos exceto os criadores selecionados, tags selecionadas ou tudo exceto as tags selecionadas. Adicione outra entrada para o mesmo site se precisar de um filtro diferente.
 

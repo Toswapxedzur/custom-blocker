@@ -122,3 +122,6 @@ acceptance remain separate and pending. No second driver or runtime is required.
 - `runner-original-usage-bootstrap.js` verifies ordinary fixed and rolling
   original history retention before adoption, failed/held saves, socket replacement,
   full-generation ACKs and exactly-once completed seed behavior.
+- `runner-vault-classifier-youtube-surfaces.mjs` checks rendered YouTube videos,
+  Shorts, Live entries and posts in feeds, search, recommendations, creator
+  pages and the current page with an isolated Mini2 Playwright fixture.

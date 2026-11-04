@@ -2,7 +2,11 @@
 
 The owner approved this capability split on 2026-10-04. Existing tags and packaged downloads remain unchanged. All new records are **alpha, source-only**. A source record does not certify store submission, signing or native release acceptance.
 
-Current source version: **3.2.0**. See the group-level `CHANGELOG.md` for the cross-product chapters.
+Current private candidate: **4.0.1, Beta 1**. Chrome Web Store publication remains pending. See the group-level `CHANGELOG.md` for the cross-product chapter.
+
+## 4.0.1 — 2026-11-04 — Beta 1 candidate
+
+Includes custom-rule AI conversations, expanded rendered-entry tagging and failure pills, Snooze confirmation, Vault naming and locale updates, and the bright extension icon. The Chrome package serves Chrome and Edge through the existing Store listing. Storage migrations no longer expire by app major; the first public Beta 1 package begins the rolling 30-day direct-upgrade guarantee.
 
 ## 3.2.0 — 2026-10-29 — AI and generic content rules
 

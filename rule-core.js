@@ -2,7 +2,7 @@
 //
 // Rules use raw events, managed time objects and a small set of actions.
 // The browser engine (the
-// extension's sandbox, event-sandbox.js) controls only the browser; Mac Vault's
+// extension's sandbox, event-sandbox.js) controls only the browser; the Mac app's
 // engine (custom-rule-runtime.js) controls only apps — the scope line.
 //
 //   (on, v) => {
@@ -677,7 +677,20 @@
       ai(options) {
         check();
         if (eventNow === null) throw new Error("v.ai must be called inside an event handler.");
-        if (!isPlainObject(options) || Object.keys(options).some(key => !["prompt", "input"].includes(key))
+        if (isPlainObject(options) && options.op === "delete") {
+          if (Object.keys(options).some(key => !["op", "conversation"].includes(key))
+            || typeof options.conversation !== "string" || !options.conversation.trim()
+            || utf8Bytes(options.conversation) > 128 || /[\u0000-\u001f\u007f]/.test(options.conversation))
+            throw new Error("Invalid AI conversation deletion.");
+          const id = requestId();
+          act("ai", {payload: JSON.stringify(options), requestId: id, generation: requestToken()});
+          return id;
+        }
+        if (!isPlainObject(options) || Object.keys(options).some(key => !["model", "reasoningEffort", "conversation", "prompt", "input"].includes(key))
+          || typeof options.model !== "string" || utf8Bytes(options.model) > 520
+          || !/^(chatgpt:.+|api:[^:]+:.+)$/.test(options.model)
+          || (options.reasoningEffort !== undefined && !["default", "low", "medium", "high"].includes(options.reasoningEffort))
+          || (options.conversation !== undefined && (typeof options.conversation !== "string" || !options.conversation.trim() || utf8Bytes(options.conversation) > 128 || /[\u0000-\u001f\u007f]/.test(options.conversation)))
           || typeof options.prompt !== "string" || !options.prompt.trim() || utf8Bytes(options.prompt) > 20000) throw new Error("Invalid AI request.");
         const payload = JSON.stringify(options);
         if (utf8Bytes(payload) > 48000 || (options.input !== undefined && utf8Bytes(JSON.stringify(options.input)) > 20000)) throw new Error("AI input is too large.");
@@ -825,7 +838,7 @@
   // A rule's syntax and registration, without keeping it.
   // ── An engine: every group's rule, one event at a time ──────────────────
   // Both hosts run this: `engineActions` are the host's own actions (the
-  // browser's or Mac Vault's), `beacon(groupId)` hears which group runs next
+  // browser's or the Mac app's), `beacon(groupId)` hears which group runs next
   // (the browser's sandbox blames a hung rule with it).
   const OVERRUN_LIMIT = 3;
   const OVERRUN_WINDOW_MS = 60000;
@@ -1154,7 +1167,7 @@
   const SHARED_REFERENCE = [
     "A rule is ONE JavaScript function expression: (on, v) => { … }. It runs once when the user presses Run: register handlers there. Run replaces the old handlers; deleting the group removes them. While the group is disabled no handler runs and what the rule did is lifted (its panels, style sheets, covers, blocks); enabling it resumes the rule as it was.",
     "on(type, handler) adds a handler; several per type are fine. handler(ev) gets ev = { type, now (ms since 1970), origin: host|user|rule, data }. Rendered control input has origin user; v.emit has origin rule. Handlers are synchronous and must finish within 1 s: no loops that wait, no network, no setTimeout/setInterval, no DOM of your own (you run in a sandbox).",
-    "v.ai({prompt, input?}) calls the AI connection/model configured for this custom group. Call it inside an event handler; it returns a request ID immediately. The later ai event has data {requestId, ok, text, citations:[{url,title}], error}. Handle errors explicitly; no fallback or automatic retries. Text is at most48KB; prompt/input each20KB; each call waits for the provider without a fixed Vault deadline. Search is always enabled. Keys stay in connected Mac Vault; disconnected browsers report ai-unavailable. Disabled/replaced rules discard old replies. Linked groups share settings and the optional UTC daily request cap; failed submitted attempts count and linking/unlinking does not reset usage. AI output is data and is never executed automatically. Preserve visible clickable citations if displaying web-derived answers.",
+    "v.ai({model, reasoningEffort?, conversation?, prompt, input?}) calls the named available model; every call chooses its own model, with no group default. Copy model IDs from AI calls. Call inside an event handler; it returns a request ID and a later ai event with {requestId, ok, text, citations:[{url,title}], error, preservedConversations?}. A conversation name saves complete history in desktop Vault and sends the newest portion on later calls, even with another model. Omit it for a stateless call. Different names may run concurrently; the same name runs in order. Chain calls from ai events; scheduled delays are not available. No provider fallback or automatic retries. Text is at most48KB; prompt/input each20KB; generation has no fixed Vault deadline. Search is enabled. Keys stay in desktop Vault; disconnected browsers report ai-unavailable. Disabled/replaced rules discard old replies. Every rule on this device shares named conversations; deleting or unlinking a group leaves them intact. The configurable total transcript limit defaults to 1 GB and evicts least recently used conversations. v.ai({op:\"delete\",conversation:\"name\"}) explicitly deletes one; a concurrent active call returns ai-conversation-busy. An imported same-name collision reports preserved names in preservedConversations. Linked groups share AI settings and optional UTC daily request cap; submitted failures count. AI output is data, never executed automatically. Preserve visible clickable citations for web-derived answers.",
     "v.state is the group's memory: one JSON object (≤ 64 KB), kept across restarts and across Run (a new version of the rule finds what the old one saved), deleted with the group. Change it freely inside handlers.",
     "v.store({op:get|put|delete|list|clear, key?, value?, version?, ifRevision?, prefix?, after?, limit?}) starts a group-owned JSON record request inside a handler and returns its request ID. Later record events carry {requestId, ok, op, key?, record?, entries?, next?, deleted?, error?}. get returns a record or null; put returns the saved record; list returns sorted headers without values and an after cursor. Each record has value, opaque revision, caller version and updatedAt. For put/delete, omit ifRevision for unconditional writes, pass null to require absence, or pass the expected revision to require an exact match. A mismatch is store-conflict with the current record. Caller code decides cache policy and user-feedback priority; v.context.revision is an opaque configuration marker that may be included in a caller-chosen version. No automatic retries. Records are private to the owning group, persist across Run/restart, and are deleted with the group. Linked groups keep separate records. Each value is at most64KB; the store at most16MB. A group may start32 requests per second, across all groups128; overload reports one store-busy error per group/second and drops further requests that second.",
     "v.log(...values) writes to the group's log in the editor.",
@@ -1174,7 +1187,7 @@
       "\"tick\" every second: data = { tabs: [{ tabId, url, active }] }.",
       "\"tab\" when a tab opens, goes to an address or closes: data = { kind: open | navigate | close, tabId, url, previousUrl }.",
       "\"visible\" while a page is visible: data = { tabId, url, elapsedMs } (the visible time since the last one).",
-      "\"items\" as an accessible web page or supported feed (YouTube, Reddit, Bilibili, X…) shows items, each new or changed item once: data = { tabId, platform, items: [{ ref, url, title, authors, videoForm: short|long|post|unknown, tags: [{ name, confidence 1–5 }], tagsSettled, isPage }] }. The page itself is the item with isPage true (ref \"page\", title = the page's title); act on it with v.cover. tags come from the connected Mac Vault classifier; tagsSettled is false until it answered — decide nothing about tags before that.",
+      "\"items\" as an accessible web page or supported feed (YouTube, Reddit, Bilibili, X…) shows items, each new or changed item once: data = { tabId, platform, items: [{ ref, url, title, authors, videoForm: short|long|post|unknown, tags: [{ name, confidence 1–5 }], tagsSettled, isPage }] }. The page itself is the item with isPage true (ref \"page\", title = the page's title); act on it with v.cover. tags come from the connected Vault classifier on Mac; tagsSettled is false until it answered — decide nothing about tags before that.",
       "Items also contain contentId (saved content), instanceId (current appearance), and attachments (this group's saved attachment specs keyed by ID). v.attach(tabId,item,id,spec) saves a clickable pill {type:pill,text,tone?,tooltip?} or a passive HTML/CSS view {type:html,html,css?,label?}; null removes it. Pass the complete item, not its ref. IDs1–80 ASCII letters/digits/_/-. HTML is inert, sanitized and rendered in an isolated shadow root; scripts, event attributes, embeds, remote resources and unapproved CSS are removed. Named controls (data-control or id) send trusted attachment events with eventName click|input|change, controlId, value, values, tabId, attachmentId and the current item. ev.origin is user for actual control events; rule-emitted events are rule. Eight attachments per group/content,32 total/content,10000 contents/group,8MB UTF-8 document. Stale handles/limits/storage errors are logged; no automatic retry or eviction. Saved views survive navigation/restart/Run, hide on disable, return on reenable and disappear with group deletion. Linked groups keep separate attachments. Browser content only.",
       "v.item(tabId, ref, verdict) hides (\"hide\"), covers (\"dim\") or rescues (\"allow\") a feed item; null clears it. Groups higher in the list win.",
       "v.cover(tabId, on, message?) covers the page in place (or lifts it); a new address lifts it.",
@@ -1185,10 +1198,10 @@
       "EXAMPLE: (on, v) => { on(\"items\", (ev) => { for (const item of ev.data.items) if (item.tagsSettled && item.tags.some((t) => t.name === \"Gaming\" && t.confidence >= 4)) v.item(ev.data.tabId, item.ref, \"dim\"); }); }"
     ],
     mac: [
-      "ENGINE: Mac Vault. It controls apps only (never websites).",
+      "ENGINE: Vault on Mac. It controls apps only (never websites).",
       "\"tick\" every second: data = { frontmost: { appId, name } | null, running: [{ appId, name }] } — every running app, menu-bar and background ones included.",
       "\"app\" when an app launches, quits, comes to the front or leaves it, hides or unhides: data = { kind: launch | quit | focus | blur | hide | unhide, appId, name, previousAppId (focus only) }.",
-      "v.block(appId, on) blocks an app (asked to quit, again after Settings' retry interval) until v.block(appId, false), Run, or the group is disabled; v.quit(appId) asks it to quit once; v.open(appId) opens it. appId is a bundle identifier. On Mac Vault, Apple apps and whole browsers can be blocked; Vault's own bundle identity remains protected.",
+      "v.block(appId, on) blocks an app (asked to quit, again after Settings' retry interval) until v.block(appId, false), Run, or the group is disabled; v.quit(appId) asks it to quit once; v.open(appId) opens it. appId is a bundle identifier. In Vault on Mac, Apple apps and whole browsers can be blocked; Vault's own bundle identity remains protected.",
       "EXAMPLE: (on, v) => { on(\"tick\", () => { const h = new Date().getHours(); v.block(\"com.valvesoftware.steam\", h >= 22 || h < 7); }); }"
     ]
   };

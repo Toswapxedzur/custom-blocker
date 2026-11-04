@@ -721,15 +721,11 @@
   function normalizeRuleAI(value) {
     if (value == null) return null;
     if (!value || typeof value !== "object" || Array.isArray(value)
-      || Object.keys(value).some(key => !["providerModel", "accountID", "reasoningEffort", "dailyRequestLimit", "prompt", "context"].includes(key))
-      || typeof value.providerModel !== "string" || value.providerModel.length > 520
-      || !/^(chatgpt:.+|api:[^:]+:.+)$/.test(value.providerModel)
-      || typeof value.accountID !== "string" || value.accountID.length > 256
-      || !["default", "low", "medium", "high"].includes(value.reasoningEffort)
+      || Object.keys(value).some(key => !["dailyRequestLimit", "prompt", "context"].includes(key))
       || (value.dailyRequestLimit != null && (!Number.isInteger(value.dailyRequestLimit) || value.dailyRequestLimit < 1 || value.dailyRequestLimit > 100000))
       || (value.prompt !== undefined && (typeof value.prompt !== "string" || utf8Length(value.prompt) > 16000))
       || (value.context !== undefined && (typeof value.context !== "string" || utf8Length(value.context) > 16000))) return null;
-    return {providerModel: value.providerModel, accountID: value.accountID, reasoningEffort: value.reasoningEffort, dailyRequestLimit: value.dailyRequestLimit ?? null, prompt:value.prompt ?? "", context:value.context ?? ""};
+    return {dailyRequestLimit: value.dailyRequestLimit ?? null, prompt:value.prompt ?? "", context:value.context ?? ""};
   }
   function validateGroupPatch(patch, groupType) {
     const has = (key) => Object.prototype.hasOwnProperty.call(patch || {}, key);

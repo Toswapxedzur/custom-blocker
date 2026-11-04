@@ -30,7 +30,7 @@
       const record=data.record;
       render(job.tabId,job.item,record);
       if(record?.value.origin==='user'||record?.version===version())return;
-      const id=v.ai({prompt:'Choose exactly one label from '+JSON.stringify(labels)+'. Return JSON {"label":"..."}. User feedback is authoritative.',input:{title:job.item.title}});
+      const id=v.ai({model:'chatgpt:MODEL_ID',prompt:'Choose exactly one label from '+JSON.stringify(labels)+'. Return JSON {"label":"..."}. User feedback is authoritative.',input:{title:job.item.title}});
       pending.set(id,{...job,kind:'ai',revision:record?.revision??null,version:version()});
     }else if(job.kind==='write'){
       // A newer user interaction invalidates older presentation callbacks.
@@ -59,7 +59,7 @@
     if(data.controlId==='save')request({op:'put',key:key(data.item),value:{label:String(data.values.answer||''),origin:'user'},version:version()},job);
     else if(data.controlId==='refresh'){
       const record=seen.get(data.item.contentId)?.record;if(record?.value.origin==='user')return;
-      const id=v.ai({prompt:'Choose a label. Return JSON {"label":"..."}.',input:{title:data.item.title}});
+      const id=v.ai({model:'chatgpt:MODEL_ID',prompt:'Choose a label. Return JSON {"label":"..."}.',input:{title:data.item.title}});
       pending.set(id,{...job,kind:'ai',revision:record?.revision??null,version:version()});
     }else if(data.controlId==='reset')request({op:'delete',key:key(data.item)},{...job,kind:'reset'});
     else if(data.controlId==='report')v.panel('example-report',{title:'Rule usage',controls:[{type:'html',html:'<p>Observed visible time: '+Math.round((v.state.visibleMs||0)/1000)+' seconds</p>'}]});

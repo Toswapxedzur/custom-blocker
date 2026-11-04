@@ -190,18 +190,20 @@ Snooze বা তার panel button দিয়ে চালু হওয়�
 
 ## চলমান নিয়ম থেকে AI কল
 
-প্রতিটি custom group **AI calls**-এ একটি connection/model ও reasoning effort বেছে নেয়। Mac ও browser rule একই API ব্যবহার করে; browser request-এর জন্য Mac Vault connected থাকতে হবে, provider credential সেখানেই থাকে। Linked group নির্বাচন ও ঐচ্ছিক দৈনিক request cap ভাগ করে। ফাঁকা মানে group cap নেই; account limit থাকে। Cap UTC দিন ধরে, restart-এ স্থায়ী এবং ব্যর্থসহ submitted attempt গোনে। Link করলে আগের usage যোগ হয়; unlink করলেও আগের usage থাকে।
+প্রতিটি `v.ai` কল তার connection/model নির্দিষ্ট করে; group-এর কোনো default নেই। **AI calls** থেকে model ID নিন বা tool দিয়ে উপলভ্য model খুঁজুন। প্রতিটি কলে reasoning effort বেছে নেওয়া হয়। Browser request-এর জন্য desktop Vault connected থাকতে হবে; provider credential সেখানেই থাকে। Linked group ঐচ্ছিক দৈনিক request cap ভাগ করে।
 
 সংরক্ষিত prompt ও context linked group-এ ভাগ হয় এবং handler-এ `v.context.ai.prompt` ও `v.context.ai.context` হিসেবে পাওয়া যায়। Vault এগুলি নিজে পাঠায় না; প্রতিটি `v.ai` কলে কী যাবে তা rule বেছে নেয়।
 
-`v.ai({ prompt, input? })` সঙ্গে সঙ্গে request ID দেয়। Registration-এ নয়, handler-এর মধ্যে কল করুন। `input` যেকোনো JSON; prompt/input প্রত্যেকটি সর্বোচ্চ20KB। উত্তর `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` event-এ আসে: {requestId, ok, text, citations, error}। সফল text সর্বোচ্চ48KB; citation {url,title}। Web search-এর উত্তর দেখালে source link দৃশ্যমান ও clickable রাখুন। Model-এর জন্য search সর্বদা উপলভ্য। নির্দিষ্ট app deadline নেই; bounded concurrency থাকে; provider fallback বা auto retry নেই। উত্তর data, JavaScript হিসেবে execute হয় না; বিদ্যমান action নেবে কি না rule ঠিক করে।
+`conversation` একটি ঐচ্ছিক নাম। এটি না দিলে কল stateless থাকে; দিলে desktop Vault সম্পূর্ণ user/assistant transcript স্থানীয়ভাবে সংরক্ষণ করে এবং পরের কলে সর্বশেষ সর্বোচ্চ16KB বার্তা পাঠায়। একই conversation model বদলাতে পারে; নামটি এই ডিভাইসের সব rule ও group-এ ভাগ করা হয় এবং group মুছলেও থাকে। পুরোনো private build-এর পৃথক history আমদানি করলে নতুন নামগুলো `preservedConversations`-এ জানানো হয়। শেয়ার করা conversation মুছতে `v.ai({op:"delete", conversation:"name"})` ব্যবহার করুন; উত্তর `ai` event-এ আসে। একই নামের সক্রিয় কল `ai-conversation-busy` দেয়; তার উত্তর এলে আবার চেষ্টা করুন।
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` এটি সঙ্গে সঙ্গে request ID ফেরত দেয়। Rule register করার সময় নয়, handler-এর ভেতরে কল করুন। `model` উপলভ্য model ID হতে হবে; effort হবে `default` (না দিলে), অথবা সমর্থিত `low`, `medium`, `high`। `input` যেকোনো JSON value হতে পারে; prompt/input মিলিয়ে সর্বোচ্চ20KB। উত্তর `ai` event-এ আসে, যার data হলো `{requestId, ok, text, citations, error, preservedConversations?}`। সফল text সর্বোচ্চ48KB; citation-এর রূপ `{url,title}`। Web search-এর উত্তর দেখালে clickable source link রাখুন। Model-এর জন্য search সবসময় উপলভ্য। নির্দিষ্ট deadline নেই; একই নামের call ক্রমানুসারে চলে। পরের call `ai` event থেকে শুরু করুন। Panel-এ `ask` button ও `note` field ব্যবহার করুন।
 
 ```javascript
 (on, v) => {
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -212,10 +214,9 @@ Snooze বা তার panel button দিয়ে চালু হওয়�
 }
 ```
 
-Restart-এ outstanding call replay হয় না। Run, disable/enable বা delete পুরনো reply বাতিল করে; disconnected browser `ai-unavailable` দেয়। অন্য error: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`। Failed call rule-এর আগের রাখা result বদলায় না; rule state-এর64KB সীমা আগের মতোই।
+Restart-এ outstanding call replay হয় না। Run, disable/enable বা delete পুরনো reply বাতিল করে; disconnected browser `ai-unavailable` দেয়। অন্য error: `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`, `ai-conversation-storage-unavailable`। Failed call rule-এর আগের রাখা result বদলায় না; rule state-এর64KB সীমা আগের মতোই।
 
-Credential-মুক্ত model পছন্দ Mac-এ `rule_ai_models`, browser-এ `settings-rule-ai-models` দিয়ে খুঁজুন; বর্তমান set-group path-এ `ruleAI` কনফিগার করুন। Field: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) এবং `dailyRequestLimit` (null বা1–100000)। ফেরত পাওয়া choice ব্যবহার করুন; rule source-এ key বা provider URL দেবেন না।
-ঐচ্ছিক সংরক্ষিত field হলো `prompt` ও `context`; প্রতিটি সর্বোচ্চ16KB string।
+Credential-মুক্ত model পছন্দ Mac-এ `rule_ai_models`, browser-এ `settings-rule-ai-models` দিয়ে খুঁজুন; বর্তমান set-group path-এ `ruleAI` এর field হলো `dailyRequestLimit` (null বা1–100000), `prompt` এবং `context` (ঐচ্ছিক string, প্রতিটি সর্বোচ্চ16KB)।
 
 ## গ্রুপ রেকর্ড
 

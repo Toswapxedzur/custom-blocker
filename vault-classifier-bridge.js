@@ -443,7 +443,7 @@
   // Local-LLM rework: resolves ONE video's tags, keyed by the video's entryID +
   // evidence (the pill is now per-video). Returns pending:true when the app has
   // queued classification and the caller should re-request shortly.
-  async function videoTags(platform, entryID, creatorID, title, summary, text) {
+  async function videoTags(platform, entryID, creatorID, title, summary, text, entryType) {
     if (typeof entryID !== "string" || entryID.length === 0 || entryID.length > 256 || !entryID.startsWith(`${platform}:`)
       || typeof creatorID !== "string" || creatorID.length === 0 || creatorID.length > 256 || !creatorID.startsWith(`${platform}:`)
       || typeof title !== "string" || title.length === 0 || title.length > 500) {
@@ -455,6 +455,7 @@
       }
       const body = await hubRequest("video-tags", {
         platformID: platform, entryID, creatorID, title,
+        ...(typeof entryType === "string" && /^[a-z-]{1,32}$/.test(entryType) ? { entryType } : {}),
         ...(typeof summary === "string" && summary ? { summary: summary.slice(0, 4000) } : {}),
         ...(typeof text === "string" && text ? { text: text.slice(0, 4000) } : {})
       });
@@ -488,6 +489,7 @@
       }
       seen.add(entryID);
       const item = { entryID, creatorID, title };
+      if (typeof raw.entryType === "string" && /^[a-z-]{1,32}$/.test(raw.entryType)) item.entryType = raw.entryType;
       if (typeof raw.summary === "string" && raw.summary) item.summary = raw.summary.slice(0, 4000);
       if (typeof raw.text === "string" && raw.text) item.text = raw.text.slice(0, 4000);
       items.push(item);
@@ -648,7 +650,7 @@
       || entryID.length > 256) {
       return false;
     }
-    videoTags(platform, entryID, creatorID, typeof message.title === "string" ? message.title : "", message.summary, message.text)
+    videoTags(platform, entryID, creatorID, typeof message.title === "string" ? message.title : "", message.summary, message.text, message.entryType)
       .then(sendResponse)
       .catch(() => sendResponse({ ok: false, tags: [], pending: false }));
     return true;

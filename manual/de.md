@@ -1,6 +1,6 @@
-# Benutzerhandbuch der Vault-Browsererweiterung
+# Benutzerhandbuch der Adamancia Vault-Browsererweiterung
 
-Vault steuert Websites und unterstützte Plattforminhalte im Browserprofil, in dem es installiert ist. Öffnen Sie den Editor über die Schaltfläche der Erweiterung in der Symbolleiste. Bei bestehender Verbindung stellt Mac Vault oder Windows Vault die lokale Tag-Zuweisung und Aktivität bereit; die Erweiterung setzt Browserziele durch.
+Vault steuert Websites und unterstützte Plattforminhalte im Browserprofil, in dem es installiert ist. Öffnen Sie den Editor über die Schaltfläche der Erweiterung in der Symbolleiste. Bei bestehender Verbindung stellt Vault auf dem Mac oder Vault unter Windows die lokale Tag-Zuweisung und Aktivität bereit; die Erweiterung setzt Browserziele durch.
 
 ## Blockierungsgruppen
 
@@ -59,9 +59,9 @@ Plattformziele verwenden **Ersteller** für Videoplattformen, **Konten** für Tw
 
 ### Filter für Inhaltstags
 
-Die Verbindung zur Klassifizierung und die Tag-Korrektur sind in unterstützten Chromium-Browsern wie Chrome und Edge sowie in Safari Vault unter macOS verfügbar.
+Die Verbindung zur Klassifizierung und die Tag-Korrektur sind in unterstützten Chromium-Browsern wie Chrome und Edge sowie in Vault für Safari unter macOS verfügbar.
 
-Verbinden Sie Mac Vault oder Windows Vault und konfigurieren Sie dessen Klassifizierung, um Tags zu erhalten. Der Tag-Filter einer Blockierungsgruppe bestimmt, was abgedeckt oder verborgen wird. Er startet oder pausiert die Tag-Zuweisung nicht; verwenden Sie dafür die Klassifizierungseinstellungen der Desktop-App oder die Pausensteuerung der jeweiligen Klassifizierungsgruppe.
+Verbinden Sie Vault auf dem Mac oder Vault unter Windows und konfigurieren Sie dessen Klassifizierung, um Tags zu erhalten. Der Tag-Filter einer Blockierungsgruppe bestimmt, was abgedeckt oder verborgen wird. Er startet oder pausiert die Tag-Zuweisung nicht; verwenden Sie dafür die Klassifizierungseinstellungen der Desktop-App oder die Pausensteuerung der jeweiligen Klassifizierungsgruppe.
 
 Jeder Websiteeintrag hat einen **Anwenden auf**-Filter: alle Inhalte, ausgewählte Ersteller, alle außer ausgewählten Erstellern, ausgewählte Tags oder alle außer ausgewählten Tags. Fügen Sie einen weiteren Eintrag für dieselbe Website hinzu, wenn Sie einen anderen Filter benötigen.
 

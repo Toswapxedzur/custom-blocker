@@ -190,18 +190,20 @@ Snoozeまたはそのパネルボタンで始まる5分間の一時停止:
 
 ## 実行中ルールからの AI 呼び出し
 
-各 custom group は **AI calls** で接続/モデルと reasoning effort を選択します。Mac とブラウザーのルールは同じ API を使います。ブラウザー要求には Mac Vault 接続が必要で、プロバイダー認証情報はそこに保持されます。リンク済みグループは選択と任意の日次上限を共有します。空欄はグループ上限なしですが、アカウント制限は適用されます。上限は UTC 日で計算し、再起動後も維持、失敗を含む送信試行を数えます。Link は既存使用量を合算し、Unlink 後も過去分は保持されます。
+各 `v.ai` 呼び出しで接続先とモデルを指定します。グループ共通の既定値はありません。**AI calls** からモデルIDをコピーするか、ツールで利用可能なモデルを確認します。推論の強さは呼び出しごとに選択します。ブラウザーからの要求にはデスクトップ版Vaultへの接続が必要で、プロバイダーの認証情報はそこに保持されます。リンク済みグループは任意の日次上限を共有します。
 
 保存された prompt と context はリンク済みグループ間で共有され、handler 内で `v.context.ai.prompt` と `v.context.ai.context` として利用できます。Vault は自動送信しません。各 `v.ai` 呼び出しに含める内容はルールが選択します。
 
-`v.ai({ prompt, input? })` は即時に request ID を返します。ルール登録時でなくハンドラー内で呼びます。`input` は任意の JSON 値で、prompt/input はそれぞれ20KBまでです。応答は `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` イベント {requestId, ok, text, citations, error} で届きます。成功テキストは最大48KB、引用は {url,title}。Web 検索の回答を表示する際はソースリンクを見えるクリック可能な状態に保ちます。検索は常にモデルから利用可能です。アプリの固定期限はなく、並行処理は制限されます。プロバイダーフォールバックや自動再試行はありません。応答はデータであり JavaScript として実行されません。既存アクションを取るかはルールが決めます。
+`conversation` は任意の名前です。指定しない場合はステートレスになり、指定するとデスクトップ版Vaultがユーザー/アシスタントの全履歴をローカルに保存し、次の呼び出しで最新の最大16KBを含めます。モデルは切り替えられます。名前はこのデバイスの全ルールとグループで共有され、グループを削除またはリンク解除しても利用できます。インポート時に変更された名前は `preservedConversations` で通知されます。共有履歴を削除するには `v.ai({op:"delete", conversation:"name"})` を使います。応答は `ai` イベントで届きます。同じ名前の呼び出しが実行中なら `ai-conversation-busy` が返るため、応答後に再試行します。
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` 呼び出すとすぐにリクエストIDが返ります。ルール登録時ではなく、ハンドラー内で呼び出してください。 `model` は利用可能なモデルIDを指定します。effortは省略時に `default`、対応していれば `low`、`medium`、`high` です。`input` は任意のJSON値で、prompt/inputの合計は20KBまでです。 応答は `ai` イベントで届き、`{requestId, ok, text, citations, error, preservedConversations?}` を含みます。成功時のテキストは最大48KB、引用は `{url,title}` 形式です。Web検索に基づく回答を表示するときは、参照元へのリンクを表示してクリックできるようにします。検索は常にモデルで利用できます。固定の期限はなく、同じ名前の呼び出しは順番に実行されます。次の呼び出しは `ai` イベントから開始します。パネルには `ask` ボタンと `note` フィールドを使います。
 
 ```javascript
 (on, v) => {
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -212,10 +214,9 @@ Snoozeまたはそのパネルボタンで始まる5分間の一時停止:
 }
 ```
 
-未完了呼び出しは再起動後に再送されません。Run、無効化/再有効化、削除は古い応答を破棄します。未接続ブラウザーは `ai-unavailable` を返します。その他のエラー: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`。失敗した呼び出しはルールが保持した前の結果を上書きしません。state 上限は64KBのままです。
+未完了呼び出しは再起動後に再送されません。Run、無効化/再有効化、削除は古い応答を破棄します。未接続ブラウザーは `ai-unavailable` を返します。その他のエラー: `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`, `ai-conversation-storage-unavailable`。失敗した呼び出しはルールが保持した前の結果を上書きしません。state 上限は64KBのままです。
 
-認証情報なしの候補は Mac の `rule_ai_models`、ブラウザーの `settings-rule-ai-models` で取得し、既存の set-group 経路から `ruleAI` を設定します。フィールドは `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`), `dailyRequestLimit` (null または1～100000) です。返された候補を使い、キーやプロバイダー URL をルールソースに書かないでください。
-任意の保存フィールドは `prompt` と `context` で、それぞれ最大16KBの文字列です。
+認証情報なしの候補は Mac の `rule_ai_models`、ブラウザーの `settings-rule-ai-models` で取得し、既存の set-group 経路から `ruleAI` フィールドは `dailyRequestLimit`（nullまたは1–100000）、`prompt`、`context`（任意の文字列、各最大16KB）です。
 
 ## グループレコード
 

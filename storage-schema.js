@@ -1,8 +1,8 @@
-/* Local storage format registry. Product majors expire transformations; schema
- * numbers describe data only. All consumers use the guarded chrome API below. */
+/* Local storage format registry. Schema numbers describe data independently of
+ * app versions. All consumers use the guarded chrome API below. */
 (function (g) {
   'use strict';
-  const SCHEMA = 6, FORMAT = 'vault.web-store';
+  const SCHEMA = 7, FORMAT = 'vault.web-store';
   function product() {
     const id = g.__CB_DESKTOP_PROGRAM_ID;
     const url = typeof g.chrome?.runtime?.getURL === 'function' ? g.chrome.runtime.getURL('') : '';
@@ -22,14 +22,9 @@
     const v = root.schemaVersion === undefined ? 0 : root.schemaVersion;
     if (!Number.isInteger(v) || v < 0 || v > SCHEMA) throw new Error('Unsupported storage schema ' + v + '. Saved data is preserved.');
     const m = root.storageMetadata;
-    const appMajor = major(writer.appVersion);
-    if (appMajor < 0) throw new Error('Storage product version is unavailable.');
+    if (major(writer.appVersion) < 0) throw new Error('Storage product version is unavailable.');
     if (m !== undefined) {
       if (!m || m.format !== FORMAT || m.schemaVersion !== v || !m.product || major(m.writtenByAppVersion) < 0) throw new Error('Unsupported or inconsistent storage metadata. Saved data is preserved.');
-      if (v < SCHEMA && m.product === writer.product && major(m.writtenByAppVersion) < Math.max(0, appMajor - 1)) throw new Error('This app-major storage migration has expired. Saved data is preserved.');
-    } else {
-      const alphaMajor = writer.product === 'mac' ? 2 : writer.product === 'windows' ? 0 : 3;
-      if (appMajor > alphaMajor + 1) throw new Error('Alpha storage import has expired. Saved data is preserved.');
     }
   }
   function metadata(writer = identity()) { return { format: FORMAT, schemaVersion: SCHEMA, product: writer.product, writtenByAppVersion: writer.appVersion }; }
@@ -49,7 +44,14 @@
     const root = await raw.get(null);
     validate(root);
     const writes = { schemaVersion: SCHEMA, storageMetadata: metadata() };
-    if (Array.isArray(root.blockedGroups) && g.CBGroupScopes) writes.blockedGroups = g.CBGroupScopes.sanitizeGroups(root.blockedGroups).map(g.CBGroupScopes.withoutFlatScopeFields);
+    if (Array.isArray(root.blockedGroups) && g.CBGroupScopes) {
+      const groups = root.blockedGroups.map(group => {
+        if (root.schemaVersion >= 7 || !group?.ruleAI || typeof group.ruleAI !== 'object') return group;
+        const { dailyRequestLimit, prompt, context } = group.ruleAI;
+        return { ...group, ruleAI: { dailyRequestLimit: dailyRequestLimit ?? null, prompt: prompt ?? '', context: context ?? '' } };
+      });
+      writes.blockedGroups = g.CBGroupScopes.sanitizeGroups(groups).map(g.CBGroupScopes.withoutFlatScopeFields);
+    }
     await raw.set(writes);
   }
   function run(name, args) {

@@ -280,7 +280,7 @@
   }
 
   // Resolves one video's tags by entryID, carrying its title as evidence.
-  function request(platform, entryID, creatorID, title) {
+  function request(platform, entryID, creatorID, title, entryType) {
     const key = boundedIdentity(platform, entryID);
     if (!key || !C?.normalizeVideoTagsResponse || !global.chrome?.runtime?.sendMessage) {
       return Promise.resolve(null);
@@ -296,7 +296,7 @@
     const epoch = platformEpochs.get(platform) || 0;
     const record = { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending: null };
     const pending = new Promise((resolve) => {
-      pendingBatch.push({ platform, entryID, creatorID, title, key, resolve });
+      pendingBatch.push({ platform, entryID, creatorID, title, entryType, key, resolve });
       scheduleDrain();
     }).then((result) => {
       if (epoch !== (platformEpochs.get(platform) || 0)) return null;
@@ -359,7 +359,8 @@
 
   function dispatchBatch(platform, jobs) {
     const items = jobs.map((job) => ({
-      entryID: job.entryID, creatorID: job.creatorID, title: job.title
+      entryID: job.entryID, creatorID: job.creatorID, title: job.title,
+      ...(job.entryType ? { entryType: job.entryType } : {})
     }));
     sendBatch(platform, items).then((resultMap) => {
       for (const job of jobs) {
@@ -368,7 +369,7 @@
         } else {
           // The batch route is unavailable (e.g. a worker still on the old build).
           // Fall back to a single request so a rollout skew never blanks the feed.
-          sendSingle(job.platform, job.entryID, job.creatorID, job.title).then(job.resolve);
+          sendSingle(job.platform, job.entryID, job.creatorID, job.title, job.entryType).then(job.resolve);
         }
       }
     });
@@ -392,11 +393,12 @@
     });
   }
 
-  function sendSingle(platform, entryID, creatorID, title) {
+  function sendSingle(platform, entryID, creatorID, title, entryType) {
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage(
-          { type: "vault-classifier-video-tags", platform, entryID, creatorID, title },
+          { type: "vault-classifier-video-tags", platform, entryID, creatorID, title,
+            ...(entryType ? { entryType } : {}) },
           (response) => {
             if (chrome.runtime.lastError || response?.ok !== true) return resolve(null);
             const normalized = C.normalizeVideoTagsResponse(response, platform, entryID);
@@ -987,13 +989,18 @@
         || state.epoch !== (platformEpochs.get(state.platform) || 0)
         || state.root.isConnected === false) return;
       if (!state.title) return scheduleProvisionalRecheck(state);
-      request(state.platform, state.entryID, state.creatorID, state.title).then(result => settleState(state, result));
+      request(state.platform, state.entryID, state.creatorID, state.title, state.entryType).then(result => settleState(state, result));
     }, PENDING_TTL_MS + 200);
   }
 
-  function observe({ platform, entryID, creatorID, title, root, anchor = null, kind = "card" } = {}) {
+  function observe({ platform, entryID, creatorID, title, entryType, root, anchor = null, kind = "card" } = {}) {
     const key = boundedIdentity(platform, entryID);
     if (!key || !root || root.isConnected === false) return;
+    if (sourceCache.get(key)?.skipped && sourceCache.get(key).expiresAt > Date.now()) {
+      const old = stateByRoot.get(root);
+      if (old) { removeState(old); stateByRoot.delete(root); }
+      return;
+    }
     creatorID = boundedIdentity(platform, creatorID) ? creatorID : `${platform}:collab:${entryID.slice(platform.length + 1)}`;
     title = typeof title === "string" ? title.trim() : "";
     startReattachObserver();
@@ -1006,6 +1013,7 @@
         entryID,
         creatorID,
         title,
+        entryType,
         root,
         anchor,
         kind: kind === "page" ? "page" : "card",
@@ -1023,6 +1031,7 @@
       // A card may hydrate its title/creator after first paint.
       if (title && title !== state.title) { state.title = title; state.recheckAttempts = 0; }
       if (creatorID) state.creatorID = creatorID;
+      if (entryType) state.entryType = entryType;
     }
     state.epoch = platformEpochs.get(platform) || 0;
     devLog("observe", { platform, entry: entryID, creator: creatorID });
@@ -1036,7 +1045,7 @@
     render(state, state.currentTags || (cached?.tags?.length ? cached.tags : TAGGING_TAGS), cached?.predicted === true);
     notifyTagsChanged(state, { provisional: !shownTags(state) });
     if (!state.title) return scheduleProvisionalRecheck(state);
-    request(platform, entryID, state.creatorID, state.title).then((result) => {
+    request(platform, entryID, state.creatorID, state.title, state.entryType).then((result) => {
       devLog("result", {
         entry: entryID,
         state: result ? (result.provisional ? "tagging" : ((result.tags && result.tags.length) ? "tags" : "none")) : "null"

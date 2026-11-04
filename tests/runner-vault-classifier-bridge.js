@@ -269,9 +269,12 @@ function assert(name, condition, detail) {
     platform: "youtube",
     entryID: "youtube:video:abc123",
     creatorID: "youtube:channel:UC1234567890123456789012",
-    title: "A classified video"
+    title: "A classified video",
+    entryType: "short"
   }, trustedSender);
+  const typedRequest = hubRequests.filter((request) => request.operation === "video-tags").at(-1);
   assert("routes a bounded per-video lookup and returns human-readable tags", videoTags.value?.ok === true
+    && typedRequest?.body?.entryType === "short"
     && videoTags.value?.tags?.[0]?.name === "Games"
     && videoTags.value?.tags?.[0]?.lightColorHex === "#9EC5E8"
     && videoTags.value?.tags?.[0]?.darkColorHex === "#1A4775", videoTags);

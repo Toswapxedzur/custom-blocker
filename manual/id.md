@@ -1,6 +1,6 @@
-# Panduan pengguna ekstensi browser Vault
+# Panduan pengguna ekstensi browser Adamancia Vault
 
-Vault mengendalikan situs web dan konten platform yang didukung dalam profil browser tempat Vault dipasang. Buka editornya melalui tombol ekstensi di toolbar. Saat terhubung, Mac Vault atau Windows Vault menyediakan pemberian tag lokal dan Aktivitas; ekstensi menerapkan target browser.
+Vault mengendalikan situs web dan konten platform yang didukung dalam profil browser tempat Vault dipasang. Buka editornya melalui tombol ekstensi di toolbar. Saat terhubung, Vault di Mac atau Vault di Windows menyediakan pemberian tag lokal dan Aktivitas; ekstensi menerapkan target browser.
 
 ## Grup pemblokiran
 
@@ -59,9 +59,9 @@ Target platform menggunakan **Kreator** untuk platform video, **Akun** untuk Twi
 
 ### Filter tag konten
 
-Koneksi Klasifikasi dan koreksi tag tersedia di browser Chromium yang didukung, seperti Chrome dan Edge, serta Safari Vault di macOS.
+Koneksi Klasifikasi dan koreksi tag tersedia di browser Chromium yang didukung, seperti Chrome dan Edge, serta Vault untuk Safari di macOS.
 
-Hubungkan Mac Vault atau Windows Vault dan atur Klasifikasi untuk memperoleh tag. Filter tag grup pemblokiran memilih apa yang ditutupi atau disembunyikan. Filter ini tidak memulai atau menjeda pemberian tag; gunakan setelan Klasifikasi aplikasi desktop atau kontrol jeda grup Klasifikasi terkait.
+Hubungkan Vault di Mac atau Vault di Windows dan atur Klasifikasi untuk memperoleh tag. Filter tag grup pemblokiran memilih apa yang ditutupi atau disembunyikan. Filter ini tidak memulai atau menjeda pemberian tag; gunakan setelan Klasifikasi aplikasi desktop atau kontrol jeda grup Klasifikasi terkait.
 
 Setiap entri situs memiliki satu filter **Terapkan ke**: semua konten, kreator terpilih, semua kecuali kreator terpilih, tag terpilih, atau semua kecuali tag terpilih. Tambahkan entri lain untuk situs yang sama jika memerlukan filter berbeda.
 

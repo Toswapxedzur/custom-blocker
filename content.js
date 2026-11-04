@@ -1648,7 +1648,7 @@ function cbRenderCover() {
     panel.appendChild(cbCoverElement("p", "cb-status", status));
     shell.appendChild(panel);
   }
-  shell.appendChild(cbCoverElement("p", "cb-foot", "Adamancia Vault"));
+  shell.appendChild(cbCoverElement("p", "cb-foot", "Vault"));
 }
 
 // The popup's snooze flow without its settings: the group's confirmation

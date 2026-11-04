@@ -136,9 +136,89 @@ const stored = () => storage.get("blockedGroups");
 const byId = (id) => stored().find((g) => g.id === id);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+async function checkCustomSnoozeConfirmation() {
+  context.__originalCustom = run('structuredClone(state.groups.find(g => g.id === "c1"))');
+  context.__selectedGroupId = run('state.selectedGroupId');
+  context.__realNow = run('Date.now');
+  const realSend = chrome.runtime.sendMessage;
+  const fired = [];
+  let answerNotice;
+  context.testNow = Date.now();
+  context.holdNotice = () => new Promise(resolve => { answerNotice = resolve; });
+  chrome.runtime.sendMessage = async message => {
+    if (message?.type === "fire-snooze-press") {
+      fired.push(message);
+      return { ok: true };
+    }
+    return realSend(message);
+  };
+  run(`Date.now = () => globalThis.testNow;
+    cbDialog.confirm = () => holdNotice();
+    state.selectedGroupId = "c1";
+    Object.assign(state.groups.find(g => g.id === "c1"), {
+      allowSnooze: true, snoozeConfirmations: 2, activeEventSource: "(on, v) => {}"
+    });`);
+  const fieldIds = ['snoozeMinutes', 'snoozeActivationDelay', 'snoozeCooldown', 'snoozeConfirmations'];
+  const hiddenFields = new Map();
+  for (const id of fieldIds) {
+    elements.get(id).parentElement = { classList: { toggle: (_name, hidden) => hiddenFields.set(id, hidden) } };
+  }
+  run('updateSnoozeUI(state.groups.find(g => g.id === "c1"))');
+  check('custom Snooze shows confirmations but hides ordinary timing fields',
+    fieldIds.slice(0, 3).every(id => hiddenFields.get(id) === true) && hiddenFields.has('snoozeConfirmations') === false);
+  run('updateSnoozeUI(state.groups.find(g => g.id === "a1"))');
+  check('ordinary Snooze keeps its timing fields visible', fieldIds.slice(0, 3).every(id => hiddenFields.get(id) === false));
+  for (const id of fieldIds) elements.get(id).parentElement = null;
+  await run('startSnooze()');
+  check('custom Snooze starts its configured confirmation steps',
+    run('state.unfreezeFlow?.kind') === 'custom-snooze' && run('state.unfreezeFlow.confirmationsLeft') === 2 && fired.length === 0);
+  await run('handleUnfreezeConfirm()');
+  check('custom Snooze cannot skip the five-second wait', run('state.unfreezeFlow.confirmationsLeft') === 2 && fired.length === 0);
+  context.testNow += 5_000;
+  await run('handleUnfreezeConfirm()');
+  check('first step sends no custom Snooze event', run('state.unfreezeFlow.confirmationsLeft') === 1 && fired.length === 0);
+  run('closeUnfreezeFlow()');
+  check('cancelling the steps sends no custom Snooze event', fired.length === 0);
+  await run('startSnooze()');
+  context.testNow += 5_000;
+  await run('handleUnfreezeConfirm()');
+  context.testNow += 5_000;
+  const cancelled = run('handleUnfreezeConfirm()');
+  check('final notice opens before the custom rule event', typeof answerNotice === 'function' && fired.length === 0);
+  answerNotice(false); await cancelled;
+  check('cancelling the final notice sends no custom Snooze event', fired.length === 0);
+  await run('startSnooze()');
+  context.testNow += 5_000;
+  await run('handleUnfreezeConfirm()');
+  context.testNow += 5_000;
+  const approved = run('handleUnfreezeConfirm()');
+  check('custom event still waits for the final notice', fired.length === 0);
+  answerNotice(true); await approved;
+  check('custom event fires once after all confirmations',
+    fired.length === 1 && fired[0].groupId === 'c1' && fired[0].expectedConfirmations === 2);
+  await run('startSnooze()');
+  context.testNow += 5_000;
+  await run('handleUnfreezeConfirm()');
+  run('state.groups.find(g => g.id === "c1").snoozeConfirmations = 3');
+  context.testNow += 5_000;
+  await run('handleUnfreezeConfirm()');
+  check('changed confirmation settings cannot dispatch the old request', fired.length === 1);
+  run('state.groups.find(g => g.id === "c1").snoozeConfirmations = 0');
+  answerNotice = undefined;
+  const zeroSteps = run('startSnooze()');
+  await new Promise(resolve => setImmediate(resolve));
+  check('zero configured steps still opens the final custom Snooze notice', fired.length === 1 && typeof answerNotice === 'function');
+  answerNotice(false); await zeroSteps;
+  check('canceling the zero-step final notice sends no event', fired.length === 1);
+  run('state.groups[state.groups.findIndex(g => g.id === "c1")] = __originalCustom; closeUnfreezeFlow(); Date.now = __realNow;');
+  run('state.selectedGroupId = __selectedGroupId');
+  chrome.runtime.sendMessage = realSend;
+}
+
 async function runNativeEditorControls() {
   check("native fixture uses desktop ownership", run("IS_NATIVE_DESKTOP && LOCAL_OWNER === 'desktop'"));
   await run("loadGroups()");
+  await checkCustomSnoozeConfirmation();
   const before = run('structuredClone(state.groups.find(g=>g.id==="a1"))');
   const latest = JSON.parse(JSON.stringify(stored()));
   latest[0].name="New shared name"; latest[0].allowedMinutes=24;
@@ -182,6 +262,7 @@ async function runNativeEditorControls() {
   if (nativeEditor) { await runNativeEditorControls(); return; }
   check("the fixture exercises the browser IPC branch",run("IS_NATIVE_DESKTOP")===false);
   await run("loadGroups()");
+  await checkCustomSnoozeConfirmation();
   check("the editor loaded the store", run("state.groups.length") === 2, run("state.groups.length"));
   check("opening the editor writes nothing", same(stored(), SEED), stored());
   const seededC1 = JSON.stringify(byId("c1"));

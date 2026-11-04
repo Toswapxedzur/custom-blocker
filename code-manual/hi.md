@@ -190,18 +190,20 @@ Snooze या उसके panel button से शुरू होने वा�
 
 ## चलते नियम से AI कॉल
 
-हर custom group **AI calls** में एक connection/model और reasoning effort चुनता है। Mac/browser rules वही API इस्तेमाल करते हैं; browser request के लिए Mac Vault connected होना चाहिए और provider credentials वहीं रहते हैं। Linked groups चयन और optional daily request cap साझा करते हैं। Blank का अर्थ group cap नहीं, account limits फिर भी लागू। Cap UTC day से जुड़ा है, restart के बाद रहता है और failures सहित submitted attempts गिनता है। Link पुराने usage को जोड़ता है; unlink पुराना usage रखता है।
+हर `v.ai` कॉल अपना connection/model बताता है; समूह के लिए कोई डिफ़ॉल्ट नहीं है। **AI calls** से model ID कॉपी करें या टूल से उपलब्ध मॉडल खोजें। Reasoning effort हर कॉल के लिए चुना जाता है। ब्राउज़र अनुरोध के लिए desktop Vault कनेक्ट होना चाहिए; provider credentials वहीं रहते हैं। जुड़े समूह वैकल्पिक दैनिक request cap साझा करते हैं।
 
 सहेजे गए prompt और context linked groups में साझा होते हैं और handlers में `v.context.ai.prompt` तथा `v.context.ai.context` के रूप में उपलब्ध हैं। Vault इन्हें अपने आप नहीं भेजता; हर `v.ai` call में क्या शामिल हो, rule तय करता है।
 
-`v.ai({ prompt, input? })` तुरंत request ID देता है। इसे handler के भीतर call करें, rule register करते समय नहीं। `input` कोई JSON value हो सकता है; prompt/input प्रत्येक अधिकतम20KB। Reply `ai` events: `. Success text is at most48KB; citations are ` `ask` `note` events में आता है: {requestId, ok, text, citations, error}। सफल text अधिकतम48KB; citation {url,title}। Web search आधारित उत्तर दिखाते समय source links दिखने योग्य और clickable रखें। Search model के लिए हमेशा उपलब्ध है। निश्चित app deadline नहीं, concurrency bounded है; provider fallback/automatic retry नहीं। Response data है, JavaScript के रूप में execute नहीं; कौन-सी existing action लेनी है rule तय करता है।
+`conversation` एक वैकल्पिक नाम है। इसके बिना कॉल stateless है; इसके साथ desktop Vault पूरा user/assistant transcript स्थानीय रूप से सहेजता है और अगले कॉल में नवीनतम संदेशों के अधिकतम16KB शामिल करता है। मॉडल बदला जा सकता है; नाम इस डिवाइस के सभी नियमों और समूहों में साझा होता है और समूह हटाने या unlink करने के बाद भी उपलब्ध रहता है। आयात के दौरान बदले गए नाम `preservedConversations` में मिलते हैं। साझा conversation हटाने के लिए `v.ai({op:"delete", conversation:"name"})` चलाएँ; उत्तर `ai` event के रूप में आता है। उसी नाम का सक्रिय कॉल `ai-conversation-busy` लौटाता है; उत्तर मिलने के बाद फिर प्रयास करें।
+
+`v.ai({ model, reasoningEffort?, conversation?, prompt, input? })` यह तुरंत request ID लौटाता है। इसे handler के भीतर कॉल करें, rule register करते समय नहीं। `model` उपलब्ध model ID होना चाहिए; effort न देने पर `default`, या समर्थित होने पर `low`, `medium`, `high` होता है। `input` कोई भी JSON value हो सकता है; prompt/input की कुल सीमा20KB है। उत्तर `ai` इवेंट में आते हैं और उनमें `{requestId, ok, text, citations, error, preservedConversations?}` होता है। सफल text अधिकतम48KB है और citations का रूप `{url,title}` है। वेब खोज पर आधारित उत्तर दिखाते समय दिखाई देने वाले clickable source links रखें। मॉडल के लिए खोज हमेशा उपलब्ध है। तय समय-सीमा नहीं है; समान नाम वाले कॉल क्रम से चलते हैं। अगली कॉल `ai` इवेंट से शुरू करें। पैनल में `ask` बटन और `note` फ़ील्ड है।
 
 ```javascript
 (on, v) => {
   let pending = null;
   on("panel", ({ data }) => {
     if (data.controlId !== "ask" || pending) return;
-    pending = v.ai({ prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
+    pending = v.ai({ model: "chatgpt:MODEL_ID", conversation: "notes", prompt: v.context.ai.prompt || "Summarize this text.", input: {context:v.context.ai.context, note:data.values?.note ?? ""} });
   });
   on("ai", ({ data }) => {
     if (data.requestId !== pending) return;
@@ -212,10 +214,9 @@ Snooze या उसके panel button से शुरू होने वा�
 }
 ```
 
-Outstanding calls restart के बाद replay नहीं होते। Run, disable/re-enable और delete पुराने replies discard करते हैं; disconnected browser `ai-unavailable` देता है। अन्य errors: `ai-not-configured`, `ai-invalid-input`, `ai-busy`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`। Failed calls rule द्वारा रखे पिछले result को नहीं बदलते। Rule state की सीमा64KB ही है।
+Outstanding calls restart के बाद replay नहीं होते। Run, disable/re-enable और delete पुराने replies discard करते हैं; disconnected browser `ai-unavailable` देता है। अन्य errors: `ai-not-configured`, `ai-invalid-input`, `ai-daily-limit`, `ai-request-failed`, `ai-usage-storage-unavailable`, `ai-conversation-storage-unavailable`। Failed calls rule द्वारा रखे पिछले result को नहीं बदलते। Rule state की सीमा64KB ही है।
 
-Credential-free choices Mac पर `rule_ai_models` या browser पर `settings-rule-ai-models` से खोजें; मौजूदा set-group path के जरिए `ruleAI` configure करें। Fields: `providerModel`, `accountID`, `reasoningEffort` (`default`, `low`, `medium`, `high`) और `dailyRequestLimit` (null या1–100000)। लौटाया choice उपयोग करें; rule source में key/provider URL न डालें।
-वैकल्पिक सहेजे गए fields `prompt` और `context` हैं; दोनों अधिकतम16KB के string हैं।
+Credential-free choices Mac पर `rule_ai_models` या browser पर `settings-rule-ai-models` से खोजें; मौजूदा set-group path के जरिए `ruleAI` इसके fields हैं `dailyRequestLimit` (null या1–100000), `prompt` और `context` (वैकल्पिक string, प्रत्येक अधिकतम16KB)।
 
 ## समूह रिकॉर्ड
 

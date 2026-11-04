@@ -1,6 +1,6 @@
-# Hướng dẫn sử dụng tiện ích trình duyệt Vault
+# Hướng dẫn sử dụng tiện ích trình duyệt Adamancia Vault
 
-Vault kiểm soát trang web và nội dung nền tảng được hỗ trợ trong hồ sơ trình duyệt đã cài tiện ích. Mở trình chỉnh sửa từ nút tiện ích trên thanh công cụ. Khi kết nối, Mac Vault hoặc Windows Vault cung cấp tính năng gắn thẻ và Activity cục bộ; tiện ích thực thi các mục tiêu trên trình duyệt.
+Vault kiểm soát trang web và nội dung nền tảng được hỗ trợ trong hồ sơ trình duyệt đã cài tiện ích. Mở trình chỉnh sửa từ nút tiện ích trên thanh công cụ. Khi kết nối, Vault trên Mac hoặc Vault trên Windows cung cấp tính năng gắn thẻ và Activity cục bộ; tiện ích thực thi các mục tiêu trên trình duyệt.
 
 ## Nhóm chặn
 
@@ -59,9 +59,9 @@ Mục tiêu nền tảng dùng **Nhà sáng tạo** cho nền tảng video, **T�
 
 ### Bộ lọc thẻ nội dung
 
-Kết nối với bộ phân loại và sửa thẻ khả dụng trong các trình duyệt Chromium được hỗ trợ, như Chrome và Edge, cũng như Safari Vault trên macOS.
+Kết nối với bộ phân loại và sửa thẻ khả dụng trong các trình duyệt Chromium được hỗ trợ, như Chrome và Edge, cũng như Vault cho Safari trên macOS.
 
-Kết nối Mac Vault hoặc Windows Vault và cấu hình bộ phân loại để nhận thẻ. Bộ lọc thẻ của nhóm chặn chọn nội dung cần phủ hoặc ẩn. Bộ lọc không bắt đầu hay tạm dừng việc gắn thẻ; hãy dùng cài đặt bộ phân loại trong ứng dụng máy tính hoặc điều khiển tạm dừng của nhóm phân loại tương ứng.
+Kết nối Vault trên Mac hoặc Vault trên Windows và cấu hình bộ phân loại để nhận thẻ. Bộ lọc thẻ của nhóm chặn chọn nội dung cần phủ hoặc ẩn. Bộ lọc không bắt đầu hay tạm dừng việc gắn thẻ; hãy dùng cài đặt bộ phân loại trong ứng dụng máy tính hoặc điều khiển tạm dừng của nhóm phân loại tương ứng.
 
 Mỗi mục trang web có một bộ lọc **Áp dụng cho**: mọi nội dung, nhà sáng tạo đã chọn, tất cả trừ nhà sáng tạo đã chọn, thẻ đã chọn hoặc tất cả trừ thẻ đã chọn. Thêm mục khác cho cùng trang web nếu cần bộ lọc khác.
 
