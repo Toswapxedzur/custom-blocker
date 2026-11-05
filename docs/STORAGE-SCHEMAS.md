@@ -55,3 +55,12 @@ Schema7 removes the retired one-model-per-group rule AI selection. Existing
 group caps, saved prompts and saved context survive; model and reasoning effort
 move to each `v.ai` call. Named conversation transcripts live in the connected
 desktop Vault's local files and are not imported into browser storage.
+
+Browser and Safari rule logs use the optional `cbRuleLog` version1 document in
+`chrome.storage.local`. It saves `v.log` output and explicit `page-error`
+entries by immutable group ID, including across browser and extension-worker
+restarts. The newest 200 entries per group are kept, with a 2 MiB total cap
+that evicts the oldest entries first. Clear and group deletion remove saved
+entries. Unknown or malformed document versions refuse reads and writes
+without overwriting their bytes. Logs stay local to the browser profile;
+linked groups do not synchronize them.

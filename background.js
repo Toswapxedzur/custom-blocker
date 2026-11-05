@@ -189,6 +189,7 @@ function cbRefreshDefinitionStorage() {
       });
       const retained = new Set((groups || []).map(group => group?.id));
       for (const id of logFeeds.keys()) if (!retained.has(id)) { logFeeds.delete(id); logFeedBursts.delete(id); }
+      await prunePersistedLogFeeds(retained).catch(error => cbDebugWarn("Rule logs could not be pruned", error));
       await reconcileCustomGroupHandlers({ newValue: groups });
       await cbAnnounceStoredGroups(groups);
       cbDefinitionRefreshHandled = handled;
@@ -1823,8 +1824,87 @@ async function hydrateTabStateFromSession() {
 // Activity log panel reads this on open, then subscribes to live entries
 // via the "log-feed-entry" broadcast below.
 const LOG_FEED_MAX_ENTRIES = 200;
+const LOG_FEED_STORAGE_KEY = "cbRuleLog";
+const LOG_FEED_STORAGE_VERSION = 1;
+const LOG_FEED_MAX_TOTAL_BYTES = 2 * 1024 * 1024;
 const logFeeds = new Map(); // groupId -> that rule's v.log entries
 let logFeedSeq = 0;
+const logFeedSession = Date.now() + "-" + Math.random().toString(36).slice(2);
+let logFeedStorageTail = Promise.resolve();
+
+function decodeLogFeedDocument(raw) {
+  if (raw === undefined) return { version: LOG_FEED_STORAGE_VERSION, groups: {} };
+  if (!raw || Array.isArray(raw) || typeof raw !== "object" || raw.version !== LOG_FEED_STORAGE_VERSION
+      || !raw.groups || Array.isArray(raw.groups) || typeof raw.groups !== "object"
+      || Object.keys(raw).some(key => !["version", "groups"].includes(key))) {
+    throw new Error("Unsupported rule-log storage. Saved logs are preserved.");
+  }
+  for (const [groupId, entries] of Object.entries(raw.groups)) {
+    if (!groupId || groupId.length > 512 || !Array.isArray(entries)) throw new Error("Invalid rule-log storage. Saved logs are preserved.");
+    for (const entry of entries) {
+      if (!entry || Array.isArray(entry) || typeof entry !== "object"
+          || Object.keys(entry).some(key => !["id", "ts", "source", "level", "groupId", "eventType", "message"].includes(key))
+          || (typeof entry.id !== "string" && !Number.isSafeInteger(entry.id))
+          || !Number.isFinite(entry.ts) || !["v.log", "page-error"].includes(entry.source)
+          || !["log", "error"].includes(entry.level) || entry.groupId !== groupId
+          || typeof entry.eventType !== "string" || typeof entry.message !== "string") {
+        throw new Error("Invalid rule-log storage. Saved logs are preserved.");
+      }
+    }
+  }
+  return structuredClone(raw);
+}
+
+function trimLogFeedDocument(document) {
+  for (const [groupId, entries] of Object.entries(document.groups)) {
+    if (entries.length > LOG_FEED_MAX_ENTRIES) document.groups[groupId] = entries.slice(-LOG_FEED_MAX_ENTRIES);
+    if (!document.groups[groupId].length) delete document.groups[groupId];
+  }
+  const bytes = () => new TextEncoder().encode(JSON.stringify(document)).length;
+  while (bytes() > LOG_FEED_MAX_TOTAL_BYTES) {
+    let oldestGroup = null, oldestIndex = -1, oldestTime = Infinity;
+    for (const [groupId, entries] of Object.entries(document.groups)) {
+      for (let index = 0; index < entries.length; index++) {
+        if (entries[index].ts < oldestTime) {
+          oldestGroup = groupId; oldestIndex = index; oldestTime = entries[index].ts;
+        }
+      }
+    }
+    if (oldestGroup === null) break;
+    document.groups[oldestGroup].splice(oldestIndex, 1);
+    if (!document.groups[oldestGroup].length) delete document.groups[oldestGroup];
+  }
+}
+
+function queueLogFeedStorage(work) {
+  const task = logFeedStorageTail.then(work, work);
+  logFeedStorageTail = task.catch(() => {});
+  return task;
+}
+
+function updatePersistedLogFeeds(change) {
+  return queueLogFeedStorage(async () => {
+    const raw = (await chrome.storage.local.get(LOG_FEED_STORAGE_KEY))[LOG_FEED_STORAGE_KEY];
+    const document = decodeLogFeedDocument(raw);
+    if (change(document)) {
+      trimLogFeedDocument(document);
+      await chrome.storage.local.set({ [LOG_FEED_STORAGE_KEY]: document });
+    }
+    return document;
+  });
+}
+
+function persistedLogFeed(groupId) {
+  return updatePersistedLogFeeds(() => false).then(document => (document.groups[groupId] || []).slice());
+}
+
+function prunePersistedLogFeeds(retained) {
+  return updatePersistedLogFeeds(document => {
+    let changed = false;
+    for (const id of Object.keys(document.groups)) if (!retained.has(id)) { delete document.groups[id]; changed = true; }
+    return changed;
+  });
+}
 
 // Rate-limit defense in depth: even with sandbox-side caps, a misbehaving
 // rule (or a swarm of legitimate ones) can still produce many log entries
@@ -1861,7 +1941,7 @@ function pushLogFeedEntry(entry) {
   }
   burst.count += 1;
   const record = {
-    id: ++logFeedSeq,
+    id: logFeedSession + "-" + (++logFeedSeq),
     ts: now,
     source: entry.source,
     level: entry.source === "page-error" ? "error" : "log",
@@ -1873,6 +1953,10 @@ function pushLogFeedEntry(entry) {
   feed.push(record);
   if (feed.length > LOG_FEED_MAX_ENTRIES) feed.splice(0, feed.length - LOG_FEED_MAX_ENTRIES);
   logFeeds.set(entry.groupId, feed);
+  updatePersistedLogFeeds(document => {
+    (document.groups[record.groupId] ??= []).push(record);
+    return true;
+  }).catch(error => cbDebugWarn("Rule log could not be saved", error));
   // Best-effort broadcast. Popups that aren't open simply ignore it; the
   // catch silences "Receiving end does not exist" noise.
   try {
@@ -2907,15 +2991,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 
   if (message.type === "get-log-feed") {
-    sendResponse({ ok: true, entries: (logFeeds.get(message.groupId) || []).slice() });
-    return false;
+    persistedLogFeed(message.groupId).then(entries => sendResponse({ ok: true, entries }))
+      .catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
   }
 
   if (message.type === "clear-log-feed") {
     logFeeds.delete(message.groupId);
     logFeedBursts.delete(message.groupId);
-    sendResponse({ ok: true });
-    return false;
+    updatePersistedLogFeeds(document => {
+      if (!Object.hasOwn(document.groups, message.groupId)) return false;
+      delete document.groups[message.groupId];
+      return true;
+    }).then(() => sendResponse({ ok: true }))
+      .catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
+    return true;
   }
 
   if (message.type === "safari-lifecycle-tick" && sandboxTransportMode() === "native") {

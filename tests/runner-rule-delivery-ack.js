@@ -37,9 +37,9 @@ function fixture() {
   vm.runInContext(contentSource.slice(listenerStart, contentSource.indexOf('globalThis.VaultContentI18n?.onChange', listenerStart)), content);
   assert.equal(typeof listener, 'function');
   const store = {blockedGroups:[{id:'g',groupType:'custom',enabled:true},{id:'other',groupType:'custom',enabled:true},{id:'disabled',groupType:'custom',enabled:false}],cbRuleState:{}};
-  const worker = vm.createContext({console, Date, Map, Set, Object, pendingApplyByTab:pending,
+  const worker = vm.createContext({console, Date, Map, Set, Object, TextEncoder, structuredClone, pendingApplyByTab:pending,
     PENDING_APPLY_MAX_PER_TAB:32,scheduleSessionFlush(){},BLOCKED_GROUPS_KEY:'blockedGroups',CB_RULE_STATE_KEY:'cbRuleState',
-    cbWithDefinitionMutation:op=>op(),cbRuleGenerations:new Map(),cbDebugError(){},quarantineGroup:async()=>{},
+    cbWithDefinitionMutation:op=>op(),cbRuleGenerations:new Map(),cbDebugError(){},cbDebugWarn(){},quarantineGroup:async()=>{},
     cbSetRulePanels(){},cbRunRuleFile:async()=>{},cbRuleSheets:new Map(),cbSaveRuleSheets(){},cbPushRuleSheets:async()=>{},
     chrome:{storage:{local:{get:async()=>store,set:async patch=>Object.assign(store,patch)}},runtime:{sendMessage:v=>{broadcasts.push(v);return Promise.resolve();}},
       tabs:{query:async()=>[{id:44,url:'https://example.test/'},{id:45,url:'chrome://settings'}],sendMessage:async(id,message)=>{

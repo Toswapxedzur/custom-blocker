@@ -6509,12 +6509,17 @@ async function loadLogFeedSnapshot() {
   } catch (_) {}
 }
 
-function clearLogFeed() {
+async function clearLogFeed() {
   const groupId = logFeedGroupId;
   if (!groupId) return;
   ++logFeedRequestId; // An older snapshot must not undo Clear.
-  resetLogFeedView();
-  try { chrome.runtime.sendMessage({ type: "clear-log-feed", groupId }).catch(() => {}); } catch (_) {}
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "clear-log-feed", groupId });
+    if (groupId !== logFeedGroupId) return;
+    if (!response?.ok) { setStatus(response?.error || "Could not clear rule logs.", true); return; }
+    resetLogFeedView();
+    loadLogFeedSnapshot();
+  } catch (error) { setStatus(String(error?.message || error), true); }
 }
 
 if (logFeedClear) {
