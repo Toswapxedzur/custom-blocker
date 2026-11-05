@@ -13,16 +13,17 @@ not survive a browser migration. Runtime usage, pending transfers, receipt IDs,
 rule state and unrelated storage keys remain. This is a bounded data import,
 not a guarantee for every historical alpha shape or retired feature.
 
-Migration retention follows each product's app major, taken from its manifest,
-not this document's schema number. A transformation from the preceding app
-major remains supported. Older transformations may expire at major 3 or 4 for
-app-major-1 data; this implementation uses the earliest allowed boundary, major
-3. A current, identical schema needs no transformation. Compatible alpha intake
-is retained through the major following its introduction (browser/Safari 3,
-Mac 2, Windows 0); delete expired import code when those product majors advance.
-Sequential major upgrades are the supported data-preservation path.
+Beginning with the first publicly distributed Beta 1 build, each later public
+release must support a direct upgrade from every public version of the same
+product released in the preceding rolling 30 days, regardless of version
+number. The baseline is protected while it remains in that window. Earlier
+alpha data is imported on a best-effort basis, without a compatibility
+guarantee. The reader uses `schemaVersion` to choose a transformation; an app
+major change alone does not expire one. Release acceptance requires installed
+package fixtures for every protected data family and origin in the window;
+this registry check alone does not establish compatibility.
 
-Future/invalid schemas and expired transformations reject reads and writes.
+Future, malformed and otherwise unsupported schemas reject reads and writes.
 The destination is checked again for each operation, so an editor or background
 counter cannot reset a newer store to an empty default. Callback callers get
 `runtime.lastError`; promise callers get a rejected promise. Metadata belongs to
