@@ -90,8 +90,10 @@ s = session([base({ id: "g1", name: "Sites", groupType: "site", sites: ["example
 check("an address: the tab is sent there", s.exit.action === "navigate" && s.exit.target === "https://focus.example.org/", s.exit);
 s = session([base({ id: "g1", name: "Sites", groupType: "site", sites: ["example.com"], fallbackUrl: "about:blank" })], "https://example.com/", "/");
 check("about:blank stays a user's choice to leave", s.exit.action === "navigate" && s.exit.target === "about:blank", s.exit);
-s = session([base({ id: "c1", name: "Rule", groupType: "custom", sites: ["example.com"], blockingRulesText: "(m,d,n,h,mi,u,helpers) => false" })], "https://example.com/", "/");
-check("a custom group's site list covers without snooze", s.exit.action === "cover" && s.exit.allowSnooze === false, s.exit);
+s = session([base({ id: "c1", name: "Rule", groupType: "custom", sites: ["example.com"], blockingRulesText: "(m,d,n,h,mi,u,helpers) => false", activeEventSource: "(on,v)=>{}" })], "https://example.com/", "/");
+check("a custom group's site list offers its rule-event Snooze when allowed", s.exit.action === "cover" && s.exit.allowSnooze === true && s.exit.source === "custom" && s.exit.activeEventSource === "(on,v)=>{}", s.exit);
+s = session([base({ id: "c1", name: "Rule", groupType: "custom", sites: ["example.com"], allowSnooze: false })], "https://example.com/", "/");
+check("the custom group switch hides Snooze on its site-list cover", s.exit.action === "cover" && s.exit.allowSnooze === false, s.exit);
 s = session([base({ id: "g1", name: "Sites", groupType: "site", sites: ["example.com"] })], "https://other.org/", "/");
 check("an unblocked page has no exit", !s.shouldExitPage && s.exit === null, s);
 

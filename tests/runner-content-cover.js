@@ -91,7 +91,7 @@ const code = [
   extractFunction("cbUi"), extractFunction("safeSendMessage"),
   extractLine("const CB_COVER_ID"), extractLine("const CB_SNOOZE_CONFIRM_INTERVAL_MS"),
   extractConst("cbCover"),
-  ...["formatOverlayDurationMs", "cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbStopCoverTimers", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbApplyExit", "cbSetRuleCover", "cbSyncCover"].map(extractFunction), extractLine("const CB_RULE_EXIT")
+  ...["formatOverlayDurationMs", "cbAllMedia", "cbPauseAllMedia", "cbCoverIsUp", "cbCoverStyle", "cbCoverElement", "cbShowCover", "cbReopenCover", "cbStopCoverTimers", "cbHideCover", "cbRenderCover", "cbCoverSnoozePress", "cbCoverSnoozeCancel", "cbCoverSnoozeCommit", "cbApplyExit", "cbSetRuleCover", "cbSyncCover"].map(extractFunction), extractLine("const CB_RULE_EXIT")
 ].join("\n");
 vm.runInContext(code, ctx, { filename: "content-cover-extract.js" });
 const run = (expr) => vm.runInContext(expr, ctx);
@@ -141,7 +141,16 @@ check("after the interval a confirmation can be given", snooze.disabled === fals
 snooze.click(); run("cbCover.nextConfirmAt = Date.now() - 1; cbRenderCover();"); snooze = buttons().find((b) => b.className === "cb-snooze-button");
 check("one step left", /Confirm \(1 left/.test(snooze.textContent), snooze.textContent);
 snooze.click();
-check("the last step asks the worker to start the snooze", sent.some((m) => m.type === "start-snooze" && m.groupId === "g1"), sent);
+check("the last step offers final confirmation before any Snooze", buttons().some((b) => b.className === "cb-snooze-button" && b.textContent === "Confirm") && !sent.some((m) => m.type === "start-snooze" && m.groupId === "g1"), sent);
+buttons().find((b) => b.className === "cb-snooze-cancel").click();
+check("Cancel leaves the group unsnoozed", !sent.some((m) => m.type === "start-snooze" && m.groupId === "g1"), sent);
+buttons().find((b) => b.className === "cb-snooze-button").click();
+run("cbCover.nextConfirmAt = Date.now() - 1; cbRenderCover();");
+buttons().find((b) => b.className === "cb-snooze-button").click();
+run("cbCover.nextConfirmAt = Date.now() - 1; cbRenderCover();");
+buttons().find((b) => b.className === "cb-snooze-button").click();
+buttons().find((b) => b.className === "cb-snooze-button").click();
+check("the final approval asks the worker to start Snooze", sent.some((m) => m.type === "start-snooze" && m.groupId === "g1"), sent);
 check("…and re-asks for the session", run("refreshCalls") >= 1);
 
 // 3. Lift
@@ -166,9 +175,14 @@ run(`cbApplyExit(null)`);
 run(`cbApplyExit({ action: "navigate", target: "https://focus.example.org/", message: "", groupId: "g2", groupName: "Go" })`);
 check("an address leaves the page", ctx.location.replaced === "https://focus.example.org/" && dialog() === null);
 
-// 6. A custom rule's cover (v.cover): plain cover, no snooze, its message.
-run(`exitAttempted = false; cbSetRuleCover({ groupId: "r1", on: true, message: "Not now" });`);
-check("a custom rule's cover is the plain cover without snooze, with its message", dialog() && dialog().querySelectorAll("h1")[0].textContent === "Not now" && !buttons().some((b) => b.className === "cb-snooze-button"));
+// 6. A custom rule's cover (v.cover) offers its group's event Snooze when allowed.
+run(`exitAttempted = false; cbSetRuleCover({ groupId: "r1", on: true, message: "Not now", groupName: "Rule", allowSnooze: true, snoozeConfirmations: 0, activeEventSource: "(on,v)=>{}" });`);
+check("a custom rule's cover shows its message and Snooze", dialog() && dialog().querySelectorAll("h1")[0].textContent === "Not now" && buttons().some((b) => b.className === "cb-snooze-button"));
+buttons().find((b) => b.className === "cb-snooze-button").click();
+check("zero-step custom Snooze still asks final confirmation", buttons().some((b) => b.className === "cb-snooze-button" && b.textContent === "Confirm") && !sent.some((m) => m.type === "fire-snooze-press" && m.groupId === "r1"), sent);
+buttons().find((b) => b.className === "cb-snooze-button").click();
+check("custom cover Snooze sends only the rule event with its settings", sent.some((m) => m.type === "fire-snooze-press" && m.groupId === "r1" && m.expectedConfirmations === 0 && m.expectedSource === "(on,v)=>{}") && !sent.some((m) => m.type === "start-snooze" && m.groupId === "r1"), sent);
+check("sending the event does not automatically remove the rule's cover", dialog() && run("cbCover.ruleCover.groupId") === "r1");
 check("…and is marked as the rule's, so the worker's updates leave it up", run("Boolean(cbCover.ruleCover)") === true);
 run(`cbApplyExit({ action: "cover", target: "", message: "", groupId: "g1", groupName: "Sites", allowSnooze: false, snoozeConfirmations: 0, snoozePhase: "none" })`);
 check("a worker block shows its own cover over it", run("cbCover.exit.groupName") === "Sites");
@@ -176,6 +190,9 @@ run("cbApplyExit(null)");
 check("…and when the worker's block lifts, the rule's cover stays", Boolean(dialog()) && run("cbCover.exit.source") === "custom" && run("cbCover.exit.groupId") === "r1");
 run(`cbSetRuleCover({ groupId: "r1", on: false })`);
 check("the rule lifts its cover", dialog() === null && run("cbCover.ruleCover") === null);
+run(`cbSetRuleCover({ groupId: "r1", on: true, message: "No Snooze", allowSnooze: false })`);
+check("the group switch hides Snooze on a rule cover", dialog() && !buttons().some((b) => b.className === "cb-snooze-button"));
+run(`cbSetRuleCover({ groupId: "r1", on: false })`);
 
 console.log(`CONTENT COVER TOTAL ${pass + fail} PASS ${pass} FAIL ${fail}`);
 console.log(fail === 0 ? "__CB_TEST_RESULT__: OK" : "__CB_TEST_RESULT__: FAIL");

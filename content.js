@@ -1440,10 +1440,11 @@ const cbCover = {
   countdownLeft: 0,
   confirmationsLeft: 0,
   nextConfirmAt: 0,
+  finalConfirmPending: false,
   statusText: "",
   // Two owners: the worker's block of this page (its exit) and a custom rule's
-  // v.cover ({ groupId, message } or null). The cover stays while either holds
-  // and shows the worker's (Snooze, Continue) when both do.
+  // v.cover ({ groupId, message, snooze policy } or null). The cover stays while
+  // either holds and shows the worker's controls when both do.
   workerExit: null,
   ruleCover: null
 };
@@ -1452,7 +1453,7 @@ const CB_RULE_EXIT = Object.freeze({ action: "cover", target: "", message: "", g
 
 function cbSyncCover() {
   const rule = cbCover.ruleCover;
-  const exit = cbCover.workerExit || (rule ? { ...CB_RULE_EXIT, groupId: rule.groupId, message: rule.message } : null);
+  const exit = cbCover.workerExit || (rule ? { ...CB_RULE_EXIT, ...rule } : null);
   if (exit) cbShowCover(exit);
   else cbHideCover();
 }
@@ -1550,6 +1551,7 @@ function cbShowCover(exit) {
     cbCover.countdownLeft = exit.action === "pause" ? Math.max(1, Number(exit.pauseSeconds) || 10) : 0;
     cbCover.confirmationsLeft = 0;
     cbCover.nextConfirmAt = 0;
+    cbCover.finalConfirmPending = false;
     cbCover.statusText = "";
     if (cbCover.countdownLeft > 0) {
       cbCover.countdownId = window.setInterval(() => {
@@ -1558,11 +1560,17 @@ function cbShowCover(exit) {
         if (cbCover.countdownLeft === 0 && cbCover.countdownId !== null) { window.clearInterval(cbCover.countdownId); cbCover.countdownId = null; }
       }, 1000);
     }
-  } else if (previous && (previous.action !== exit.action || previous.groupId !== exit.groupId)) {
+  } else if (previous && (previous.action !== exit.action || previous.groupId !== exit.groupId ||
+      previous.allowSnooze !== exit.allowSnooze || previous.snoozeConfirmations !== exit.snoozeConfirmations ||
+      previous.activeEventSource !== exit.activeEventSource)) {
     // A different group or action took over: the countdown restarts, the
     // confirmation flow does not survive.
     cbCover.countdownLeft = exit.action === "pause" ? Math.max(1, Number(exit.pauseSeconds) || 10) : 0;
     cbCover.confirmationsLeft = 0;
+    cbCover.finalConfirmPending = false;
+    cbCover.nextConfirmAt = 0;
+    cbCover.statusText = "";
+    if (cbCover.confirmId !== null) { window.clearInterval(cbCover.confirmId); cbCover.confirmId = null; }
   }
   cbRenderCover();
 }
@@ -1632,7 +1640,8 @@ function cbRenderCover() {
     const panel = cbCoverElement("div", "cb-snooze-panel");
     panel.appendChild(cbCoverElement("h3", "", cbUi("contentPage.snooze", "Snooze")));
     const phase = exit.snoozePhase || "none";
-    const button = cbCoverElement("button", "cb-snooze-button", cbUi("contentPage.startSnooze", "Start Snooze"));
+    const button = cbCoverElement("button", "cb-snooze-button", cbCover.finalConfirmPending
+      ? cbUi("modal.confirm", "Confirm") : cbUi("contentPage.startSnooze", "Start Snooze"));
     let status = cbCover.statusText;
     if (phase === "pending") { button.disabled = true; status = status || cbUi("contentPage.pendingSnooze", "A snooze is scheduled and will start shortly."); }
     else if (phase === "cooldown") { button.disabled = true; status = status || cbUi("contentPage.cooldownSnooze", "Snooze is cooling down. Try again when the cooldown ends."); }
@@ -1645,19 +1654,31 @@ function cbRenderCover() {
     }
     button.addEventListener("click", () => cbCoverSnoozePress());
     panel.appendChild(button);
+    if (cbCover.finalConfirmPending) {
+      const cancel = cbCoverElement("button", "cb-snooze-cancel", cbUi("modal.cancel", "Cancel"));
+      cancel.addEventListener("click", () => cbCoverSnoozeCancel());
+      panel.appendChild(cancel);
+      status = exit.source === "custom"
+        ? cbUi("snooze.customCopy", "Pressing Snooze sends the rule an event; the rule decides what happens.")
+        : cbUi("modal.snoozeTitle", "Confirm Snooze");
+    }
     panel.appendChild(cbCoverElement("p", "cb-status", status));
     shell.appendChild(panel);
   }
   shell.appendChild(cbCoverElement("p", "cb-foot", "Vault"));
 }
 
-// The popup's snooze flow without its settings: the group's confirmation
-// steps (spaced like the popup's), then the worker starts the same snooze
-// entry and shares it with linked members.
+// The group's confirmation steps are shared by ordinary and custom covers.
+// A custom press only sends the rule its "snooze" event; the rule owns its effect.
 function cbCoverSnoozePress() {
   const exit = cbCover.exit;
   if (!exit || !exit.allowSnooze) return;
   const needed = Math.max(0, Number(exit.snoozeConfirmations) || 0);
+  if (cbCover.finalConfirmPending) {
+    cbCover.finalConfirmPending = false;
+    cbCoverSnoozeCommit(exit, needed);
+    return;
+  }
   if (cbCover.confirmationsLeft === 0 && needed > 0 && cbCover.nextConfirmAt === 0) {
     cbCover.confirmationsLeft = needed;
     cbCover.nextConfirmAt = Date.now() + CB_SNOOZE_CONFIRM_INTERVAL_MS;
@@ -1674,16 +1695,38 @@ function cbCoverSnoozePress() {
   }
   if (cbCover.confirmId !== null) { window.clearInterval(cbCover.confirmId); cbCover.confirmId = null; }
   cbCover.nextConfirmAt = 0;
+  cbCover.finalConfirmPending = true;
+  cbRenderCover();
+}
+
+function cbCoverSnoozeCancel() {
+  cbCover.confirmationsLeft = 0;
+  cbCover.nextConfirmAt = 0;
+  cbCover.finalConfirmPending = false;
+  cbCover.statusText = "";
+  if (cbCover.confirmId !== null) { window.clearInterval(cbCover.confirmId); cbCover.confirmId = null; }
+  cbRenderCover();
+}
+
+function cbCoverSnoozeCommit(exit, needed) {
   cbCover.statusText = cbUi("contentPage.starting", "Starting…");
   cbRenderCover();
-  safeSendMessage({ type: "start-snooze", groupId: exit.groupId }, (response) => {
+  const custom = exit.source === "custom";
+  safeSendMessage(custom
+    ? { type: "fire-snooze-press", groupId: exit.groupId, expectedConfirmations: needed, expectedSource: exit.activeEventSource }
+    : { type: "start-snooze", groupId: exit.groupId }, (response) => {
     if (!response || !response.ok) {
-      cbCover.statusText = response && response.error ? cbUi("contentPage.snoozeError", "Snooze not started: " + response.error, { error: response.error }) : cbUi("contentPage.snoozeFailed", "Snooze not started.");
+      cbCover.statusText = custom
+        ? cbUi("snooze.warning.snoozePressFailed", "The snooze event didn't reach the rule.") + (response?.error ? " " + response.error : "")
+        : response && response.error ? cbUi("contentPage.snoozeError", "Snooze not started: " + response.error, { error: response.error }) : cbUi("contentPage.snoozeFailed", "Snooze not started.");
       cbRenderCover();
       return;
     }
-    const startsIn = Number(response.snooze && response.snooze.startsAtMs) - Date.now();
-    cbCover.statusText = startsIn > 1000 ? cbUi("contentPage.snoozeStarts", "Snooze starts in " + formatOverlayDurationMs(startsIn) + ".", { time: formatOverlayDurationMs(startsIn) }) : "";
+    if (custom) cbCover.statusText = "";
+    else {
+      const startsIn = Number(response.snooze && response.snooze.startsAtMs) - Date.now();
+      cbCover.statusText = startsIn > 1000 ? cbUi("contentPage.snoozeStarts", "Snooze starts in " + formatOverlayDurationMs(startsIn) + ".", { time: formatOverlayDurationMs(startsIn) }) : "";
+    }
     refreshSession();
   });
 }
@@ -1748,11 +1791,15 @@ function cbApplyExit(exit) {
   cbSyncCover();
 }
 
-// A custom rule's cover (v.cover): the plain cover, no snooze. It holds until
-// the rule lifts it or the page's address changes, whatever the worker's
-// decision does meanwhile.
+// A custom rule's cover (v.cover) holds until the rule lifts it or the page's
+// address changes. Its group's Snooze switch controls the event button.
 function cbSetRuleCover(cover) {
-  cbCover.ruleCover = cover && cover.on ? { groupId: String(cover.groupId || ""), message: String(cover.message || "") } : null;
+  cbCover.ruleCover = cover && cover.on ? {
+    groupId: String(cover.groupId || ""), message: String(cover.message || ""),
+    groupName: String(cover.groupName || ""), allowSnooze: cover.allowSnooze === true,
+    snoozeConfirmations: Math.max(0, Number(cover.snoozeConfirmations) || 0),
+    activeEventSource: cover.activeEventSource
+  } : null;
   cbSyncCover();
 }
 

@@ -919,9 +919,11 @@ function cbLeadExit(lead, pageContext, groupSnoozes, now) {
     groupName: lead.name,
     pauseSeconds: lead.pauseSeconds ?? DEFAULT_PAUSE_SECONDS,
     // No Snooze on the cover while the group is enforce-only (Mac Vault away).
-    allowSnooze: lead.groupType !== "custom" && lead.allowSnooze !== false && !cbEnforceOnly(lead),
+    allowSnooze: lead.allowSnooze !== false && !cbEnforceOnly(lead),
     snoozeConfirmations: lead.snoozeConfirmations ?? DEFAULT_SNOOZE_CONFIRMATIONS,
-    snoozePhase: getSnoozePhase(groupSnoozes[lead.id], now)
+    snoozePhase: lead.groupType === "custom" ? "none" : getSnoozePhase(groupSnoozes[lead.id], now),
+    source: lead.groupType === "custom" ? "custom" : "group",
+    activeEventSource: lead.groupType === "custom" ? lead.activeEventSource : undefined
   };
 }
 
@@ -1678,7 +1680,7 @@ async function cbSetTabCovered(tabId, covered) {
 
 // A custom group's Snooze (the editor's button, or a tool): the rule's
 // "snooze" event (the rule decides what it means).
-async function cbFireSnoozePress(groupId, expectedConfirmations) {
+async function cbFireSnoozePress(groupId, expectedConfirmations, expectedSource) {
   const { groups } = await getState();
   const group = groups.find(item => item?.id === groupId);
   if (!group || group.groupType !== "custom") throw new Error("group-not-found");
@@ -1687,6 +1689,7 @@ async function cbFireSnoozePress(groupId, expectedConfirmations) {
   if (group.allowSnooze === false) throw new Error("snooze-disabled");
   const count = Math.max(0, Number(group.snoozeConfirmations) || 0);
   if (expectedConfirmations !== count) throw new Error("snooze-settings-changed");
+  if (expectedSource !== undefined && expectedSource !== group.activeEventSource) throw new Error("snooze-settings-changed");
   return dispatchRule("snooze", {}, { targetGroupId: groupId });
 }
 
@@ -2393,7 +2396,15 @@ async function applyRuleResultLocked(result, eventType, generations = null) {
     if (!current.get(groupId)?.enabled) continue;
     try {
       if (kind === "item") page(tabId, groupId).items.push({ groupId, ref: action.ref, verdict: action.verdict });
-      else if (kind === "cover") page(tabId, groupId).cover = { groupId, on: action.on, message: action.message };
+      else if (kind === "cover") {
+        const group = current.get(groupId);
+        page(tabId, groupId).cover = {
+          groupId, on: action.on, message: action.message, groupName: group.name,
+          allowSnooze: group.allowSnooze !== false && !cbEnforceOnly(group),
+          snoozeConfirmations: Math.max(0, Number(group.snoozeConfirmations) || 0),
+          activeEventSource: group.activeEventSource
+        };
+      }
       else if (kind === "css") {
         const byId = cbRuleSheets.get(groupId) || new Map();
         if (action.css === null) byId.delete(action.id);
@@ -2977,7 +2988,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: "missing groupId" });
           return;
         }
-        const result = await cbFireSnoozePress(groupId, message.expectedConfirmations);
+        const result = await cbFireSnoozePress(groupId, message.expectedConfirmations, message.expectedSource);
         sendResponse({ ok: true, result });
       } catch (error) {
         cbDebugError("[CustomBlocker:trace] bg fire-snooze-press error", error);

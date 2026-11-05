@@ -126,5 +126,13 @@ const action = (op,arg,groupId='g',tabId=44)=>({kind:'dom',groupId,tabId,selecto
   assert.equal(f.queryReplies.length,1);assert.equal(f.feed('g').length,1);assert.equal(f.pending.size,0);
   await f.ready();assert.equal(f.queryReplies.length,1,'partial query replies never repeated');
   console.log('PASS earlier query response not repeated after later query failure');
+  f=fixture();f.worker.cbEnforceOnly=()=>false;
+  f.worker.chrome.storage.local.get=async()=>({blockedGroups:[{id:'g',name:'Rule',groupType:'custom',enabled:true,allowSnooze:true,snoozeConfirmations:2,activeEventSource:'source-a'}],cbRuleState:{}});
+  await f.dispatch([{kind:'cover',groupId:'g',tabId:44,on:true,message:'Stop'}]);
+  assert.equal(f.covers.length,1);
+  assert.equal(f.covers[0].allowSnooze,true);
+  assert.equal(f.covers[0].snoozeConfirmations,2);
+  assert.equal(f.covers[0].activeEventSource,'source-a');
+  console.log('PASS worker delivers custom cover Snooze policy with the rule cover');
   console.log('__CB_TEST_RESULT__: OK');
 })().catch(error=>{console.error(error);console.log('__CB_TEST_RESULT__: FAIL');process.exitCode=1;});

@@ -277,6 +277,9 @@ async function op(operation, body) {
   let rejectedStaleCount = false;
   try { await context.cbFireSnoozePress(customSnooze, 0); } catch (error) { rejectedStaleCount = error?.message === "snooze-settings-changed"; }
   check("worker refuses a stale custom Snooze confirmation count", rejectedStaleCount && snoozeEvents.length === 1);
+  let rejectedStaleSource = false;
+  try { await context.cbFireSnoozePress(customSnooze, 2, "outdated rule source"); } catch (error) { rejectedStaleSource = error?.message === "snooze-settings-changed"; }
+  check("worker refuses a custom cover press after its rule source changes", rejectedStaleSource && snoozeEvents.length === 1);
   context.dispatchRule = dispatchBefore;
 
   const order = storage.get("blockedGroups").map((x) => x.id);
