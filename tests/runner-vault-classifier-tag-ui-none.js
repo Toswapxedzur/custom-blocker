@@ -10,6 +10,7 @@ const root = path.resolve(__dirname, "..");
 const closedShadows = new WeakMap();
 let context;
 const runtimeListeners = [];
+const sentMessages = [];
 const delayedTimers = [];
 let virtualTime = Date.now();
 class TestDate extends Date { static now() { return virtualTime; } }
@@ -127,6 +128,7 @@ const chrome = {
     lastError: null,
     onMessage: { addListener(callback) { runtimeListeners.push(callback); } },
     sendMessage(message, callback) {
+      sentMessages.push(message);
       if (batchOutcome === "hold" && message.type === "vault-classifier-video-tags-batch") { heldJob = { message, callback }; return; }
       let response;
       if (batchOutcome === "empty" && message.type === "vault-classifier-video-tags-batch") {
@@ -256,6 +258,23 @@ async function raceChecks() {
   const wait = () => new Promise(resolve => setTimeout(resolve, 20));
   const check = (ok, label) => { if (!ok) throw new Error(label); };
   try {
+    // A failed card's cache must not suppress a newly mounted occurrence.
+    // Scanning the same occurrence again must keep the failure without sending
+    // another retry request.
+    batchOutcome = "limit";
+    const repeatRoot = new FakeElement("article", document);
+    const sentBeforeRepeat = sentMessages.length;
+    context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: "youtube:video:vlimit",
+      creatorID: "youtube:channel:UClimit", title: "A video title", root: repeatRoot });
+    await wait();
+    check(sentMessages.length === sentBeforeRepeat + 1
+      && sentMessages.at(-1).items[0].newAppearance === true,
+      "a new occurrence bypasses a cached failure and marks its first request");
+    context.VaultClassifierTagUI.observe({ platform: "youtube", entryID: "youtube:video:vlimit",
+      creatorID: "youtube:channel:UClimit", title: "A video title", root: repeatRoot });
+    await wait();
+    check(sentMessages.length === sentBeforeRepeat + 1,
+      "rechecking one occurrence cannot create another retry");
     const root = new FakeElement("article", document);
     batchOutcome = "hold";
     context.VaultClassifierTagUI.observe({ platform: "reddit", entryID: "reddit:post:race1", title: "", root });

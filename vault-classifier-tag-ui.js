@@ -280,7 +280,7 @@
   }
 
   // Resolves one video's tags by entryID, carrying its title as evidence.
-  function request(platform, entryID, creatorID, title, entryType) {
+  function request(platform, entryID, creatorID, title, entryType, newAppearance = false) {
     const key = boundedIdentity(platform, entryID);
     if (!key || !C?.normalizeVideoTagsResponse || !global.chrome?.runtime?.sendMessage) {
       return Promise.resolve(null);
@@ -288,7 +288,7 @@
     prune();
     const cached = sourceCache.get(key);
     if (cached?.pending) return cached.pending;
-    if (cached && cached.expiresAt > Date.now()) {
+    if (cached && cached.expiresAt > Date.now() && !(newAppearance && cached.failed)) {
       return Promise.resolve({ tags: cached.tags, predicted: cached.predicted === true,
         provisional: cached.provisional === true, failed: cached.failed === true, skipped: cached.skipped === true });
     }
@@ -296,7 +296,7 @@
     const epoch = platformEpochs.get(platform) || 0;
     const record = { tags: cached?.tags || [], predicted: cached?.predicted === true, provisional: cached?.provisional === true, expiresAt: 0, pending: null };
     const pending = new Promise((resolve) => {
-      pendingBatch.push({ platform, entryID, creatorID, title, entryType, key, resolve });
+      pendingBatch.push({ platform, entryID, creatorID, title, entryType, newAppearance, key, resolve });
       scheduleDrain();
     }).then((result) => {
       if (epoch !== (platformEpochs.get(platform) || 0)) return null;
@@ -360,7 +360,8 @@
   function dispatchBatch(platform, jobs) {
     const items = jobs.map((job) => ({
       entryID: job.entryID, creatorID: job.creatorID, title: job.title,
-      ...(job.entryType ? { entryType: job.entryType } : {})
+      ...(job.entryType ? { entryType: job.entryType } : {}),
+      ...(job.newAppearance ? { newAppearance: true } : {})
     }));
     sendBatch(platform, items).then((resultMap) => {
       for (const job of jobs) {
@@ -369,7 +370,7 @@
         } else {
           // The batch route is unavailable (e.g. a worker still on the old build).
           // Fall back to a single request so a rollout skew never blanks the feed.
-          sendSingle(job.platform, job.entryID, job.creatorID, job.title, job.entryType).then(job.resolve);
+          sendSingle(job.platform, job.entryID, job.creatorID, job.title, job.entryType, job.newAppearance).then(job.resolve);
         }
       }
     });
@@ -393,12 +394,13 @@
     });
   }
 
-  function sendSingle(platform, entryID, creatorID, title, entryType) {
+  function sendSingle(platform, entryID, creatorID, title, entryType, newAppearance = false) {
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage(
           { type: "vault-classifier-video-tags", platform, entryID, creatorID, title,
-            ...(entryType ? { entryType } : {}) },
+            ...(entryType ? { entryType } : {}),
+            ...(newAppearance ? { newAppearance: true } : {}) },
           (response) => {
             if (chrome.runtime.lastError || response?.ok !== true) return resolve(null);
             const normalized = C.normalizeVideoTagsResponse(response, platform, entryID);
@@ -1022,7 +1024,8 @@
         rail: null,
         signature: "",
         recheckTimer: null,
-        recheckAttempts: 0
+        recheckAttempts: 0,
+        newAppearancePending: true
       };
       stateByRoot.set(root, state);
     } else {
@@ -1045,7 +1048,9 @@
     render(state, state.currentTags || (cached?.tags?.length ? cached.tags : TAGGING_TAGS), cached?.predicted === true);
     notifyTagsChanged(state, { provisional: !shownTags(state) });
     if (!state.title) return scheduleProvisionalRecheck(state);
-    request(platform, entryID, state.creatorID, state.title, state.entryType).then((result) => {
+    const newAppearance = state.newAppearancePending === true;
+    state.newAppearancePending = false;
+    request(platform, entryID, state.creatorID, state.title, state.entryType, newAppearance).then((result) => {
       devLog("result", {
         entry: entryID,
         state: result ? (result.provisional ? "tagging" : ((result.tags && result.tags.length) ? "tags" : "none")) : "null"
