@@ -1,5 +1,7 @@
 # customBlocker — Vault extension (canonical web-extension source)
 
+- **4.0.2 candidate (2026-11-14):** A newly mounted video card sends `newAppearance` to the native Classifier, including when a prior failure is cached. Mini2 focused runners and an isolated Chromium service-worker startup pass; Store publication is pending.
+
 > 🤖 **AI protocol:** Read `../package-info.md` (group), the group `AGENTS.md`, and `../misc/project-memory/PROJECT-MEMORY.md` before working here. Update this file when the folder changes. Never delete without owner consent; keep secrets out of git.
 
 - **Growing lists (owner 2026-10-01):** the shared `vui-list-box` bounds editor collections without limiting item counts. Group navigation, sites/apps, creator/account filters, Discord targets and tag suggestions scroll inside their containers. `tests/popup-bounded-lists.js` verifies large collections in the actual popup on mini1; the existing driver accepts `--width`/`--height` for viewport coverage.
